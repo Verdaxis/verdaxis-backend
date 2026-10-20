@@ -311,6 +311,7 @@ set -euo pipefail
 if [[ "${1:-}" == "-n" && "${2:-}" != "-l" ]]; then shift; fi
 printf 'sudo:%s\\n' "$*" >> "${DEPLOY_TEST_LOG:?}"
 if [[ "${1:-}" == "-n" && "${2:-}" == "-l" ]]; then
+    if [[ -n "${DEPLOY_SUDO_DENY_ACTION:-}" && "${3:-}" == "systemctl" && "${4:-}" == "${DEPLOY_SUDO_DENY_ACTION}" ]]; then exit 1; fi
     test "${DEPLOY_SUDO_DENY:-}" != 1
     exit $?
 fi
@@ -678,6 +679,77 @@ def test_rust_deploy_restarts_both_services_and_clears_state(release_fixture):
     assert active.is_file() and not active.is_symlink()
     budget = release_fixture.checkout / ".runtime-rust/budget.json"
     assert budget.is_file()
+
+
+def test_rust_deploy_enables_the_unit_once_after_activation(release_fixture):
+    """A boot must keep the activated Rust unit, so enable it once on success."""
+    new_sha = release_fixture.push_rust_release(enabled=True)
+    release_fixture.build_artifact(new_sha)
+    result = release_fixture.deploy(new_sha)
+    assert result.returncode == 0, result.stderr
+    ledger = release_fixture.ledger
+    enables = [e for e in ledger if e == "sudo:systemctl enable verdaxis-rust-staging.service"]
+    assert enables == ["sudo:systemctl enable verdaxis-rust-staging.service"]
+    enable_index = ledger.index(enables[0])
+    rust_restart = ledger.index(
+        "sudo:systemctl restart verdaxis-rust-staging.service"
+    )
+    last_readiness = max(
+        i for i, entry in enumerate(ledger)
+        if entry.startswith("python:scripts/validate_health_response.py")
+    )
+    # Enabled only after the Rust restart and both exact-readiness checks.
+    assert rust_restart < last_readiness < enable_index
+    assert release_fixture.state_text() == ""
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        {"fail_phase": "health"},
+        {"fail_phase": "rust-runtime"},
+        {"fail_phase": "budget"},
+        {"DEPLOY_RUST_START_FAIL": "1"},
+        {"DEPLOY_RUST_UNREADY": "1"},
+    ],
+    ids=["backend-health", "rust-runtime", "budget", "rust-start", "rust-readiness"],
+)
+def test_rust_activation_failure_never_enables_the_unit(release_fixture, failure):
+    new_sha = release_fixture.push_rust_release(enabled=True)
+    release_fixture.build_artifact(new_sha)
+    result = release_fixture.deploy(new_sha, **failure)
+    assert result.returncode != 0
+    assert not any(
+        e == "sudo:systemctl enable verdaxis-rust-staging.service"
+        for e in release_fixture.ledger
+    )
+
+
+def test_python_only_deploy_never_enables_the_rust_unit(release_fixture):
+    new_sha = release_fixture.push_rust_release(enabled=False)
+    result = release_fixture.deploy(new_sha)
+    assert result.returncode == 0, result.stderr
+    assert not any("systemctl enable" in e for e in release_fixture.ledger)
+    assert not any("verdaxis-rust" in e for e in release_fixture.ledger)
+
+
+def test_missing_enable_authority_refuses_before_source_or_restart(release_fixture):
+    """The sudoers preflight must refuse a file without the enable command."""
+    new_sha = release_fixture.push_rust_release(enabled=True)
+    release_fixture.build_artifact(new_sha)
+    result = release_fixture.deploy(new_sha, DEPLOY_SUDO_DENY_ACTION="enable")
+    assert result.returncode != 0
+    assert any(
+        "sudo:-n -l systemctl enable verdaxis-rust-staging.service" in e
+        for e in release_fixture.ledger
+    )
+    assert _git(release_fixture.checkout, "rev-parse", "HEAD").stdout.strip() == release_fixture.old_sha
+    assert release_fixture.state_text() == ""
+    assert not release_fixture.stopped_services()
+    assert not any(
+        e == "sudo:systemctl enable verdaxis-rust-staging.service"
+        for e in release_fixture.ledger
+    )
 
 
 def test_rust_health_uses_loopback_identity_url(release_fixture):

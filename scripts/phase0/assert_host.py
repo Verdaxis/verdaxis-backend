@@ -20,6 +20,7 @@ from pathlib import Path
 
 CHECKS = ("identity", "quiesced", "outbox-empty", "tuple", "readiness", "rollback-safe", "timers")
 ROOT = Path("/home/verdaxis-prod/verdaxis/prod/be")
+UNIT_DIR = Path("/etc/systemd/system")
 SERVICES = (
     "verdaxis-backend.service", "verdaxis-news-refresh.service",
     "verdaxis-auth-maintenance.service", "verdaxis-product-analytics-prune.service",
@@ -176,8 +177,8 @@ def verify_tuple(manifest: dict) -> None:
     artifacts = manifest["artifacts"]
     required = {str(ROOT / ".env"), str(ROOT / ".runtime-release.env"),
                 str(ROOT / ".runtime-monitor.env"),
-                "/etc/systemd/system/verdaxis-backend.service",
-                "/etc/systemd/system/verdaxis-backend.service.d/90-phase0-fence.conf"}
+                str(UNIT_DIR / "verdaxis-backend.service"),
+                str(UNIT_DIR / "verdaxis-backend.service.d/90-phase0-fence.conf")}
     if (not required.issubset(artifacts)
             or manifest.get("monitor_identity_file") != str(ROOT / ".runtime-monitor.env")):
         raise ValueError("Complete environment/unit/monitor digests required")
