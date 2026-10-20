@@ -1,0 +1,555 @@
+//! Time boundaries and identity for the trading cache.
+//!
+//! Trading data has no safe time-to-live. An entry is usable only while every
+//! time-dependent predicate that produced it keeps the same answer. The route
+//! that computes a payload therefore reports the earliest instant at which its
+//! own result can change without a write: an order expiry, a KYC-grace cutoff,
+//! a certificate date, a rolling-window departure, a benchmark expiry or a
+//! calendar-dependent rule.
+//!
+//! A route that cannot derive one of the dependencies it reads reports
+//! [`Deadline::Unknown`]. The cache then bypasses instead of guessing a TTL.
+//! [`Deadline::None`] is a positive claim: time alone cannot change the result,
+//! and any later change is a write that advances the trading generation. The
+//! two are deliberately different types so a missing derivation cannot look
+//! like a proved one.
+use chrono::{Datelike, Duration, NaiveDate, TimeZone, Utc};
+use sha2::{Digest, Sha256};
+use std::time::{Instant, SystemTime};
+
+/// Every certificate date, grace cutoff and calendar rule in the read
+/// contract is stated in the business day used by the Python oracle.
+pub const BUSINESS_TIMEZONE: chrono_tz::Tz = chrono_tz::Asia::Singapore;
+
+/// The next instant one dependency can change the query result.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Deadline {
+    /// Time alone cannot change the result.
+    None,
+    /// The result can change at this wall-clock instant.
+    At(SystemTime),
+    /// The route did not derive the dependency, so it must not cache.
+    #[default]
+    Unknown,
+}
+
+/// A rolling lookback such as `observed_at >= $2 - interval '7 days'`.
+///
+/// Each entry is the earliest instant at which an included row leaves its
+/// windowwards edge. `Derived(vec![])` is a proved "no included row can leave";
+/// `Unknown` means the route reads a window but could not derive the edge.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum RollingWindows {
+    /// The query reads no rolling window.
+    #[default]
+    None,
+    /// One departure instant per window the query reads.
+    Derived(Vec<SystemTime>),
+    /// The query reads a window and the route cannot derive its departure.
+    Unknown,
+}
+
+/// Which facts a reviewed route family must derive before it may cache.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TemporalFact {
+    OrderExpiry,
+    KycGrace,
+    DeclarationDate,
+    RollingWindows,
+    BenchmarkExpiry,
+    CalendarWindow,
+}
+
+/// Facts a route family reads, or `None` when the family is not reviewed for
+/// trading caching. An unreviewed family is never cached, whatever it reports.
+pub fn required_facts(family: &str) -> Option<&'static [TemporalFact]> {
+    match family {
+        // Resting orders: expiry, owner admission through KYC grace, and the
+        // FAME certificate date compared with the Singapore business day.
+        "orderbook" => Some(&[
+            TemporalFact::OrderExpiry,
+            TemporalFact::KycGrace,
+            TemporalFact::DeclarationDate,
+        ]),
+        // Live benchmarks are resting orders projected through the same rule.
+        "benchmarks" => Some(&[
+            TemporalFact::OrderExpiry,
+            TemporalFact::KycGrace,
+            TemporalFact::DeclarationDate,
+        ]),
+        // Curves read 7/30/90-day evidence windows, benchmark rows and the
+        // calendar-dependent default window.
+        "curves" => Some(&[
+            TemporalFact::DeclarationDate,
+            TemporalFact::RollingWindows,
+            TemporalFact::BenchmarkExpiry,
+            TemporalFact::CalendarWindow,
+        ]),
+        // Completed trades are immutable; their fixed request ranges do not
+        // move with the clock. Only writes change the answer.
+        "prices" => Some(&[]),
+        "trade_tape" => Some(&[]),
+        _ => None,
+    }
+}
+
+/// Captured once per read so every derived instant shares one clock.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TradingClock {
+    pub monotonic: Instant,
+    pub wall: SystemTime,
+}
+
+impl TradingClock {
+    pub fn now() -> Self {
+        Self {
+            monotonic: Instant::now(),
+            wall: SystemTime::now(),
+        }
+    }
+
+    pub fn new(monotonic: Instant, wall: SystemTime) -> Self {
+        Self { monotonic, wall }
+    }
+
+    /// The monotonic instant at which a wall-clock deadline is reached. A
+    /// deadline already in the past maps to `self.monotonic`.
+    pub fn monotonic_at(&self, wall: SystemTime) -> Instant {
+        match wall.duration_since(self.wall) {
+            Ok(ahead) => self.monotonic + ahead,
+            Err(_) => self.monotonic,
+        }
+    }
+
+    pub fn singapore_date(&self) -> NaiveDate {
+        let utc: chrono::DateTime<Utc> = self.wall.into();
+        utc.with_timezone(&BUSINESS_TIMEZONE).date_naive()
+    }
+
+    /// Midnight that starts the next Singapore business day.
+    pub fn next_singapore_midnight(&self) -> Option<SystemTime> {
+        let tomorrow = self.singapore_date().succ_opt()?;
+        let local = BUSINESS_TIMEZONE.with_ymd_and_hms(
+            tomorrow.year(),
+            tomorrow.month(),
+            tomorrow.day(),
+            0,
+            0,
+            0,
+        );
+        match local {
+            chrono::LocalResult::Single(value) => Some(value.to_utc().into()),
+            _ => None,
+        }
+    }
+}
+
+/// Every time dependency one route reads. `Default` is all-unknown, so a route
+/// that forgets a field bypasses instead of caching with a guessed boundary.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TemporalFacts {
+    pub order_expiry: Deadline,
+    pub kyc_grace: Deadline,
+    pub declaration_date: Deadline,
+    pub rolling_windows: RollingWindows,
+    pub benchmark_expiry: Deadline,
+    pub calendar_window: Deadline,
+}
+
+impl TemporalFacts {
+    /// A query over written rows only: counts, immutable trade snapshots and
+    /// fixed request ranges. Only a write can change the answer.
+    pub fn written_only() -> Self {
+        Self {
+            order_expiry: Deadline::None,
+            kyc_grace: Deadline::None,
+            declaration_date: Deadline::None,
+            rolling_windows: RollingWindows::None,
+            benchmark_expiry: Deadline::None,
+            calendar_window: Deadline::None,
+        }
+    }
+
+    /// The earliest instant the query result can change without a write.
+    pub fn boundary(&self, clock: &TradingClock) -> Boundary {
+        let mut earliest: Option<Instant> = None;
+        for deadline in [
+            self.order_expiry,
+            self.kyc_grace,
+            self.declaration_date,
+            self.benchmark_expiry,
+            self.calendar_window,
+        ] {
+            match deadline {
+                Deadline::Unknown => return Boundary::Unknown,
+                Deadline::None => {}
+                Deadline::At(wall) => {
+                    // A deadline at or before the snapshot has already shaped
+                    // the result. Only future changes need a new boundary.
+                    if let Ok(ahead) = wall.duration_since(clock.wall)
+                        && !ahead.is_zero()
+                    {
+                        let at = clock.monotonic + ahead;
+                        earliest = Some(earliest.map_or(at, |current| current.min(at)));
+                    }
+                }
+            }
+        }
+        match &self.rolling_windows {
+            RollingWindows::Unknown => return Boundary::Unknown,
+            RollingWindows::None => {}
+            RollingWindows::Derived(departures) => {
+                for wall in departures {
+                    if let Ok(ahead) = wall.duration_since(clock.wall)
+                        && !ahead.is_zero()
+                    {
+                        let at = clock.monotonic + ahead;
+                        earliest = Some(earliest.map_or(at, |current| current.min(at)));
+                    }
+                }
+            }
+        }
+        earliest.map_or(Boundary::Never, Boundary::At)
+    }
+
+    /// Whether this family may be cached at all: it is reviewed, and the route
+    /// derived every dependency it reports. A route that reports an unknown
+    /// fact it does not even need is still refused, because the report is
+    /// inconsistent with the query it describes.
+    pub fn complete_for(&self, family: &str) -> bool {
+        required_facts(family).is_some()
+            && self.order_expiry != Deadline::Unknown
+            && self.kyc_grace != Deadline::Unknown
+            && self.declaration_date != Deadline::Unknown
+            && self.rolling_windows != RollingWindows::Unknown
+            && self.benchmark_expiry != Deadline::Unknown
+            && self.calendar_window != Deadline::Unknown
+    }
+}
+
+/// Whether a fill may be stored: the family is reviewed and every boundary is
+/// known. `Boundary::Never` is cacheable because time alone cannot change it.
+pub fn cacheable(family: &str, facts: &TemporalFacts, clock: &TradingClock) -> bool {
+    facts.complete_for(family) && facts.boundary(clock) != Boundary::Unknown
+}
+
+/// The monotonic deadline stored beside a payload.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Boundary {
+    Never,
+    At(Instant),
+    Unknown,
+}
+
+impl Boundary {
+    /// `Unknown` is never live, so an accidental store cannot serve a hit.
+    pub fn is_live(self, now: Instant) -> bool {
+        match self {
+            Self::Never => true,
+            Self::At(at) => now < at,
+            Self::Unknown => false,
+        }
+    }
+}
+
+/// Order rows disappear at `expires_at`; `None` means no included row expires.
+pub fn order_expiry_boundary(earliest: Option<SystemTime>, clock: &TradingClock) -> Deadline {
+    future_deadline(earliest, clock)
+}
+
+/// `kyc_execution_grace.expires_at > $2` changes at the same instant.
+pub fn kyc_grace_boundary(earliest: Option<SystemTime>, clock: &TradingClock) -> Deadline {
+    future_deadline(earliest, clock)
+}
+
+/// `benchmarks.valid_until` and live benchmark expiry.
+pub fn benchmark_expiry_boundary(earliest: Option<SystemTime>, clock: &TradingClock) -> Deadline {
+    future_deadline(earliest, clock)
+}
+
+/// `certificate_valid_until >= $3` where `$3` is the Singapore date. The
+/// predicate can change only at a Singapore midnight, and only when that
+/// midnight passes the earliest included certificate date.
+pub fn certificate_boundary(
+    earliest_valid_until: Option<NaiveDate>,
+    clock: &TradingClock,
+) -> Deadline {
+    let Some(date) = earliest_valid_until else {
+        return Deadline::None;
+    };
+    if date < clock.singapore_date() {
+        // An ineligible certificate never becomes eligible again.
+        return Deadline::None;
+    }
+    let first_changed_day = date.succ_opt();
+    match first_changed_day.and_then(|day| {
+        BUSINESS_TIMEZONE
+            .with_ymd_and_hms(day.year(), day.month(), day.day(), 0, 0, 0)
+            .single()
+    }) {
+        Some(value) => Deadline::At(value.to_utc().into()),
+        None => Deadline::Unknown,
+    }
+}
+
+/// A rule that reads the Singapore business day changes at the next midnight.
+pub fn calendar_boundary(clock: &TradingClock) -> Deadline {
+    clock
+        .next_singapore_midnight()
+        .map_or(Deadline::Unknown, Deadline::At)
+}
+
+/// The earliest departure instant of a rolling lookback. `earliest_observed`
+/// is the oldest included row's `observed_at`; `None` means no included row can
+/// leave the window.
+pub fn rolling_window_departure(
+    earliest_observed: Option<SystemTime>,
+    days: i64,
+    clock: &TradingClock,
+) -> Deadline {
+    let Some(observed) = earliest_observed else {
+        return Deadline::None;
+    };
+    let departure = observed
+        .checked_add(Duration::days(days).to_std().unwrap_or_default())
+        .unwrap_or(observed);
+    future_deadline(Some(departure), clock)
+}
+
+fn future_deadline(value: Option<SystemTime>, clock: &TradingClock) -> Deadline {
+    match value {
+        None => Deadline::None,
+        Some(wall) if wall <= clock.wall => Deadline::None,
+        Some(wall) => Deadline::At(wall),
+    }
+}
+
+/// Stable identity of the process's environment, release and market policy.
+/// Two entries with different identities are never interchangeable. Secrets
+/// and the database URL are deliberately absent.
+pub fn policy_identity(config: &crate::Config, policy: &crate::MarketPolicy) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"verdaxis-trading-cache-policy-v1\0");
+    let text = |hasher: &mut Sha256, value: &str| {
+        hasher.update((value.len() as u64).to_be_bytes());
+        hasher.update(value.as_bytes());
+    };
+    text(&mut hasher, &config.environment);
+    text(&mut hasher, &config.release_sha);
+    text(&mut hasher, &config.migration_revision);
+    text(&mut hasher, &config.db_session_time_zone);
+    hasher.update([u8::from(config.kyc_execution_gate_enabled)]);
+    text(&mut hasher, &policy.source_sha);
+    hasher.update((policy.products.len() as u64).to_be_bytes());
+    for product in &policy.products {
+        text(&mut hasher, &product.id.to_string());
+        text(&mut hasher, &product.code);
+        text(&mut hasher, &product.name);
+        text(&mut hasher, &product.fuel_type);
+        text(&mut hasher, &product.fuel_grade);
+        text(&mut hasher, &product.execution_mode);
+        hasher.update((product.lanes.len() as u64).to_be_bytes());
+        for lane in &product.lanes {
+            text(&mut hasher, &lane.to_string());
+        }
+        text(&mut hasher, &product.qualification_profile);
+        text(
+            &mut hasher,
+            product.specification_standard.as_deref().unwrap_or(""),
+        );
+        hasher.update(product.display_order.to_be_bytes());
+    }
+    hasher.update((policy.points.len() as u64).to_be_bytes());
+    for point in &policy.points {
+        text(&mut hasher, &point.id.to_string());
+        text(&mut hasher, &point.name);
+        text(&mut hasher, &point.region);
+        text(&mut hasher, &point.timezone);
+        hasher.update(point.display_order.to_be_bytes());
+    }
+    hasher
+        .finalize()
+        .iter()
+        .fold(String::with_capacity(64), |mut text, byte| {
+            use std::fmt::Write;
+            let _ = write!(text, "{byte:02x}");
+            text
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn wall(text: &str) -> SystemTime {
+        chrono::DateTime::parse_from_rfc3339(text)
+            .unwrap()
+            .with_timezone(&Utc)
+            .into()
+    }
+
+    fn clock(text: &str) -> TradingClock {
+        TradingClock::new(Instant::now(), wall(text))
+    }
+
+    fn at(text: &str) -> Deadline {
+        Deadline::At(wall(text))
+    }
+
+    #[test]
+    fn expiry_boundary_is_the_earliest_future_deadline() {
+        let clock = clock("2026-10-20T08:00:00Z");
+        let past = wall("2026-10-20T07:00:00Z");
+        let soon = wall("2026-10-20T09:00:00Z");
+        let later = wall("2026-10-20T11:00:00Z");
+        assert_eq!(order_expiry_boundary(Some(past), &clock), Deadline::None);
+        assert_eq!(order_expiry_boundary(None, &clock), Deadline::None);
+        assert_eq!(
+            order_expiry_boundary(Some(later), &clock),
+            Deadline::At(later)
+        );
+        let facts = TemporalFacts {
+            order_expiry: order_expiry_boundary(Some(soon), &clock),
+            kyc_grace: kyc_grace_boundary(Some(later), &clock),
+            ..TemporalFacts::written_only()
+        };
+        let Boundary::At(boundary) = facts.boundary(&clock) else {
+            panic!("a future dependency must produce a boundary");
+        };
+        assert_eq!(boundary, clock.monotonic_at(soon));
+        assert!(Boundary::At(boundary).is_live(clock.monotonic));
+        assert!(!Boundary::At(boundary).is_live(boundary));
+    }
+
+    #[test]
+    fn unknown_dependency_bypasses_instead_of_guessing() {
+        let clock = clock("2026-10-20T08:00:00Z");
+        let facts = TemporalFacts::default();
+        assert_eq!(facts.boundary(&clock), Boundary::Unknown);
+        assert!(!cacheable("orderbook", &facts, &clock));
+        let known = TemporalFacts::written_only();
+        assert!(cacheable("orderbook", &known, &clock));
+        assert!(!cacheable("not-a-reviewed-route", &known, &clock));
+        let missing_window = TemporalFacts {
+            rolling_windows: RollingWindows::Unknown,
+            ..TemporalFacts::written_only()
+        };
+        assert_eq!(missing_window.boundary(&clock), Boundary::Unknown);
+        assert!(!missing_window.complete_for("orderbook"));
+        let window = TemporalFacts {
+            rolling_windows: RollingWindows::Derived(vec![]),
+            ..TemporalFacts::written_only()
+        };
+        assert_eq!(window.boundary(&clock), Boundary::Never);
+    }
+
+    #[test]
+    fn kyc_grace_cutoff_is_a_boundary() {
+        let clock = clock("2026-10-20T08:00:00Z");
+        let cutoff = wall("2026-10-20T08:30:00Z");
+        let facts = TemporalFacts {
+            kyc_grace: kyc_grace_boundary(Some(cutoff), &clock),
+            ..TemporalFacts::written_only()
+        };
+        assert_eq!(
+            facts.boundary(&clock),
+            Boundary::At(clock.monotonic_at(cutoff))
+        );
+    }
+
+    #[test]
+    fn rolling_window_departures_are_the_earliest_edge() {
+        let clock = clock("2026-10-20T08:00:00Z");
+        let oldest = wall("2026-10-14T08:00:00Z");
+        let week = rolling_window_departure(Some(oldest), 7, &clock);
+        assert_eq!(week, at("2026-10-21T08:00:00Z"));
+        assert_eq!(rolling_window_departure(None, 30, &clock), Deadline::None);
+        let facts = TemporalFacts {
+            rolling_windows: RollingWindows::Derived(vec![
+                wall("2026-10-27T08:00:00Z"),
+                wall("2026-10-21T08:00:00Z"),
+                wall("2026-12-01T08:00:00Z"),
+            ]),
+            ..TemporalFacts::written_only()
+        };
+        assert_eq!(
+            facts.boundary(&clock),
+            Boundary::At(clock.monotonic_at(wall("2026-10-21T08:00:00Z")))
+        );
+    }
+
+    #[test]
+    fn singapore_day_boundary_uses_business_midnight() {
+        // 23:30 in Singapore on 20 October is 15:30 UTC.
+        let clock = clock("2026-10-20T15:30:00Z");
+        assert_eq!(
+            clock.singapore_date(),
+            NaiveDate::from_ymd_opt(2026, 10, 20).unwrap()
+        );
+        assert_eq!(
+            clock.next_singapore_midnight(),
+            Some(wall("2026-10-20T16:00:00Z"))
+        );
+        assert_eq!(calendar_boundary(&clock), at("2026-10-20T16:00:00Z"));
+        // The stored boundary is the wall-clock instant, not the monotonic one.
+        assert_eq!(
+            calendar_boundary(&clock),
+            Deadline::At(wall("2026-10-20T16:00:00Z"))
+        );
+        // A UTC day boundary would be eight hours late; the boundary must not
+        // silently treat the UTC date as the business date.
+        assert_ne!(calendar_boundary(&clock), at("2026-10-21T00:00:00Z"));
+    }
+
+    #[test]
+    fn certificate_boundary_moves_at_the_next_business_midnight() {
+        let clock = clock("2026-10-20T15:30:00Z");
+        let today = NaiveDate::from_ymd_opt(2026, 10, 20).unwrap();
+        let yesterday = NaiveDate::from_ymd_opt(2026, 10, 19).unwrap();
+        let tomorrow = NaiveDate::from_ymd_opt(2026, 10, 21).unwrap();
+        assert_eq!(certificate_boundary(None, &clock), Deadline::None);
+        assert_eq!(
+            certificate_boundary(Some(yesterday), &clock),
+            Deadline::None
+        );
+        assert_eq!(
+            certificate_boundary(Some(today), &clock),
+            at("2026-10-20T16:00:00Z")
+        );
+        assert_eq!(
+            certificate_boundary(Some(tomorrow), &clock),
+            at("2026-10-21T16:00:00Z")
+        );
+    }
+
+    #[test]
+    fn policy_identity_changes_with_the_policy_or_the_gate() {
+        let config = crate::Config {
+            kyc_execution_gate_enabled: true,
+            environment: "test".into(),
+            release_sha: crate::compiled_sha().into(),
+            migration_revision: "prc_20261018_cache".into(),
+            database_url: "postgres://app:secret@127.0.0.1/verdaxis_test".into(),
+            db_session_time_zone: "UTC".into(),
+            prepared_budget: None,
+            bind: "127.0.0.1:0".parse().unwrap(),
+            read_admission_slots: 16,
+            pool_max: 17,
+            python_budget: 52,
+            configured_max_connections: 100,
+        };
+        let policy = crate::MarketPolicy {
+            source_sha: crate::compiled_sha().into(),
+            products: vec![],
+            points: vec![],
+        };
+        let first = policy_identity(&config, &policy);
+        assert_eq!(first, policy_identity(&config, &policy));
+        let mut changed_gate = config.clone();
+        changed_gate.kyc_execution_gate_enabled = false;
+        assert_ne!(first, policy_identity(&changed_gate, &policy));
+        let mut changed_policy = policy.clone();
+        changed_policy.source_sha = "0000".into();
+        assert_ne!(first, policy_identity(&config, &changed_policy));
+    }
+}
