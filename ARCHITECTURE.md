@@ -72,6 +72,17 @@ one create and refusing the other with the existing 403, leaving five active row
 No organization row lock, Python change, or runtime ACL grant is required. Evidence is in `docs/rust-phase2/task16-handoff.md`.
 Coverage requirements are data in `tests/rust_contract/phase2/alerts-scenarios.json`.
 
+## Rust Phase 2 watchlist feed and read state
+
+Task 15 adds `rs/read/src/crud/watchlists/events.rs` for W07 and W08. The feed
+pages by `(created_at DESC, id DESC)` with a cursor of RFC 3339 UTC plus the
+event id, and applies the PD4-G guard in SQL before `LIMIT`: best-price events
+and events whose payload names an order outside the full public order scope are
+hidden, and a PIN target must name a public order. Acknowledgement commits
+`is_read` only when the row is still unread and refuses a guarded event before
+any write. Python remains the event producer; the trusted Rust producer is a
+design proposal in `docs/rust-phase2-task15-producer-design.md`.
+
 ## Rust Phase 2 referral routes
 
 `rs/read/src/crud/referrals/` implements referral statistics, leaderboard,

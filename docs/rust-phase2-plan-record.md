@@ -71,6 +71,26 @@ requires approved producer activation metadata and tests proving both feeds
 and counts use the same trusted-source rule. Keep historical rows and apply
 PD5 to the later trusted producer's per-environment activation boundary.
 
+## Task 15 — watchlist feed and read state
+
+`rs/read/src/crud/watchlists/events.rs` serves W07 and W08 through the shared
+authenticated transaction: keyset pagination with `(created_at DESC, id DESC)`,
+the PD4-G guard applied in SQL before `LIMIT`, and a read acknowledgement that
+writes nothing for an already-read event and refuses a guarded event before any
+write. The update requires `is_read=false`, so a concurrent second reader
+writes no row version. The client contract is pinned in
+`tests/rust_contract/phase2/watchlist-events.json` and asserted against the
+serialized response.
+
+Evidence: 21 Rust tests, 10 of them on disposable PostgreSQL. No Python
+comparison is a gate.
+
+The trusted producer that would let the PD4-G guard go is a design proposal,
+not code: `docs/rust-phase2-task15-producer-design.md`. It covers the outbox
+consumer identity, additive producer columns, replay watermark, visibility
+transitions, shadow mode, activation metadata, rollback and the guard-removal
+preconditions. PM approval is required before implementation.
+
 ## Approved difference PD8 — price-alert cap concurrency
 
 PD8 — Concurrent A01 calls by different users in one organization at four active
