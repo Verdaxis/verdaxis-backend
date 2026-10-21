@@ -17,10 +17,10 @@ use std::{
         Arc,
         atomic::{AtomicUsize, Ordering},
     },
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime},
 };
 use verdaxis_read::{
-    ApiError, AppState, Boundary, Config, MarketPolicy, TemporalFacts, TradingCache,
+    ApiError, AppState, Boundary, Config, Deadline, MarketPolicy, TemporalFacts, TradingCache,
     TradingCacheRuntime, TradingEntry, TradingFill, compiled_sha, connect, run_trading_read,
     runtime::{
         cache_authority::{AUTHORITY_LEASE, CacheAuthority, FillTicket, admit_connection},
@@ -89,8 +89,29 @@ async fn read_generation(
     cache: &Arc<TradingCache<&'static str>>,
     runs: Arc<AtomicUsize>,
 ) -> i64 {
-    run_trading_read(state, cache, "generation", "prices", move |connection| {
-        let runs = runs.clone();
+    // The generation row changes only through a write.
+    read_family(
+        state,
+        cache,
+        "generation",
+        "prices",
+        TemporalFacts::proven_written_only(),
+        runs,
+    )
+    .await
+}
+
+/// Load the generation row as one route family that reports `facts`. `runs`
+/// counts loads, so a hit is visible as an unchanged count.
+async fn read_family(
+    state: &AppState,
+    cache: &Arc<TradingCache<&'static str>>,
+    key: &'static str,
+    family: &'static str,
+    facts: TemporalFacts,
+    runs: Arc<AtomicUsize>,
+) -> i64 {
+    run_trading_read(state, cache, key, family, move |connection| {
         Box::pin(async move {
             runs.fetch_add(1, Ordering::SeqCst);
             let value: i64 = sqlx::query_scalar(
@@ -100,11 +121,7 @@ async fn read_generation(
             .fetch_one(connection)
             .await
             .map_err(|_| ApiError::database())?;
-            Ok(TradingFill {
-                value,
-                // The generation row changes only through a write.
-                facts: TemporalFacts::proven_written_only(),
-            })
+            Ok(TradingFill { value, facts })
         })
     })
     .await
@@ -163,6 +180,110 @@ async fn paused_listener_never_serves_the_prior_generation() {
     })
     .await
     .expect("the delivered event clears the entry");
+    reset(&mut writer).await;
+    writer.close().await.unwrap();
+}
+
+/// Long enough for two reads on a slow host, short enough to wait out. The
+/// authority lease (five seconds) is renewed before each read regardless.
+const ORDER_LIFETIME: Duration = Duration::from_secs(3);
+
+/// An orderbook route reports only the facts its own query reads. Facts it
+/// does not read stay `Unknown`, which must not stop it from being stored.
+fn orderbook_facts(order_expiry: Deadline, kyc_grace: Deadline) -> TemporalFacts {
+    TemporalFacts {
+        order_expiry,
+        kyc_grace,
+        declaration_date: Deadline::None,
+        ..TemporalFacts::default()
+    }
+}
+
+#[tokio::test]
+async fn an_orderbook_entry_serves_only_until_its_own_expiry() {
+    let _serial = SERIAL.lock().await;
+    let Some((url, mut writer)) = writer().await else {
+        return;
+    };
+    let record = Record::new();
+    let identity = authority(1);
+    bind(&mut writer, &identity, true).await;
+    record.activate(&identity);
+    let pools = connect(&state_config(&url)).await.unwrap();
+    let state = AppState::new(state_config(&url), pools, policy()).unwrap();
+    let runtime = state.trading_cache.as_ref().expect("explicitly enabled");
+    publish_record(runtime, &record);
+    runtime.tick(Instant::now()).await;
+    let cache = Arc::new(TradingCache::new(16, 1 << 20));
+    state.trading_caches.register(&cache);
+    let renew = || {
+        runtime
+            .authority()
+            .refresh(runtime.record_path(), Instant::now());
+    };
+
+    // The earliest included order expires soon; nothing writes before then.
+    let expiry = SystemTime::now() + ORDER_LIFETIME;
+    let facts = orderbook_facts(Deadline::At(expiry), Deadline::None);
+    let runs = Arc::new(AtomicUsize::new(0));
+    renew();
+    let first = read_family(
+        &state,
+        &cache,
+        "book",
+        "orderbook",
+        facts.clone(),
+        runs.clone(),
+    )
+    .await;
+    assert_eq!(runs.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        cache.len(),
+        1,
+        "a family is stored with only the facts its query reads"
+    );
+    renew();
+    let hit = read_family(
+        &state,
+        &cache,
+        "book",
+        "orderbook",
+        facts.clone(),
+        runs.clone(),
+    )
+    .await;
+    assert_eq!(runs.load(Ordering::SeqCst), 1, "a live entry is a hit");
+    assert_eq!(hit, first);
+
+    // The order leaves the book at its expiry without a write or an event.
+    while SystemTime::now() <= expiry {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    renew();
+    let expired = read_family(&state, &cache, "book", "orderbook", facts, runs.clone()).await;
+    assert_eq!(
+        runs.load(Ordering::SeqCst),
+        2,
+        "an entry past its expiry boundary must load again"
+    );
+    assert_eq!(expired, first, "no write happened in between");
+
+    // A fact the family does read but could not derive is never stored.
+    let unproved = orderbook_facts(Deadline::None, Deadline::Unknown);
+    let loads = runs.load(Ordering::SeqCst);
+    for _ in 0..2 {
+        renew();
+        read_family(
+            &state,
+            &cache,
+            "unproved",
+            "orderbook",
+            unproved.clone(),
+            runs.clone(),
+        )
+        .await;
+    }
+    assert_eq!(runs.load(Ordering::SeqCst), loads + 2);
     reset(&mut writer).await;
     writer.close().await.unwrap();
 }
