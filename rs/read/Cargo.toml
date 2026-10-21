@@ -40,9 +40,13 @@ reqwest = { version = "=0.13.5", features = ["json"] }
 unicode-normalization = "=0.1.25"
 # Phase 2 Task 19: bounded invite provider and EmailStr NFC normalization (end)
 axum = "0.8"
+# Phase 3 Task 3: token issuance and password primitives (plan sections 5-6).
+base64 = "=0.23.1"
+bcrypt = "=0.19.3"
 chrono = { version = "0.4.45", features = ["serde"] }
 chrono-tz = "0.10.4"
 futures-util = "0.3"
+getrandom = "=0.4.3"
 jsonwebtoken = { version = "10", default-features = false, features = ["rust_crypto"] }
 num-bigint = "0.4"
 num-traits = "0.2"
