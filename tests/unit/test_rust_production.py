@@ -12,12 +12,12 @@ ROOT = Path(__file__).resolve().parents[2]
 SHA = "a" * 40
 
 
-def test_production_policy_and_unit_are_a_policy_off_bootstrap():
+def test_production_policy_is_the_reviewed_activation_with_the_bootstrap_unit():
     policy = json.loads((ROOT / "deploy/rust/production-policy.json").read_text())
     assert policy == {
         "version": 1,
         "environment": "production",
-        "rust_enabled": False,
+        "rust_enabled": True,
         "service_name": "verdaxis-rust.service",
         "bind": "127.0.0.1:8010",
         "health_url": "http://127.0.0.1:8010/health/ready",
@@ -160,7 +160,7 @@ def test_production_activation_requires_its_unit_provenance_and_readiness(tmp_pa
     if not failure:
         assert result.returncode == 0, result.stdout + result.stderr
         ledger = fixture.ledger
-        expected_checks = {f"sudo:-n -l systemctl {action} {unit}" for unit, actions in (("verdaxis-backend.service", ("restart", "stop")), ("verdaxis-rust.service", ("restart", "stop", "disable"))) for action in actions}
+        expected_checks = {f"sudo:-n -l systemctl {action} {unit}" for unit, actions in (("verdaxis-backend.service", ("restart", "stop")), ("verdaxis-rust.service", ("restart", "stop", "disable", "enable"))) for action in actions}
         assert expected_checks <= set(ledger)
         first_mutation = next(i for i, line in enumerate(ledger) if "verify_migration_revision.py" in line)
         assert all(ledger.index(check) < first_mutation for check in expected_checks)
@@ -240,8 +240,10 @@ def test_production_policy_off_preserves_python_only_deploy(tmp_path):
 def test_production_sudoers_and_canonical_branch_are_exact():
     text = (ROOT / "deploy/sudoers/verdaxis-deploy-production").read_text()
     commands = {f"/usr/bin/systemctl {action} verdaxis-backend.service" for action in ("restart", "stop")}
-    commands |= {f"/usr/bin/systemctl {action} verdaxis-rust.service" for action in ("restart", "stop", "disable")}
-    assert set(text.split("NOPASSWD: ", 1)[1].strip().split(", ")) == commands
+    commands |= {f"/usr/bin/systemctl {action} verdaxis-rust.service" for action in ("restart", "stop", "disable", "enable")}
+    actual = text.split("NOPASSWD: ", 1)[1].strip().split(", ")
+    assert set(actual) == commands
+    assert actual.count("/usr/bin/systemctl enable verdaxis-rust.service") == 1
     deploy = (ROOT / "scripts/deploy.sh").read_text()
     production = deploy.split("*/prod/be)", 1)[1].split(";;", 1)[0]
     assert 'DEFAULT_BRANCH="staging"' in production

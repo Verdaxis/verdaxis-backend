@@ -487,3 +487,12 @@ quantity spellings in `orderbook_map`. Those are the differences the successor
 profile declares; no route changed in this checkpoint. The merged tree therefore
 carries Tasks 8–10 with their populated-corpus gates green. Task 13 route
 registration and any phase-gate measurement remain outside this checkpoint.
+
+### Task 11 final evidence, scoped to SM-R1
+
+SM-R1 is same-meaning Tasks 1–7 with trading caching off. The final evidence
+record — the Phase 2 transaction fix, the full meaning comparator, the cache
+authority/fencing/failover proofs, the migration checkpoint and its disposable
+upgrade, and the independent reviewer checklist — is in
+[sm-r1-final-evidence.md](sm-r1-final-evidence.md). Measurement is not run
+(decision 110).
