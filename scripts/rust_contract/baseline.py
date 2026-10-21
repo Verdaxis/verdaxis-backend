@@ -17,13 +17,15 @@ def gate_config() -> dict[str, Any]:
     return json.loads(CONFIG_PATH.read_text())
 
 
-def load_python_baseline(path: Path | None = None, pin: str | None = None) -> dict[str, Any]:
+def load_python_baseline(path: Path | None = None, pin: str | None = None, *, successor: bool = False) -> dict[str, Any]:
     """Refuse absent pins, changed bytes and incomplete route evidence."""
     try:
         config = gate_config()
         path = path if path is not None else ROOT / config["python_baseline_path"]
         pin = config["python_baseline_sha256"] if pin is None else pin
         data = path.read_bytes()
+        if successor and pin != "3c74f7960add211757198149241f1633ef90a165ec89a902ac40bf79c1f8ea5e":
+            raise ValueError("successor requires the unchanged decision-87 baseline")
         if not pin or hashlib.sha256(data).hexdigest() != pin:
             raise ValueError("Python baseline digest mismatch or missing pin")
         document = json.loads(data)

@@ -1,0 +1,2492 @@
+{
+  "profile": "phase1-meaning-v1",
+  "rules_sha256": "f68125dd74d59f0af49f120b839d8e3cdadef1deca8027f9d0f08fc8a0b99e0e",
+  "source_sha": "56567679662daa76c9b7171015f57a7e76a3609a",
+  "clock": "2026-10-15T12:00:00+00:00",
+  "group": "prices",
+  "kyc_gate": true,
+  "entries": [
+    {
+      "id": "R06-trade-tape",
+      "request": {
+        "method": "GET",
+        "path": "/api/trade-tape",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "items": [
+            {
+              "id": "2459bf40",
+              "product_id": null,
+              "market_product": "BIO_METHANOL",
+              "fuel_type": "Methanol",
+              "fuel_grade": "Bio",
+              "delivery_point_id": null,
+              "delivery_point_name": null,
+              "region": "Asia",
+              "quantity_mt": "100.00",
+              "price_per_mt_usd": "600.00",
+              "total_usd": "60000.0000",
+              "confirmed_at": "2026-10-15T12:00:00Z",
+              "availability_window": "SPOT",
+              "is_demo_trade": false,
+              "scope": "REGION",
+              "provenance_kind": "CONFIRMED_TRADE",
+              "source_kind": "CONFIRMED_TRADE",
+              "demo_status": "REAL_ONLY"
+            },
+            {
+              "id": "bf84470c",
+              "product_id": null,
+              "market_product": "BIO_METHANOL",
+              "fuel_type": "Methanol",
+              "fuel_grade": "Bio",
+              "delivery_point_id": null,
+              "delivery_point_name": null,
+              "region": "Asia",
+              "quantity_mt": "100.00",
+              "price_per_mt_usd": "600.00",
+              "total_usd": "60000.0000",
+              "confirmed_at": "2026-10-15T12:00:00Z",
+              "availability_window": "SPOT",
+              "is_demo_trade": true,
+              "scope": "REGION",
+              "provenance_kind": "DEMO_SEED",
+              "source_kind": "DEMO_SEED",
+              "demo_status": "DEMO_ONLY"
+            },
+            {
+              "id": "20fdbacc",
+              "product_id": null,
+              "market_product": "BIO_METHANOL",
+              "fuel_type": "Methanol",
+              "fuel_grade": "Bio",
+              "delivery_point_id": null,
+              "delivery_point_name": null,
+              "region": "Asia",
+              "quantity_mt": "100.00",
+              "price_per_mt_usd": "600.00",
+              "total_usd": "60000.0000",
+              "confirmed_at": "2026-10-15T12:00:00Z",
+              "availability_window": "SPOT",
+              "is_demo_trade": false,
+              "scope": "REGION",
+              "provenance_kind": "CONFIRMED_TRADE",
+              "source_kind": "CONFIRMED_TRADE",
+              "demo_status": "REAL_ONLY"
+            },
+            {
+              "id": "be1bd3ef",
+              "product_id": null,
+              "market_product": "BIO_METHANOL",
+              "fuel_type": "Methanol",
+              "fuel_grade": "Bio",
+              "delivery_point_id": null,
+              "delivery_point_name": null,
+              "region": "Asia",
+              "quantity_mt": "100.00",
+              "price_per_mt_usd": "600.00",
+              "total_usd": "60000.0000",
+              "confirmed_at": "2026-10-15T12:00:00Z",
+              "availability_window": "SPOT",
+              "is_demo_trade": false,
+              "scope": "REGION",
+              "provenance_kind": "CONFIRMED_TRADE",
+              "source_kind": "CONFIRMED_TRADE",
+              "demo_status": "REAL_ONLY"
+            }
+          ],
+          "total": 4,
+          "market_hours": true
+        },
+        "body_sha256": "71a947edeaae9c6cdf530e6d91479547de35f6dadc25e70f980ba7ff9bada8d8",
+        "trade_tape_tokens": [
+          [
+            "{\"id\":\"2459bf40\",\"product_id\":null,\"market_product\":\"BIO_METHANOL\",\"fuel_type\":\"Methanol\",\"fuel_grade\":\"Bio\",\"delivery_point_id\":null,\"delivery_point_name\":null,\"region\":\"Asia\",\"quantity_mt\":\"100.00\",\"price_per_mt_usd\":\"600.00\",\"total_usd\":\"60000.0000\",\"confirmed_at\":\"2026-10-15T12:00:00Z\",\"availability_window\":\"SPOT\",\"is_demo_trade\":false,\"scope\":\"REGION\",\"provenance_kind\":\"CONFIRMED_TRADE\",\"source_kind\":\"CONFIRMED_TRADE\",\"demo_status\":\"REAL_ONLY\"}",
+            "{\"id\":\"bf84470c\",\"product_id\":null,\"market_product\":\"BIO_METHANOL\",\"fuel_type\":\"Methanol\",\"fuel_grade\":\"Bio\",\"delivery_point_id\":null,\"delivery_point_name\":null,\"region\":\"Asia\",\"quantity_mt\":\"100.00\",\"price_per_mt_usd\":\"600.00\",\"total_usd\":\"60000.0000\",\"confirmed_at\":\"2026-10-15T12:00:00Z\",\"availability_window\":\"SPOT\",\"is_demo_trade\":true,\"scope\":\"REGION\",\"provenance_kind\":\"DEMO_SEED\",\"source_kind\":\"DEMO_SEED\",\"demo_status\":\"DEMO_ONLY\"}",
+            "{\"id\":\"20fdbacc\",\"product_id\":null,\"market_product\":\"BIO_METHANOL\",\"fuel_type\":\"Methanol\",\"fuel_grade\":\"Bio\",\"delivery_point_id\":null,\"delivery_point_name\":null,\"region\":\"Asia\",\"quantity_mt\":\"100.00\",\"price_per_mt_usd\":\"600.00\",\"total_usd\":\"60000.0000\",\"confirmed_at\":\"2026-10-15T12:00:00Z\",\"availability_window\":\"SPOT\",\"is_demo_trade\":false,\"scope\":\"REGION\",\"provenance_kind\":\"CONFIRMED_TRADE\",\"source_kind\":\"CONFIRMED_TRADE\",\"demo_status\":\"REAL_ONLY\"}",
+            "{\"id\":\"be1bd3ef\",\"product_id\":null,\"market_product\":\"BIO_METHANOL\",\"fuel_type\":\"Methanol\",\"fuel_grade\":\"Bio\",\"delivery_point_id\":null,\"delivery_point_name\":null,\"region\":\"Asia\",\"quantity_mt\":\"100.00\",\"price_per_mt_usd\":\"600.00\",\"total_usd\":\"60000.0000\",\"confirmed_at\":\"2026-10-15T12:00:00Z\",\"availability_window\":\"SPOT\",\"is_demo_trade\":false,\"scope\":\"REGION\",\"provenance_kind\":\"CONFIRMED_TRADE\",\"source_kind\":\"CONFIRMED_TRADE\",\"demo_status\":\"REAL_ONLY\"}"
+          ],
+          [
+            "{\"items\":[",
+            ",",
+            ",",
+            ",",
+            "],\"total\":4,\"market_hours\":true}"
+          ]
+        ]
+      },
+      "canonical_tape_proof": {
+        "rule_version": "decision85-v1",
+        "snapshot_identity": "/home/verdaxis-test/runs/rust-same-meaning/work/rust-phase1/task4b-fixtures.json",
+        "clock": "2026-10-15T12:00:00+00:00",
+        "filters": {
+          "demo_only": false
+        },
+        "skip": 0,
+        "limit": 50,
+        "unpaged_count": 4,
+        "source_ids": [
+          "20fdbacc-4cc9-59ae-9be9-7f4b8e562609",
+          "2459bf40-90a7-57e9-ae13-baff6a403d33",
+          "be1bd3ef-735b-5c88-aad8-372542aa9fb2",
+          "bf84470c-c71c-5965-a6d5-27b83f4feae0"
+        ],
+        "full_ids": [
+          "bf84470c-c71c-5965-a6d5-27b83f4feae0",
+          "be1bd3ef-735b-5c88-aad8-372542aa9fb2",
+          "2459bf40-90a7-57e9-ae13-baff6a403d33",
+          "20fdbacc-4cc9-59ae-9be9-7f4b8e562609"
+        ],
+        "oracle_sha256": "2521e088925b691c25aa362872a4287d7e5c95797593d7dcf8b683fd5036e6d4"
+      },
+      "raw_body_base64": "eyJpdGVtcyI6IFt7ImlkIjogImJmODQ0NzBjIiwgInByb2R1Y3RfaWQiOiBudWxsLCAibWFya2V0X3Byb2R1Y3QiOiAiQklPX01FVEhBTk9MIiwgImZ1ZWxfdHlwZSI6ICJNZXRoYW5vbCIsICJmdWVsX2dyYWRlIjogIkJpbyIsICJkZWxpdmVyeV9wb2ludF9pZCI6IG51bGwsICJkZWxpdmVyeV9wb2ludF9uYW1lIjogbnVsbCwgInJlZ2lvbiI6ICJBc2lhIiwgInF1YW50aXR5X210IjogIjEwMC4wMCIsICJwcmljZV9wZXJfbXRfdXNkIjogIjYwMC4wMCIsICJ0b3RhbF91c2QiOiAiNjAwMDAuMDAwMCIsICJjb25maXJtZWRfYXQiOiAiMjAyNi0xMC0xNVQxMjowMDowMFoiLCAiYXZhaWxhYmlsaXR5X3dpbmRvdyI6ICJTUE9UIiwgImlzX2RlbW9fdHJhZGUiOiB0cnVlLCAic2NvcGUiOiAiUkVHSU9OIiwgInByb3ZlbmFuY2Vfa2luZCI6ICJERU1PX1NFRUQiLCAic291cmNlX2tpbmQiOiAiREVNT19TRUVEIiwgImRlbW9fc3RhdHVzIjogIkRFTU9fT05MWSJ9LCB7ImlkIjogImJlMWJkM2VmIiwgInByb2R1Y3RfaWQiOiBudWxsLCAibWFya2V0X3Byb2R1Y3QiOiAiQklPX01FVEhBTk9MIiwgImZ1ZWxfdHlwZSI6ICJNZXRoYW5vbCIsICJmdWVsX2dyYWRlIjogIkJpbyIsICJkZWxpdmVyeV9wb2ludF9pZCI6IG51bGwsICJkZWxpdmVyeV9wb2ludF9uYW1lIjogbnVsbCwgInJlZ2lvbiI6ICJBc2lhIiwgInF1YW50aXR5X210IjogIjEwMC4wMCIsICJwcmljZV9wZXJfbXRfdXNkIjogIjYwMC4wMCIsICJ0b3RhbF91c2QiOiAiNjAwMDAuMDAwMCIsICJjb25maXJtZWRfYXQiOiAiMjAyNi0xMC0xNVQxMjowMDowMFoiLCAiYXZhaWxhYmlsaXR5X3dpbmRvdyI6ICJTUE9UIiwgImlzX2RlbW9fdHJhZGUiOiBmYWxzZSwgInNjb3BlIjogIlJFR0lPTiIsICJwcm92ZW5hbmNlX2tpbmQiOiAiQ09ORklSTUVEX1RSQURFIiwgInNvdXJjZV9raW5kIjogIkNPTkZJUk1FRF9UUkFERSIsICJkZW1vX3N0YXR1cyI6ICJSRUFMX09OTFkifSwgeyJpZCI6ICIyNDU5YmY0MCIsICJwcm9kdWN0X2lkIjogbnVsbCwgIm1hcmtldF9wcm9kdWN0IjogIkJJT19NRVRIQU5PTCIsICJmdWVsX3R5cGUiOiAiTWV0aGFub2wiLCAiZnVlbF9ncmFkZSI6ICJCaW8iLCAiZGVsaXZlcnlfcG9pbnRfaWQiOiBudWxsLCAiZGVsaXZlcnlfcG9pbnRfbmFtZSI6IG51bGwsICJyZWdpb24iOiAiQXNpYSIsICJxdWFudGl0eV9tdCI6ICIxMDAuMDAiLCAicHJpY2VfcGVyX210X3VzZCI6ICI2MDAuMDAiLCAidG90YWxfdXNkIjogIjYwMDAwLjAwMDAiLCAiY29uZmlybWVkX2F0IjogIjIwMjYtMTAtMTVUMTI6MDA6MDBaIiwgImF2YWlsYWJpbGl0eV93aW5kb3ciOiAiU1BPVCIsICJpc19kZW1vX3RyYWRlIjogZmFsc2UsICJzY29wZSI6ICJSRUdJT04iLCAicHJvdmVuYW5jZV9raW5kIjogIkNPTkZJUk1FRF9UUkFERSIsICJzb3VyY2Vfa2luZCI6ICJDT05GSVJNRURfVFJBREUiLCAiZGVtb19zdGF0dXMiOiAiUkVBTF9PTkxZIn0sIHsiaWQiOiAiMjBmZGJhY2MiLCAicHJvZHVjdF9pZCI6IG51bGwsICJtYXJrZXRfcHJvZHVjdCI6ICJCSU9fTUVUSEFOT0wiLCAiZnVlbF90eXBlIjogIk1ldGhhbm9sIiwgImZ1ZWxfZ3JhZGUiOiAiQmlvIiwgImRlbGl2ZXJ5X3BvaW50X2lkIjogbnVsbCwgImRlbGl2ZXJ5X3BvaW50X25hbWUiOiBudWxsLCAicmVnaW9uIjogIkFzaWEiLCAicXVhbnRpdHlfbXQiOiAiMTAwLjAwIiwgInByaWNlX3Blcl9tdF91c2QiOiAiNjAwLjAwIiwgInRvdGFsX3VzZCI6ICI2MDAwMC4wMDAwIiwgImNvbmZpcm1lZF9hdCI6ICIyMDI2LTEwLTE1VDEyOjAwOjAwWiIsICJhdmFpbGFiaWxpdHlfd2luZG93IjogIlNQT1QiLCAiaXNfZGVtb190cmFkZSI6IGZhbHNlLCAic2NvcGUiOiAiUkVHSU9OIiwgInByb3ZlbmFuY2Vfa2luZCI6ICJDT05GSVJNRURfVFJBREUiLCAic291cmNlX2tpbmQiOiAiQ09ORklSTUVEX1RSQURFIiwgImRlbW9fc3RhdHVzIjogIlJFQUxfT05MWSJ9XSwgInRvdGFsIjogNCwgIm1hcmtldF9ob3VycyI6IHRydWV9"
+    },
+    {
+      "id": "R06-trade-tape-head",
+      "request": {
+        "method": "HEAD",
+        "path": "/api/trade-tape",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": null,
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "raw_body_base64": ""
+    },
+    {
+      "id": "R06-trade-tape-post-405",
+      "request": {
+        "method": "POST",
+        "path": "/api/trade-tape",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "Method Not Allowed"
+        },
+        "body_sha256": "83c09ba9a8daedb136f90b17a294caa90ad471a016e430df6e229acb5a81e100"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJNZXRob2QgTm90IEFsbG93ZWQifQ=="
+    },
+    {
+      "id": "R06-trade-tape-options-405",
+      "request": {
+        "method": "OPTIONS",
+        "path": "/api/trade-tape",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "Method Not Allowed"
+        },
+        "body_sha256": "83c09ba9a8daedb136f90b17a294caa90ad471a016e430df6e229acb5a81e100"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJNZXRob2QgTm90IEFsbG93ZWQifQ=="
+    },
+    {
+      "id": "R06-trade-tape-slash-307",
+      "request": {
+        "method": "GET",
+        "path": "/api/trade-tape/",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 307,
+        "headers": {
+          "location": "{endpoint}/api/trade-tape",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": null,
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "raw_body_base64": ""
+    },
+    {
+      "id": "R06b-trade-tape-page",
+      "request": {
+        "method": "GET",
+        "path": "/api/trade-tape",
+        "query": "skip=0&limit=5&demo_only=true",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "items": [
+            {
+              "id": "bf84470c",
+              "product_id": null,
+              "market_product": "BIO_METHANOL",
+              "fuel_type": "Methanol",
+              "fuel_grade": "Bio",
+              "delivery_point_id": null,
+              "delivery_point_name": null,
+              "region": "Asia",
+              "quantity_mt": "100.00",
+              "price_per_mt_usd": "600.00",
+              "total_usd": "60000.0000",
+              "confirmed_at": "2026-10-15T12:00:00Z",
+              "availability_window": "SPOT",
+              "is_demo_trade": true,
+              "scope": "REGION",
+              "provenance_kind": "DEMO_SEED",
+              "source_kind": "DEMO_SEED",
+              "demo_status": "DEMO_ONLY"
+            }
+          ],
+          "total": 1,
+          "market_hours": true
+        },
+        "body_sha256": "a1f004562d4416fcbcd824359b1fb37ab4fc31b6ae7854120a103f7363760165",
+        "trade_tape_tokens": [
+          [
+            "{\"id\":\"bf84470c\",\"product_id\":null,\"market_product\":\"BIO_METHANOL\",\"fuel_type\":\"Methanol\",\"fuel_grade\":\"Bio\",\"delivery_point_id\":null,\"delivery_point_name\":null,\"region\":\"Asia\",\"quantity_mt\":\"100.00\",\"price_per_mt_usd\":\"600.00\",\"total_usd\":\"60000.0000\",\"confirmed_at\":\"2026-10-15T12:00:00Z\",\"availability_window\":\"SPOT\",\"is_demo_trade\":true,\"scope\":\"REGION\",\"provenance_kind\":\"DEMO_SEED\",\"source_kind\":\"DEMO_SEED\",\"demo_status\":\"DEMO_ONLY\"}"
+          ],
+          [
+            "{\"items\":[",
+            "],\"total\":1,\"market_hours\":true}"
+          ]
+        ]
+      },
+      "canonical_tape_proof": {
+        "rule_version": "decision85-v1",
+        "snapshot_identity": "/home/verdaxis-test/runs/rust-same-meaning/work/rust-phase1/task4b-fixtures.json",
+        "clock": "2026-10-15T12:00:00+00:00",
+        "filters": {
+          "demo_only": true
+        },
+        "skip": 0,
+        "limit": 5,
+        "unpaged_count": 1,
+        "source_ids": [
+          "bf84470c-c71c-5965-a6d5-27b83f4feae0"
+        ],
+        "full_ids": [
+          "bf84470c-c71c-5965-a6d5-27b83f4feae0"
+        ],
+        "oracle_sha256": "2521e088925b691c25aa362872a4287d7e5c95797593d7dcf8b683fd5036e6d4"
+      },
+      "raw_body_base64": "eyJpdGVtcyI6IFt7ImlkIjogImJmODQ0NzBjIiwgInByb2R1Y3RfaWQiOiBudWxsLCAibWFya2V0X3Byb2R1Y3QiOiAiQklPX01FVEhBTk9MIiwgImZ1ZWxfdHlwZSI6ICJNZXRoYW5vbCIsICJmdWVsX2dyYWRlIjogIkJpbyIsICJkZWxpdmVyeV9wb2ludF9pZCI6IG51bGwsICJkZWxpdmVyeV9wb2ludF9uYW1lIjogbnVsbCwgInJlZ2lvbiI6ICJBc2lhIiwgInF1YW50aXR5X210IjogIjEwMC4wMCIsICJwcmljZV9wZXJfbXRfdXNkIjogIjYwMC4wMCIsICJ0b3RhbF91c2QiOiAiNjAwMDAuMDAwMCIsICJjb25maXJtZWRfYXQiOiAiMjAyNi0xMC0xNVQxMjowMDowMFoiLCAiYXZhaWxhYmlsaXR5X3dpbmRvdyI6ICJTUE9UIiwgImlzX2RlbW9fdHJhZGUiOiB0cnVlLCAic2NvcGUiOiAiUkVHSU9OIiwgInByb3ZlbmFuY2Vfa2luZCI6ICJERU1PX1NFRUQiLCAic291cmNlX2tpbmQiOiAiREVNT19TRUVEIiwgImRlbW9fc3RhdHVzIjogIkRFTU9fT05MWSJ9XSwgInRvdGFsIjogMSwgIm1hcmtldF9ob3VycyI6IHRydWV9"
+    },
+    {
+      "id": "R12-prices",
+      "request": {
+        "method": "GET",
+        "path": "/api/prices",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "summaries": [
+            {
+              "product_id": "9510c713-6e39-5080-add3-0a7c29657b79",
+              "product_name": "Bio Methanol",
+              "market_product": "BIO_METHANOL",
+              "fuel_type": "Methanol",
+              "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+              "delivery_point_name": "Singapore",
+              "availability_window": "SPOT",
+              "region": "Asia",
+              "last_price": "600.00",
+              "avg_price_24h": "600.00",
+              "high_24h": "600.00",
+              "low_24h": "600.00",
+              "volume_24h": "300.00",
+              "trade_count_24h": 3,
+              "price_change_pct": null,
+              "last_trade_at": "2026-10-15T12:00:00Z",
+              "source_kind": "CONFIRMED_TRADE",
+              "scope": "DELIVERY_POINT",
+              "demo_status": "REAL_ONLY",
+              "is_reference": false,
+              "observed_at": "2026-10-15T12:00:00Z",
+              "real_trade_count_24h": 3,
+              "demo_trade_count_24h": 0,
+              "unknown_trade_count_24h": 0
+            },
+            {
+              "product_id": "9510c713-6e39-5080-add3-0a7c29657b79",
+              "product_name": "Bio Methanol",
+              "market_product": "BIO_METHANOL",
+              "fuel_type": "Methanol",
+              "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+              "delivery_point_name": "Singapore",
+              "availability_window": "SPOT",
+              "region": "Asia",
+              "last_price": "600.00",
+              "avg_price_24h": "600.00",
+              "high_24h": "600.00",
+              "low_24h": "600.00",
+              "volume_24h": "100.00",
+              "trade_count_24h": 1,
+              "price_change_pct": null,
+              "last_trade_at": "2026-10-15T12:00:00Z",
+              "source_kind": "DEMO_SEED",
+              "scope": "DELIVERY_POINT",
+              "demo_status": "DEMO_ONLY",
+              "is_reference": false,
+              "observed_at": "2026-10-15T12:00:00Z",
+              "real_trade_count_24h": 0,
+              "demo_trade_count_24h": 1,
+              "unknown_trade_count_24h": 0
+            }
+          ],
+          "generated_at": "2026-10-15T12:00:00Z"
+        },
+        "body_sha256": "4f20d7e1d543817dce10152996ca206811727866d651e7a589bb217897336f83",
+        "price_summary_tokens": [
+          [
+            "{\"product_id\":\"9510c713-6e39-5080-add3-0a7c29657b79\",\"product_name\":\"Bio Methanol\",\"market_product\":\"BIO_METHANOL\",\"fuel_type\":\"Methanol\",\"delivery_point_id\":\"73835e92-820e-584b-8280-bb61c63aa28e\",\"delivery_point_name\":\"Singapore\",\"availability_window\":\"SPOT\",\"region\":\"Asia\",\"last_price\":\"600.00\",\"avg_price_24h\":\"600.00\",\"high_24h\":\"600.00\",\"low_24h\":\"600.00\",\"volume_24h\":\"300.00\",\"trade_count_24h\":3,\"price_change_pct\":null,\"last_trade_at\":\"2026-10-15T12:00:00Z\",\"source_kind\":\"CONFIRMED_TRADE\",\"scope\":\"DELIVERY_POINT\",\"demo_status\":\"REAL_ONLY\",\"is_reference\":false,\"observed_at\":\"2026-10-15T12:00:00Z\",\"real_trade_count_24h\":3,\"demo_trade_count_24h\":0,\"unknown_trade_count_24h\":0}",
+            "{\"product_id\":\"9510c713-6e39-5080-add3-0a7c29657b79\",\"product_name\":\"Bio Methanol\",\"market_product\":\"BIO_METHANOL\",\"fuel_type\":\"Methanol\",\"delivery_point_id\":\"73835e92-820e-584b-8280-bb61c63aa28e\",\"delivery_point_name\":\"Singapore\",\"availability_window\":\"SPOT\",\"region\":\"Asia\",\"last_price\":\"600.00\",\"avg_price_24h\":\"600.00\",\"high_24h\":\"600.00\",\"low_24h\":\"600.00\",\"volume_24h\":\"100.00\",\"trade_count_24h\":1,\"price_change_pct\":null,\"last_trade_at\":\"2026-10-15T12:00:00Z\",\"source_kind\":\"DEMO_SEED\",\"scope\":\"DELIVERY_POINT\",\"demo_status\":\"DEMO_ONLY\",\"is_reference\":false,\"observed_at\":\"2026-10-15T12:00:00Z\",\"real_trade_count_24h\":0,\"demo_trade_count_24h\":1,\"unknown_trade_count_24h\":0}"
+          ],
+          [
+            "{\"summaries\":[",
+            ",",
+            "],\"generated_at\":\"2026-10-15T12:00:00Z\"}"
+          ]
+        ]
+      },
+      "raw_body_base64": "eyJzdW1tYXJpZXMiOlt7InByb2R1Y3RfaWQiOiI5NTEwYzcxMy02ZTM5LTUwODAtYWRkMy0wYTdjMjk2NTdiNzkiLCJwcm9kdWN0X25hbWUiOiJCaW8gTWV0aGFub2wiLCJtYXJrZXRfcHJvZHVjdCI6IkJJT19NRVRIQU5PTCIsImZ1ZWxfdHlwZSI6Ik1ldGhhbm9sIiwiZGVsaXZlcnlfcG9pbnRfaWQiOiI3MzgzNWU5Mi04MjBlLTU4NGItODI4MC1iYjYxYzYzYWEyOGUiLCJkZWxpdmVyeV9wb2ludF9uYW1lIjoiU2luZ2Fwb3JlIiwiYXZhaWxhYmlsaXR5X3dpbmRvdyI6IlNQT1QiLCJyZWdpb24iOiJBc2lhIiwibGFzdF9wcmljZSI6IjYwMC4wMCIsImF2Z19wcmljZV8yNGgiOiI2MDAuMDAiLCJoaWdoXzI0aCI6IjYwMC4wMCIsImxvd18yNGgiOiI2MDAuMDAiLCJ2b2x1bWVfMjRoIjoiMzAwLjAwIiwidHJhZGVfY291bnRfMjRoIjozLCJwcmljZV9jaGFuZ2VfcGN0IjpudWxsLCJsYXN0X3RyYWRlX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMFoiLCJzb3VyY2Vfa2luZCI6IkNPTkZJUk1FRF9UUkFERSIsInNjb3BlIjoiREVMSVZFUllfUE9JTlQiLCJkZW1vX3N0YXR1cyI6IlJFQUxfT05MWSIsImlzX3JlZmVyZW5jZSI6ZmFsc2UsIm9ic2VydmVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMFoiLCJyZWFsX3RyYWRlX2NvdW50XzI0aCI6MywiZGVtb190cmFkZV9jb3VudF8yNGgiOjAsInVua25vd25fdHJhZGVfY291bnRfMjRoIjowfSx7InByb2R1Y3RfaWQiOiI5NTEwYzcxMy02ZTM5LTUwODAtYWRkMy0wYTdjMjk2NTdiNzkiLCJwcm9kdWN0X25hbWUiOiJCaW8gTWV0aGFub2wiLCJtYXJrZXRfcHJvZHVjdCI6IkJJT19NRVRIQU5PTCIsImZ1ZWxfdHlwZSI6Ik1ldGhhbm9sIiwiZGVsaXZlcnlfcG9pbnRfaWQiOiI3MzgzNWU5Mi04MjBlLTU4NGItODI4MC1iYjYxYzYzYWEyOGUiLCJkZWxpdmVyeV9wb2ludF9uYW1lIjoiU2luZ2Fwb3JlIiwiYXZhaWxhYmlsaXR5X3dpbmRvdyI6IlNQT1QiLCJyZWdpb24iOiJBc2lhIiwibGFzdF9wcmljZSI6IjYwMC4wMCIsImF2Z19wcmljZV8yNGgiOiI2MDAuMDAiLCJoaWdoXzI0aCI6IjYwMC4wMCIsImxvd18yNGgiOiI2MDAuMDAiLCJ2b2x1bWVfMjRoIjoiMTAwLjAwIiwidHJhZGVfY291bnRfMjRoIjoxLCJwcmljZV9jaGFuZ2VfcGN0IjpudWxsLCJsYXN0X3RyYWRlX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMFoiLCJzb3VyY2Vfa2luZCI6IkRFTU9fU0VFRCIsInNjb3BlIjoiREVMSVZFUllfUE9JTlQiLCJkZW1vX3N0YXR1cyI6IkRFTU9fT05MWSIsImlzX3JlZmVyZW5jZSI6ZmFsc2UsIm9ic2VydmVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMFoiLCJyZWFsX3RyYWRlX2NvdW50XzI0aCI6MCwiZGVtb190cmFkZV9jb3VudF8yNGgiOjEsInVua25vd25fdHJhZGVfY291bnRfMjRoIjowfV0sImdlbmVyYXRlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDBaIn0="
+    },
+    {
+      "id": "R12-prices-head",
+      "request": {
+        "method": "HEAD",
+        "path": "/api/prices",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": null,
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "raw_body_base64": ""
+    },
+    {
+      "id": "R12-prices-post-405",
+      "request": {
+        "method": "POST",
+        "path": "/api/prices",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "Method Not Allowed"
+        },
+        "body_sha256": "83c09ba9a8daedb136f90b17a294caa90ad471a016e430df6e229acb5a81e100"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJNZXRob2QgTm90IEFsbG93ZWQifQ=="
+    },
+    {
+      "id": "R12-prices-options-405",
+      "request": {
+        "method": "OPTIONS",
+        "path": "/api/prices",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "Method Not Allowed"
+        },
+        "body_sha256": "83c09ba9a8daedb136f90b17a294caa90ad471a016e430df6e229acb5a81e100"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJNZXRob2QgTm90IEFsbG93ZWQifQ=="
+    },
+    {
+      "id": "R12-prices-slash-307",
+      "request": {
+        "method": "GET",
+        "path": "/api/prices/",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 307,
+        "headers": {
+          "location": "{endpoint}/api/prices",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": null,
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "raw_body_base64": ""
+    },
+    {
+      "id": "R12b-prices-hours",
+      "request": {
+        "method": "GET",
+        "path": "/api/prices",
+        "query": "hours=168",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "summaries": [
+            {
+              "product_id": "9510c713-6e39-5080-add3-0a7c29657b79",
+              "product_name": "Bio Methanol",
+              "market_product": "BIO_METHANOL",
+              "fuel_type": "Methanol",
+              "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+              "delivery_point_name": "Singapore",
+              "availability_window": "SPOT",
+              "region": "Asia",
+              "last_price": "600.00",
+              "avg_price_24h": "600.00",
+              "high_24h": "600.00",
+              "low_24h": "600.00",
+              "volume_24h": "300.00",
+              "trade_count_24h": 3,
+              "price_change_pct": null,
+              "last_trade_at": "2026-10-15T12:00:00Z",
+              "source_kind": "CONFIRMED_TRADE",
+              "scope": "DELIVERY_POINT",
+              "demo_status": "REAL_ONLY",
+              "is_reference": false,
+              "observed_at": "2026-10-15T12:00:00Z",
+              "real_trade_count_24h": 3,
+              "demo_trade_count_24h": 0,
+              "unknown_trade_count_24h": 0
+            },
+            {
+              "product_id": "9510c713-6e39-5080-add3-0a7c29657b79",
+              "product_name": "Bio Methanol",
+              "market_product": "BIO_METHANOL",
+              "fuel_type": "Methanol",
+              "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+              "delivery_point_name": "Singapore",
+              "availability_window": "SPOT",
+              "region": "Asia",
+              "last_price": "600.00",
+              "avg_price_24h": "600.00",
+              "high_24h": "600.00",
+              "low_24h": "600.00",
+              "volume_24h": "100.00",
+              "trade_count_24h": 1,
+              "price_change_pct": null,
+              "last_trade_at": "2026-10-15T12:00:00Z",
+              "source_kind": "DEMO_SEED",
+              "scope": "DELIVERY_POINT",
+              "demo_status": "DEMO_ONLY",
+              "is_reference": false,
+              "observed_at": "2026-10-15T12:00:00Z",
+              "real_trade_count_24h": 0,
+              "demo_trade_count_24h": 1,
+              "unknown_trade_count_24h": 0
+            }
+          ],
+          "generated_at": "2026-10-15T12:00:00Z"
+        },
+        "body_sha256": "4f20d7e1d543817dce10152996ca206811727866d651e7a589bb217897336f83",
+        "price_summary_tokens": [
+          [
+            "{\"product_id\":\"9510c713-6e39-5080-add3-0a7c29657b79\",\"product_name\":\"Bio Methanol\",\"market_product\":\"BIO_METHANOL\",\"fuel_type\":\"Methanol\",\"delivery_point_id\":\"73835e92-820e-584b-8280-bb61c63aa28e\",\"delivery_point_name\":\"Singapore\",\"availability_window\":\"SPOT\",\"region\":\"Asia\",\"last_price\":\"600.00\",\"avg_price_24h\":\"600.00\",\"high_24h\":\"600.00\",\"low_24h\":\"600.00\",\"volume_24h\":\"300.00\",\"trade_count_24h\":3,\"price_change_pct\":null,\"last_trade_at\":\"2026-10-15T12:00:00Z\",\"source_kind\":\"CONFIRMED_TRADE\",\"scope\":\"DELIVERY_POINT\",\"demo_status\":\"REAL_ONLY\",\"is_reference\":false,\"observed_at\":\"2026-10-15T12:00:00Z\",\"real_trade_count_24h\":3,\"demo_trade_count_24h\":0,\"unknown_trade_count_24h\":0}",
+            "{\"product_id\":\"9510c713-6e39-5080-add3-0a7c29657b79\",\"product_name\":\"Bio Methanol\",\"market_product\":\"BIO_METHANOL\",\"fuel_type\":\"Methanol\",\"delivery_point_id\":\"73835e92-820e-584b-8280-bb61c63aa28e\",\"delivery_point_name\":\"Singapore\",\"availability_window\":\"SPOT\",\"region\":\"Asia\",\"last_price\":\"600.00\",\"avg_price_24h\":\"600.00\",\"high_24h\":\"600.00\",\"low_24h\":\"600.00\",\"volume_24h\":\"100.00\",\"trade_count_24h\":1,\"price_change_pct\":null,\"last_trade_at\":\"2026-10-15T12:00:00Z\",\"source_kind\":\"DEMO_SEED\",\"scope\":\"DELIVERY_POINT\",\"demo_status\":\"DEMO_ONLY\",\"is_reference\":false,\"observed_at\":\"2026-10-15T12:00:00Z\",\"real_trade_count_24h\":0,\"demo_trade_count_24h\":1,\"unknown_trade_count_24h\":0}"
+          ],
+          [
+            "{\"summaries\":[",
+            ",",
+            "],\"generated_at\":\"2026-10-15T12:00:00Z\"}"
+          ]
+        ]
+      },
+      "raw_body_base64": "eyJzdW1tYXJpZXMiOlt7InByb2R1Y3RfaWQiOiI5NTEwYzcxMy02ZTM5LTUwODAtYWRkMy0wYTdjMjk2NTdiNzkiLCJwcm9kdWN0X25hbWUiOiJCaW8gTWV0aGFub2wiLCJtYXJrZXRfcHJvZHVjdCI6IkJJT19NRVRIQU5PTCIsImZ1ZWxfdHlwZSI6Ik1ldGhhbm9sIiwiZGVsaXZlcnlfcG9pbnRfaWQiOiI3MzgzNWU5Mi04MjBlLTU4NGItODI4MC1iYjYxYzYzYWEyOGUiLCJkZWxpdmVyeV9wb2ludF9uYW1lIjoiU2luZ2Fwb3JlIiwiYXZhaWxhYmlsaXR5X3dpbmRvdyI6IlNQT1QiLCJyZWdpb24iOiJBc2lhIiwibGFzdF9wcmljZSI6IjYwMC4wMCIsImF2Z19wcmljZV8yNGgiOiI2MDAuMDAiLCJoaWdoXzI0aCI6IjYwMC4wMCIsImxvd18yNGgiOiI2MDAuMDAiLCJ2b2x1bWVfMjRoIjoiMzAwLjAwIiwidHJhZGVfY291bnRfMjRoIjozLCJwcmljZV9jaGFuZ2VfcGN0IjpudWxsLCJsYXN0X3RyYWRlX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMFoiLCJzb3VyY2Vfa2luZCI6IkNPTkZJUk1FRF9UUkFERSIsInNjb3BlIjoiREVMSVZFUllfUE9JTlQiLCJkZW1vX3N0YXR1cyI6IlJFQUxfT05MWSIsImlzX3JlZmVyZW5jZSI6ZmFsc2UsIm9ic2VydmVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMFoiLCJyZWFsX3RyYWRlX2NvdW50XzI0aCI6MywiZGVtb190cmFkZV9jb3VudF8yNGgiOjAsInVua25vd25fdHJhZGVfY291bnRfMjRoIjowfSx7InByb2R1Y3RfaWQiOiI5NTEwYzcxMy02ZTM5LTUwODAtYWRkMy0wYTdjMjk2NTdiNzkiLCJwcm9kdWN0X25hbWUiOiJCaW8gTWV0aGFub2wiLCJtYXJrZXRfcHJvZHVjdCI6IkJJT19NRVRIQU5PTCIsImZ1ZWxfdHlwZSI6Ik1ldGhhbm9sIiwiZGVsaXZlcnlfcG9pbnRfaWQiOiI3MzgzNWU5Mi04MjBlLTU4NGItODI4MC1iYjYxYzYzYWEyOGUiLCJkZWxpdmVyeV9wb2ludF9uYW1lIjoiU2luZ2Fwb3JlIiwiYXZhaWxhYmlsaXR5X3dpbmRvdyI6IlNQT1QiLCJyZWdpb24iOiJBc2lhIiwibGFzdF9wcmljZSI6IjYwMC4wMCIsImF2Z19wcmljZV8yNGgiOiI2MDAuMDAiLCJoaWdoXzI0aCI6IjYwMC4wMCIsImxvd18yNGgiOiI2MDAuMDAiLCJ2b2x1bWVfMjRoIjoiMTAwLjAwIiwidHJhZGVfY291bnRfMjRoIjoxLCJwcmljZV9jaGFuZ2VfcGN0IjpudWxsLCJsYXN0X3RyYWRlX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMFoiLCJzb3VyY2Vfa2luZCI6IkRFTU9fU0VFRCIsInNjb3BlIjoiREVMSVZFUllfUE9JTlQiLCJkZW1vX3N0YXR1cyI6IkRFTU9fT05MWSIsImlzX3JlZmVyZW5jZSI6ZmFsc2UsIm9ic2VydmVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMFoiLCJyZWFsX3RyYWRlX2NvdW50XzI0aCI6MCwiZGVtb190cmFkZV9jb3VudF8yNGgiOjEsInVua25vd25fdHJhZGVfY291bnRfMjRoIjowfV0sImdlbmVyYXRlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDBaIn0="
+    },
+    {
+      "id": "R13-reference",
+      "request": {
+        "method": "GET",
+        "path": "/api/prices/reference",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "prices": [
+            {
+              "product_id": "9510c713-6e39-5080-add3-0a7c29657b79",
+              "product_name": "Bio Methanol",
+              "market_product": "BIO_METHANOL",
+              "fuel_type": "Methanol",
+              "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+              "delivery_point_name": "Singapore",
+              "availability_window": "SPOT",
+              "region": "Asia",
+              "vwap_usd": "600.00",
+              "total_volume_mt": "300.00",
+              "trade_count": 3,
+              "date": "2026-10-15",
+              "visibility": "external",
+              "source_kind": "CONFIRMED_TRADE",
+              "scope": "DELIVERY_POINT",
+              "demo_status": "REAL_ONLY",
+              "is_reference": true
+            }
+          ],
+          "generated_at": "2026-10-15T12:00:00Z"
+        },
+        "body_sha256": "d50498d9a1571761b2915c042aa62977475d6cc4ac1e73dfc3c6d8d861211e84"
+      },
+      "raw_body_base64": "eyJwcmljZXMiOlt7InByb2R1Y3RfaWQiOiI5NTEwYzcxMy02ZTM5LTUwODAtYWRkMy0wYTdjMjk2NTdiNzkiLCJwcm9kdWN0X25hbWUiOiJCaW8gTWV0aGFub2wiLCJtYXJrZXRfcHJvZHVjdCI6IkJJT19NRVRIQU5PTCIsImZ1ZWxfdHlwZSI6Ik1ldGhhbm9sIiwiZGVsaXZlcnlfcG9pbnRfaWQiOiI3MzgzNWU5Mi04MjBlLTU4NGItODI4MC1iYjYxYzYzYWEyOGUiLCJkZWxpdmVyeV9wb2ludF9uYW1lIjoiU2luZ2Fwb3JlIiwiYXZhaWxhYmlsaXR5X3dpbmRvdyI6IlNQT1QiLCJyZWdpb24iOiJBc2lhIiwidndhcF91c2QiOiI2MDAuMDAiLCJ0b3RhbF92b2x1bWVfbXQiOiIzMDAuMDAiLCJ0cmFkZV9jb3VudCI6MywiZGF0ZSI6IjIwMjYtMTAtMTUiLCJ2aXNpYmlsaXR5IjoiZXh0ZXJuYWwiLCJzb3VyY2Vfa2luZCI6IkNPTkZJUk1FRF9UUkFERSIsInNjb3BlIjoiREVMSVZFUllfUE9JTlQiLCJkZW1vX3N0YXR1cyI6IlJFQUxfT05MWSIsImlzX3JlZmVyZW5jZSI6dHJ1ZX1dLCJnZW5lcmF0ZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwWiJ9"
+    },
+    {
+      "id": "R13-reference-head",
+      "request": {
+        "method": "HEAD",
+        "path": "/api/prices/reference",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": null,
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "raw_body_base64": ""
+    },
+    {
+      "id": "R13-reference-post-405",
+      "request": {
+        "method": "POST",
+        "path": "/api/prices/reference",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "Method Not Allowed"
+        },
+        "body_sha256": "83c09ba9a8daedb136f90b17a294caa90ad471a016e430df6e229acb5a81e100"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJNZXRob2QgTm90IEFsbG93ZWQifQ=="
+    },
+    {
+      "id": "R13-reference-options-405",
+      "request": {
+        "method": "OPTIONS",
+        "path": "/api/prices/reference",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "Method Not Allowed"
+        },
+        "body_sha256": "83c09ba9a8daedb136f90b17a294caa90ad471a016e430df6e229acb5a81e100"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJNZXRob2QgTm90IEFsbG93ZWQifQ=="
+    },
+    {
+      "id": "R13-reference-slash-307",
+      "request": {
+        "method": "GET",
+        "path": "/api/prices/reference/",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 307,
+        "headers": {
+          "location": "{endpoint}/api/prices/reference",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": null,
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "raw_body_base64": ""
+    },
+    {
+      "id": "R13b-reference-bad-date",
+      "request": {
+        "method": "GET",
+        "path": "/api/prices/reference",
+        "query": "date_from=not-a-date",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 422,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": [
+            {
+              "type": "date_from_datetime_parsing",
+              "loc": [
+                "query",
+                "date_from"
+              ],
+              "msg": "Input should be a valid date or datetime, invalid character in year",
+              "input": "not-a-date",
+              "ctx": {
+                "error": "invalid character in year"
+              }
+            }
+          ]
+        },
+        "body_sha256": "cc7a46a9feb99d1987ac860f312e2e88a40103b69520137a4ef1690024764ca5"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOlt7InR5cGUiOiJkYXRlX2Zyb21fZGF0ZXRpbWVfcGFyc2luZyIsImxvYyI6WyJxdWVyeSIsImRhdGVfZnJvbSJdLCJtc2ciOiJJbnB1dCBzaG91bGQgYmUgYSB2YWxpZCBkYXRlIG9yIGRhdGV0aW1lLCBpbnZhbGlkIGNoYXJhY3RlciBpbiB5ZWFyIiwiaW5wdXQiOiJub3QtYS1kYXRlIiwiY3R4Ijp7ImVycm9yIjoiaW52YWxpZCBjaGFyYWN0ZXIgaW4geWVhciJ9fV19"
+    },
+    {
+      "id": "R13c-reference-reversed",
+      "request": {
+        "method": "GET",
+        "path": "/api/prices/reference",
+        "query": "date_from=2026-01-02&date_to=2026-01-01",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 422,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "date_from must be before or equal to date_to"
+        },
+        "body_sha256": "86495fa4d2502468a534a310140ccbb33d6da3a292c2569aaf993a12220fe99c"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJkYXRlX2Zyb20gbXVzdCBiZSBiZWZvcmUgb3IgZXF1YWwgdG8gZGF0ZV90byJ9"
+    },
+    {
+      "id": "R14-export",
+      "request": {
+        "method": "GET",
+        "path": "/api/prices/reference/export",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-disposition": "attachment; filename=\"verdaxis_reference_prices.csv\"",
+          "content-type": "text/csv; charset=utf-8",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "raw": "date,product_name,market_product,availability_window,fuel_type,delivery_point_name,region,vwap_usd,volume_mt,trade_count\r\n2026-10-15,Bio Methanol,BIO_METHANOL,SPOT,Methanol,Singapore,Asia,600.00,300.00,3\r\n"
+        },
+        "body_sha256": "11b5b69e4e746c990ec77d465a9b90028652f01ba9372bb2968c91234423661f"
+      },
+      "raw_body_base64": "ZGF0ZSxwcm9kdWN0X25hbWUsbWFya2V0X3Byb2R1Y3QsYXZhaWxhYmlsaXR5X3dpbmRvdyxmdWVsX3R5cGUsZGVsaXZlcnlfcG9pbnRfbmFtZSxyZWdpb24sdndhcF91c2Qsdm9sdW1lX210LHRyYWRlX2NvdW50DQoyMDI2LTEwLTE1LEJpbyBNZXRoYW5vbCxCSU9fTUVUSEFOT0wsU1BPVCxNZXRoYW5vbCxTaW5nYXBvcmUsQXNpYSw2MDAuMDAsMzAwLjAwLDMNCg=="
+    },
+    {
+      "id": "R14-export-head",
+      "request": {
+        "method": "HEAD",
+        "path": "/api/prices/reference/export",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": null,
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "raw_body_base64": ""
+    },
+    {
+      "id": "R14-export-post-405",
+      "request": {
+        "method": "POST",
+        "path": "/api/prices/reference/export",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "Method Not Allowed"
+        },
+        "body_sha256": "83c09ba9a8daedb136f90b17a294caa90ad471a016e430df6e229acb5a81e100"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJNZXRob2QgTm90IEFsbG93ZWQifQ=="
+    },
+    {
+      "id": "R14-export-options-405",
+      "request": {
+        "method": "OPTIONS",
+        "path": "/api/prices/reference/export",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "Method Not Allowed"
+        },
+        "body_sha256": "83c09ba9a8daedb136f90b17a294caa90ad471a016e430df6e229acb5a81e100"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJNZXRob2QgTm90IEFsbG93ZWQifQ=="
+    },
+    {
+      "id": "R14-export-slash-307",
+      "request": {
+        "method": "GET",
+        "path": "/api/prices/reference/export/",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 307,
+        "headers": {
+          "location": "{endpoint}/api/prices/reference/export",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": null,
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "raw_body_base64": ""
+    },
+    {
+      "id": "R14b-export-format",
+      "request": {
+        "method": "GET",
+        "path": "/api/prices/reference/export",
+        "query": "format=csv",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-disposition": "attachment; filename=\"verdaxis_reference_prices.csv\"",
+          "content-type": "text/csv; charset=utf-8",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "raw": "date,product_name,market_product,availability_window,fuel_type,delivery_point_name,region,vwap_usd,volume_mt,trade_count\r\n2026-10-15,Bio Methanol,BIO_METHANOL,SPOT,Methanol,Singapore,Asia,600.00,300.00,3\r\n"
+        },
+        "body_sha256": "11b5b69e4e746c990ec77d465a9b90028652f01ba9372bb2968c91234423661f"
+      },
+      "raw_body_base64": "ZGF0ZSxwcm9kdWN0X25hbWUsbWFya2V0X3Byb2R1Y3QsYXZhaWxhYmlsaXR5X3dpbmRvdyxmdWVsX3R5cGUsZGVsaXZlcnlfcG9pbnRfbmFtZSxyZWdpb24sdndhcF91c2Qsdm9sdW1lX210LHRyYWRlX2NvdW50DQoyMDI2LTEwLTE1LEJpbyBNZXRoYW5vbCxCSU9fTUVUSEFOT0wsU1BPVCxNZXRoYW5vbCxTaW5nYXBvcmUsQXNpYSw2MDAuMDAsMzAwLjAwLDMNCg=="
+    },
+    {
+      "id": "R06-empty-fuel",
+      "request": {
+        "method": "GET",
+        "path": "/api/trade-tape",
+        "query": "fuel_type=",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "items": [],
+          "total": 0,
+          "market_hours": true
+        },
+        "body_sha256": "c7eac6b66dc77e7aa68bced7da9ea6422f3b22ea0036258a347b2f136d12af3e"
+      },
+      "canonical_tape_proof": {
+        "rule_version": "decision85-v1",
+        "snapshot_identity": "/home/verdaxis-test/runs/rust-same-meaning/work/rust-phase1/task4b-fixtures.json",
+        "clock": "2026-10-15T12:00:00+00:00",
+        "filters": {
+          "fuel_type": "",
+          "demo_only": false
+        },
+        "skip": 0,
+        "limit": 50,
+        "unpaged_count": 0,
+        "source_ids": [],
+        "full_ids": [],
+        "oracle_sha256": "2521e088925b691c25aa362872a4287d7e5c95797593d7dcf8b683fd5036e6d4"
+      },
+      "raw_body_base64": "eyJpdGVtcyI6IFtdLCAidG90YWwiOiAwLCAibWFya2V0X2hvdXJzIjogdHJ1ZX0="
+    },
+    {
+      "id": "R06-empty-market",
+      "request": {
+        "method": "GET",
+        "path": "/api/trade-tape",
+        "query": "market_product=",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "items": [],
+          "total": 0,
+          "market_hours": true
+        },
+        "body_sha256": "c7eac6b66dc77e7aa68bced7da9ea6422f3b22ea0036258a347b2f136d12af3e"
+      },
+      "canonical_tape_proof": {
+        "rule_version": "decision85-v1",
+        "snapshot_identity": "/home/verdaxis-test/runs/rust-same-meaning/work/rust-phase1/task4b-fixtures.json",
+        "clock": "2026-10-15T12:00:00+00:00",
+        "filters": {
+          "market_product": "",
+          "demo_only": false
+        },
+        "skip": 0,
+        "limit": 50,
+        "unpaged_count": 0,
+        "source_ids": [],
+        "full_ids": [],
+        "oracle_sha256": "2521e088925b691c25aa362872a4287d7e5c95797593d7dcf8b683fd5036e6d4"
+      },
+      "raw_body_base64": "eyJpdGVtcyI6IFtdLCAidG90YWwiOiAwLCAibWFya2V0X2hvdXJzIjogdHJ1ZX0="
+    },
+    {
+      "id": "R06-region-name",
+      "request": {
+        "method": "GET",
+        "path": "/api/trade-tape",
+        "query": "region=Singapore",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "items": [
+            {
+              "id": "2459bf40",
+              "product_id": null,
+              "market_product": "BIO_METHANOL",
+              "fuel_type": "Methanol",
+              "fuel_grade": "Bio",
+              "delivery_point_id": null,
+              "delivery_point_name": null,
+              "region": "Asia",
+              "quantity_mt": "100.00",
+              "price_per_mt_usd": "600.00",
+              "total_usd": "60000.0000",
+              "confirmed_at": "2026-10-15T12:00:00Z",
+              "availability_window": "SPOT",
+              "is_demo_trade": false,
+              "scope": "REGION",
+              "provenance_kind": "CONFIRMED_TRADE",
+              "source_kind": "CONFIRMED_TRADE",
+              "demo_status": "REAL_ONLY"
+            },
+            {
+              "id": "bf84470c",
+              "product_id": null,
+              "market_product": "BIO_METHANOL",
+              "fuel_type": "Methanol",
+              "fuel_grade": "Bio",
+              "delivery_point_id": null,
+              "delivery_point_name": null,
+              "region": "Asia",
+              "quantity_mt": "100.00",
+              "price_per_mt_usd": "600.00",
+              "total_usd": "60000.0000",
+              "confirmed_at": "2026-10-15T12:00:00Z",
+              "availability_window": "SPOT",
+              "is_demo_trade": true,
+              "scope": "REGION",
+              "provenance_kind": "DEMO_SEED",
+              "source_kind": "DEMO_SEED",
+              "demo_status": "DEMO_ONLY"
+            },
+            {
+              "id": "20fdbacc",
+              "product_id": null,
+              "market_product": "BIO_METHANOL",
+              "fuel_type": "Methanol",
+              "fuel_grade": "Bio",
+              "delivery_point_id": null,
+              "delivery_point_name": null,
+              "region": "Asia",
+              "quantity_mt": "100.00",
+              "price_per_mt_usd": "600.00",
+              "total_usd": "60000.0000",
+              "confirmed_at": "2026-10-15T12:00:00Z",
+              "availability_window": "SPOT",
+              "is_demo_trade": false,
+              "scope": "REGION",
+              "provenance_kind": "CONFIRMED_TRADE",
+              "source_kind": "CONFIRMED_TRADE",
+              "demo_status": "REAL_ONLY"
+            },
+            {
+              "id": "be1bd3ef",
+              "product_id": null,
+              "market_product": "BIO_METHANOL",
+              "fuel_type": "Methanol",
+              "fuel_grade": "Bio",
+              "delivery_point_id": null,
+              "delivery_point_name": null,
+              "region": "Asia",
+              "quantity_mt": "100.00",
+              "price_per_mt_usd": "600.00",
+              "total_usd": "60000.0000",
+              "confirmed_at": "2026-10-15T12:00:00Z",
+              "availability_window": "SPOT",
+              "is_demo_trade": false,
+              "scope": "REGION",
+              "provenance_kind": "CONFIRMED_TRADE",
+              "source_kind": "CONFIRMED_TRADE",
+              "demo_status": "REAL_ONLY"
+            }
+          ],
+          "total": 4,
+          "market_hours": true
+        },
+        "body_sha256": "71a947edeaae9c6cdf530e6d91479547de35f6dadc25e70f980ba7ff9bada8d8",
+        "trade_tape_tokens": [
+          [
+            "{\"id\":\"2459bf40\",\"product_id\":null,\"market_product\":\"BIO_METHANOL\",\"fuel_type\":\"Methanol\",\"fuel_grade\":\"Bio\",\"delivery_point_id\":null,\"delivery_point_name\":null,\"region\":\"Asia\",\"quantity_mt\":\"100.00\",\"price_per_mt_usd\":\"600.00\",\"total_usd\":\"60000.0000\",\"confirmed_at\":\"2026-10-15T12:00:00Z\",\"availability_window\":\"SPOT\",\"is_demo_trade\":false,\"scope\":\"REGION\",\"provenance_kind\":\"CONFIRMED_TRADE\",\"source_kind\":\"CONFIRMED_TRADE\",\"demo_status\":\"REAL_ONLY\"}",
+            "{\"id\":\"bf84470c\",\"product_id\":null,\"market_product\":\"BIO_METHANOL\",\"fuel_type\":\"Methanol\",\"fuel_grade\":\"Bio\",\"delivery_point_id\":null,\"delivery_point_name\":null,\"region\":\"Asia\",\"quantity_mt\":\"100.00\",\"price_per_mt_usd\":\"600.00\",\"total_usd\":\"60000.0000\",\"confirmed_at\":\"2026-10-15T12:00:00Z\",\"availability_window\":\"SPOT\",\"is_demo_trade\":true,\"scope\":\"REGION\",\"provenance_kind\":\"DEMO_SEED\",\"source_kind\":\"DEMO_SEED\",\"demo_status\":\"DEMO_ONLY\"}",
+            "{\"id\":\"20fdbacc\",\"product_id\":null,\"market_product\":\"BIO_METHANOL\",\"fuel_type\":\"Methanol\",\"fuel_grade\":\"Bio\",\"delivery_point_id\":null,\"delivery_point_name\":null,\"region\":\"Asia\",\"quantity_mt\":\"100.00\",\"price_per_mt_usd\":\"600.00\",\"total_usd\":\"60000.0000\",\"confirmed_at\":\"2026-10-15T12:00:00Z\",\"availability_window\":\"SPOT\",\"is_demo_trade\":false,\"scope\":\"REGION\",\"provenance_kind\":\"CONFIRMED_TRADE\",\"source_kind\":\"CONFIRMED_TRADE\",\"demo_status\":\"REAL_ONLY\"}",
+            "{\"id\":\"be1bd3ef\",\"product_id\":null,\"market_product\":\"BIO_METHANOL\",\"fuel_type\":\"Methanol\",\"fuel_grade\":\"Bio\",\"delivery_point_id\":null,\"delivery_point_name\":null,\"region\":\"Asia\",\"quantity_mt\":\"100.00\",\"price_per_mt_usd\":\"600.00\",\"total_usd\":\"60000.0000\",\"confirmed_at\":\"2026-10-15T12:00:00Z\",\"availability_window\":\"SPOT\",\"is_demo_trade\":false,\"scope\":\"REGION\",\"provenance_kind\":\"CONFIRMED_TRADE\",\"source_kind\":\"CONFIRMED_TRADE\",\"demo_status\":\"REAL_ONLY\"}"
+          ],
+          [
+            "{\"items\":[",
+            ",",
+            ",",
+            ",",
+            "],\"total\":4,\"market_hours\":true}"
+          ]
+        ]
+      },
+      "canonical_tape_proof": {
+        "rule_version": "decision85-v1",
+        "snapshot_identity": "/home/verdaxis-test/runs/rust-same-meaning/work/rust-phase1/task4b-fixtures.json",
+        "clock": "2026-10-15T12:00:00+00:00",
+        "filters": {
+          "region": "Singapore",
+          "demo_only": false
+        },
+        "skip": 0,
+        "limit": 50,
+        "unpaged_count": 4,
+        "source_ids": [
+          "20fdbacc-4cc9-59ae-9be9-7f4b8e562609",
+          "2459bf40-90a7-57e9-ae13-baff6a403d33",
+          "be1bd3ef-735b-5c88-aad8-372542aa9fb2",
+          "bf84470c-c71c-5965-a6d5-27b83f4feae0"
+        ],
+        "full_ids": [
+          "bf84470c-c71c-5965-a6d5-27b83f4feae0",
+          "be1bd3ef-735b-5c88-aad8-372542aa9fb2",
+          "2459bf40-90a7-57e9-ae13-baff6a403d33",
+          "20fdbacc-4cc9-59ae-9be9-7f4b8e562609"
+        ],
+        "oracle_sha256": "2521e088925b691c25aa362872a4287d7e5c95797593d7dcf8b683fd5036e6d4"
+      },
+      "raw_body_base64": "eyJpdGVtcyI6IFt7ImlkIjogImJmODQ0NzBjIiwgInByb2R1Y3RfaWQiOiBudWxsLCAibWFya2V0X3Byb2R1Y3QiOiAiQklPX01FVEhBTk9MIiwgImZ1ZWxfdHlwZSI6ICJNZXRoYW5vbCIsICJmdWVsX2dyYWRlIjogIkJpbyIsICJkZWxpdmVyeV9wb2ludF9pZCI6IG51bGwsICJkZWxpdmVyeV9wb2ludF9uYW1lIjogbnVsbCwgInJlZ2lvbiI6ICJBc2lhIiwgInF1YW50aXR5X210IjogIjEwMC4wMCIsICJwcmljZV9wZXJfbXRfdXNkIjogIjYwMC4wMCIsICJ0b3RhbF91c2QiOiAiNjAwMDAuMDAwMCIsICJjb25maXJtZWRfYXQiOiAiMjAyNi0xMC0xNVQxMjowMDowMFoiLCAiYXZhaWxhYmlsaXR5X3dpbmRvdyI6ICJTUE9UIiwgImlzX2RlbW9fdHJhZGUiOiB0cnVlLCAic2NvcGUiOiAiUkVHSU9OIiwgInByb3ZlbmFuY2Vfa2luZCI6ICJERU1PX1NFRUQiLCAic291cmNlX2tpbmQiOiAiREVNT19TRUVEIiwgImRlbW9fc3RhdHVzIjogIkRFTU9fT05MWSJ9LCB7ImlkIjogImJlMWJkM2VmIiwgInByb2R1Y3RfaWQiOiBudWxsLCAibWFya2V0X3Byb2R1Y3QiOiAiQklPX01FVEhBTk9MIiwgImZ1ZWxfdHlwZSI6ICJNZXRoYW5vbCIsICJmdWVsX2dyYWRlIjogIkJpbyIsICJkZWxpdmVyeV9wb2ludF9pZCI6IG51bGwsICJkZWxpdmVyeV9wb2ludF9uYW1lIjogbnVsbCwgInJlZ2lvbiI6ICJBc2lhIiwgInF1YW50aXR5X210IjogIjEwMC4wMCIsICJwcmljZV9wZXJfbXRfdXNkIjogIjYwMC4wMCIsICJ0b3RhbF91c2QiOiAiNjAwMDAuMDAwMCIsICJjb25maXJtZWRfYXQiOiAiMjAyNi0xMC0xNVQxMjowMDowMFoiLCAiYXZhaWxhYmlsaXR5X3dpbmRvdyI6ICJTUE9UIiwgImlzX2RlbW9fdHJhZGUiOiBmYWxzZSwgInNjb3BlIjogIlJFR0lPTiIsICJwcm92ZW5hbmNlX2tpbmQiOiAiQ09ORklSTUVEX1RSQURFIiwgInNvdXJjZV9raW5kIjogIkNPTkZJUk1FRF9UUkFERSIsICJkZW1vX3N0YXR1cyI6ICJSRUFMX09OTFkifSwgeyJpZCI6ICIyNDU5YmY0MCIsICJwcm9kdWN0X2lkIjogbnVsbCwgIm1hcmtldF9wcm9kdWN0IjogIkJJT19NRVRIQU5PTCIsICJmdWVsX3R5cGUiOiAiTWV0aGFub2wiLCAiZnVlbF9ncmFkZSI6ICJCaW8iLCAiZGVsaXZlcnlfcG9pbnRfaWQiOiBudWxsLCAiZGVsaXZlcnlfcG9pbnRfbmFtZSI6IG51bGwsICJyZWdpb24iOiAiQXNpYSIsICJxdWFudGl0eV9tdCI6ICIxMDAuMDAiLCAicHJpY2VfcGVyX210X3VzZCI6ICI2MDAuMDAiLCAidG90YWxfdXNkIjogIjYwMDAwLjAwMDAiLCAiY29uZmlybWVkX2F0IjogIjIwMjYtMTAtMTVUMTI6MDA6MDBaIiwgImF2YWlsYWJpbGl0eV93aW5kb3ciOiAiU1BPVCIsICJpc19kZW1vX3RyYWRlIjogZmFsc2UsICJzY29wZSI6ICJSRUdJT04iLCAicHJvdmVuYW5jZV9raW5kIjogIkNPTkZJUk1FRF9UUkFERSIsICJzb3VyY2Vfa2luZCI6ICJDT05GSVJNRURfVFJBREUiLCAiZGVtb19zdGF0dXMiOiAiUkVBTF9PTkxZIn0sIHsiaWQiOiAiMjBmZGJhY2MiLCAicHJvZHVjdF9pZCI6IG51bGwsICJtYXJrZXRfcHJvZHVjdCI6ICJCSU9fTUVUSEFOT0wiLCAiZnVlbF90eXBlIjogIk1ldGhhbm9sIiwgImZ1ZWxfZ3JhZGUiOiAiQmlvIiwgImRlbGl2ZXJ5X3BvaW50X2lkIjogbnVsbCwgImRlbGl2ZXJ5X3BvaW50X25hbWUiOiBudWxsLCAicmVnaW9uIjogIkFzaWEiLCAicXVhbnRpdHlfbXQiOiAiMTAwLjAwIiwgInByaWNlX3Blcl9tdF91c2QiOiAiNjAwLjAwIiwgInRvdGFsX3VzZCI6ICI2MDAwMC4wMDAwIiwgImNvbmZpcm1lZF9hdCI6ICIyMDI2LTEwLTE1VDEyOjAwOjAwWiIsICJhdmFpbGFiaWxpdHlfd2luZG93IjogIlNQT1QiLCAiaXNfZGVtb190cmFkZSI6IGZhbHNlLCAic2NvcGUiOiAiUkVHSU9OIiwgInByb3ZlbmFuY2Vfa2luZCI6ICJDT05GSVJNRURfVFJBREUiLCAic291cmNlX2tpbmQiOiAiQ09ORklSTUVEX1RSQURFIiwgImRlbW9fc3RhdHVzIjogIlJFQUxfT05MWSJ9XSwgInRvdGFsIjogNCwgIm1hcmtldF9ob3VycyI6IHRydWV9"
+    },
+    {
+      "id": "R06-region",
+      "request": {
+        "method": "GET",
+        "path": "/api/trade-tape",
+        "query": "region=Asia",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "items": [
+            {
+              "id": "2459bf40",
+              "product_id": null,
+              "market_product": "BIO_METHANOL",
+              "fuel_type": "Methanol",
+              "fuel_grade": "Bio",
+              "delivery_point_id": null,
+              "delivery_point_name": null,
+              "region": "Asia",
+              "quantity_mt": "100.00",
+              "price_per_mt_usd": "600.00",
+              "total_usd": "60000.0000",
+              "confirmed_at": "2026-10-15T12:00:00Z",
+              "availability_window": "SPOT",
+              "is_demo_trade": false,
+              "scope": "REGION",
+              "provenance_kind": "CONFIRMED_TRADE",
+              "source_kind": "CONFIRMED_TRADE",
+              "demo_status": "REAL_ONLY"
+            },
+            {
+              "id": "bf84470c",
+              "product_id": null,
+              "market_product": "BIO_METHANOL",
+              "fuel_type": "Methanol",
+              "fuel_grade": "Bio",
+              "delivery_point_id": null,
+              "delivery_point_name": null,
+              "region": "Asia",
+              "quantity_mt": "100.00",
+              "price_per_mt_usd": "600.00",
+              "total_usd": "60000.0000",
+              "confirmed_at": "2026-10-15T12:00:00Z",
+              "availability_window": "SPOT",
+              "is_demo_trade": true,
+              "scope": "REGION",
+              "provenance_kind": "DEMO_SEED",
+              "source_kind": "DEMO_SEED",
+              "demo_status": "DEMO_ONLY"
+            },
+            {
+              "id": "20fdbacc",
+              "product_id": null,
+              "market_product": "BIO_METHANOL",
+              "fuel_type": "Methanol",
+              "fuel_grade": "Bio",
+              "delivery_point_id": null,
+              "delivery_point_name": null,
+              "region": "Asia",
+              "quantity_mt": "100.00",
+              "price_per_mt_usd": "600.00",
+              "total_usd": "60000.0000",
+              "confirmed_at": "2026-10-15T12:00:00Z",
+              "availability_window": "SPOT",
+              "is_demo_trade": false,
+              "scope": "REGION",
+              "provenance_kind": "CONFIRMED_TRADE",
+              "source_kind": "CONFIRMED_TRADE",
+              "demo_status": "REAL_ONLY"
+            },
+            {
+              "id": "be1bd3ef",
+              "product_id": null,
+              "market_product": "BIO_METHANOL",
+              "fuel_type": "Methanol",
+              "fuel_grade": "Bio",
+              "delivery_point_id": null,
+              "delivery_point_name": null,
+              "region": "Asia",
+              "quantity_mt": "100.00",
+              "price_per_mt_usd": "600.00",
+              "total_usd": "60000.0000",
+              "confirmed_at": "2026-10-15T12:00:00Z",
+              "availability_window": "SPOT",
+              "is_demo_trade": false,
+              "scope": "REGION",
+              "provenance_kind": "CONFIRMED_TRADE",
+              "source_kind": "CONFIRMED_TRADE",
+              "demo_status": "REAL_ONLY"
+            }
+          ],
+          "total": 4,
+          "market_hours": true
+        },
+        "body_sha256": "71a947edeaae9c6cdf530e6d91479547de35f6dadc25e70f980ba7ff9bada8d8",
+        "trade_tape_tokens": [
+          [
+            "{\"id\":\"2459bf40\",\"product_id\":null,\"market_product\":\"BIO_METHANOL\",\"fuel_type\":\"Methanol\",\"fuel_grade\":\"Bio\",\"delivery_point_id\":null,\"delivery_point_name\":null,\"region\":\"Asia\",\"quantity_mt\":\"100.00\",\"price_per_mt_usd\":\"600.00\",\"total_usd\":\"60000.0000\",\"confirmed_at\":\"2026-10-15T12:00:00Z\",\"availability_window\":\"SPOT\",\"is_demo_trade\":false,\"scope\":\"REGION\",\"provenance_kind\":\"CONFIRMED_TRADE\",\"source_kind\":\"CONFIRMED_TRADE\",\"demo_status\":\"REAL_ONLY\"}",
+            "{\"id\":\"bf84470c\",\"product_id\":null,\"market_product\":\"BIO_METHANOL\",\"fuel_type\":\"Methanol\",\"fuel_grade\":\"Bio\",\"delivery_point_id\":null,\"delivery_point_name\":null,\"region\":\"Asia\",\"quantity_mt\":\"100.00\",\"price_per_mt_usd\":\"600.00\",\"total_usd\":\"60000.0000\",\"confirmed_at\":\"2026-10-15T12:00:00Z\",\"availability_window\":\"SPOT\",\"is_demo_trade\":true,\"scope\":\"REGION\",\"provenance_kind\":\"DEMO_SEED\",\"source_kind\":\"DEMO_SEED\",\"demo_status\":\"DEMO_ONLY\"}",
+            "{\"id\":\"20fdbacc\",\"product_id\":null,\"market_product\":\"BIO_METHANOL\",\"fuel_type\":\"Methanol\",\"fuel_grade\":\"Bio\",\"delivery_point_id\":null,\"delivery_point_name\":null,\"region\":\"Asia\",\"quantity_mt\":\"100.00\",\"price_per_mt_usd\":\"600.00\",\"total_usd\":\"60000.0000\",\"confirmed_at\":\"2026-10-15T12:00:00Z\",\"availability_window\":\"SPOT\",\"is_demo_trade\":false,\"scope\":\"REGION\",\"provenance_kind\":\"CONFIRMED_TRADE\",\"source_kind\":\"CONFIRMED_TRADE\",\"demo_status\":\"REAL_ONLY\"}",
+            "{\"id\":\"be1bd3ef\",\"product_id\":null,\"market_product\":\"BIO_METHANOL\",\"fuel_type\":\"Methanol\",\"fuel_grade\":\"Bio\",\"delivery_point_id\":null,\"delivery_point_name\":null,\"region\":\"Asia\",\"quantity_mt\":\"100.00\",\"price_per_mt_usd\":\"600.00\",\"total_usd\":\"60000.0000\",\"confirmed_at\":\"2026-10-15T12:00:00Z\",\"availability_window\":\"SPOT\",\"is_demo_trade\":false,\"scope\":\"REGION\",\"provenance_kind\":\"CONFIRMED_TRADE\",\"source_kind\":\"CONFIRMED_TRADE\",\"demo_status\":\"REAL_ONLY\"}"
+          ],
+          [
+            "{\"items\":[",
+            ",",
+            ",",
+            ",",
+            "],\"total\":4,\"market_hours\":true}"
+          ]
+        ]
+      },
+      "canonical_tape_proof": {
+        "rule_version": "decision85-v1",
+        "snapshot_identity": "/home/verdaxis-test/runs/rust-same-meaning/work/rust-phase1/task4b-fixtures.json",
+        "clock": "2026-10-15T12:00:00+00:00",
+        "filters": {
+          "region": "Asia",
+          "demo_only": false
+        },
+        "skip": 0,
+        "limit": 50,
+        "unpaged_count": 4,
+        "source_ids": [
+          "20fdbacc-4cc9-59ae-9be9-7f4b8e562609",
+          "2459bf40-90a7-57e9-ae13-baff6a403d33",
+          "be1bd3ef-735b-5c88-aad8-372542aa9fb2",
+          "bf84470c-c71c-5965-a6d5-27b83f4feae0"
+        ],
+        "full_ids": [
+          "bf84470c-c71c-5965-a6d5-27b83f4feae0",
+          "be1bd3ef-735b-5c88-aad8-372542aa9fb2",
+          "2459bf40-90a7-57e9-ae13-baff6a403d33",
+          "20fdbacc-4cc9-59ae-9be9-7f4b8e562609"
+        ],
+        "oracle_sha256": "2521e088925b691c25aa362872a4287d7e5c95797593d7dcf8b683fd5036e6d4"
+      },
+      "raw_body_base64": "eyJpdGVtcyI6IFt7ImlkIjogImJmODQ0NzBjIiwgInByb2R1Y3RfaWQiOiBudWxsLCAibWFya2V0X3Byb2R1Y3QiOiAiQklPX01FVEhBTk9MIiwgImZ1ZWxfdHlwZSI6ICJNZXRoYW5vbCIsICJmdWVsX2dyYWRlIjogIkJpbyIsICJkZWxpdmVyeV9wb2ludF9pZCI6IG51bGwsICJkZWxpdmVyeV9wb2ludF9uYW1lIjogbnVsbCwgInJlZ2lvbiI6ICJBc2lhIiwgInF1YW50aXR5X210IjogIjEwMC4wMCIsICJwcmljZV9wZXJfbXRfdXNkIjogIjYwMC4wMCIsICJ0b3RhbF91c2QiOiAiNjAwMDAuMDAwMCIsICJjb25maXJtZWRfYXQiOiAiMjAyNi0xMC0xNVQxMjowMDowMFoiLCAiYXZhaWxhYmlsaXR5X3dpbmRvdyI6ICJTUE9UIiwgImlzX2RlbW9fdHJhZGUiOiB0cnVlLCAic2NvcGUiOiAiUkVHSU9OIiwgInByb3ZlbmFuY2Vfa2luZCI6ICJERU1PX1NFRUQiLCAic291cmNlX2tpbmQiOiAiREVNT19TRUVEIiwgImRlbW9fc3RhdHVzIjogIkRFTU9fT05MWSJ9LCB7ImlkIjogImJlMWJkM2VmIiwgInByb2R1Y3RfaWQiOiBudWxsLCAibWFya2V0X3Byb2R1Y3QiOiAiQklPX01FVEhBTk9MIiwgImZ1ZWxfdHlwZSI6ICJNZXRoYW5vbCIsICJmdWVsX2dyYWRlIjogIkJpbyIsICJkZWxpdmVyeV9wb2ludF9pZCI6IG51bGwsICJkZWxpdmVyeV9wb2ludF9uYW1lIjogbnVsbCwgInJlZ2lvbiI6ICJBc2lhIiwgInF1YW50aXR5X210IjogIjEwMC4wMCIsICJwcmljZV9wZXJfbXRfdXNkIjogIjYwMC4wMCIsICJ0b3RhbF91c2QiOiAiNjAwMDAuMDAwMCIsICJjb25maXJtZWRfYXQiOiAiMjAyNi0xMC0xNVQxMjowMDowMFoiLCAiYXZhaWxhYmlsaXR5X3dpbmRvdyI6ICJTUE9UIiwgImlzX2RlbW9fdHJhZGUiOiBmYWxzZSwgInNjb3BlIjogIlJFR0lPTiIsICJwcm92ZW5hbmNlX2tpbmQiOiAiQ09ORklSTUVEX1RSQURFIiwgInNvdXJjZV9raW5kIjogIkNPTkZJUk1FRF9UUkFERSIsICJkZW1vX3N0YXR1cyI6ICJSRUFMX09OTFkifSwgeyJpZCI6ICIyNDU5YmY0MCIsICJwcm9kdWN0X2lkIjogbnVsbCwgIm1hcmtldF9wcm9kdWN0IjogIkJJT19NRVRIQU5PTCIsICJmdWVsX3R5cGUiOiAiTWV0aGFub2wiLCAiZnVlbF9ncmFkZSI6ICJCaW8iLCAiZGVsaXZlcnlfcG9pbnRfaWQiOiBudWxsLCAiZGVsaXZlcnlfcG9pbnRfbmFtZSI6IG51bGwsICJyZWdpb24iOiAiQXNpYSIsICJxdWFudGl0eV9tdCI6ICIxMDAuMDAiLCAicHJpY2VfcGVyX210X3VzZCI6ICI2MDAuMDAiLCAidG90YWxfdXNkIjogIjYwMDAwLjAwMDAiLCAiY29uZmlybWVkX2F0IjogIjIwMjYtMTAtMTVUMTI6MDA6MDBaIiwgImF2YWlsYWJpbGl0eV93aW5kb3ciOiAiU1BPVCIsICJpc19kZW1vX3RyYWRlIjogZmFsc2UsICJzY29wZSI6ICJSRUdJT04iLCAicHJvdmVuYW5jZV9raW5kIjogIkNPTkZJUk1FRF9UUkFERSIsICJzb3VyY2Vfa2luZCI6ICJDT05GSVJNRURfVFJBREUiLCAiZGVtb19zdGF0dXMiOiAiUkVBTF9PTkxZIn0sIHsiaWQiOiAiMjBmZGJhY2MiLCAicHJvZHVjdF9pZCI6IG51bGwsICJtYXJrZXRfcHJvZHVjdCI6ICJCSU9fTUVUSEFOT0wiLCAiZnVlbF90eXBlIjogIk1ldGhhbm9sIiwgImZ1ZWxfZ3JhZGUiOiAiQmlvIiwgImRlbGl2ZXJ5X3BvaW50X2lkIjogbnVsbCwgImRlbGl2ZXJ5X3BvaW50X25hbWUiOiBudWxsLCAicmVnaW9uIjogIkFzaWEiLCAicXVhbnRpdHlfbXQiOiAiMTAwLjAwIiwgInByaWNlX3Blcl9tdF91c2QiOiAiNjAwLjAwIiwgInRvdGFsX3VzZCI6ICI2MDAwMC4wMDAwIiwgImNvbmZpcm1lZF9hdCI6ICIyMDI2LTEwLTE1VDEyOjAwOjAwWiIsICJhdmFpbGFiaWxpdHlfd2luZG93IjogIlNQT1QiLCAiaXNfZGVtb190cmFkZSI6IGZhbHNlLCAic2NvcGUiOiAiUkVHSU9OIiwgInByb3ZlbmFuY2Vfa2luZCI6ICJDT05GSVJNRURfVFJBREUiLCAic291cmNlX2tpbmQiOiAiQ09ORklSTUVEX1RSQURFIiwgImRlbW9fc3RhdHVzIjogIlJFQUxfT05MWSJ9XSwgInRvdGFsIjogNCwgIm1hcmtldF9ob3VycyI6IHRydWV9"
+    },
+    {
+      "id": "R06-past-end",
+      "request": {
+        "method": "GET",
+        "path": "/api/trade-tape",
+        "query": "skip=1000000",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "items": [],
+          "total": 4,
+          "market_hours": true
+        },
+        "body_sha256": "9204d7e3df9e304e2da1571e59e366d04fa9848995da86d2128ed191dd0e9898"
+      },
+      "canonical_tape_proof": {
+        "rule_version": "decision85-v1",
+        "snapshot_identity": "/home/verdaxis-test/runs/rust-same-meaning/work/rust-phase1/task4b-fixtures.json",
+        "clock": "2026-10-15T12:00:00+00:00",
+        "filters": {
+          "demo_only": false
+        },
+        "skip": 1000000,
+        "limit": 50,
+        "unpaged_count": 4,
+        "source_ids": [
+          "20fdbacc-4cc9-59ae-9be9-7f4b8e562609",
+          "2459bf40-90a7-57e9-ae13-baff6a403d33",
+          "be1bd3ef-735b-5c88-aad8-372542aa9fb2",
+          "bf84470c-c71c-5965-a6d5-27b83f4feae0"
+        ],
+        "full_ids": [],
+        "oracle_sha256": "2521e088925b691c25aa362872a4287d7e5c95797593d7dcf8b683fd5036e6d4"
+      },
+      "raw_body_base64": "eyJpdGVtcyI6IFtdLCAidG90YWwiOiA0LCAibWFya2V0X2hvdXJzIjogdHJ1ZX0="
+    },
+    {
+      "id": "R06-invalid-window",
+      "request": {
+        "method": "GET",
+        "path": "/api/trade-tape",
+        "query": "availability_window=invalid",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 500,
+        "headers": {
+          "content-type": "text/plain; charset=utf-8"
+        },
+        "body": {
+          "raw": "Internal Server Error"
+        },
+        "body_sha256": "e41656eb2ba6c6293bf6dd928e5a88cdbc50535cab661c1969e0f598e497ed62"
+      },
+      "raw_body_base64": "SW50ZXJuYWwgU2VydmVyIEVycm9y"
+    },
+    {
+      "id": "R06-invalid-bool",
+      "request": {
+        "method": "GET",
+        "path": "/api/trade-tape",
+        "query": "demo_only=invalid",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 422,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": [
+            {
+              "type": "bool_parsing",
+              "loc": [
+                "query",
+                "demo_only"
+              ],
+              "msg": "Input should be a valid boolean, unable to interpret input",
+              "input": "invalid"
+            }
+          ]
+        },
+        "body_sha256": "5f143cb6f7643f0cbc490fcf8bef1d5f422739a93db3fbf8af3b7f2717f6a25f"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOlt7InR5cGUiOiJib29sX3BhcnNpbmciLCJsb2MiOlsicXVlcnkiLCJkZW1vX29ubHkiXSwibXNnIjoiSW5wdXQgc2hvdWxkIGJlIGEgdmFsaWQgYm9vbGVhbiwgdW5hYmxlIHRvIGludGVycHJldCBpbnB1dCIsImlucHV0IjoiaW52YWxpZCJ9XX0="
+    },
+    {
+      "id": "R06-point",
+      "request": {
+        "method": "GET",
+        "path": "/api/trade-tape",
+        "query": "delivery_point_id=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "items": [],
+          "total": 0,
+          "market_hours": true
+        },
+        "body_sha256": "c7eac6b66dc77e7aa68bced7da9ea6422f3b22ea0036258a347b2f136d12af3e"
+      },
+      "canonical_tape_proof": {
+        "rule_version": "decision85-v1",
+        "snapshot_identity": "/home/verdaxis-test/runs/rust-same-meaning/work/rust-phase1/task4b-fixtures.json",
+        "clock": "2026-10-15T12:00:00+00:00",
+        "filters": {
+          "delivery_point_id": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+          "demo_only": false
+        },
+        "skip": 0,
+        "limit": 50,
+        "unpaged_count": 0,
+        "source_ids": [],
+        "full_ids": [],
+        "oracle_sha256": "2521e088925b691c25aa362872a4287d7e5c95797593d7dcf8b683fd5036e6d4"
+      },
+      "raw_body_base64": "eyJpdGVtcyI6IFtdLCAidG90YWwiOiAwLCAibWFya2V0X2hvdXJzIjogdHJ1ZX0="
+    },
+    {
+      "id": "R12-substring",
+      "request": {
+        "method": "GET",
+        "path": "/api/prices",
+        "query": "fuel_type=anol&region=ASI",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "summaries": [
+            {
+              "product_id": "9510c713-6e39-5080-add3-0a7c29657b79",
+              "product_name": "Bio Methanol",
+              "market_product": "BIO_METHANOL",
+              "fuel_type": "Methanol",
+              "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+              "delivery_point_name": "Singapore",
+              "availability_window": "SPOT",
+              "region": "Asia",
+              "last_price": "600.00",
+              "avg_price_24h": "600.00",
+              "high_24h": "600.00",
+              "low_24h": "600.00",
+              "volume_24h": "300.00",
+              "trade_count_24h": 3,
+              "price_change_pct": null,
+              "last_trade_at": "2026-10-15T12:00:00Z",
+              "source_kind": "CONFIRMED_TRADE",
+              "scope": "DELIVERY_POINT",
+              "demo_status": "REAL_ONLY",
+              "is_reference": false,
+              "observed_at": "2026-10-15T12:00:00Z",
+              "real_trade_count_24h": 3,
+              "demo_trade_count_24h": 0,
+              "unknown_trade_count_24h": 0
+            },
+            {
+              "product_id": "9510c713-6e39-5080-add3-0a7c29657b79",
+              "product_name": "Bio Methanol",
+              "market_product": "BIO_METHANOL",
+              "fuel_type": "Methanol",
+              "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+              "delivery_point_name": "Singapore",
+              "availability_window": "SPOT",
+              "region": "Asia",
+              "last_price": "600.00",
+              "avg_price_24h": "600.00",
+              "high_24h": "600.00",
+              "low_24h": "600.00",
+              "volume_24h": "100.00",
+              "trade_count_24h": 1,
+              "price_change_pct": null,
+              "last_trade_at": "2026-10-15T12:00:00Z",
+              "source_kind": "DEMO_SEED",
+              "scope": "DELIVERY_POINT",
+              "demo_status": "DEMO_ONLY",
+              "is_reference": false,
+              "observed_at": "2026-10-15T12:00:00Z",
+              "real_trade_count_24h": 0,
+              "demo_trade_count_24h": 1,
+              "unknown_trade_count_24h": 0
+            }
+          ],
+          "generated_at": "2026-10-15T12:00:00Z"
+        },
+        "body_sha256": "4f20d7e1d543817dce10152996ca206811727866d651e7a589bb217897336f83",
+        "price_summary_tokens": [
+          [
+            "{\"product_id\":\"9510c713-6e39-5080-add3-0a7c29657b79\",\"product_name\":\"Bio Methanol\",\"market_product\":\"BIO_METHANOL\",\"fuel_type\":\"Methanol\",\"delivery_point_id\":\"73835e92-820e-584b-8280-bb61c63aa28e\",\"delivery_point_name\":\"Singapore\",\"availability_window\":\"SPOT\",\"region\":\"Asia\",\"last_price\":\"600.00\",\"avg_price_24h\":\"600.00\",\"high_24h\":\"600.00\",\"low_24h\":\"600.00\",\"volume_24h\":\"300.00\",\"trade_count_24h\":3,\"price_change_pct\":null,\"last_trade_at\":\"2026-10-15T12:00:00Z\",\"source_kind\":\"CONFIRMED_TRADE\",\"scope\":\"DELIVERY_POINT\",\"demo_status\":\"REAL_ONLY\",\"is_reference\":false,\"observed_at\":\"2026-10-15T12:00:00Z\",\"real_trade_count_24h\":3,\"demo_trade_count_24h\":0,\"unknown_trade_count_24h\":0}",
+            "{\"product_id\":\"9510c713-6e39-5080-add3-0a7c29657b79\",\"product_name\":\"Bio Methanol\",\"market_product\":\"BIO_METHANOL\",\"fuel_type\":\"Methanol\",\"delivery_point_id\":\"73835e92-820e-584b-8280-bb61c63aa28e\",\"delivery_point_name\":\"Singapore\",\"availability_window\":\"SPOT\",\"region\":\"Asia\",\"last_price\":\"600.00\",\"avg_price_24h\":\"600.00\",\"high_24h\":\"600.00\",\"low_24h\":\"600.00\",\"volume_24h\":\"100.00\",\"trade_count_24h\":1,\"price_change_pct\":null,\"last_trade_at\":\"2026-10-15T12:00:00Z\",\"source_kind\":\"DEMO_SEED\",\"scope\":\"DELIVERY_POINT\",\"demo_status\":\"DEMO_ONLY\",\"is_reference\":false,\"observed_at\":\"2026-10-15T12:00:00Z\",\"real_trade_count_24h\":0,\"demo_trade_count_24h\":1,\"unknown_trade_count_24h\":0}"
+          ],
+          [
+            "{\"summaries\":[",
+            ",",
+            "],\"generated_at\":\"2026-10-15T12:00:00Z\"}"
+          ]
+        ]
+      },
+      "raw_body_base64": "eyJzdW1tYXJpZXMiOlt7InByb2R1Y3RfaWQiOiI5NTEwYzcxMy02ZTM5LTUwODAtYWRkMy0wYTdjMjk2NTdiNzkiLCJwcm9kdWN0X25hbWUiOiJCaW8gTWV0aGFub2wiLCJtYXJrZXRfcHJvZHVjdCI6IkJJT19NRVRIQU5PTCIsImZ1ZWxfdHlwZSI6Ik1ldGhhbm9sIiwiZGVsaXZlcnlfcG9pbnRfaWQiOiI3MzgzNWU5Mi04MjBlLTU4NGItODI4MC1iYjYxYzYzYWEyOGUiLCJkZWxpdmVyeV9wb2ludF9uYW1lIjoiU2luZ2Fwb3JlIiwiYXZhaWxhYmlsaXR5X3dpbmRvdyI6IlNQT1QiLCJyZWdpb24iOiJBc2lhIiwibGFzdF9wcmljZSI6IjYwMC4wMCIsImF2Z19wcmljZV8yNGgiOiI2MDAuMDAiLCJoaWdoXzI0aCI6IjYwMC4wMCIsImxvd18yNGgiOiI2MDAuMDAiLCJ2b2x1bWVfMjRoIjoiMzAwLjAwIiwidHJhZGVfY291bnRfMjRoIjozLCJwcmljZV9jaGFuZ2VfcGN0IjpudWxsLCJsYXN0X3RyYWRlX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMFoiLCJzb3VyY2Vfa2luZCI6IkNPTkZJUk1FRF9UUkFERSIsInNjb3BlIjoiREVMSVZFUllfUE9JTlQiLCJkZW1vX3N0YXR1cyI6IlJFQUxfT05MWSIsImlzX3JlZmVyZW5jZSI6ZmFsc2UsIm9ic2VydmVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMFoiLCJyZWFsX3RyYWRlX2NvdW50XzI0aCI6MywiZGVtb190cmFkZV9jb3VudF8yNGgiOjAsInVua25vd25fdHJhZGVfY291bnRfMjRoIjowfSx7InByb2R1Y3RfaWQiOiI5NTEwYzcxMy02ZTM5LTUwODAtYWRkMy0wYTdjMjk2NTdiNzkiLCJwcm9kdWN0X25hbWUiOiJCaW8gTWV0aGFub2wiLCJtYXJrZXRfcHJvZHVjdCI6IkJJT19NRVRIQU5PTCIsImZ1ZWxfdHlwZSI6Ik1ldGhhbm9sIiwiZGVsaXZlcnlfcG9pbnRfaWQiOiI3MzgzNWU5Mi04MjBlLTU4NGItODI4MC1iYjYxYzYzYWEyOGUiLCJkZWxpdmVyeV9wb2ludF9uYW1lIjoiU2luZ2Fwb3JlIiwiYXZhaWxhYmlsaXR5X3dpbmRvdyI6IlNQT1QiLCJyZWdpb24iOiJBc2lhIiwibGFzdF9wcmljZSI6IjYwMC4wMCIsImF2Z19wcmljZV8yNGgiOiI2MDAuMDAiLCJoaWdoXzI0aCI6IjYwMC4wMCIsImxvd18yNGgiOiI2MDAuMDAiLCJ2b2x1bWVfMjRoIjoiMTAwLjAwIiwidHJhZGVfY291bnRfMjRoIjoxLCJwcmljZV9jaGFuZ2VfcGN0IjpudWxsLCJsYXN0X3RyYWRlX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMFoiLCJzb3VyY2Vfa2luZCI6IkRFTU9fU0VFRCIsInNjb3BlIjoiREVMSVZFUllfUE9JTlQiLCJkZW1vX3N0YXR1cyI6IkRFTU9fT05MWSIsImlzX3JlZmVyZW5jZSI6ZmFsc2UsIm9ic2VydmVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMFoiLCJyZWFsX3RyYWRlX2NvdW50XzI0aCI6MCwiZGVtb190cmFkZV9jb3VudF8yNGgiOjEsInVua25vd25fdHJhZGVfY291bnRfMjRoIjowfV0sImdlbmVyYXRlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDBaIn0="
+    },
+    {
+      "id": "R12-bad-hours",
+      "request": {
+        "method": "GET",
+        "path": "/api/prices",
+        "query": "hours=0",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 422,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": [
+            {
+              "type": "greater_than_equal",
+              "loc": [
+                "query",
+                "hours"
+              ],
+              "msg": "Input should be greater than or equal to 1",
+              "input": "0",
+              "ctx": {
+                "ge": 1
+              }
+            }
+          ]
+        },
+        "body_sha256": "4f6f95e97582b375b27f1752444d62f298dbaf38dadd2a2a66323771018b2a60"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOlt7InR5cGUiOiJncmVhdGVyX3RoYW5fZXF1YWwiLCJsb2MiOlsicXVlcnkiLCJob3VycyJdLCJtc2ciOiJJbnB1dCBzaG91bGQgYmUgZ3JlYXRlciB0aGFuIG9yIGVxdWFsIHRvIDEiLCJpbnB1dCI6IjAiLCJjdHgiOnsiZ2UiOjF9fV19"
+    },
+    {
+      "id": "R12-last-key",
+      "request": {
+        "method": "GET",
+        "path": "/api/prices",
+        "query": "hours=0&hours=24&unknown=x",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "summaries": [
+            {
+              "product_id": "9510c713-6e39-5080-add3-0a7c29657b79",
+              "product_name": "Bio Methanol",
+              "market_product": "BIO_METHANOL",
+              "fuel_type": "Methanol",
+              "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+              "delivery_point_name": "Singapore",
+              "availability_window": "SPOT",
+              "region": "Asia",
+              "last_price": "600.00",
+              "avg_price_24h": "600.00",
+              "high_24h": "600.00",
+              "low_24h": "600.00",
+              "volume_24h": "300.00",
+              "trade_count_24h": 3,
+              "price_change_pct": null,
+              "last_trade_at": "2026-10-15T12:00:00Z",
+              "source_kind": "CONFIRMED_TRADE",
+              "scope": "DELIVERY_POINT",
+              "demo_status": "REAL_ONLY",
+              "is_reference": false,
+              "observed_at": "2026-10-15T12:00:00Z",
+              "real_trade_count_24h": 3,
+              "demo_trade_count_24h": 0,
+              "unknown_trade_count_24h": 0
+            },
+            {
+              "product_id": "9510c713-6e39-5080-add3-0a7c29657b79",
+              "product_name": "Bio Methanol",
+              "market_product": "BIO_METHANOL",
+              "fuel_type": "Methanol",
+              "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+              "delivery_point_name": "Singapore",
+              "availability_window": "SPOT",
+              "region": "Asia",
+              "last_price": "600.00",
+              "avg_price_24h": "600.00",
+              "high_24h": "600.00",
+              "low_24h": "600.00",
+              "volume_24h": "100.00",
+              "trade_count_24h": 1,
+              "price_change_pct": null,
+              "last_trade_at": "2026-10-15T12:00:00Z",
+              "source_kind": "DEMO_SEED",
+              "scope": "DELIVERY_POINT",
+              "demo_status": "DEMO_ONLY",
+              "is_reference": false,
+              "observed_at": "2026-10-15T12:00:00Z",
+              "real_trade_count_24h": 0,
+              "demo_trade_count_24h": 1,
+              "unknown_trade_count_24h": 0
+            }
+          ],
+          "generated_at": "2026-10-15T12:00:00Z"
+        },
+        "body_sha256": "4f20d7e1d543817dce10152996ca206811727866d651e7a589bb217897336f83",
+        "price_summary_tokens": [
+          [
+            "{\"product_id\":\"9510c713-6e39-5080-add3-0a7c29657b79\",\"product_name\":\"Bio Methanol\",\"market_product\":\"BIO_METHANOL\",\"fuel_type\":\"Methanol\",\"delivery_point_id\":\"73835e92-820e-584b-8280-bb61c63aa28e\",\"delivery_point_name\":\"Singapore\",\"availability_window\":\"SPOT\",\"region\":\"Asia\",\"last_price\":\"600.00\",\"avg_price_24h\":\"600.00\",\"high_24h\":\"600.00\",\"low_24h\":\"600.00\",\"volume_24h\":\"300.00\",\"trade_count_24h\":3,\"price_change_pct\":null,\"last_trade_at\":\"2026-10-15T12:00:00Z\",\"source_kind\":\"CONFIRMED_TRADE\",\"scope\":\"DELIVERY_POINT\",\"demo_status\":\"REAL_ONLY\",\"is_reference\":false,\"observed_at\":\"2026-10-15T12:00:00Z\",\"real_trade_count_24h\":3,\"demo_trade_count_24h\":0,\"unknown_trade_count_24h\":0}",
+            "{\"product_id\":\"9510c713-6e39-5080-add3-0a7c29657b79\",\"product_name\":\"Bio Methanol\",\"market_product\":\"BIO_METHANOL\",\"fuel_type\":\"Methanol\",\"delivery_point_id\":\"73835e92-820e-584b-8280-bb61c63aa28e\",\"delivery_point_name\":\"Singapore\",\"availability_window\":\"SPOT\",\"region\":\"Asia\",\"last_price\":\"600.00\",\"avg_price_24h\":\"600.00\",\"high_24h\":\"600.00\",\"low_24h\":\"600.00\",\"volume_24h\":\"100.00\",\"trade_count_24h\":1,\"price_change_pct\":null,\"last_trade_at\":\"2026-10-15T12:00:00Z\",\"source_kind\":\"DEMO_SEED\",\"scope\":\"DELIVERY_POINT\",\"demo_status\":\"DEMO_ONLY\",\"is_reference\":false,\"observed_at\":\"2026-10-15T12:00:00Z\",\"real_trade_count_24h\":0,\"demo_trade_count_24h\":1,\"unknown_trade_count_24h\":0}"
+          ],
+          [
+            "{\"summaries\":[",
+            ",",
+            "],\"generated_at\":\"2026-10-15T12:00:00Z\"}"
+          ]
+        ]
+      },
+      "raw_body_base64": "eyJzdW1tYXJpZXMiOlt7InByb2R1Y3RfaWQiOiI5NTEwYzcxMy02ZTM5LTUwODAtYWRkMy0wYTdjMjk2NTdiNzkiLCJwcm9kdWN0X25hbWUiOiJCaW8gTWV0aGFub2wiLCJtYXJrZXRfcHJvZHVjdCI6IkJJT19NRVRIQU5PTCIsImZ1ZWxfdHlwZSI6Ik1ldGhhbm9sIiwiZGVsaXZlcnlfcG9pbnRfaWQiOiI3MzgzNWU5Mi04MjBlLTU4NGItODI4MC1iYjYxYzYzYWEyOGUiLCJkZWxpdmVyeV9wb2ludF9uYW1lIjoiU2luZ2Fwb3JlIiwiYXZhaWxhYmlsaXR5X3dpbmRvdyI6IlNQT1QiLCJyZWdpb24iOiJBc2lhIiwibGFzdF9wcmljZSI6IjYwMC4wMCIsImF2Z19wcmljZV8yNGgiOiI2MDAuMDAiLCJoaWdoXzI0aCI6IjYwMC4wMCIsImxvd18yNGgiOiI2MDAuMDAiLCJ2b2x1bWVfMjRoIjoiMzAwLjAwIiwidHJhZGVfY291bnRfMjRoIjozLCJwcmljZV9jaGFuZ2VfcGN0IjpudWxsLCJsYXN0X3RyYWRlX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMFoiLCJzb3VyY2Vfa2luZCI6IkNPTkZJUk1FRF9UUkFERSIsInNjb3BlIjoiREVMSVZFUllfUE9JTlQiLCJkZW1vX3N0YXR1cyI6IlJFQUxfT05MWSIsImlzX3JlZmVyZW5jZSI6ZmFsc2UsIm9ic2VydmVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMFoiLCJyZWFsX3RyYWRlX2NvdW50XzI0aCI6MywiZGVtb190cmFkZV9jb3VudF8yNGgiOjAsInVua25vd25fdHJhZGVfY291bnRfMjRoIjowfSx7InByb2R1Y3RfaWQiOiI5NTEwYzcxMy02ZTM5LTUwODAtYWRkMy0wYTdjMjk2NTdiNzkiLCJwcm9kdWN0X25hbWUiOiJCaW8gTWV0aGFub2wiLCJtYXJrZXRfcHJvZHVjdCI6IkJJT19NRVRIQU5PTCIsImZ1ZWxfdHlwZSI6Ik1ldGhhbm9sIiwiZGVsaXZlcnlfcG9pbnRfaWQiOiI3MzgzNWU5Mi04MjBlLTU4NGItODI4MC1iYjYxYzYzYWEyOGUiLCJkZWxpdmVyeV9wb2ludF9uYW1lIjoiU2luZ2Fwb3JlIiwiYXZhaWxhYmlsaXR5X3dpbmRvdyI6IlNQT1QiLCJyZWdpb24iOiJBc2lhIiwibGFzdF9wcmljZSI6IjYwMC4wMCIsImF2Z19wcmljZV8yNGgiOiI2MDAuMDAiLCJoaWdoXzI0aCI6IjYwMC4wMCIsImxvd18yNGgiOiI2MDAuMDAiLCJ2b2x1bWVfMjRoIjoiMTAwLjAwIiwidHJhZGVfY291bnRfMjRoIjoxLCJwcmljZV9jaGFuZ2VfcGN0IjpudWxsLCJsYXN0X3RyYWRlX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMFoiLCJzb3VyY2Vfa2luZCI6IkRFTU9fU0VFRCIsInNjb3BlIjoiREVMSVZFUllfUE9JTlQiLCJkZW1vX3N0YXR1cyI6IkRFTU9fT05MWSIsImlzX3JlZmVyZW5jZSI6ZmFsc2UsIm9ic2VydmVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMFoiLCJyZWFsX3RyYWRlX2NvdW50XzI0aCI6MCwiZGVtb190cmFkZV9jb3VudF8yNGgiOjEsInVua25vd25fdHJhZGVfY291bnRfMjRoIjowfV0sImdlbmVyYXRlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDBaIn0="
+    },
+    {
+      "id": "R12-window",
+      "request": {
+        "method": "GET",
+        "path": "/api/prices",
+        "query": "availability_window=invalid",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 422,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "availability_window must be SPOT, YYYY-MM, YYYY-QN, or YYYY-CAL"
+        },
+        "body_sha256": "c3c1e17efe2c35eac1051a4aa05d7ccad50d6724eac1c62351960b688e063173"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJhdmFpbGFiaWxpdHlfd2luZG93IG11c3QgYmUgU1BPVCwgWVlZWS1NTSwgWVlZWS1RTiwgb3IgWVlZWS1DQUwifQ=="
+    },
+    {
+      "id": "R12-market",
+      "request": {
+        "method": "GET",
+        "path": "/api/prices",
+        "query": "market_product=invalid",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 422,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "market_product must be one of B30, B100, BIO_LNG, UCOME_B100, BIO_METHANOL, E_METHANOL, BIO_ETHANOL, SYNTHETIC_ETHANOL"
+        },
+        "body_sha256": "9185c4bec81efdc7416d5c9a1c04e165553a17fa17e6579a46bb3be899179123"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJtYXJrZXRfcHJvZHVjdCBtdXN0IGJlIG9uZSBvZiBCMzAsIEIxMDAsIEJJT19MTkcsIFVDT01FX0IxMDAsIEJJT19NRVRIQU5PTCwgRV9NRVRIQU5PTCwgQklPX0VUSEFOT0wsIFNZTlRIRVRJQ19FVEhBTk9MIn0="
+    },
+    {
+      "id": "R13-alias-conflict",
+      "request": {
+        "method": "GET",
+        "path": "/api/prices/reference",
+        "query": "date_from=2026-01-01&from=2026-01-02",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 422,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "date_from and from must match when both are supplied"
+        },
+        "body_sha256": "ababaddd14b5208b7b75ef8d9c792491a548bf0a5ec2effe54f3941ed6813e3b"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJkYXRlX2Zyb20gYW5kIGZyb20gbXVzdCBtYXRjaCB3aGVuIGJvdGggYXJlIHN1cHBsaWVkIn0="
+    },
+    {
+      "id": "R13-alias-match",
+      "request": {
+        "method": "GET",
+        "path": "/api/prices/reference",
+        "query": "date_from=2026-01-01&from=2026-01-01",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "prices": [
+            {
+              "product_id": "9510c713-6e39-5080-add3-0a7c29657b79",
+              "product_name": "Bio Methanol",
+              "market_product": "BIO_METHANOL",
+              "fuel_type": "Methanol",
+              "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+              "delivery_point_name": "Singapore",
+              "availability_window": "SPOT",
+              "region": "Asia",
+              "vwap_usd": "600.00",
+              "total_volume_mt": "300.00",
+              "trade_count": 3,
+              "date": "2026-10-15",
+              "visibility": "external",
+              "source_kind": "CONFIRMED_TRADE",
+              "scope": "DELIVERY_POINT",
+              "demo_status": "REAL_ONLY",
+              "is_reference": true
+            }
+          ],
+          "generated_at": "2026-10-15T12:00:00Z"
+        },
+        "body_sha256": "d50498d9a1571761b2915c042aa62977475d6cc4ac1e73dfc3c6d8d861211e84"
+      },
+      "raw_body_base64": "eyJwcmljZXMiOlt7InByb2R1Y3RfaWQiOiI5NTEwYzcxMy02ZTM5LTUwODAtYWRkMy0wYTdjMjk2NTdiNzkiLCJwcm9kdWN0X25hbWUiOiJCaW8gTWV0aGFub2wiLCJtYXJrZXRfcHJvZHVjdCI6IkJJT19NRVRIQU5PTCIsImZ1ZWxfdHlwZSI6Ik1ldGhhbm9sIiwiZGVsaXZlcnlfcG9pbnRfaWQiOiI3MzgzNWU5Mi04MjBlLTU4NGItODI4MC1iYjYxYzYzYWEyOGUiLCJkZWxpdmVyeV9wb2ludF9uYW1lIjoiU2luZ2Fwb3JlIiwiYXZhaWxhYmlsaXR5X3dpbmRvdyI6IlNQT1QiLCJyZWdpb24iOiJBc2lhIiwidndhcF91c2QiOiI2MDAuMDAiLCJ0b3RhbF92b2x1bWVfbXQiOiIzMDAuMDAiLCJ0cmFkZV9jb3VudCI6MywiZGF0ZSI6IjIwMjYtMTAtMTUiLCJ2aXNpYmlsaXR5IjoiZXh0ZXJuYWwiLCJzb3VyY2Vfa2luZCI6IkNPTkZJUk1FRF9UUkFERSIsInNjb3BlIjoiREVMSVZFUllfUE9JTlQiLCJkZW1vX3N0YXR1cyI6IlJFQUxfT05MWSIsImlzX3JlZmVyZW5jZSI6dHJ1ZX1dLCJnZW5lcmF0ZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwWiJ9"
+    },
+    {
+      "id": "R13-internal",
+      "request": {
+        "method": "GET",
+        "path": "/api/prices/reference",
+        "query": "visibility=internal",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "prices": [
+            {
+              "product_id": "9510c713-6e39-5080-add3-0a7c29657b79",
+              "product_name": "Bio Methanol",
+              "market_product": "BIO_METHANOL",
+              "fuel_type": "Methanol",
+              "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+              "delivery_point_name": "Singapore",
+              "availability_window": "SPOT",
+              "region": "Asia",
+              "vwap_usd": "600.00",
+              "total_volume_mt": "300.00",
+              "trade_count": 3,
+              "date": "2026-10-15",
+              "visibility": "internal",
+              "source_kind": "CONFIRMED_TRADE",
+              "scope": "DELIVERY_POINT",
+              "demo_status": "REAL_ONLY",
+              "is_reference": true
+            }
+          ],
+          "generated_at": "2026-10-15T12:00:00Z"
+        },
+        "body_sha256": "6ff6682d7a73d88674c21dcd10c8fa63fc36342c74e3e56aea149aae22b88bc6"
+      },
+      "raw_body_base64": "eyJwcmljZXMiOlt7InByb2R1Y3RfaWQiOiI5NTEwYzcxMy02ZTM5LTUwODAtYWRkMy0wYTdjMjk2NTdiNzkiLCJwcm9kdWN0X25hbWUiOiJCaW8gTWV0aGFub2wiLCJtYXJrZXRfcHJvZHVjdCI6IkJJT19NRVRIQU5PTCIsImZ1ZWxfdHlwZSI6Ik1ldGhhbm9sIiwiZGVsaXZlcnlfcG9pbnRfaWQiOiI3MzgzNWU5Mi04MjBlLTU4NGItODI4MC1iYjYxYzYzYWEyOGUiLCJkZWxpdmVyeV9wb2ludF9uYW1lIjoiU2luZ2Fwb3JlIiwiYXZhaWxhYmlsaXR5X3dpbmRvdyI6IlNQT1QiLCJyZWdpb24iOiJBc2lhIiwidndhcF91c2QiOiI2MDAuMDAiLCJ0b3RhbF92b2x1bWVfbXQiOiIzMDAuMDAiLCJ0cmFkZV9jb3VudCI6MywiZGF0ZSI6IjIwMjYtMTAtMTUiLCJ2aXNpYmlsaXR5IjoiaW50ZXJuYWwiLCJzb3VyY2Vfa2luZCI6IkNPTkZJUk1FRF9UUkFERSIsInNjb3BlIjoiREVMSVZFUllfUE9JTlQiLCJkZW1vX3N0YXR1cyI6IlJFQUxfT05MWSIsImlzX3JlZmVyZW5jZSI6dHJ1ZX1dLCJnZW5lcmF0ZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwWiJ9"
+    },
+    {
+      "id": "R13-invalid-visibility",
+      "request": {
+        "method": "GET",
+        "path": "/api/prices/reference",
+        "query": "visibility=private",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 422,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": [
+            {
+              "type": "literal_error",
+              "loc": [
+                "query",
+                "visibility"
+              ],
+              "msg": "Input should be 'internal' or 'external'",
+              "input": "private",
+              "ctx": {
+                "expected": "'internal' or 'external'"
+              }
+            }
+          ]
+        },
+        "body_sha256": "5ed8d754f4c658a3daad66c9e5844738157cc071edaaec7f9272c9cd17d56185"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOlt7InR5cGUiOiJsaXRlcmFsX2Vycm9yIiwibG9jIjpbInF1ZXJ5IiwidmlzaWJpbGl0eSJdLCJtc2ciOiJJbnB1dCBzaG91bGQgYmUgJ2ludGVybmFsJyBvciAnZXh0ZXJuYWwnIiwiaW5wdXQiOiJwcml2YXRlIiwiY3R4Ijp7ImV4cGVjdGVkIjoiJ2ludGVybmFsJyBvciAnZXh0ZXJuYWwnIn19XX0="
+    },
+    {
+      "id": "R14-unused-format",
+      "request": {
+        "method": "GET",
+        "path": "/api/prices/reference/export",
+        "query": "format=other",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-disposition": "attachment; filename=\"verdaxis_reference_prices.csv\"",
+          "content-type": "text/csv; charset=utf-8",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "raw": "date,product_name,market_product,availability_window,fuel_type,delivery_point_name,region,vwap_usd,volume_mt,trade_count\r\n2026-10-15,Bio Methanol,BIO_METHANOL,SPOT,Methanol,Singapore,Asia,600.00,300.00,3\r\n"
+        },
+        "body_sha256": "11b5b69e4e746c990ec77d465a9b90028652f01ba9372bb2968c91234423661f"
+      },
+      "raw_body_base64": "ZGF0ZSxwcm9kdWN0X25hbWUsbWFya2V0X3Byb2R1Y3QsYXZhaWxhYmlsaXR5X3dpbmRvdyxmdWVsX3R5cGUsZGVsaXZlcnlfcG9pbnRfbmFtZSxyZWdpb24sdndhcF91c2Qsdm9sdW1lX210LHRyYWRlX2NvdW50DQoyMDI2LTEwLTE1LEJpbyBNZXRoYW5vbCxCSU9fTUVUSEFOT0wsU1BPVCxNZXRoYW5vbCxTaW5nYXBvcmUsQXNpYSw2MDAuMDAsMzAwLjAwLDMNCg=="
+    },
+    {
+      "id": "R14-reversed",
+      "request": {
+        "method": "GET",
+        "path": "/api/prices/reference/export",
+        "query": "from_date=2026-01-02&to_date=2026-01-01",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 422,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "from_date must be before or equal to to_date"
+        },
+        "body_sha256": "42b177f1e95c455de4dc4e6fc319158d234ec1d0d0f93e4e95eb2321c324e1c0"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJmcm9tX2RhdGUgbXVzdCBiZSBiZWZvcmUgb3IgZXF1YWwgdG8gdG9fZGF0ZSJ9"
+    },
+    {
+      "id": "T9-multiple-summary",
+      "request": {
+        "method": "GET",
+        "path": "/api/prices",
+        "query": "product_id=bad&delivery_point_id=bad&hours=0&market_product=bad",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 422,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": [
+            {
+              "type": "uuid_parsing",
+              "loc": [
+                "query",
+                "product_id"
+              ],
+              "msg": "Input should be a valid UUID, invalid length: expected length 32 for simple format, found 3",
+              "input": "bad",
+              "ctx": {
+                "error": "invalid length: expected length 32 for simple format, found 3"
+              }
+            },
+            {
+              "type": "uuid_parsing",
+              "loc": [
+                "query",
+                "delivery_point_id"
+              ],
+              "msg": "Input should be a valid UUID, invalid length: expected length 32 for simple format, found 3",
+              "input": "bad",
+              "ctx": {
+                "error": "invalid length: expected length 32 for simple format, found 3"
+              }
+            },
+            {
+              "type": "greater_than_equal",
+              "loc": [
+                "query",
+                "hours"
+              ],
+              "msg": "Input should be greater than or equal to 1",
+              "input": "0",
+              "ctx": {
+                "ge": 1
+              }
+            }
+          ]
+        },
+        "body_sha256": "905a1c5427e8cf97f94eea73a3cfc78e77265f71e80ac1efce4e0227d8dadb92"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOlt7InR5cGUiOiJ1dWlkX3BhcnNpbmciLCJsb2MiOlsicXVlcnkiLCJwcm9kdWN0X2lkIl0sIm1zZyI6IklucHV0IHNob3VsZCBiZSBhIHZhbGlkIFVVSUQsIGludmFsaWQgbGVuZ3RoOiBleHBlY3RlZCBsZW5ndGggMzIgZm9yIHNpbXBsZSBmb3JtYXQsIGZvdW5kIDMiLCJpbnB1dCI6ImJhZCIsImN0eCI6eyJlcnJvciI6ImludmFsaWQgbGVuZ3RoOiBleHBlY3RlZCBsZW5ndGggMzIgZm9yIHNpbXBsZSBmb3JtYXQsIGZvdW5kIDMifX0seyJ0eXBlIjoidXVpZF9wYXJzaW5nIiwibG9jIjpbInF1ZXJ5IiwiZGVsaXZlcnlfcG9pbnRfaWQiXSwibXNnIjoiSW5wdXQgc2hvdWxkIGJlIGEgdmFsaWQgVVVJRCwgaW52YWxpZCBsZW5ndGg6IGV4cGVjdGVkIGxlbmd0aCAzMiBmb3Igc2ltcGxlIGZvcm1hdCwgZm91bmQgMyIsImlucHV0IjoiYmFkIiwiY3R4Ijp7ImVycm9yIjoiaW52YWxpZCBsZW5ndGg6IGV4cGVjdGVkIGxlbmd0aCAzMiBmb3Igc2ltcGxlIGZvcm1hdCwgZm91bmQgMyJ9fSx7InR5cGUiOiJncmVhdGVyX3RoYW5fZXF1YWwiLCJsb2MiOlsicXVlcnkiLCJob3VycyJdLCJtc2ciOiJJbnB1dCBzaG91bGQgYmUgZ3JlYXRlciB0aGFuIG9yIGVxdWFsIHRvIDEiLCJpbnB1dCI6IjAiLCJjdHgiOnsiZ2UiOjF9fV19"
+    },
+    {
+      "id": "T9-multiple-reference",
+      "request": {
+        "method": "GET",
+        "path": "/api/prices/reference",
+        "query": "product_id=bad&delivery_point_id=bad&date_from=x&date_to=x&from=x&to=x&visibility=x",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 422,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": [
+            {
+              "type": "uuid_parsing",
+              "loc": [
+                "query",
+                "product_id"
+              ],
+              "msg": "Input should be a valid UUID, invalid length: expected length 32 for simple format, found 3",
+              "input": "bad",
+              "ctx": {
+                "error": "invalid length: expected length 32 for simple format, found 3"
+              }
+            },
+            {
+              "type": "uuid_parsing",
+              "loc": [
+                "query",
+                "delivery_point_id"
+              ],
+              "msg": "Input should be a valid UUID, invalid length: expected length 32 for simple format, found 3",
+              "input": "bad",
+              "ctx": {
+                "error": "invalid length: expected length 32 for simple format, found 3"
+              }
+            },
+            {
+              "type": "date_from_datetime_parsing",
+              "loc": [
+                "query",
+                "date_from"
+              ],
+              "msg": "Input should be a valid date or datetime, input is too short",
+              "input": "x",
+              "ctx": {
+                "error": "input is too short"
+              }
+            },
+            {
+              "type": "date_from_datetime_parsing",
+              "loc": [
+                "query",
+                "date_to"
+              ],
+              "msg": "Input should be a valid date or datetime, input is too short",
+              "input": "x",
+              "ctx": {
+                "error": "input is too short"
+              }
+            },
+            {
+              "type": "date_from_datetime_parsing",
+              "loc": [
+                "query",
+                "from"
+              ],
+              "msg": "Input should be a valid date or datetime, input is too short",
+              "input": "x",
+              "ctx": {
+                "error": "input is too short"
+              }
+            },
+            {
+              "type": "date_from_datetime_parsing",
+              "loc": [
+                "query",
+                "to"
+              ],
+              "msg": "Input should be a valid date or datetime, input is too short",
+              "input": "x",
+              "ctx": {
+                "error": "input is too short"
+              }
+            },
+            {
+              "type": "literal_error",
+              "loc": [
+                "query",
+                "visibility"
+              ],
+              "msg": "Input should be 'internal' or 'external'",
+              "input": "x",
+              "ctx": {
+                "expected": "'internal' or 'external'"
+              }
+            }
+          ]
+        },
+        "body_sha256": "da60d96e7c62189ba609cc525d806c51a530424d5f5401652e78646f6ad8aeb8"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOlt7InR5cGUiOiJ1dWlkX3BhcnNpbmciLCJsb2MiOlsicXVlcnkiLCJwcm9kdWN0X2lkIl0sIm1zZyI6IklucHV0IHNob3VsZCBiZSBhIHZhbGlkIFVVSUQsIGludmFsaWQgbGVuZ3RoOiBleHBlY3RlZCBsZW5ndGggMzIgZm9yIHNpbXBsZSBmb3JtYXQsIGZvdW5kIDMiLCJpbnB1dCI6ImJhZCIsImN0eCI6eyJlcnJvciI6ImludmFsaWQgbGVuZ3RoOiBleHBlY3RlZCBsZW5ndGggMzIgZm9yIHNpbXBsZSBmb3JtYXQsIGZvdW5kIDMifX0seyJ0eXBlIjoidXVpZF9wYXJzaW5nIiwibG9jIjpbInF1ZXJ5IiwiZGVsaXZlcnlfcG9pbnRfaWQiXSwibXNnIjoiSW5wdXQgc2hvdWxkIGJlIGEgdmFsaWQgVVVJRCwgaW52YWxpZCBsZW5ndGg6IGV4cGVjdGVkIGxlbmd0aCAzMiBmb3Igc2ltcGxlIGZvcm1hdCwgZm91bmQgMyIsImlucHV0IjoiYmFkIiwiY3R4Ijp7ImVycm9yIjoiaW52YWxpZCBsZW5ndGg6IGV4cGVjdGVkIGxlbmd0aCAzMiBmb3Igc2ltcGxlIGZvcm1hdCwgZm91bmQgMyJ9fSx7InR5cGUiOiJkYXRlX2Zyb21fZGF0ZXRpbWVfcGFyc2luZyIsImxvYyI6WyJxdWVyeSIsImRhdGVfZnJvbSJdLCJtc2ciOiJJbnB1dCBzaG91bGQgYmUgYSB2YWxpZCBkYXRlIG9yIGRhdGV0aW1lLCBpbnB1dCBpcyB0b28gc2hvcnQiLCJpbnB1dCI6IngiLCJjdHgiOnsiZXJyb3IiOiJpbnB1dCBpcyB0b28gc2hvcnQifX0seyJ0eXBlIjoiZGF0ZV9mcm9tX2RhdGV0aW1lX3BhcnNpbmciLCJsb2MiOlsicXVlcnkiLCJkYXRlX3RvIl0sIm1zZyI6IklucHV0IHNob3VsZCBiZSBhIHZhbGlkIGRhdGUgb3IgZGF0ZXRpbWUsIGlucHV0IGlzIHRvbyBzaG9ydCIsImlucHV0IjoieCIsImN0eCI6eyJlcnJvciI6ImlucHV0IGlzIHRvbyBzaG9ydCJ9fSx7InR5cGUiOiJkYXRlX2Zyb21fZGF0ZXRpbWVfcGFyc2luZyIsImxvYyI6WyJxdWVyeSIsImZyb20iXSwibXNnIjoiSW5wdXQgc2hvdWxkIGJlIGEgdmFsaWQgZGF0ZSBvciBkYXRldGltZSwgaW5wdXQgaXMgdG9vIHNob3J0IiwiaW5wdXQiOiJ4IiwiY3R4Ijp7ImVycm9yIjoiaW5wdXQgaXMgdG9vIHNob3J0In19LHsidHlwZSI6ImRhdGVfZnJvbV9kYXRldGltZV9wYXJzaW5nIiwibG9jIjpbInF1ZXJ5IiwidG8iXSwibXNnIjoiSW5wdXQgc2hvdWxkIGJlIGEgdmFsaWQgZGF0ZSBvciBkYXRldGltZSwgaW5wdXQgaXMgdG9vIHNob3J0IiwiaW5wdXQiOiJ4IiwiY3R4Ijp7ImVycm9yIjoiaW5wdXQgaXMgdG9vIHNob3J0In19LHsidHlwZSI6ImxpdGVyYWxfZXJyb3IiLCJsb2MiOlsicXVlcnkiLCJ2aXNpYmlsaXR5Il0sIm1zZyI6IklucHV0IHNob3VsZCBiZSAnaW50ZXJuYWwnIG9yICdleHRlcm5hbCciLCJpbnB1dCI6IngiLCJjdHgiOnsiZXhwZWN0ZWQiOiInaW50ZXJuYWwnIG9yICdleHRlcm5hbCcifX1dfQ=="
+    },
+    {
+      "id": "T9-multiple-export",
+      "request": {
+        "method": "GET",
+        "path": "/api/prices/reference/export",
+        "query": "product_id=bad&delivery_point_id=bad&from_date=x&to_date=x",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 422,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": [
+            {
+              "type": "uuid_parsing",
+              "loc": [
+                "query",
+                "product_id"
+              ],
+              "msg": "Input should be a valid UUID, invalid length: expected length 32 for simple format, found 3",
+              "input": "bad",
+              "ctx": {
+                "error": "invalid length: expected length 32 for simple format, found 3"
+              }
+            },
+            {
+              "type": "uuid_parsing",
+              "loc": [
+                "query",
+                "delivery_point_id"
+              ],
+              "msg": "Input should be a valid UUID, invalid length: expected length 32 for simple format, found 3",
+              "input": "bad",
+              "ctx": {
+                "error": "invalid length: expected length 32 for simple format, found 3"
+              }
+            },
+            {
+              "type": "date_from_datetime_parsing",
+              "loc": [
+                "query",
+                "from_date"
+              ],
+              "msg": "Input should be a valid date or datetime, input is too short",
+              "input": "x",
+              "ctx": {
+                "error": "input is too short"
+              }
+            },
+            {
+              "type": "date_from_datetime_parsing",
+              "loc": [
+                "query",
+                "to_date"
+              ],
+              "msg": "Input should be a valid date or datetime, input is too short",
+              "input": "x",
+              "ctx": {
+                "error": "input is too short"
+              }
+            }
+          ]
+        },
+        "body_sha256": "6a9ca2e75ae5e3282fb1b6ad4fe7fc9f85399f464be8f79f1106b67074abf8ca"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOlt7InR5cGUiOiJ1dWlkX3BhcnNpbmciLCJsb2MiOlsicXVlcnkiLCJwcm9kdWN0X2lkIl0sIm1zZyI6IklucHV0IHNob3VsZCBiZSBhIHZhbGlkIFVVSUQsIGludmFsaWQgbGVuZ3RoOiBleHBlY3RlZCBsZW5ndGggMzIgZm9yIHNpbXBsZSBmb3JtYXQsIGZvdW5kIDMiLCJpbnB1dCI6ImJhZCIsImN0eCI6eyJlcnJvciI6ImludmFsaWQgbGVuZ3RoOiBleHBlY3RlZCBsZW5ndGggMzIgZm9yIHNpbXBsZSBmb3JtYXQsIGZvdW5kIDMifX0seyJ0eXBlIjoidXVpZF9wYXJzaW5nIiwibG9jIjpbInF1ZXJ5IiwiZGVsaXZlcnlfcG9pbnRfaWQiXSwibXNnIjoiSW5wdXQgc2hvdWxkIGJlIGEgdmFsaWQgVVVJRCwgaW52YWxpZCBsZW5ndGg6IGV4cGVjdGVkIGxlbmd0aCAzMiBmb3Igc2ltcGxlIGZvcm1hdCwgZm91bmQgMyIsImlucHV0IjoiYmFkIiwiY3R4Ijp7ImVycm9yIjoiaW52YWxpZCBsZW5ndGg6IGV4cGVjdGVkIGxlbmd0aCAzMiBmb3Igc2ltcGxlIGZvcm1hdCwgZm91bmQgMyJ9fSx7InR5cGUiOiJkYXRlX2Zyb21fZGF0ZXRpbWVfcGFyc2luZyIsImxvYyI6WyJxdWVyeSIsImZyb21fZGF0ZSJdLCJtc2ciOiJJbnB1dCBzaG91bGQgYmUgYSB2YWxpZCBkYXRlIG9yIGRhdGV0aW1lLCBpbnB1dCBpcyB0b28gc2hvcnQiLCJpbnB1dCI6IngiLCJjdHgiOnsiZXJyb3IiOiJpbnB1dCBpcyB0b28gc2hvcnQifX0seyJ0eXBlIjoiZGF0ZV9mcm9tX2RhdGV0aW1lX3BhcnNpbmciLCJsb2MiOlsicXVlcnkiLCJ0b19kYXRlIl0sIm1zZyI6IklucHV0IHNob3VsZCBiZSBhIHZhbGlkIGRhdGUgb3IgZGF0ZXRpbWUsIGlucHV0IGlzIHRvbyBzaG9ydCIsImlucHV0IjoieCIsImN0eCI6eyJlcnJvciI6ImlucHV0IGlzIHRvbyBzaG9ydCJ9fV19"
+    },
+    {
+      "id": "T9-multiple-tape",
+      "request": {
+        "method": "GET",
+        "path": "/api/trade-tape",
+        "query": "delivery_point_id=bad&demo_only=x&skip=-1&limit=0&availability_window=x",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 422,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": [
+            {
+              "type": "uuid_parsing",
+              "loc": [
+                "query",
+                "delivery_point_id"
+              ],
+              "msg": "Input should be a valid UUID, invalid length: expected length 32 for simple format, found 3",
+              "input": "bad",
+              "ctx": {
+                "error": "invalid length: expected length 32 for simple format, found 3"
+              }
+            },
+            {
+              "type": "bool_parsing",
+              "loc": [
+                "query",
+                "demo_only"
+              ],
+              "msg": "Input should be a valid boolean, unable to interpret input",
+              "input": "x"
+            },
+            {
+              "type": "greater_than_equal",
+              "loc": [
+                "query",
+                "skip"
+              ],
+              "msg": "Input should be greater than or equal to 0",
+              "input": "-1",
+              "ctx": {
+                "ge": 0
+              }
+            },
+            {
+              "type": "greater_than_equal",
+              "loc": [
+                "query",
+                "limit"
+              ],
+              "msg": "Input should be greater than or equal to 1",
+              "input": "0",
+              "ctx": {
+                "ge": 1
+              }
+            }
+          ]
+        },
+        "body_sha256": "bff8ef4489b1a5dc134943ea9f08938bace319672e0cf9021023c5f1f0d0cd48"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOlt7InR5cGUiOiJ1dWlkX3BhcnNpbmciLCJsb2MiOlsicXVlcnkiLCJkZWxpdmVyeV9wb2ludF9pZCJdLCJtc2ciOiJJbnB1dCBzaG91bGQgYmUgYSB2YWxpZCBVVUlELCBpbnZhbGlkIGxlbmd0aDogZXhwZWN0ZWQgbGVuZ3RoIDMyIGZvciBzaW1wbGUgZm9ybWF0LCBmb3VuZCAzIiwiaW5wdXQiOiJiYWQiLCJjdHgiOnsiZXJyb3IiOiJpbnZhbGlkIGxlbmd0aDogZXhwZWN0ZWQgbGVuZ3RoIDMyIGZvciBzaW1wbGUgZm9ybWF0LCBmb3VuZCAzIn19LHsidHlwZSI6ImJvb2xfcGFyc2luZyIsImxvYyI6WyJxdWVyeSIsImRlbW9fb25seSJdLCJtc2ciOiJJbnB1dCBzaG91bGQgYmUgYSB2YWxpZCBib29sZWFuLCB1bmFibGUgdG8gaW50ZXJwcmV0IGlucHV0IiwiaW5wdXQiOiJ4In0seyJ0eXBlIjoiZ3JlYXRlcl90aGFuX2VxdWFsIiwibG9jIjpbInF1ZXJ5Iiwic2tpcCJdLCJtc2ciOiJJbnB1dCBzaG91bGQgYmUgZ3JlYXRlciB0aGFuIG9yIGVxdWFsIHRvIDAiLCJpbnB1dCI6Ii0xIiwiY3R4Ijp7ImdlIjowfX0seyJ0eXBlIjoiZ3JlYXRlcl90aGFuX2VxdWFsIiwibG9jIjpbInF1ZXJ5IiwibGltaXQiXSwibXNnIjoiSW5wdXQgc2hvdWxkIGJlIGdyZWF0ZXIgdGhhbiBvciBlcXVhbCB0byAxIiwiaW5wdXQiOiIwIiwiY3R4Ijp7ImdlIjoxfX1dfQ=="
+    },
+    {
+      "id": "T9-date-month",
+      "request": {
+        "method": "GET",
+        "path": "/api/prices/reference",
+        "query": "date_from=2026-13-01",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 422,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": [
+            {
+              "type": "date_from_datetime_parsing",
+              "loc": [
+                "query",
+                "date_from"
+              ],
+              "msg": "Input should be a valid date or datetime, month value is outside expected range of 1-12",
+              "input": "2026-13-01",
+              "ctx": {
+                "error": "month value is outside expected range of 1-12"
+              }
+            }
+          ]
+        },
+        "body_sha256": "5cdd3feef8fbd3cfdd3093ee17761dc62ec794fca10c983e703d24a17f6e5241"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOlt7InR5cGUiOiJkYXRlX2Zyb21fZGF0ZXRpbWVfcGFyc2luZyIsImxvYyI6WyJxdWVyeSIsImRhdGVfZnJvbSJdLCJtc2ciOiJJbnB1dCBzaG91bGQgYmUgYSB2YWxpZCBkYXRlIG9yIGRhdGV0aW1lLCBtb250aCB2YWx1ZSBpcyBvdXRzaWRlIGV4cGVjdGVkIHJhbmdlIG9mIDEtMTIiLCJpbnB1dCI6IjIwMjYtMTMtMDEiLCJjdHgiOnsiZXJyb3IiOiJtb250aCB2YWx1ZSBpcyBvdXRzaWRlIGV4cGVjdGVkIHJhbmdlIG9mIDEtMTIifX1dfQ=="
+    },
+    {
+      "id": "T9-date-day",
+      "request": {
+        "method": "GET",
+        "path": "/api/prices/reference",
+        "query": "date_from=2026-02-30",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 422,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": [
+            {
+              "type": "date_from_datetime_parsing",
+              "loc": [
+                "query",
+                "date_from"
+              ],
+              "msg": "Input should be a valid date or datetime, day value is outside expected range",
+              "input": "2026-02-30",
+              "ctx": {
+                "error": "day value is outside expected range"
+              }
+            }
+          ]
+        },
+        "body_sha256": "8adbf90da9e7f5fd09f943f900aa81d91eb219bab64d264f85c880cbad43b1cb"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOlt7InR5cGUiOiJkYXRlX2Zyb21fZGF0ZXRpbWVfcGFyc2luZyIsImxvYyI6WyJxdWVyeSIsImRhdGVfZnJvbSJdLCJtc2ciOiJJbnB1dCBzaG91bGQgYmUgYSB2YWxpZCBkYXRlIG9yIGRhdGV0aW1lLCBkYXkgdmFsdWUgaXMgb3V0c2lkZSBleHBlY3RlZCByYW5nZSIsImlucHV0IjoiMjAyNi0wMi0zMCIsImN0eCI6eyJlcnJvciI6ImRheSB2YWx1ZSBpcyBvdXRzaWRlIGV4cGVjdGVkIHJhbmdlIn19XX0="
+    },
+    {
+      "id": "T9-date-midnight",
+      "request": {
+        "method": "GET",
+        "path": "/api/prices/reference",
+        "query": "date_from=2026-01-01T00:00:00%2B08:00",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "prices": [
+            {
+              "product_id": "9510c713-6e39-5080-add3-0a7c29657b79",
+              "product_name": "Bio Methanol",
+              "market_product": "BIO_METHANOL",
+              "fuel_type": "Methanol",
+              "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+              "delivery_point_name": "Singapore",
+              "availability_window": "SPOT",
+              "region": "Asia",
+              "vwap_usd": "600.00",
+              "total_volume_mt": "300.00",
+              "trade_count": 3,
+              "date": "2026-10-15",
+              "visibility": "external",
+              "source_kind": "CONFIRMED_TRADE",
+              "scope": "DELIVERY_POINT",
+              "demo_status": "REAL_ONLY",
+              "is_reference": true
+            }
+          ],
+          "generated_at": "2026-10-15T12:00:00Z"
+        },
+        "body_sha256": "d50498d9a1571761b2915c042aa62977475d6cc4ac1e73dfc3c6d8d861211e84"
+      },
+      "raw_body_base64": "eyJwcmljZXMiOlt7InByb2R1Y3RfaWQiOiI5NTEwYzcxMy02ZTM5LTUwODAtYWRkMy0wYTdjMjk2NTdiNzkiLCJwcm9kdWN0X25hbWUiOiJCaW8gTWV0aGFub2wiLCJtYXJrZXRfcHJvZHVjdCI6IkJJT19NRVRIQU5PTCIsImZ1ZWxfdHlwZSI6Ik1ldGhhbm9sIiwiZGVsaXZlcnlfcG9pbnRfaWQiOiI3MzgzNWU5Mi04MjBlLTU4NGItODI4MC1iYjYxYzYzYWEyOGUiLCJkZWxpdmVyeV9wb2ludF9uYW1lIjoiU2luZ2Fwb3JlIiwiYXZhaWxhYmlsaXR5X3dpbmRvdyI6IlNQT1QiLCJyZWdpb24iOiJBc2lhIiwidndhcF91c2QiOiI2MDAuMDAiLCJ0b3RhbF92b2x1bWVfbXQiOiIzMDAuMDAiLCJ0cmFkZV9jb3VudCI6MywiZGF0ZSI6IjIwMjYtMTAtMTUiLCJ2aXNpYmlsaXR5IjoiZXh0ZXJuYWwiLCJzb3VyY2Vfa2luZCI6IkNPTkZJUk1FRF9UUkFERSIsInNjb3BlIjoiREVMSVZFUllfUE9JTlQiLCJkZW1vX3N0YXR1cyI6IlJFQUxfT05MWSIsImlzX3JlZmVyZW5jZSI6dHJ1ZX1dLCJnZW5lcmF0ZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwWiJ9"
+    },
+    {
+      "id": "T9-date-inexact",
+      "request": {
+        "method": "GET",
+        "path": "/api/prices/reference",
+        "query": "date_from=2026-01-01T01:00:00Z",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 422,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": [
+            {
+              "type": "date_from_datetime_inexact",
+              "loc": [
+                "query",
+                "date_from"
+              ],
+              "msg": "Datetimes provided to dates should have zero time - e.g. be exact dates",
+              "input": "2026-01-01T01:00:00Z"
+            }
+          ]
+        },
+        "body_sha256": "abdbf9472c861c13051806f8db9d55fe95ab70a39fc7b09d247949cb1e93c915"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOlt7InR5cGUiOiJkYXRlX2Zyb21fZGF0ZXRpbWVfaW5leGFjdCIsImxvYyI6WyJxdWVyeSIsImRhdGVfZnJvbSJdLCJtc2ciOiJEYXRldGltZXMgcHJvdmlkZWQgdG8gZGF0ZXMgc2hvdWxkIGhhdmUgemVybyB0aW1lIC0gZS5nLiBiZSBleGFjdCBkYXRlcyIsImlucHV0IjoiMjAyNi0wMS0wMVQwMTowMDowMFoifV19"
+    },
+    {
+      "id": "T9-date-epoch",
+      "request": {
+        "method": "GET",
+        "path": "/api/prices/reference",
+        "query": "date_from=86400",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "prices": [
+            {
+              "product_id": "9510c713-6e39-5080-add3-0a7c29657b79",
+              "product_name": "Bio Methanol",
+              "market_product": "BIO_METHANOL",
+              "fuel_type": "Methanol",
+              "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+              "delivery_point_name": "Singapore",
+              "availability_window": "SPOT",
+              "region": "Asia",
+              "vwap_usd": "600.00",
+              "total_volume_mt": "300.00",
+              "trade_count": 3,
+              "date": "2026-10-15",
+              "visibility": "external",
+              "source_kind": "CONFIRMED_TRADE",
+              "scope": "DELIVERY_POINT",
+              "demo_status": "REAL_ONLY",
+              "is_reference": true
+            }
+          ],
+          "generated_at": "2026-10-15T12:00:00Z"
+        },
+        "body_sha256": "d50498d9a1571761b2915c042aa62977475d6cc4ac1e73dfc3c6d8d861211e84"
+      },
+      "raw_body_base64": "eyJwcmljZXMiOlt7InByb2R1Y3RfaWQiOiI5NTEwYzcxMy02ZTM5LTUwODAtYWRkMy0wYTdjMjk2NTdiNzkiLCJwcm9kdWN0X25hbWUiOiJCaW8gTWV0aGFub2wiLCJtYXJrZXRfcHJvZHVjdCI6IkJJT19NRVRIQU5PTCIsImZ1ZWxfdHlwZSI6Ik1ldGhhbm9sIiwiZGVsaXZlcnlfcG9pbnRfaWQiOiI3MzgzNWU5Mi04MjBlLTU4NGItODI4MC1iYjYxYzYzYWEyOGUiLCJkZWxpdmVyeV9wb2ludF9uYW1lIjoiU2luZ2Fwb3JlIiwiYXZhaWxhYmlsaXR5X3dpbmRvdyI6IlNQT1QiLCJyZWdpb24iOiJBc2lhIiwidndhcF91c2QiOiI2MDAuMDAiLCJ0b3RhbF92b2x1bWVfbXQiOiIzMDAuMDAiLCJ0cmFkZV9jb3VudCI6MywiZGF0ZSI6IjIwMjYtMTAtMTUiLCJ2aXNpYmlsaXR5IjoiZXh0ZXJuYWwiLCJzb3VyY2Vfa2luZCI6IkNPTkZJUk1FRF9UUkFERSIsInNjb3BlIjoiREVMSVZFUllfUE9JTlQiLCJkZW1vX3N0YXR1cyI6IlJFQUxfT05MWSIsImlzX3JlZmVyZW5jZSI6dHJ1ZX1dLCJnZW5lcmF0ZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwWiJ9"
+    },
+    {
+      "id": "T9-date-year-zero",
+      "request": {
+        "method": "GET",
+        "path": "/api/prices/reference",
+        "query": "date_from=0000-01-01",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 422,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": [
+            {
+              "type": "date_parsing",
+              "loc": [
+                "query",
+                "date_from"
+              ],
+              "msg": "Input should be a valid date in the format YYYY-MM-DD, year 0 is out of range",
+              "input": "0000-01-01",
+              "ctx": {
+                "error": "year 0 is out of range"
+              }
+            }
+          ]
+        },
+        "body_sha256": "cd6a0c2710796b65b9af4df1fd500b6eeeaf0404fbb277a69a90949144b3f8fc"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOlt7InR5cGUiOiJkYXRlX3BhcnNpbmciLCJsb2MiOlsicXVlcnkiLCJkYXRlX2Zyb20iXSwibXNnIjoiSW5wdXQgc2hvdWxkIGJlIGEgdmFsaWQgZGF0ZSBpbiB0aGUgZm9ybWF0IFlZWVktTU0tREQsIHllYXIgMCBpcyBvdXQgb2YgcmFuZ2UiLCJpbnB1dCI6IjAwMDAtMDEtMDEiLCJjdHgiOnsiZXJyb3IiOiJ5ZWFyIDAgaXMgb3V0IG9mIHJhbmdlIn19XX0="
+    },
+    {
+      "id": "T9-date-separator",
+      "request": {
+        "method": "GET",
+        "path": "/api/prices/reference",
+        "query": "date_from=2026/01/01",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 422,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": [
+            {
+              "type": "date_from_datetime_parsing",
+              "loc": [
+                "query",
+                "date_from"
+              ],
+              "msg": "Input should be a valid date or datetime, invalid date separator, expected `-`",
+              "input": "2026/01/01",
+              "ctx": {
+                "error": "invalid date separator, expected `-`"
+              }
+            }
+          ]
+        },
+        "body_sha256": "a1f3aa160b4391a9a5f4df6d9d1660b91b8c2f2b5a45b32618d493ef44262233"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOlt7InR5cGUiOiJkYXRlX2Zyb21fZGF0ZXRpbWVfcGFyc2luZyIsImxvYyI6WyJxdWVyeSIsImRhdGVfZnJvbSJdLCJtc2ciOiJJbnB1dCBzaG91bGQgYmUgYSB2YWxpZCBkYXRlIG9yIGRhdGV0aW1lLCBpbnZhbGlkIGRhdGUgc2VwYXJhdG9yLCBleHBlY3RlZCBgLWAiLCJpbnB1dCI6IjIwMjYvMDEvMDEiLCJjdHgiOnsiZXJyb3IiOiJpbnZhbGlkIGRhdGUgc2VwYXJhdG9yLCBleHBlY3RlZCBgLWAifX1dfQ=="
+    },
+    {
+      "id": "T9-date-short",
+      "request": {
+        "method": "GET",
+        "path": "/api/prices/reference",
+        "query": "date_from=2026-1-1",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 422,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": [
+            {
+              "type": "date_from_datetime_parsing",
+              "loc": [
+                "query",
+                "date_from"
+              ],
+              "msg": "Input should be a valid date or datetime, input is too short",
+              "input": "2026-1-1",
+              "ctx": {
+                "error": "input is too short"
+              }
+            }
+          ]
+        },
+        "body_sha256": "2412c15701c64c3c7c85440f62ce05f7d0d89a846b45211ea4aa0b6a0a52b387"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOlt7InR5cGUiOiJkYXRlX2Zyb21fZGF0ZXRpbWVfcGFyc2luZyIsImxvYyI6WyJxdWVyeSIsImRhdGVfZnJvbSJdLCJtc2ciOiJJbnB1dCBzaG91bGQgYmUgYSB2YWxpZCBkYXRlIG9yIGRhdGV0aW1lLCBpbnB1dCBpcyB0b28gc2hvcnQiLCJpbnB1dCI6IjIwMjYtMS0xIiwiY3R4Ijp7ImVycm9yIjoiaW5wdXQgaXMgdG9vIHNob3J0In19XX0="
+    }
+  ]
+}

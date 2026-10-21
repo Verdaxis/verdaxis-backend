@@ -2,19 +2,19 @@
 import asyncio
 import json
 import os
-from pathlib import Path
 import subprocess
+from pathlib import Path
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from scripts.phase0.manifest import inspect_catalog, digest, PROD_SHA, STAGING_SHA
+from scripts.phase0.manifest import PROD_SHA, STAGING_SHA, digest, inspect_catalog
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
 async def historical(connection):
-    from tests.phase0.synthetic import uid, TIME
+    from tests.phase0.synthetic import TIME, uid
 
     await connection.execute(text("""
         INSERT INTO organizations (id, name, type, created_at) VALUES
@@ -87,10 +87,19 @@ async def build_union():
     finally:
         await admin.close()
     url = f"postgresql+asyncpg://phase0_owner:{os.environ['PHASE0_PASSWORD']}@127.0.0.1:{os.environ['PHASE0_PORT']}/phase0_union_test"
-    subprocess.run([str(ROOT / 'venv/bin/python'), '-m', 'alembic', 'upgrade', 'p0_20261016_union'],
-                   cwd=ROOT, env=dict(os.environ, DATABASE_URL=url, MIGRATOR_DATABASE_URL=url), check=True)
-    subprocess.run([str(ROOT / 'venv/bin/python'), '-m', 'alembic', 'check'],
-                   cwd=ROOT, env=dict(os.environ, DATABASE_URL=url, MIGRATOR_DATABASE_URL=url), check=True)
+    # Compare the historical union against its own migration and model tree.
+    # Current-head drift is checked separately by tests/postgres/test_alembic_check.py.
+    frozen_sha = '34dacf327d56ec32ddaf74c80390986a4fe1061d'
+    tree = Path(os.environ['PHASE0_WORK']) / 'union-source'
+    tree.mkdir()
+    archive = tree.parent / 'union-source.tar'
+    with archive.open('wb') as output:
+        subprocess.run(['git', 'archive', frozen_sha], cwd=ROOT, stdout=output, check=True)
+    subprocess.run(['tar', '-xf', str(archive), '-C', str(tree)], check=True)
+    (tree / 'venv').symlink_to(ROOT / 'venv', target_is_directory=True)
+    for arguments in (('upgrade', 'p0_20261016_union'), ('check',)):
+        subprocess.run([str(tree / 'venv/bin/python'), '-m', 'alembic', *arguments],
+                       cwd=tree, env=dict(os.environ, DATABASE_URL=url, MIGRATOR_DATABASE_URL=url), check=True)
     engine = create_async_engine(url)
     try:
         async with engine.connect() as connection:

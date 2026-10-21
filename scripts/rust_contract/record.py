@@ -197,8 +197,11 @@ def record(
 
 def stable(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Strip the raw bytes so a recording can be serialized and reloaded."""
+    import base64
     return [
-        {key: value for key, value in entry.items() if key != "raw_body"}
+        {**{key: value for key, value in entry.items() if key != "raw_body"},
+         **({"raw_body_base64": base64.b64encode(entry["raw_body"]).decode()}
+            if os.environ.get("RUST_CONTRACT_PROFILE") == "phase1-meaning-v1" and "raw_body" in entry else {})}
         for entry in entries
     ]
 
@@ -207,7 +210,8 @@ def differences(first: list[dict[str, Any]], second: list[dict[str, Any]]) -> li
     """Compare two recordings of the same group. Empty means stable."""
     from scripts.rust_contract.compare import recording_differences
 
-    return recording_differences(first, second)
+    return recording_differences(first, second, profile=os.environ.get("RUST_CONTRACT_PROFILE"),
+                                 rules_sha256=os.environ.get("MEANING_RULES_SHA256"))
 
 
 def write_golden(

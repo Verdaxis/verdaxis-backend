@@ -131,6 +131,30 @@ Push/PR/CI is pending clarification: the brief requests a push and draft PR but
 also explicitly says not to push because the PM owns it. No origin push or PR
 creation was performed. CI for these local commits has therefore not run.
 
+## Canonical path correction after decisions 99 and 101–103
+
+The accepted integration merge is `06a62b5028e38aa0e846d0bb44d77ef52d771fff`.
+The earlier candidate-only artifact/identity discussion is superseded: normal
+staging pushes publish signed artifacts, and canonical Python/Rust activation
+intentionally shares one SHA. The current source is policy-off again to permit
+an actual first bootstrap deploy followed by the root-owned unit installation.
+A later separately reviewed policy-on staging release supplies activation SHA S.
+No workflow change or independent identity is required.
+
+Source review found no installed-unit refusal in the previous helper: an enabled
+release could reach the joint restart with no Rust unit. Added a staging-only
+LoadState preflight, before the lock/state/source mutation, refusing not-found,
+masked and error states. Artifact verification still precedes state/source
+mutation and restart. Unit byte compatibility must be checked by the operator
+between bootstrap and activation sources; LoadState alone does not attest bytes.
+
+Bootstrap regression red: exit 1, five expected failures (three unavailable unit
+states and policy-off checks). Green: exit 0, 52 release/unit tests passed.
+The first source diff against staging has exactly two app files and no Alembic
+changes: the approved deterministic UUID tie-break for two list routes, and
+partial-fill seed quantities. No other Python request behavior change was found.
+The full scoped stat is retained in the private PM runbook, not payload evidence.
+
 ## Remaining operator gates
 
 Candidate artifact publication and independent candidate activation remain owned
