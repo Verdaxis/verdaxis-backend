@@ -35,6 +35,46 @@ class RustBudgetTests(unittest.TestCase):
         for changes, expected in [(dict(UVICORN_WORKERS=5), 69), (dict(DB_MAX_OVERFLOW=2), 69), (dict(DB_RESERVED_CONNECTIONS=21), 62)]:
             self.assertEqual(budget.derive_budget(self.settings(**changes), 9)["total"], expected)
 
+    def test_cache_listener_is_one_budgeted_connection_or_absent(self):
+        plain = budget.derive_budget(self.settings(), 17)
+        self.assertNotIn("cache_listener", plain)
+        self.assertEqual(plain, budget.derive_budget(self.settings(), 17, 0))
+        listener = budget.derive_budget(self.settings(), 17, 1)
+        self.assertEqual(listener["cache_listener"], 1)
+        self.assertEqual(listener["total"], plain["total"] + 1)
+        for bad in (2, -1, True, "1", None):
+            with self.assertRaises(ValueError):
+                budget.derive_budget(self.settings(), 17, bad)
+        # The listener must fit inside the configured maximum on its own.
+        exact = self.settings(DB_MAX_CONNECTIONS=plain["total"])
+        self.assertEqual(budget.derive_budget(exact, 17, 0)["total"], plain["total"])
+        with self.assertRaises(ValueError):
+            budget.derive_budget(exact, 17, 1)
+
+    def test_listener_artifact_is_prepared_and_verified_with_its_recorded_choice(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env = root / "runtime.env"
+            env.write_text("ENVIRONMENT=test\nRELEASE_SHA=test\nDATABASE_URL=sqlite+aiosqlite:///:memory:\n")
+            sha = "a" * 40
+            plain, with_listener = root / "plain.json", root / "listener.json"
+            budget.prepare(env, sha, plain)
+            budget.prepare(env, sha, with_listener, 1)
+            self.assertNotIn("cache_listener", json.loads(plain.read_text()))
+            recorded = json.loads(with_listener.read_text())
+            self.assertEqual(recorded["cache_listener"], 1)
+            self.assertEqual(recorded["total"], json.loads(plain.read_text())["total"] + 1)
+            budget.verify(env, sha, plain)
+            budget.verify(env, sha, with_listener)
+            # Editing the recorded choice cannot make the totals agree.
+            recorded["cache_listener"] = 0
+            with_listener.write_text(json.dumps(recorded))
+            with self.assertRaises(ValueError):
+                budget.verify(env, sha, with_listener)
+            plain.write_text("[]")
+            with self.assertRaises(ValueError):
+                budget.verify(env, sha, plain)
+
     def test_digest_drift_and_private_artifact(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -54,6 +94,25 @@ class RustBudgetTests(unittest.TestCase):
             env.write_text(env.read_text() + "DB_POOL_SIZE=3\n")
             with self.assertRaises(ValueError):
                 budget.verify(env, sha, artifact)
+
+    def test_second_preparation_and_retry_replace_budget(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env = root / "runtime.env"
+            env.write_text("ENVIRONMENT=test\nRELEASE_SHA=test\nDATABASE_URL=sqlite+aiosqlite:///:memory:\n")
+            artifact = root / "budget.json"
+            for sha in ("a" * 40, "b" * 40, "b" * 40):
+                budget.prepare(env, sha, artifact)
+                budget.verify(env, sha, artifact)
+            self.assertEqual(artifact.stat().st_mode & 0o777, 0o600)
+            saved = artifact.read_bytes()
+            artifact.unlink()
+            victim = root / "victim"
+            victim.write_bytes(saved)
+            artifact.symlink_to(victim)
+            with self.assertRaises((ValueError, OSError)):
+                budget.prepare(env, "c" * 40, artifact)
+            self.assertEqual(victim.read_bytes(), saved)
 
     def test_environment_symlink_is_refused(self):
         with tempfile.TemporaryDirectory() as directory:

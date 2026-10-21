@@ -38,6 +38,10 @@ _BOOL_TRUE = frozenset({"true", "t", "y", "yes", "1", "on"})
 _BOOL_FALSE = frozenset({"false", "f", "n", "no", "0", "off"})
 
 _IDENTITIES = {
+    "production": {
+        "database_name": "verdaxis_prod",
+        "app_role": "verdaxis_app",
+    },
     "staging": {
         "database_name": "verdaxis_staging",
         "app_role": "verdaxis_app_staging",
@@ -60,22 +64,26 @@ def read_regular(path: Path) -> bytes:
         return stream.read()
 
 
-def load_policy(source_root: Path) -> dict:
+def load_policy(source_root: Path, environment: str = "staging") -> dict:
+    if environment not in _IDENTITIES:
+        raise RustRuntimeError("unsupported Rust deployment environment")
+    policy_path = Path(f"deploy/rust/{environment}-policy.json")
     try:
-        policy = json.loads(read_regular(source_root / RUST_POLICY_PATH))
+        policy = json.loads(read_regular(source_root / policy_path))
     except (ValueError, RustRuntimeError) as exc:
-        raise RustRuntimeError("staging Rust policy is not readable JSON") from exc
+        raise RustRuntimeError(f"{environment} Rust policy is not readable JSON") from exc
+    if not isinstance(policy, dict):
+        raise RustRuntimeError(f"{environment} Rust policy has unexpected shape")
     staged = policy.get("staged_releases_dir")
+    unit = "verdaxis-rust.service" if environment == "production" else "verdaxis-rust-staging.service"
+    bind = "127.0.0.1:8010" if environment == "production" else "127.0.0.1:8011"
     if (
         not isinstance(policy, dict)
         or policy.get("version") != 1
-        or policy.get("environment") != "staging"
-        or not isinstance(policy.get("service_name"), str)
-        or not policy["service_name"].endswith("-staging.service")
-        or not isinstance(policy.get("bind"), str)
-        or not policy.get("bind", "").startswith("127.0.0.1:")
-        or not isinstance(policy.get("health_url"), str)
-        or not policy.get("health_url", "").startswith("http://127.0.0.1:")
+        or policy.get("environment") != environment
+        or policy.get("service_name") != unit
+        or policy.get("bind") != bind
+        or policy.get("health_url") != f"http://{bind}/health/ready"
         or not isinstance(policy.get("db_session_time_zone"), str)
         or not isinstance(staged, str)
         or staged.startswith("/")
@@ -145,15 +153,18 @@ def project_runtime_environment(
     )
     if any(values.get(key) is None for key in RUNTIME_KEYS):
         raise RustRuntimeError("the deployed .env must define ENVIRONMENT and RELEASE_SHA")
-    if values["ENVIRONMENT"] != "staging" or values["RELEASE_SHA"] != release_sha:
+    environment = policy["environment"]
+    if environment == "production" and migration_revision != "p0_20261016_union":
+        raise RustRuntimeError("production requires its reviewed union checkpoint")
+    if values["ENVIRONMENT"] != environment or values["RELEASE_SHA"] != release_sha:
         raise RustRuntimeError(
             "the deployed environment identity does not match this release"
         )
     return {
-        "ENVIRONMENT": "staging",
+        "ENVIRONMENT": environment,
         "RELEASE_SHA": release_sha,
         "MIGRATION_REVISION": migration_revision,
-        "DATABASE_URL": app_database_url(values, "staging"),
+        "DATABASE_URL": app_database_url(values, environment),
         "DB_SESSION_TIME_ZONE": policy["db_session_time_zone"],
         "READ_ADMISSION_SLOTS": values.get("READ_ADMISSION_SLOTS", "16"),
         KYC_GATE_KEY: kyc_execution_gate(values),
@@ -192,8 +203,9 @@ def prepare(
     output_dir: Path,
     source_root: Path,
     migration_revision: str,
+    environment: str = "staging",
 ) -> dict:
-    policy = load_policy(source_root)
+    policy = load_policy(source_root, environment)
     projected = project_runtime_environment(
         environment_file, release_sha, migration_revision, policy
     )
@@ -208,6 +220,7 @@ def main() -> int:
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--source-root", default=".", type=Path)
     parser.add_argument("--migration-revision", required=True)
+    parser.add_argument("--environment", choices=tuple(_IDENTITIES), default="staging")
     args = parser.parse_args()
     try:
         result = prepare(
@@ -216,6 +229,7 @@ def main() -> int:
             args.output_dir,
             args.source_root,
             args.migration_revision,
+            args.environment,
         )
     except (OSError, RustRuntimeError, UnicodeDecodeError) as exc:
         print(f"Rust runtime preparation refused: {exc}", file=sys.stderr)

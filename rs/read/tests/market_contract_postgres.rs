@@ -7,7 +7,7 @@
 //! role and compares the selected id sets. It never targets a deployed
 //! database.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use chrono::{DateTime, NaiveDate, Utc};
 use serde_json::Value;
@@ -694,8 +694,7 @@ async fn biofuel_supplier_metadata_clause_hides_only_failing_asks() {
     // declared biofuel ASKs and the two biofuel BIDs remain selected. Count
     // them through the same relation the clause lives in, filtered to
     // biofuel-fuel-type products.
-    let mut kept = 0;
-    {
+    let kept = {
         let rows: Vec<(Uuid,)> = sqlx::query_as(sqlx::AssertSqlSafe(biofuel_rule_sql(true)))
             .bind(serde_json::to_string(&policy).unwrap())
             .bind(clock.now)
@@ -713,8 +712,8 @@ async fn biofuel_supplier_metadata_clause_hides_only_failing_asks() {
             .fetch_all(&mut *connection)
             .await
             .expect("the biofuel-filtered relation must run");
-        kept = rows.len();
-    }
+        rows.len()
+    };
     assert_eq!(
         kept, 4,
         "visible biofuel rows: expected the two declared ASKs and two BIDs"

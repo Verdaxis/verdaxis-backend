@@ -71,7 +71,13 @@ class BootstrapIdentity:
 
 
 def migration_graph_digest():
-    files = sorted((ROOT / 'alembic/versions').glob('*.py'))
+    from alembic.script import ScriptDirectory
+
+    # Descendant releases do not change the historical bootstrap graph. Every
+    # ancestor's exact bytes still participate in the original digest.
+    graph = ScriptDirectory.from_config(Config(str(ROOT / 'alembic.ini')))
+    files = sorted(Path(revision.path) for revision in
+                   graph.walk_revisions(base='base', head='p0_20261016_union'))
     return digest({p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in files})
 
 

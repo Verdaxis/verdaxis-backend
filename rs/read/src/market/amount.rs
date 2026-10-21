@@ -1,5 +1,8 @@
-//! Python Decimal's 28-significant-digit, half-even arithmetic context.
-//! Input scale is retained; half-up is used only for output quantization.
+//! Exact public-market and voyage amounts with economic rounding.
+//!
+//! Existing formulas round intermediate results to 28 significant digits,
+//! half-even. Removing that step changes economic values, not only formatting.
+//! Final display quantization is half-up; public spelling is independent.
 use num_bigint::BigInt;
 use num_traits::{Signed, Zero};
 use std::cmp::Ordering;
@@ -13,7 +16,7 @@ const ETINY: i64 = -1_000_026;
 const EMAX: i64 = 999_999;
 
 #[derive(Clone, Debug)]
-pub struct Decimal {
+pub struct Amount {
     coefficient: BigInt,
     exponent: i64,
     negative_zero: bool,
@@ -71,7 +74,7 @@ fn aligned(value: &BigInt, source: i64, target: i64) -> BigInt {
     }
 }
 
-impl Decimal {
+impl Amount {
     pub fn compare(&self, other: &Self) -> Ordering {
         let left_sign = self.coefficient.sign();
         let right_sign = other.coefficient.sign();
@@ -309,44 +312,41 @@ impl Decimal {
         if coefficient.abs().to_string().len() > PRECISION {
             return Err("quantize exceeds context precision".into());
         }
-        Ok(Self {
-            coefficient,
-            exponent: target,
-            negative_zero: self.coefficient.is_negative() || self.negative_zero,
+        let negative = coefficient.is_negative();
+        let digits = coefficient.abs().to_string();
+        let width = scale as usize;
+        let padded = format!("{:0>width$}", digits, width = width + 1);
+        let split = padded.len() - width;
+        let sign = if negative { "-" } else { "" };
+        if width == 0 {
+            Ok(format!("{sign}{padded}"))
+        } else {
+            Ok(format!("{sign}{}.{}", &padded[..split], &padded[split..]))
         }
-        .text())
     }
 
     pub fn text(&self) -> String {
+        if self.coefficient.is_zero() {
+            return "0".into();
+        }
         let digits = self.coefficient.abs().to_string();
-        let sign = if self.coefficient.is_negative()
-            || (self.coefficient.is_zero() && self.negative_zero)
-        {
+        let trimmed = digits.trim_end_matches('0');
+        let exponent = self.exponent + (digits.len() - trimmed.len()) as i64;
+        let sign = if self.coefficient.is_negative() {
             "-"
         } else {
             ""
         };
-        let adjusted = self.exponent + digits.len() as i64 - 1;
-        if self.exponent > 0 || adjusted < -6 {
-            let mantissa = if digits.len() == 1 {
-                digits.clone()
-            } else {
-                format!("{}.{}", &digits[..1], &digits[1..])
-            };
-            return format!("{sign}{mantissa}E{adjusted:+}");
-        }
-        if self.exponent == 0 {
-            return format!("{sign}{digits}");
-        }
-        let point = digits.len() as i64 + self.exponent;
-        if point > 0 {
-            format!(
-                "{sign}{}.{}",
-                &digits[..point as usize],
-                &digits[point as usize..]
-            )
-        } else {
-            format!("{sign}0.{}{digits}", "0".repeat((-point) as usize))
-        }
+        format!("{sign}{trimmed}e{exponent}")
     }
+}
+
+/// Round an exact SQL quantity/price product once at the economic boundary.
+pub fn trade_total(exact_product: &str) -> Result<String, String> {
+    Ok(Amount::parse(exact_product)?.context().text())
+}
+
+/// Add aggregate quantities with the same intermediate economic rounding.
+pub fn sum_quantities(left: &str, right: &str) -> Result<String, String> {
+    Ok(Amount::parse(left)?.add(&Amount::parse(right)?).text())
 }

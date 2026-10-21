@@ -62,8 +62,12 @@ fn map_decimal_matches_python_context_and_exact_comparison() {
     let expected: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     for ((left, right), result) in vectors.iter().zip(expected.as_array().unwrap()) {
         assert_eq!(
-            map_decimal::add(left, right).unwrap(),
-            result[0].as_str().unwrap()
+            map_decimal::compare(
+                &map_decimal::add(left, right).unwrap(),
+                result[0].as_str().unwrap()
+            )
+            .unwrap(),
+            std::cmp::Ordering::Equal
         );
         let comparison = map_decimal::compare(left, right).unwrap();
         assert_eq!(comparison as i8, result[1].as_i64().unwrap() as i8);
@@ -84,8 +88,12 @@ fn compact_totals_keep_python_precision_and_timestamp_order() {
     later["total_quantity"] = json!("1");
     let (markets, _) = compact_groups(&[base, later], "2026-10-15".parse().unwrap()).unwrap();
     assert_eq!(
-        markets[0]["ask_total_quantity"],
-        "1.234567890123456789012345679E+28"
+        verdaxis_read::routes::orderbook_map::map_decimal::compare(
+            markets[0]["ask_total_quantity"].as_str().unwrap(),
+            "1.234567890123456789012345679E+28"
+        )
+        .unwrap(),
+        std::cmp::Ordering::Equal
     );
     assert_eq!(markets[0]["observed_at"], "2026-10-15T12:00:00.000001Z");
 }
@@ -108,8 +116,16 @@ fn compact_keeps_evidence_classes_and_nearest_forward_demo_sides() {
     let (markets, demos) =
         compact_groups(&[distant, base, bid, real], "2026-10-15".parse().unwrap()).unwrap();
     assert_eq!(markets.len(), 2);
-    assert_eq!(markets[0]["ask_total_quantity"], "60.00");
-    assert_eq!(markets[1]["ask_total_quantity"], "30.00");
+    for (index, expected) in [(0, "60"), (1, "30")] {
+        assert_eq!(
+            verdaxis_read::routes::orderbook_map::map_decimal::compare(
+                markets[index]["ask_total_quantity"].as_str().unwrap(),
+                expected
+            )
+            .unwrap(),
+            std::cmp::Ordering::Equal
+        );
+    }
     assert!(markets[0]["spot_best_ask"].is_null());
     assert_eq!(demos.len(), 2);
     assert_eq!(demos[0]["side"], "ASK");

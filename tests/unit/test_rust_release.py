@@ -196,9 +196,9 @@ class RustReleaseFixture:
         (systemd / "verdaxis-backend-staging.service").write_text(
             "[Unit]\nDescription=python backend fixture\n" + unit_body
         )
-        (source / RUST_UNIT).write_text(
-            "[Unit]\nDescription=rust reads fixture\n" + unit_body
-        )
+        # Keep the shipped launch and sandbox contract in release archives.
+        # The real verifier's missing-artifact case lives in test_rust_units.
+        shutil.copy2(ROOT / RUST_UNIT, source / RUST_UNIT)
 
         rust = source / "deploy/rust"
         rust.mkdir(parents=True)
@@ -270,6 +270,13 @@ if [[ "${1:-}" == "-I" && "${2:-}" == "-c" ]]; then
     # interpreter for the inline code instead of this ledger wrapper.
     exec __REAL_PYTHON__ "$@"
 fi
+if [[ "${1:-}" == "scripts/validate_health_response.py" ]]; then
+    # deploy.sh pipes the readiness payload into the real helper, which reads
+    # it from stdin. A wrapper that exits without draining that pipe can lose
+    # the race with the `printf` writer, whose SIGPIPE (141) then fails the
+    # pipeline and the health gate although the payload was valid.
+    cat > /dev/null
+fi
 printf 'python:%s\\n' "$*" >> "${DEPLOY_TEST_LOG:?}"
 if [[ "${DEPLOY_FAIL_PHASE:-}" == "preflight" && "${1:-}" == "scripts/preflight_runtime.py" ]]; then exit 41; fi
 if [[ "${DEPLOY_FAIL_PHASE:-}" == "budget" && "${1:-}" == "scripts/prepare_rust_budget.py" ]]; then exit 47; fi
@@ -301,7 +308,14 @@ if [[ "${DEPLOY_BLOCK_PHASE:-}" == "${1:-}" ]]; then sleep 30; fi
             fake_bin / "sudo",
             """#!/usr/bin/env bash
 set -euo pipefail
+if [[ "${1:-}" == "-n" && "${2:-}" != "-l" ]]; then shift; fi
 printf 'sudo:%s\\n' "$*" >> "${DEPLOY_TEST_LOG:?}"
+if [[ "${1:-}" == "-n" && "${2:-}" == "-l" ]]; then
+    if [[ -n "${DEPLOY_SUDO_DENY_ACTION:-}" && "${3:-}" == "systemctl" && "${4:-}" == "${DEPLOY_SUDO_DENY_ACTION}" ]]; then exit 1; fi
+    test "${DEPLOY_SUDO_DENY:-}" != 1
+    exit $?
+fi
+if [[ "${DEPLOY_RUST_START_FAIL:-}" == 1 && "$*" == "systemctl restart verdaxis-rust-staging.service" ]]; then exit 50; fi
 if [[ "${DEPLOY_FAIL_PHASE:-}" == "systemctl-restart" ]]; then exit 50; fi
 """,
         )
@@ -316,7 +330,7 @@ printf 'curl:%s\n' "$*" >> "${DEPLOY_TEST_LOG:?}"
 counter="${DEPLOY_TEST_LOG:?}.curl-count"
 count="$(cat "$counter" 2>/dev/null || printf 0)"
 printf '%s' "$(( count + 1 ))" > "$counter"
-if [[ "${DEPLOY_RUST_UNREADY:-}" == "1" && "$count" -ge 1 ]]; then
+if [[ "${DEPLOY_RUST_UNREADY:-}" == "1" && "$*" == *8011* ]]; then
     exit 7
 fi
 printf '%s' "${DEPLOY_CURL_BODY:-}"
@@ -327,6 +341,9 @@ printf '%s' "${DEPLOY_CURL_BODY:-}"
             """#!/usr/bin/env bash
 set -euo pipefail
 printf 'systemctl:%s\n' "$*" >> "${DEPLOY_TEST_LOG:?}"
+if [[ "$*" == "show --property=LoadState --value verdaxis-rust-staging.service" ]]; then
+    printf '%s\n' "${DEPLOY_RUST_LOAD_STATE:-loaded}"
+fi
 exit 0
 """,
         )
@@ -334,7 +351,7 @@ exit 0
     # -- artifact material -------------------------------------------------
     def build_artifact(self, release_sha: str) -> None:
         """Build and attest a fixture archive bound to `release_sha`."""
-        self.artifact_root = self.tmp_path / "rust-artifact"
+        self.artifact_root = self.tmp_path / f"rust-artifact-{release_sha}"
         data_dir = self.artifact_root / "data"
         data_dir.mkdir(parents=True)
         policy = {"source_sha": "b" * 40, "products": [], "points": []}
@@ -556,6 +573,27 @@ def release_fixture(tmp_path):
     return RustReleaseFixture(tmp_path)
 
 
+@pytest.mark.parametrize("fail_phase, expected_exit", [("", 0), ("health", 44)])
+def test_fixture_health_validator_drains_its_input(release_fixture, fail_phase, expected_exit):
+    """A payload larger than the pipe capacity exposes an early reader exit."""
+    environment = release_fixture.deploy_environment(release_fixture.old_sha)
+    environment["DEPLOY_FAIL_PHASE"] = fail_phase
+    result = subprocess.run(
+        [
+            "bash", "-c",
+            'set -o pipefail; cat | "$1" scripts/validate_health_response.py',
+            "fixture-health-pipeline", str(release_fixture.checkout / "venv/bin/python"),
+        ],
+        input=b"x" * (1024 * 1024),
+        env=environment,
+        capture_output=True,
+        check=False,
+        timeout=10,
+    )
+    assert result.returncode == expected_exit, result.stderr.decode()
+    assert release_fixture.ledger == ["python:scripts/validate_health_response.py"]
+
+
 def test_fixture_checkout_relies_on_the_documented_layout_override(release_fixture):
     """The fixture checkout is not `<canonical>/be`, so the override applies.
 
@@ -613,9 +651,8 @@ def test_both_health_results_are_required(release_fixture):
     release_fixture.build_artifact(new_sha)
     result = release_fixture.deploy(new_sha, DEPLOY_RUST_UNREADY="1")
     assert result.returncode != 0
-    assert "DEPLOYMENT_STATE=blocked" in release_fixture.state_text()
+    assert "DEPLOYMENT_STATE=rust-failed" in release_fixture.state_text()
     assert release_fixture.stopped_services() == {
-        "verdaxis-backend-staging-test.service",
         "verdaxis-rust-staging.service",
     }
     rust_runtime = next(
@@ -630,7 +667,8 @@ def test_rust_deploy_restarts_both_services_and_clears_state(release_fixture):
     assert result.returncode == 0, result.stderr
     restarts = [e for e in release_fixture.ledger if e.startswith("sudo:systemctl restart")]
     assert restarts == [
-        "sudo:systemctl restart verdaxis-backend-staging-test.service verdaxis-rust-staging.service"
+        "sudo:systemctl restart verdaxis-backend-staging-test.service",
+        "sudo:systemctl restart verdaxis-rust-staging.service"
     ]
     assert release_fixture.state_text() == ""
     runtime_env = release_fixture.checkout / ".runtime-rust/runtime.env"
@@ -643,6 +681,77 @@ def test_rust_deploy_restarts_both_services_and_clears_state(release_fixture):
     assert budget.is_file()
 
 
+def test_rust_deploy_enables_the_unit_once_after_activation(release_fixture):
+    """A boot must keep the activated Rust unit, so enable it once on success."""
+    new_sha = release_fixture.push_rust_release(enabled=True)
+    release_fixture.build_artifact(new_sha)
+    result = release_fixture.deploy(new_sha)
+    assert result.returncode == 0, result.stderr
+    ledger = release_fixture.ledger
+    enables = [e for e in ledger if e == "sudo:systemctl enable verdaxis-rust-staging.service"]
+    assert enables == ["sudo:systemctl enable verdaxis-rust-staging.service"]
+    enable_index = ledger.index(enables[0])
+    rust_restart = ledger.index(
+        "sudo:systemctl restart verdaxis-rust-staging.service"
+    )
+    last_readiness = max(
+        i for i, entry in enumerate(ledger)
+        if entry.startswith("python:scripts/validate_health_response.py")
+    )
+    # Enabled only after the Rust restart and both exact-readiness checks.
+    assert rust_restart < last_readiness < enable_index
+    assert release_fixture.state_text() == ""
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        {"fail_phase": "health"},
+        {"fail_phase": "rust-runtime"},
+        {"fail_phase": "budget"},
+        {"DEPLOY_RUST_START_FAIL": "1"},
+        {"DEPLOY_RUST_UNREADY": "1"},
+    ],
+    ids=["backend-health", "rust-runtime", "budget", "rust-start", "rust-readiness"],
+)
+def test_rust_activation_failure_never_enables_the_unit(release_fixture, failure):
+    new_sha = release_fixture.push_rust_release(enabled=True)
+    release_fixture.build_artifact(new_sha)
+    result = release_fixture.deploy(new_sha, **failure)
+    assert result.returncode != 0
+    assert not any(
+        e == "sudo:systemctl enable verdaxis-rust-staging.service"
+        for e in release_fixture.ledger
+    )
+
+
+def test_python_only_deploy_never_enables_the_rust_unit(release_fixture):
+    new_sha = release_fixture.push_rust_release(enabled=False)
+    result = release_fixture.deploy(new_sha)
+    assert result.returncode == 0, result.stderr
+    assert not any("systemctl enable" in e for e in release_fixture.ledger)
+    assert not any("verdaxis-rust" in e for e in release_fixture.ledger)
+
+
+def test_missing_enable_authority_refuses_before_source_or_restart(release_fixture):
+    """The sudoers preflight must refuse a file without the enable command."""
+    new_sha = release_fixture.push_rust_release(enabled=True)
+    release_fixture.build_artifact(new_sha)
+    result = release_fixture.deploy(new_sha, DEPLOY_SUDO_DENY_ACTION="enable")
+    assert result.returncode != 0
+    assert any(
+        "sudo:-n -l systemctl enable verdaxis-rust-staging.service" in e
+        for e in release_fixture.ledger
+    )
+    assert _git(release_fixture.checkout, "rev-parse", "HEAD").stdout.strip() == release_fixture.old_sha
+    assert release_fixture.state_text() == ""
+    assert not release_fixture.stopped_services()
+    assert not any(
+        e == "sudo:systemctl enable verdaxis-rust-staging.service"
+        for e in release_fixture.ledger
+    )
+
+
 def test_rust_health_uses_loopback_identity_url(release_fixture):
     new_sha = release_fixture.push_rust_release(enabled=True)
     release_fixture.build_artifact(new_sha)
@@ -651,6 +760,18 @@ def test_rust_health_uses_loopback_identity_url(release_fixture):
         e for e in release_fixture.ledger if e.startswith("curl:") and "8011" in e
     )
     assert "http://127.0.0.1:8011/health/ready" in identity
+
+
+@pytest.mark.parametrize("load_state", ["not-found", "masked", "error"])
+def test_unavailable_rust_unit_refuses_before_source_or_restart(release_fixture, load_state):
+    new_sha = release_fixture.push_rust_release(enabled=True)
+    release_fixture.build_artifact(new_sha)
+    result = release_fixture.deploy(new_sha, DEPLOY_RUST_LOAD_STATE=load_state)
+    assert result.returncode != 0
+    assert "unit" in (result.stderr + result.stdout).lower()
+    assert not any("sudo:systemctl" in e for e in release_fixture.ledger)
+    assert release_fixture.state_text() == ""
+    assert _git(release_fixture.checkout, "rev-parse", "HEAD").stdout.strip() == release_fixture.old_sha
 
 
 def test_missing_provenance_record_refuses_before_any_stop(release_fixture):
@@ -879,7 +1000,7 @@ def test_interrupted_restart_window_releases_locks_and_keeps_state(release_fixtu
             e for e in release_fixture.ledger if e.startswith("sudo:systemctl restart")
         ]
         assert restarts == [
-            "sudo:systemctl restart verdaxis-backend-staging-test.service verdaxis-rust-staging.service"
+            "sudo:systemctl restart verdaxis-backend-staging-test.service",
         ]
         os.kill(running.pid, signal.SIGKILL)
         running.wait(timeout=5)
@@ -1026,3 +1147,43 @@ def test_golden_python_ledger_is_recorded_completely(release_fixture):
     assert result.returncode == 0, result.stderr
     for entry in GOLDEN_PYTHON_LEDGER:
         assert ledger_contains(release_fixture.ledger, entry), f"missing {entry}"
+
+
+def test_sudo_denial_refuses_before_source_state_or_restart(release_fixture):
+    new_sha = release_fixture.push_rust_release(enabled=True)
+    release_fixture.build_artifact(new_sha)
+    result = release_fixture.deploy(new_sha, DEPLOY_SUDO_DENY="1")
+    assert result.returncode != 0
+    assert _git(release_fixture.checkout, "rev-parse", "HEAD").stdout.strip() == release_fixture.old_sha
+    assert release_fixture.state_text() == ""
+    assert not release_fixture.stopped_services()
+
+
+def test_rust_readiness_failure_keeps_python_and_disables_rust(release_fixture):
+    new_sha = release_fixture.push_rust_release(enabled=True)
+    release_fixture.build_artifact(new_sha)
+    result = release_fixture.deploy(new_sha, DEPLOY_RUST_UNREADY="1")
+    assert result.returncode != 0
+    assert release_fixture.stopped_services() == {"verdaxis-rust-staging.service"}
+    assert any("disable verdaxis-rust-staging.service" in e for e in release_fixture.ledger)
+    assert "rust-failed" in release_fixture.state_text()
+
+
+def test_rust_start_failure_preserves_python(release_fixture):
+    sha = release_fixture.push_rust_release(enabled=True)
+    release_fixture.build_artifact(sha)
+    result = release_fixture.deploy(sha, DEPLOY_RUST_START_FAIL="1")
+    assert result.returncode != 0
+    assert release_fixture.stopped_services() == {"verdaxis-rust-staging.service"}
+    assert "rust-failed" in release_fixture.state_text()
+
+
+def test_retry_after_rust_failure_then_second_release(release_fixture):
+    sha = release_fixture.push_rust_release(enabled=True)
+    release_fixture.build_artifact(sha)
+    assert release_fixture.deploy(sha, DEPLOY_RUST_UNREADY="1").returncode != 0
+    assert release_fixture.deploy(sha).returncode == 0
+    assert release_fixture.state_text() == ""
+    second = release_fixture.push_new_release()
+    release_fixture.build_artifact(second)
+    assert release_fixture.deploy(second).returncode == 0

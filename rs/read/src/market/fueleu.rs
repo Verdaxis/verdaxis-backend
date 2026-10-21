@@ -5,7 +5,7 @@
 //! reductions once and derives every limit from them, so every consumer uses
 //! the same values. The limit is a regulatory intensity, not a fuel certificate
 //! or a monetary benefit.
-use crate::mcp::decimal::Decimal as McpDecimal;
+use crate::market::amount::Amount;
 use rust_decimal::Decimal;
 use std::fmt;
 
@@ -59,17 +59,17 @@ pub fn fueleu_target(year: i32) -> Result<Decimal, YearError> {
     Ok(FUELEU_REFERENCE_GHG * (Decimal::ONE - reduction))
 }
 
-/// The reference value as the exact decimal type of the MCP calculations.
-pub fn mcp_reference() -> McpDecimal {
+/// The reference value as the exact amount of the MCP voyage calculations.
+pub fn mcp_reference() -> Amount {
     to_mcp(FUELEU_REFERENCE_GHG)
 }
 
-/// The reporting-year limit as the exact decimal type of the MCP calculations.
-pub fn mcp_target(year: i32) -> Result<McpDecimal, YearError> {
+/// The reporting-year limit as the exact amount of the MCP voyage calculations.
+pub fn mcp_target(year: i32) -> Result<Amount, YearError> {
     fueleu_target(year).map(to_mcp)
 }
 
-fn to_mcp(value: Decimal) -> McpDecimal {
+fn to_mcp(value: Decimal) -> Amount {
     // Only the short exact values of this module cross this adapter.
-    McpDecimal::parse(&value.to_string()).expect("a FuelEU value is a valid exact decimal")
+    Amount::parse(&value.to_string()).expect("a FuelEU value is a valid exact amount")
 }

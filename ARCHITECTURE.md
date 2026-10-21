@@ -289,16 +289,82 @@ Task 12c adds the reviewed staging unit
 staging manifest now selects the backend, the Rust reads and the singleton
 maintenance units. The unit loads `.runtime-release.env` and the deploy-written
 `.runtime-rust/runtime.env` (never the secret-rich `.env`) and runs the deploy
-start guard, the migrator-backed revision check and the budget drift check
-before `ExecStart`; it serves `127.0.0.1:8011` with a 256 MiB cap on the same
-sandbox directives as the running backend unit. Task 14b enables staging-only policy in
-`deploy/rust/staging-policy.json`; this source approval is not an activation
-command. The independent candidate activation path remains a PM gate. The
-canonical Rust-enabled staging deploy restarts both units in one call and
-requires both readiness documents before state clears. Production
-carries neither record and reads no Rust path.
+start guard and isolated stdlib `verify_rust_start.py` before `ExecStart`.
+The deploy verifies migration authority and budget drift under its lock, then
+freezes the exact revision with the release SHA in private `revision.json`;
+startup checks that record and budget identity without application imports,
+`.env` or a migrator secret. Budget preparation uses atomic replacement, so
+repeat deploys and retries do not fail on an existing artifact. It it serves `127.0.0.1:8011` with a 256 MiB cap on the same
+sandbox directives as the running backend unit. The first staging release keeps
+`deploy/rust/staging-policy.json` disabled. Deploy that bootstrap release, then
+install its immutable unit bundle as root from the exact clean fixed checkout.
+Only a later reviewed staging activation release enables the policy. Its
+canonical deploy refuses an unloaded/masked Rust unit before source mutation,
+verifies the signed artifact before state publication and preflights exact
+noninteractive sudo service commands against reviewed environment sudoers.
+Python restarts and passes exact readiness first; Rust restarts separately.
+Rust-only start/readiness failure stops and disables Rust while retaining
+exact-ready Python at the new SHA, with durable `rust-failed` state for canonical
+retry. Python failures remain fail-closed. Both readiness documents are required
+before successful deploy state clears. Decisions
+99 and 101–103 use normal staging publication and one shared Python/Rust release
+SHA; there is no independent candidate activation path. Production
+now has a separate policy-off bootstrap record and unit; no production Rust
+activation occurs merely by promoting this source. `deploy/rust/production-policy.json`
+selects `verdaxis-rust.service` at `127.0.0.1:8010`. The shared transaction selects
+only its own environment policy, verifies production provenance against
+`refs/heads/staging`, prepares app-only runtime credentials, and requires the same
+Python/Rust release SHA and both readiness documents. Production startup requires
+`verdaxis_app` on `127.0.0.1:5432/verdaxis_prod` and exact checkpoint
+`p0_20261016_union`. Production browser CORS follows the Python production origin
+set, not staging's origin. The production unit caps Rust at 256 MiB and one CPU;
+Python retains four workers. Conservative default connection accounting is 69
+including the 20-connection reserve and Rust's 16 reads plus readiness.
+Production needs its own B' policy-off deploy, root manifest install, then S'
+policy-on prod-push artifact; neither staging artifacts nor an independent SHA
+are accepted. `scripts/rust_caddy_candidate.py` prepares private per-group Caddy
+candidates and exact rollback bytes without touching live config. It reuses Task
+13's exact matchers and refuses production MCP activation. Production uses the
+single EU Caddyfile: P0 adds a bounded redacted API access log, then each group
+inserts its handle after analytics and before the unchanged Python fallback,
+retaining client-IP forwarding, flush and keepalive policy. Each read group lists
+Rust first and the Python process second with `lb_policy first`, a ten-second
+`lb_try_duration`, a 250 ms `lb_try_interval`, and passive health
+(`fail_duration 30s`, `max_fails 1`), so a stopped Rust service answers from
+Python. The `fallback` candidate adds a 15-second retry window to the Python
+catch-all so a request waits out a Python restart. MCP keeps one upstream because
+it carries writes: Caddy retries any method after a dial error, but a non-GET
+request after a successful connection is not retried. Staging keeps snippet
+imports and takes the same options from `deploy/caddy/rust-public-staging.caddy`.
+`scripts/rust_passive_no_harm.py` evaluates equal ordinary-traffic log
+windows and journal error classes; it performs no requests or measurements. An
+empty or missing journal window is invalid evidence (exit 2 with a reason), never
+"no new error classes".
+Both Rust units launch through `/usr/bin/env` so real systemd verification works
+before the first artifact exists without weakening startup checks. See
+`docs/plans/2026-10-19-rust-phase-1-production.md`; host acceptance remains separate.
 `docs/rust-phase1/progress-task12c.md` holds the unit digest, the artifact
 digest and the systemd 249/255 and staging-ABI start evidence.
+
+## Phase 1 same-meaning successor
+
+The explicit `phase1-meaning-v1` profile reuses `phase2_meaning.py` and its single
+raw-response comparator. The default byte path remains historical and unchanged.
+The successor CI runner supplies the reviewed ledger digest explicitly.
+`phase1_meaning/corpus/{enabled,disabled}` retains all 487 requests per KYC state,
+recorded twice on disposable data. Canonical tape pages come from the complete
+Python-filtered relation before full-UUID pagination, not a sorted Python page.
+`runtime/cache.rs` stores only bounded public reference payloads for 60 seconds;
+request headers are rebuilt. Trading caches remain unimplemented and disabled.
+Their infrastructure is prepared: migration `prc_20261018_cache` adds the
+generation, event and incarnation tables and an always-enabled statement trigger
+on each trading dependency. `runtime/cache_authority.rs` grants a hit only under an
+owner record outside the database (`scripts/rust_cache_authority.py` writes it),
+a lease, a matching database identity and a bound listener; `runtime/cache_events.rs`
+owns the one budgeted listener connection. Nothing starts either yet. See
+`docs/rust-phase1/cache-dependencies.md`.
+Exact `market/amount.rs` operations retain intermediate economic rounding while
+removing wire-spelling emulation. See `docs/rust-phase1/same-meaning-contract.md`.
 
 ## Rust Phase 2 shared route runner
 
@@ -373,6 +439,16 @@ identity, successful-sample floor, frozen p95 thresholds and error-rate rule.
 `measure.py --rust-only` starts no Python service and records baseline, manifest,
 source and harness identities. Python remains the differential correctness oracle
 at both sizes. Historical paired evidence cannot satisfy the new Rust-only gate.
+
+## Shared same-meaning comparator
+
+The successor branch reuses Phase 2's reviewed comparator commit `64179cd1`.
+Authentication issuance, market writers, SSE and dispatch remain Python-owned.
+`compare.py::compare_responses` is the raw-response profile boundary. Its explicit
+`phase2-meaning-v1` branch delegates to private `phase2_meaning.py`, with a
+SHA-256-pinned `normalization.json` ledger. It uses exact tagged JSON values,
+schema-local decimal/timestamp rules and complete-item multisets inside approved
+ties only. The Phase 1 default and existing recording comparator stay unchanged.
 
 ## File Map
 

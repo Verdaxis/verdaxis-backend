@@ -1,4 +1,4 @@
-use verdaxis_read::market::decimal::python_product_text;
+use verdaxis_read::market::amount::{Amount, trade_total};
 
 #[test]
 fn exact_sql_product_gets_python_context_without_normalizing_scale() {
@@ -31,6 +31,12 @@ fn exact_sql_product_gets_python_context_without_normalizing_scale() {
             "1.234567890123456789012345679E+29",
         ),
     ] {
-        assert_eq!(python_product_text(exact).unwrap(), expected, "{exact}");
+        assert_eq!(
+            Amount::parse(&trade_total(exact).unwrap())
+                .unwrap()
+                .compare(&Amount::parse(expected).unwrap()),
+            std::cmp::Ordering::Equal,
+            "{exact}"
+        );
     }
 }

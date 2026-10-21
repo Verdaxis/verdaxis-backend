@@ -25,7 +25,7 @@ def migrate(database, revision=REVISION):
 
 def test_union_checkpoint_contract():
     graph = ScriptDirectory.from_config(Config(str(ROOT / 'alembic.ini')))
-    assert graph.get_current_head() == REVISION
+    assert graph.get_revision(REVISION) in list(graph.walk_revisions(base='base', head=graph.get_current_head()))
     assert graph.get_revision(REVISION).down_revision == 'kycd_20261015_staging'
     rows = (ROOT / 'deploy/migration-checkpoints.tsv').read_text().splitlines()
     assert f'kycd_20261015_staging\t{REVISION}' in rows
