@@ -4,6 +4,7 @@ use super::{
     prices::{captured_now, fields, integer, uuid},
 };
 use crate::market::{
+    fueleu::FUELEU_REFERENCE_GHG,
     live_benchmarks::LiveBenchmarkCache,
     order_projection::PublicOrder,
     visibility::{
@@ -461,7 +462,7 @@ fn ci_overlay(order: &PublicOrder, lng: bool) -> Result<Json, ApiError> {
         return Ok(Json::Null);
     }
     // FuelEU lifecycle reference, gCO2e/MJ; no inferred financial benefit.
-    let reference = Decimal::new(9116, 2);
+    let reference = FUELEU_REFERENCE_GHG;
     let mut reduction = ((reference - ci) / reference * Decimal::from(100))
         .max(Decimal::ZERO)
         .round_dp_with_strategy(1, RoundingStrategy::MidpointAwayFromZero);
@@ -471,6 +472,44 @@ fn ci_overlay(order: &PublicOrder, lng: bool) -> Result<Json, ApiError> {
         .round_dp_with_strategy(2, RoundingStrategy::MidpointAwayFromZero);
     effective.rescale(2);
     Ok(
-        json!({"financial_benefit_status":"UNPRICED","base_price_per_mt":order.private["price_per_mt_usd"],"carbon_intensity_gco2_mj":order.private["carbon_intensity_gco2_mj"],"fueleu_ghg_intensity":"91.16","compliance_cost_per_mt":"0.00","effective_price_per_mt":effective.to_string(),"ghg_reduction_pct":reduction.to_string()}),
+        json!({"financial_benefit_status":"UNPRICED","base_price_per_mt":order.private["price_per_mt_usd"],"carbon_intensity_gco2_mj":order.private["carbon_intensity_gco2_mj"],"fueleu_ghg_intensity":reference.to_string(),"compliance_cost_per_mt":"0.00","effective_price_per_mt":effective.to_string(),"ghg_reduction_pct":reduction.to_string()}),
     )
+}
+
+#[cfg(test)]
+mod lifecycle_comparison_tests {
+    use super::*;
+
+    fn ask(carbon_intensity: &str) -> PublicOrder {
+        PublicOrder {
+            private: json!({
+                "carbon_intensity_gco2_mj": carbon_intensity,
+                "energy_density_mj_kg": "19.9",
+                "price_per_mt_usd": "700.00",
+            }),
+            labels: Json::Null,
+            price: Decimal::new(70_000, 2),
+            side: "ASK".to_owned(),
+            provenance: "REAL".to_owned(),
+        }
+    }
+
+    #[test]
+    fn lifecycle_comparison_uses_the_shared_fueleu_reference() {
+        let reference = FUELEU_REFERENCE_GHG.to_string();
+        let half_reference = (FUELEU_REFERENCE_GHG / Decimal::TWO).to_string();
+        // Half the reference intensity is a 50 % reduction only when the
+        // arithmetic uses the same reference; at or above it there is none.
+        for (carbon_intensity, reduction) in [
+            (half_reference.as_str(), "50.0"),
+            (reference.as_str(), "0.0"),
+            ("95.00", "0.0"),
+        ] {
+            let overlay = ci_overlay(&ask(carbon_intensity), false).unwrap();
+            assert_eq!(overlay["fueleu_ghg_intensity"], reference);
+            assert_eq!(overlay["ghg_reduction_pct"], reduction);
+            assert_eq!(overlay["financial_benefit_status"], "UNPRICED");
+        }
+        assert_eq!(ci_overlay(&ask(&half_reference), true).unwrap(), Json::Null);
+    }
 }

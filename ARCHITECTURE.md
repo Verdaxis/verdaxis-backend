@@ -16,6 +16,16 @@ comes from each environment's `/health/ready` response, not a dated SHA in
 source documentation. The shared-host marker is
 `/home/verdaxis-prod/verdaxis/PRODUCTION_HOST.md`.
 
+## Shared FuelEU reference values
+
+`rs/read/src/market/fueleu.rs` owns the lifecycle GHG reference and the
+regulation's reduction steps; every reporting-year limit is derived from both.
+Voyage calculations use its exact-decimal adapter; order-book CI projections use
+the same reference for arithmetic and response fields. The shared schedule
+accepts 2025–9999; the MCP request retains its 2025–2050 reporting-year range.
+`rs/read/tests/phase5_fueleu.rs` checks the boundaries, adapters and consumer
+sources.
+
 ## Rust Phase 2 feedback
 
 `rs/read/src/crud/feedback.rs` provides the Task 10 feedback submission and

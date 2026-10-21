@@ -5,6 +5,7 @@
 //! no route forks a predicate.
 
 pub mod decimal;
+pub mod fueleu;
 pub mod legacy_curve;
 pub mod live_benchmarks;
 pub mod order_projection;
