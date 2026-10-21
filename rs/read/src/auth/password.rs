@@ -13,6 +13,8 @@ use std::sync::{Arc, OnceLock};
 use sha2::{Digest, Sha256};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
+use super::token_bytes::generate_token;
+
 /// bcrypt cost, matching Python's `bcrypt.gensalt()` default.
 pub const BCRYPT_COST: u32 = 12;
 /// The shortest password a route accepts.
@@ -23,11 +25,6 @@ pub const MAX_PASSWORD_BYTES: usize = 1024;
 const BCRYPT_MAX_BYTES: usize = 72;
 /// The same four-worker bound Python enforces with its capacity limiter.
 const PASSWORD_WORKERS: usize = 4;
-
-/// The fixed password behind the dummy hash. It is not a credential: login
-/// verifies a missing account against the dummy hash so the work matches a
-/// wrong password (D6a).
-pub const DUMMY_PASSWORD: &str = "verdaxis-dummy-password-never-accepted";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PasswordError {
@@ -69,17 +66,20 @@ pub fn validate_bytes(password: &str) -> Result<(), PasswordError> {
     Ok(())
 }
 
-/// A cost-12 bcrypt hash of [`DUMMY_PASSWORD`], built once.
+/// A cost-12 bcrypt hash that no password matches, built once per process.
 ///
-/// The service builds it at start-up, before it accepts logins; it is never
-/// logged. Task 5's login verifies a missing account against this hash.
+/// Login verifies a missing account against this hash, so a missing account
+/// costs the same bcrypt work as a wrong password (D6a). The hashed input is a
+/// fresh random token that is dropped at once: no known password matches the
+/// hash, even if a caller forgets that the account is missing. The service
+/// builds it at start-up, before it accepts logins; it is never logged.
 pub async fn dummy_hash() -> &'static str {
     static DUMMY: tokio::sync::OnceCell<String> = tokio::sync::OnceCell::const_new();
     DUMMY
         .get_or_init(|| async {
-            hash(DUMMY_PASSWORD)
+            hash(&generate_token())
                 .await
-                .expect("the fixed dummy password hashes at cost 12")
+                .expect("a 43-character token hashes at cost 12")
         })
         .await
 }

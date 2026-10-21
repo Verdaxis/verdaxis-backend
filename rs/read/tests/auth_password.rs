@@ -1,7 +1,7 @@
 //! Task 3: bcrypt password primitives.
 //!
 //! Covers the 72-byte pre-hash rule, the 1024-byte maximum, cost 12, the
-//! fixed dummy hash, the four-worker admission bound, and both coexistence
+//! dummy hash, the four-worker admission bound, and both coexistence
 //! directions (a Python-made hash verifies in Rust and a Rust-made hash
 //! verifies in Python).
 
@@ -94,16 +94,17 @@ async fn password_worker_bound_is_four() {
 }
 
 #[tokio::test]
-async fn dummy_hash_is_cost_twelve_and_matches_only_the_dummy_password() {
+async fn dummy_hash_is_cost_twelve_built_once_and_matches_no_known_password() {
     let first = password::dummy_hash().await;
-    assert!(first.starts_with("$2b$12$"));
-    assert_eq!(
-        first,
-        password::dummy_hash().await,
-        "the hash is built once"
+    assert!(first.starts_with("$2b$12$"), "cost 12 and the 2b format");
+    assert_eq!(first.len(), 60, "a complete bcrypt hash");
+    assert!(
+        std::ptr::eq(first, password::dummy_hash().await),
+        "the hash is built once per process"
     );
-    assert!(password::verify(password::DUMMY_PASSWORD, first).await);
-    assert!(!password::verify("not-the-dummy-password", first).await);
+    for guess in ["", "password", "verdaxis-dummy-password-never-accepted"] {
+        assert!(!password::verify(guess, first).await, "{guess:?}");
+    }
 }
 
 #[tokio::test]
