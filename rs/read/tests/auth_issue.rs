@@ -262,6 +262,7 @@ fn pd7_access_token_iat_out_of_range_is_401() {
     let settings = VerificationSettings::new(SECRET.into(), None, ISSUER.into(), AUDIENCE.into());
     let vectors = [
         ("i64::MAX", json!(i64::MAX)),
+        ("u64::MAX", json!(u64::MAX)),
         ("negative", json!(-1)),
         ("float", json!(1.5)),
         ("string", json!("1792497600")),
@@ -314,6 +315,7 @@ fn pd7_refresh_iat_out_of_range_is_401() {
     let issued_at = now();
     let vectors = [
         ("i64::MAX", json!(i64::MAX)),
+        ("u64::MAX", json!(u64::MAX)),
         ("negative", json!(-1)),
         ("float", json!(1.5)),
         ("string", json!("1792497600")),
@@ -357,6 +359,71 @@ fn pd7_refresh_iat_out_of_range_is_401() {
             "{name}: no cutoff means no refusal"
         );
     }
+}
+
+/// The shared reader that refresh uses applies exactly the access verifier's
+/// issuance rule, so one token gets the same issuance time on both paths.
+#[test]
+fn shared_issuance_reader_matches_the_access_verifier() {
+    let issued_at = now();
+    let settings = VerificationSettings::new(SECRET.into(), None, ISSUER.into(), AUDIENCE.into());
+    let earlier = issued_at - Duration::seconds(60);
+    // A usable `iat` behind each `iat_us` vector, to show when it is used.
+    let fallback = || Some(json!(earlier.timestamp()));
+    // Integer literals outside both i64 and u64.
+    let beyond_u64: Value = serde_json::from_str("100000000000000000000").unwrap();
+    let below_i64: Value = serde_json::from_str("-100000000000000000000").unwrap();
+    let vectors: [(&str, Option<Value>, Option<Value>); 15] = [
+        ("integer", Some(json!(earlier.timestamp_micros())), None),
+        ("true", Some(json!(true)), fallback()),
+        ("false", Some(json!(false)), fallback()),
+        ("i64::MAX", Some(json!(i64::MAX)), fallback()),
+        ("u64::MAX", Some(json!(u64::MAX)), fallback()),
+        ("beyond u64", Some(beyond_u64), fallback()),
+        ("below i64", Some(below_i64), fallback()),
+        ("negative", Some(json!(-1)), fallback()),
+        ("float", Some(json!(1.5)), fallback()),
+        ("string", Some(json!("1")), fallback()),
+        ("null", Some(Value::Null), fallback()),
+        ("fractional iat", None, Some(json!(1_792_497_540.25))),
+        ("huge negative iat", None, Some(json!(-1e300))),
+        ("string iat", None, Some(json!("1792497540"))),
+        ("no issuance time", None, None),
+    ];
+    // A cutoff before every usable time: only a missing or unusable issuance
+    // time is refused.
+    let cutoff = account(Some(0), None);
+    for (name, iat_us, iat) in vectors {
+        let mut claims = json!({
+            "sub": SUBJECT,
+            "exp": (issued_at + Duration::minutes(15)).timestamp(),
+            "type": "access",
+            "iss": ISSUER,
+            "aud": AUDIENCE,
+        });
+        if let Some(iat_us) = iat_us {
+            claims["iat_us"] = iat_us;
+        }
+        if let Some(iat) = iat {
+            claims["iat"] = iat;
+        }
+        let verified = verify_access(&sign(claims.clone()), &settings, issued_at)
+            .unwrap_or_else(|error| panic!("{name}: {error:?}"));
+        let issuance = read_issuance(&claims);
+
+        assert_eq!(issuance.issued_at, verified.issued_at, "{name}");
+        assert_eq!(
+            cutoff_refusal(issuance, &cutoff),
+            verdaxis_read::auth::validate_account(&verified, &cutoff).err(),
+            "{name}"
+        );
+    }
+
+    // An `iat_us` that does not fit in i64 is unusable; it never falls back
+    // to a later `iat`.
+    let unusable = read_issuance(&json!({"iat_us": u64::MAX, "iat": issued_at.timestamp()}));
+    assert!(unusable.out_of_range);
+    assert_eq!(unusable.issued_at, None);
 }
 
 #[test]

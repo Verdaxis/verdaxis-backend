@@ -21,6 +21,11 @@ pub struct TokenIssuance {
 }
 
 impl TokenIssuance {
+    const OUT_OF_RANGE: Self = Self {
+        issued_at: None,
+        out_of_range: true,
+    };
+
     fn from_microseconds(microseconds: i64) -> Self {
         let issued_at = DateTime::from_timestamp_micros(microseconds)
             .filter(|value| (1..=9999).contains(&chrono::Datelike::year(value)));
@@ -33,44 +38,38 @@ impl TokenIssuance {
 
 /// The shared claim reader for any token type.
 ///
-/// `iat_us` is preferred when it is an integer, including a Python `bool`.
-/// Otherwise the reader falls back to a numeric `iat`, exactly as the access
-/// verifier does, so access and refresh tokens agree on the same rule.
+/// `iat_us` is preferred when it is an integer literal, including a Python
+/// `bool` (0 or 1). A negative `i64` falls back to `iat`; an integer outside
+/// `i64` is out of range and does not fall back. Otherwise the reader falls
+/// back to a numeric `iat`. This is the rule the access verifier applies, so
+/// access and refresh tokens agree.
 pub fn read_issuance(claims: &Value) -> TokenIssuance {
-    if let Some(value) = claims.get("iat_us") {
-        let microseconds = match value {
-            Value::Bool(value) => Some(i64::from(*value)),
-            Value::Number(number) if !number.is_f64() => {
-                number.as_i64().filter(|microseconds| *microseconds >= 0)
-            }
-            _ => None,
-        };
-        if let Some(microseconds) = microseconds {
-            return TokenIssuance::from_microseconds(microseconds);
-        }
-    }
-    match claims.get("iat") {
-        Some(Value::Number(number)) => match number.as_f64() {
-            Some(seconds) => {
-                let microseconds = (seconds * 1_000_000.0).round_ties_even();
-                if !microseconds.is_finite()
-                    || microseconds < i64::MIN as f64
-                    || microseconds > i64::MAX as f64
-                {
-                    return TokenIssuance {
-                        issued_at: None,
-                        out_of_range: true,
-                    };
-                }
-                TokenIssuance::from_microseconds(microseconds as i64)
-            }
-            None => TokenIssuance {
-                issued_at: None,
-                out_of_range: true,
-            },
+    let preferred = match claims.get("iat_us") {
+        Some(Value::Bool(value)) => Some(TokenIssuance::from_microseconds(i64::from(*value))),
+        // With `arbitrary_precision`, `is_f64` is false for every integer
+        // literal, including one outside `i64`.
+        Some(Value::Number(number)) if !number.is_f64() => match number.as_i64() {
+            Some(microseconds) if microseconds < 0 => None,
+            Some(microseconds) => Some(TokenIssuance::from_microseconds(microseconds)),
+            None => Some(TokenIssuance::OUT_OF_RANGE),
         },
-        _ => TokenIssuance::default(),
+        _ => None,
+    };
+    if let Some(issuance) = preferred {
+        return issuance;
     }
+    let Some(Value::Number(number)) = claims.get("iat") else {
+        return TokenIssuance::default();
+    };
+    let Some(seconds) = number.as_f64() else {
+        return TokenIssuance::OUT_OF_RANGE;
+    };
+    let microseconds = (seconds * 1_000_000.0).round_ties_even();
+    if !microseconds.is_finite() || microseconds < i64::MIN as f64 || microseconds > i64::MAX as f64
+    {
+        return TokenIssuance::OUT_OF_RANGE;
+    }
+    TokenIssuance::from_microseconds(microseconds as i64)
 }
 
 /// The `sub` claim as a UUID. Only a JSON string is a credential: a number,
