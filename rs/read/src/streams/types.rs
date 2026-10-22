@@ -1,1 +1,3 @@
-//! Reserved stream component; implementation is not enabled.
+//! Shared stream event and control types.
+
+pub use super::bus::{PublicChannel, StoredEvent, Terminal};

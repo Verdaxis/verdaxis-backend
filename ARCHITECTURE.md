@@ -36,6 +36,17 @@ checks before payload decoding. The component remains inactive; no stream route,
 sequencer or prune job is started. Schema/ACL and read-store proofs use
 `tests/postgres/test_phase6_retention.py` and `rs/read/tests/streams_store.rs`.
 
+The typed bus in `streams/bus.rs` owns bounded subscriptions and terminal
+controls; `streams/types.rs` re-exports shared event types. Admission in
+`streams/auth.rs` uses the shared token verifier and bounded read-only database
+transactions. `streams/election.rs` assigns committed outbox rows on one elected
+physical session and retries bounded assignment contention. The cache checkpoint
+remains immediately below the replay-floor migration. These components are not
+started by the serving binary. Watchlist preservation tests keep producer
+activation disabled. The neutral evidence gate in
+`scripts/rust_contract/phase6_evidence.py` binds accepted scenario metadata to
+source tests and host logs; incomplete later-task evidence still refuses acceptance.
+
 ## Rust Phase 2 feedback
 
 `rs/read/src/crud/feedback.rs` provides the Task 10 feedback submission and

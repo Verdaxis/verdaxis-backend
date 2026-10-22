@@ -140,6 +140,44 @@ def test_retention_scenarios_select_real_tests():
         assert case["test"].startswith("test_")
 
 
+def test_accepted_scenarios_bind_distinct_source_tests():
+    import ast
+    import re
+
+    accepted_tasks = {"1", "2", "3", "4", "5", "10", "15a"}
+    identities = set()
+    for case in load("required-scenarios.json")["scenarios"]:
+        if case["task"] not in accepted_tasks:
+            continue
+        assert case["repository"] == "backend"
+        assert case["runner"] in {"cargo", "pytest"}
+        assert case["red"]
+        path = case["test_path"]
+        name = case["test_name"]
+        identity = (path, name)
+        assert identity not in identities
+        identities.add(identity)
+        source = (ROOT / path).read_text()
+        if case["runner"] == "pytest":
+            names = {
+                node.name for node in ast.parse(source).body
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            }
+        else:
+            names = set(re.findall(
+                r"#\[(?:tokio::)?test(?:\([^\n]*\))?\]\s*(?:async\s+)?fn\s+(\w+)",
+                source,
+            ))
+        assert name in names, identity
+        for support in case.get("support_paths", []):
+            assert (ROOT / support).is_file()
+        if "suite" in case:
+            assert case["suite"] in load("required-scenarios.json")["postgres_suites"]
+        if "missing_interface" in case["red"]:
+            assert case["missing_interface"]["code"] == "E0432"
+            assert case["missing_interface"]["symbol"]
+
+
 def test_required_scenarios_are_not_optional():
     document = load("required-scenarios.json")
     validate_required(document)

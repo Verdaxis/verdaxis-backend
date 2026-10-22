@@ -25,7 +25,6 @@ async fn next(subscription: &mut verdaxis_read::streams::bus::Subscription) -> O
         .unwrap()
 }
 
-#[tokio::test]
 async fn t01() {
     let hub = StreamHub::default();
     let org = Uuid::new_v4();
@@ -111,22 +110,11 @@ fn t02_through_t09() {
             false,
         ),
     ];
-    for (terminal, name, reason, resync, error) in cases {
-        assert_eq!(terminal.event_name(), name);
-        let payload = terminal.payload();
-        assert_eq!(payload["schema_version"], 1);
-        assert_eq!(payload["reason"], reason);
-        assert_eq!(payload["resync_required"], resync);
-        assert_eq!(payload.get("error").is_some(), error);
-        assert_eq!(
-            payload.as_object().unwrap().len(),
-            if error { 4 } else { 3 }
-        );
-        assert!(!format!("{:?}", terminal.into_event()).contains("id:"));
+    for case in cases {
+        assert_terminal_contract(case);
     }
 }
 
-#[test]
 fn b01() {
     let hub = StreamHub::default();
     let mut subscriptions = Vec::new();
@@ -150,7 +138,6 @@ fn b01() {
     assert!(hub.subscribe_org(Uuid::new_v4()).is_ok());
 }
 
-#[tokio::test]
 async fn b02() {
     let hub = StreamHub::default();
     let a = Uuid::new_v4();
@@ -196,7 +183,6 @@ async fn b02() {
     }
 }
 
-#[tokio::test]
 async fn b03() {
     let hub = StreamHub::default();
     let org = Uuid::new_v4();
@@ -212,7 +198,6 @@ async fn b03() {
     assert!(next(&mut subscription).await.is_none());
 }
 
-#[tokio::test]
 async fn b04() {
     let hub = StreamHub::default();
     let mut subscription = hub.subscribe_org(Uuid::new_v4()).unwrap();
@@ -282,7 +267,6 @@ fn b08() {
     assert!(StoredEvent::new(1, vec![org], &"a".repeat(81), json!({})).is_err());
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn b09() {
     let hub = StreamHub::new(StreamPolicy::new(1, 1, 1).unwrap());
     let org = Uuid::new_v4();
@@ -416,7 +400,6 @@ fn b05() {
     );
 }
 
-#[tokio::test]
 async fn b06() {
     let hub = StreamHub::default();
     let mut subscriptions = Vec::new();
@@ -440,4 +423,185 @@ async fn b06() {
         ));
         assert!(next(&mut subscription).await.is_none());
     }
+}
+
+fn assert_terminal_contract(
+    (terminal, name, reason, resync, error): (Terminal, &str, &str, bool, bool),
+) {
+    assert_eq!(terminal.event_name(), name);
+    let payload = terminal.payload();
+    assert_eq!(payload["schema_version"], 1);
+    assert_eq!(payload["reason"], reason);
+    assert_eq!(payload["resync_required"], resync);
+    assert_eq!(payload.get("error").is_some(), error);
+    assert_eq!(
+        payload.as_object().unwrap().len(),
+        if error { 4 } else { 3 }
+    );
+    assert!(!format!("{:?}", terminal.into_event()).contains("id:"));
+}
+
+#[test]
+fn terminal_overflow_contract() {
+    assert_terminal_contract((
+        Terminal::Overflow,
+        "reset",
+        "subscriber_overflow",
+        true,
+        false,
+    ));
+}
+
+#[test]
+fn terminal_retention_contract() {
+    assert_terminal_contract((
+        Terminal::Retention,
+        "reset",
+        "replay_retention",
+        true,
+        false,
+    ));
+}
+
+#[test]
+fn terminal_cursor_ahead_contract() {
+    assert_terminal_contract((
+        Terminal::CursorAhead,
+        "reset",
+        "cursor_ahead",
+        true,
+        false,
+    ));
+}
+
+#[test]
+fn terminal_expiry_contract() {
+    assert_terminal_contract((
+        Terminal::AuthExpired,
+        "auth_expired",
+        "token_expired",
+        false,
+        true,
+    ));
+}
+
+#[test]
+fn terminal_revocation_contract() {
+    assert_terminal_contract((
+        Terminal::AuthRevoked,
+        "auth_revoked",
+        "authorization_changed",
+        true,
+        true,
+    ));
+}
+
+#[test]
+fn terminal_unavailable_contract() {
+    assert_terminal_contract((
+        Terminal::Unavailable,
+        "error",
+        "stream_unavailable",
+        true,
+        true,
+    ));
+}
+
+#[test]
+fn terminal_capacity_contract() {
+    assert_terminal_contract((
+        Terminal::Capacity,
+        "error",
+        "connection_capacity",
+        false,
+        true,
+    ));
+}
+
+#[test]
+fn terminal_event_contract() {
+    assert_terminal_contract((
+        Terminal::InvalidEvent,
+        "reset",
+        "event_unavailable",
+        true,
+        false,
+    ));
+}
+
+#[test]
+fn terminal_shutdown_contract() {
+    assert_terminal_contract((
+        Terminal::Shutdown,
+        "reset",
+        "service_restarting",
+        true,
+        false,
+    ));
+}
+
+#[test]
+fn terminal_auth_store_contract() {
+    assert_terminal_contract((
+        Terminal::AuthorizationUnavailable,
+        "auth_revoked",
+        "authorization_unavailable",
+        true,
+        true,
+    ));
+}
+
+#[test]
+fn channel_cap_200() {
+    b01();
+}
+
+#[test]
+fn process_cap_2000() {
+    b01();
+}
+
+#[tokio::test]
+async fn queue_cap_100() {
+    t01().await;
+}
+
+#[tokio::test]
+async fn publish_does_not_await_under_mutex() {
+    b06().await;
+}
+
+#[tokio::test]
+async fn private_scope_isolated() {
+    b02().await;
+}
+
+#[tokio::test]
+async fn public_channels_sanitized() {
+    b02().await;
+}
+
+#[tokio::test]
+async fn overflow_closes_once() {
+    t01().await;
+}
+
+#[test]
+fn subscription_drop_cleanup() {
+    b01();
+}
+
+#[tokio::test]
+async fn cancellation_cleanup() {
+    b04().await;
+}
+
+#[tokio::test]
+async fn partial_registration_cleanup() {
+    b09().await;
+}
+
+#[tokio::test]
+async fn terminal_precedes_buffered_data() {
+    b03().await;
 }
