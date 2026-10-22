@@ -54,17 +54,27 @@ def run_registered(runner, args, selected):
     environment = {**os.environ, "ENVIRONMENT": "test", "RELEASE_SHA": runner.sha,
                    "JWT_SECRET": "test-secret-key-for-testing-minimum-32-chars", **runner.urls(port),
                    "SQLX_OFFLINE": "true"}
-    runner.seed = False
-    runner.migrate_and_seed(environment)
-    with connect(port, DB_NAME) as source:
-        source.execute("INSERT INTO organizations (id,name,domain,type) VALUES ('10000000-0000-4000-8000-000000000001','Phase 2 fixture','phase2.invalid','FUEL_BUYER')")
-        source.execute("INSERT INTO users (id,email,password_hash,role,status,organization_id,email_verified,must_change_password) VALUES ('20000000-0000-4000-8000-000000000001','actor@phase2.invalid','not-a-login','BUYER','APPROVED','10000000-0000-4000-8000-000000000001',true,false)")
     policy_dir = "/tmp/phase2-route-policy"
     docker("exec", runner.container, "mkdir", "-p", policy_dir)
     policy_files = ("app_acl_policy.sql", "converge_runtime_object_acls.sql", "bootstrap_roles.sql", "validate_roles.sql")
     for name in policy_files:
         docker("cp", str(ROOT / "deploy/postgres" / name), f"{runner.container}:{policy_dir}/{name}")
     acl = digest({name: (ROOT / "deploy/postgres" / name).read_text() for name in policy_files})
+    # Migrate as the schema owner, as the harness-smoke path does. SECURITY
+    # DEFINER cache triggers must retain migrator authority in every clone.
+    docker("exec", runner.container, "psql", "-X", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", DB_NAME,
+           "-v", f"database_name={DB_NAME}", "-v", f"app_role={APP_ROLE}",
+           "-v", f"migrator_role={MIGRATOR_ROLE}", "-v", f"backup_role={BACKUP_ROLE}",
+           "-f", f"{policy_dir}/bootstrap_roles.sql")
+    with connect(port, DB_NAME) as admin:
+        admin.execute(f"ALTER ROLE {identifier(MIGRATOR_ROLE)} PASSWORD '{PASSWORD}'")
+    migrator_url = f"postgresql+asyncpg://{MIGRATOR_ROLE}:{PASSWORD}@127.0.0.1:{port}/{DB_NAME}"
+    runner.seed = False
+    runner.migrate_and_seed({**environment, "DATABASE_URL": migrator_url,
+                             "MIGRATOR_DATABASE_URL": migrator_url})
+    with connect(port, DB_NAME) as source:
+        source.execute("INSERT INTO organizations (id,name,domain,type) VALUES ('10000000-0000-4000-8000-000000000001','Phase 2 fixture','phase2.invalid','FUEL_BUYER')")
+        source.execute("INSERT INTO users (id,email,password_hash,role,status,organization_id,email_verified,must_change_password) VALUES ('20000000-0000-4000-8000-000000000001','actor@phase2.invalid','not-a-login','BUYER','APPROVED','10000000-0000-4000-8000-000000000001',true,false)")
 
     def clone(source, target):
         with connect(port, "postgres", autocommit=True) as admin:
