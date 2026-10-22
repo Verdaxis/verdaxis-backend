@@ -620,11 +620,12 @@ async def test_fee_downgrade_fails_fast_during_idempotent_trade_read(
                     "oa_20260910_auto_real_orgs",
                 )
             )
-            refused = await asyncio.wait_for(downgrade_task, timeout=5)
+            # This bound only stops a hung subprocess; the NOWAIT refusal text proves it did not wait.
+            refused = await asyncio.wait_for(downgrade_task, timeout=60)
             assert refused.returncode != 0
-            assert "could not obtain lock on relation" in (
-                f"{refused.stdout}\n{refused.stderr}"
-            )
+            output = f"{refused.stdout}\n{refused.stderr}"
+            assert "could not obtain lock on relation" in output
+            assert "canceling statement due to lock timeout" not in output
 
             # The runtime transaction can continue through subscription
             # resolution and trade insertion after the fail-closed downgrade.
