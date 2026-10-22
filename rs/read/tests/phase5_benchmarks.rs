@@ -112,6 +112,7 @@ async fn body(response: axum::response::Response) -> Json {
 #[tokio::test]
 async fn benchmark_query_cases_http() {
     let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
         .connect_lazy("postgres://fixture:fixture_pw@127.0.0.1:1/fixture_test")
         .unwrap();
     let app = benchmark_quotes::routes().with_state(state(policy(), pool));
