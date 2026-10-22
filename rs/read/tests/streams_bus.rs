@@ -313,8 +313,9 @@ async fn b09() {
         Some(Delivery::Terminal(Terminal::Overflow))
     ));
     assert_eq!(hub.subscriber_count(), 0);
-    let replacement = hub.subscribe_org(org).unwrap();
+    assert!(hub.subscribe_org(org).is_err());
     drop(subscription);
+    let replacement = hub.subscribe_org(org).unwrap();
     assert_eq!(hub.subscriber_count(), 1);
     drop(replacement);
     assert_eq!(hub.subscriber_count(), 0);

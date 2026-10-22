@@ -190,6 +190,8 @@ struct Registration {
 #[derive(Default)]
 struct Registry {
     channels: HashMap<Channel, HashMap<u64, Registration>>,
+    admitted_by_channel: HashMap<Channel, usize>,
+    admitted: usize,
     count: usize,
     next_id: u64,
 }
@@ -253,8 +255,12 @@ impl StreamHub {
     }
     fn subscribe(&self, channel: Channel) -> Result<Subscription, Capacity> {
         let mut registry = self.inner.lock();
-        if registry.count >= self.inner.policy.process
-            || registry.channels.get(&channel).map_or(0, HashMap::len)
+        if registry.admitted >= self.inner.policy.process
+            || registry
+                .admitted_by_channel
+                .get(&channel)
+                .copied()
+                .unwrap_or(0)
                 >= self.inner.policy.per_channel
         {
             return Err(Capacity);
@@ -271,13 +277,17 @@ impl StreamHub {
         );
         registry.next_id = id;
         registry.count += 1;
+        registry.admitted += 1;
+        *registry.admitted_by_channel.entry(channel).or_default() += 1;
         Ok(Subscription {
-            inner: self.inner.clone(),
-            channel,
-            id,
             data,
             terminal,
             finished: false,
+            admission: Admission {
+                inner: self.inner.clone(),
+                channel,
+                id,
+            },
         })
     }
     pub fn publish_private(&self, event: Arc<StoredEvent>) -> Result<(), HubError> {
@@ -332,17 +342,39 @@ impl StreamHub {
 
 /// The body owns this guard. Dropping a cancelled receive alone is harmless.
 pub struct Subscription {
-    inner: Arc<Inner>,
-    channel: Channel,
-    id: u64,
     data: mpsc::Receiver<Delivery>,
     terminal: watch::Receiver<Option<Terminal>>,
     finished: bool,
+    // Fields drop in declaration order: release the queue before its admission.
+    admission: Admission,
+}
+
+struct Admission {
+    inner: Arc<Inner>,
+    channel: Channel,
+    id: u64,
+}
+
+impl Drop for Admission {
+    fn drop(&mut self) {
+        self.inner.detach(self.channel, self.id, None);
+        let mut registry = self.inner.lock();
+        registry.admitted -= 1;
+        if let Some(count) = registry.admitted_by_channel.get_mut(&self.channel) {
+            *count -= 1;
+            if *count == 0 {
+                registry.admitted_by_channel.remove(&self.channel);
+            }
+        }
+    }
 }
 
 impl Subscription {
     pub fn terminate(&self, terminal: Terminal) {
-        self.inner.detach(self.channel, self.id, Some(terminal));
+        let admission = &self.admission;
+        admission
+            .inner
+            .detach(admission.channel, admission.id, Some(terminal));
     }
 
     pub fn terminal(&self) -> Option<Terminal> {
@@ -380,11 +412,5 @@ impl Subscription {
             self.finished = true;
         }
         delivery
-    }
-}
-
-impl Drop for Subscription {
-    fn drop(&mut self) {
-        self.inner.detach(self.channel, self.id, None);
     }
 }
