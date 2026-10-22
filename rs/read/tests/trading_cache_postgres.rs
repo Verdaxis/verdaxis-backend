@@ -442,6 +442,61 @@ async fn a_fill_that_loses_its_authority_is_not_stored_or_answered() {
     writer.close().await.unwrap();
 }
 
+#[tokio::test]
+async fn unadmitted_connections_never_publish() {
+    let _serial = SERIAL.lock().await;
+    let Some((url, mut writer)) = writer().await else {
+        return;
+    };
+    let mut published = Vec::new();
+    for reason in ["revoked", "expired", "mismatched", "missing", "rotation"] {
+        let record = Record::new();
+        let identity = authority(1);
+        bind(&mut writer, &identity, true).await;
+        record.activate(&identity);
+        let config = state_config(&url);
+        let pools = connect(&config).await.unwrap();
+        let state = AppState::new(config, pools, policy()).unwrap();
+        let runtime = state.trading_cache.as_ref().unwrap();
+        publish_record(runtime, &record);
+        runtime.tick(Instant::now()).await;
+        let process = runtime.authority().clone();
+        match reason {
+            "revoked" | "rotation" => process.revoke(),
+            "expired" => {
+                process.synchronize(Some(identity.clone()), Instant::now() - AUTHORITY_LEASE).unwrap();
+            }
+            "mismatched" => bind(&mut writer, &authority(3), true).await,
+            "missing" => {
+                sqlx::query("UPDATE public.public_read_cache_incarnation SET active = false")
+                    .execute(&mut writer).await.unwrap();
+            }
+            _ => unreachable!(),
+        }
+        let cache = Arc::new(TradingCache::new(4, 1024));
+        let result = run_trading_read(&state, &cache, reason, "prices", move |connection| {
+            Box::pin(async move {
+                let value: i64 = sqlx::query_scalar("SELECT 42::bigint")
+                    .fetch_one(connection).await.map_err(|_| ApiError::database())?;
+                if reason == "rotation" {
+                    // This loader started without a token. A later activation
+                    // must not authorize its old-connection response.
+                    process.synchronize(Some(authority(3)), Instant::now()).unwrap();
+                }
+                Ok(TradingFill { value, facts: TemporalFacts::proven_written_only() })
+            })
+        }).await;
+        if result.is_ok() {
+            published.push(reason);
+        }
+        assert!(cache.is_empty());
+        state.pools.read.close().await;
+    }
+    reset(&mut writer).await;
+    writer.close().await.unwrap();
+    assert!(published.is_empty(), "unadmitted responses published: {published:?}");
+}
+
 fn signal(directory: &Path, reader: &str, step: &str) {
     std::fs::write(barrier(directory, reader, step), b"1").unwrap();
 }
