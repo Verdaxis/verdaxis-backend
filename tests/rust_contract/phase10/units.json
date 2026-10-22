@@ -1,0 +1,710 @@
+{
+  "schema_version": 1,
+  "source_commit": "274bd3ab737621339d158ab4795578009de5bf4f",
+  "source_checkpoint": "sha256 of each source file; no branch-name identity",
+  "artifacts": [
+    {
+      "id": "unit.deploy/systemd/verdaxis-auth-maintenance-staging.service",
+      "source": "deploy/systemd/verdaxis-auth-maintenance-staging.service",
+      "kind": "unit",
+      "end_state": "rust",
+      "owner": "job auth-maintenance",
+      "task": 12,
+      "source_sha256": "9be48ffe5813751e52046f3c7a2b8bb7471c535fb6fefda4a21be869101f2bcd",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_units_are_exactly_41",
+        "no_unit_contains_python_or_a_venv_path"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "systemctl cat verdaxis-auth-maintenance-staging.service"
+    },
+    {
+      "id": "unit.deploy/systemd/verdaxis-auth-maintenance-staging.timer",
+      "source": "deploy/systemd/verdaxis-auth-maintenance-staging.timer",
+      "kind": "timer",
+      "end_state": "rust",
+      "owner": "job auth-maintenance",
+      "task": 12,
+      "source_sha256": "7290696b5cfb94e3d6a2b83fa6646e021948e6b13feb335304fb8a09508c2049",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_units_are_exactly_41",
+        "no_unit_contains_python_or_a_venv_path"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "systemctl cat verdaxis-auth-maintenance-staging.timer"
+    },
+    {
+      "id": "unit.deploy/systemd/verdaxis-auth-maintenance.service",
+      "source": "deploy/systemd/verdaxis-auth-maintenance.service",
+      "kind": "unit",
+      "end_state": "rust",
+      "owner": "job auth-maintenance",
+      "task": 12,
+      "source_sha256": "38a237ad3b206d0126ab147480cc36b91e798307d77b97f3a8132142929bdb6f",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_units_are_exactly_41",
+        "no_unit_contains_python_or_a_venv_path"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "systemctl cat verdaxis-auth-maintenance.service"
+    },
+    {
+      "id": "unit.deploy/systemd/verdaxis-auth-maintenance.timer",
+      "source": "deploy/systemd/verdaxis-auth-maintenance.timer",
+      "kind": "timer",
+      "end_state": "rust",
+      "owner": "job auth-maintenance",
+      "task": 12,
+      "source_sha256": "a30a00e0f22c43ddf9a8e0f5fcfa379a3f68c176a758ab18647ee7eeaeddd014",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_units_are_exactly_41",
+        "no_unit_contains_python_or_a_venv_path"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "systemctl cat verdaxis-auth-maintenance.timer"
+    },
+    {
+      "id": "unit.deploy/systemd/verdaxis-backend-staging.service",
+      "source": "deploy/systemd/verdaxis-backend-staging.service",
+      "kind": "unit",
+      "end_state": "gone",
+      "owner": "Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "56f0fe79c9bd0363795209d34c73bb744e3fc1e38f16b84057745f41100820bb",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_units_are_exactly_41",
+        "no_unit_contains_python_or_a_venv_path"
+      ],
+      "deleting_task": 32,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "systemctl cat verdaxis-backend-staging.service",
+      "last_reference_change": "Task 32 removes Python units, upstreams and runtime references"
+    },
+    {
+      "id": "unit.deploy/systemd/verdaxis-backend.service",
+      "source": "deploy/systemd/verdaxis-backend.service",
+      "kind": "unit",
+      "end_state": "gone",
+      "owner": "Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "99955437f20e0291faaacdb5ef4c446552aa091f3ab46d58579cbc91391dc9fa",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_units_are_exactly_41",
+        "no_unit_contains_python_or_a_venv_path"
+      ],
+      "deleting_task": 32,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "systemctl cat verdaxis-backend.service",
+      "last_reference_change": "Task 32 removes Python units, upstreams and runtime references"
+    },
+    {
+      "id": "unit.deploy/systemd/verdaxis-news-refresh-staging.service",
+      "source": "deploy/systemd/verdaxis-news-refresh-staging.service",
+      "kind": "unit",
+      "end_state": "rust",
+      "owner": "job news",
+      "task": 11,
+      "source_sha256": "1d4d8d4b2752df1b1b52749d2386c262b8bef2ab99befa3a4a6d2cfd29ead914",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_units_are_exactly_41",
+        "no_unit_contains_python_or_a_venv_path"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "systemctl cat verdaxis-news-refresh-staging.service"
+    },
+    {
+      "id": "unit.deploy/systemd/verdaxis-news-refresh-staging.timer",
+      "source": "deploy/systemd/verdaxis-news-refresh-staging.timer",
+      "kind": "timer",
+      "end_state": "rust",
+      "owner": "job news",
+      "task": 11,
+      "source_sha256": "2d82ecf19866c655f47f74d0ec44f8ecab4e8b7dff28164555006e893b79200b",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_units_are_exactly_41",
+        "no_unit_contains_python_or_a_venv_path"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "systemctl cat verdaxis-news-refresh-staging.timer"
+    },
+    {
+      "id": "unit.deploy/systemd/verdaxis-news-refresh.service",
+      "source": "deploy/systemd/verdaxis-news-refresh.service",
+      "kind": "unit",
+      "end_state": "rust",
+      "owner": "job news",
+      "task": 11,
+      "source_sha256": "65a353392fc5eed506bb438017534dbec060975f94eceb1881a301b8ef2ce654",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_units_are_exactly_41",
+        "no_unit_contains_python_or_a_venv_path"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "systemctl cat verdaxis-news-refresh.service"
+    },
+    {
+      "id": "unit.deploy/systemd/verdaxis-news-refresh.timer",
+      "source": "deploy/systemd/verdaxis-news-refresh.timer",
+      "kind": "timer",
+      "end_state": "rust",
+      "owner": "job news",
+      "task": 11,
+      "source_sha256": "ee175cbcbd0bd59cc80a28d9217e0c500cd3cfaa171e00b0696e76fe0933a1c5",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_units_are_exactly_41",
+        "no_unit_contains_python_or_a_venv_path"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "systemctl cat verdaxis-news-refresh.timer"
+    },
+    {
+      "id": "unit.deploy/systemd/verdaxis-order-expiry-reminders-staging.service",
+      "source": "deploy/systemd/verdaxis-order-expiry-reminders-staging.service",
+      "kind": "unit",
+      "end_state": "gone",
+      "owner": "Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "cd8e9e01f2d7a3e80537020b1ebbab0dd33353530c56a15c9a3ef1ed1d0f0069",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_units_are_exactly_41",
+        "no_unit_contains_python_or_a_venv_path"
+      ],
+      "deleting_task": 32,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "systemctl cat verdaxis-order-expiry-reminders-staging.service",
+      "last_reference_change": "Task 32 removes Python units, upstreams and runtime references"
+    },
+    {
+      "id": "unit.deploy/systemd/verdaxis-order-expiry-reminders-staging.timer",
+      "source": "deploy/systemd/verdaxis-order-expiry-reminders-staging.timer",
+      "kind": "timer",
+      "end_state": "gone",
+      "owner": "Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "1e32fd6d19d06ea6bcdae356d28f177e1529aace567b5a382c20b9247e618e12",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_units_are_exactly_41",
+        "no_unit_contains_python_or_a_venv_path"
+      ],
+      "deleting_task": 32,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "systemctl cat verdaxis-order-expiry-reminders-staging.timer",
+      "last_reference_change": "Task 32 removes Python units, upstreams and runtime references"
+    },
+    {
+      "id": "unit.deploy/systemd/verdaxis-order-expiry-reminders.service",
+      "source": "deploy/systemd/verdaxis-order-expiry-reminders.service",
+      "kind": "unit",
+      "end_state": "rust",
+      "owner": "job reminders",
+      "task": 14,
+      "source_sha256": "9e672cfe11dc273f1b293417b401784cbb611cad9e7981f1f1eb79c20caeda13",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_units_are_exactly_41",
+        "no_unit_contains_python_or_a_venv_path"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "systemctl cat verdaxis-order-expiry-reminders.service"
+    },
+    {
+      "id": "unit.deploy/systemd/verdaxis-order-expiry-reminders.timer",
+      "source": "deploy/systemd/verdaxis-order-expiry-reminders.timer",
+      "kind": "timer",
+      "end_state": "rust",
+      "owner": "job reminders",
+      "task": 14,
+      "source_sha256": "9826106c408bb94af06cf2804f36b60e5f14187b33b0af742c0eadc4d1c54868",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_units_are_exactly_41",
+        "no_unit_contains_python_or_a_venv_path"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "systemctl cat verdaxis-order-expiry-reminders.timer"
+    },
+    {
+      "id": "unit.deploy/systemd/verdaxis-product-analytics-prune-staging.service",
+      "source": "deploy/systemd/verdaxis-product-analytics-prune-staging.service",
+      "kind": "unit",
+      "end_state": "rust",
+      "owner": "job prune-analytics",
+      "task": 13,
+      "source_sha256": "da63bb4fa6a66c664ea89d7cb40eaa78cbdb7670c0a4c8a304262df15d425961",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_units_are_exactly_41",
+        "no_unit_contains_python_or_a_venv_path"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "systemctl cat verdaxis-product-analytics-prune-staging.service"
+    },
+    {
+      "id": "unit.deploy/systemd/verdaxis-product-analytics-prune-staging.timer",
+      "source": "deploy/systemd/verdaxis-product-analytics-prune-staging.timer",
+      "kind": "timer",
+      "end_state": "rust",
+      "owner": "job prune-analytics",
+      "task": 13,
+      "source_sha256": "f6eea37b9acc3736221cec11eda934c85d43b09a092edc58b00ae8502023f317",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_units_are_exactly_41",
+        "no_unit_contains_python_or_a_venv_path"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "systemctl cat verdaxis-product-analytics-prune-staging.timer"
+    },
+    {
+      "id": "unit.deploy/systemd/verdaxis-product-analytics-prune.service",
+      "source": "deploy/systemd/verdaxis-product-analytics-prune.service",
+      "kind": "unit",
+      "end_state": "rust",
+      "owner": "job prune-analytics",
+      "task": 13,
+      "source_sha256": "0b1ee498ec306de7067edf3e56d0c2353ccb386e88e3da97a40bf702b6541e38",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_units_are_exactly_41",
+        "no_unit_contains_python_or_a_venv_path"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "systemctl cat verdaxis-product-analytics-prune.service"
+    },
+    {
+      "id": "unit.deploy/systemd/verdaxis-product-analytics-prune.timer",
+      "source": "deploy/systemd/verdaxis-product-analytics-prune.timer",
+      "kind": "timer",
+      "end_state": "rust",
+      "owner": "job prune-analytics",
+      "task": 13,
+      "source_sha256": "1765328b7ef948909b3b3fb2975cefdf63cd62e546ee40740bc463b2d2f5f5e3",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_units_are_exactly_41",
+        "no_unit_contains_python_or_a_venv_path"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "systemctl cat verdaxis-product-analytics-prune.timer"
+    },
+    {
+      "id": "unit.deploy/systemd/verdaxis-rust-staging.service",
+      "source": "deploy/systemd/verdaxis-rust-staging.service",
+      "kind": "unit",
+      "end_state": "rust",
+      "owner": "serve",
+      "task": 10,
+      "source_sha256": "c5f1bbf5f9891baa8e92a9bc001d66fee52acb8096f9ead6a6a1546c3c0f24d3",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_units_are_exactly_41",
+        "no_unit_contains_python_or_a_venv_path"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "systemctl cat verdaxis-rust-staging.service"
+    },
+    {
+      "id": "unit.deploy/systemd/verdaxis-rust.service",
+      "source": "deploy/systemd/verdaxis-rust.service",
+      "kind": "unit",
+      "end_state": "rust",
+      "owner": "serve",
+      "task": 10,
+      "source_sha256": "8a0b170386fbfc2338a0a3b0bba0515778c6472ed7bdb3562ceded97ac58159a",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_units_are_exactly_41",
+        "no_unit_contains_python_or_a_venv_path"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "systemctl cat verdaxis-rust.service"
+    },
+    {
+      "id": "unit.deploy/monitor/verdaxis-backup-verify.service",
+      "source": "deploy/monitor/verdaxis-backup-verify.service",
+      "kind": "unit",
+      "end_state": "rust",
+      "owner": "monitor backup-verify",
+      "task": 27,
+      "source_sha256": "383b66d98a57062b6956861123c528283b6c1e56c689096832e891ead6dcef38",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_units_are_exactly_41",
+        "no_unit_contains_python_or_a_venv_path"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "systemctl cat verdaxis-backup-verify.service"
+    },
+    {
+      "id": "unit.deploy/monitor/verdaxis-backup-verify.timer",
+      "source": "deploy/monitor/verdaxis-backup-verify.timer",
+      "kind": "timer",
+      "end_state": "rust",
+      "owner": "monitor backup-verify",
+      "task": 27,
+      "source_sha256": "8fb9fa6da3b8502a9fee577a65438c442f2fdfe5f69fcc3f609d10003db4909c",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_units_are_exactly_41",
+        "no_unit_contains_python_or_a_venv_path"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "systemctl cat verdaxis-backup-verify.timer"
+    },
+    {
+      "id": "unit.deploy/monitor/verdaxis-demo-activity-staging.service",
+      "source": "deploy/monitor/verdaxis-demo-activity-staging.service",
+      "kind": "unit",
+      "end_state": "rust",
+      "owner": "job demo",
+      "task": 17,
+      "source_sha256": "a0739fd83032dc110115200a5310ae53fa27d3d69e2a17ce27d3f1062647debb",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_units_are_exactly_41",
+        "no_unit_contains_python_or_a_venv_path"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "systemctl cat verdaxis-demo-activity-staging.service"
+    },
+    {
+      "id": "unit.deploy/monitor/verdaxis-demo-activity-staging.timer",
+      "source": "deploy/monitor/verdaxis-demo-activity-staging.timer",
+      "kind": "timer",
+      "end_state": "rust",
+      "owner": "job demo",
+      "task": 17,
+      "source_sha256": "4e25897e15afb5fc896c309d9aaa4f629f2a91205a30df63c544174eb3a8184e",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_units_are_exactly_41",
+        "no_unit_contains_python_or_a_venv_path"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "systemctl cat verdaxis-demo-activity-staging.timer"
+    },
+    {
+      "id": "unit.deploy/monitor/verdaxis-demo-activity.service",
+      "source": "deploy/monitor/verdaxis-demo-activity.service",
+      "kind": "unit",
+      "end_state": "rust",
+      "owner": "job demo",
+      "task": 17,
+      "source_sha256": "b6ba201f1bc55e54d26c7aedd5c57e4b207e31cc730985c1232e09bec2843483",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_units_are_exactly_41",
+        "no_unit_contains_python_or_a_venv_path"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "systemctl cat verdaxis-demo-activity.service"
+    },
+    {
+      "id": "unit.deploy/monitor/verdaxis-demo-activity.timer",
+      "source": "deploy/monitor/verdaxis-demo-activity.timer",
+      "kind": "timer",
+      "end_state": "rust",
+      "owner": "job demo",
+      "task": 17,
+      "source_sha256": "5f3fefba55a4c1a6760b2de4ab14bd7595fefc80fab0d5f700a04127afa77dfc",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_units_are_exactly_41",
+        "no_unit_contains_python_or_a_venv_path"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "systemctl cat verdaxis-demo-activity.timer"
+    },
+    {
+      "id": "unit.deploy/monitor/verdaxis-health.service",
+      "source": "deploy/monitor/verdaxis-health.service",
+      "kind": "unit",
+      "end_state": "rust",
+      "owner": "monitor health",
+      "task": 27,
+      "source_sha256": "73a51f924189c6a7ee773705755379fa909da97c2dabf812769d93873d48ae7c",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_units_are_exactly_41",
+        "no_unit_contains_python_or_a_venv_path"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "systemctl cat verdaxis-health.service"
+    },
+    {
+      "id": "unit.deploy/monitor/verdaxis-health.timer",
+      "source": "deploy/monitor/verdaxis-health.timer",
+      "kind": "timer",
+      "end_state": "rust",
+      "owner": "monitor health",
+      "task": 27,
+      "source_sha256": "eb9871b8a10bab460788986279bf9b2e020732fccfd98155a8dbec3495cef6c7",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_units_are_exactly_41",
+        "no_unit_contains_python_or_a_venv_path"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "systemctl cat verdaxis-health.timer"
+    },
+    {
+      "id": "unit.deploy/monitor/verdaxis-monitor-alert-reminder.service",
+      "source": "deploy/monitor/verdaxis-monitor-alert-reminder.service",
+      "kind": "unit",
+      "end_state": "rust",
+      "owner": "monitor alert",
+      "task": 28,
+      "source_sha256": "f090d6803eb97ee4ca065069088827edd8c703e21b7a6cc3d62db3827f50922d",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_units_are_exactly_41",
+        "no_unit_contains_python_or_a_venv_path"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "systemctl cat verdaxis-monitor-alert-reminder.service"
+    },
+    {
+      "id": "unit.deploy/monitor/verdaxis-monitor-alert-reminder.timer",
+      "source": "deploy/monitor/verdaxis-monitor-alert-reminder.timer",
+      "kind": "timer",
+      "end_state": "rust",
+      "owner": "monitor alert",
+      "task": 28,
+      "source_sha256": "3eb076b7f4ed7502b53e75505910d6892947a5b5cac7f23d3fd1e15be7250269",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_units_are_exactly_41",
+        "no_unit_contains_python_or_a_venv_path"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "systemctl cat verdaxis-monitor-alert-reminder.timer"
+    },
+    {
+      "id": "unit.deploy/monitor/verdaxis-monitor-alert@.service",
+      "source": "deploy/monitor/verdaxis-monitor-alert@.service",
+      "kind": "unit",
+      "end_state": "rust",
+      "owner": "monitor alert",
+      "task": 28,
+      "source_sha256": "8f3642f9a69ac375c120f627e8ef83f3a5379518c26cf534e1532d682b958f24",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_units_are_exactly_41",
+        "no_unit_contains_python_or_a_venv_path"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "systemctl cat verdaxis-monitor-alert@.service"
+    },
+    {
+      "id": "unit.deploy/external_monitor/systemd/verdaxis-codex-diagnose.service",
+      "source": "deploy/external_monitor/systemd/verdaxis-codex-diagnose.service",
+      "kind": "unit",
+      "end_state": "gone",
+      "owner": "Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "a65c08d0dc1f96fa0f7e38c880ea6689fd2bbae8d4b6157b9df97a80e25eb195",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_units_are_exactly_41",
+        "no_unit_contains_python_or_a_venv_path"
+      ],
+      "deleting_task": 32,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "systemctl cat verdaxis-codex-diagnose.service",
+      "last_reference_change": "Task 32 removes Python units, upstreams and runtime references"
+    },
+    {
+      "id": "unit.deploy/external_monitor/systemd/verdaxis-external-monitor.service",
+      "source": "deploy/external_monitor/systemd/verdaxis-external-monitor.service",
+      "kind": "unit",
+      "end_state": "rust",
+      "owner": "monitor external-checks",
+      "task": 29,
+      "source_sha256": "a2a3afa0e48b424d48f4f62539c59ee2578b75e8cbf23c367d2533ed8c53c9e1",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_units_are_exactly_41",
+        "no_unit_contains_python_or_a_venv_path"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "systemctl cat verdaxis-external-monitor.service"
+    },
+    {
+      "id": "unit.deploy/external_monitor/systemd/verdaxis-external-monitor.timer",
+      "source": "deploy/external_monitor/systemd/verdaxis-external-monitor.timer",
+      "kind": "timer",
+      "end_state": "rust",
+      "owner": "monitor external-checks",
+      "task": 29,
+      "source_sha256": "f31a806543711dc7a7193bfad0b491cf018f679a6645cea6a48baa374d981f8c",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_units_are_exactly_41",
+        "no_unit_contains_python_or_a_venv_path"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "systemctl cat verdaxis-external-monitor.timer"
+    },
+    {
+      "id": "unit.deploy/external_monitor/systemd/verdaxis-external-recover.service",
+      "source": "deploy/external_monitor/systemd/verdaxis-external-recover.service",
+      "kind": "unit",
+      "end_state": "gone",
+      "owner": "Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "2e60fb30b1c3bbb9ec114904338a13e5ffcc7ec35c26af1f3fcf848d6cd80708",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_units_are_exactly_41",
+        "no_unit_contains_python_or_a_venv_path"
+      ],
+      "deleting_task": 32,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "systemctl cat verdaxis-external-recover.service",
+      "last_reference_change": "Task 32 removes Python units, upstreams and runtime references"
+    },
+    {
+      "id": "unit.deploy/external_monitor/systemd/verdaxis-monitor-verify.service",
+      "source": "deploy/external_monitor/systemd/verdaxis-monitor-verify.service",
+      "kind": "unit",
+      "end_state": "rust",
+      "owner": "monitor external",
+      "task": 29,
+      "source_sha256": "bd275f7d36f379140184733e3479818e5776e0c12a54c1abb52ba7125b707a6c",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_units_are_exactly_41",
+        "no_unit_contains_python_or_a_venv_path"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "systemctl cat verdaxis-monitor-verify.service"
+    },
+    {
+      "id": "unit.deploy/external_monitor/systemd/verdaxis-monitor.service",
+      "source": "deploy/external_monitor/systemd/verdaxis-monitor.service",
+      "kind": "unit",
+      "end_state": "rust",
+      "owner": "monitor external",
+      "task": 29,
+      "source_sha256": "ee59a40ecb8db320590cb6adb8580d86ab40103415c5a3b2acbba2da402e56a5",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_units_are_exactly_41",
+        "no_unit_contains_python_or_a_venv_path"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "systemctl cat verdaxis-monitor.service"
+    },
+    {
+      "id": "unit.deploy/external_monitor/systemd/verdaxis-monitor.timer",
+      "source": "deploy/external_monitor/systemd/verdaxis-monitor.timer",
+      "kind": "timer",
+      "end_state": "rust",
+      "owner": "monitor external",
+      "task": 29,
+      "source_sha256": "038ca76afa2bba9a5630bd2300079c6036c693e7338f108e75910a368bebeffa",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_units_are_exactly_41",
+        "no_unit_contains_python_or_a_venv_path"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "systemctl cat verdaxis-monitor.timer"
+    },
+    {
+      "id": "unit.deploy/external_monitor/systemd/verdaxis-onboarding-attention.service",
+      "source": "deploy/external_monitor/systemd/verdaxis-onboarding-attention.service",
+      "kind": "unit",
+      "end_state": "rust",
+      "owner": "monitor onboarding",
+      "task": 16,
+      "source_sha256": "b193f039d5165d6eed128f4c569b32a7f7c87d46cfe1854eafaeec793e63c36b",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_units_are_exactly_41",
+        "no_unit_contains_python_or_a_venv_path"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "systemctl cat verdaxis-onboarding-attention.service"
+    },
+    {
+      "id": "unit.deploy/external_monitor/systemd/verdaxis-onboarding-attention.timer",
+      "source": "deploy/external_monitor/systemd/verdaxis-onboarding-attention.timer",
+      "kind": "timer",
+      "end_state": "rust",
+      "owner": "monitor onboarding",
+      "task": 16,
+      "source_sha256": "0cbcf48a1388366371ab398cc95cab58ea2545830cac17aa22d15d861b7b6925",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_units_are_exactly_41",
+        "no_unit_contains_python_or_a_venv_path"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "systemctl cat verdaxis-onboarding-attention.timer"
+    },
+    {
+      "id": "unit.deploy/external_monitor/systemd/verdaxis-recover.service",
+      "source": "deploy/external_monitor/systemd/verdaxis-recover.service",
+      "kind": "unit",
+      "end_state": "rust",
+      "owner": "recover",
+      "task": 30,
+      "source_sha256": "f83b70150b94bbd38cbbf70749ced983344574d6331db67b27864d7137a5fca2",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_units_are_exactly_41",
+        "no_unit_contains_python_or_a_venv_path"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "systemctl cat verdaxis-recover.service"
+    }
+  ]
+}

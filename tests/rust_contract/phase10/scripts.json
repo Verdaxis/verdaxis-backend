@@ -1,0 +1,685 @@
+{
+  "schema_version": 1,
+  "source_commit": "274bd3ab737621339d158ab4795578009de5bf4f",
+  "source_checkpoint": "sha256 of each source file; no branch-name identity",
+  "artifacts": [
+    {
+      "id": "script.apply_migration_checkpoint.py",
+      "source": "scripts/apply_migration_checkpoint.py",
+      "kind": "script",
+      "end_state": "rust",
+      "owner": "migrate",
+      "task": 6,
+      "source_sha256": "bd8912aeebd1a962db9da5267fe0e18b4a1722b7d5c5f6c4cddbfae13649a5b0",
+      "status": "planned",
+      "evidence": [
+        "run_to_exact_approved_target_is_idempotent"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof."
+    },
+    {
+      "id": "script.benchmark_product_analytics.py",
+      "source": "scripts/benchmark_product_analytics.py",
+      "kind": "script",
+      "end_state": "gone",
+      "owner": "Task 26 retirement (decision 110)",
+      "task": 26,
+      "source_sha256": "ac2cbcf486b97583c38d8541cd8bcd29cd92edcba2f07b33b51905afed9b36d3",
+      "status": "planned",
+      "evidence": [
+        "phase0_and_benchmark_tools_are_ci_or_offhost_only"
+      ],
+      "deleting_task": 26,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "last_reference_change": "Task 32 removes Python units, upstreams and runtime references"
+    },
+    {
+      "id": "script.check_users.py",
+      "source": "scripts/check_users.py",
+      "kind": "script",
+      "end_state": "rust",
+      "owner": "ops inspect users",
+      "task": 23,
+      "source_sha256": "b74c33b75b26210fb30024e98691e3eb5ff48d135baafb45fe28dbebb1ae3426",
+      "status": "planned",
+      "evidence": [
+        "inspect_users_masks_email_by_default"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof."
+    },
+    {
+      "id": "script.converge_runtime_acls.py",
+      "source": "scripts/converge_runtime_acls.py",
+      "kind": "script",
+      "end_state": "shell",
+      "owner": "deploy/scripts/converge-acls.sh",
+      "task": 7,
+      "source_sha256": "6758cd2d83ab847f9a2c05b77cae310035a8f4a356131c980825e2af8b171ed8",
+      "status": "planned",
+      "evidence": [
+        "acl_convergence_runs_between_migrate_and_restart"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof."
+    },
+    {
+      "id": "script.deploy.sh",
+      "source": "scripts/deploy.sh",
+      "kind": "script",
+      "end_state": "shell",
+      "owner": "Task 7 deploy owner",
+      "task": 7,
+      "source_sha256": "27c1668a98c17cb897ae50949a2c2219fdcbd047e99e31d9dd7304a46cf4e0ef",
+      "status": "planned",
+      "evidence": [
+        "deploy_script_has_no_python_or_pip_reference"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof."
+    },
+    {
+      "id": "script.explain_product_analytics.py",
+      "source": "scripts/explain_product_analytics.py",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 26 off-host tooling",
+      "task": 26,
+      "source_sha256": "f0e3e5dd04033eae9c8264a86e98df49d621bc63cd9c03c84abc7b9c82f9f71f",
+      "status": "planned",
+      "evidence": [
+        "offhost_rows_name_a_tool_a_reason_and_a_location"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "offhost_location": "repository: CI/disposable tooling only; excluded from deployed artifact",
+      "retirement_reason": "Not an installed Verdaxis runtime command; retain only off-host audit or disposable use."
+    },
+    {
+      "id": "script.export_openapi.py",
+      "source": "scripts/export_openapi.py",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 26 off-host tooling",
+      "task": 26,
+      "source_sha256": "4e30195b6cf2c833c8294cc9d060a7a59c6f48d66aa87294d31ee1deab44b163",
+      "status": "planned",
+      "evidence": [
+        "offhost_rows_name_a_tool_a_reason_and_a_location"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "offhost_location": "repository: CI/disposable tooling only; excluded from deployed artifact",
+      "retirement_reason": "Not an installed Verdaxis runtime command; retain only off-host audit or disposable use."
+    },
+    {
+      "id": "script.import_gena_csv.py",
+      "source": "scripts/import_gena_csv.py",
+      "kind": "script",
+      "end_state": "rust",
+      "owner": "ops import gena",
+      "task": 22,
+      "source_sha256": "5d11e146c84fc0a3dc68bf3b5ff1079dbc0c636cfe1346878006ba4c9281c0a4",
+      "status": "planned",
+      "evidence": [
+        "gena_zero_coordinate_is_preserved"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof."
+    },
+    {
+      "id": "script.ingest_market_signals.py",
+      "source": "scripts/ingest_market_signals.py",
+      "kind": "script",
+      "end_state": "rust",
+      "owner": "ops ingest signals",
+      "task": 21,
+      "source_sha256": "bf2149693e661fc00be7e5a57871abacd7777f82df2a50f410158b6d950a9fda",
+      "status": "planned",
+      "evidence": [
+        "signal_ingest_uses_operator_role_and_app_role_is_denied"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof."
+    },
+    {
+      "id": "script.install_systemd_units.sh",
+      "source": "scripts/install_systemd_units.sh",
+      "kind": "script",
+      "end_state": "shell",
+      "owner": "Task 10 installer owner",
+      "task": 10,
+      "source_sha256": "f87860059c86b48fdd61c464f845546951db9de023973eb6c1d32787e42170ac",
+      "status": "planned",
+      "evidence": [
+        "installer_refuses_a_manifest_digest_mismatch"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof."
+    },
+    {
+      "id": "script.preflight_runtime.py",
+      "source": "scripts/preflight_runtime.py",
+      "kind": "script",
+      "end_state": "rust",
+      "owner": "ops preflight",
+      "task": 9,
+      "source_sha256": "d08c2b8ffeda12c074e80cc4f075de63e0fdb033a942987757063e56d4e86096",
+      "status": "planned",
+      "evidence": [
+        "preflight_rejects_wrong_database_role_and_environment"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof."
+    },
+    {
+      "id": "script.prepare_rust_budget.py",
+      "source": "scripts/prepare_rust_budget.py",
+      "kind": "script",
+      "end_state": "rust",
+      "owner": "ops prepare-budget",
+      "task": 9,
+      "source_sha256": "f8ec252889c200b4532ab7f3df364977d6619061797c94685610a36d71ed2a2a",
+      "status": "planned",
+      "evidence": [
+        "budget_matches_configured_authority_not_measured_load"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof."
+    },
+    {
+      "id": "script.prepare_rust_runtime.py",
+      "source": "scripts/prepare_rust_runtime.py",
+      "kind": "script",
+      "end_state": "rust",
+      "owner": "ops prepare-runtime",
+      "task": 9,
+      "source_sha256": "8282bdec93309dac2a97495bcdc83cf8ff2420553eab990586d54addfd98644f",
+      "status": "planned",
+      "evidence": [
+        "serve_env_contains_only_reviewed_http_credentials"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof."
+    },
+    {
+      "id": "script.prune_product_analytics.py",
+      "source": "scripts/prune_product_analytics.py",
+      "kind": "script",
+      "end_state": "rust",
+      "owner": "job prune-analytics",
+      "task": 13,
+      "source_sha256": "9f3080bf3a6eb016171c5164eed6b06261474f220542b522b0ee20539a021629",
+      "status": "planned",
+      "evidence": [
+        "prune_keeps_exactly_800_utc_dates"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof."
+    },
+    {
+      "id": "script.remediate_market_data.py",
+      "source": "scripts/remediate_market_data.py",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 26 off-host tooling",
+      "task": 26,
+      "source_sha256": "c1e74b6319aecb11d756fc0a7e5f19463de678a8ace244184495f15606389263",
+      "status": "planned",
+      "evidence": [
+        "offhost_rows_name_a_tool_a_reason_and_a_location"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "offhost_location": "repository: CI/disposable tooling only; excluded from deployed artifact",
+      "retirement_reason": "Not an installed Verdaxis runtime command; retain only off-host audit or disposable use."
+    },
+    {
+      "id": "script.run_demo_activity.py",
+      "source": "scripts/run_demo_activity.py",
+      "kind": "script",
+      "end_state": "rust",
+      "owner": "job demo",
+      "task": 17,
+      "source_sha256": "edc13375207efcfa326de6a93dea26dac24d20bf033703242bbdea887e346dc6",
+      "status": "planned",
+      "evidence": [
+        "demo_tick_is_idempotent"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof."
+    },
+    {
+      "id": "script.run_phase0_postgres_tests.sh",
+      "source": "scripts/run_phase0_postgres_tests.sh",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 26 off-host tooling",
+      "task": 26,
+      "source_sha256": "1373d2bd3b74a008e320c16ded3610a3772fd6a40de5379d27bee93b4455475a",
+      "status": "planned",
+      "evidence": [
+        "offhost_rows_name_a_tool_a_reason_and_a_location"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "offhost_location": "repository: CI/disposable tooling only; excluded from deployed artifact",
+      "retirement_reason": "Not an installed Verdaxis runtime command; retain only off-host audit or disposable use."
+    },
+    {
+      "id": "script.run_product_analytics_postgres_tests.sh",
+      "source": "scripts/run_product_analytics_postgres_tests.sh",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 26 off-host tooling",
+      "task": 26,
+      "source_sha256": "c5c333d005fb55dbf0cb0cf6d521c5d0563898a29cf39ac6ab117ea559033bf1",
+      "status": "planned",
+      "evidence": [
+        "offhost_rows_name_a_tool_a_reason_and_a_location"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "offhost_location": "repository: CI/disposable tooling only; excluded from deployed artifact",
+      "retirement_reason": "Not an installed Verdaxis runtime command; retain only off-host audit or disposable use."
+    },
+    {
+      "id": "script.rust_cache_authority.py",
+      "source": "scripts/rust_cache_authority.py",
+      "kind": "script",
+      "end_state": "rust",
+      "owner": "ops cache-authority",
+      "task": 24,
+      "source_sha256": "90e7de88e7850636058948fdbcad7b401bf99ebd0f587e2625dc4ab4e6eac61a",
+      "status": "planned",
+      "evidence": [
+        "cache_activate_revokes_then_binds_the_row_then_publishes"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof."
+    },
+    {
+      "id": "script.rust_caddy_candidate.py",
+      "source": "scripts/rust_caddy_candidate.py",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 26 off-host tooling",
+      "task": 26,
+      "source_sha256": "3f3b9b8103fa717240db98ca55cd8bb3068d9f0fc1e654faa58e96321eeba1d6",
+      "status": "planned",
+      "evidence": [
+        "offhost_rows_name_a_tool_a_reason_and_a_location"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "offhost_location": "repository: CI/disposable tooling only; excluded from deployed artifact",
+      "retirement_reason": "Not an installed Verdaxis runtime command; retain only off-host audit or disposable use."
+    },
+    {
+      "id": "script.rust_passive_no_harm.py",
+      "source": "scripts/rust_passive_no_harm.py",
+      "kind": "script",
+      "end_state": "gone",
+      "owner": "Task 32 retirement; monitor owns passive checks",
+      "task": 32,
+      "source_sha256": "12d0b81c1290cac7df086d9746ae6f9aac51eedce1b88651699271c701140210",
+      "status": "planned",
+      "evidence": [
+        "passive_harm_checks_are_clean_for_each_group"
+      ],
+      "deleting_task": 32,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "last_reference_change": "Task 32 removes Python units, upstreams and runtime references"
+    },
+    {
+      "id": "script.scrape_fleet_demand.py",
+      "source": "scripts/scrape_fleet_demand.py",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 25 conditional fleet owner",
+      "task": 25,
+      "source_sha256": "21f3352361f2ac1d77a769d71c6c046c6579eab7d51a1cf612b9853543942317",
+      "status": "planned",
+      "evidence": [
+        "fleet_installed_dependency_is_classified"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "offhost_location": "repository: CI/disposable tooling only; excluded from deployed artifact",
+      "retirement_reason": "Not an installed Verdaxis runtime command; retain only off-host audit or disposable use.",
+      "condition": "Task 35 W0 must prove off-host/no removed-package dependency; otherwise Task 25 ports only the proved dependency."
+    },
+    {
+      "id": "script.security_preflight.py",
+      "source": "scripts/security_preflight.py",
+      "kind": "script",
+      "end_state": "rust",
+      "owner": "ops inspect blockers",
+      "task": 23,
+      "source_sha256": "93a20ddad970bc6a08143ad1ab652d76c03032fc14b763d949d117c3ea88ca3f",
+      "status": "planned",
+      "evidence": [
+        "inspect_blockers_exits_2_when_any_count_is_nonzero"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof."
+    },
+    {
+      "id": "script.seed.py",
+      "source": "scripts/seed.py",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 26 off-host tooling",
+      "task": 26,
+      "source_sha256": "b115d1a4495b14593cf2f14fe2d576f4a3da2c8d16584c2f04a63881d588f122",
+      "status": "planned",
+      "evidence": [
+        "offhost_rows_name_a_tool_a_reason_and_a_location"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "offhost_location": "repository: CI/disposable tooling only; excluded from deployed artifact",
+      "retirement_reason": "Not an installed Verdaxis runtime command; retain only off-host audit or disposable use."
+    },
+    {
+      "id": "script.seed_compliance_data.py",
+      "source": "scripts/seed_compliance_data.py",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 26 off-host tooling",
+      "task": 26,
+      "source_sha256": "520d911e30d6e9f64a00d477d14008dcac3bf7ef22598898a1e9626c8d2ff3ca",
+      "status": "planned",
+      "evidence": [
+        "offhost_rows_name_a_tool_a_reason_and_a_location"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "offhost_location": "repository: CI/disposable tooling only; excluded from deployed artifact",
+      "retirement_reason": "Not an installed Verdaxis runtime command; retain only off-host audit or disposable use."
+    },
+    {
+      "id": "script.seed_forward_monitoring_demo.py",
+      "source": "scripts/seed_forward_monitoring_demo.py",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 26 off-host tooling",
+      "task": 26,
+      "source_sha256": "bdf06837fdf6d365878f13f713f2dd557084cc68e3e87ee065fe1d27c23f1422",
+      "status": "planned",
+      "evidence": [
+        "offhost_rows_name_a_tool_a_reason_and_a_location"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "offhost_location": "repository: CI/disposable tooling only; excluded from deployed artifact",
+      "retirement_reason": "Not an installed Verdaxis runtime command; retain only off-host audit or disposable use."
+    },
+    {
+      "id": "script.seed_maersk_vessels.py",
+      "source": "scripts/seed_maersk_vessels.py",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 26 off-host tooling",
+      "task": 26,
+      "source_sha256": "4f991d82d4729188a9dfaa90aa299ab6b1a10def2935a4bac4bcac9b0f2d4416",
+      "status": "planned",
+      "evidence": [
+        "offhost_rows_name_a_tool_a_reason_and_a_location"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "offhost_location": "repository: CI/disposable tooling only; excluded from deployed artifact",
+      "retirement_reason": "Not an installed Verdaxis runtime command; retain only off-host audit or disposable use."
+    },
+    {
+      "id": "script.seed_port_inventory.py",
+      "source": "scripts/seed_port_inventory.py",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 26 off-host tooling",
+      "task": 26,
+      "source_sha256": "d7336a9688f149519d357c148f79e0fba05f4c4d51bddfcb24194a4b9b4d1933",
+      "status": "planned",
+      "evidence": [
+        "offhost_rows_name_a_tool_a_reason_and_a_location"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "offhost_location": "repository: CI/disposable tooling only; excluded from deployed artifact",
+      "retirement_reason": "Not an installed Verdaxis runtime command; retain only off-host audit or disposable use."
+    },
+    {
+      "id": "script.seed_producer_projects.py",
+      "source": "scripts/seed_producer_projects.py",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 26 off-host tooling",
+      "task": 26,
+      "source_sha256": "48ee95d09ddcd37b77115f0f03af9d238a327da8a2ed91e2a1efe985b4733f6a",
+      "status": "planned",
+      "evidence": [
+        "offhost_rows_name_a_tool_a_reason_and_a_location"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "offhost_location": "repository: CI/disposable tooling only; excluded from deployed artifact",
+      "retirement_reason": "Not an installed Verdaxis runtime command; retain only off-host audit or disposable use."
+    },
+    {
+      "id": "script.seed_realistic_orderbook.py",
+      "source": "scripts/seed_realistic_orderbook.py",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 26 off-host tooling",
+      "task": 26,
+      "source_sha256": "ae38e59fa8e8693c1feae3a0c11e02dfe6c4ed8071ec97ae924fd00c2236c858",
+      "status": "planned",
+      "evidence": [
+        "offhost_rows_name_a_tool_a_reason_and_a_location"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "offhost_location": "repository: CI/disposable tooling only; excluded from deployed artifact",
+      "retirement_reason": "Not an installed Verdaxis runtime command; retain only off-host audit or disposable use."
+    },
+    {
+      "id": "script.seed_user_activity.py",
+      "source": "scripts/seed_user_activity.py",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 26 off-host tooling",
+      "task": 26,
+      "source_sha256": "89f4a545d7da5e01e3ca828caa644b4255a7cbbabcd568f70ad28d68eb9c0ad2",
+      "status": "planned",
+      "evidence": [
+        "offhost_rows_name_a_tool_a_reason_and_a_location"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "offhost_location": "repository: CI/disposable tooling only; excluded from deployed artifact",
+      "retirement_reason": "Not an installed Verdaxis runtime command; retain only off-host audit or disposable use."
+    },
+    {
+      "id": "script.seed_vessels_fleet.py",
+      "source": "scripts/seed_vessels_fleet.py",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 26 off-host tooling",
+      "task": 26,
+      "source_sha256": "73d7847aff4800ea583f0931d7b79ffb96847999eec7b621b560467092258197",
+      "status": "planned",
+      "evidence": [
+        "offhost_rows_name_a_tool_a_reason_and_a_location"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "offhost_location": "repository: CI/disposable tooling only; excluded from deployed artifact",
+      "retirement_reason": "Not an installed Verdaxis runtime command; retain only off-host audit or disposable use."
+    },
+    {
+      "id": "script.smoke_umami_product_analytics.py",
+      "source": "scripts/smoke_umami_product_analytics.py",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 26 off-host tooling",
+      "task": 26,
+      "source_sha256": "9f089a96c8199b7fbce36db1d6cf9e5579dfa5d017f70d973c53de75a254791c",
+      "status": "planned",
+      "evidence": [
+        "offhost_rows_name_a_tool_a_reason_and_a_location"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "offhost_location": "repository: CI/disposable tooling only; excluded from deployed artifact",
+      "retirement_reason": "Not an installed Verdaxis runtime command; retain only off-host audit or disposable use."
+    },
+    {
+      "id": "script.validate_health_response.py",
+      "source": "scripts/validate_health_response.py",
+      "kind": "script",
+      "end_state": "rust",
+      "owner": "guard health",
+      "task": 4,
+      "source_sha256": "54ee41e943f1290713ff00b5ab2dde3982f9c8b9467d051ad0ddaaa52002f223",
+      "status": "planned",
+      "evidence": [
+        "health_guard_accepts_exactly_four_keys"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof."
+    },
+    {
+      "id": "script.verify_deploy_start_guard.py",
+      "source": "scripts/verify_deploy_start_guard.py",
+      "kind": "script",
+      "end_state": "shell",
+      "owner": "deploy/scripts/verify-deploy-start-guard.sh",
+      "task": 4,
+      "source_sha256": "52b220e1d0fea2659354b093bd7ecc58c268d4564cef72d52b6201b51d3c39e0",
+      "status": "planned",
+      "evidence": [
+        "deploy_guard_requires_both_locks_for_restart_authorization"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof."
+    },
+    {
+      "id": "script.verify_migration_revision.py",
+      "source": "scripts/verify_migration_revision.py",
+      "kind": "script",
+      "end_state": "rust",
+      "owner": "migrate status",
+      "task": 6,
+      "source_sha256": "0e3cad0545c1b0e3e762c22e5c03fcaf9a65438c69c3f5d2304272f340c8f092",
+      "status": "planned",
+      "evidence": [
+        "migrate_status_is_read_only_and_reports_pending"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof."
+    },
+    {
+      "id": "script.verify_migrations.sh",
+      "source": "scripts/verify_migrations.sh",
+      "kind": "script",
+      "end_state": "gone",
+      "owner": "Task 32 retirement; sqlx verify replaces CI use",
+      "task": 32,
+      "source_sha256": "725755abfe66b7cce5361ce8a3d4968eb4b934697f2b7d0969bdec4ca54e697f",
+      "status": "planned",
+      "evidence": [
+        "alembic_history_is_inert_and_unreferenced"
+      ],
+      "deleting_task": 32,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "last_reference_change": "Task 32 removes Python units, upstreams and runtime references"
+    },
+    {
+      "id": "script.verify_rust_artifact.py",
+      "source": "scripts/verify_rust_artifact.py",
+      "kind": "script",
+      "end_state": "shell",
+      "owner": "deploy/scripts/verify-artifact.sh",
+      "task": 8,
+      "source_sha256": "91170a844e4f0215e2dda1b648c445e393498177afe438baab30b125c278f496",
+      "status": "planned",
+      "evidence": [
+        "artifact_verifier_rejects_tampering"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof."
+    },
+    {
+      "id": "script.verify_rust_start.py",
+      "source": "scripts/verify_rust_start.py",
+      "kind": "script",
+      "end_state": "rust",
+      "owner": "guard rust-start",
+      "task": 4,
+      "source_sha256": "49e69b2900a76680c7451eb80b24346a1c86cc8528d8821d978e86f5dd55466f",
+      "status": "planned",
+      "evidence": [
+        "rust_start_requires_regular_budget_and_revision_files"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof."
+    },
+    {
+      "id": "script.verify_systemd_source.py",
+      "source": "scripts/verify_systemd_source.py",
+      "kind": "script",
+      "end_state": "shell",
+      "owner": "reviewed unit installer",
+      "task": 10,
+      "source_sha256": "9eb0ff8b2048658d37d9ede73203cc2e5dbcb4efab7d9ba7ecfba215ccde28f8",
+      "status": "planned",
+      "evidence": [
+        "installer_refuses_a_manifest_digest_mismatch"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof."
+    }
+  ]
+}

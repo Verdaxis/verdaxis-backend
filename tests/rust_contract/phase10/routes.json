@@ -1,0 +1,3782 @@
+{
+  "schema_version": 1,
+  "source_commit": "274bd3ab737621339d158ab4795578009de5bf4f",
+  "source_checkpoint": "sha256 of each source file; no branch-name identity",
+  "artifacts": [
+    {
+      "id": "route.DELETE /api/alerts/{alert_id}",
+      "source": "app/routers/alerts.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 2 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "898db5e873ecf55047e8bff89a01ab6b5aae7511593011314301d0f6fed84129",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "DELETE",
+      "path": "/api/alerts/{alert_id}",
+      "line": 133
+    },
+    {
+      "id": "route.DELETE /api/inventory/{item_id}",
+      "source": "app/routers/inventory.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "0a50b40896efe66fbcdfc4b10a929a8f9b9cc089a1d4e8d05f1b74fa2a7211d4",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "DELETE",
+      "path": "/api/inventory/{item_id}",
+      "line": 333
+    },
+    {
+      "id": "route.DELETE /api/orderbook/{order_id}",
+      "source": "app/routers/orderbook.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "ff6b92fe3302a354ae8a772d79e889092e7417a83ec85db620e211c21a1b4692",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "DELETE",
+      "path": "/api/orderbook/{order_id}",
+      "line": 2798
+    },
+    {
+      "id": "route.DELETE /api/watchlists/{watchlist_id}",
+      "source": "app/routers/watchlists.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 2 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "a35c9b2ce219870ac626ab5957b7ed2a9c36f3a868efd2a3c98a4539767faf3b",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "DELETE",
+      "path": "/api/watchlists/{watchlist_id}",
+      "line": 468
+    },
+    {
+      "id": "route.DELETE /api/watchlists/{watchlist_id}/entries/{entry_id}",
+      "source": "app/routers/watchlists.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 2 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "a35c9b2ce219870ac626ab5957b7ed2a9c36f3a868efd2a3c98a4539767faf3b",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "DELETE",
+      "path": "/api/watchlists/{watchlist_id}/entries/{entry_id}",
+      "line": 432
+    },
+    {
+      "id": "route.DELETE /api/watchlists/{watchlist_id}/targets/{target_id}",
+      "source": "app/routers/watchlists.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 2 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "a35c9b2ce219870ac626ab5957b7ed2a9c36f3a868efd2a3c98a4539767faf3b",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "DELETE",
+      "path": "/api/watchlists/{watchlist_id}/targets/{target_id}",
+      "line": 290
+    },
+    {
+      "id": "route.GET /",
+      "source": "app/main.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Task 18 root/health owner",
+      "task": 18,
+      "source_sha256": "76f2a03e270557cecdb8092c843baf118f1aa11c7488b927c61cf28c52309170",
+      "status": "planned",
+      "evidence": [
+        "root_health_snippet_has_one_argument_and_exact_paths"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/",
+      "line": 319
+    },
+    {
+      "id": "route.GET /api/admin/analytics/daily",
+      "source": "app/routers/admin_analytics.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 9 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "648abaaccf0dc54cd1cbf52f02ee68d00acabbbcb83bf0800659d484e881a8c1",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/admin/analytics/daily",
+      "line": 388
+    },
+    {
+      "id": "route.GET /api/admin/analytics/overview",
+      "source": "app/routers/admin_analytics.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 9 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "648abaaccf0dc54cd1cbf52f02ee68d00acabbbcb83bf0800659d484e881a8c1",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/admin/analytics/overview",
+      "line": 268
+    },
+    {
+      "id": "route.GET /api/admin/analytics/product-analytics/acquisition",
+      "source": "app/routers/admin_analytics.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 9 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "648abaaccf0dc54cd1cbf52f02ee68d00acabbbcb83bf0800659d484e881a8c1",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/admin/analytics/product-analytics/acquisition",
+      "line": 1095
+    },
+    {
+      "id": "route.GET /api/admin/analytics/product-analytics/activation",
+      "source": "app/routers/admin_analytics.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 9 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "648abaaccf0dc54cd1cbf52f02ee68d00acabbbcb83bf0800659d484e881a8c1",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/admin/analytics/product-analytics/activation",
+      "line": 1212
+    },
+    {
+      "id": "route.GET /api/admin/analytics/product-analytics/engagement",
+      "source": "app/routers/admin_analytics.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 9 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "648abaaccf0dc54cd1cbf52f02ee68d00acabbbcb83bf0800659d484e881a8c1",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/admin/analytics/product-analytics/engagement",
+      "line": 1292
+    },
+    {
+      "id": "route.GET /api/admin/analytics/product-analytics/marketplace",
+      "source": "app/routers/admin_analytics.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 9 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "648abaaccf0dc54cd1cbf52f02ee68d00acabbbcb83bf0800659d484e881a8c1",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/admin/analytics/product-analytics/marketplace",
+      "line": 1381
+    },
+    {
+      "id": "route.GET /api/admin/analytics/product-analytics/overview",
+      "source": "app/routers/admin_analytics.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 9 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "648abaaccf0dc54cd1cbf52f02ee68d00acabbbcb83bf0800659d484e881a8c1",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/admin/analytics/product-analytics/overview",
+      "line": 980
+    },
+    {
+      "id": "route.GET /api/admin/analytics/product-analytics/reliability",
+      "source": "app/routers/admin_analytics.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 9 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "648abaaccf0dc54cd1cbf52f02ee68d00acabbbcb83bf0800659d484e881a8c1",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/admin/analytics/product-analytics/reliability",
+      "line": 1447
+    },
+    {
+      "id": "route.GET /api/admin/analytics/product-analytics/retention",
+      "source": "app/routers/admin_analytics.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 9 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "648abaaccf0dc54cd1cbf52f02ee68d00acabbbcb83bf0800659d484e881a8c1",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/admin/analytics/product-analytics/retention",
+      "line": 1415
+    },
+    {
+      "id": "route.GET /api/admin/analytics/product-usage",
+      "source": "app/routers/admin_analytics.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 9 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "648abaaccf0dc54cd1cbf52f02ee68d00acabbbcb83bf0800659d484e881a8c1",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/admin/analytics/product-usage",
+      "line": 175
+    },
+    {
+      "id": "route.GET /api/admin/analytics/users",
+      "source": "app/routers/admin_analytics.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 9 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "648abaaccf0dc54cd1cbf52f02ee68d00acabbbcb83bf0800659d484e881a8c1",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/admin/analytics/users",
+      "line": 493
+    },
+    {
+      "id": "route.GET /api/admin/audit-logs",
+      "source": "app/routers/audit.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 8 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "12242aa0359a4a3fd90db57647716317ca24ef77f446c8bfce4710b82a81c1e9",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/admin/audit-logs",
+      "line": 34
+    },
+    {
+      "id": "route.GET /api/admin/feedback",
+      "source": "app/routers/feedback.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 2 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "32669c0eb311170e0dc850584e6dae388e1866fea37512a5f54b106dd3c2fce6",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/admin/feedback",
+      "line": 93
+    },
+    {
+      "id": "route.GET /api/admin/market-support/capabilities",
+      "source": "app/routers/market_support.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "1c4938e0111b84f788342367d0e7ac74cc78ab829c1d5c3f720d5a5743dbe3f5",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/admin/market-support/capabilities",
+      "line": 442
+    },
+    {
+      "id": "route.GET /api/admin/market-support/contexts/active",
+      "source": "app/routers/market_support.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "1c4938e0111b84f788342367d0e7ac74cc78ab829c1d5c3f720d5a5743dbe3f5",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/admin/market-support/contexts/active",
+      "line": 743
+    },
+    {
+      "id": "route.GET /api/admin/market-support/contexts/{context_id}",
+      "source": "app/routers/market_support.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "1c4938e0111b84f788342367d0e7ac74cc78ab829c1d5c3f720d5a5743dbe3f5",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/admin/market-support/contexts/{context_id}",
+      "line": 775
+    },
+    {
+      "id": "route.GET /api/admin/market-support/organizations",
+      "source": "app/routers/market_support.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "1c4938e0111b84f788342367d0e7ac74cc78ab829c1d5c3f720d5a5743dbe3f5",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/admin/market-support/organizations",
+      "line": 585
+    },
+    {
+      "id": "route.GET /api/admin/market-support/organizations/{organization_id}/authorizations",
+      "source": "app/routers/market_support.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "1c4938e0111b84f788342367d0e7ac74cc78ab829c1d5c3f720d5a5743dbe3f5",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/admin/market-support/organizations/{organization_id}/authorizations",
+      "line": 1010
+    },
+    {
+      "id": "route.GET /api/admin/market-support/organizations/{organization_id}/context",
+      "source": "app/routers/market_support.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "1c4938e0111b84f788342367d0e7ac74cc78ab829c1d5c3f720d5a5743dbe3f5",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/admin/market-support/organizations/{organization_id}/context",
+      "line": 1435
+    },
+    {
+      "id": "route.GET /api/admin/market-support/organizations/{organization_id}/entry",
+      "source": "app/routers/market_support.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "1c4938e0111b84f788342367d0e7ac74cc78ab829c1d5c3f720d5a5743dbe3f5",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/admin/market-support/organizations/{organization_id}/entry",
+      "line": 615
+    },
+    {
+      "id": "route.GET /api/admin/market-support/organizations/{organization_id}/listings",
+      "source": "app/routers/market_support.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "1c4938e0111b84f788342367d0e7ac74cc78ab829c1d5c3f720d5a5743dbe3f5",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/admin/market-support/organizations/{organization_id}/listings",
+      "line": 1257
+    },
+    {
+      "id": "route.GET /api/admin/onboarding-attention",
+      "source": "app/routers/admin_attention.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 2 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "7fcbdbfdf260bf0b82f67afc7e1da66fe5098b9bc95682dba4a75cb1faa8c70b",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/admin/onboarding-attention",
+      "line": 37
+    },
+    {
+      "id": "route.GET /api/admin/subscriptions",
+      "source": "app/routers/subscriptions.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 2 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "df2b635032bfce001324821583b22b122e5a6fe1fe918ee86140731d55dbe17d",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/admin/subscriptions",
+      "line": 50
+    },
+    {
+      "id": "route.GET /api/admin/subscriptions/{org_id}",
+      "source": "app/routers/subscriptions.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 2 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "df2b635032bfce001324821583b22b122e5a6fe1fe918ee86140731d55dbe17d",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/admin/subscriptions/{org_id}",
+      "line": 60
+    },
+    {
+      "id": "route.GET /api/alerts",
+      "source": "app/routers/alerts.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 2 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "898db5e873ecf55047e8bff89a01ab6b5aae7511593011314301d0f6fed84129",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/alerts",
+      "line": 132
+    },
+    {
+      "id": "route.GET /api/auth/admin/invitations/organizations",
+      "source": "app/routers/auth_simple.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 3 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/auth/admin/invitations/organizations",
+      "line": 1229
+    },
+    {
+      "id": "route.GET /api/auth/admin/review-queue",
+      "source": "app/routers/auth_simple.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 3 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/auth/admin/review-queue",
+      "line": 2666
+    },
+    {
+      "id": "route.GET /api/auth/admin/review-queue/{user_id}",
+      "source": "app/routers/auth_simple.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 3 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/auth/admin/review-queue/{user_id}",
+      "line": 2694
+    },
+    {
+      "id": "route.GET /api/auth/me",
+      "source": "app/routers/auth_simple.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 3 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/auth/me",
+      "line": 1979
+    },
+    {
+      "id": "route.GET /api/auth/organization-joins",
+      "source": "app/routers/auth_simple.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 3 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/auth/organization-joins",
+      "line": 2710
+    },
+    {
+      "id": "route.GET /api/auth/stream-token",
+      "source": "app/routers/auth_simple.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 3 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/auth/stream-token",
+      "line": 1142
+    },
+    {
+      "id": "route.GET /api/availability",
+      "source": "app/routers/availability.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 1 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "bbbd89d71a86be5bb5bffff90aa5777d637aa06403949a8332a935be08db552f",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/availability",
+      "line": 41
+    },
+    {
+      "id": "route.GET /api/benchmarks",
+      "source": "app/routers/benchmarks.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 1 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "2dba0fc989da6daf3ed9db894680a9599371d75c5f011332a8dae6a32448b09a",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/benchmarks",
+      "line": 15
+    },
+    {
+      "id": "route.GET /api/catalog/delivery-points",
+      "source": "app/routers/catalog.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 1 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "6fdfb781f188361005b03cc394074c873c469dc6bf15a0d1f7646c0b6a5b5e2c",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/catalog/delivery-points",
+      "line": 36
+    },
+    {
+      "id": "route.GET /api/catalog/products",
+      "source": "app/routers/catalog.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 1 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "6fdfb781f188361005b03cc394074c873c469dc6bf15a0d1f7646c0b6a5b5e2c",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/catalog/products",
+      "line": 20
+    },
+    {
+      "id": "route.GET /api/compliance/fleet",
+      "source": "app/routers/compliance_api.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 8 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "575f62e60527cc3d95b0e561d65ae5c6294689c01614cbc11bc054fb331614c5",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/compliance/fleet",
+      "line": 118
+    },
+    {
+      "id": "route.GET /api/compliance/fuels",
+      "source": "app/routers/compliance_api.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 8 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "575f62e60527cc3d95b0e561d65ae5c6294689c01614cbc11bc054fb331614c5",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/compliance/fuels",
+      "line": 266
+    },
+    {
+      "id": "route.GET /api/compliance/vessels/{vessel_id}/score",
+      "source": "app/routers/compliance_api.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 8 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "575f62e60527cc3d95b0e561d65ae5c6294689c01614cbc11bc054fb331614c5",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/compliance/vessels/{vessel_id}/score",
+      "line": 90
+    },
+    {
+      "id": "route.GET /api/curves/forward",
+      "source": "app/routers/curves.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 1 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "3261bbf856f14e30596af8a97730826ce12af2f33dfcac692996e960b0e27bdd",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/curves/forward",
+      "line": 922
+    },
+    {
+      "id": "route.GET /api/curves/forward/board",
+      "source": "app/routers/curves.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 1 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "3261bbf856f14e30596af8a97730826ce12af2f33dfcac692996e960b0e27bdd",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/curves/forward/board",
+      "line": 900
+    },
+    {
+      "id": "route.GET /api/curves/forward/export",
+      "source": "app/routers/curves.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 1 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "3261bbf856f14e30596af8a97730826ce12af2f33dfcac692996e960b0e27bdd",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/curves/forward/export",
+      "line": 943
+    },
+    {
+      "id": "route.GET /api/curves/forward/slice",
+      "source": "app/routers/curves.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 1 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "3261bbf856f14e30596af8a97730826ce12af2f33dfcac692996e960b0e27bdd",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/curves/forward/slice",
+      "line": 880
+    },
+    {
+      "id": "route.GET /api/curves/forward/table",
+      "source": "app/routers/curves.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 1 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "3261bbf856f14e30596af8a97730826ce12af2f33dfcac692996e960b0e27bdd",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/curves/forward/table",
+      "line": 850
+    },
+    {
+      "id": "route.GET /api/demand",
+      "source": "app/routers/demand.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 1 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "f72950095c21949df7f090f498c688591cd5697efc17d85646da4b198bd5a97c",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/demand",
+      "line": 48
+    },
+    {
+      "id": "route.GET /api/fleet-intelligence",
+      "source": "app/routers/fleet_intelligence.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 8 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "892248eb6a78f6776b80edbb4be99782f92ebfd2024b39d07202e22ae678e915",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/fleet-intelligence",
+      "line": 50
+    },
+    {
+      "id": "route.GET /api/inventory",
+      "source": "app/routers/inventory.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "0a50b40896efe66fbcdfc4b10a929a8f9b9cc089a1d4e8d05f1b74fa2a7211d4",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/inventory",
+      "line": 163
+    },
+    {
+      "id": "route.GET /api/kyc/admin/documents/{document_id}",
+      "source": "app/routers/kyc.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 3 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "664e35aee3bb6220a04ec22040fa2203f5346be2686d96c1c519dd50028213c4",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/kyc/admin/documents/{document_id}",
+      "line": 318
+    },
+    {
+      "id": "route.GET /api/kyc/admin/{user_id}/documents",
+      "source": "app/routers/kyc.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 3 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "664e35aee3bb6220a04ec22040fa2203f5346be2686d96c1c519dd50028213c4",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/kyc/admin/{user_id}/documents",
+      "line": 297
+    },
+    {
+      "id": "route.GET /api/kyc/status",
+      "source": "app/routers/kyc.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 3 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "664e35aee3bb6220a04ec22040fa2203f5346be2686d96c1c519dd50028213c4",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/kyc/status",
+      "line": 353
+    },
+    {
+      "id": "route.GET /api/listings",
+      "source": "app/routers/inventory.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "0a50b40896efe66fbcdfc4b10a929a8f9b9cc089a1d4e8d05f1b74fa2a7211d4",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/listings",
+      "line": 816
+    },
+    {
+      "id": "route.GET /api/listings/my",
+      "source": "app/routers/inventory.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "0a50b40896efe66fbcdfc4b10a929a8f9b9cc089a1d4e8d05f1b74fa2a7211d4",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/listings/my",
+      "line": 847
+    },
+    {
+      "id": "route.GET /api/matchmaking/suggestions",
+      "source": "app/routers/matchmaking.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 2 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "722eee7460c18b439210c06ecf34f81439f05df744fb42421990dcc40bd58b33",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/matchmaking/suggestions",
+      "line": 39
+    },
+    {
+      "id": "route.GET /api/negotiations",
+      "source": "app/routers/negotiations.py",
+      "kind": "route",
+      "end_state": "gone",
+      "owner": "Task 20 Phase 7 retirement owner",
+      "task": 20,
+      "source_sha256": "94379d9a85747d9b652f72241d8edefbb0c92e2835995527055d6363679bdf9c",
+      "status": "planned",
+      "evidence": [
+        "phase7_retirement_exact_operations_return_404",
+        "phase7_retirement_preserves_table_and_row_identity"
+      ],
+      "deleting_task": 20,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "last_reference_change": "Task 20 exact method/path Caddy retirement, then Task 32 Python reference removal",
+      "method": "GET",
+      "path": "/api/negotiations",
+      "line": 799
+    },
+    {
+      "id": "route.GET /api/negotiations/{negotiation_id}",
+      "source": "app/routers/negotiations.py",
+      "kind": "route",
+      "end_state": "gone",
+      "owner": "Task 20 Phase 7 retirement owner",
+      "task": 20,
+      "source_sha256": "94379d9a85747d9b652f72241d8edefbb0c92e2835995527055d6363679bdf9c",
+      "status": "planned",
+      "evidence": [
+        "phase7_retirement_exact_operations_return_404",
+        "phase7_retirement_preserves_table_and_row_identity"
+      ],
+      "deleting_task": 20,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "last_reference_change": "Task 20 exact method/path Caddy retirement, then Task 32 Python reference removal",
+      "method": "GET",
+      "path": "/api/negotiations/{negotiation_id}",
+      "line": 855
+    },
+    {
+      "id": "route.GET /api/news",
+      "source": "app/routers/news.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 1 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "880ae327714ddf6a239f46710634dad96aabb0b000ab63d909b91daa0c951a0f",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/news",
+      "line": 11
+    },
+    {
+      "id": "route.GET /api/notifications",
+      "source": "app/routers/notifications.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 2 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "c9a64a7abb66b8681c7e2ccb64b0a974147ff610d645beb1421cd3d1f066db38",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/notifications",
+      "line": 39
+    },
+    {
+      "id": "route.GET /api/notifications/unread-count",
+      "source": "app/routers/notifications.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 2 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "c9a64a7abb66b8681c7e2ccb64b0a974147ff610d645beb1421cd3d1f066db38",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/notifications/unread-count",
+      "line": 59
+    },
+    {
+      "id": "route.GET /api/orderbook",
+      "source": "app/routers/orderbook.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "ff6b92fe3302a354ae8a772d79e889092e7417a83ec85db620e211c21a1b4692",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/orderbook",
+      "line": 1760
+    },
+    {
+      "id": "route.GET /api/orderbook/aggregated",
+      "source": "app/routers/orderbook.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "ff6b92fe3302a354ae8a772d79e889092e7417a83ec85db620e211c21a1b4692",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/orderbook/aggregated",
+      "line": 1338
+    },
+    {
+      "id": "route.GET /api/orderbook/asks",
+      "source": "app/routers/orderbook.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "ff6b92fe3302a354ae8a772d79e889092e7417a83ec85db620e211c21a1b4692",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/orderbook/asks",
+      "line": 946
+    },
+    {
+      "id": "route.GET /api/orderbook/bids",
+      "source": "app/routers/orderbook.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "ff6b92fe3302a354ae8a772d79e889092e7417a83ec85db620e211c21a1b4692",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/orderbook/bids",
+      "line": 865
+    },
+    {
+      "id": "route.GET /api/orderbook/fuel-types",
+      "source": "app/routers/orderbook.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "ff6b92fe3302a354ae8a772d79e889092e7417a83ec85db620e211c21a1b4692",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/orderbook/fuel-types",
+      "line": 1737
+    },
+    {
+      "id": "route.GET /api/orderbook/map-summary",
+      "source": "app/routers/orderbook.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "ff6b92fe3302a354ae8a772d79e889092e7417a83ec85db620e211c21a1b4692",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/orderbook/map-summary",
+      "line": 1673
+    },
+    {
+      "id": "route.GET /api/orderbook/map-summary/compact",
+      "source": "app/routers/orderbook.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "ff6b92fe3302a354ae8a772d79e889092e7417a83ec85db620e211c21a1b4692",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/orderbook/map-summary/compact",
+      "line": 1682
+    },
+    {
+      "id": "route.GET /api/orderbook/my",
+      "source": "app/routers/orderbook.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "ff6b92fe3302a354ae8a772d79e889092e7417a83ec85db620e211c21a1b4692",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/orderbook/my",
+      "line": 1110
+    },
+    {
+      "id": "route.GET /api/orderbook/my/latest-ask-template",
+      "source": "app/routers/orderbook.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "ff6b92fe3302a354ae8a772d79e889092e7417a83ec85db620e211c21a1b4692",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/orderbook/my/latest-ask-template",
+      "line": 1162
+    },
+    {
+      "id": "route.GET /api/orderbook/product-counts",
+      "source": "app/routers/orderbook.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "ff6b92fe3302a354ae8a772d79e889092e7417a83ec85db620e211c21a1b4692",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/orderbook/product-counts",
+      "line": 1364
+    },
+    {
+      "id": "route.GET /api/orderbook/products",
+      "source": "app/routers/orderbook.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "ff6b92fe3302a354ae8a772d79e889092e7417a83ec85db620e211c21a1b4692",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/orderbook/products",
+      "line": 1698
+    },
+    {
+      "id": "route.GET /api/orderbook/regions",
+      "source": "app/routers/orderbook.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "ff6b92fe3302a354ae8a772d79e889092e7417a83ec85db620e211c21a1b4692",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/orderbook/regions",
+      "line": 1717
+    },
+    {
+      "id": "route.GET /api/orderbook/snapshot",
+      "source": "app/routers/orderbook.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "ff6b92fe3302a354ae8a772d79e889092e7417a83ec85db620e211c21a1b4692",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/orderbook/snapshot",
+      "line": 759
+    },
+    {
+      "id": "route.GET /api/orderbook/with-ci",
+      "source": "app/routers/orderbook.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "ff6b92fe3302a354ae8a772d79e889092e7417a83ec85db620e211c21a1b4692",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/orderbook/with-ci",
+      "line": 1046
+    },
+    {
+      "id": "route.GET /api/orders/admin/commissions",
+      "source": "app/routers/orders.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "03dad8289d6ea7b16ea7da521890c11625c47edcbe58a8e0d4d4ac02dfcbe081",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/orders/admin/commissions",
+      "line": 28
+    },
+    {
+      "id": "route.GET /api/orders/admin/commissions/summary",
+      "source": "app/routers/orders.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "03dad8289d6ea7b16ea7da521890c11625c47edcbe58a8e0d4d4ac02dfcbe081",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/orders/admin/commissions/summary",
+      "line": 47
+    },
+    {
+      "id": "route.GET /api/ports",
+      "source": "app/routers/ports.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 1 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "5280872f665a683f6cf9a02012f8e7229702014987fca5a3941a7edd5dc31425",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/ports",
+      "line": 13
+    },
+    {
+      "id": "route.GET /api/ports/{port_id}",
+      "source": "app/routers/ports.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 1 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "5280872f665a683f6cf9a02012f8e7229702014987fca5a3941a7edd5dc31425",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/ports/{port_id}",
+      "line": 38
+    },
+    {
+      "id": "route.GET /api/prices",
+      "source": "app/routers/price_discovery.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 1 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "6a25cac8b370ea1816918b837360c0a2ea4c2f29b3a57ffd5f4bdd779fc7f057",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/prices",
+      "line": 381
+    },
+    {
+      "id": "route.GET /api/prices/reference",
+      "source": "app/routers/price_discovery.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 1 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "6a25cac8b370ea1816918b837360c0a2ea4c2f29b3a57ffd5f4bdd779fc7f057",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/prices/reference",
+      "line": 551
+    },
+    {
+      "id": "route.GET /api/prices/reference/export",
+      "source": "app/routers/price_discovery.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 1 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "6a25cac8b370ea1816918b837360c0a2ea4c2f29b3a57ffd5f4bdd779fc7f057",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/prices/reference/export",
+      "line": 603
+    },
+    {
+      "id": "route.GET /api/producers",
+      "source": "app/routers/producers.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 1 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "5dddb6995d61debb2d5883c5325bfc0399dea12bb694340ef724ffccba594e9f",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/producers",
+      "line": 19
+    },
+    {
+      "id": "route.GET /api/referrals/leaderboard",
+      "source": "app/routers/referrals.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 2 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "e6a424256b8ea4769f9f0548f8c0295273506b2c6538c69670b34d557a08ea14",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/referrals/leaderboard",
+      "line": 117
+    },
+    {
+      "id": "route.GET /api/referrals/my-referrals",
+      "source": "app/routers/referrals.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 2 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "e6a424256b8ea4769f9f0548f8c0295273506b2c6538c69670b34d557a08ea14",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/referrals/my-referrals",
+      "line": 73
+    },
+    {
+      "id": "route.GET /api/referrals/resolve/{code}",
+      "source": "app/routers/referrals.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 2 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "e6a424256b8ea4769f9f0548f8c0295273506b2c6538c69670b34d557a08ea14",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/referrals/resolve/{code}",
+      "line": 207
+    },
+    {
+      "id": "route.GET /api/rfq",
+      "source": "app/routers/rfq.py",
+      "kind": "route",
+      "end_state": "gone",
+      "owner": "Task 20 Phase 7 retirement owner",
+      "task": 20,
+      "source_sha256": "415815eac4324c7c4088e48d333e6ba03424cfc58bfbda76ed0daa346e168a39",
+      "status": "planned",
+      "evidence": [
+        "phase7_retirement_exact_operations_return_404",
+        "phase7_retirement_preserves_table_and_row_identity"
+      ],
+      "deleting_task": 20,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "last_reference_change": "Task 20 exact method/path Caddy retirement, then Task 32 Python reference removal",
+      "method": "GET",
+      "path": "/api/rfq",
+      "line": 589
+    },
+    {
+      "id": "route.GET /api/rfq/{rfq_id}",
+      "source": "app/routers/rfq.py",
+      "kind": "route",
+      "end_state": "gone",
+      "owner": "Task 20 Phase 7 retirement owner",
+      "task": 20,
+      "source_sha256": "415815eac4324c7c4088e48d333e6ba03424cfc58bfbda76ed0daa346e168a39",
+      "status": "planned",
+      "evidence": [
+        "phase7_retirement_exact_operations_return_404",
+        "phase7_retirement_preserves_table_and_row_identity"
+      ],
+      "deleting_task": 20,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "last_reference_change": "Task 20 exact method/path Caddy retirement, then Task 32 Python reference removal",
+      "method": "GET",
+      "path": "/api/rfq/{rfq_id}",
+      "line": 638
+    },
+    {
+      "id": "route.GET /api/stream/activity",
+      "source": "app/routers/activity.py",
+      "kind": "route",
+      "end_state": "gone",
+      "owner": "Task 32 removal owner (PD6-1)",
+      "task": 32,
+      "source_sha256": "f7aea5f8b529743525ecfdfb2a7fd3295d969a077aa98ed0958e78bdf4571538",
+      "status": "planned",
+      "evidence": [
+        "phase7_routes_have_their_recorded_end_state"
+      ],
+      "deleting_task": 32,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "last_reference_change": "Task 32 removes Python units, upstreams and runtime references",
+      "method": "GET",
+      "path": "/api/stream/activity",
+      "line": 169
+    },
+    {
+      "id": "route.GET /api/stream/orderbook",
+      "source": "app/routers/stream.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 6 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "e06f7292b9abbe59244edfb1140eac355bee589621bc9d5a28c9cae66639cabd",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/stream/orderbook",
+      "line": 284
+    },
+    {
+      "id": "route.GET /api/stream/prices",
+      "source": "app/routers/stream.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 6 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "e06f7292b9abbe59244edfb1140eac355bee589621bc9d5a28c9cae66639cabd",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/stream/prices",
+      "line": 270
+    },
+    {
+      "id": "route.GET /api/stream/trades",
+      "source": "app/routers/stream.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 6 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "e06f7292b9abbe59244edfb1140eac355bee589621bc9d5a28c9cae66639cabd",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/stream/trades",
+      "line": 318
+    },
+    {
+      "id": "route.GET /api/subscriptions/fees",
+      "source": "app/routers/subscriptions.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 2 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "df2b635032bfce001324821583b22b122e5a6fe1fe918ee86140731d55dbe17d",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/subscriptions/fees",
+      "line": 27
+    },
+    {
+      "id": "route.GET /api/subscriptions/me",
+      "source": "app/routers/subscriptions.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 2 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "df2b635032bfce001324821583b22b122e5a6fe1fe918ee86140731d55dbe17d",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/subscriptions/me",
+      "line": 37
+    },
+    {
+      "id": "route.GET /api/supplier-offers",
+      "source": "app/routers/supplier_offers.py",
+      "kind": "route",
+      "end_state": "gone",
+      "owner": "Task 20 Phase 7 retirement owner",
+      "task": 20,
+      "source_sha256": "cf3fd9253a63f98733120f1e57d17b3b2d856f3af19696704b9a35c8b04cd23f",
+      "status": "planned",
+      "evidence": [
+        "phase7_retirement_exact_operations_return_404",
+        "phase7_retirement_preserves_table_and_row_identity"
+      ],
+      "deleting_task": 20,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "last_reference_change": "Task 20 exact method/path Caddy retirement, then Task 32 Python reference removal",
+      "method": "GET",
+      "path": "/api/supplier-offers",
+      "line": 259
+    },
+    {
+      "id": "route.GET /api/supplier-offers/my",
+      "source": "app/routers/supplier_offers.py",
+      "kind": "route",
+      "end_state": "gone",
+      "owner": "Task 20 Phase 7 retirement owner",
+      "task": 20,
+      "source_sha256": "cf3fd9253a63f98733120f1e57d17b3b2d856f3af19696704b9a35c8b04cd23f",
+      "status": "planned",
+      "evidence": [
+        "phase7_retirement_exact_operations_return_404",
+        "phase7_retirement_preserves_table_and_row_identity"
+      ],
+      "deleting_task": 20,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "last_reference_change": "Task 20 exact method/path Caddy retirement, then Task 32 Python reference removal",
+      "method": "GET",
+      "path": "/api/supplier-offers/my",
+      "line": 286
+    },
+    {
+      "id": "route.GET /api/supplier-offers/{offer_id}",
+      "source": "app/routers/supplier_offers.py",
+      "kind": "route",
+      "end_state": "gone",
+      "owner": "Task 20 Phase 7 retirement owner",
+      "task": 20,
+      "source_sha256": "cf3fd9253a63f98733120f1e57d17b3b2d856f3af19696704b9a35c8b04cd23f",
+      "status": "planned",
+      "evidence": [
+        "phase7_retirement_exact_operations_return_404",
+        "phase7_retirement_preserves_table_and_row_identity"
+      ],
+      "deleting_task": 20,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "last_reference_change": "Task 20 exact method/path Caddy retirement, then Task 32 Python reference removal",
+      "method": "GET",
+      "path": "/api/supplier-offers/{offer_id}",
+      "line": 316
+    },
+    {
+      "id": "route.GET /api/trade-tape",
+      "source": "app/routers/trade_tape.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 1 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "9ccfcca4a01bc369f86dd21c797c4523fef8ce6ba7d1b5d19249d9c63712586e",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/trade-tape",
+      "line": 62
+    },
+    {
+      "id": "route.GET /api/trades/my",
+      "source": "app/routers/trades.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "a240cc908a84015a5cf3dd8f9cb6eb9f8af8466632c4183247e6aad59f6152bd",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/trades/my",
+      "line": 1163
+    },
+    {
+      "id": "route.GET /api/trades/summary",
+      "source": "app/routers/trades.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "a240cc908a84015a5cf3dd8f9cb6eb9f8af8466632c4183247e6aad59f6152bd",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/trades/summary",
+      "line": 1120
+    },
+    {
+      "id": "route.GET /api/users/me/preferences",
+      "source": "app/routers/preferences.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 2 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "99dcc39599e5ada5c649f4d0547fee58b53cd6a4cacc7c4e225ed123df382816",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/users/me/preferences",
+      "line": 39
+    },
+    {
+      "id": "route.GET /api/vessels",
+      "source": "app/routers/vessels.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 8 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "f91c0926aa6479474103374f97cd359199e8f8b05948ca2a60f3046a74fceaae",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/vessels",
+      "line": 14
+    },
+    {
+      "id": "route.GET /api/vessels/{vessel_id}",
+      "source": "app/routers/vessels.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 8 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "f91c0926aa6479474103374f97cd359199e8f8b05948ca2a60f3046a74fceaae",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/vessels/{vessel_id}",
+      "line": 57
+    },
+    {
+      "id": "route.GET /api/watchlists",
+      "source": "app/routers/watchlists.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 2 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "a35c9b2ce219870ac626ab5957b7ed2a9c36f3a868efd2a3c98a4539767faf3b",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/watchlists",
+      "line": 101
+    },
+    {
+      "id": "route.GET /api/watchlists/{watchlist_id}",
+      "source": "app/routers/watchlists.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 2 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "a35c9b2ce219870ac626ab5957b7ed2a9c36f3a868efd2a3c98a4539767faf3b",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/watchlists/{watchlist_id}",
+      "line": 190
+    },
+    {
+      "id": "route.GET /api/watchlists/{watchlist_id}/events",
+      "source": "app/routers/watchlists.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 2 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "a35c9b2ce219870ac626ab5957b7ed2a9c36f3a868efd2a3c98a4539767faf3b",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/api/watchlists/{watchlist_id}/events",
+      "line": 321
+    },
+    {
+      "id": "route.GET /health",
+      "source": "app/main.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Task 18 root/health owner",
+      "task": 18,
+      "source_sha256": "76f2a03e270557cecdb8092c843baf118f1aa11c7488b927c61cf28c52309170",
+      "status": "planned",
+      "evidence": [
+        "root_health_snippet_has_one_argument_and_exact_paths"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/health",
+      "line": 323
+    },
+    {
+      "id": "route.GET /health/live",
+      "source": "app/main.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Task 18 root/health owner",
+      "task": 18,
+      "source_sha256": "76f2a03e270557cecdb8092c843baf118f1aa11c7488b927c61cf28c52309170",
+      "status": "planned",
+      "evidence": [
+        "root_health_snippet_has_one_argument_and_exact_paths"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/health/live",
+      "line": 328
+    },
+    {
+      "id": "route.GET /health/ready",
+      "source": "app/main.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Task 18 root/health owner",
+      "task": 18,
+      "source_sha256": "76f2a03e270557cecdb8092c843baf118f1aa11c7488b927c61cf28c52309170",
+      "status": "planned",
+      "evidence": [
+        "root_health_snippet_has_one_argument_and_exact_paths"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "GET",
+      "path": "/health/ready",
+      "line": 333
+    },
+    {
+      "id": "route.PATCH /api/inventory/{item_id}",
+      "source": "app/routers/inventory.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "0a50b40896efe66fbcdfc4b10a929a8f9b9cc089a1d4e8d05f1b74fa2a7211d4",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "PATCH",
+      "path": "/api/inventory/{item_id}",
+      "line": 261
+    },
+    {
+      "id": "route.PATCH /api/matchmaking/suggestions/{order_id}/dismiss",
+      "source": "app/routers/matchmaking.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 2 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "722eee7460c18b439210c06ecf34f81439f05df744fb42421990dcc40bd58b33",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "PATCH",
+      "path": "/api/matchmaking/suggestions/{order_id}/dismiss",
+      "line": 173
+    },
+    {
+      "id": "route.PATCH /api/notifications/read-all",
+      "source": "app/routers/notifications.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 2 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "c9a64a7abb66b8681c7e2ccb64b0a974147ff610d645beb1421cd3d1f066db38",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "PATCH",
+      "path": "/api/notifications/read-all",
+      "line": 99
+    },
+    {
+      "id": "route.PATCH /api/notifications/{notification_id}/read",
+      "source": "app/routers/notifications.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 2 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "c9a64a7abb66b8681c7e2ccb64b0a974147ff610d645beb1421cd3d1f066db38",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "PATCH",
+      "path": "/api/notifications/{notification_id}/read",
+      "line": 75
+    },
+    {
+      "id": "route.PATCH /api/watchlists/{watchlist_id}/events/{event_id}",
+      "source": "app/routers/watchlists.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 2 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "a35c9b2ce219870ac626ab5957b7ed2a9c36f3a868efd2a3c98a4539767faf3b",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "PATCH",
+      "path": "/api/watchlists/{watchlist_id}/events/{event_id}",
+      "line": 338
+    },
+    {
+      "id": "route.POST /api/admin/market-support/capability-assignments",
+      "source": "app/routers/market_support.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "1c4938e0111b84f788342367d0e7ac74cc78ab829c1d5c3f720d5a5743dbe3f5",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "POST",
+      "path": "/api/admin/market-support/capability-assignments",
+      "line": 450
+    },
+    {
+      "id": "route.POST /api/admin/market-support/capability-assignments/{assignment_id}/revoke",
+      "source": "app/routers/market_support.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "1c4938e0111b84f788342367d0e7ac74cc78ab829c1d5c3f720d5a5743dbe3f5",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "POST",
+      "path": "/api/admin/market-support/capability-assignments/{assignment_id}/revoke",
+      "line": 511
+    },
+    {
+      "id": "route.POST /api/admin/market-support/contexts",
+      "source": "app/routers/market_support.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "1c4938e0111b84f788342367d0e7ac74cc78ab829c1d5c3f720d5a5743dbe3f5",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "POST",
+      "path": "/api/admin/market-support/contexts",
+      "line": 639
+    },
+    {
+      "id": "route.POST /api/admin/market-support/contexts/{context_id}/exit",
+      "source": "app/routers/market_support.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "1c4938e0111b84f788342367d0e7ac74cc78ab829c1d5c3f720d5a5743dbe3f5",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "POST",
+      "path": "/api/admin/market-support/contexts/{context_id}/exit",
+      "line": 795
+    },
+    {
+      "id": "route.POST /api/admin/market-support/organizations/{organization_id}/authorizations",
+      "source": "app/routers/market_support.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "1c4938e0111b84f788342367d0e7ac74cc78ab829c1d5c3f720d5a5743dbe3f5",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "POST",
+      "path": "/api/admin/market-support/organizations/{organization_id}/authorizations",
+      "line": 831
+    },
+    {
+      "id": "route.POST /api/admin/market-support/organizations/{organization_id}/authorizations/{authorization_id}/revoke",
+      "source": "app/routers/market_support.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "1c4938e0111b84f788342367d0e7ac74cc78ab829c1d5c3f720d5a5743dbe3f5",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "POST",
+      "path": "/api/admin/market-support/organizations/{organization_id}/authorizations/{authorization_id}/revoke",
+      "line": 1370
+    },
+    {
+      "id": "route.POST /api/admin/market-support/organizations/{organization_id}/listings",
+      "source": "app/routers/market_support.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "1c4938e0111b84f788342367d0e7ac74cc78ab829c1d5c3f720d5a5743dbe3f5",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "POST",
+      "path": "/api/admin/market-support/organizations/{organization_id}/listings",
+      "line": 1090
+    },
+    {
+      "id": "route.POST /api/admin/market-support/organizations/{organization_id}/listings/{order_id}/cancel",
+      "source": "app/routers/market_support.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "1c4938e0111b84f788342367d0e7ac74cc78ab829c1d5c3f720d5a5743dbe3f5",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "POST",
+      "path": "/api/admin/market-support/organizations/{organization_id}/listings/{order_id}/cancel",
+      "line": 1337
+    },
+    {
+      "id": "route.POST /api/ai/chat",
+      "source": "app/routers/ai.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 5 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "2094047436569e867d4ffec4e246c4946e70d21c35e09e328e98295d0aebcc40",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "POST",
+      "path": "/api/ai/chat",
+      "line": 40
+    },
+    {
+      "id": "route.POST /api/alerts",
+      "source": "app/routers/alerts.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 2 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "898db5e873ecf55047e8bff89a01ab6b5aae7511593011314301d0f6fed84129",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "POST",
+      "path": "/api/alerts",
+      "line": 131
+    },
+    {
+      "id": "route.POST /api/auth/admin/invitations",
+      "source": "app/routers/auth_simple.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 3 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "POST",
+      "path": "/api/auth/admin/invitations",
+      "line": 1268
+    },
+    {
+      "id": "route.POST /api/auth/forgot-password",
+      "source": "app/routers/auth_simple.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 3 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "POST",
+      "path": "/api/auth/forgot-password",
+      "line": 2137
+    },
+    {
+      "id": "route.POST /api/auth/invitations/accept",
+      "source": "app/routers/auth_simple.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 3 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "POST",
+      "path": "/api/auth/invitations/accept",
+      "line": 1473
+    },
+    {
+      "id": "route.POST /api/auth/invitations/resolve",
+      "source": "app/routers/auth_simple.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 3 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "POST",
+      "path": "/api/auth/invitations/resolve",
+      "line": 1438
+    },
+    {
+      "id": "route.POST /api/auth/login",
+      "source": "app/routers/auth_simple.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 3 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "POST",
+      "path": "/api/auth/login",
+      "line": 789
+    },
+    {
+      "id": "route.POST /api/auth/logout",
+      "source": "app/routers/auth_simple.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 3 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "POST",
+      "path": "/api/auth/logout",
+      "line": 1084
+    },
+    {
+      "id": "route.POST /api/auth/refresh",
+      "source": "app/routers/auth_simple.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 3 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "POST",
+      "path": "/api/auth/refresh",
+      "line": 892
+    },
+    {
+      "id": "route.POST /api/auth/register",
+      "source": "app/routers/auth_simple.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 3 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "POST",
+      "path": "/api/auth/register",
+      "line": 1599
+    },
+    {
+      "id": "route.POST /api/auth/register-with-org",
+      "source": "app/routers/auth_simple.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 3 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "POST",
+      "path": "/api/auth/register-with-org",
+      "line": 1755
+    },
+    {
+      "id": "route.POST /api/auth/resend-verification-email",
+      "source": "app/routers/auth_simple.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 3 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "POST",
+      "path": "/api/auth/resend-verification-email",
+      "line": 1934
+    },
+    {
+      "id": "route.POST /api/auth/reset-password",
+      "source": "app/routers/auth_simple.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 3 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "POST",
+      "path": "/api/auth/reset-password",
+      "line": 2186
+    },
+    {
+      "id": "route.POST /api/auth/survey",
+      "source": "app/routers/auth_simple.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 3 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "POST",
+      "path": "/api/auth/survey",
+      "line": 2884
+    },
+    {
+      "id": "route.POST /api/auth/verify-email",
+      "source": "app/routers/auth_simple.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 3 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "POST",
+      "path": "/api/auth/verify-email",
+      "line": 1904
+    },
+    {
+      "id": "route.POST /api/compliance/pricing-overlay",
+      "source": "app/routers/compliance_api.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 8 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "575f62e60527cc3d95b0e561d65ae5c6294689c01614cbc11bc054fb331614c5",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "POST",
+      "path": "/api/compliance/pricing-overlay",
+      "line": 198
+    },
+    {
+      "id": "route.POST /api/compliance/scenario",
+      "source": "app/routers/compliance_api.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 8 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "575f62e60527cc3d95b0e561d65ae5c6294689c01614cbc11bc054fb331614c5",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "POST",
+      "path": "/api/compliance/scenario",
+      "line": 156
+    },
+    {
+      "id": "route.POST /api/feedback",
+      "source": "app/routers/feedback.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 2 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "32669c0eb311170e0dc850584e6dae388e1866fea37512a5f54b106dd3c2fce6",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "POST",
+      "path": "/api/feedback",
+      "line": 73
+    },
+    {
+      "id": "route.POST /api/inventory",
+      "source": "app/routers/inventory.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "0a50b40896efe66fbcdfc4b10a929a8f9b9cc089a1d4e8d05f1b74fa2a7211d4",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "POST",
+      "path": "/api/inventory",
+      "line": 185
+    },
+    {
+      "id": "route.POST /api/inventory/{item_id}/publish",
+      "source": "app/routers/inventory.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "0a50b40896efe66fbcdfc4b10a929a8f9b9cc089a1d4e8d05f1b74fa2a7211d4",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "POST",
+      "path": "/api/inventory/{item_id}/publish",
+      "line": 382
+    },
+    {
+      "id": "route.POST /api/kyc/submit",
+      "source": "app/routers/kyc.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 3 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "664e35aee3bb6220a04ec22040fa2203f5346be2686d96c1c519dd50028213c4",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "POST",
+      "path": "/api/kyc/submit",
+      "line": 177
+    },
+    {
+      "id": "route.POST /api/monitor/signup-canary-cleanup",
+      "source": "app/routers/monitor.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Task 19 canary owner",
+      "task": 19,
+      "source_sha256": "aa245770ed81a9c5fc6feb51559838eff3085bbb548f1d1cdbb61ac5880ce0d2",
+      "status": "planned",
+      "evidence": [
+        "canary_concurrent_cleanup_deletes_once"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "POST",
+      "path": "/api/monitor/signup-canary-cleanup",
+      "line": 44
+    },
+    {
+      "id": "route.POST /api/negotiations",
+      "source": "app/routers/negotiations.py",
+      "kind": "route",
+      "end_state": "gone",
+      "owner": "Task 20 Phase 7 retirement owner",
+      "task": 20,
+      "source_sha256": "94379d9a85747d9b652f72241d8edefbb0c92e2835995527055d6363679bdf9c",
+      "status": "planned",
+      "evidence": [
+        "phase7_retirement_exact_operations_return_404",
+        "phase7_retirement_preserves_table_and_row_identity"
+      ],
+      "deleting_task": 20,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "last_reference_change": "Task 20 exact method/path Caddy retirement, then Task 32 Python reference removal",
+      "method": "POST",
+      "path": "/api/negotiations",
+      "line": 515
+    },
+    {
+      "id": "route.POST /api/negotiations/{negotiation_id}/accept",
+      "source": "app/routers/negotiations.py",
+      "kind": "route",
+      "end_state": "gone",
+      "owner": "Task 20 Phase 7 retirement owner",
+      "task": 20,
+      "source_sha256": "94379d9a85747d9b652f72241d8edefbb0c92e2835995527055d6363679bdf9c",
+      "status": "planned",
+      "evidence": [
+        "phase7_retirement_exact_operations_return_404",
+        "phase7_retirement_preserves_table_and_row_identity"
+      ],
+      "deleting_task": 20,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "last_reference_change": "Task 20 exact method/path Caddy retirement, then Task 32 Python reference removal",
+      "method": "POST",
+      "path": "/api/negotiations/{negotiation_id}/accept",
+      "line": 974
+    },
+    {
+      "id": "route.POST /api/negotiations/{negotiation_id}/counter",
+      "source": "app/routers/negotiations.py",
+      "kind": "route",
+      "end_state": "gone",
+      "owner": "Task 20 Phase 7 retirement owner",
+      "task": 20,
+      "source_sha256": "94379d9a85747d9b652f72241d8edefbb0c92e2835995527055d6363679bdf9c",
+      "status": "planned",
+      "evidence": [
+        "phase7_retirement_exact_operations_return_404",
+        "phase7_retirement_preserves_table_and_row_identity"
+      ],
+      "deleting_task": 20,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "last_reference_change": "Task 20 exact method/path Caddy retirement, then Task 32 Python reference removal",
+      "method": "POST",
+      "path": "/api/negotiations/{negotiation_id}/counter",
+      "line": 872
+    },
+    {
+      "id": "route.POST /api/negotiations/{negotiation_id}/decline",
+      "source": "app/routers/negotiations.py",
+      "kind": "route",
+      "end_state": "gone",
+      "owner": "Task 20 Phase 7 retirement owner",
+      "task": 20,
+      "source_sha256": "94379d9a85747d9b652f72241d8edefbb0c92e2835995527055d6363679bdf9c",
+      "status": "planned",
+      "evidence": [
+        "phase7_retirement_exact_operations_return_404",
+        "phase7_retirement_preserves_table_and_row_identity"
+      ],
+      "deleting_task": 20,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "last_reference_change": "Task 20 exact method/path Caddy retirement, then Task 32 Python reference removal",
+      "method": "POST",
+      "path": "/api/negotiations/{negotiation_id}/decline",
+      "line": 997
+    },
+    {
+      "id": "route.POST /api/orderbook",
+      "source": "app/routers/orderbook.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "ff6b92fe3302a354ae8a772d79e889092e7417a83ec85db620e211c21a1b4692",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "POST",
+      "path": "/api/orderbook",
+      "line": 1812
+    },
+    {
+      "id": "route.POST /api/orderbook/{order_id}/cancel",
+      "source": "app/routers/orderbook.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "ff6b92fe3302a354ae8a772d79e889092e7417a83ec85db620e211c21a1b4692",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "POST",
+      "path": "/api/orderbook/{order_id}/cancel",
+      "line": 2797
+    },
+    {
+      "id": "route.POST /api/referrals/invite",
+      "source": "app/routers/referrals.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 2 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "e6a424256b8ea4769f9f0548f8c0295273506b2c6538c69670b34d557a08ea14",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "POST",
+      "path": "/api/referrals/invite",
+      "line": 169
+    },
+    {
+      "id": "route.POST /api/referrals/my-code",
+      "source": "app/routers/referrals.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 2 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "e6a424256b8ea4769f9f0548f8c0295273506b2c6538c69670b34d557a08ea14",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "POST",
+      "path": "/api/referrals/my-code",
+      "line": 54
+    },
+    {
+      "id": "route.POST /api/rfq",
+      "source": "app/routers/rfq.py",
+      "kind": "route",
+      "end_state": "gone",
+      "owner": "Task 20 Phase 7 retirement owner",
+      "task": 20,
+      "source_sha256": "415815eac4324c7c4088e48d333e6ba03424cfc58bfbda76ed0daa346e168a39",
+      "status": "planned",
+      "evidence": [
+        "phase7_retirement_exact_operations_return_404",
+        "phase7_retirement_preserves_table_and_row_identity"
+      ],
+      "deleting_task": 20,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "last_reference_change": "Task 20 exact method/path Caddy retirement, then Task 32 Python reference removal",
+      "method": "POST",
+      "path": "/api/rfq",
+      "line": 421
+    },
+    {
+      "id": "route.POST /api/rfq/{rfq_id}/accept/{quote_id}",
+      "source": "app/routers/rfq.py",
+      "kind": "route",
+      "end_state": "gone",
+      "owner": "Task 20 Phase 7 retirement owner",
+      "task": 20,
+      "source_sha256": "415815eac4324c7c4088e48d333e6ba03424cfc58bfbda76ed0daa346e168a39",
+      "status": "planned",
+      "evidence": [
+        "phase7_retirement_exact_operations_return_404",
+        "phase7_retirement_preserves_table_and_row_identity"
+      ],
+      "deleting_task": 20,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "last_reference_change": "Task 20 exact method/path Caddy retirement, then Task 32 Python reference removal",
+      "method": "POST",
+      "path": "/api/rfq/{rfq_id}/accept/{quote_id}",
+      "line": 853
+    },
+    {
+      "id": "route.POST /api/rfq/{rfq_id}/cancel",
+      "source": "app/routers/rfq.py",
+      "kind": "route",
+      "end_state": "gone",
+      "owner": "Task 20 Phase 7 retirement owner",
+      "task": 20,
+      "source_sha256": "415815eac4324c7c4088e48d333e6ba03424cfc58bfbda76ed0daa346e168a39",
+      "status": "planned",
+      "evidence": [
+        "phase7_retirement_exact_operations_return_404",
+        "phase7_retirement_preserves_table_and_row_identity"
+      ],
+      "deleting_task": 20,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "last_reference_change": "Task 20 exact method/path Caddy retirement, then Task 32 Python reference removal",
+      "method": "POST",
+      "path": "/api/rfq/{rfq_id}/cancel",
+      "line": 877
+    },
+    {
+      "id": "route.POST /api/rfq/{rfq_id}/quote",
+      "source": "app/routers/rfq.py",
+      "kind": "route",
+      "end_state": "gone",
+      "owner": "Task 20 Phase 7 retirement owner",
+      "task": 20,
+      "source_sha256": "415815eac4324c7c4088e48d333e6ba03424cfc58bfbda76ed0daa346e168a39",
+      "status": "planned",
+      "evidence": [
+        "phase7_retirement_exact_operations_return_404",
+        "phase7_retirement_preserves_table_and_row_identity"
+      ],
+      "deleting_task": 20,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "last_reference_change": "Task 20 exact method/path Caddy retirement, then Task 32 Python reference removal",
+      "method": "POST",
+      "path": "/api/rfq/{rfq_id}/quote",
+      "line": 662
+    },
+    {
+      "id": "route.POST /api/rfq/{rfq_id}/quotes/{quote_id}/withdraw",
+      "source": "app/routers/rfq.py",
+      "kind": "route",
+      "end_state": "gone",
+      "owner": "Task 20 Phase 7 retirement owner",
+      "task": 20,
+      "source_sha256": "415815eac4324c7c4088e48d333e6ba03424cfc58bfbda76ed0daa346e168a39",
+      "status": "planned",
+      "evidence": [
+        "phase7_retirement_exact_operations_return_404",
+        "phase7_retirement_preserves_table_and_row_identity"
+      ],
+      "deleting_task": 20,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "last_reference_change": "Task 20 exact method/path Caddy retirement, then Task 32 Python reference removal",
+      "method": "POST",
+      "path": "/api/rfq/{rfq_id}/quotes/{quote_id}/withdraw",
+      "line": 803
+    },
+    {
+      "id": "route.POST /api/supplier-offers",
+      "source": "app/routers/supplier_offers.py",
+      "kind": "route",
+      "end_state": "gone",
+      "owner": "Task 20 Phase 7 retirement owner",
+      "task": 20,
+      "source_sha256": "cf3fd9253a63f98733120f1e57d17b3b2d856f3af19696704b9a35c8b04cd23f",
+      "status": "planned",
+      "evidence": [
+        "phase7_retirement_exact_operations_return_404",
+        "phase7_retirement_preserves_table_and_row_identity"
+      ],
+      "deleting_task": 20,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "last_reference_change": "Task 20 exact method/path Caddy retirement, then Task 32 Python reference removal",
+      "method": "POST",
+      "path": "/api/supplier-offers",
+      "line": 334
+    },
+    {
+      "id": "route.POST /api/supplier-offers/{offer_id}/withdraw",
+      "source": "app/routers/supplier_offers.py",
+      "kind": "route",
+      "end_state": "gone",
+      "owner": "Task 20 Phase 7 retirement owner",
+      "task": 20,
+      "source_sha256": "cf3fd9253a63f98733120f1e57d17b3b2d856f3af19696704b9a35c8b04cd23f",
+      "status": "planned",
+      "evidence": [
+        "phase7_retirement_exact_operations_return_404",
+        "phase7_retirement_preserves_table_and_row_identity"
+      ],
+      "deleting_task": 20,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "last_reference_change": "Task 20 exact method/path Caddy retirement, then Task 32 Python reference removal",
+      "method": "POST",
+      "path": "/api/supplier-offers/{offer_id}/withdraw",
+      "line": 479
+    },
+    {
+      "id": "route.POST /api/trades/",
+      "source": "app/routers/trades.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "a240cc908a84015a5cf3dd8f9cb6eb9f8af8466632c4183247e6aad59f6152bd",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "POST",
+      "path": "/api/trades/",
+      "line": 714
+    },
+    {
+      "id": "route.POST /api/trades/{trade_id}/pay",
+      "source": "app/routers/trades.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "a240cc908a84015a5cf3dd8f9cb6eb9f8af8466632c4183247e6aad59f6152bd",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "POST",
+      "path": "/api/trades/{trade_id}/pay",
+      "line": 1746
+    },
+    {
+      "id": "route.POST /api/watchlists",
+      "source": "app/routers/watchlists.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 2 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "a35c9b2ce219870ac626ab5957b7ed2a9c36f3a868efd2a3c98a4539767faf3b",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "POST",
+      "path": "/api/watchlists",
+      "line": 171
+    },
+    {
+      "id": "route.POST /api/watchlists/me",
+      "source": "app/routers/watchlists.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 2 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "a35c9b2ce219870ac626ab5957b7ed2a9c36f3a868efd2a3c98a4539767faf3b",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "POST",
+      "path": "/api/watchlists/me",
+      "line": 158
+    },
+    {
+      "id": "route.POST /api/watchlists/{watchlist_id}/entries",
+      "source": "app/routers/watchlists.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 2 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "a35c9b2ce219870ac626ab5957b7ed2a9c36f3a868efd2a3c98a4539767faf3b",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "POST",
+      "path": "/api/watchlists/{watchlist_id}/entries",
+      "line": 366
+    },
+    {
+      "id": "route.POST /api/watchlists/{watchlist_id}/targets",
+      "source": "app/routers/watchlists.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 2 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "a35c9b2ce219870ac626ab5957b7ed2a9c36f3a868efd2a3c98a4539767faf3b",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "POST",
+      "path": "/api/watchlists/{watchlist_id}/targets",
+      "line": 202
+    },
+    {
+      "id": "route.PUT /api/admin/analytics/users/{user_id}/reject",
+      "source": "app/routers/admin_analytics.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 9 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "648abaaccf0dc54cd1cbf52f02ee68d00acabbbcb83bf0800659d484e881a8c1",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "PUT",
+      "path": "/api/admin/analytics/users/{user_id}/reject",
+      "line": 554
+    },
+    {
+      "id": "route.PUT /api/admin/subscriptions/{org_id}",
+      "source": "app/routers/subscriptions.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 2 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "df2b635032bfce001324821583b22b122e5a6fe1fe918ee86140731d55dbe17d",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "PUT",
+      "path": "/api/admin/subscriptions/{org_id}",
+      "line": 79
+    },
+    {
+      "id": "route.PUT /api/auth/approve/{user_id}",
+      "source": "app/routers/auth_simple.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 3 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "PUT",
+      "path": "/api/auth/approve/{user_id}",
+      "line": 2258
+    },
+    {
+      "id": "route.PUT /api/auth/me",
+      "source": "app/routers/auth_simple.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 3 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "PUT",
+      "path": "/api/auth/me",
+      "line": 1986
+    },
+    {
+      "id": "route.PUT /api/auth/me/password",
+      "source": "app/routers/auth_simple.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 3 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "PUT",
+      "path": "/api/auth/me/password",
+      "line": 2038
+    },
+    {
+      "id": "route.PUT /api/auth/organization-joins/{join_request_id}/approve",
+      "source": "app/routers/auth_simple.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 3 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "PUT",
+      "path": "/api/auth/organization-joins/{join_request_id}/approve",
+      "line": 2756
+    },
+    {
+      "id": "route.PUT /api/auth/organization-joins/{join_request_id}/reject",
+      "source": "app/routers/auth_simple.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 3 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "PUT",
+      "path": "/api/auth/organization-joins/{join_request_id}/reject",
+      "line": 2841
+    },
+    {
+      "id": "route.PUT /api/auth/organization/{organization_id}/approve",
+      "source": "app/routers/auth_simple.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 3 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "PUT",
+      "path": "/api/auth/organization/{organization_id}/approve",
+      "line": 2350
+    },
+    {
+      "id": "route.PUT /api/auth/organization/{organization_id}/reject",
+      "source": "app/routers/auth_simple.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 3 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "PUT",
+      "path": "/api/auth/organization/{organization_id}/reject",
+      "line": 2414
+    },
+    {
+      "id": "route.PUT /api/auth/reject/{user_id}",
+      "source": "app/routers/auth_simple.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 3 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "PUT",
+      "path": "/api/auth/reject/{user_id}",
+      "line": 2469
+    },
+    {
+      "id": "route.PUT /api/kyc/admin/{user_id}/approve",
+      "source": "app/routers/kyc.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 3 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "664e35aee3bb6220a04ec22040fa2203f5346be2686d96c1c519dd50028213c4",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "PUT",
+      "path": "/api/kyc/admin/{user_id}/approve",
+      "line": 358
+    },
+    {
+      "id": "route.PUT /api/kyc/admin/{user_id}/reject",
+      "source": "app/routers/kyc.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 3 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "664e35aee3bb6220a04ec22040fa2203f5346be2686d96c1c519dd50028213c4",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "PUT",
+      "path": "/api/kyc/admin/{user_id}/reject",
+      "line": 426
+    },
+    {
+      "id": "route.PUT /api/orderbook/{order_id}",
+      "source": "app/routers/orderbook.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "ff6b92fe3302a354ae8a772d79e889092e7417a83ec85db620e211c21a1b4692",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "PUT",
+      "path": "/api/orderbook/{order_id}",
+      "line": 2416
+    },
+    {
+      "id": "route.PUT /api/orders/admin/commissions/{commission_id}",
+      "source": "app/routers/orders.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "03dad8289d6ea7b16ea7da521890c11625c47edcbe58a8e0d4d4ac02dfcbe081",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "PUT",
+      "path": "/api/orders/admin/commissions/{commission_id}",
+      "line": 94
+    },
+    {
+      "id": "route.PUT /api/rfq/{rfq_id}/quotes/{quote_id}",
+      "source": "app/routers/rfq.py",
+      "kind": "route",
+      "end_state": "gone",
+      "owner": "Task 20 Phase 7 retirement owner",
+      "task": 20,
+      "source_sha256": "415815eac4324c7c4088e48d333e6ba03424cfc58bfbda76ed0daa346e168a39",
+      "status": "planned",
+      "evidence": [
+        "phase7_retirement_exact_operations_return_404",
+        "phase7_retirement_preserves_table_and_row_identity"
+      ],
+      "deleting_task": 20,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "last_reference_change": "Task 20 exact method/path Caddy retirement, then Task 32 Python reference removal",
+      "method": "PUT",
+      "path": "/api/rfq/{rfq_id}/quotes/{quote_id}",
+      "line": 751
+    },
+    {
+      "id": "route.PUT /api/supplier-offers/{offer_id}",
+      "source": "app/routers/supplier_offers.py",
+      "kind": "route",
+      "end_state": "gone",
+      "owner": "Task 20 Phase 7 retirement owner",
+      "task": 20,
+      "source_sha256": "cf3fd9253a63f98733120f1e57d17b3b2d856f3af19696704b9a35c8b04cd23f",
+      "status": "planned",
+      "evidence": [
+        "phase7_retirement_exact_operations_return_404",
+        "phase7_retirement_preserves_table_and_row_identity"
+      ],
+      "deleting_task": 20,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "last_reference_change": "Task 20 exact method/path Caddy retirement, then Task 32 Python reference removal",
+      "method": "PUT",
+      "path": "/api/supplier-offers/{offer_id}",
+      "line": 424
+    },
+    {
+      "id": "route.PUT /api/trades/{trade_id}/confirm",
+      "source": "app/routers/trades.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "a240cc908a84015a5cf3dd8f9cb6eb9f8af8466632c4183247e6aad59f6152bd",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "PUT",
+      "path": "/api/trades/{trade_id}/confirm",
+      "line": 1228
+    },
+    {
+      "id": "route.PUT /api/trades/{trade_id}/decline",
+      "source": "app/routers/trades.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "a240cc908a84015a5cf3dd8f9cb6eb9f8af8466632c4183247e6aad59f6152bd",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "PUT",
+      "path": "/api/trades/{trade_id}/decline",
+      "line": 1386
+    },
+    {
+      "id": "route.PUT /api/trades/{trade_id}/deliver",
+      "source": "app/routers/trades.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 4 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "a240cc908a84015a5cf3dd8f9cb6eb9f8af8466632c4183247e6aad59f6152bd",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "PUT",
+      "path": "/api/trades/{trade_id}/deliver",
+      "line": 1596
+    },
+    {
+      "id": "route.PUT /api/users/me/preferences/{namespace}",
+      "source": "app/routers/preferences.py",
+      "kind": "route",
+      "end_state": "rust",
+      "owner": "Phase 2 route owner; Task 32 removal owner",
+      "task": 32,
+      "source_sha256": "99dcc39599e5ada5c649f4d0547fee58b53cd6a4cacc7c4e225ed123df382816",
+      "status": "planned",
+      "evidence": [
+        "test_phase10_routes_are_exactly_188",
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "method": "PUT",
+      "path": "/api/users/me/preferences/{namespace}",
+      "line": 53
+    }
+  ]
+}
