@@ -70,6 +70,7 @@
 	}
 	handle @rust_crud_notifications_get {
 		reverse_proxy {args[0]} {args[7]} {
+			header_up X-Forwarded-For {client_ip}
 			lb_policy first
 			lb_try_duration 10s
 			lb_try_interval 250ms
@@ -87,6 +88,7 @@
 	}
 	handle @rust_crud_notifications_write {
 		reverse_proxy {args[0]} {args[7]} {
+			header_up X-Forwarded-For {client_ip}
 			lb_policy first
 			lb_try_duration 10s
 			lb_try_interval 250ms
@@ -104,6 +106,7 @@
 	}
 	handle @rust_crud_preferences_get {
 		reverse_proxy {args[1]} {args[7]} {
+			header_up X-Forwarded-For {client_ip}
 			lb_policy first
 			lb_try_duration 10s
 			lb_try_interval 250ms
@@ -121,6 +124,7 @@
 	}
 	handle @rust_crud_preferences_put {
 		reverse_proxy {args[1]} {args[7]} {
+			header_up X-Forwarded-For {client_ip}
 			lb_policy first
 			lb_try_duration 10s
 			lb_try_interval 250ms
@@ -140,6 +144,7 @@
 	}
 	handle @rust_crud_feedback_post {
 		reverse_proxy {args[2]} {args[7]} {
+			header_up X-Forwarded-For {client_ip}
 			lb_policy first
 			lb_try_duration 10s
 			lb_try_interval 250ms
@@ -157,6 +162,7 @@
 	}
 	handle @rust_crud_feedback_admin {
 		reverse_proxy {args[2]} {args[7]} {
+			header_up X-Forwarded-For {client_ip}
 			lb_policy first
 			lb_try_duration 10s
 			lb_try_interval 250ms
@@ -176,6 +182,7 @@
 	}
 	handle @rust_crud_watchlists_get {
 		reverse_proxy {args[3]} {args[7]} {
+			header_up X-Forwarded-For {client_ip}
 			lb_policy first
 			lb_try_duration 10s
 			lb_try_interval 250ms
@@ -193,6 +200,7 @@
 	}
 	handle @rust_crud_watchlists_post {
 		reverse_proxy {args[3]} {args[7]} {
+			header_up X-Forwarded-For {client_ip}
 			lb_policy first
 			lb_try_duration 10s
 			lb_try_interval 250ms
@@ -210,6 +218,7 @@
 	}
 	handle @rust_crud_watchlists_patch {
 		reverse_proxy {args[3]} {args[7]} {
+			header_up X-Forwarded-For {client_ip}
 			lb_policy first
 			lb_try_duration 10s
 			lb_try_interval 250ms
@@ -227,6 +236,7 @@
 	}
 	handle @rust_crud_watchlists_delete {
 		reverse_proxy {args[3]} {args[7]} {
+			header_up X-Forwarded-For {client_ip}
 			lb_policy first
 			lb_try_duration 10s
 			lb_try_interval 250ms
@@ -244,6 +254,7 @@
 	}
 	handle @rust_crud_alerts_get {
 		reverse_proxy {args[4]} {args[7]} {
+			header_up X-Forwarded-For {client_ip}
 			lb_policy first
 			lb_try_duration 10s
 			lb_try_interval 250ms
@@ -261,6 +272,7 @@
 	}
 	handle @rust_crud_alerts_post {
 		reverse_proxy {args[4]} {args[7]} {
+			header_up X-Forwarded-For {client_ip}
 			lb_policy first
 			lb_try_duration 10s
 			lb_try_interval 250ms
@@ -278,6 +290,7 @@
 	}
 	handle @rust_crud_alerts_delete {
 		reverse_proxy {args[4]} {args[7]} {
+			header_up X-Forwarded-For {client_ip}
 			lb_policy first
 			lb_try_duration 10s
 			lb_try_interval 250ms
@@ -297,6 +310,7 @@
 	}
 	handle @rust_crud_referrals_get {
 		reverse_proxy {args[5]} {args[7]} {
+			header_up X-Forwarded-For {client_ip}
 			lb_policy first
 			lb_try_duration 10s
 			lb_try_interval 250ms
@@ -314,6 +328,7 @@
 	}
 	handle @rust_crud_referrals_post {
 		reverse_proxy {args[5]} {args[7]} {
+			header_up X-Forwarded-For {client_ip}
 			lb_policy first
 			lb_try_duration 10s
 			lb_try_interval 250ms
