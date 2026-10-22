@@ -53,6 +53,15 @@ const STATEMENT_DEADLINE: Duration = Duration::from_secs(6);
 const CLOSE_DEADLINE: Duration = Duration::from_secs(2);
 /// Buffered notifications folded into one turn before a batch runs.
 const MAX_WAKES_PER_TURN: usize = 32;
+/// Extra attempts of an assignment transaction whose statement waited past the
+/// lock bound. They run on the same elected session and do not count towards
+/// the actor's failure budget.
+const CONTENTION_RETRIES: u32 = 3;
+/// Shortest pause before such an extra attempt.
+const CONTENTION_PAUSE_MIN: Duration = Duration::from_millis(20);
+/// Most random time added to that pause, so that retries do not run in step
+/// with the writers that hold the contended rows.
+const CONTENTION_JITTER_MS: u64 = 60;
 /// Identifies election sessions in `pg_stat_activity`.
 const APPLICATION_NAME: &str = "verdaxis-stream-election";
 /// Server-side bounds for every election session. Values are milliseconds.
@@ -93,6 +102,10 @@ pub enum ElectionError {
     /// A serialization failure or deadlock rolled the batch back. The batch's
     /// lock acquisition was released and the session can run a new batch.
     Retryable,
+    /// The assignment statement waited past the lock bound on every attempt.
+    /// The batch was rolled back and its lock acquisition released, and the
+    /// session is discarded.
+    Contention,
     /// The server refused a statement. Any batch was rolled back and its lock
     /// acquisition released, and the session is discarded.
     Rejected,
@@ -112,6 +125,7 @@ impl ElectionError {
             Self::Connect => "connect",
             Self::Attestation => "attestation",
             Self::Retryable => "retryable",
+            Self::Contention => "contention",
             Self::Rejected => "rejected",
             Self::SessionLost => "session_lost",
             Self::UnlockFailed => "unlock_failed",
@@ -363,14 +377,25 @@ impl ElectionSession {
             .at(Stage::Elected, backend_pid, connection)
             .await
             .map_err(|_| ElectionError::SessionLost)?;
-        let assigned = match assign_in_transaction(connection, probe, backend_pid).await {
-            Ok(assigned) => assigned,
-            Err(TransactionFailure::RolledBack(error)) => {
-                release(connection).await?;
-                return Err(error);
+        let mut contention_retries = 0;
+        let assigned = loop {
+            match assign_in_transaction(connection, probe, backend_pid).await {
+                Ok(assigned) => break assigned,
+                // The rollback is confirmed, so the elected session runs the
+                // whole transaction again after a short random pause.
+                Err(TransactionFailure::RolledBack(ElectionError::Contention))
+                    if contention_retries < CONTENTION_RETRIES =>
+                {
+                    contention_retries += 1;
+                    sleep(contention_pause()).await;
+                }
+                Err(TransactionFailure::RolledBack(error)) => {
+                    release(connection).await?;
+                    return Err(error);
+                }
+                // Ending the session releases the lock; no other connection may.
+                Err(TransactionFailure::Unknown) => return Err(ElectionError::SessionLost),
             }
-            // Ending the session releases the lock; no other connection may.
-            Err(TransactionFailure::Unknown) => return Err(ElectionError::SessionLost),
         };
         probe
             .at(Stage::Committed, backend_pid, connection)
@@ -509,10 +534,11 @@ async fn write_assignment(
     probe: &Probe,
     backend_pid: u32,
 ) -> Result<u64, ElectionError> {
-    let assigned = statement(
+    let assigned = statement_with(
         sqlx::query(ASSIGN_SQL)
             .bind(i64::from(ASSIGN_BATCH_LIMIT))
             .execute(&mut *connection),
+        classify_assignment,
     )
     .await?
     .rows_affected();
@@ -552,11 +578,39 @@ async fn release(connection: &mut PgConnection) -> Result<(), ElectionError> {
 async fn statement<T>(
     work: impl Future<Output = Result<T, sqlx::Error>>,
 ) -> Result<T, ElectionError> {
+    statement_with(work, classify).await
+}
+
+/// Like [`statement`], with the caller's classification of a server error.
+async fn statement_with<T>(
+    work: impl Future<Output = Result<T, sqlx::Error>>,
+    classify_error: impl FnOnce(&sqlx::Error) -> ElectionError,
+) -> Result<T, ElectionError> {
     match timeout(STATEMENT_DEADLINE, work).await {
         Ok(Ok(value)) => Ok(value),
-        Ok(Err(error)) => Err(classify(&error)),
+        Ok(Err(error)) => Err(classify_error(&error)),
         Err(_) => Err(ElectionError::SessionLost),
     }
+}
+
+/// Classify a failed assignment statement. A wait for a row lock that passed
+/// the session's lock bound (`lock_not_available`) is contention, which the
+/// batch retries on its own session.
+fn classify_assignment(error: &sqlx::Error) -> ElectionError {
+    match error {
+        sqlx::Error::Database(database) if database.code().as_deref() == Some("55P03") => {
+            ElectionError::Contention
+        }
+        _ => classify(error),
+    }
+}
+
+/// Pause before an assignment that hit the lock bound runs again.
+fn contention_pause() -> Duration {
+    // A version-4 UUID carries random bits from the operating system's random
+    // source; this crate has no separate random-number dependency.
+    let (_, random) = uuid::Uuid::new_v4().as_u64_pair();
+    CONTENTION_PAUSE_MIN + Duration::from_millis(random % (CONTENTION_JITTER_MS + 1))
 }
 
 fn classify(error: &sqlx::Error) -> ElectionError {
@@ -582,8 +636,8 @@ pub enum NextStep {
     Stop { attempts: u32 },
 }
 
-/// Consecutive-failure policy of the election actor. Lock contention is not a
-/// failure; any successful batch resets the count.
+/// Consecutive-failure policy of the election actor. A sequencer lock held by
+/// another session is not a failure; any successful batch resets the count.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct FailureBudget {
     consecutive: u32,

@@ -404,8 +404,36 @@ async fn assignment_waits_for_shared_row() {
     assert_eq!(sequences.iter().collect::<HashSet<_>>().len(), 3);
     assert_eq!(delivery_attempts(&mut db.observer, marker).await, [1, 1, 1]);
     assert_eq!(lock_holder(&mut db.observer).await, None);
-    assert_eq!(session.assign_one_batch().await, Ok(AssignOutcome::NothingPending));
+    assert_eq!(
+        session.assign_one_batch().await,
+        Ok(AssignOutcome::NothingPending)
+    );
+
+    // A row lock held through the first attempt and all three extra attempts
+    // fails the batch, and the session is then discarded as before.
+    insert_rows(&mut db.observer, marker, 1).await;
+    let mut blocking = blocker.begin().await.expect("blocking transaction");
+    sqlx::query("UPDATE phase6_election_shared_row SET generation = generation + 1")
+        .execute(&mut *blocking)
+        .await
+        .expect("hold the shared row");
+    let started = Instant::now();
+    assert_eq!(
+        session.assign_one_batch().await,
+        Err(ElectionError::Contention)
+    );
+    assert!(started.elapsed() >= Duration::from_secs(2));
+    assert!(started.elapsed() < Duration::from_secs(5));
+    assert_eq!(pending(&mut db.observer, marker).await, 1);
+    assert_eq!(lock_holder(&mut db.observer).await, None);
+    blocking.rollback().await.expect("release the shared row");
+    assert_eq!(
+        session.assign_one_batch().await,
+        Err(ElectionError::SessionLost)
+    );
     session.close().await;
+    drain(&db.settings()).await;
+    assert_eq!(pending(&mut db.observer, marker).await, 0);
 }
 
 #[tokio::test]
