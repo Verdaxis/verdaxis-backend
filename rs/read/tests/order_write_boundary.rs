@@ -332,11 +332,8 @@ fn scan_repository() -> Vec<String> {
     // It does not touch order-book rows, so the boundary rule names it exactly.
     let price_alert_cap = [root.join("rs/read/src/crud/alerts.rs")];
     // The outbox sequencer shares Python's session lock, not an order-book key.
-    // Name only its actor and the test probe that proves the shared election.
-    let stream_sequencer_lock = [
-        root.join("rs/read/src/streams/election.rs"),
-        root.join("rs/read/tests/streams_election.rs"),
-    ];
+    // Only the test probe uses a blocking advisory-lock call.
+    let stream_sequencer_lock = [root.join("rs/read/tests/streams_election.rs")];
     let mut violations = Vec::new();
 
     let mut rust_files = Vec::new();
