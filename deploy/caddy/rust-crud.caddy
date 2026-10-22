@@ -53,11 +53,18 @@
 		fail_duration 30s
 		max_fails 1
 		header_up X-Forwarded-For {client_ip}
-		@counted status 2xx
+		@counted {
+			status 204
+			header X-Verdaxis-Preauth-Counted 1
+		}
 		handle_response @counted {
 			# Copy nothing: the authority has no headers to forward. Mark the
 			# request so the Rust route does not charge the same request twice.
 			request_header X-Verdaxis-Preauth-Counted 1
+		}
+		@unmarked status 2xx
+		handle_response @unmarked {
+			respond "Quota authority did not acknowledge admission" 503
 		}
 		@unavailable status 404
 		handle_response @unavailable {

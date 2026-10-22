@@ -491,7 +491,7 @@ http://:8080 {
     gate = [proxy for proxy in adapted_proxies if proxy.get("rewrite", {}).get("uri") == "/internal/admin-preauth"]
     assert len(gate) == 1
     assert gate[0]["rewrite"]["method"] == "GET"
-    assert len(gate[0]["handle_response"]) == 2
+    assert len(gate[0]["handle_response"]) == 3
     assert [upstream["dial"] for upstream in gate[0]["upstreams"]] == [
         "127.0.0.1:8010" if environment == "production" else "127.0.0.1:8011",
         "127.0.0.1:8000" if environment == "production" else "127.0.0.1:8001"]
