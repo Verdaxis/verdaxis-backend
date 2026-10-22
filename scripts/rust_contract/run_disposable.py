@@ -714,19 +714,12 @@ CREATE EXTENSION IF NOT EXISTS postgis;
                 signal.alarm(0)
                 signal.signal(signal.SIGALRM, previous)
             if os.environ.get("RUST_CONTRACT_PROFILE") == "phase1-meaning-v1":
-                import asyncio
-
                 from scripts.rust_contract.meaning_runner import (
-                    canonical_response,
-                    raw_response,
-                    route_id,
+                    canonicalise_tape_recordings,
                 )
+
                 for entries in (first, second):
-                    for entry in entries:
-                        if route_id(entry["request"]) == "P1-R06" and entry["exchange"]["status"] == 200:
-                            response, proof = asyncio.run(canonical_response(entry["request"], raw_response(entry)))
-                            entry["raw_body"] = response["body"]
-                            entry["canonical_tape_proof"] = proof
+                    canonicalise_tape_recordings(entries)
             problems = differences(first, second)
             unstable.extend(problems)
             print(
