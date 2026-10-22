@@ -391,14 +391,42 @@ async def test_retention_concurrent_delete(owner_engine):
     await _insert_event(owner_engine, seq=5, participants=[ORG])
     await _insert_event(owner_engine, seq=9, participants=[ORG])
 
-    async def delete(seq: int) -> None:
-        async with owner_engine.begin() as connection:
-            await connection.execute(
-                text("DELETE FROM public.market_event_outbox WHERE stream_seq = :seq"),
-                {"seq": seq},
+    async with owner_engine.connect() as first:
+        transaction = await first.begin()
+        try:
+            await first.execute(
+                text("DELETE FROM public.market_event_outbox WHERE stream_seq = 5")
             )
+            async with owner_engine.connect() as second:
+                second_pid = await second.scalar(text("SELECT pg_backend_pid()"))
+                first_pid = await first.scalar(text("SELECT pg_backend_pid()"))
+                pending = asyncio.create_task(second.execute(
+                    text("DELETE FROM public.market_event_outbox WHERE stream_seq = 9")
+                ))
+                try:
+                    async def wait_for_blocked_delete():
+                        async with owner_engine.connect() as observer:
+                            while not await observer.scalar(
+                                text("SELECT :first = ANY(pg_blocking_pids(:second))"),
+                                {"first": first_pid, "second": second_pid},
+                            ):
+                                assert not pending.done(), "second delete did not wait on the floor"
+                                await asyncio.sleep(0.01)
 
-    await asyncio.gather(delete(5), delete(9))
+                    await asyncio.wait_for(wait_for_blocked_delete(), timeout=10)
+                    # First transaction still owns the floor; the second delete
+                    # may finish only after this explicit commit barrier.
+                    assert await _floor(owner_engine) == 0
+                    await transaction.commit()
+                    await asyncio.wait_for(pending, timeout=10)
+                    await second.commit()
+                finally:
+                    if not pending.done():
+                        pending.cancel()
+                    await asyncio.gather(pending, return_exceptions=True)
+        finally:
+            if transaction.is_active:
+                await transaction.rollback()
 
     assert await _floor(owner_engine) == 9
     async with owner_engine.connect() as connection:
@@ -486,25 +514,34 @@ async def test_retention_migration_atomicity(retention_urls):
         await _insert_event(engine, seq=10, participants=[ORG])
         await _insert_event(engine, seq=20, participants=[ORG])
 
-        async with engine.connect() as blocker:
-            transaction = await blocker.begin()
-            await blocker.execute(
-                text("LOCK TABLE public.market_event_outbox IN ROW EXCLUSIVE MODE")
-            )
-            failed = await asyncio.to_thread(_alembic, database_url, "upgrade", REVISION)
-            async with engine.connect() as inspector:
-                assert await inspector.scalar(
-                    text("SELECT to_regclass('public.market_event_replay_state') IS NULL")
-                )
-                assert await inspector.scalar(
-                    text(
-                        "SELECT count(*) FROM pg_catalog.pg_proc "
-                        "WHERE proname = ANY(:names)"
-                    ),
-                    {"names": list(FUNCTIONS)},
-                ) == 0
-            await transaction.rollback()
+        # The index is created after both tables, functions and triggers. A
+        # relation-name conflict makes the migration fail at that final DDL.
+        async with engine.begin() as connection:
+            await connection.execute(text(
+                "CREATE TABLE public.ix_market_event_outbox_participants_gin (id integer)"
+            ))
+        failed = await asyncio.to_thread(_alembic, database_url, "upgrade", REVISION)
         assert failed.returncode != 0
+        assert 'relation "ix_market_event_outbox_participants_gin" already exists' in failed.stderr
+        async with engine.connect() as inspector:
+            for table in TABLES:
+                assert await inspector.scalar(
+                    text("SELECT to_regclass(:name) IS NULL"), {"name": f"public.{table}"}
+                )
+            assert await inspector.scalar(
+                text("SELECT count(*) FROM pg_catalog.pg_proc WHERE proname = ANY(:names)"),
+                {"names": list(FUNCTIONS)},
+            ) == 0
+            assert await inspector.scalar(
+                text("SELECT count(*) FROM pg_catalog.pg_trigger WHERE tgname = ANY(:names)"),
+                {"names": [
+                    "trg_market_event_outbox_replay_floor",
+                    "trg_market_event_outbox_refuse_truncate",
+                ]},
+            ) == 0
+            assert await inspector.scalar(text("SELECT version_num FROM alembic_version")) == PARENT_REVISION
+        async with engine.begin() as connection:
+            await connection.execute(text("DROP TABLE public.ix_market_event_outbox_participants_gin"))
 
         upgraded = _alembic(database_url, "upgrade", REVISION)
         assert upgraded.returncode == 0, upgraded.stderr
@@ -680,10 +717,17 @@ async def test_prune_is_refused_while_python_owns_private_streams(owner_engine):
 
 
 @pytest.mark.asyncio
-async def test_prune_is_refused_during_drain(owner_engine):
+@pytest.mark.parametrize("ownership", [
+    {"drained": False},
+    {"environment": None},
+    {"environment": ""},
+    {"release_sha": None},
+    {"selector_digest": None},
+])
+async def test_prune_is_refused_during_drain(owner_engine, ownership):
     await _insert_event(owner_engine, seq=12, participants=[ORG])
     async with owner_engine.begin() as connection:
-        await record_ownership(connection, mode="blocked", drained=False)
+        await record_ownership(connection, mode="rust_active", **ownership)
 
     await _expect_error(
         owner_engine,
