@@ -12,7 +12,9 @@ use tokio::sync::{mpsc, watch};
 use super::{
     bus::{HubError, PublicChannel, StoredEvent, StreamHub, Terminal},
     election::POLL_INTERVAL,
-    policy::{MAX_BATCHES_PER_TURN, MAX_EVENT_BYTES, MAX_PAGE_BYTES, MAX_PAGE_ROWS, MAX_WAKES_PER_TURN},
+    policy::{
+        MAX_BATCHES_PER_TURN, MAX_EVENT_BYTES, MAX_PAGE_BYTES, MAX_PAGE_ROWS, MAX_WAKES_PER_TURN,
+    },
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -55,14 +57,22 @@ impl ScanRow {
         if bytes == 0 || bytes > MAX_EVENT_BYTES {
             return Err(DispatchError::InvalidPage);
         }
-        Ok(Self { seq: event.seq(), bytes, event: Some(event) })
+        Ok(Self {
+            seq: event.seq(),
+            bytes,
+            event: Some(event),
+        })
     }
 
     pub fn invalid(seq: i64) -> Result<Self, DispatchError> {
         if seq <= 0 {
             return Err(DispatchError::InvalidPage);
         }
-        Ok(Self { seq, bytes: 0, event: None })
+        Ok(Self {
+            seq,
+            bytes: 0,
+            event: None,
+        })
     }
 }
 
@@ -81,13 +91,19 @@ impl ScanPage {
         let mut previous = 0;
         let mut bytes = 0usize;
         for row in &rows {
-            bytes = bytes.checked_add(row.bytes).ok_or(DispatchError::InvalidPage)?;
+            bytes = bytes
+                .checked_add(row.bytes)
+                .ok_or(DispatchError::InvalidPage)?;
             if row.seq <= previous || row.seq > boundary.high_water || bytes > MAX_PAGE_BYTES {
                 return Err(DispatchError::InvalidPage);
             }
             previous = row.seq;
         }
-        Ok(Self { boundary, rows, more })
+        Ok(Self {
+            boundary,
+            rows,
+            more,
+        })
     }
 }
 
@@ -134,9 +150,16 @@ pub struct Dispatch<S> {
 
 impl<S: DispatchSink> Dispatch<S> {
     /// Complete before publishing the runtime handle or admitting subscribers.
-    pub async fn initialize(store: &mut impl DispatchStore, sink: S) -> Result<Self, DispatchError> {
+    pub async fn initialize(
+        store: &mut impl DispatchStore,
+        sink: S,
+    ) -> Result<Self, DispatchError> {
         let boundary = store.boundary().await?;
-        Ok(Self { sink, cursor: boundary.high_water, pending: [false; 2] })
+        Ok(Self {
+            sink,
+            cursor: boundary.high_water,
+            pending: [false; 2],
+        })
     }
 
     pub fn cursor(&self) -> i64 {
@@ -148,9 +171,14 @@ impl<S: DispatchSink> Dispatch<S> {
     }
 
     fn flush_public(&mut self) -> Result<(), DispatchError> {
-        for (index, channel) in [PublicChannel::Prices, PublicChannel::Orderbook].into_iter().enumerate() {
+        for (index, channel) in [PublicChannel::Prices, PublicChannel::Orderbook]
+            .into_iter()
+            .enumerate()
+        {
             if self.pending[index] {
-                self.sink.public(channel).map_err(|_| DispatchError::Publish)?;
+                self.sink
+                    .public(channel)
+                    .map_err(|_| DispatchError::Publish)?;
                 self.pending[index] = false;
             }
         }
@@ -185,7 +213,9 @@ impl<S: DispatchSink> Dispatch<S> {
                         if event.public_invalidated() {
                             self.pending = [true; 2];
                         }
-                        self.sink.private(event).map_err(|_| DispatchError::Publish)?;
+                        self.sink
+                            .private(event)
+                            .map_err(|_| DispatchError::Publish)?;
                     }
                     None => {
                         // Participant scope is unknown. Detach all rather than
