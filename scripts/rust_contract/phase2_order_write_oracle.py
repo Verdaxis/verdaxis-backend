@@ -15,8 +15,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.models.orderbook import OrderSide
 from app.services.command_results import prepare_command_attempt
-from app.services.market_transactions import retry_market_transaction
 from app.services.market_locks import acquire_market_slice_lock, market_slice_lock_key
+from app.services.market_transactions import retry_market_transaction
 
 app = FastAPI()
 ACTOR = UUID("20000000-0000-4000-8000-000000000001")
@@ -97,7 +97,9 @@ async def command(request: Request):
                     if mode == "lost-response":
                         status = 503
             except Exception as error:
-                from app.services.market_transactions import is_retryable_market_transaction_error
+                from app.services.market_transactions import (
+                    is_retryable_market_transaction_error,
+                )
                 if is_retryable_market_transaction_error(error):
                     raise
                 from fastapi import HTTPException
