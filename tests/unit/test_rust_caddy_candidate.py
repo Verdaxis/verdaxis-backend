@@ -144,7 +144,7 @@ def test_real_caddy_adapts_and_validates_production_candidates(tmp_path):
 
     caddy = shutil.which("caddy")
     if not caddy:
-        pytest.skip("real Caddy is required for the test-host gate")
+        pytest.fail("real Caddy is required for the test-host gate")
     module = generator()
     current = production_fixture()
     for group in ["access-log", "fallback", "simple", "orderbook", "prices", "curves"]:
@@ -200,7 +200,7 @@ def test_real_caddy_gives_every_staging_group_the_python_fallback_transport(tmp_
 
     caddy = shutil.which("caddy")
     if not caddy:
-        pytest.skip("real Caddy is required for the test-host gate")
+        pytest.fail("real Caddy is required for the test-host gate")
     module = generator()
     snippet = (ROOT / "deploy/caddy/rust-public-staging.caddy").read_text()
     prepared = snippet + """
@@ -445,7 +445,7 @@ def test_real_caddy_adapts_crud_candidates(tmp_path, environment):
 
     caddy = shutil.which("caddy")
     if not caddy:
-        pytest.skip("real Caddy is required for the test-host gate")
+        pytest.fail("real Caddy is required for the test-host gate")
     module = generator()
     if environment == "staging":
         snippet = (ROOT / "deploy/caddy/rust-public-staging.caddy").read_text()

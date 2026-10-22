@@ -48,6 +48,9 @@ CRUD_CASES = [
     ("POST", "/api/watchlists", "WATCHLISTS"),
     ("POST", "/api/watchlists/me", "WATCHLISTS"),
     ("GET", f"/api/watchlists/{UUID}", "WATCHLISTS"),
+    # This operation-shaped match reaches Rust's 405 refusal for the static
+    # POST-only /me route rather than falling through to the UUID handler.
+    ("GET", "/api/watchlists/me", "WATCHLISTS"),
     ("GET", f"/api/watchlists/{UUID}/events", "WATCHLISTS"),
     ("POST", f"/api/watchlists/{UUID}/targets", "WATCHLISTS"),
     ("PATCH", f"/api/watchlists/{UUID}/events/{UUID}", "WATCHLISTS"),
@@ -87,6 +90,9 @@ PYTHON_OWNED = [
     ("DELETE", f"/api/watchlists/{UUID}/targets/{UUID}/extra"),
     ("POST", f"/api/watchlists/{UUID}/entries/extra"),
     ("GET", "/api/notifications/1/read"),
+    ("GET", "/api/referrals/my-code"),
+    ("OPTIONS", "/api/alerts"),
+    ("PROPFIND", "/api/alerts"),
     # Wrong method on a matched path stays on Python, and so does HEAD: the
     # canonical Python path has no trailing slash and Python owns redirects.
     ("PUT", "/api/notifications"),
@@ -109,7 +115,7 @@ def upstream(owner):
             self.end_headers()
 
         do_GET = do_HEAD = do_OPTIONS = do_POST = do_DELETE = do_PUT = respond
-        do_PATCH = respond
+        do_PATCH = do_PROPFIND = respond
 
         def log_message(self, *_args):
             pass

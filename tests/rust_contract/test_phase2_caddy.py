@@ -61,10 +61,12 @@ class Stub:
     """A local upstream that records what it received and answers as told."""
 
     def __init__(self, label: str, *, python: bool = False,
-                 authority: bool = False, crash: bool = False, port: int = 0):
+                 authority: bool = False, crash: bool = False, port: int = 0,
+                 authority_mark: bool = True):
         self.label = label
         self.python = python
         self.authority = authority
+        self.authority_mark = authority_mark
         self.crash = crash
         self.requests: list[dict] = []
         self.lock = threading.Lock()
@@ -120,7 +122,8 @@ class Stub:
                         self.wfile.write(payload)
                         return
                     self.send_response(204)
-                    self.send_header(COUNTED, "1")
+                    if parent.authority_mark:
+                        self.send_header(COUNTED, "1")
                     self.send_header("Content-Length", "0")
                     self.end_headers()
                     return
@@ -166,7 +169,8 @@ class Stub:
 
     def authority_admits(self) -> bool:
         with self.lock:
-            admitted = len(self.requests) <= LIMIT
+            admitted = sum(item["path"] == "/internal/admin-preauth"
+                           for item in self.requests) <= LIMIT
         return admitted
 
 
@@ -182,13 +186,15 @@ def unused_port(exclude: set[int] = frozenset()) -> int:
 @contextlib.contextmanager
 def harness(tmp_path, *, feedback_owner: str = "rust", authority_down: bool = False,
            feedback_crash: bool = False, trusted_proxy: bool = False,
-           all_python: bool = False):
+           all_python: bool = False, shared_authority: bool = False,
+           authority_mark: bool = True):
     """Run the real CRUD snippet with one counting authority and two owners."""
     caddy = shutil.which("caddy")
     if not caddy:
-        pytest.skip("real Caddy 2.11 is required for the test-host gate")
-    authority = Stub("authority", authority=True)
-    rust = Stub("rust")
+        pytest.fail("real Caddy 2.11 is required for the test-host gate")
+    rust = Stub("rust", authority=shared_authority)
+    authority = rust if shared_authority else Stub(
+        "authority", authority=True, authority_mark=authority_mark)
     python = Stub("python", python=True)
     crash = Stub("crash", crash=True) if feedback_crash else None
     used = {authority.port, rust.port, python.port}
@@ -258,7 +264,7 @@ def harness(tmp_path, *, feedback_owner: str = "rust", authority_down: bool = Fa
             process.kill()
             process.wait()
         log.close()
-        for stub in (authority, rust, python, crash):
+        for stub in dict.fromkeys((authority, rust, python, crash)):
             if stub is not None:
                 with contextlib.suppress(Exception):
                     stub.stop()
@@ -274,6 +280,26 @@ def test_trusted_proxy_preserves_client_for_gate_and_owner(tmp_path, feedback_ow
         owner = rust if feedback_owner == "rust" else python
         assert authority.requested()[0]["headers"]["x-forwarded-for"] == "198.51.100.24"
         assert owner.requested("/api/admin/feedback")[0]["headers"]["x-forwarded-for"] == "198.51.100.24"
+
+
+def test_unmarked_authority_response_does_not_admit_an_owner(tmp_path):
+    with harness(tmp_path, authority_mark=False) as (client, _authority, rust, python, _crash):
+        response = client.get("/api/admin/feedback")
+        assert response.status_code == 503
+        assert not rust.requested("/api/admin/feedback")
+        assert not python.requested("/api/admin/feedback")
+
+
+def test_shared_authority_and_route_address_counts_once(tmp_path):
+    with harness(tmp_path, shared_authority=True) as (client, authority, rust, python, _crash):
+        assert authority is rust
+        for index in range(LIMIT):
+            path = "/api/admin/feedback" if index % 2 else "/api/admin/analytics"
+            assert client.get(path).status_code == 200
+        assert client.get("/api/admin/feedback").status_code == 429
+        assert len(authority.requested("/internal/admin-preauth")) == LIMIT + 1
+        assert len(rust.requested("/api/admin/feedback")) == LIMIT // 2
+        assert len(python.requested("/api/admin/analytics")) == LIMIT // 2
 
 
 def test_admin_split_stops_at_exactly_300_across_both_owners(tmp_path):
