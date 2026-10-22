@@ -505,4 +505,30 @@ mod trading_tests {
         assert!(first.is_empty());
         assert!(second.is_empty());
     }
+
+    #[test]
+    fn an_older_fill_never_replaces_a_newer_entry() {
+        let process = process();
+        let now = process.now;
+        let cache = TradingCache::new(4, 1024);
+        assert!(cache.insert("key", entry_for(&process.token, 11, Boundary::Never), now));
+        // An overlapping snapshot at the older generation finishes later.
+        assert!(!cache.insert("key", entry_for(&process.token, 10, Boundary::Never), now));
+        let current = FillTicket::new(process.token.clone(), 11);
+        assert!(cache
+            .hit(&process.authority, &"key", &current, 11, "policy", now)
+            .is_some());
+        // The same or a later generation still replaces the entry.
+        assert!(cache.insert("key", entry_for(&process.token, 11, Boundary::Never), now));
+        assert!(cache.insert("key", entry_for(&process.token, 12, Boundary::Never), now));
+        // A later fence outranks a higher generation from an earlier fence.
+        process
+            .authority
+            .attach_listener(&process.identity)
+            .unwrap();
+        let later = process.authority.token(&process.identity, now).unwrap();
+        assert!(cache.insert("key", entry_for(&later, 5, Boundary::Never), now));
+        assert!(!cache.insert("key", entry_for(&process.token, 13, Boundary::Never), now));
+        assert_eq!(cache.len(), 1);
+    }
 }
