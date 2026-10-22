@@ -215,6 +215,18 @@ impl<K: Eq> TradingCache<K> {
             .entries
             .lock()
             .unwrap_or_else(|error| error.into_inner());
+        // The helper's high-water check and this mutex are separate. A newer
+        // fill can arrive between them; never let an older fill replace it.
+        if entries.iter().any(|stored| {
+            stored.key == key
+                && (stored.entry.authority_revision > entry.authority_revision
+                    || (stored.entry.authority_revision == entry.authority_revision
+                        && (stored.entry.fence_counter > entry.fence_counter
+                            || (stored.entry.fence_counter == entry.fence_counter
+                                && stored.entry.generation > entry.generation))))
+        }) {
+            return false;
+        }
         entries.retain(|stored| stored.key != key && stored.entry.valid_until.is_live(now));
         while entries.len() >= self.max_entries
             || entries

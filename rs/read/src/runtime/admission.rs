@@ -199,10 +199,9 @@ where
             observer.checkpoint(TradingReadStage::SnapshotEstablished).await;
             let mut ticket = None;
             if let Some((token, generation)) = &admitted {
-                // A generation that moves backwards inside one authority means
-                // an unrotated restore; the authority revokes itself and this
-                // read must not answer from that connection.
-                if !authority.observe_generation(token, *generation, clock.monotonic) {
+                // Independent snapshots can finish out of order. Retain the
+                // high-water mark for storage without revoking an older read.
+                if !authority.observe_snapshot(token, *generation, clock.monotonic) {
                     transaction
                         .rollback()
                         .await
