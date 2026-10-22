@@ -233,8 +233,8 @@ async def test_retention_role_policy_at_checkpoint(retention_urls, revision):
         await _drop_disposable_database(retention_urls["admin"], name)
 
 
-async def _validate_after_catalog_change(retention_urls, revision: str, statement: str):
-    """Validate role policy after an admin catalog change at one checkpoint."""
+async def _validate_after_catalog_change(retention_urls, revision: str, statements):
+    """Validate role policy after admin catalog changes at one checkpoint."""
 
     # Isolate committed catalog mutations from the shared suite database.
     name, database_url = await _create_disposable_database(
@@ -249,8 +249,8 @@ async def _validate_after_catalog_change(retention_urls, revision: str, statemen
         engine = create_async_engine(admin_url)
         try:
             async with engine.begin() as connection:
-                for command in statement.split("; "):
-                    await connection.execute(text(command))
+                for statement in statements:
+                    await connection.execute(text(statement))
         finally:
             await engine.dispose()
         return _role_policy(database_url, "validate_roles.sql")
@@ -258,45 +258,72 @@ async def _validate_after_catalog_change(retention_urls, revision: str, statemen
         await _drop_disposable_database(retention_urls["admin"], name)
 
 
+def _replace_outbox_trigger(name: str, definition: str) -> tuple[str, ...]:
+    """Statements that recreate one outbox trigger with a different shape."""
+
+    return (
+        f"DROP TRIGGER {name} ON public.market_event_outbox",
+        f"CREATE TRIGGER {name} {definition}",
+        f"ALTER TABLE public.market_event_outbox ENABLE ALWAYS TRIGGER {name}",
+    )
+
+
 @pytest.mark.asyncio
-@pytest.mark.parametrize("statement", [
-    "DROP TRIGGER trg_market_event_outbox_replay_floor ON public.market_event_outbox; "
-    "CREATE TRIGGER trg_market_event_outbox_replay_floor AFTER DELETE "
-    "ON public.market_event_outbox FOR EACH ROW "
-    "EXECUTE FUNCTION public.market_event_outbox_advance_replay_floor(); "
-    "ALTER TABLE public.market_event_outbox ENABLE ALWAYS TRIGGER "
-    "trg_market_event_outbox_replay_floor",
-    "DROP TRIGGER trg_market_event_outbox_replay_floor ON public.market_event_outbox; "
-    "CREATE TRIGGER trg_market_event_outbox_replay_floor BEFORE DELETE "
-    "ON public.market_event_outbox FOR EACH ROW WHEN (OLD.stream_seq IS NULL) "
-    "EXECUTE FUNCTION public.market_event_outbox_advance_replay_floor(); "
-    "ALTER TABLE public.market_event_outbox ENABLE ALWAYS TRIGGER "
-    "trg_market_event_outbox_replay_floor",
-    "DROP TRIGGER trg_market_event_outbox_refuse_truncate ON public.market_event_outbox; "
-    "CREATE TRIGGER trg_market_event_outbox_refuse_truncate BEFORE TRUNCATE "
-    "ON public.market_event_outbox FOR EACH STATEMENT "
-    "EXECUTE FUNCTION public.market_event_outbox_advance_replay_floor(); "
-    "ALTER TABLE public.market_event_outbox ENABLE ALWAYS TRIGGER "
-    "trg_market_event_outbox_refuse_truncate",
-    "ALTER FUNCTION public.market_event_outbox_refuse_truncate() OWNER TO postgres",
+@pytest.mark.parametrize("statements", [
+    pytest.param(
+        _replace_outbox_trigger(
+            "trg_market_event_outbox_replay_floor",
+            "AFTER DELETE ON public.market_event_outbox FOR EACH ROW "
+            "EXECUTE FUNCTION public.market_event_outbox_advance_replay_floor()",
+        ),
+        id="floor-trigger-after-delete",
+    ),
+    pytest.param(
+        _replace_outbox_trigger(
+            "trg_market_event_outbox_replay_floor",
+            "BEFORE DELETE ON public.market_event_outbox FOR EACH ROW "
+            "WHEN (OLD.stream_seq IS NULL) "
+            "EXECUTE FUNCTION public.market_event_outbox_advance_replay_floor()",
+        ),
+        id="floor-trigger-conditional",
+    ),
+    pytest.param(
+        _replace_outbox_trigger(
+            "trg_market_event_outbox_refuse_truncate",
+            "BEFORE TRUNCATE ON public.market_event_outbox FOR EACH STATEMENT "
+            "EXECUTE FUNCTION public.market_event_outbox_advance_replay_floor()",
+        ),
+        id="truncate-trigger-wrong-function",
+    ),
+    pytest.param(
+        ("ALTER FUNCTION public.market_event_outbox_refuse_truncate() OWNER TO postgres",),
+        id="function-owner",
+    ),
 ])
-async def test_retention_role_policy_requires_exact_objects(retention_urls, statement):
-    validated = await _validate_after_catalog_change(retention_urls, REVISION, statement)
+async def test_retention_role_policy_requires_exact_objects(retention_urls, statements):
+    validated = await _validate_after_catalog_change(retention_urls, REVISION, statements)
     assert validated.returncode != 0, "modified retention objects were accepted"
     assert "replay retention" in validated.stderr, validated.stderr
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(("revision", "statement"), [
-    (
+@pytest.mark.parametrize(("revision", "statements"), [
+    pytest.param(
         PARENT_REVISION,
-        "CREATE FUNCTION public.market_event_outbox_refuse_truncate() RETURNS trigger "
-        "LANGUAGE plpgsql AS $$ BEGIN RETURN NULL; END $$",
+        (
+            "CREATE FUNCTION public.market_event_outbox_refuse_truncate() "
+            "RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NULL; END $$",
+        ),
+        id="function-before-checkpoint",
     ),
-    (REVISION, "DROP TABLE public.market_event_retention_control"),
+    pytest.param(
+        REVISION,
+        ("DROP TABLE public.market_event_retention_control",),
+        id="control-table-missing",
+    ),
 ])
-async def test_retention_role_policy_refuses_partial_objects(retention_urls, revision, statement):
-    validated = await _validate_after_catalog_change(retention_urls, revision, statement)
+async def test_retention_role_policy_refuses_partial_objects(retention_urls, revision, statements):
+    validated = await _validate_after_catalog_change(retention_urls, revision, statements)
     assert validated.returncode != 0, "a partial retention object set was accepted"
     assert "replay retention" in validated.stderr, validated.stderr
 
