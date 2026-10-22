@@ -85,9 +85,11 @@ pub fn required_facts(family: &str) -> Option<&'static [TemporalFact]> {
             TemporalFact::BenchmarkExpiry,
             TemporalFact::CalendarWindow,
         ]),
-        // Completed trades are immutable; their fixed request ranges do not
-        // move with the clock. Only writes change the answer.
-        "prices" => Some(&[]),
+        // Price summaries use a moving lookback, even when trade rows are
+        // immutable. An included trade can leave without a write.
+        "prices" => Some(&[TemporalFact::RollingWindows]),
+        // Explicit fixed ranges do not move with the request clock.
+        "prices_fixed" => Some(&[]),
         "trade_tape" => Some(&[]),
         _ => None,
     }
@@ -172,7 +174,7 @@ impl TemporalFacts {
     ///
     /// This asserts that *no* time predicate shaped the query. It is sound only
     /// for the reviewed families whose query has no time predicate at all
-    /// (`prices`, `trade_tape`). A route that reads order expiry, KYC grace, a
+    /// (`prices_fixed`, `trade_tape`). A route that reads order expiry, KYC grace, a
     /// certificate date, a rolling window or a calendar rule must build its
     /// facts from the boundary helpers below, which report what the actual rows
     /// proved. Reaching for this constructor there would silence the bypass.
