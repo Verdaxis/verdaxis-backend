@@ -72,9 +72,9 @@ impl Phase2Limits {
         }
         let identity = (client.into(), key.into());
         if self.buckets.len() >= MAX_BUCKETS && !self.buckets.contains_key(&identity) {
-            // As in the Python backstop, discard old accounting at capacity
-            // rather than allowing unauthenticated clients to grow memory.
-            self.buckets.clear();
+            // Keep active accounting intact. New identities wait for the next
+            // bounded maintenance pass rather than evicting another quota.
+            return false;
         }
         let bucket = self.buckets.entry(identity).or_insert(Bucket {
             expires_at: now.saturating_add(window),
