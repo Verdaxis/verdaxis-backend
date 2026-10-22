@@ -310,11 +310,23 @@ async fn prices_require_a_known_rolling_departure() {
         ..TemporalFacts::default()
     };
     for _ in 0..2 {
-        read_family(&state, &cache, "moving", "prices", facts.clone(), runs.clone()).await;
+        read_family(
+            &state,
+            &cache,
+            "moving",
+            "prices",
+            facts.clone(),
+            runs.clone(),
+        )
+        .await;
     }
     reset(&mut writer).await;
     writer.close().await.unwrap();
-    assert_eq!(runs.load(Ordering::SeqCst), 2, "an unknown moving-price boundary must bypass storage");
+    assert_eq!(
+        runs.load(Ordering::SeqCst),
+        2,
+        "an unknown moving-price boundary must bypass storage"
+    );
     assert!(cache.is_empty());
 }
 
@@ -494,12 +506,16 @@ async fn unadmitted_connections_never_publish() {
         match reason {
             "revoked" | "rotation" => process.revoke(),
             "expired" => {
-                process.synchronize(Some(identity.clone()), Instant::now() - AUTHORITY_LEASE).unwrap();
+                process
+                    .synchronize(Some(identity.clone()), Instant::now() - AUTHORITY_LEASE)
+                    .unwrap();
             }
             "mismatched" => bind(&mut writer, &authority(3), true).await,
             "missing" => {
                 sqlx::query("UPDATE public.public_read_cache_incarnation SET active = false")
-                    .execute(&mut writer).await.unwrap();
+                    .execute(&mut writer)
+                    .await
+                    .unwrap();
             }
             _ => unreachable!(),
         }
@@ -507,15 +523,23 @@ async fn unadmitted_connections_never_publish() {
         let result = run_trading_read(&state, &cache, reason, "prices", move |connection| {
             Box::pin(async move {
                 let value: i64 = sqlx::query_scalar("SELECT 42::bigint")
-                    .fetch_one(connection).await.map_err(|_| ApiError::database())?;
+                    .fetch_one(connection)
+                    .await
+                    .map_err(|_| ApiError::database())?;
                 if reason == "rotation" {
                     // This loader started without a token. A later activation
                     // must not authorize its old-connection response.
-                    process.synchronize(Some(authority(3)), Instant::now()).unwrap();
+                    process
+                        .synchronize(Some(authority(3)), Instant::now())
+                        .unwrap();
                 }
-                Ok(TradingFill { value, facts: TemporalFacts::proven_written_only() })
+                Ok(TradingFill {
+                    value,
+                    facts: TemporalFacts::proven_written_only(),
+                })
             })
-        }).await;
+        })
+        .await;
         if result.is_ok() {
             published.push(reason);
         }
@@ -524,7 +548,10 @@ async fn unadmitted_connections_never_publish() {
     }
     reset(&mut writer).await;
     writer.close().await.unwrap();
-    assert!(published.is_empty(), "unadmitted responses published: {published:?}");
+    assert!(
+        published.is_empty(),
+        "unadmitted responses published: {published:?}"
+    );
 }
 
 struct ReadBarrier {
@@ -534,7 +561,10 @@ struct ReadBarrier {
 }
 
 impl verdaxis_read::runtime::admission::TradingReadObserver for ReadBarrier {
-    fn checkpoint(&self, stage: verdaxis_read::runtime::admission::TradingReadStage) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
+    fn checkpoint(
+        &self,
+        stage: verdaxis_read::runtime::admission::TradingReadStage,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
         Box::pin(async move {
             if stage == self.stage {
                 self.entered.notify_one();
@@ -548,7 +578,9 @@ impl verdaxis_read::runtime::admission::TradingReadObserver for ReadBarrier {
 async fn overlapping_snapshots_publish_without_replacing_the_newer_entry() {
     use verdaxis_read::runtime::admission::TradingReadStage;
     let _serial = SERIAL.lock().await;
-    let Some((url, mut writer)) = writer().await else { return; };
+    let Some((url, mut writer)) = writer().await else {
+        return;
+    };
     let record = Record::new();
     let identity = authority(1);
     bind(&mut writer, &identity, true).await;
@@ -575,24 +607,60 @@ async fn overlapping_snapshots_publish_without_replacing_the_newer_entry() {
             Ok(TradingFill { value, facts: TemporalFacts::proven_written_only() })
         })).await
     });
-    tokio::time::timeout(Duration::from_secs(30), gate.entered.notified()).await.unwrap();
-    sqlx::query("UPDATE products SET is_active = is_active").execute(&mut writer).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(30), gate.entered.notified())
+        .await
+        .unwrap();
+    sqlx::query("UPDATE products SET is_active = is_active")
+        .execute(&mut writer)
+        .await
+        .unwrap();
     let newer = generation(&mut writer).await;
     let runs = Arc::new(AtomicUsize::new(0));
-    assert_eq!(read_family(&state, &cache, "overlap", "prices_fixed", TemporalFacts::proven_written_only(), runs.clone()).await, newer);
+    assert_eq!(
+        read_family(
+            &state,
+            &cache,
+            "overlap",
+            "prices_fixed",
+            TemporalFacts::proven_written_only(),
+            runs.clone()
+        )
+        .await,
+        newer
+    );
     gate.release.notify_one();
     let old_result = old.await.unwrap();
-    assert!(old_result.is_ok(), "an overlapping old snapshot is not a restore");
+    assert!(
+        old_result.is_ok(),
+        "an overlapping old snapshot is not a restore"
+    );
     assert_eq!(old_result.unwrap(), before);
-    assert_eq!(read_family(&state, &cache, "overlap", "prices_fixed", TemporalFacts::proven_written_only(), runs.clone()).await, newer);
-    assert_eq!(runs.load(Ordering::SeqCst), 1, "the older fill must not replace the newer entry");
+    assert_eq!(
+        read_family(
+            &state,
+            &cache,
+            "overlap",
+            "prices_fixed",
+            TemporalFacts::proven_written_only(),
+            runs.clone()
+        )
+        .await,
+        newer
+    );
+    assert_eq!(
+        runs.load(Ordering::SeqCst),
+        1,
+        "the older fill must not replace the newer entry"
+    );
     reset(&mut writer).await;
     writer.close().await.unwrap();
 }
 
 struct ControlledClock(std::sync::Mutex<verdaxis_read::TradingClock>);
 impl verdaxis_read::runtime::admission::TradingReadObserver for ControlledClock {
-    fn now(&self) -> verdaxis_read::TradingClock { *self.0.lock().unwrap() }
+    fn now(&self) -> verdaxis_read::TradingClock {
+        *self.0.lock().unwrap()
+    }
 }
 impl ControlledClock {
     fn advance(&self, duration: Duration) {
@@ -604,10 +672,12 @@ impl ControlledClock {
 
 #[tokio::test]
 async fn clock_boundaries_change_payloads_without_writes() {
-    use verdaxis_read::{TradingClock, RollingWindows};
     use verdaxis_read::runtime::admission::TradingReadObserver;
+    use verdaxis_read::{RollingWindows, TradingClock};
     let _serial = SERIAL.lock().await;
-    let Some((url, mut writer)) = writer().await else { return; };
+    let Some((url, mut writer)) = writer().await else {
+        return;
+    };
     let record = Record::new();
     let identity = authority(1);
     bind(&mut writer, &identity, true).await;
@@ -617,8 +687,14 @@ async fn clock_boundaries_change_payloads_without_writes() {
     let runtime = state.trading_cache.as_ref().unwrap().clone();
     publish_record(&runtime, &record);
     runtime.tick(Instant::now()).await;
-    let start: SystemTime = chrono::DateTime::parse_from_rfc3339("2026-10-22T15:59:59Z").unwrap().with_timezone(&chrono::Utc).into();
-    let clock = Arc::new(ControlledClock(std::sync::Mutex::new(TradingClock::new(Instant::now(), start))));
+    let start: SystemTime = chrono::DateTime::parse_from_rfc3339("2026-10-22T15:59:59Z")
+        .unwrap()
+        .with_timezone(&chrono::Utc)
+        .into();
+    let clock = Arc::new(ControlledClock(std::sync::Mutex::new(TradingClock::new(
+        Instant::now(),
+        start,
+    ))));
     state.trading_read_observer = clock.clone();
     let initial_generation = generation(&mut writer).await;
     for kind in ["expiry", "grace", "rolling", "singapore", "late-fill"] {
@@ -626,9 +702,15 @@ async fn clock_boundaries_change_payloads_without_writes() {
         let cache = Arc::new(TradingCache::new(4, 1024));
         let runs = Arc::new(AtomicUsize::new(0));
         let edge = clock.now().wall + Duration::from_secs(1);
-        let family = if kind == "rolling" { "prices" } else { "orderbook" };
+        let family = if kind == "rolling" {
+            "prices"
+        } else {
+            "orderbook"
+        };
         for read in 0..3 {
-            runtime.authority().refresh(runtime.record_path(), clock.now().monotonic);
+            runtime
+                .authority()
+                .refresh(runtime.record_path(), clock.now().monotonic);
             let loader_clock = clock.clone();
             let loads = runs.clone();
             let value = run_trading_read(&state, &cache, kind, family, move |connection| Box::pin(async move {
@@ -651,15 +733,24 @@ async fn clock_boundaries_change_payloads_without_writes() {
                 Ok(TradingFill { value, facts })
             })).await.unwrap();
             if kind == "late-fill" && read == 0 {
-                assert!(cache.is_empty(), "a fill past its controlled-clock boundary must not be stored");
+                assert!(
+                    cache.is_empty(),
+                    "a fill past its controlled-clock boundary must not be stored"
+                );
             } else if read < 2 && kind != "late-fill" {
                 assert_eq!(value, 1, "{kind}: live row");
             } else {
                 assert_eq!(value, 0, "{kind}: row must leave without a writer");
             }
-            if read == 1 { clock.advance(Duration::from_secs(1)); }
+            if read == 1 {
+                clock.advance(Duration::from_secs(1));
+            }
         }
-        assert_eq!(runs.load(Ordering::SeqCst), 2, "{kind}: one hit, then one boundary miss");
+        assert_eq!(
+            runs.load(Ordering::SeqCst),
+            2,
+            "{kind}: one hit, then one boundary miss"
+        );
     }
     assert_eq!(generation(&mut writer).await, initial_generation);
     reset(&mut writer).await;
@@ -670,8 +761,13 @@ async fn clock_boundaries_change_payloads_without_writes() {
 async fn authority_rotation_at_each_publication_barrier_rejects_old_fills() {
     use verdaxis_read::runtime::admission::TradingReadStage;
     let _serial = SERIAL.lock().await;
-    let Some((url, mut writer)) = writer().await else { return; };
-    for stage in [TradingReadStage::BeforeInsert, TradingReadStage::BeforePublish] {
+    let Some((url, mut writer)) = writer().await else {
+        return;
+    };
+    for stage in [
+        TradingReadStage::BeforeInsert,
+        TradingReadStage::BeforePublish,
+    ] {
         for rollback in [false, true] {
             let record = Record::new();
             let identity = authority(1);
@@ -682,7 +778,11 @@ async fn authority_rotation_at_each_publication_barrier_rejects_old_fills() {
             let runtime = state.trading_cache.as_ref().unwrap().clone();
             publish_record(&runtime, &record);
             runtime.tick(Instant::now()).await;
-            let gate = Arc::new(ReadBarrier { stage, entered: tokio::sync::Notify::new(), release: tokio::sync::Notify::new() });
+            let gate = Arc::new(ReadBarrier {
+                stage,
+                entered: tokio::sync::Notify::new(),
+                release: tokio::sync::Notify::new(),
+            });
             state.trading_read_observer = gate.clone();
             let cache = Arc::new(TradingCache::new(4, 1024));
             state.trading_caches.register(&cache);
@@ -694,20 +794,29 @@ async fn authority_rotation_at_each_publication_barrier_rejects_old_fills() {
                     Ok(TradingFill { value, facts: TemporalFacts::proven_written_only() })
                 })).await
             });
-            tokio::time::timeout(Duration::from_secs(30), gate.entered.notified()).await.unwrap();
+            tokio::time::timeout(Duration::from_secs(30), gate.entered.notified())
+                .await
+                .unwrap();
             let current = generation(&mut writer).await;
             record.revoke(2);
             publish_record(&runtime, &record);
-            runtime.authority().refresh(runtime.record_path(), Instant::now());
+            runtime
+                .authority()
+                .refresh(runtime.record_path(), Instant::now());
             runtime.tick(Instant::now()).await;
             let successor = authority(3);
             bind(&mut writer, &successor, true).await;
-            if rollback { set_generation(&mut writer, current - 1).await; }
+            if rollback {
+                set_generation(&mut writer, current - 1).await;
+            }
             record.activate(&successor);
             publish_record(&runtime, &record);
             runtime.tick(Instant::now()).await;
             gate.release.notify_one();
-            assert!(old.await.unwrap().is_err(), "{stage:?}, rollback={rollback}: obsolete response");
+            assert!(
+                old.await.unwrap().is_err(),
+                "{stage:?}, rollback={rollback}: obsolete response"
+            );
             assert!(cache.is_empty(), "{stage:?}: obsolete cache insertion");
             // Restore a generation above retained event keys for later writers.
             set_generation(&mut writer, current + 100).await;
@@ -720,7 +829,12 @@ async fn authority_rotation_at_each_publication_barrier_rejects_old_fills() {
 #[tokio::test]
 async fn two_incarnations_read_distinct_rows_at_a_reused_generation() {
     let _serial = SERIAL.lock().await;
-    let (Ok(first), Ok(second)) = (std::env::var("PUBLIC_CACHE_TEST_DATABASE_URL"), std::env::var("PUBLIC_CACHE_TEST_SECOND_DATABASE_URL")) else { return; };
+    let (Ok(first), Ok(second)) = (
+        std::env::var("PUBLIC_CACHE_TEST_DATABASE_URL"),
+        std::env::var("PUBLIC_CACHE_TEST_SECOND_DATABASE_URL"),
+    ) else {
+        return;
+    };
     let mut a = PgConnection::connect_with(&options(&first)).await.unwrap();
     let mut b = PgConnection::connect_with(&options(&second)).await.unwrap();
     let shared = generation(&mut a).await.max(generation(&mut b).await) + 1000;
@@ -739,13 +853,30 @@ async fn two_incarnations_read_distinct_rows_at_a_reused_generation() {
         publish_record(runtime, &record);
         runtime.tick(Instant::now()).await;
         let loads = runs.clone();
-        let value: String = run_trading_read(&state, &cache, "incarnation", "prices_fixed", move |connection| Box::pin(async move {
-            loads.fetch_add(1, Ordering::SeqCst);
-            // This is an actual protected row, not an invented payload label.
-            let value: String = sqlx::query_scalar("SELECT database_epoch FROM public_read_cache_incarnation WHERE singleton")
-                .fetch_one(connection).await.map_err(|_| ApiError::database())?;
-            Ok(TradingFill { value, facts: TemporalFacts::proven_written_only() })
-        })).await.unwrap();
+        let value: String = run_trading_read(
+            &state,
+            &cache,
+            "incarnation",
+            "prices_fixed",
+            move |connection| {
+                Box::pin(async move {
+                    loads.fetch_add(1, Ordering::SeqCst);
+                    // This is an actual protected row, not an invented payload label.
+                    let value: String = sqlx::query_scalar(
+                        "SELECT database_epoch FROM public_read_cache_incarnation WHERE singleton",
+                    )
+                    .fetch_one(connection)
+                    .await
+                    .map_err(|_| ApiError::database())?;
+                    Ok(TradingFill {
+                        value,
+                        facts: TemporalFacts::proven_written_only(),
+                    })
+                })
+            },
+        )
+        .await
+        .unwrap();
         assert_eq!(value, identity.database_epoch);
         assert_eq!(generation(writer).await, shared);
         payloads.push(value);

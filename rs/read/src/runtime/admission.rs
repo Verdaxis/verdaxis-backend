@@ -125,7 +125,10 @@ pub trait TradingReadObserver: Send + Sync {
         TradingClock::now()
     }
 
-    fn checkpoint(&self, _stage: TradingReadStage) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
+    fn checkpoint(
+        &self,
+        _stage: TradingReadStage,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
         Box::pin(std::future::ready(()))
     }
 }

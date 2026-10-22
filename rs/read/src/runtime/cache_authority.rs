@@ -293,11 +293,17 @@ impl CacheAuthority {
     /// observations raise storage's high-water mark but cannot prove a restore.
     /// Restore admission is owned by the external activation protocol.
     pub fn observe_snapshot(&self, token: &FenceToken, generation: i64, now: Instant) -> bool {
-        let Some(mut state) = self.lock() else { return false; };
+        let Some(mut state) = self.lock() else {
+            return false;
+        };
         if generation < 0 || state.fence != token.fence || !state.admits(&token.authority, now) {
             return false;
         }
-        state.highest_generation = Some(state.highest_generation.map_or(generation, |highest| highest.max(generation)));
+        state.highest_generation = Some(
+            state
+                .highest_generation
+                .map_or(generation, |highest| highest.max(generation)),
+        );
         true
     }
 
