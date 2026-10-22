@@ -487,7 +487,7 @@ http://:8080 {
     # Staging also imports the four public read pools before the CRUD pools.
     assert len(crud_proxies) == (19 if environment == "staging" else 15)
     for proxy in crud_proxies[-15:]:
-        assert proxy["headers"]["request"]["set"]["X-Forwarded-For"] == ["{http.request.client_ip}"]
+        assert proxy["headers"]["request"]["set"]["X-Forwarded-For"] == ["{http.vars.client_ip}"]
     gate = [proxy for proxy in adapted_proxies if proxy.get("rewrite", {}).get("uri") == "/internal/admin-preauth"]
     assert len(gate) == 1
     assert gate[0]["rewrite"]["method"] == "GET"
