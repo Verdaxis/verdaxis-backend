@@ -167,8 +167,18 @@ def crud_group_swap(region: str, group: str, old: str, new: str) -> str:
     if region.count("reverse_proxy @admin_pre_auth 127.0.0.1:8010 127.0.0.1:8000") != 1:
         raise ValueError("the admin pre-auth authority is not Rust")
     nodes = blocks(region)
+    expression = f"expression '{old}' != '127.0.0.1:8000'"
+    replacement = f"expression '{new}' != '127.0.0.1:8000'"
+    # Python expressions are identical across groups. Update only this
+    # group's named matcher blocks, not every Python-owned matcher.
     edits = []
     for node in nodes:
+        if node["header"].startswith(f"@rust_crud_{group}_"):
+            body = region[node["start"]:node["end"]]
+            if body.count(expression) != 1:
+                raise ValueError(f"unexpected {group} owner expression")
+            edits.append((node["start"], node["end"], body.replace(expression, replacement)))
+            continue
         if not node["header"].startswith(f"handle @rust_crud_{group}_"):
             continue
         body = region[node["start"]:node["end"]]
@@ -177,7 +187,7 @@ def crud_group_swap(region: str, group: str, old: str, new: str) -> str:
             raise ValueError(f"unexpected {group} proxy layout")
         edits.append((node["start"], node["end"],
                       body.replace(line, f"reverse_proxy {new} 127.0.0.1:8000", 1)))
-    if len(edits) != CRUD_HANDLE_COUNTS[group]:
+    if len(edits) != 2 * CRUD_HANDLE_COUNTS[group]:
         raise ValueError(f"unexpected {group} handle count")
     for start, end, body in reversed(edits):
         region = region[:start] + body + region[end:]

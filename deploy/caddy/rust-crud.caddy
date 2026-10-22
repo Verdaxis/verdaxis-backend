@@ -3,8 +3,9 @@
 # Argument 6 is the single pre-auth quota authority (the Rust read service).
 # Argument 7 is the environment's Python upstream: every group tries its own
 # upstream first, then Python, so a stopped Rust service does not return 502.
-# For rollback, change only that group's argument back to Python. Do not change
-# the site's fallback.
+# For rollback, change only that group's argument back to Python. Its handles
+# then stop matching; the existing Python fallback retries across restarts
+# without passive-health quarantine. Do not change the site's fallback.
 #
 # Matchers are exact method and path pairs, not prefixes. A GET on a PATCH-only
 # path, an unknown method, a HEAD request or the legacy entry adapters (W09 POST
@@ -65,6 +66,7 @@
 		}
 	}
 	@rust_crud_notifications_get {
+		expression '{args[0]}' != '{args[7]}'
 		method GET
 		path_regexp ^/api/notifications(/unread-count)?$
 	}
@@ -83,6 +85,7 @@
 		}
 	}
 	@rust_crud_notifications_write {
+		expression '{args[0]}' != '{args[7]}'
 		method PATCH
 		path_regexp ^/api/notifications/(read-all|[^/]+/read)$
 	}
@@ -101,6 +104,7 @@
 		}
 	}
 	@rust_crud_preferences_get {
+		expression '{args[1]}' != '{args[7]}'
 		method GET
 		path /api/users/me/preferences
 	}
@@ -119,6 +123,7 @@
 		}
 	}
 	@rust_crud_preferences_put {
+		expression '{args[1]}' != '{args[7]}'
 		method PUT
 		path_regexp ^/api/users/me/preferences/[^/]+$
 	}
@@ -139,6 +144,7 @@
 	# Feedback is the one pre-auth counted group. F01 POST and F02 GET share
 	# this group argument so a rollback moves both together.
 	@rust_crud_feedback_post {
+		expression '{args[2]}' != '{args[7]}'
 		method POST
 		path /api/feedback
 	}
@@ -157,6 +163,7 @@
 		}
 	}
 	@rust_crud_feedback_admin {
+		expression '{args[2]}' != '{args[7]}'
 		method GET
 		path /api/admin/feedback
 	}
@@ -177,6 +184,7 @@
 	# W09 POST entries and W10 DELETE entries are not matched: the legacy
 	# adapters stay on Python until Python is removed.
 	@rust_crud_watchlists_get {
+		expression '{args[3]}' != '{args[7]}'
 		method GET
 		path_regexp ^/api/watchlists(/[^/]+(/events)?)?$
 	}
@@ -195,6 +203,7 @@
 		}
 	}
 	@rust_crud_watchlists_post {
+		expression '{args[3]}' != '{args[7]}'
 		method POST
 		path_regexp ^/api/watchlists(/me|/[^/]+/targets)?$
 	}
@@ -213,6 +222,7 @@
 		}
 	}
 	@rust_crud_watchlists_patch {
+		expression '{args[3]}' != '{args[7]}'
 		method PATCH
 		path_regexp ^/api/watchlists/[^/]+/events/[^/]+$
 	}
@@ -231,6 +241,7 @@
 		}
 	}
 	@rust_crud_watchlists_delete {
+		expression '{args[3]}' != '{args[7]}'
 		method DELETE
 		path_regexp ^/api/watchlists/[^/]+(/targets/[^/]+)?$
 	}
@@ -249,6 +260,7 @@
 		}
 	}
 	@rust_crud_alerts_get {
+		expression '{args[4]}' != '{args[7]}'
 		method GET
 		path /api/alerts
 	}
@@ -267,6 +279,7 @@
 		}
 	}
 	@rust_crud_alerts_post {
+		expression '{args[4]}' != '{args[7]}'
 		method POST
 		path /api/alerts
 	}
@@ -285,6 +298,7 @@
 		}
 	}
 	@rust_crud_alerts_delete {
+		expression '{args[4]}' != '{args[7]}'
 		method DELETE
 		path_regexp ^/api/alerts/[^/]+$
 	}
@@ -305,6 +319,7 @@
 	# R05 resolves a public code and is the only referral route without a
 	# bearer. It moves with its group; Caddy adds no authentication.
 	@rust_crud_referrals_get {
+		expression '{args[5]}' != '{args[7]}'
 		method GET
 		path_regexp ^/api/referrals/(my-referrals|leaderboard|resolve/[^/]+)$
 	}
@@ -323,6 +338,7 @@
 		}
 	}
 	@rust_crud_referrals_post {
+		expression '{args[5]}' != '{args[7]}'
 		method POST
 		path_regexp ^/api/referrals/(my-code|invite)$
 	}

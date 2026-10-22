@@ -38,6 +38,9 @@ http://127.0.0.1:{$CADDY_PORT} {
 		import verdaxis_rust_crud {$NOTIFICATIONS_UPSTREAM} {$PREFERENCES_UPSTREAM} {$FEEDBACK_UPSTREAM} {$WATCHLISTS_UPSTREAM} {$ALERTS_UPSTREAM} {$REFERRALS_UPSTREAM} {$PREAUTH_UPSTREAM} {$PYTHON_UPSTREAM}
 		handle {
 			reverse_proxy {$PYTHON_UPSTREAM} {
+				header_up X-Forwarded-For {client_ip}
+				lb_try_duration 15s
+				lb_try_interval 250ms
 				flush_interval -1
 				transport http {
 					keepalive off
