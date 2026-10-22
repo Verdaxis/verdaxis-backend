@@ -1,5 +1,6 @@
 """Referral state checks include transaction-owned cache invalidation."""
 import copy
+import importlib
 import json
 
 import pytest
