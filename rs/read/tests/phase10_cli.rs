@@ -1,6 +1,6 @@
 use std::ffi::OsString;
 use std::process::{Command as Process, Output};
-use verdaxis_read::cli::{parse_arguments, Command, Exit};
+use verdaxis_read::cli::{Command, Exit, parse_arguments};
 
 fn args(values: &[&str]) -> Vec<OsString> {
     values.iter().map(OsString::from).collect()

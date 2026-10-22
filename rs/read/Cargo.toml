@@ -34,6 +34,7 @@ verdaxis-contract = { path = "../contract" }
 axum = "0.8"
 chrono = { version = "0.4.45", features = ["serde"] }
 chrono-tz = "0.10.4"
+clap = { version = "=4.6.7", features = ["derive"] }
 futures-util = "0.3"
 jsonwebtoken = { version = "10", default-features = false, features = ["rust_crypto"] }
 num-bigint = "0.4"
