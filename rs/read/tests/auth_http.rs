@@ -224,9 +224,7 @@ fn origin_guard_matrix() {
     // Every trusted origin passes, with or without a refresh cookie.
     for environment in ["production", "staging", "development", "test"] {
         for origin in trusted_origins(environment) {
-            if matches!(environment, "production" | "staging") {
-                assert!(allowed_browser_origin(environment, origin));
-            }
+            assert!(allowed_browser_origin(environment, origin));
             for cookie in [false, true] {
                 let headers = origin_headers(&[origin.as_bytes()]);
                 assert_eq!(
@@ -309,6 +307,98 @@ fn origin_guard_matrix() {
             require_trusted_origin(&origin_headers(&origins), "production", false),
             "two origin headers",
         );
+    }
+}
+
+/// Lazy pools keep this HTTP policy test independent of a database server.
+fn cors_app(environment: &str) -> Router {
+    let config = verdaxis_read::Config {
+        kyc_execution_gate_enabled: true,
+        db_session_time_zone: "UTC".into(),
+        environment: "test".into(),
+        release_sha: verdaxis_read::compiled_sha().into(),
+        migration_revision: "kycg_20261014_staging".into(),
+        database_url: "postgres://fixture:fixture_pw@127.0.0.1:1/fixture_test".into(),
+        bind: "127.0.0.1:0".parse().unwrap(),
+        read_admission_slots: 16,
+        pool_max: 17,
+        python_budget: 52,
+        configured_max_connections: 100,
+        prepared_budget: None,
+    };
+    let pools = verdaxis_read::runtime::db::Pools {
+        read: sqlx::postgres::PgPoolOptions::new()
+            .max_connections(config.read_admission_slots)
+            .connect_lazy(&config.database_url)
+            .unwrap(),
+        health: sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect_lazy(&config.database_url)
+            .unwrap(),
+    };
+    let mut state = verdaxis_read::AppState::new(
+        config,
+        pools,
+        verdaxis_read::MarketPolicy {
+            source_sha: verdaxis_read::compiled_sha().into(),
+            products: vec![],
+            points: vec![],
+        },
+    )
+    .unwrap();
+    // Select only the HTTP environment policy, without deployed DB/budget setup.
+    std::sync::Arc::make_mut(&mut state.config).environment = environment.into();
+    verdaxis_read::runtime::http::middleware_with_state(
+        Router::new().route("/api/auth/logout", post(|| async { "ok" })),
+        state,
+    )
+}
+
+#[tokio::test]
+async fn cors_uses_the_environment_origin_set() {
+    let environments = ["production", "staging", "development", "test", "qa"];
+    let origins: Vec<_> = environments
+        .iter()
+        .flat_map(|environment| trusted_origins(environment).iter().copied())
+        .chain(["https://untrusted.example"])
+        .collect();
+    for environment in environments {
+        let app = cors_app(environment);
+        for origin in &origins {
+            let allowed = trusted_origins(environment).contains(origin);
+            assert_eq!(
+                require_trusted_origin(&origin_headers(&[origin.as_bytes()]), environment, true)
+                    .is_ok(),
+                allowed,
+            );
+            for preflight in [true, false] {
+                let mut request = Request::builder()
+                    .method(if preflight { "OPTIONS" } else { "POST" })
+                    .uri("/api/auth/logout")
+                    .header(header::ORIGIN, *origin);
+                if preflight {
+                    request = request
+                        .header(header::ACCESS_CONTROL_REQUEST_METHOD, "POST")
+                        .header(header::ACCESS_CONTROL_REQUEST_HEADERS, "content-type");
+                } else {
+                    request = request.header(header::COOKIE, "refresh_token=fixture");
+                }
+                let response = app.clone().oneshot(request.body(Body::empty()).unwrap()).await.unwrap();
+                let case = format!("{environment} {origin} preflight={preflight}");
+                assert_eq!(
+                    response.status(),
+                    if preflight && !allowed { StatusCode::BAD_REQUEST } else { StatusCode::OK },
+                    "{case}",
+                );
+                assert_eq!(
+                    response.headers().get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+                        .map(|value| value.to_str().unwrap()),
+                    allowed.then_some(*origin),
+                    "{case}",
+                );
+                assert_eq!(response.headers()[header::ACCESS_CONTROL_ALLOW_CREDENTIALS], "true", "{case}");
+            }
+        }
     }
 }
 

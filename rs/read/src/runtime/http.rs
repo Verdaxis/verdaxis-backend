@@ -14,14 +14,9 @@ use std::{
     time::Instant,
 };
 
-/// Mirror the deployed Python credentialed-origin boundary, without sharing
-/// production browser authority with staging. Test harnesses retain their oracle.
+/// Use the same closed environment policy as the cookie origin guard.
 pub fn allowed_browser_origin(environment: &str, origin: &str) -> bool {
-    let cors_environment = match environment {
-        "production" => "production",
-        _ => "staging",
-    };
-    trusted_origins(cors_environment).contains(&origin)
+    trusted_origins(environment).contains(&origin)
 }
 
 pub fn client_ip(peer: Option<IpAddr>, forwarded: Option<&str>) -> String {
