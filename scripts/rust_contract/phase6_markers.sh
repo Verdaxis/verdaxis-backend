@@ -26,14 +26,14 @@ phase6_sha256() {
 phase6_source() {
     printf 'SOURCE_SHA=%s\n' "$(git rev-parse HEAD)"
     printf 'SOURCE_TREE=%s\n' "$(git rev-parse 'HEAD^{tree}')"
-    printf 'SOURCE_DIFF_SHA256=%s\n' "$(git diff --binary HEAD | phase6_sha256)"
+    printf 'SOURCE_DIFF_SHA256=%s\n' "$(git diff --binary --full-index --no-ext-diff --no-textconv HEAD | phase6_sha256)"
     printf 'SOURCE_UNTRACKED=%s\n' \
         "$(git ls-files --others --exclude-standard | wc -l | tr -d ' ')"
 }
 
 # Apply exactly one control mutation to a clean checkout, then describe the result.
 phase6_control() {
-    if ! git diff --quiet HEAD; then
+    if ! git diff --quiet HEAD || test -n "$(git ls-files --others --exclude-standard)"; then
         echo "phase6_control: the checkout already has local changes" >&2
         return 2
     fi

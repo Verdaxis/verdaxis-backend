@@ -12,6 +12,7 @@ import hashlib
 import importlib
 import inspect
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -206,7 +207,7 @@ class World:
 
     def applied_digest(self):
         index = self.root / "control-index"
-        env = dict(__import__("os").environ, GIT_INDEX_FILE=str(index))
+        env = dict(os.environ, GIT_INDEX_FILE=str(index))
         def indexed(*args, data=None):
             return subprocess.run(["git", "-C", str(self.backend), *args], input=data,
                                   env=env, check=True, capture_output=True).stdout

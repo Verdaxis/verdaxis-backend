@@ -52,7 +52,10 @@ COUNT = re.compile(r"\d+")
 
 # The disposable PostgreSQL harness prints the pinned image it starts.
 DATABASE = re.compile(r"Starting (\S+@sha256:[0-9a-f]{64}) as verdaxis-analytics-test-\S+")
-COMPILE_ERROR = re.compile(r"error\[E\d{4}\]")
+COMPILE_ERROR = re.compile(r"error\[(E\d{4})\]: (.*)")
+CARGO_RUNNING = re.compile(r"\s*Running (?:unittests )?(\S+\.rs) \(.*\)")
+CARGO_PANIC = re.compile(r"thread '([^']+)' panicked at .*")
+VITEST_FAILURE = re.compile(r"\s*FAIL\s+(\S.*? > .*?\S)")
 TEST_RESULT = "test result: "
 
 CARGO_LINE = re.compile(r"test (\S+) \.\.\. (ok|FAILED|ignored)(?:,.*)?")
@@ -141,9 +144,21 @@ class Run:
     compile_errors: int = 0
     test_result_lines: int = 0
     outcomes: dict = field(default_factory=dict)
+    assertions: dict = field(default_factory=dict)
+    diagnostics: list = field(default_factory=list)
+    cargo_root: str | None = None
+    cargo_path: str | None = None
+    failure_runner: str | None = None
+    failure_key: str | None = None
 
     def status(self, runner, key):
         return case_status(self.outcomes.get(runner, {}).get(key, []))
+
+    def asserted(self, runner, key):
+        return self.status(runner, key) == "failed" and key in self.assertions.get(runner, [])
+
+    def assertion(self, runner, key):
+        self.assertions.setdefault(runner, []).append(key)
 
     def suite_passed(self, suite):
         """Whether a pytest suite file has at least one passing test in this run."""
@@ -156,20 +171,49 @@ class Run:
         if match := DATABASE.fullmatch(line):
             require(self.database in (None, match.group(1)), "database fixture changed in a run")
             self.database = match.group(1)
-        elif COMPILE_ERROR.match(line):
+        elif match := COMPILE_ERROR.match(line):
             self.compile_errors += 1
+            self.diagnostics.append({"code": match.group(1), "message": match.group(2)})
+        elif line.startswith("CARGO_PACKAGE_ROOT="):
+            root = line.removeprefix("CARGO_PACKAGE_ROOT=")
+            require(root and not Path(root).is_absolute() and ".." not in Path(root).parts,
+                    "cargo source context required")
+            self.cargo_root, self.cargo_path = root, None
+        elif match := CARGO_RUNNING.fullmatch(line):
+            path = match.group(1)
+            require(self.cargo_root is not None and not Path(path).is_absolute()
+                    and ".." not in Path(path).parts, "cargo source context required")
+            self.cargo_path = str(Path(self.cargo_root) / path)
+            self.failure_runner = self.failure_key = None
+        elif match := CARGO_PANIC.fullmatch(line):
+            require(self.cargo_path is not None, "cargo source context required")
+            self.failure_runner, self.failure_key = "cargo", f"{self.cargo_path}::{match.group(1)}"
+        elif match := VITEST_FAILURE.fullmatch(line):
+            self.failure_runner, self.failure_key = "vitest", match.group(1)
+        elif self.failure_key and (line.startswith("assertion ") and "failed" in line
+                                   or line.startswith("AssertionError:")):
+            self.assertion(self.failure_runner, self.failure_key)
+            self.failure_runner = self.failure_key = None
         elif line.startswith(TEST_RESULT):
             self.test_result_lines += 1
         elif match := CARGO_LINE.fullmatch(line):
-            self.add("cargo", match.group(1), match.group(2))
+            require(self.cargo_path is not None, "cargo source context required")
+            self.add("cargo", f"{self.cargo_path}::{match.group(1)}", match.group(2))
         elif match := PYTEST_SUMMARY.fullmatch(line):
-            self.add("pytest", pytest_key(match.group(2)), match.group(1))
+            key = pytest_key(match.group(2))
+            self.add("pytest", key, match.group(1))
+            if match.group(1) == "FAILED" and re.search(r" - AssertionError(?::|$)", line):
+                self.assertion("pytest", key)
         elif match := PYTEST_VERBOSE.fullmatch(line):
             self.add("pytest", pytest_key(match.group(1)), match.group(2))
         elif match := VITEST_LINE.fullmatch(line):
             self.add("vitest", match.group(2), match.group(1))
         elif match := JOURNEY_LINE.fullmatch(line):
-            self.add("journey", match.group(2), match.group(1))
+            key = match.group(2)
+            require("::" in key, "journey source context required")
+            self.add("journey", key, match.group(1))
+            if match.group(1) == "FAIL" and " AssertionError:" in line:
+                self.assertion("journey", key)
 
     def add(self, runner, key, marker):
         self.outcomes.setdefault(runner, {}).setdefault(key, []).append(OUTCOMES[marker])

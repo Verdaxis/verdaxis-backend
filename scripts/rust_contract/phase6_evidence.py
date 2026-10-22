@@ -12,6 +12,11 @@ log into run records with `phase6_record`, and refuses the bundle unless:
   allowed kind on the candidate's ancestry, with the same test source bytes;
 - review scenarios have an accepting review file that names the candidate.
 
+Private preservation controls may use the same commit as clean GREEN. Their exact
+modified diff must match one implementation-file patch, with no untracked changes;
+GREEN must still start strictly after the control finishes. Tests, support files,
+inventory and evidence machinery cannot be mutated by a control.
+
 Hashes and Git ancestry prove consistency only. Host identity, reviewer identity and
 PM acceptance stay outside this gate. The gate never runs commands from evidence,
 opens a database, or prints captured test output.
@@ -201,15 +206,31 @@ class Source:
         blob = self.blob(sha, path)
         return None if blob is None else self.git("cat-file", "blob", blob)
 
-    def applies(self, sha, patch, *, reverse=False):
-        """Whether a patch applies to the tree of a commit; no worktree is touched."""
+    def control_diff(self, sha, patch):
+        """Reconstruct the applied diff in a private index, without touching source."""
         self.commit(sha)
         with tempfile.TemporaryDirectory() as scratch:
             environment = dict(self.environment, GIT_INDEX_FILE=str(Path(scratch) / "index"))
-            loaded = self.run("read-tree", sha, environment=environment)
-            require(loaded.returncode == 0, "source verification failed")
-            check = ["apply", "--cached", "--check", *(["--reverse"] if reverse else [])]
-            return self.run(*check, data=patch, environment=environment).returncode == 0
+            require(self.run("read-tree", sha, environment=environment).returncode == 0,
+                    "source verification failed")
+            require(self.run("apply", "--cached", "--binary", data=patch,
+                             environment=environment).returncode == 0,
+                    "control patch does not match source")
+            diff = self.run("diff", "--cached", "--binary", "--full-index", "--no-ext-diff",
+                            "--no-textconv", sha, environment=environment)
+            paths = self.run("diff", "--cached", "--name-only", "-z", sha,
+                             environment=environment)
+            require(diff.returncode == paths.returncode == 0, "source verification failed")
+            return diff.stdout, [path.decode() for path in paths.stdout.split(b"\0") if path]
+
+    def applies(self, sha, patch, *, reverse=False):
+        self.commit(sha)
+        with tempfile.TemporaryDirectory() as scratch:
+            environment = dict(self.environment, GIT_INDEX_FILE=str(Path(scratch) / "index"))
+            require(self.run("read-tree", sha, environment=environment).returncode == 0,
+                    "source verification failed")
+            return self.run("apply", "--cached", "--check", *(["--reverse"] if reverse else []),
+                            data=patch, environment=environment).returncode == 0
 
 
 def read_artifact(reference, root):
@@ -244,6 +265,7 @@ class Scenario:
     suite: str | None
     red: frozenset
     database: bool
+    missing_interface: dict | None
 
     @classmethod
     def from_inventory(cls, case, suites):
@@ -267,15 +289,21 @@ class Scenario:
             require(not red and test_path is None and test_name is None and not support
                     and suite is None, "required inventory invalid")
         require(suite is None or suite in suites, "required inventory invalid")
+        interface = case.get("missing_interface")
+        if "missing_interface" in red:
+            require(isinstance(interface, dict) and interface.get("code") in
+                    {"E0432", "E0433", "E0412", "E0425", "E0599", "E0609"}
+                    and named(interface.get("symbol")), "missing interface identity required")
         return cls(id=case["id"], task=case["task"], scopes=frozenset(case["scopes"]),
                    repository=repository, runner=runner, test_path=test_path,
                    test_name=test_name, support_paths=tuple(support), suite=suite,
-                   red=frozenset(red), database=test_path in suites or suite is not None)
+                   red=frozenset(red), database=test_path in suites or suite is not None,
+                   missing_interface=interface)
 
     @property
     def key(self):
         """The test identity as the adapter records it for this runner."""
-        if self.runner == "pytest":
+        if self.runner in {"pytest", "cargo", "journey"}:
             return f"{self.test_path}::{self.test_name}"
         if self.runner == "vitest":
             return f"{self.test_path} > {self.test_name}"
@@ -307,7 +335,16 @@ def load_inventory(source, candidate, pinned_digest):
             # One test proves one scenario, so a single output line cannot cover two.
             require((case.runner, case.key) not in keys, "required inventory invalid")
             keys.add((case.runner, case.key))
-    return cases
+    suite_scopes = document.get("postgres_suite_scopes", {})
+    require(isinstance(suite_scopes, dict) and set(suite_scopes) <= set(suites),
+            "required inventory invalid")
+    requirements = {}
+    for suite in suites:
+        scopes = suite_scopes.get(suite, sorted(SCOPES))
+        require(isinstance(scopes, list) and scopes and set(scopes) <= SCOPES,
+                "required inventory invalid")
+        requirements[suite] = frozenset(scopes)
+    return cases, requirements
 
 
 @dataclass(frozen=True)
@@ -332,7 +369,7 @@ class _Gate:
         backend.commit(candidate)
         require(bundle.get("release_sha") == candidate, "release identity mismatch")
         self.inventory_sha256 = bundle.get("inventory_sha256")
-        self.cases = load_inventory(backend, candidate, self.inventory_sha256)
+        self.cases, self.suites = load_inventory(backend, candidate, self.inventory_sha256)
         self.required = {key: case for key, case in self.cases.items()
                          if self.scope in case.scopes}
         self.sources = {"backend": backend}
@@ -345,7 +382,8 @@ class _Gate:
             self.sources["frontend"].commit(bundle["frontend_sha"])
             self.candidates["frontend"] = bundle["frontend_sha"]
         self.fixture = None
-        if any(case.database for case in self.required.values()):
+        if any(self.scope in scopes for scopes in self.suites.values()) or any(
+                case.database for case in self.required.values()):
             self.fixture = bundle.get("database_fixture")
             require(isinstance(self.fixture, str) and DATABASE_IMAGE.fullmatch(self.fixture),
                     "database fixture identity required")
@@ -378,6 +416,7 @@ class _Gate:
     def validate(self):
         green = {case.id: self.green_runs(case) for case in self.required.values()
                  if case.runner in TEST_RUNNERS}
+        self.check_suites()
         self.check_red(green)
         self.check_review()
         publication = self.check_publication()
@@ -391,6 +430,17 @@ class _Gate:
         if "frontend" in self.candidates:
             verdict["frontend_sha"] = self.candidates["frontend"]
         return verdict
+
+    def check_suites(self):
+        for suite, scopes in self.suites.items():
+            if self.scope not in scopes:
+                continue
+            require(any(run.repository == "backend"
+                        and run.record.source.sha == self.candidates["backend"]
+                        and run.record.source.clean is True and run.record.exit == 0
+                        and run.record.database == self.fixture
+                        and run.record.host in LINUX_HOSTS and run.record.suite_passed(suite)
+                        for run in self.runs.values()), f"database suite not run: {suite}")
 
     # GREEN: a pass at the candidate, in a run that is allowed to prove this case.
 
@@ -505,12 +555,19 @@ class _Gate:
             require(case.task == task["task"] and case.repository == run.repository,
                     f"RED case outside task: {case_id}")
             require(kind in case.red, f"RED kind not allowed: {case_id}")
-            if kind != "missing_interface":
-                require(record.status(case.runner, case.key) == "failed",
+            if kind == "missing_interface":
+                expected = case.missing_interface
+                require(expected is not None and all(
+                    diagnostic["code"] == expected["code"]
+                    and f"`{expected['symbol']}`" in diagnostic["message"]
+                    for diagnostic in record.diagnostics),
+                    f"RED missing interface diagnostic required: {case_id}")
+            else:
+                require(record.asserted(case.runner, case.key),
                         f"RED assertion missing: {case_id}")
-                require(not case.database or (record.database == self.fixture
-                                              and record.host in LINUX_HOSTS),
-                        f"RED database run required: {case_id}")
+            require(not case.database or (record.database == self.fixture
+                                          and record.host in LINUX_HOSTS),
+                    f"RED database run required: {case_id}")
             for path in case.source_paths:
                 before = source.blob(record.source.sha, path)
                 require(before is not None and before == source.blob(candidate, path),
@@ -526,7 +583,17 @@ class _Gate:
                 and record.source.diff_sha256 not in (None, phase6_record.EMPTY_DIFF_SHA256),
                 "control patch not applied in run")
         source = self.sources[run.repository]
-        require(source.applies(record.source.sha, patch), "control patch does not match source")
+        require(record.source.untracked == 0, "control untracked changes refused")
+        diff, paths = source.control_diff(record.source.sha, patch)
+        protected = {INVENTORY_PATH}
+        for case in self.cases.values():
+            if case.repository == run.repository and case.runner in TEST_RUNNERS:
+                protected.update(case.source_paths)
+        require(not any(path in protected or path.startswith(("tests/", "scripts/rust_contract/",
+                                                              "scripts/journeys/", "src/tests/"))
+                        for path in paths), "control protected path refused")
+        require(len(paths) == 1, "one implementation control required")
+        require(record.source.diff_sha256 == sha256(diff), "control applied diff mismatch")
         require(not source.applies(self.candidates[run.repository], patch, reverse=True),
                 "control mutation is committed")
 
