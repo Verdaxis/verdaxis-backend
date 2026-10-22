@@ -359,6 +359,85 @@ async fn full_transaction_retry() {
 
 #[tokio::test]
 #[ignore = "requires the disposable PostgreSQL harness"]
+async fn assignment_waits_for_shared_row() {
+    let mut db = Database::open().await;
+    drain(&db.settings()).await;
+    let marker = "assignment_waits_for_shared_row";
+    insert_rows(&mut db.observer, marker, 3).await;
+    let mut session = open(&db.settings()).await;
+    let backend = session.backend_pid();
+    let mut blocker = connect(&db.url).await;
+    let mut blocking = blocker.begin().await.expect("blocking transaction");
+    sqlx::query("UPDATE phase6_election_shared_row SET generation = generation + 1")
+        .execute(&mut *blocking)
+        .await
+        .expect("hold the shared row");
+
+    let (outcome, ()) = tokio::join!(session.assign_one_batch(), async {
+        timeout(Duration::from_secs(5), async {
+            loop {
+                let waiting: bool = sqlx::query_scalar(
+                    "SELECT EXISTS (SELECT 1 FROM pg_stat_activity \
+                     WHERE pid = $1 AND wait_event_type = 'Lock')",
+                )
+                .bind(pid(backend))
+                .fetch_one(&mut db.observer)
+                .await
+                .expect("observe assignment wait");
+                if waiting {
+                    break;
+                }
+                sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("assignment waits on the shared row");
+        // Start the hold interval only after PostgreSQL reports the lock wait.
+        sleep(Duration::from_millis(650)).await;
+        blocking.commit().await.expect("release the shared row");
+    });
+    assert_eq!(outcome, Ok(AssignOutcome::Committed { assigned: 3 }));
+    assert_eq!(session.backend_pid(), backend);
+    assert_eq!(pending(&mut db.observer, marker).await, 0);
+    let sequences = assigned(&mut db.observer, marker).await;
+    assert_eq!(sequences.len(), 3);
+    assert_eq!(sequences.iter().collect::<HashSet<_>>().len(), 3);
+    assert_eq!(delivery_attempts(&mut db.observer, marker).await, [1, 1, 1]);
+    assert_eq!(lock_holder(&mut db.observer).await, None);
+    assert_eq!(
+        session.assign_one_batch().await,
+        Ok(AssignOutcome::NothingPending)
+    );
+
+    // A row lock held through the first attempt and all three extra attempts
+    // fails the batch, and the session is then discarded as before.
+    insert_rows(&mut db.observer, marker, 1).await;
+    let mut blocking = blocker.begin().await.expect("blocking transaction");
+    sqlx::query("UPDATE phase6_election_shared_row SET generation = generation + 1")
+        .execute(&mut *blocking)
+        .await
+        .expect("hold the shared row");
+    let started = Instant::now();
+    assert_eq!(
+        session.assign_one_batch().await,
+        Err(ElectionError::Contention)
+    );
+    assert!(started.elapsed() >= Duration::from_secs(2));
+    assert!(started.elapsed() < Duration::from_secs(5));
+    assert_eq!(pending(&mut db.observer, marker).await, 1);
+    assert_eq!(lock_holder(&mut db.observer).await, None);
+    blocking.rollback().await.expect("release the shared row");
+    assert_eq!(
+        session.assign_one_batch().await,
+        Err(ElectionError::SessionLost)
+    );
+    session.close().await;
+    drain(&db.settings()).await;
+    assert_eq!(pending(&mut db.observer, marker).await, 0);
+}
+
+#[tokio::test]
+#[ignore = "requires the disposable PostgreSQL harness"]
 async fn unlock_false_discards_session() {
     let mut db = Database::open().await;
     drain(&db.settings()).await;
@@ -557,6 +636,56 @@ async fn session_replacement_requires_election() {
         Ok(AssignOutcome::Committed { assigned: 1 })
     );
     replacement.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires the disposable PostgreSQL harness"]
+async fn session_pool_stays_closed() {
+    let db = Database::open().await;
+    let session = open(&db.settings()).await;
+    // A closed pool keeps its one connection but never opens another.
+    assert!(session.pool_is_closed());
+    session.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires the disposable PostgreSQL harness"]
+async fn session_ends_before_commit() {
+    let mut db = Database::open().await;
+    drain(&db.settings()).await;
+    let marker = "session_ends_before_commit";
+    insert_rows(&mut db.observer, marker, 3).await;
+    let killer = Arc::new(TerminateAt {
+        stage: Stage::Assigned,
+        observer: tokio::sync::Mutex::new(connect(&db.url).await),
+    });
+    let mut session = open(&db.settings().with_stage_hook(killer)).await;
+    let backend = session.backend_pid();
+    assert_eq!(
+        session.assign_one_batch().await,
+        Err(ElectionError::SessionLost)
+    );
+    wait_until_gone(&mut db.observer, backend).await;
+    // The server rolled the whole batch back with the session.
+    assert_eq!(pending(&mut db.observer, marker).await, 3);
+    assert!(assigned(&mut db.observer, marker).await.is_empty());
+    assert_eq!(delivery_attempts(&mut db.observer, marker).await, [0, 0, 0]);
+    assert_eq!(lock_holder(&mut db.observer).await, None);
+    session.close().await;
+
+    // A new session wins the key and sequences every row exactly once.
+    let mut successor = open(&db.settings()).await;
+    assert_ne!(successor.backend_pid(), backend);
+    assert_eq!(
+        successor.assign_one_batch().await,
+        Ok(AssignOutcome::Committed { assigned: 3 })
+    );
+    assert_eq!(pending(&mut db.observer, marker).await, 0);
+    let sequences = assigned(&mut db.observer, marker).await;
+    assert_eq!(sequences.len(), 3);
+    assert_eq!(sequences.iter().collect::<HashSet<_>>().len(), 3);
+    assert_eq!(delivery_attempts(&mut db.observer, marker).await, [1, 1, 1]);
+    successor.close().await;
 }
 
 #[tokio::test]

@@ -16,12 +16,13 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
+
 from app.services.market_event_dispatch import (
     SEQUENCER_ADVISORY_LOCK_KEY,
     MarketEventDispatcher,
 )
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine
 
 ROOT = Path(__file__).resolve().parents[2]
 TARGET = "streams_election"
@@ -44,6 +45,9 @@ DATABASE_TESTS = {
     "connection_deadlines",
     "session_close_releases_lock",
     "wake_follows_other_sessions",
+    "assignment_waits_for_shared_row",
+    "session_pool_stays_closed",
+    "session_ends_before_commit",
 }
 PASSED_LINE = re.compile(r"^test (\w+) \.\.\. ok$", re.MULTILINE)
 SUMMARY_LINE = re.compile(
@@ -95,8 +99,46 @@ def _cargo(*selection: str, extra_env: dict[str, str] | None = None) -> set[str]
     return passed
 
 
-def test_rust_election_component(analytics_pg_url):
-    assert _cargo() == OFFLINE_TESTS | DATABASE_TESTS
+@pytest.mark.asyncio
+async def test_rust_election_component(analytics_pg_url):
+    engine = create_async_engine(analytics_pg_url)
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(text(
+                "CREATE TABLE phase6_election_shared_row (singleton boolean PRIMARY KEY, generation bigint);"
+            ))
+            await connection.execute(text(
+                "INSERT INTO phase6_election_shared_row VALUES (true, 0)"
+            ))
+            role = os.environ["RUNTIME_TEST_APP_ROLE"]
+            assert re.fullmatch(r"[a-z_]+", role)
+            await connection.execute(text(
+                f"GRANT SELECT, UPDATE ON phase6_election_shared_row TO {role}"
+            ))
+            await connection.execute(text("""
+                CREATE FUNCTION phase6_election_shared_row_update() RETURNS trigger
+                LANGUAGE plpgsql AS $$ BEGIN
+                    UPDATE phase6_election_shared_row SET generation = generation + 1;
+                    RETURN NEW;
+                END $$
+            """))
+            await connection.execute(text("""
+                CREATE TRIGGER phase6_election_shared_row_update
+                AFTER UPDATE ON market_event_outbox FOR EACH ROW
+                WHEN (NEW.aggregate_id = 'assignment_waits_for_shared_row')
+                EXECUTE FUNCTION phase6_election_shared_row_update()
+            """))
+        assert await asyncio.to_thread(_cargo) == OFFLINE_TESTS | DATABASE_TESTS
+    finally:
+        async with engine.begin() as connection:
+            await connection.execute(text(
+                "DROP TRIGGER IF EXISTS phase6_election_shared_row_update ON market_event_outbox"
+            ))
+            await connection.execute(text(
+                "DROP FUNCTION IF EXISTS phase6_election_shared_row_update()"
+            ))
+            await connection.execute(text("DROP TABLE IF EXISTS phase6_election_shared_row"))
+        await engine.dispose()
 
 
 @pytest.mark.asyncio
