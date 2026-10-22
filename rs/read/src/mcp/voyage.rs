@@ -502,7 +502,7 @@ fn strategy(
             let penalty = deficit
                 .multiply(&d("1000000"))
                 .divide(&intensity.as_ref().unwrap().multiply(&d("41000")))?
-                .multiply(&d("2400"));
+                .multiply(&fueleu::mcp_penalty());
             let pool_cost = pool.as_ref().map(|pool| deficit.multiply(pool));
             if basis == Some("POOL") {
                 if pool_cost.is_none() {

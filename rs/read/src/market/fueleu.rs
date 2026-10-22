@@ -1,16 +1,20 @@
 //! Shared FuelEU Maritime reference value and reporting-year intensity limits.
 //!
 //! Regulation (EU) 2023/1805, Article 4(2) sets each limit as a percentage
-//! reduction from the reference value. This module keeps the reference and the
-//! reductions once and derives every limit from them, so every consumer uses
-//! the same values. The limit is a regulatory intensity, not a fuel certificate
-//! or a monetary benefit.
+//! reduction from the reference value. This module keeps the reference, the
+//! reductions and the deficit penalty once and derives every limit from them,
+//! so every consumer uses the same values. The limit is a regulatory
+//! intensity, not a fuel certificate or a monetary benefit.
 use crate::market::amount::Amount;
 use rust_decimal::Decimal;
 use std::fmt;
 
 /// Lifecycle GHG intensity reference, 91.16 gCO2eq/MJ.
 pub const FUELEU_REFERENCE_GHG: Decimal = Decimal::from_parts(9116, 0, 0, false, 2);
+
+/// Penalty for a compliance deficit, EUR 2,400 per tonne of VLSFO-equivalent
+/// energy (Annex IV, Part B).
+pub const FUELEU_PENALTY_EUR_PER_TONNE: Decimal = Decimal::from_parts(2400, 0, 0, false, 0);
 
 /// First reporting year that the regulation covers.
 pub const FIRST_REPORTING_YEAR: i32 = 2025;
@@ -62,6 +66,11 @@ pub fn fueleu_target(year: i32) -> Result<Decimal, YearError> {
 /// The reference value as the exact amount of the MCP voyage calculations.
 pub fn mcp_reference() -> Amount {
     to_mcp(FUELEU_REFERENCE_GHG)
+}
+
+/// The deficit penalty as the exact amount of the MCP voyage calculations.
+pub fn mcp_penalty() -> Amount {
+    to_mcp(FUELEU_PENALTY_EUR_PER_TONNE)
 }
 
 /// The reporting-year limit as the exact amount of the MCP voyage calculations.
