@@ -4,7 +4,6 @@ use crate::runtime::cache_authority::{FillTicket, admit_connection};
 use crate::{ApiError, AppState, busy};
 use sqlx::Connection;
 use std::sync::Arc;
-use std::time::Instant;
 
 /// Rust-owned default (founder decision 88); readiness has one extra connection.
 pub const DEFAULT_READ_ADMISSION_SLOTS: u32 = 16;
@@ -216,7 +215,7 @@ where
                     *generation,
                     &policy,
                     clock.monotonic,
-                ) && entry.valid_until.is_live(Instant::now())
+                ) && entry.valid_until.is_live(observer.now().monotonic)
                 {
                     match serde_json::from_slice(&entry.payload) {
                         Ok(value) => {
@@ -225,7 +224,7 @@ where
                                 .await
                                 .map_err(|_| ApiError::database())?;
                             observer.checkpoint(TradingReadStage::BeforePublish).await;
-                            if !authority.accepts(token, Instant::now()) {
+                            if !authority.accepts(token, observer.now().monotonic) {
                                 return Err(ApiError::database());
                             }
                             return Ok(value);
@@ -250,7 +249,7 @@ where
                 observer.checkpoint(TradingReadStage::BeforeInsert).await;
                 // Stale-fill barriers. A fill started under one authority and
                 // fence may neither be stored nor answered after either moved.
-                if !authority.accepts(ticket.token(), Instant::now()) {
+                if !authority.accepts(ticket.token(), observer.now().monotonic) {
                     return Err(ApiError::database());
                 }
                 // A newer generation verified by this process since the fill
@@ -268,13 +267,13 @@ where
                     cache.insert(
                         key,
                         TradingEntry::new(ticket, payload, boundary, policy),
-                        Instant::now(),
+                        observer.now().monotonic,
                     );
                 }
                 observer.checkpoint(TradingReadStage::BeforePublish).await;
                 // Publishing the response repeats the fence check, so a change
                 // after the insertion cannot let an old authority answer.
-                if !authority.accepts(ticket.token(), Instant::now()) {
+                if !authority.accepts(ticket.token(), observer.now().monotonic) {
                     return Err(ApiError::database());
                 }
             }

@@ -698,6 +698,7 @@ async fn authority_rotation_at_each_publication_barrier_rejects_old_fills() {
             let current = generation(&mut writer).await;
             record.revoke(2);
             publish_record(&runtime, &record);
+            runtime.authority().refresh(runtime.record_path(), Instant::now());
             runtime.tick(Instant::now()).await;
             let successor = authority(3);
             bind(&mut writer, &successor, true).await;
