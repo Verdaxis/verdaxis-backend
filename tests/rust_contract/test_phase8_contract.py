@@ -290,20 +290,38 @@ def executed_statement_text(call):
 
 
 def review_migration_operations(upgrade, manifest):
-    """Refuse every op.* call the reviewed change set does not name exactly."""
+    """Allow a bind only inside the exact head query; never expose a connection."""
     permitted = manifest["permitted_migration_operations"]
-    reviewed_calls = {name.split(".", 1)[-1] for name in permitted["reviewed_calls"]}
     reviewed_statements = {normalize_statement(statement) for statement in permitted["reviewed_statements"]}
+    head_check = ast.parse(
+        f'op.get_bind().execute(sa.text({permitted["head_check"]["statement"]!r}))',
+        mode="eval",
+    ).body
+    approved_head_calls = {
+        node for node in ast.walk(upgrade)
+        if isinstance(node, ast.Call) and ast.dump(node) == ast.dump(head_check)
+    }
+    approved_bind_attributes = {node.func.value.func for node in approved_head_calls}
     violations = []
     for node in ast.walk(upgrade):
-        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and ast.unparse(node.func.value) == "op"):
+        # Inspect references as well as calls, so aliasing or passing the accessor
+        # cannot turn the head-query allowance into general connection access.
+        if isinstance(node, ast.Attribute) and ast.unparse(node.value) == "op" and node.attr in {"get_bind", "get_context"}:
+            if node not in approved_bind_attributes:
+                violations.append(f"unreviewed connection access: op.{node.attr}")
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
             continue
+        receiver = ast.unparse(node.func.value)
         operation = node.func.attr
-        if operation in permitted["ddl"] or operation in reviewed_calls:
+        if receiver != "op":
+            if operation == "execute" and node not in approved_head_calls:
+                violations.append(f"unreviewed connection execute: {receiver}")
+            continue
+        if operation in permitted["ddl"] or operation in {"get_bind", "get_context"}:
             continue
         if operation == "execute":
             statement = executed_statement_text(node)
-            if statement not in reviewed_statements:
+            if statement not in reviewed_statements or len(node.args) != 1 or node.keywords:
                 violations.append(f"unreviewed op.execute: {statement!r}")
             continue
         violations.append(f"unreviewed migration operation: op.{operation}")

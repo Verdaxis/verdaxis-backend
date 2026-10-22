@@ -179,7 +179,12 @@
         },
         {
           "status": 404,
-          "condition": "support context unknown, foreign or capability absent",
+          "condition": "support capability absent or expired at initial resolution",
+          "code": null
+        },
+        {
+          "status": 404,
+          "condition": "support context unknown or foreign",
           "code": "MARKET_SUPPORT_CONTEXT_INVALID",
           "clearing_headers": [
             "X-Verdaxis-Market-Support-Context-Invalid",
@@ -272,7 +277,12 @@
         },
         {
           "status": 404,
-          "condition": "support context unknown, foreign or capability absent",
+          "condition": "support capability absent or expired at initial resolution",
+          "code": null
+        },
+        {
+          "status": 404,
+          "condition": "support context unknown or foreign",
           "code": "MARKET_SUPPORT_CONTEXT_INVALID",
           "clearing_headers": [
             "X-Verdaxis-Market-Support-Context-Invalid",
@@ -356,7 +366,12 @@
         },
         {
           "status": 404,
-          "condition": "support context unknown, foreign or capability absent",
+          "condition": "support capability absent or expired at initial resolution",
+          "code": null
+        },
+        {
+          "status": 404,
+          "condition": "support context unknown or foreign",
           "code": "MARKET_SUPPORT_CONTEXT_INVALID",
           "clearing_headers": [
             "X-Verdaxis-Market-Support-Context-Invalid",
@@ -2072,10 +2087,11 @@
         "create_check_constraint",
         "create_index"
       ],
-      "reviewed_calls": [
-        "op.get_bind",
-        "op.get_context"
-      ],
+      "reviewed_calls": [],
+      "head_check": {
+        "form": "op.get_bind().execute(sa.text(statement))",
+        "statement": "SELECT version_num FROM alembic_version"
+      },
       "reviewed_statements": [
         "UPDATE watchlist_events SET producer = 'legacy-python'"
       ],
