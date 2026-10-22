@@ -127,8 +127,8 @@ pub struct TradingFill<T> {
 /// on captures one clock, opens one read-only REPEATABLE READ snapshot, reads
 /// the generation in that snapshot, and serves a cached payload only when the
 /// authority token, fence, generation, policy identity and time boundary all
-/// still match. An unknown authority or an underivable boundary means the
-/// uncached value is returned, never a guessed entry.
+/// still match. An unknown authority returns the existing database error.
+/// An underivable boundary bypasses storage, but never the publication fence.
 pub async fn run_trading_read<K, T>(
     state: &AppState,
     cache: &Arc<TradingCache<K>>,
@@ -167,6 +167,11 @@ where
             let admitted = admit_connection(&authority, &mut transaction, clock.monotonic)
                 .await
                 .map_err(|_| ApiError::database())?;
+            // An uncached fallback still needs an authoritative connection.
+            // Without a token there is no safe publication fence.
+            if admitted.is_none() {
+                return Err(ApiError::database());
+            }
             let mut ticket = None;
             if let Some((token, generation)) = &admitted {
                 // A generation that moves backwards inside one authority means
