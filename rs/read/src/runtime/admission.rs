@@ -19,6 +19,9 @@ pub async fn middleware(
     }
     let permit = match try_read(&state) {
         Ok(permit) => permit,
+        Err(_) if market_data_read(request.method().as_str(), request.uri().path()) => {
+            return crate::routes::market_data_error::unavailable().into_response();
+        }
         Err(error) => return error.into_response(),
     };
     REQUEST_PERMIT
@@ -130,6 +133,17 @@ pub fn log_sql_error(stage: &'static str, error: &sqlx::Error) {
         })
         .unwrap_or("");
     tracing::warn!(stage, error_class, sqlstate, "admitted_database_failure");
+}
+
+/// The Phase 5 public market reads. Their admission and database failures use
+/// the typed `{"detail": {"code", "message"}}` envelope; every other admitted
+/// read keeps its string detail.
+pub fn market_data_read(method: &str, path: &str) -> bool {
+    method == "GET"
+        && matches!(
+            path,
+            "/api/availability" | "/api/benchmarks" | "/api/demand" | "/api/producers"
+        )
 }
 
 pub fn selected_read(method: &str, path: &str) -> bool {
