@@ -48,26 +48,46 @@ impl SharedLimits {
     }
 }
 
+// Match the bounded Python backstop. Maintenance runs at most once per
+// shortest policy window, never once per request under the shared mutex.
+const MAX_BUCKETS: usize = 50_000;
+const PRUNE_INTERVAL_SECONDS: u64 = 60;
+
+struct Bucket {
+    expires_at: u64,
+    count: u32,
+}
+
 #[derive(Default)]
 pub struct Phase2Limits {
-    buckets: HashMap<(String, String), (u64, u32)>,
+    buckets: HashMap<(String, String), Bucket>,
+    next_prune_at: u64,
 }
 
 impl Phase2Limits {
     fn accept(&mut self, client: &str, key: &str, limit: u32, window: u64, now: u64) -> bool {
-        self.buckets
-            .retain(|_, (started, _)| now.saturating_sub(*started) < 3600);
-        let bucket = self
-            .buckets
-            .entry((client.into(), key.into()))
-            .or_insert((now, 0));
-        if now.saturating_sub(bucket.0) >= window {
-            *bucket = (now, 0);
+        if now >= self.next_prune_at {
+            self.buckets.retain(|_, bucket| now < bucket.expires_at);
+            self.next_prune_at = now.saturating_add(PRUNE_INTERVAL_SECONDS);
         }
-        if bucket.1 >= limit {
+        let identity = (client.into(), key.into());
+        if self.buckets.len() >= MAX_BUCKETS && !self.buckets.contains_key(&identity) {
+            // As in the Python backstop, discard old accounting at capacity
+            // rather than allowing unauthenticated clients to grow memory.
+            self.buckets.clear();
+        }
+        let bucket = self.buckets.entry(identity).or_insert(Bucket {
+            expires_at: now.saturating_add(window),
+            count: 0,
+        });
+        if now >= bucket.expires_at {
+            bucket.expires_at = now.saturating_add(window);
+            bucket.count = 0;
+        }
+        if bucket.count >= limit {
             return false;
         }
-        bucket.1 += 1;
+        bucket.count += 1;
         true
     }
     pub fn preauth(&mut self, client: &str, path: &str, now: u64) -> bool {
