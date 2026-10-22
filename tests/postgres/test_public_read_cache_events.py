@@ -37,6 +37,9 @@ REVIEWED_EXCLUSIONS = {
     "price_alerts": "private organization-owned alerts; never cached",
     "user_preferences": "private account preferences; never cached",
     "market_command_results": "private command replay receipts; never cached",
+    "refresh_sessions": "private session rows of the credential store; never cached",
+    "password_reset_tokens": "private reset-token rows of the credential store; never cached",
+    "organization_join_requests": "organization-write row locks only; never cached",
     "alembic_version": "revision attestation at startup, not a response dependency",
     **{table: "cache infrastructure itself" for table in CACHE_TABLES},
 }
