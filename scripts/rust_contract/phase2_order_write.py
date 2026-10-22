@@ -24,8 +24,14 @@ def order_write_scenario():
             expected = 0 if mode in {"rollback", "timeout", "retry-40P01-bound"} else 1
             assert len(outbox) == len(receipts) == expected
             for table in before:
-                if table not in {"market_event_outbox", "market_command_results"}:
+                if table not in {"market_event_outbox", "market_command_results",
+                                 "public_read_cache_events", "public_read_cache_generations"}:
                     assert before[table] == after[table], table
+            before_generation = next(iter(before["public_read_cache_generations"]["rows"].values()))["generation"]
+            after_generation = next(iter(after["public_read_cache_generations"]["rows"].values()))["generation"]
+            changed = expected == 1 and not replayed
+            assert int(after_generation) == int(before_generation) + int(changed)
+            assert len(after["public_read_cache_events"]["rows"]) == len(before["public_read_cache_events"]["rows"]) + int(changed)
         return Action(name, "N02", "POST", "/__contract__/order-write", 200,
             body={"id":identifier,"mode":mode}, outcome="rolled-back" if mode in {"rollback","timeout","retry-40P01-bound"} else "ambiguous" if mode=="lost-response" else "committed",
             assert_after=check)
