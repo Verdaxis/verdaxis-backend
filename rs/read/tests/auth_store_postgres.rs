@@ -1,8 +1,10 @@
 //! Auth storage and lock primitives.
 //!
-//! The offline tests always run. The PostgreSQL tests need a database at the
-//! Alembic head with the runtime ACLs applied; the Python harness
-//! `tests/postgres/test_phase3_auth_store.py` provides one and sets
+//! The offline tests always run. The PostgreSQL tests are `#[ignore]`d, so a
+//! plain `cargo test` reports them as not run rather than passed. They need a
+//! database at the Alembic head with the runtime ACLs applied; the Python
+//! harness `tests/postgres/test_phase3_auth_store.py` provides one, runs them
+//! with `--include-ignored`, and sets
 //! `AUTH_STORE_TEST_DATABASE_URL` (the runtime role, which runs the code under
 //! test) and `AUTH_STORE_TEST_OWNER_URL` (the table owner, which seeds and
 //! removes fixture rows). Each test uses its own ids, so tests do not share rows.

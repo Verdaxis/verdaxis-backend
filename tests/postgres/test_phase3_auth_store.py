@@ -334,7 +334,6 @@ def rust_store_run(analytics_pg_url):
         **os.environ,
         "AUTH_STORE_TEST_DATABASE_URL": _libpq(os.environ["DATABASE_URL"]),
         "AUTH_STORE_TEST_OWNER_URL": _libpq(analytics_pg_url),
-        "REQUIRE_AUTH_STORE_TEST": "1",
         "RELEASE_SHA": subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
         ).strip(),
