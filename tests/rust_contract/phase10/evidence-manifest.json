@@ -114,7 +114,10 @@
     "extra_member_and_path_traversal_are_refused",
     "failure_after_migrate_leaves_durable_blocked_state",
     "failure_leaves_the_output_directory_empty",
-    "fingerprint_is_stable_and_changes_on_a_new_column",
+    "fingerprint_changes_when_a_column_is_added",
+    "fingerprint_excludes_extension_members",
+    "fingerprint_ignores_acls_and_owners",
+    "fingerprint_is_stable_across_two_reads",
     "fleet_disposition_record_is_complete_and_bound_to_green_w0",
     "fleet_disposition_requires_installed_evidence",
     "fleet_installed_dependency_is_classified",
@@ -631,8 +634,8 @@
     {
       "id": "baseline_fingerprint_matches_the_committed_artifact",
       "owner_task": 5,
-      "plan_requirement": "Task 5, test assertions",
-      "required_result": "baseline fingerprint matches the committed artifact."
+      "plan_requirement": "§8.3, catalog fingerprint tests; Task 5",
+      "required_result": "In CI, the disposable baseline database fingerprint equals the fingerprint in the committed baseline artifact."
     },
     {
       "id": "baseline_refuses_wrong_head_fingerprint_or_foreign_failed_history",
@@ -1019,10 +1022,28 @@
       "required_result": "failure leaves the output directory empty."
     },
     {
-      "id": "fingerprint_is_stable_and_changes_on_a_new_column",
+      "id": "fingerprint_changes_when_a_column_is_added",
       "owner_task": 5,
-      "plan_requirement": "Task 5, test assertions",
-      "required_result": "fingerprint is stable and changes on a new column."
+      "plan_requirement": "§8.3, catalog fingerprint tests; Task 5",
+      "required_result": "Adding an application-table column in the disposable database changes the catalog fingerprint."
+    },
+    {
+      "id": "fingerprint_excludes_extension_members",
+      "owner_task": 5,
+      "plan_requirement": "§8.3, catalog fingerprint tests; Task 5",
+      "required_result": "Changing definitions of extension-owned members identified by pg_depend.deptype = 'e' leaves the fingerprint unchanged; extension names and versions remain included."
+    },
+    {
+      "id": "fingerprint_ignores_acls_and_owners",
+      "owner_task": 5,
+      "plan_requirement": "§8.3, catalog fingerprint tests; Task 5",
+      "required_result": "Changing ACLs and excluded individual-column ownership metadata leaves the fingerprint unchanged. Schema owner names remain included in the projection, as §8.3 requires."
+    },
+    {
+      "id": "fingerprint_is_stable_across_two_reads",
+      "owner_task": 5,
+      "plan_requirement": "§8.3, catalog fingerprint tests; Task 5",
+      "required_result": "Two reads of the unchanged disposable application catalog produce the same canonical SHA-256 fingerprint; each read uses one read-only REPEATABLE READ transaction."
     },
     {
       "id": "fleet_disposition_record_is_complete_and_bound_to_green_w0",
