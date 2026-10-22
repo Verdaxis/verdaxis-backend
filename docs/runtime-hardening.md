@@ -203,7 +203,8 @@ same transaction instead of adding a second owner. It verifies the separately
 approved Rust artifact against its provenance record before any service stops,
 publishes the private `.runtime-rust/runtime.env` (mode 0600: app database
 settings, runtime identity and, from Phase 2, the JWT verification and invite
-sender settings; never the migrator credential) and the private
+sender settings; never the migrator credential or a release metadata value
+such as the watchlist producer activation) and the private
 `.runtime-rust/budget.json`,
 installs the active binary by atomic rename, and restarts both units in one
 `systemctl restart` inside the restart window. Python's public readiness and the
