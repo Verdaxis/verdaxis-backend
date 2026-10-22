@@ -156,6 +156,11 @@ pub fn config_from_deployed_environment(
         pool_max: rust_pool,
         python_budget: budget.python_budget,
         configured_max_connections: budget.configured_max_connections,
+        compliance_eur_usd_rate: environment
+            .get("COMPLIANCE_EUR_USD_RATE")
+            .map(|value| value.trim().parse::<rust_decimal::Decimal>())
+            .transpose()
+            .map_err(|_| "COMPLIANCE_EUR_USD_RATE must be a decimal number")?,
     })
 }
 
@@ -318,6 +323,12 @@ pub fn validate_config(config: &Config) -> Result<(), String> {
         return Err(
             "read admission slots must be positive and pool_max must equal slots plus one".into(),
         );
+    }
+    if config
+        .compliance_eur_usd_rate
+        .is_some_and(|rate| rate <= rust_decimal::Decimal::ZERO)
+    {
+        return Err("COMPLIANCE_EUR_USD_RATE must be positive".into());
     }
     let allowed: Vec<String> = serde_json::from_str(include_str!(
         "../../../../deploy/rust/allowed-revisions.json"

@@ -522,6 +522,7 @@ async fn postgres_referral_reads_and_public_resolution() {
         database_url: app_url,
         db_session_time_zone: time_zone,
         prepared_budget: None,
+        compliance_eur_usd_rate: None,
         bind: "127.0.0.1:0".parse().unwrap(),
         read_admission_slots: 16,
         pool_max: 17,

@@ -70,6 +70,7 @@ async fn fixture() -> Option<Fixture> {
         database_url: url,
         db_session_time_zone: "UTC".into(),
         prepared_budget: None,
+        compliance_eur_usd_rate: None,
         bind: "127.0.0.1:0".parse().unwrap(),
         // One admission slot means a one-connection read pool. The panicking
         // request must give that one connection back in a clean state.

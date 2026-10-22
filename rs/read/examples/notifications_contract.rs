@@ -51,6 +51,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         database_url: std::env::var("PHASE2_DATABASE_URL")?,
         db_session_time_zone: "Asia/Singapore".into(),
         prepared_budget: None,
+        compliance_eur_usd_rate: None,
         bind,
         read_admission_slots: 4,
         pool_max: 5,

@@ -137,6 +137,11 @@ pub struct Config {
     pub pool_max: u32,
     pub python_budget: u32,
     pub configured_max_connections: u32,
+    /// Optional EUR/USD rate for the compliance pricing assumptions
+    /// (`COMPLIANCE_EUR_USD_RATE`, a decimal string). Absent means the pricing
+    /// core's published default; startup refuses a value that is not positive.
+    #[serde(default, alias = "COMPLIANCE_EUR_USD_RATE")]
+    pub compliance_eur_usd_rate: Option<rust_decimal::Decimal>,
 }
 
 fn read_admission_default() -> u32 {
