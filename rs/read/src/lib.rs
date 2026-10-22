@@ -159,6 +159,9 @@ pub struct Phase2Options {
     pub frontend_url: Option<String>,
     pub email_from: Option<String>,
     pub resend_api_key: Option<String>,
+    /// The watchlist producer activation instant from the release metadata
+    /// file (PD5), as written there. Absent until a release records one.
+    pub watchlist_producer_activated_at: Option<String>,
 }
 
 fn read_admission_default() -> u32 {

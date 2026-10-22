@@ -177,6 +177,11 @@ pub fn config_from_deployed_environment(
             frontend_url: Some(raw_required("FRONTEND_URL")?),
             email_from: Some(raw_required("EMAIL_FROM")?),
             resend_api_key: Some(raw_required("RESEND_API_KEY")?),
+            // PD5: only `.runtime-release.env` carries this key; the runtime
+            // preparer never projects it from the deployed `.env`.
+            watchlist_producer_activated_at: environment
+                .get("WATCHLIST_PRODUCER_ACTIVATED_AT")
+                .cloned(),
         },
     })
 }

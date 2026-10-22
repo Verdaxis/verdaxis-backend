@@ -44,7 +44,7 @@ pub fn app() -> Router {
             "issuer".into(),
             "audience".into(),
         ),
-        Utc.with_ymd_and_hms(2026, 10, 19, 0, 0, 0).unwrap(),
+        Some(Utc.with_ymd_and_hms(2026, 10, 19, 0, 0, 0).unwrap()),
     );
     router(state, settings)
 }

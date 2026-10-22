@@ -488,12 +488,12 @@ fn phase2_routes(
             )
             .merge(crate::crud::watchlists::router(
                 state.clone(),
+                // PD5: the activation is the release metadata record, never
+                // a clock reading or a fixed instant. PD4-G still hides every
+                // best-price event by type (decision 94).
                 crate::crud::watchlists::WatchlistSettings::new(
                     verification.clone(),
-                    // PD4-G hides best-price events by event type, so no
-                    // release cutoff protects anything here; the ported guard
-                    // is the whole protection (decision 94).
-                    chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
+                    settings.watchlist_activation,
                 ),
             ))
             .merge(crate::crud::alerts::router(

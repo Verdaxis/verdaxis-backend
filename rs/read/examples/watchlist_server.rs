@@ -49,8 +49,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "verdaxis-test-api".into(),
             "verdaxis-test-web".into(),
         ),
-        chrono::DateTime::parse_from_rfc3339(&std::env::var("WATCHLIST_TEST_CUTOFF")?)?
-            .with_timezone(&chrono::Utc),
+        Some(
+            chrono::DateTime::parse_from_rfc3339(&std::env::var("WATCHLIST_TEST_CUTOFF")?)?
+                .with_timezone(&chrono::Utc),
+        ),
     )
     .with_controls(controls);
     let identity = Router::new().route(

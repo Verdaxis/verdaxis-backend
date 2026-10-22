@@ -7,6 +7,8 @@
 //! service that would answer with the wrong token authority or sender.
 use std::fmt;
 
+use chrono::{DateTime, Utc};
+
 use crate::Phase2Options;
 use crate::auth::VerificationSettings;
 use crate::crud::referrals::invite::MailClient;
@@ -18,6 +20,10 @@ pub struct Phase2Settings {
     pub frontend_url: String,
     pub email_from: String,
     pub mail: MailClient,
+    /// When the trusted watchlist event producer went live in this
+    /// environment, as the release metadata recorded it (PD5). `None` while
+    /// no release has recorded one.
+    pub watchlist_activation: Option<DateTime<Utc>>,
 }
 
 impl Phase2Settings {
@@ -27,6 +33,9 @@ impl Phase2Settings {
     /// (the contract harness). Any key present requires every key, because a
     /// partial projection cannot verify tokens or send an invite.
     pub fn from_options(options: &Phase2Options) -> Result<Option<Self>, String> {
+        // A recorded value is checked even where the groups stay unmounted,
+        // so an unreadable record always stops the start.
+        let watchlist_activation = watchlist_activation(options)?;
         let present = [
             options.jwt_secret.as_ref(),
             options.jwt_secret_previous.as_ref(),
@@ -94,8 +103,24 @@ impl Phase2Settings {
             frontend_url,
             email_from,
             mail,
+            watchlist_activation,
         }))
     }
+}
+
+const ACTIVATION_REFUSAL: &str =
+    "WATCHLIST_PRODUCER_ACTIVATED_AT must be an RFC 3339 instant with an offset";
+
+/// PD5: the release metadata records the activation as an RFC 3339 instant
+/// with its offset. No clock reading or fixed instant stands in for a missing
+/// record, and any other spelling is refused rather than reinterpreted.
+fn watchlist_activation(options: &Phase2Options) -> Result<Option<DateTime<Utc>>, String> {
+    let Some(recorded) = options.watchlist_producer_activated_at.as_deref() else {
+        return Ok(None);
+    };
+    DateTime::parse_from_rfc3339(recorded)
+        .map(|recorded| Some(recorded.with_timezone(&Utc)))
+        .map_err(|_| ACTIVATION_REFUSAL.to_owned())
 }
 
 impl fmt::Debug for Phase2Settings {
@@ -106,6 +131,7 @@ impl fmt::Debug for Phase2Settings {
             .field("frontend_url", &self.frontend_url)
             .field("email_from", &self.email_from)
             .field("mail", &"[REDACTED]")
+            .field("watchlist_activation", &self.watchlist_activation)
             .finish()
     }
 }
@@ -113,6 +139,7 @@ impl fmt::Debug for Phase2Settings {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::TimeZone;
 
     fn complete() -> Phase2Options {
         Phase2Options {
@@ -123,6 +150,7 @@ mod tests {
             frontend_url: Some("https://staging.verdaxis.exchange".into()),
             email_from: Some("Verdaxis <noreply@verdaxis.exchange>".into()),
             resend_api_key: Some("re_disposable_key".into()),
+            watchlist_producer_activated_at: None,
         }
     }
 
@@ -186,6 +214,23 @@ mod tests {
             assert!(crate::auth::verify_access(&token, &settings.verification, now).is_ok());
         }
         assert_eq!(settings.email_from, " sender@example.test ");
+    }
+
+    #[test]
+    fn the_watchlist_activation_is_the_recorded_instant_or_none() {
+        let settings = Phase2Settings::from_options(&complete()).unwrap().unwrap();
+        assert_eq!(settings.watchlist_activation, None);
+        let mut options = complete();
+        options.watchlist_producer_activated_at = Some("2026-11-01T08:00:00+08:00".into());
+        let settings = Phase2Settings::from_options(&options).unwrap().unwrap();
+        let recorded = Utc.with_ymd_and_hms(2026, 11, 1, 0, 0, 0).unwrap();
+        assert_eq!(settings.watchlist_activation, Some(recorded));
+        // An unreadable record stops the start even with the groups unmounted.
+        let options = Phase2Options {
+            watchlist_producer_activated_at: Some("2026-11-01".into()),
+            ..Phase2Options::default()
+        };
+        assert!(Phase2Settings::from_options(&options).is_err());
     }
 
     #[test]

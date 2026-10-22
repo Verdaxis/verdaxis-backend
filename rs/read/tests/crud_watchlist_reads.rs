@@ -218,7 +218,7 @@ async fn mounted_watchlist_reads_refuse_missing_bearer_before_bad_uuid() {
             "issuer".into(),
             "audience".into(),
         ),
-        Utc.with_ymd_and_hms(2026, 10, 19, 0, 0, 0).unwrap(),
+        Some(Utc.with_ymd_and_hms(2026, 10, 19, 0, 0, 0).unwrap()),
     );
     let app: Router = router(state, settings);
     let response = app
