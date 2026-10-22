@@ -646,10 +646,18 @@ CREATE EXTENSION IF NOT EXISTS postgis;
         caddy_env = {
             **env,
             "ROUTE_SNIPPET": str(ROOT / "deploy/caddy/rust-public-staging.caddy"),
+            "CRUD_SNIPPET": str(ROOT / "deploy/caddy/rust-crud.caddy"),
             "CADDY_PORT": str(port),
             "PYTHON_UPSTREAM": f"127.0.0.1:{python_port}",
+            # The Phase 1 harness Rust does not serve the Phase 2 groups, so
+            # every CRUD group keeps Python. The pre-auth authority is still the
+            # Rust service, because the mixed run proves the shared counter.
+            **{f"{group}_UPSTREAM": f"127.0.0.1:{python_port}"
+               for group in ("NOTIFICATIONS", "PREFERENCES", "FEEDBACK",
+                             "WATCHLISTS", "ALERTS", "REFERRALS")},
             **{f"{group}_UPSTREAM": f"127.0.0.1:{rust_port}"
                for group in ("SIMPLE", "ORDERBOOK", "PRICES", "CURVES", "MCP")},
+            "PREAUTH_UPSTREAM": f"127.0.0.1:{rust_port}",
         }
         # One shared config owns forwarding options for both route groups and
         # Python fallback; do not synthesize a plain-proxy variant here.

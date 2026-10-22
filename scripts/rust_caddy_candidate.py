@@ -9,8 +9,23 @@ from pathlib import Path
 
 GROUPS = ("simple", "orderbook", "prices", "curves", "mcp")
 READ_GROUPS = GROUPS[:-1]
+# Phase 2 Task 22: the six authenticated CRUD groups share one snippet whose
+# eighth argument is the Python fallback. The seventh is the one admin
+# pre-auth authority, which must be Rust before any group moves.
+CRUD_GROUPS = ("notifications", "preferences", "feedback", "watchlists", "alerts", "referrals")
+CRUD_HANDLE_COUNTS = {
+    "notifications": 2,
+    "preferences": 2,
+    "feedback": 2,
+    "watchlists": 4,
+    "alerts": 3,
+    "referrals": 2,
+}
 IMPORT = re.compile(r"^(?P<prefix>[ \t]*import verdaxis_rust_public[ \t]+)(?P<upstreams>[^\r\n]+)(?P<end>\r?\n|$)", re.MULTILINE)
+CRUD_IMPORT = re.compile(r"^(?P<prefix>[ \t]*import verdaxis_rust_crud[ \t]+)(?P<upstreams>[^\r\n]+)(?P<end>\r?\n|$)", re.MULTILINE)
 PROXY = re.compile(r"^(?P<indent>[ \t]*)reverse_proxy[ \t]+(?P<upstreams>[^{]+?)[ \t]*\{[ \t]*$", re.MULTILINE)
+CRUD_BEGIN = "\t\t# BEGIN verdaxis-rust crud\n"
+CRUD_END = "\t\t# END verdaxis-rust crud\n"
 
 
 def candidate(original: str, environment: str, group: str) -> str:
@@ -20,11 +35,15 @@ def candidate(original: str, environment: str, group: str) -> str:
         return (production_fallback_candidate(original) if environment == "production"
                 else staging_fallback_candidate(original, environment))
     if environment == "production":
+        if group in CRUD_GROUPS or group == "preauth":
+            return production_crud_candidate(original, group)
         return production_candidate(original, group)
     return staging_candidate(original, environment, group)
 
 
 def staging_candidate(original: str, environment: str, group: str) -> str:
+    if group in CRUD_GROUPS or group == "preauth":
+        return staging_crud_candidate(original, environment, group)
     if environment not in {"production", "staging"} or group not in GROUPS:
         raise ValueError("unknown environment or route group")
     if environment == "production" and group == "mcp":
@@ -63,6 +82,121 @@ def staging_candidate(original: str, environment: str, group: str) -> str:
     start = match.start("upstreams") + token.start()
     end = match.start("upstreams") + token.end()
     return original[:start] + f"127.0.0.1:{rust}" + original[end:]
+
+
+def reviewed_route_import(original: str, match: re.Match, label: str) -> None:
+    """Require an import's immediate enclosing block to be route."""
+    blocks_seen = []
+    for line in original[:match.start()].splitlines():
+        code = line.split("#", 1)[0].strip()
+        if code.endswith("{"):
+            blocks_seen.append(code[:-1].strip())
+        elif code == "}" and blocks_seen:
+            blocks_seen.pop()
+    if not blocks_seen or blocks_seen[-1] != "route":
+        raise ValueError(f"{label} import must be inside the reviewed route block")
+
+
+def staging_crud_candidate(original: str, environment: str, group: str) -> str:
+    """Move the pre-auth authority or one CRUD group, never both at once."""
+    if environment != "staging":
+        raise ValueError("production CRUD uses the inlined layout")
+    if group not in (*CRUD_GROUPS, "preauth"):
+        raise ValueError("unknown CRUD group")
+    matches = list(CRUD_IMPORT.finditer(original))
+    if len(matches) != 1:
+        raise ValueError("exactly one full-line CRUD import is required")
+    match = matches[0]
+    reviewed_route_import(original, match, "CRUD")
+    tokens = list(re.finditer(r"\S+", match["upstreams"]))
+    values = [token.group() for token in tokens]
+    python, rust = "127.0.0.1:8001", "127.0.0.1:8011"
+    if len(tokens) != 8 or any(value not in {python, rust} for value in values):
+        raise ValueError("unexpected CRUD upstream selection")
+    if values[7] != python:
+        raise ValueError("CRUD groups require the Python fallback upstream")
+    if group == "preauth":
+        if any(value != python for value in values[:7]):
+            raise ValueError("the authority must move before any CRUD group")
+        index = 6
+    else:
+        if values[6] != rust:
+            raise ValueError("the admin pre-auth authority must be Rust first")
+        index = CRUD_GROUPS.index(group)
+        if values[index] != python:
+            raise ValueError("selected group is not on its Python rollback upstream")
+    token = tokens[index]
+    start = match.start("upstreams") + token.start()
+    end = match.start("upstreams") + token.end()
+    return original[:start] + rust + original[end:]
+
+
+def production_crud_block() -> str:
+    """Inline the reviewed CRUD snippet with Python groups and a Rust gate."""
+    snippet = (Path(__file__).resolve().parents[1] / "deploy/caddy/rust-crud.caddy").read_text()
+    definition = blocks(snippet)[0]
+    if definition["header"] != "(verdaxis_rust_crud)":
+        raise ValueError("unexpected CRUD snippet layout")
+    lines = snippet[definition["body"]:definition["end"]].splitlines(keepends=True)
+    if not lines or lines[-1].strip() != "}":
+        raise ValueError("unexpected CRUD snippet end")
+    body = "".join(lines[:-1])
+    for index in range(len(CRUD_GROUPS)):
+        body = body.replace(f"{{args[{index}]}}", "127.0.0.1:8000")
+    body = body.replace("{args[6]}", "127.0.0.1:8010")
+    body = body.replace("{args[7]}", "127.0.0.1:8000")
+    if "{args[" in body:
+        raise ValueError("unexpected CRUD snippet arguments")
+    return CRUD_BEGIN + "".join("\t\t" + line for line in body.splitlines(keepends=True)) + CRUD_END
+
+
+def production_crud_region(original: str) -> tuple[int, int, str] | None:
+    if CRUD_BEGIN not in original and CRUD_END not in original:
+        return None
+    if original.count(CRUD_BEGIN) != 1 or original.count(CRUD_END) != 1:
+        raise ValueError("expected exactly one generated CRUD block")
+    start = original.index(CRUD_BEGIN)
+    end = original.index(CRUD_END) + len(CRUD_END)
+    if end <= start:
+        raise ValueError("unbalanced generated CRUD block")
+    return start, end, original[start:end]
+
+
+def crud_group_swap(region: str, group: str, old: str, new: str) -> str:
+    """Swap the first upstream of every proxy that belongs to one group."""
+    if region.count("reverse_proxy @admin_pre_auth 127.0.0.1:8010 127.0.0.1:8000") != 1:
+        raise ValueError("the admin pre-auth authority is not Rust")
+    nodes = blocks(region)
+    edits = []
+    for node in nodes:
+        if not node["header"].startswith(f"handle @rust_crud_{group}_"):
+            continue
+        body = region[node["start"]:node["end"]]
+        line = f"reverse_proxy {old} 127.0.0.1:8000"
+        if body.count(line) != 1:
+            raise ValueError(f"unexpected {group} proxy layout")
+        edits.append((node["start"], node["end"],
+                      body.replace(line, f"reverse_proxy {new} 127.0.0.1:8000", 1)))
+    if len(edits) != CRUD_HANDLE_COUNTS[group]:
+        raise ValueError(f"unexpected {group} handle count")
+    for start, end, body in reversed(edits):
+        region = region[:start] + body + region[end:]
+    return region
+
+
+def production_crud_candidate(original: str, group: str) -> str:
+    _, _, fallback = production_layout(original)
+    if ACCESS_LOG not in original:
+        raise ValueError("install and accept the redacted access log before cutover")
+    existing = production_crud_region(original)
+    if group == "preauth":
+        if existing is not None:
+            raise ValueError("admin pre-auth block already present")
+        return original[:fallback["start"]] + production_crud_block() + original[fallback["start"]:]
+    if existing is None:
+        raise ValueError("install the admin pre-auth block before any CRUD group")
+    start, end, region = existing
+    return original[:start] + crud_group_swap(region, group, "127.0.0.1:8000", "127.0.0.1:8010") + original[end:]
 
 
 def blocks(text: str) -> list[dict]:
@@ -256,6 +390,21 @@ def rollback(original: str, environment: str, group: str) -> str:
     if environment != "production":
         raise ValueError("staging uses its exact saved rollback file")
     production_layout(original)
+    if group in CRUD_GROUPS:
+        existing = production_crud_region(original)
+        if existing is None:
+            raise ValueError("no generated CRUD block to roll back")
+        start, end, region = existing
+        return original[:start] + crud_group_swap(
+            region, group, "127.0.0.1:8010", "127.0.0.1:8000") + original[end:]
+    if group == "preauth":
+        existing = production_crud_region(original)
+        if existing is None:
+            raise ValueError("no generated CRUD block to remove")
+        start, end, region = existing
+        if region != production_crud_block():
+            raise ValueError("roll every CRUD group back before removing the gate")
+        return original[:start] + original[end:]
     block = production_group(group)
     if original.count(block) != 1:
         raise ValueError("expected one unchanged generated group block")
@@ -266,7 +415,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--site", required=True, type=Path)
     parser.add_argument("--environment", required=True, choices=("staging", "production"))
-    parser.add_argument("--group", required=True, choices=(*GROUPS, "access-log", "fallback"))
+    parser.add_argument("--group", required=True, choices=(*GROUPS, *CRUD_GROUPS, "preauth", "access-log", "fallback"))
     parser.add_argument("--output-dir", required=True, type=Path)
     args = parser.parse_args()
     original = args.site.read_bytes()

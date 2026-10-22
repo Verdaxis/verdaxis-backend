@@ -1,0 +1,328 @@
+# Import inside the existing site's route block, before its Python fallback.
+# Arguments 0-5 are one independently approved upstream per Phase 2 route group.
+# Argument 6 is the single pre-auth quota authority (the Rust read service).
+# Argument 7 is the environment's Python upstream: every group tries its own
+# upstream first, then Python, so a stopped Rust service does not return 502.
+# For rollback, change only that group's argument back to Python. Do not change
+# the site's fallback.
+#
+# Matchers are exact method and path pairs, not prefixes. A GET on a PATCH-only
+# path, an unknown method, a HEAD request or the legacy entry adapters (W09 POST
+# entries and W10 DELETE entries) stay on Python. Canonical Python paths have no
+# trailing slash, so a slash variant also stays on Python, which redirects it.
+# Path parameters match any non-empty segment, as Python's route converter does;
+# a malformed value is the route's own 422, not a routing decision.
+#
+# lb_policy first keeps the reviewed order. A refused connection is a dial
+# error before any request bytes are sent; Caddy 2.11 always retries it, while
+# a non-GET request is not retried after a connection succeeded
+# (reverseproxy.go tryAgain and httptransport.go DialError). Passive health
+# remembers the failure, so later requests choose Python directly.
+#
+# Decision 78: every `/api/admin/` request is counted once, before the
+# Python/Rust split, by the one Rust authority. The authority admits with 204
+# and refuses with the shared 429. If the authority is unreachable the pool
+# tries Python, whose missing authority route answers 404; the gate treats
+# that as admitted, so Python's admin paths keep their own counter and a
+# stopped authority does not stop service. Only a CORS OPTIONS preflight is
+# uncounted; other methods still consume the shared admin quota.
+#
+# The gate copies the request with `method GET` and rewrites only that copy.
+# Caddy drops the body from a copy changed to GET, so an admin write body
+# still reaches its owner; the clone also keeps the gate from observing the
+# original method and URI, which the authority does not need.
+(verdaxis_rust_crud) {
+	# Never trust a quota mark supplied by an external client.
+	request_header -X-Verdaxis-Preauth-Counted
+	@admin_pre_auth {
+		path /api/admin/*
+		not {
+			method OPTIONS
+			header Origin *
+			header Access-Control-Request-Method *
+		}
+		expression '{args[6]}' != '{args[7]}'
+	}
+	reverse_proxy @admin_pre_auth {args[6]} {args[7]} {
+		method GET
+		rewrite /internal/admin-preauth
+		lb_policy first
+		lb_try_duration 2s
+		lb_try_interval 250ms
+		fail_duration 30s
+		max_fails 1
+		header_up X-Forwarded-For {client_ip}
+		@counted status 2xx
+		handle_response @counted {
+			# Copy nothing: the authority has no headers to forward. Mark the
+			# request so the Rust route does not charge the same request twice.
+			request_header X-Verdaxis-Preauth-Counted 1
+		}
+		@unavailable status 404
+		handle_response @unavailable {
+			# Rust is down; remove any client-supplied mark before Python sees it.
+			request_header -X-Verdaxis-Preauth-Counted
+		}
+	}
+	@rust_crud_notifications_get {
+		method GET
+		path_regexp ^/api/notifications(/unread-count)?$
+	}
+	handle @rust_crud_notifications_get {
+		reverse_proxy {args[0]} {args[7]} {
+			lb_policy first
+			lb_try_duration 10s
+			lb_try_interval 250ms
+			fail_duration 30s
+			max_fails 1
+			flush_interval -1
+			transport http {
+				keepalive off
+			}
+		}
+	}
+	@rust_crud_notifications_write {
+		method PATCH
+		path_regexp ^/api/notifications/(read-all|[^/]+/read)$
+	}
+	handle @rust_crud_notifications_write {
+		reverse_proxy {args[0]} {args[7]} {
+			lb_policy first
+			lb_try_duration 10s
+			lb_try_interval 250ms
+			fail_duration 30s
+			max_fails 1
+			flush_interval -1
+			transport http {
+				keepalive off
+			}
+		}
+	}
+	@rust_crud_preferences_get {
+		method GET
+		path /api/users/me/preferences
+	}
+	handle @rust_crud_preferences_get {
+		reverse_proxy {args[1]} {args[7]} {
+			lb_policy first
+			lb_try_duration 10s
+			lb_try_interval 250ms
+			fail_duration 30s
+			max_fails 1
+			flush_interval -1
+			transport http {
+				keepalive off
+			}
+		}
+	}
+	@rust_crud_preferences_put {
+		method PUT
+		path_regexp ^/api/users/me/preferences/[^/]+$
+	}
+	handle @rust_crud_preferences_put {
+		reverse_proxy {args[1]} {args[7]} {
+			lb_policy first
+			lb_try_duration 10s
+			lb_try_interval 250ms
+			fail_duration 30s
+			max_fails 1
+			flush_interval -1
+			transport http {
+				keepalive off
+			}
+		}
+	}
+	# Feedback is the one pre-auth counted group. F01 POST and F02 GET share
+	# this group argument so a rollback moves both together.
+	@rust_crud_feedback_post {
+		method POST
+		path /api/feedback
+	}
+	handle @rust_crud_feedback_post {
+		reverse_proxy {args[2]} {args[7]} {
+			lb_policy first
+			lb_try_duration 10s
+			lb_try_interval 250ms
+			fail_duration 30s
+			max_fails 1
+			flush_interval -1
+			transport http {
+				keepalive off
+			}
+		}
+	}
+	@rust_crud_feedback_admin {
+		method GET
+		path /api/admin/feedback
+	}
+	handle @rust_crud_feedback_admin {
+		reverse_proxy {args[2]} {args[7]} {
+			lb_policy first
+			lb_try_duration 10s
+			lb_try_interval 250ms
+			fail_duration 30s
+			max_fails 1
+			flush_interval -1
+			transport http {
+				keepalive off
+			}
+		}
+	}
+	# W09 POST entries and W10 DELETE entries are not matched: the legacy
+	# adapters stay on Python until Python is removed.
+	@rust_crud_watchlists_get {
+		method GET
+		path_regexp ^/api/watchlists(/[^/]+(/events)?)?$
+	}
+	handle @rust_crud_watchlists_get {
+		reverse_proxy {args[3]} {args[7]} {
+			lb_policy first
+			lb_try_duration 10s
+			lb_try_interval 250ms
+			fail_duration 30s
+			max_fails 1
+			flush_interval -1
+			transport http {
+				keepalive off
+			}
+		}
+	}
+	@rust_crud_watchlists_post {
+		method POST
+		path_regexp ^/api/watchlists(/me|/[^/]+/targets)?$
+	}
+	handle @rust_crud_watchlists_post {
+		reverse_proxy {args[3]} {args[7]} {
+			lb_policy first
+			lb_try_duration 10s
+			lb_try_interval 250ms
+			fail_duration 30s
+			max_fails 1
+			flush_interval -1
+			transport http {
+				keepalive off
+			}
+		}
+	}
+	@rust_crud_watchlists_patch {
+		method PATCH
+		path_regexp ^/api/watchlists/[^/]+/events/[^/]+$
+	}
+	handle @rust_crud_watchlists_patch {
+		reverse_proxy {args[3]} {args[7]} {
+			lb_policy first
+			lb_try_duration 10s
+			lb_try_interval 250ms
+			fail_duration 30s
+			max_fails 1
+			flush_interval -1
+			transport http {
+				keepalive off
+			}
+		}
+	}
+	@rust_crud_watchlists_delete {
+		method DELETE
+		path_regexp ^/api/watchlists/[^/]+(/targets/[^/]+)?$
+	}
+	handle @rust_crud_watchlists_delete {
+		reverse_proxy {args[3]} {args[7]} {
+			lb_policy first
+			lb_try_duration 10s
+			lb_try_interval 250ms
+			fail_duration 30s
+			max_fails 1
+			flush_interval -1
+			transport http {
+				keepalive off
+			}
+		}
+	}
+	@rust_crud_alerts_get {
+		method GET
+		path /api/alerts
+	}
+	handle @rust_crud_alerts_get {
+		reverse_proxy {args[4]} {args[7]} {
+			lb_policy first
+			lb_try_duration 10s
+			lb_try_interval 250ms
+			fail_duration 30s
+			max_fails 1
+			flush_interval -1
+			transport http {
+				keepalive off
+			}
+		}
+	}
+	@rust_crud_alerts_post {
+		method POST
+		path /api/alerts
+	}
+	handle @rust_crud_alerts_post {
+		reverse_proxy {args[4]} {args[7]} {
+			lb_policy first
+			lb_try_duration 10s
+			lb_try_interval 250ms
+			fail_duration 30s
+			max_fails 1
+			flush_interval -1
+			transport http {
+				keepalive off
+			}
+		}
+	}
+	@rust_crud_alerts_delete {
+		method DELETE
+		path_regexp ^/api/alerts/[^/]+$
+	}
+	handle @rust_crud_alerts_delete {
+		reverse_proxy {args[4]} {args[7]} {
+			lb_policy first
+			lb_try_duration 10s
+			lb_try_interval 250ms
+			fail_duration 30s
+			max_fails 1
+			flush_interval -1
+			transport http {
+				keepalive off
+			}
+		}
+	}
+	# R05 resolves a public code and is the only referral route without a
+	# bearer. It moves with its group; Caddy adds no authentication.
+	@rust_crud_referrals_get {
+		method GET
+		path_regexp ^/api/referrals/(my-referrals|leaderboard|resolve/[^/]+)$
+	}
+	handle @rust_crud_referrals_get {
+		reverse_proxy {args[5]} {args[7]} {
+			lb_policy first
+			lb_try_duration 10s
+			lb_try_interval 250ms
+			fail_duration 30s
+			max_fails 1
+			flush_interval -1
+			transport http {
+				keepalive off
+			}
+		}
+	}
+	@rust_crud_referrals_post {
+		method POST
+		path_regexp ^/api/referrals/(my-code|invite)$
+	}
+	handle @rust_crud_referrals_post {
+		reverse_proxy {args[5]} {args[7]} {
+			lb_policy first
+			lb_try_duration 10s
+			lb_try_interval 250ms
+			fail_duration 30s
+			max_fails 1
+			flush_interval -1
+			transport http {
+				keepalive off
+			}
+		}
+	}
+}
