@@ -29,7 +29,7 @@ use verdaxis_read::auth::{
     store::{
         NewRefreshRow, NewResetToken, consume_reset_token, insert_refresh, lock_device,
         lock_refresh_by_jti, lock_user, lock_user_by_email, reset_token_owner,
-        revoke_device_families, revoke_user_families, upsert_reset_token,
+        revoke_device_families, revoke_user_families, sweep_expired_reset_tokens, upsert_reset_token,
     },
 };
 
@@ -543,10 +543,10 @@ async fn reset_tokens_replace_and_consume_once() {
     upsert_reset_token(&mut connection, &token(user, &first, hour), now)
         .await
         .unwrap();
-    // The sweep in this upsert removed the other user's expired token.
+    // Issuing a token never changes another user's expired row.
     assert_eq!(
         reset_token_owner(&mut connection, &expired).await.unwrap(),
-        None
+        Some(expired_user)
     );
     assert_eq!(
         reset_token_owner(&mut connection, &first).await.unwrap(),
@@ -586,6 +586,44 @@ async fn reset_tokens_replace_and_consume_once() {
     );
     rollback(&mut connection).await;
 
+    fixture.remove(&mut owner).await;
+}
+
+#[tokio::test]
+async fn expired_reset_cleanup_skips_locked_rows() {
+    let Some(database) = database() else { return };
+    let mut owner = connect(&database.owner).await;
+    let mut fixture = Fixture::default();
+    let users = [
+        fixture.user(&mut owner, None).await,
+        fixture.user(&mut owner, None).await,
+        fixture.user(&mut owner, None).await,
+    ];
+    let now = Utc::now();
+    for (index, user) in users.iter().enumerate() {
+        sqlx::query("INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)")
+            .bind(user)
+            .bind(sha256_hex(&format!("cleanup-{user}")))
+            .bind(if index == 2 { now + TimeDelta::hours(1) } else { now - TimeDelta::hours(1) })
+            .execute(&mut owner).await.unwrap();
+    }
+    let pool = sqlx::postgres::PgPoolOptions::new().max_connections(1)
+        .connect(&database.runtime).await.unwrap();
+    let mut holder = connect(&database.runtime).await;
+    begin(&mut holder).await;
+    sqlx::query("SELECT user_id FROM password_reset_tokens WHERE user_id = $1 FOR UPDATE")
+        .bind(users[0]).execute(&mut holder).await.unwrap();
+    sweep_expired_reset_tokens(&pool, now).await.unwrap();
+    let retained: Vec<Uuid> = sqlx::query_scalar("SELECT user_id FROM password_reset_tokens WHERE user_id = ANY($1)")
+        .bind(users.to_vec()).fetch_all(&mut owner).await.unwrap();
+    assert!(retained.contains(&users[0]) && retained.contains(&users[2]));
+    assert!(!retained.contains(&users[1]));
+    rollback(&mut holder).await;
+    sweep_expired_reset_tokens(&pool, now).await.unwrap();
+    let remaining: Vec<Uuid> = sqlx::query_scalar("SELECT user_id FROM password_reset_tokens WHERE user_id = ANY($1)")
+        .bind(users.to_vec()).fetch_all(&mut owner).await.unwrap();
+    assert_eq!(remaining, [users[2]]);
+    pool.close().await;
     fixture.remove(&mut owner).await;
 }
 

@@ -21,8 +21,7 @@ use uuid::Uuid;
 
 use super::lock::device_lock_key;
 
-/// Expired reset-token rows removed by one [`upsert_reset_token`] call. The
-/// bound keeps a request's cleanup small; no timer is needed.
+/// Maximum expired rows removed by one independent cleanup transaction.
 pub const EXPIRED_RESET_SWEEP_LIMIT: i64 = 1000;
 
 /// The account projection a credential route reads under the user row lock.
@@ -236,23 +235,13 @@ pub async fn insert_refresh(
 /// Store a new reset token for a user whose row the caller has locked, and
 /// replace any earlier token of that user.
 ///
-/// First remove at most [`EXPIRED_RESET_SWEEP_LIMIT`] expired rows of any
-/// user. `SKIP LOCKED` leaves rows another transaction holds, so two sweeps
-/// never wait for each other.
+/// This statement touches only that user's row. Expired-row cleanup uses
+/// [`sweep_expired_reset_tokens`] in its own transaction.
 pub async fn upsert_reset_token(
     connection: &mut PgConnection,
     token: &NewResetToken,
     now: DateTime<Utc>,
 ) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "DELETE FROM password_reset_tokens WHERE user_id IN ( \
-             SELECT user_id FROM password_reset_tokens WHERE expires_at <= $1 \
-             ORDER BY expires_at LIMIT $2 FOR UPDATE SKIP LOCKED)",
-    )
-    .bind(now)
-    .bind(EXPIRED_RESET_SWEEP_LIMIT)
-    .execute(&mut *connection)
-    .await?;
     sqlx::query(
         "INSERT INTO password_reset_tokens (user_id, token_hash, expires_at, created_at, used_at) \
          VALUES ($1, $2, $3, $4, NULL) \
@@ -266,6 +255,26 @@ pub async fn upsert_reset_token(
     .execute(&mut *connection)
     .await?;
     Ok(())
+}
+
+/// Remove a bounded batch of expired reset tokens in a separate transaction.
+/// Accepting a pool prevents cleanup from retaining token-row locks inside a
+/// caller's user/session transaction. Cleanup never acquires user-row locks.
+/// Call this before or after, never while holding, a credential transaction.
+pub async fn sweep_expired_reset_tokens(
+    pool: &sqlx::PgPool,
+    now: DateTime<Utc>,
+) -> Result<u64, sqlx::Error> {
+    let deleted = sqlx::query(
+        "DELETE FROM password_reset_tokens WHERE user_id IN ( \
+             SELECT user_id FROM password_reset_tokens WHERE expires_at <= $1 \
+             ORDER BY expires_at, user_id LIMIT $2 FOR UPDATE SKIP LOCKED)",
+    )
+    .bind(now)
+    .bind(EXPIRED_RESET_SWEEP_LIMIT)
+    .execute(pool)
+    .await?;
+    Ok(deleted.rows_affected())
 }
 
 /// The user a reset-token digest belongs to, read without a lock. The caller

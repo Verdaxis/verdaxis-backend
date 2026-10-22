@@ -45,6 +45,7 @@ RUST_POSTGRES_TESTS = (
     "refresh_rows_insert_lock_and_revoke",
     "reset_tokens_replace_and_consume_once",
     "reset_token_issuance_keeps_other_users_independent",
+    "expired_reset_cleanup_skips_locked_rows",
     "organization_write_locks_follow_one_order",
     "org_write_retry_classifies_postgres_conflicts",
 )
