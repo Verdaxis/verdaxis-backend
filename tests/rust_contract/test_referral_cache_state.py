@@ -4,20 +4,16 @@ import json
 
 import pytest
 
-from scripts.rust_contract import (
-    referral_addresses,
-    referral_allocation,
-    referral_faults,
-    referral_invite,
-)
-
-# Register scenarios before importing their modules: registration loads them
-# through phase2_scenarios, which is also their shared interface module.
-
 
 @pytest.fixture(params=["allocation", "retained", "invite", "address"])
 def allocation_state(request):
-    assert "referral-allocation" in REGISTRY
+    # Registration must load before individual scenario modules.
+    registry = importlib.import_module("scripts.rust_contract.phase2_scenarios")
+    assert "referral-allocation" in registry.REGISTRY
+    referral_addresses = importlib.import_module("scripts.rust_contract.referral_addresses")
+    referral_allocation = importlib.import_module("scripts.rust_contract.referral_allocation")
+    referral_faults = importlib.import_module("scripts.rust_contract.referral_faults")
+    referral_invite = importlib.import_module("scripts.rust_contract.referral_invite")
     if request.param == "allocation":
         actor, code = referral_allocation.IDS[1], "VDX-FREE01"
         check = lambda old, new: referral_allocation.only_code(old, new, None, [])
