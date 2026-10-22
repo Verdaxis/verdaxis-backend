@@ -178,7 +178,8 @@ def unused_port(exclude: set[int] = frozenset()) -> int:
 
 @contextlib.contextmanager
 def harness(tmp_path, *, feedback_owner: str = "rust", authority_down: bool = False,
-           feedback_crash: bool = False, trusted_proxy: bool = False):
+           feedback_crash: bool = False, trusted_proxy: bool = False,
+           all_python: bool = False):
     """Run the real CRUD snippet with one counting authority and two owners."""
     caddy = shutil.which("caddy")
     if not caddy:
@@ -217,6 +218,9 @@ def harness(tmp_path, *, feedback_owner: str = "rust", authority_down: bool = Fa
         "PREAUTH_UPSTREAM": f"127.0.0.1:{authority.port}",
         "PYTHON_UPSTREAM": f"127.0.0.1:{python.port}",
     }
+    if all_python:
+        for group in ("NOTIFICATIONS", "PREFERENCES", "FEEDBACK", "WATCHLISTS", "ALERTS", "REFERRALS"):
+            env[f"{group}_UPSTREAM"] = env["PYTHON_UPSTREAM"]
     for verb in ("validate", "adapt"):
         result = subprocess.run(
             [caddy, verb, "--config", str(config), "--adapter", "caddyfile"],
@@ -315,6 +319,26 @@ def test_admin_split_stops_at_exactly_300_across_both_owners(tmp_path):
         assert first["headers"]["x-forwarded-for"] == "127.0.0.1"
         assert "x-forwarded-method" not in first["headers"]
         assert "x-forwarded-uri" not in first["headers"]
+
+
+def test_python_owned_groups_recover_during_restart(tmp_path):
+    with harness(tmp_path, all_python=True) as (client, _authority, _rust, python, _crash):
+        python.stop()
+        # Keep one request in flight across a short restart. A refused dial must
+        # not quarantine the sole Python address for subsequent requests.
+        timer = threading.Timer(0.3, python.restart)
+        timer.start()
+        try:
+            response = client.post("/api/feedback", content=b"{}")
+        finally:
+            timer.join(timeout=10)
+        assert response.status_code == 200
+        for method, path in (("GET", "/api/notifications"),
+                             ("POST", "/api/feedback"),
+                             ("GET", "/api/alerts")):
+            recovered = client.request(method, path)
+            assert recovered.status_code == 200
+            assert recovered.headers["X-Route-Owner"] == "python"
 
 
 def test_crud_post_body_crosses_the_gate_intact_to_python(tmp_path):
