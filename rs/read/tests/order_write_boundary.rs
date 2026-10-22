@@ -331,6 +331,14 @@ fn scan_repository() -> Vec<String> {
     // the price-alert cap serializes organization creators in its own namespace.
     // It does not touch order-book rows, so the boundary rule names it exactly.
     let price_alert_cap = [root.join("rs/read/src/crud/alerts.rs")];
+    // The browser-device session lock is shared with Python's login, refresh and
+    // logout, so both stacks wait on one key. The key comes from the device
+    // cookie digest and never names an order-book row. The session store and its
+    // test probe that proves the shared key are named exactly.
+    let device_session_lock = [
+        root.join("rs/read/src/auth/store.rs"),
+        root.join("rs/read/tests/auth_store_postgres.rs"),
+    ];
     let mut violations = Vec::new();
 
     let mut rust_files = Vec::new();
@@ -365,7 +373,11 @@ fn scan_repository() -> Vec<String> {
             let test_only = gated
                 .iter()
                 .any(|(open, close)| start >= *open && start <= *close);
-            if takes_advisory_lock && !test_only && !price_alert_cap.contains(path) {
+            if takes_advisory_lock
+                && !test_only
+                && !price_alert_cap.contains(path)
+                && !device_session_lock.contains(path)
+            {
                 violations.push(format!(
                     "{}: advisory lock outside order_write",
                     path.display()
