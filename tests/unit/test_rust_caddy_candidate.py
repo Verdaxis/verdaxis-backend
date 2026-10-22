@@ -484,8 +484,9 @@ http://:8080 {
     adapted_proxies = proxies(document)
     crud_proxies = [proxy for proxy in adapted_proxies
                     if proxy.get("load_balancing", {}).get("try_duration") == 10_000_000_000]
-    assert len(crud_proxies) == 15
-    for proxy in crud_proxies:
+    # Staging also imports the four public read pools before the CRUD pools.
+    assert len(crud_proxies) == (19 if environment == "staging" else 15)
+    for proxy in crud_proxies[-15:]:
         assert proxy["headers"]["request"]["set"]["X-Forwarded-For"] == ["{http.request.client_ip}"]
     gate = [proxy for proxy in adapted_proxies if proxy.get("rewrite", {}).get("uri") == "/internal/admin-preauth"]
     assert len(gate) == 1
