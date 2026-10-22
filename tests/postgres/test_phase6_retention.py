@@ -229,11 +229,42 @@ async def test_retention_role_policy_at_checkpoint(retention_urls, revision):
         await _drop_disposable_database(retention_urls["admin"], name)
 
 
+async def _validate_after_catalog_change(retention_urls, revision: str, statement: str):
+    """Validate role policy after an admin catalog change at one checkpoint."""
+
+    # Isolate committed catalog mutations from the shared suite database.
+    name, database_url = await _create_disposable_database(
+        retention_urls["admin"], retention_urls["migrator"]
+    )
+    try:
+        upgraded = _alembic(database_url, "upgrade", revision)
+        assert upgraded.returncode == 0, upgraded.stderr
+        converged = _role_policy(database_url, "bootstrap_roles.sql")
+        assert converged.returncode == 0, converged.stderr
+        admin_url = make_url(retention_urls["admin"]).set(database=name)
+        engine = create_async_engine(admin_url)
+        try:
+            async with engine.begin() as connection:
+                for command in statement.split("; "):
+                    await connection.execute(text(command))
+        finally:
+            await engine.dispose()
+        return _role_policy(database_url, "validate_roles.sql")
+    finally:
+        await _drop_disposable_database(retention_urls["admin"], name)
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("statement", [
     "DROP TRIGGER trg_market_event_outbox_replay_floor ON public.market_event_outbox; "
     "CREATE TRIGGER trg_market_event_outbox_replay_floor AFTER DELETE "
     "ON public.market_event_outbox FOR EACH ROW "
+    "EXECUTE FUNCTION public.market_event_outbox_advance_replay_floor(); "
+    "ALTER TABLE public.market_event_outbox ENABLE ALWAYS TRIGGER "
+    "trg_market_event_outbox_replay_floor",
+    "DROP TRIGGER trg_market_event_outbox_replay_floor ON public.market_event_outbox; "
+    "CREATE TRIGGER trg_market_event_outbox_replay_floor BEFORE DELETE "
+    "ON public.market_event_outbox FOR EACH ROW WHEN (OLD.stream_seq IS NULL) "
     "EXECUTE FUNCTION public.market_event_outbox_advance_replay_floor(); "
     "ALTER TABLE public.market_event_outbox ENABLE ALWAYS TRIGGER "
     "trg_market_event_outbox_replay_floor",
@@ -246,32 +277,28 @@ async def test_retention_role_policy_at_checkpoint(retention_urls, revision):
     "ALTER FUNCTION public.market_event_outbox_refuse_truncate() OWNER TO postgres",
 ])
 async def test_retention_role_policy_requires_exact_objects(retention_urls, statement):
-    # Isolate committed catalog mutations from the shared suite database.
-    name, database_url = await _create_disposable_database(
-        retention_urls["admin"], retention_urls["migrator"]
-    )
-    try:
-        upgraded = _alembic(database_url, "upgrade", REVISION)
-        assert upgraded.returncode == 0, upgraded.stderr
-        converged = _role_policy(database_url, "bootstrap_roles.sql")
-        assert converged.returncode == 0, converged.stderr
-        admin_url = make_url(retention_urls["admin"]).set(database=name)
-        engine = create_async_engine(admin_url)
-        try:
-            async with engine.begin() as connection:
-                for command in statement.split("; "):
-                    await connection.execute(text(command))
-        finally:
-            await engine.dispose()
-        validated = _role_policy(database_url, "validate_roles.sql")
-        assert validated.returncode != 0, "modified retention objects were accepted"
-        assert "replay" in validated.stderr or "retention" in validated.stderr
-    finally:
-        await _drop_disposable_database(retention_urls["admin"], name)
+    validated = await _validate_after_catalog_change(retention_urls, REVISION, statement)
+    assert validated.returncode != 0, "modified retention objects were accepted"
+    assert "replay retention" in validated.stderr, validated.stderr
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("revision", "statement"), [
+    (
+        PARENT_REVISION,
+        "CREATE FUNCTION public.market_event_outbox_refuse_truncate() RETURNS trigger "
+        "LANGUAGE plpgsql AS $$ BEGIN RETURN NULL; END $$",
+    ),
+    (REVISION, "DROP TABLE public.market_event_retention_control"),
+])
+async def test_retention_role_policy_refuses_partial_objects(retention_urls, revision, statement):
+    validated = await _validate_after_catalog_change(retention_urls, revision, statement)
+    assert validated.returncode != 0, "a partial retention object set was accepted"
+    assert "replay retention" in validated.stderr, validated.stderr
 
 
 def test_store_driver_requires_a_selected_test(retention_urls):
-    with pytest.raises(AssertionError):
+    with pytest.raises(AssertionError, match="running 0 tests"):
         _run_store_test(retention_urls["app"], "postgres_no_such_store_case")
 
 
