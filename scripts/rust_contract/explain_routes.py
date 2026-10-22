@@ -21,9 +21,12 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
+import tempfile
 from datetime import date
+from pathlib import Path
 
 from scripts.rust_contract import run_disposable as runner
 
@@ -232,19 +235,22 @@ def bind_literals(
             _quote(table_keys),
             "true",
         ]
-    if profile == "mcp_slice":
-        return order(
+    if profile in {"mcp_slice", "mcp_slice_before"}:
+        values = order(
             product=f"'{product}'",
             point=f"'{point}'",
             side="'ASK'",
             window=f"'{window}'",
-        ) + [_quote(slice_keys)]
+        )
+        return values + ([_quote(slice_keys)] if profile == "mcp_slice" else [])
     if profile == "reference":
         return [dollar, "NULL", "NULL", "NULL", "NULL", "NULL"] + ["NULL"] * 5
     if profile == "aggregate":
         return order() + ["1000"]
     if profile == "none":
         return order()
+    if profile == "recent":
+        return order(side="'ASK'")
     if profile == "regions":
         return order() + ["'regions'"]
     if profile == "fuel-types":
@@ -290,12 +296,24 @@ class PlanCapture(runner.Runner):
             + ", ".join(binds)
             + ");\n"
         )
-        self.sql(script)
+        try:
+            self.sql(script)
+        except runner.RunnerError as error:
+            expected = max(
+                (int(match.group(1)) for match in re.finditer(r"\$(\d+)", sql)),
+                default=0,
+            )
+            raise runner.RunnerError(
+                f"{name}: prepare/execute failed (sql params={expected}, "
+                f"binds={len(binds)}): {error}"
+            ) from error
         # A large plan can exceed one `docker exec` stream read; reading the
         # file it wrote keeps every byte.
-        output = runner.docker(
-            "exec", self.container, "cat", "/tmp/plan.json"
-        ).strip()
+
+        with tempfile.TemporaryDirectory(prefix="rust-query-plan-") as directory:
+            path = Path(directory) / "plan.json"
+            runner.docker("cp", f"{self.container}:/tmp/plan.json", str(path))
+            output = path.read_text().strip()
         try:
             return json.loads(output)[0]
         except ValueError as error:

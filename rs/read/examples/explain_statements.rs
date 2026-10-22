@@ -13,8 +13,8 @@
 
 use serde_json::{json, Value};
 use verdaxis_read::market::visibility::{
-    AGGREGATE_PROJECTION, COUNT_PROJECTION, DISTINCT_PROJECTION, MAP_PROJECTION, curve_candidate_sql,
-    order_query_sql, order_query_sql_projected,
+    curve_candidate_sql, order_query_sql, order_query_sql_projected, AGGREGATE_PROJECTION,
+    COUNT_PROJECTION, DISTINCT_PROJECTION, MAP_PROJECTION,
 };
 use verdaxis_read::routes::curves_canonical::curve_unknown_metadata;
 
@@ -41,7 +41,11 @@ fn main() {
     ] {
         add(
             &format!("{item}.before"),
-            profile,
+            if item == "MCP.orders" {
+                "mcp_slice_before"
+            } else {
+                profile
+            },
             order_query_sql(if item == "MCP.orders" {
                 MCP_TAIL
             } else {
