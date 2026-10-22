@@ -67,7 +67,7 @@ async fn private_seq(sub: &mut verdaxis_read::streams::bus::Subscription) -> i64
 }
 
 #[tokio::test]
-async fn sorted_participant_scope_and_sanitized_payload() {
+async fn sorted_org_scope() {
     let a = Uuid::new_v4();
     let b = Uuid::new_v4();
     let hub = StreamHub::default();
@@ -85,14 +85,13 @@ async fn sorted_participant_scope_and_sanitized_payload() {
     drain.turn(&mut store).await.unwrap();
     assert_eq!(private_seq(&mut sa).await, 2);
     assert_eq!(private_seq(&mut sa).await, 9);
-    match sb.recv().await.unwrap() {
-        Delivery::Private(e) => {
-            assert_eq!(e.seq(), 7);
-            assert_eq!(e.payload()["schema_version"], 1);
-            assert!(e.payload().get("_public_market_invalidation").is_none());
-        }
-        other => panic!("unexpected {other:?}"),
-    }
+    assert_eq!(private_seq(&mut sb).await, 7);
+    // The other organization's rows never cross the scope boundary.
+    assert!(
+        tokio::time::timeout(Duration::from_millis(50), sb.recv())
+            .await
+            .is_err()
+    );
     assert!(matches!(
         prices.recv().await,
         Some(Delivery::PublicInvalidation)
@@ -102,6 +101,53 @@ async fn sorted_participant_scope_and_sanitized_payload() {
         Some(Delivery::PublicInvalidation)
     ));
     assert_eq!(drain.cursor(), 9);
+}
+
+#[test]
+fn marker_removed() {
+    let marked = StoredEvent::new(
+        1,
+        vec![Uuid::new_v4()],
+        "trade_created",
+        json!({"_public_market_invalidation": true, "quantity": "2"}),
+    )
+    .unwrap();
+    assert!(marked.public_invalidated());
+    assert!(
+        marked
+            .payload()
+            .get("_public_market_invalidation")
+            .is_none()
+    );
+    let plain = StoredEvent::new(
+        2,
+        vec![Uuid::new_v4()],
+        "trade_created",
+        json!({"_public_market_invalidation": false}),
+    )
+    .unwrap();
+    assert!(!plain.public_invalidated());
+    assert!(plain.payload().get("_public_market_invalidation").is_none());
+}
+
+#[test]
+fn legacy_schema_version() {
+    let legacy = StoredEvent::new(
+        1,
+        vec![Uuid::new_v4()],
+        "trade_created",
+        json!({"quantity": "2"}),
+    )
+    .unwrap();
+    assert_eq!(legacy.payload()["schema_version"], 1);
+    let current = StoredEvent::new(
+        2,
+        vec![Uuid::new_v4()],
+        "trade_created",
+        json!({"schema_version": 1, "quantity": "2"}),
+    )
+    .unwrap();
+    assert_eq!(current.payload()["schema_version"], 1);
 }
 
 #[tokio::test]
