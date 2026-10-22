@@ -243,6 +243,7 @@ pub const MOUNTED_GET_PATHS: &[&str] = &[
     "/health/ready",
     "/health",
     "/api/ports",
+    "/api/compliance/fuels",
     "/api/catalog/products",
     "/api/catalog/delivery-points",
     "/api/news",
