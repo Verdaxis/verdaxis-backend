@@ -208,7 +208,9 @@ where
                 ticket = Some(candidate);
             }
             let fill = load(&mut transaction).await?;
-            let boundary = fill.facts.boundary(&clock);
+            // Only the facts this family's query reads can end the entry; a
+            // fact it does not read stays `Unknown` and must not block storage.
+            let boundary = fill.facts.boundary_for(family, &clock);
             let payload = serde_json::to_vec(&fill.value).ok();
             transaction
                 .rollback()
