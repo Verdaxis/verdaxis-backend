@@ -164,7 +164,9 @@ fn the_scan_finds_the_calls_it_checks() {
                   let b = WatchlistSettings::new(v, chrono::Utc::now());";
     let calls = call_arguments(sample, "WatchlistSettings::new(");
     assert_eq!(calls, vec!["v.clone(), f(x)", "v, chrono::Utc::now()"]);
-    assert!(CLOCK_OR_DEFAULT
-        .iter()
-        .any(|token| calls[1].contains(token)));
+    assert!(
+        CLOCK_OR_DEFAULT
+            .iter()
+            .any(|token| calls[1].contains(token))
+    );
 }

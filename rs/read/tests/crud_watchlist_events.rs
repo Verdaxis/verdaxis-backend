@@ -261,14 +261,20 @@ fn the_response_order_is_the_source_order_the_guard_checked() {
     // The guard reads a payload order only through the database UUID rule. A
     // spelling that rule does not read is no source order, so the response
     // must not name the order either; it falls back to the target's order.
-    let spelled = format!("urn:uuid:{}", uuid(0x6400_0000_0000_0000_0000_0000_0000_0002));
+    let spelled = format!(
+        "urn:uuid:{}",
+        uuid(0x6400_0000_0000_0000_0000_0000_0000_0002)
+    );
     let response = record(json!({"order_id": spelled}), target("SLICE", None, None))
         .project()
         .unwrap();
     assert_eq!(response.order_id, None);
-    let response = record(json!({"order_id": spelled}), target("PIN", Some(uuid(3)), None))
-        .project()
-        .unwrap();
+    let response = record(
+        json!({"order_id": spelled}),
+        target("PIN", Some(uuid(3)), None),
+    )
+    .project()
+    .unwrap();
     assert_eq!(response.order_id, Some(uuid(3)));
 }
 
