@@ -665,7 +665,8 @@ fn assert_feed_matches_counts(feed: &[WatchlistEvent], summary: &Summary) {
 
 /// Best-price rows sourced from an order that is public now stay hidden for a
 /// cutoff before, at and after them, in the feed, the counts and the read
-/// state.
+/// state. Rows dated after this run are hidden too: the rule is not a clock
+/// cutoff that would reveal newer rows.
 #[tokio::test]
 #[ignore = "requires the disposable PostgreSQL harness"]
 async fn best_price_guard_before_at_after_cutoff() {
@@ -675,6 +676,7 @@ async fn best_price_guard_before_at_after_cutoff() {
     let watch = seed_watch(&mut fixture, &market).await;
     let cutoff = instant("2026-10-19T00:00:00Z");
     let microsecond = Duration::microseconds(1);
+    let future = Utc::now() + Duration::days(365);
 
     let mut hidden = Vec::new();
     for (target, source, created_at) in [
@@ -695,6 +697,12 @@ async fn best_price_guard_before_at_after_cutoff() {
             cutoff + Duration::days(1),
         ),
         (watch.spot_slice, None, cutoff + Duration::days(2)),
+        (watch.spot_slice, Some(market.public_order), future),
+        (
+            watch.public_pin,
+            Some(market.public_order),
+            future + microsecond,
+        ),
     ] {
         let id = insert_event(
             &mut fixture,
