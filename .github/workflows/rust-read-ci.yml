@@ -96,6 +96,12 @@ jobs:
           DATABASE_URL: "sqlite+aiosqlite:///:memory:"
         run: venv/bin/python -m pytest tests/rust_contract/test_phase2_scenarios.py tests/rust_contract/test_phase2_runner.py -q
 
+      - name: Check dependency advisories
+        working-directory: rs
+        run: |
+          cargo install cargo-audit --version 0.22.2 --locked
+          cargo audit
+
       - name: Fetch dependencies
         run: cargo fetch --manifest-path rs/Cargo.toml --locked
 
