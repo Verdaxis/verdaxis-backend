@@ -17,10 +17,13 @@ use uuid::Uuid;
 
 use verdaxis_read::market::policy::load_policy;
 use verdaxis_read::market::visibility::{
-    AGGREGATE_PROJECTION, MAP_PROJECTION, PublicOrderFilters, VisibilityClock, bind_order_sql,
+    MAP_PROJECTION, PublicOrderFilters, VisibilityClock, bind_order_sql,
     order_query_sql, order_query_sql_projected,
 };
 use verdaxis_read::{Config, MarketPolicy, compiled_sha, connect};
+
+const AGGREGATE_PROJECTION: &str = "o.product_id, o.delivery_point_id, o.side, o.provenance, \
+     o.availability_window, o.price_per_mt_usd, o.remaining_quantity_mt, o.created_at,";
 
 const POLICY_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),

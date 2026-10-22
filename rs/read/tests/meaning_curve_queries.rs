@@ -12,17 +12,19 @@
 //! Runs against the seeded disposable market-contract database only; see
 //! `rs/read/tests/run_market_contract.sh`.
 
-use chrono::{DateTime, Duration, NaiveDate, Utc};
+use chrono::{Duration, NaiveDate};
 use serde_json::{Value, json};
 use sqlx::{PgConnection, Row};
 use uuid::Uuid;
 
 use verdaxis_read::market::policy::load_policy;
 use verdaxis_read::market::visibility::{
-    OrderSurface, PublicOrderFilters, REFERENCE_PROJECTION, TradeEvidenceFilters, VisibilityClock,
-    bind_order_query, bind_order_sql, bind_trade_sql, curve_candidate_sql, order_query_sql,
-    trade_query_sql, trade_query_sql_projected,
+    OrderSurface, PublicOrderFilters, VisibilityClock, bind_order_query, bind_order_sql,
+    order_query_sql,
 };
+#[path = "support/curve_candidate_shape.rs"]
+mod curve_candidate_shape;
+use curve_candidate_shape::curve_candidate_sql;
 use verdaxis_read::{Config, MarketPolicy, compiled_sha, connect};
 
 const POLICY_BYTES: &[u8] = include_bytes!(concat!(
@@ -88,35 +90,6 @@ async fn order_rows(
 /// Wrap a composed statement so its complete rows become comparable JSON.
 fn wrap(sql: &str) -> String {
     format!("SELECT to_jsonb(x)::text AS row FROM ({sql}) x")
-}
-
-enum TradeExtra {
-    Text(Option<&'static str>),
-    Date(Option<NaiveDate>),
-}
-
-async fn trade_rows(
-    connection: &mut PgConnection,
-    sql: &str,
-    policy: &MarketPolicy,
-    filters: &TradeEvidenceFilters<'_>,
-    extra: &[TradeExtra],
-) -> Vec<String> {
-    let wrapped = wrap(sql);
-    let mut bound = bind_trade_sql(&wrapped, policy, filters).unwrap();
-    for value in extra {
-        bound = match value {
-            TradeExtra::Text(value) => bound.bind(value.map(str::to_owned)),
-            TradeExtra::Date(value) => bound.bind(*value),
-        };
-    }
-    bound
-        .fetch_all(&mut *connection)
-        .await
-        .expect("the trade statement must run under the app role")
-        .into_iter()
-        .map(|row| row.get::<String, _>("row"))
-        .collect()
 }
 
 /// The slice keys the corpus can request: every visible (product, point,
@@ -209,7 +182,7 @@ async fn curve_table_keyed_candidates_match_the_full_relation() {
                 let new = multiset(
                     order_rows(
                         &mut connection,
-                        &wrap(curve_candidate_sql(ORDER_TAIL).sql()),
+                        &wrap(curve_candidate_sql(ORDER_TAIL).as_str()),
                         &policy,
                         &clock,
                         &config,
@@ -248,7 +221,7 @@ async fn curve_table_equivalence_detects_a_dropped_key() {
     };
     let all = order_rows(
         &mut connection,
-        &wrap(curve_candidate_sql(ORDER_TAIL).sql()),
+        &wrap(curve_candidate_sql(ORDER_TAIL).as_str()),
         &policy,
         &clock,
         &config,
@@ -258,7 +231,7 @@ async fn curve_table_equivalence_detects_a_dropped_key() {
     .await;
     let subset = order_rows(
         &mut connection,
-        &wrap(curve_candidate_sql(ORDER_TAIL).sql()),
+        &wrap(curve_candidate_sql(ORDER_TAIL).as_str()),
         &policy,
         &clock,
         &config,
@@ -319,7 +292,7 @@ async fn curve_slice_keyed_candidates_match_the_full_relation() {
             let new = multiset(
                 order_rows(
                     &mut connection,
-                    &wrap(curve_candidate_sql(ORDER_TAIL).sql()),
+                    &wrap(curve_candidate_sql(ORDER_TAIL).as_str()),
                     &policy,
                     &clock,
                     &config,
@@ -373,7 +346,7 @@ async fn curve_board_keyed_candidates_keep_null_window_keys() {
         let new = multiset(
             order_rows(
                 &mut connection,
-                &wrap(curve_candidate_sql(ORDER_TAIL).sql()),
+                &wrap(curve_candidate_sql(ORDER_TAIL).as_str()),
                 &policy,
                 &clock,
                 &config,
@@ -427,7 +400,7 @@ async fn mcp_market_slice_keyed_candidates_match_the_full_relation() {
         let new = multiset(
             order_rows(
                 &mut connection,
-                &wrap(curve_candidate_sql(ORDER_TAIL).sql()),
+                &wrap(curve_candidate_sql(ORDER_TAIL).as_str()),
                 &policy,
                 &clock,
                 &config,

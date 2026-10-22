@@ -41,12 +41,6 @@ pub const MAP_PROJECTION: &str = "o.id, o.product_id, o.delivery_point_id, o.sid
 pub const COUNT_PROJECTION: &str = "";
 pub const DISTINCT_PROJECTION: &str = "";
 
-/// The aggregate tail's columns: its group keys, its sums and its observed
-/// time. It never reads the order id, the off-spec flag or the idempotency
-/// operation, so they must not travel under the aggregation (Task 10).
-pub const AGGREGATE_PROJECTION: &str = "o.product_id, o.delivery_point_id, o.side, o.provenance, \
-     o.availability_window, o.price_per_mt_usd, o.remaining_quantity_mt, o.created_at,";
-
 /// The projection every consumer needs: the order's own columns plus the
 /// catalog labels. `o.*` is the historical default; aggregate and distinct
 /// tails replace it through the same marker with only the columns they read,
@@ -130,45 +124,16 @@ pub fn benchmark_candidate_sql_fenced(tail: &'static str) -> OrderQuery {
     )))
 }
 
-/// The curve consumers' keyed candidate statement (Task 9). The caller's key
-/// list (`$14`) is materialised once and applied to the base order scan
-/// through a semi-join, so eligibility evaluates only the requested cells and
-/// `orders.sql`/`trades.sql` receive the same row multiset as before. A
-/// repeated key or a null-window key beside a specific-window key cannot
-/// duplicate a row: `curve_orders.sql` uses `EXISTS`, not a join.
-///
-/// The tail keeps binding `$14` for its own key filter; the two reads of the
-/// same value are the reason `requested_curve_slices` stays MATERIALIZED.
-pub fn curve_candidate_sql(tail: &'static str) -> OrderQuery {
-    OrderQuery(expand_private_digest(&format!(
-        "WITH requested_curve_slices AS MATERIALIZED ({}) , \
-         curve_orders AS NOT MATERIALIZED ({}) , eligible_orders AS NOT MATERIALIZED ({}) {}",
-        include_str!("../../sql/requested_curve_slices.sql"),
-        include_str!("../../sql/curve_orders.sql"),
-        relation_sql("curve_orders"),
-        tail
-    )))
-}
-
 /// The complete bound formal-trade-evidence SELECT.
 pub fn trade_evidence_sql() -> &'static str {
     static SQL: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
-        trade_relation_sql("t.*")
+        format!(
+            "{} {}",
+            include_str!("../../sql/formal_trade_snapshots.sql"),
+            include_str!("../../sql/trade_evidence.sql")
+        )
     });
     &SQL
-}
-
-/// The same relation with only the columns a consumer renders. The predicate
-/// set and the `formal_trades` frame are byte-identical; only the projection
-/// differs, so a consumer that reads twelve columns stops carrying the whole
-/// trade row through its aggregate (Task 9: the reference export).
-fn trade_relation_sql(projection: &str) -> String {
-    format!(
-        "{} {}",
-        include_str!("../../sql/formal_trade_snapshots.sql")
-            .replace("/* shared_projection */t.*", projection),
-        include_str!("../../sql/trade_evidence.sql")
-    )
 }
 
 /// The instant a visibility decision is made at, plus the Singapore calendar

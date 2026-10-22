@@ -235,6 +235,8 @@ def bind_literals(
             _quote(table_keys),
             "true",
         ]
+    if profile == "mcp_resolve":
+        return order(side="'ASK'") + [_quote(slice_keys)]
     if profile in {"mcp_slice", "mcp_slice_before"}:
         values = order(
             product=f"'{product}'",
