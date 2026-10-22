@@ -472,8 +472,8 @@
     {
       "id": "E007",
       "task": "2",
-      "test": "migration_has_one_head_and_direct_parent",
-      "target": "streams_store",
+      "test": "test_migration_has_one_head_and_direct_parent",
+      "target": "tests/postgres/test_phase6_retention.py",
       "description": "migration has one head and direct parent",
       "required": true,
       "scopes": [
@@ -484,8 +484,8 @@
     {
       "id": "E008",
       "task": "2",
-      "test": "retention_bootstrap_fence",
-      "target": "streams_store",
+      "test": "test_retention_bootstrap_fence",
+      "target": "tests/postgres/test_phase6_retention.py",
       "description": "retention bootstrap fence",
       "required": true,
       "scopes": [
@@ -496,8 +496,8 @@
     {
       "id": "E009",
       "task": "2",
-      "test": "retention_delete_rollback",
-      "target": "streams_store",
+      "test": "test_retention_delete_rollback",
+      "target": "tests/postgres/test_phase6_retention.py",
       "description": "retention delete rollback",
       "required": true,
       "scopes": [
@@ -508,8 +508,8 @@
     {
       "id": "E010",
       "task": "2",
-      "test": "retention_deleted_maximum",
-      "target": "streams_store",
+      "test": "test_retention_deleted_maximum",
+      "target": "tests/postgres/test_phase6_retention.py",
       "description": "retention deleted maximum",
       "required": true,
       "scopes": [
@@ -520,8 +520,8 @@
     {
       "id": "E011",
       "task": "2",
-      "test": "retention_concurrent_delete",
-      "target": "streams_store",
+      "test": "test_retention_concurrent_delete",
+      "target": "tests/postgres/test_phase6_retention.py",
       "description": "retention concurrent delete",
       "required": true,
       "scopes": [
@@ -532,8 +532,8 @@
     {
       "id": "E012",
       "task": "2",
-      "test": "retention_pending_delete_refused",
-      "target": "streams_store",
+      "test": "test_retention_pending_delete_refused",
+      "target": "tests/postgres/test_phase6_retention.py",
       "description": "retention pending delete refused",
       "required": true,
       "scopes": [
@@ -544,8 +544,8 @@
     {
       "id": "E013",
       "task": "2",
-      "test": "retention_truncate_refused",
-      "target": "streams_store",
+      "test": "test_retention_truncate_refused",
+      "target": "tests/postgres/test_phase6_retention.py",
       "description": "retention truncate refused",
       "required": true,
       "scopes": [
@@ -556,8 +556,8 @@
     {
       "id": "E014",
       "task": "2",
-      "test": "retention_app_acl",
-      "target": "streams_store",
+      "test": "test_retention_app_acl",
+      "target": "tests/postgres/test_phase6_retention.py",
       "description": "retention app acl",
       "required": true,
       "scopes": [
@@ -568,8 +568,8 @@
     {
       "id": "E015",
       "task": "2",
-      "test": "retention_backup_read",
-      "target": "streams_store",
+      "test": "test_retention_backup_read",
+      "target": "tests/postgres/test_phase6_retention.py",
       "description": "retention backup read",
       "required": true,
       "scopes": [
@@ -580,8 +580,8 @@
     {
       "id": "E016",
       "task": "2",
-      "test": "retention_migration_atomicity",
-      "target": "streams_store",
+      "test": "test_retention_migration_atomicity",
+      "target": "tests/postgres/test_phase6_retention.py",
       "description": "retention migration atomicity",
       "required": true,
       "scopes": [
@@ -592,8 +592,8 @@
     {
       "id": "E017",
       "task": "2",
-      "test": "retention_empty_store",
-      "target": "streams_store",
+      "test": "test_retention_empty_store",
+      "target": "tests/postgres/test_phase6_retention.py",
       "description": "retention empty store",
       "required": true,
       "scopes": [
@@ -604,8 +604,8 @@
     {
       "id": "E018",
       "task": "2",
-      "test": "retention_sequence_holes",
-      "target": "streams_store",
+      "test": "test_retention_sequence_holes",
+      "target": "tests/postgres/test_phase6_retention.py",
       "description": "retention sequence holes",
       "required": true,
       "scopes": [
@@ -616,8 +616,8 @@
     {
       "id": "E019",
       "task": "2",
-      "test": "replay_state_missing_is_unavailable",
-      "target": "streams_store",
+      "test": "test_replay_state_missing_is_unavailable",
+      "target": "tests/postgres/test_phase6_retention.py",
       "description": "replay state missing is unavailable",
       "required": true,
       "scopes": [
@@ -628,8 +628,8 @@
     {
       "id": "E020",
       "task": "2",
-      "test": "replay_state_singleton_constraint",
-      "target": "streams_store",
+      "test": "test_replay_state_singleton_constraint",
+      "target": "tests/postgres/test_phase6_retention.py",
       "description": "replay state singleton constraint",
       "required": true,
       "scopes": [
@@ -640,8 +640,8 @@
     {
       "id": "E021",
       "task": "2",
-      "test": "replay_state_negative_floor_refused",
-      "target": "streams_store",
+      "test": "test_replay_state_negative_floor_refused",
+      "target": "tests/postgres/test_phase6_retention.py",
       "description": "replay state negative floor refused",
       "required": true,
       "scopes": [
@@ -652,8 +652,8 @@
     {
       "id": "E022",
       "task": "2",
-      "test": "non_owner_cannot_replace_retention_objects",
-      "target": "streams_store",
+      "test": "test_non_owner_cannot_replace_retention_objects",
+      "target": "tests/postgres/test_phase6_retention.py",
       "description": "non owner cannot replace retention objects",
       "required": true,
       "scopes": [
@@ -664,8 +664,8 @@
     {
       "id": "E023",
       "task": "2",
-      "test": "retention_search_path_is_fixed",
-      "target": "streams_store",
+      "test": "test_retention_search_path_is_fixed",
+      "target": "tests/postgres/test_phase6_retention.py",
       "description": "retention search path is fixed",
       "required": true,
       "scopes": [
@@ -676,8 +676,8 @@
     {
       "id": "E024",
       "task": "2",
-      "test": "app_cannot_execute_retention_function",
-      "target": "streams_store",
+      "test": "test_app_cannot_execute_retention_function",
+      "target": "tests/postgres/test_phase6_retention.py",
       "description": "app cannot execute retention function",
       "required": true,
       "scopes": [
@@ -688,8 +688,8 @@
     {
       "id": "E025",
       "task": "2",
-      "test": "prune_is_refused_while_python_owns_private_streams",
-      "target": "streams_store",
+      "test": "test_prune_is_refused_while_python_owns_private_streams",
+      "target": "tests/postgres/test_phase6_retention.py",
       "description": "prune is refused while python owns private streams",
       "required": true,
       "scopes": [
@@ -700,8 +700,8 @@
     {
       "id": "E026",
       "task": "2",
-      "test": "prune_is_refused_during_drain",
-      "target": "streams_store",
+      "test": "test_prune_is_refused_during_drain",
+      "target": "tests/postgres/test_phase6_retention.py",
       "description": "prune is refused during drain",
       "required": true,
       "scopes": [
@@ -712,8 +712,8 @@
     {
       "id": "E027",
       "task": "2",
-      "test": "ownership_block_waits_for_inflight_prune",
-      "target": "streams_store",
+      "test": "test_ownership_block_waits_for_inflight_prune",
+      "target": "tests/postgres/test_phase6_retention.py",
       "description": "ownership block waits for inflight prune",
       "required": true,
       "scopes": [
@@ -724,8 +724,8 @@
     {
       "id": "E028",
       "task": "2",
-      "test": "missing_owner_record_refuses_prune",
-      "target": "streams_store",
+      "test": "test_missing_owner_record_refuses_prune",
+      "target": "tests/postgres/test_phase6_retention.py",
       "description": "missing owner record refuses prune",
       "required": true,
       "scopes": [
@@ -736,8 +736,8 @@
     {
       "id": "E029",
       "task": "2",
-      "test": "replay_membership_index_shape",
-      "target": "streams_store",
+      "test": "test_replay_membership_index_shape",
+      "target": "tests/postgres/test_phase6_retention.py",
       "description": "replay membership index shape",
       "required": true,
       "scopes": [
@@ -748,8 +748,8 @@
     {
       "id": "E030",
       "task": "2",
-      "test": "sparse_org_replay_index_path",
-      "target": "streams_store",
+      "test": "test_sparse_org_replay_index_path",
+      "target": "tests/postgres/test_phase6_retention.py",
       "description": "sparse org replay index path",
       "required": true,
       "scopes": [
@@ -760,8 +760,8 @@
     {
       "id": "E031",
       "task": "2",
-      "test": "deleted_prefix_advances_floor_atomically",
-      "target": "streams_store",
+      "test": "test_deleted_prefix_advances_floor_atomically",
+      "target": "tests/postgres/test_phase6_retention.py",
       "description": "deleted prefix advances floor atomically",
       "required": true,
       "scopes": [
