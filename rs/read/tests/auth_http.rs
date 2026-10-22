@@ -417,6 +417,24 @@ fn is_upper_snake(code: &str) -> bool {
 }
 
 #[tokio::test]
+async fn api_errors_preserve_auth_responses() {
+    for code in AuthCode::ALL {
+        let direct = render(AuthFailure::new(code).into_response()).await;
+        let converted = render(verdaxis_read::ApiError::from(AuthFailure::new(code)).into_response()).await;
+        assert_eq!(converted.0, code.status(), "{}", code.as_str());
+        assert_eq!(converted.2, direct.2, "{}", code.as_str());
+        for headers in [&direct.1, &converted.1] {
+            assert_eq!(
+                headers.get(header::WWW_AUTHENTICATE).map(|value| value.to_str().unwrap()),
+                (code.status() == StatusCode::UNAUTHORIZED).then_some("Bearer"),
+                "{}: WWW-Authenticate only on 401",
+                code.as_str(),
+            );
+        }
+    }
+}
+
+#[tokio::test]
 async fn auth_errors_use_the_detail_code_envelope() {
     let mut wire_codes = HashSet::new();
     for code in AuthCode::ALL {

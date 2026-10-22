@@ -255,10 +255,8 @@ impl IntoResponse for AuthFailure {
     }
 }
 
-/// For code paths typed as [`ApiError`], such as the endpoint quota check.
-///
-/// `ApiError` carries no `WWW-Authenticate` header, so a route returns a 401
-/// failure as an `AuthFailure` response, never through this conversion.
+/// Preserve auth details in the shared error path. [`ApiError`] derives the
+/// bearer challenge from the 401 status, as this response does.
 impl From<AuthFailure> for ApiError {
     fn from(failure: AuthFailure) -> Self {
         ApiError {
