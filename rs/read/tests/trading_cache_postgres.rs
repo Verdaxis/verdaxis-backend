@@ -289,6 +289,36 @@ async fn an_orderbook_entry_serves_only_until_its_own_expiry() {
 }
 
 #[tokio::test]
+async fn prices_require_a_known_rolling_departure() {
+    let _serial = SERIAL.lock().await;
+    let Some((url, mut writer)) = writer().await else {
+        return;
+    };
+    let record = Record::new();
+    let identity = authority(1);
+    bind(&mut writer, &identity, true).await;
+    record.activate(&identity);
+    let pools = connect(&state_config(&url)).await.unwrap();
+    let state = AppState::new(state_config(&url), pools, policy()).unwrap();
+    let runtime = state.trading_cache.as_ref().unwrap();
+    publish_record(runtime, &record);
+    runtime.tick(Instant::now()).await;
+    let cache = Arc::new(TradingCache::new(4, 1024));
+    let runs = Arc::new(AtomicUsize::new(0));
+    let facts = TemporalFacts {
+        rolling_windows: verdaxis_read::RollingWindows::Unknown,
+        ..TemporalFacts::default()
+    };
+    for _ in 0..2 {
+        read_family(&state, &cache, "moving", "prices", facts.clone(), runs.clone()).await;
+    }
+    reset(&mut writer).await;
+    writer.close().await.unwrap();
+    assert_eq!(runs.load(Ordering::SeqCst), 2, "an unknown moving-price boundary must bypass storage");
+    assert!(cache.is_empty());
+}
+
+#[tokio::test]
 async fn an_entry_from_the_prior_incarnation_is_never_a_hit() {
     let _serial = SERIAL.lock().await;
     let (Ok(first), Ok(second)) = (
