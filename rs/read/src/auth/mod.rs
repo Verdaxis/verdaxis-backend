@@ -21,4 +21,7 @@ pub use claims::{
     read_subject, validate_account,
 };
 pub use issue::TokenIssuer;
-pub use token::{VerificationSettings, verify_access, verify_authorization};
+pub use token::{
+    TokenType, VerificationSettings, VerifiedToken, verify_access, verify_authorization,
+    verify_token,
+};
