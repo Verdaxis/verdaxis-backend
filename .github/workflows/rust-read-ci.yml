@@ -40,6 +40,40 @@ env:
   SQLX_CLI_VERSION: "0.9.0"
 
 jobs:
+  phase10-shellcheck:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Install ShellCheck 0.10.0
+        shell: bash -euo pipefail {0}
+        run: |
+          # Official v0.10.0 Linux x86_64 release, independently downloaded and hashed.
+          curl --fail --location --retry 3 \
+            https://github.com/koalaman/shellcheck/releases/download/v0.10.0/shellcheck-v0.10.0.linux.x86_64.tar.xz \
+            --output "$RUNNER_TEMP/shellcheck.tar.xz"
+          printf '%s  %s\n' \
+            6c881ab0698e4e6ea235245f22832860544f17ba386442fe7e9d629f8cbedf87 \
+            "$RUNNER_TEMP/shellcheck.tar.xz" | sha256sum --check --strict
+          tar -xJf "$RUNNER_TEMP/shellcheck.tar.xz" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/shellcheck-v0.10.0" >> "$GITHUB_PATH"
+      - name: Check every reviewed shell script
+        shell: bash -euo pipefail {0}
+        run: |
+          [[ "$(shellcheck --version | grep '^version:')" == "version: 0.10.0" ]]
+          mapfile -t reviewed_scripts < deploy/tests/shellcheck-files.txt
+          (( ${#reviewed_scripts[@]} > 0 ))
+          for script in "${reviewed_scripts[@]}"; do bash -n "$script"; done
+          shellcheck --severity=style --external-sources "${reviewed_scripts[@]}"
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - name: Run the disposable artifact contract
+        shell: bash -euo pipefail {0}
+        run: |
+          python -m venv "$RUNNER_TEMP/artifact-test-venv"
+          "$RUNNER_TEMP/artifact-test-venv/bin/pip" install cryptography==50.0.0 PyYAML==6.0.3
+          ARTIFACT_TEST_PYTHON="$RUNNER_TEMP/artifact-test-venv/bin/python" bash deploy/tests/artifact-contract.sh
+
   # Pure tests plus the release build, the glibc floor check, and the archivable
   # release artifact. No database, no container, no secrets.
   offline:
