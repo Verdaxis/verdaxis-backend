@@ -201,8 +201,10 @@ A staging release whose committed `deploy/rust/staging-policy.json` enables Rust
 and whose committed manifest names `verdaxis-rust-staging.service` extends that
 same transaction instead of adding a second owner. It verifies the separately
 approved Rust artifact against its provenance record before any service stops,
-publishes the app-only `.runtime-rust/runtime.env` (mode 0600, no mail, JWT,
-provider or migrator credential) and the private `.runtime-rust/budget.json`,
+publishes the private `.runtime-rust/runtime.env` (mode 0600: app database
+settings, runtime identity and, from Phase 2, the JWT verification and invite
+sender settings; never the migrator credential) and the private
+`.runtime-rust/budget.json`,
 installs the active binary by atomic rename, and restarts both units in one
 `systemctl restart` inside the restart window. Python's public readiness and the
 Rust loopback readiness (`http://127.0.0.1:8011/health/ready`) must then both

@@ -50,8 +50,8 @@ impl Phase2Settings {
         }
         let value = |index: usize| -> Result<&str, String> {
             present[index]
-                .map(|value| value.trim())
-                .filter(|value| !value.is_empty())
+                .map(String::as_str)
+                .filter(|value| !value.trim().is_empty())
                 .ok_or_else(|| format!("{} must be set for Phase 2 routes", required[index]))
         };
         let jwt_secret = value(0)?;
@@ -60,8 +60,9 @@ impl Phase2Settings {
         }
         // An empty previous key is the ordinary "no rotation in progress"
         // state; it must be absent rather than blank so it is never a key.
-        let previous = match present[1].map(|value| value.trim()) {
-            None | Some("") => None,
+        let previous = match present[1].map(String::as_str) {
+            None => None,
+            Some(previous) if previous.trim().is_empty() => None,
             Some(previous) if previous.len() < 32 => {
                 return Err("JWT_SECRET_PREVIOUS must be at least 32 characters".into());
             }
