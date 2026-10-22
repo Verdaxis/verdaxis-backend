@@ -178,7 +178,7 @@ def unused_port(exclude: set[int] = frozenset()) -> int:
 
 @contextlib.contextmanager
 def harness(tmp_path, *, feedback_owner: str = "rust", authority_down: bool = False,
-           feedback_crash: bool = False):
+           feedback_crash: bool = False, trusted_proxy: bool = False):
     """Run the real CRUD snippet with one counting authority and two owners."""
     caddy = shutil.which("caddy")
     if not caddy:
@@ -196,7 +196,12 @@ def harness(tmp_path, *, feedback_owner: str = "rust", authority_down: bool = Fa
         authority.stop()
     caddy_port = unused_port(used)
     config = tmp_path / f"Caddyfile-{caddy_port}"
-    config.write_text(CADDYFILE)
+    configuration = CADDYFILE
+    if trusted_proxy:
+        configuration = configuration.replace(
+            "\tauto_https off\n", "\tauto_https off\n\tservers {\n"
+            "\t\ttrusted_proxies static 127.0.0.1/32\n\t}\n")
+    config.write_text(configuration)
     env = {
         **os.environ,
         "CRUD_SNIPPET": str(ROOT / "deploy/caddy/rust-crud.caddy"),
@@ -250,6 +255,18 @@ def harness(tmp_path, *, feedback_owner: str = "rust", authority_down: bool = Fa
             if stub is not None:
                 with contextlib.suppress(Exception):
                     stub.stop()
+
+
+@pytest.mark.parametrize("feedback_owner", ["rust", "python"])
+def test_trusted_proxy_preserves_client_for_gate_and_owner(tmp_path, feedback_owner):
+    with harness(tmp_path, feedback_owner=feedback_owner, trusted_proxy=True) as (
+            client, authority, rust, python, _crash):
+        response = client.get(
+            "/api/admin/feedback", headers={"X-Forwarded-For": "198.51.100.24"})
+        assert response.status_code == 200
+        owner = rust if feedback_owner == "rust" else python
+        assert authority.requested()[0]["headers"]["x-forwarded-for"] == "198.51.100.24"
+        assert owner.requested("/api/admin/feedback")[0]["headers"]["x-forwarded-for"] == "198.51.100.24"
 
 
 def test_admin_split_stops_at_exactly_300_across_both_owners(tmp_path):

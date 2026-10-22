@@ -482,6 +482,11 @@ http://:8080 {
     assert "/internal/admin-preauth" in expressed
     assert "X-Verdaxis-Preauth-Counted" in expressed
     adapted_proxies = proxies(document)
+    crud_proxies = [proxy for proxy in adapted_proxies
+                    if proxy.get("load_balancing", {}).get("try_duration") == 10_000_000_000]
+    assert len(crud_proxies) == 15
+    for proxy in crud_proxies:
+        assert proxy["headers"]["request"]["set"]["X-Forwarded-For"] == ["{http.request.client_ip}"]
     gate = [proxy for proxy in adapted_proxies if proxy.get("rewrite", {}).get("uri") == "/internal/admin-preauth"]
     assert len(gate) == 1
     assert gate[0]["rewrite"]["method"] == "GET"
