@@ -94,6 +94,34 @@ pub fn endpoint_policy(path: &str) -> Option<(&'static str, u32, u64)> {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn distinct_clients_have_bounded_storage() {
+        let mut limits = Phase2Limits::default();
+        for client in 0..50_100 {
+            assert!(limits.preauth(&format!("client-{client}"), "/api/admin/users", 100));
+        }
+        assert!(limits.buckets.len() <= 50_000);
+    }
+
+    #[test]
+    fn maintenance_expires_each_bucket_at_its_own_window() {
+        let mut limits = Phase2Limits::default();
+        assert!(limits.preauth("admin", "/api/admin/users", 100));
+        assert!(limits.endpoint("inviter", "/api/referrals/invite", 100));
+        assert!(limits.preauth("next", "/api/admin/users", 160));
+        assert!(!limits
+            .buckets
+            .contains_key(&("admin".into(), "/api/admin/".into())));
+        assert!(limits
+            .buckets
+            .contains_key(&("inviter".into(), "invite".into())));
+    }
+}
+
 /// Decision 96 rate-limited correctness/evidence floor, with seconds as window.
 pub fn sample_floor(limit_per_minute: f64, window_seconds: f64) -> u64 {
     (0.95 * limit_per_minute * window_seconds / 60.0)
