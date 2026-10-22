@@ -156,6 +156,21 @@ pub fn config_from_deployed_environment(
         pool_max: rust_pool,
         python_budget: budget.python_budget,
         configured_max_connections: budget.configured_max_connections,
+        phase2: crate::Phase2Options {
+            // Task 23: the deploy transaction writes these to the Rust runtime
+            // file only. A deployed start without them is refused rather than
+            // serving Phase 2 routes with an unverifiable token authority.
+            jwt_secret: Some(required("JWT_SECRET")?),
+            jwt_secret_previous: environment
+                .get("JWT_SECRET_PREVIOUS")
+                .map(|value| value.trim().to_owned())
+                .filter(|value| !value.is_empty()),
+            jwt_issuer: Some(required("JWT_ISSUER")?),
+            jwt_audience: Some(required("JWT_AUDIENCE")?),
+            frontend_url: Some(required("FRONTEND_URL")?),
+            email_from: Some(required("EMAIL_FROM")?),
+            resend_api_key: Some(required("RESEND_API_KEY")?),
+        },
     })
 }
 

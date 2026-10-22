@@ -17,6 +17,7 @@ fn staging() -> Config {
         pool_max: 17,
         python_budget: 52,
         configured_max_connections: 100,
+        phase2: Default::default(),
         prepared_budget: None,
     }
 }
@@ -388,10 +389,38 @@ fn deployed_environment() -> std::collections::HashMap<String, String> {
         ),
         ("DB_SESSION_TIME_ZONE", "UTC"),
         ("KYC_EXECUTION_GATE_ENABLED", "false"),
+        // Task 23: the deploy transaction projects this private set into the
+        // Rust runtime file only.
+        ("JWT_SECRET", "phase2-deployed-secret-key-minimum-40"),
+        ("JWT_ISSUER", "verdaxis-staging-api"),
+        ("JWT_AUDIENCE", "verdaxis-staging-web"),
+        ("FRONTEND_URL", "https://staging.verdaxis.exchange"),
+        ("EMAIL_FROM", "Verdaxis <noreply@verdaxis.exchange>"),
+        ("RESEND_API_KEY", "re_deployed_key"),
     ]
     .into_iter()
     .map(|(key, value)| (key.to_owned(), value.to_owned()))
     .collect()
+}
+
+#[test]
+fn deployed_environment_refuses_a_missing_phase2_key() {
+    use verdaxis_read::runtime::config::config_from_deployed_environment;
+    let bind: std::net::SocketAddr = "127.0.0.1:8011".parse().unwrap();
+    let mut environment = deployed_environment();
+    environment.remove("JWT_AUDIENCE");
+    let error =
+        config_from_deployed_environment(&environment, bind, &budget_document(compiled_sha()))
+            .err()
+            .expect("a missing Phase 2 key must be refused");
+    assert!(error.contains("JWT_AUDIENCE"), "{error}");
+    // A blank previous key is the ordinary "no rotation" state, not a value.
+    environment.insert("JWT_AUDIENCE".into(), "verdaxis-staging-web".into());
+    environment.insert("JWT_SECRET_PREVIOUS".into(), "  ".into());
+    let config =
+        config_from_deployed_environment(&environment, bind, &budget_document(compiled_sha()))
+            .unwrap();
+    assert!(config.phase2.jwt_secret_previous.is_none());
 }
 
 #[test]

@@ -29,6 +29,7 @@ mod adapter {
             python_budget: 52,
             configured_max_connections: 100,
             kyc_execution_gate_enabled: true,
+            phase2: Default::default(),
         };
         // Runner cell names do not end in _test. This test-only adapter connects
         // to the runner-assigned app role; production configuration is unchanged.

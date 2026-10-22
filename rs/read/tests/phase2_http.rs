@@ -82,6 +82,127 @@ async fn split_upstreams_share_one_pre_auth_authority() {
     );
 }
 
+#[tokio::test]
+async fn admin_authority_charges_once_and_marks_the_admitted_request() {
+    use axum::routing::get;
+    use verdaxis_read::auth::limits::SharedLimits;
+    use verdaxis_read::runtime::http::{PREAUTH_COUNTED_HEADER, PREAUTH_PATH};
+    let authority = SharedLimits::default();
+    let app = verdaxis_read::runtime::http::middleware_with_limits(
+        Router::new().route("/api/admin/feedback", get(|| async { "rust-owned" })),
+        authority,
+    );
+    for _ in 0..300 {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(PREAUTH_PATH)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 204);
+        assert_eq!(response.headers()[PREAUTH_COUNTED_HEADER], "1");
+    }
+    let refused = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(PREAUTH_PATH)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(refused.status(), 429);
+    assert_eq!(refused.headers()["retry-after"], "60");
+    let body = to_bytes(refused.into_body(), 4096).await.unwrap();
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
+        serde_json::json!({"detail": "Rate limit exceeded"})
+    );
+    // The owning route trusts the mark: charging again would halve the limit.
+    let marked = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/admin/feedback")
+                .header(PREAUTH_COUNTED_HEADER, "1")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(marked.status(), 200);
+    // An unmarked request is charged and the exhausted window refuses it.
+    let unmarked = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/admin/feedback")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(unmarked.status(), 429);
+}
+
+#[tokio::test]
+async fn only_the_get_authority_and_the_exact_mark_change_admission() {
+    use axum::routing::get;
+    use verdaxis_read::auth::limits::SharedLimits;
+    use verdaxis_read::runtime::http::{PREAUTH_COUNTED_HEADER, PREAUTH_PATH};
+    let authority = SharedLimits::default();
+    let app = verdaxis_read::runtime::http::middleware_with_limits(
+        Router::new().route("/api/admin/feedback", get(|| async { "rust-owned" })),
+        authority,
+    );
+    // A POST to the authority path is not the authority: it is not counted,
+    // not marked, and finds no route.
+    let post = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(PREAUTH_PATH)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(post.status(), 404);
+    assert!(post.headers().get(PREAUTH_COUNTED_HEADER).is_none());
+    for _ in 0..300 {
+        assert_eq!(
+            app.clone()
+                .oneshot(
+                    Request::builder()
+                        .uri(PREAUTH_PATH)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap()
+                .status(),
+            204
+        );
+    }
+    // Only the exact value "1" marks a counted request.
+    let impostor = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/admin/feedback")
+                .header(PREAUTH_COUNTED_HEADER, "0")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(impostor.status(), 429);
+}
+
 #[test]
 fn invalid_authentication_does_not_consume_endpoint_quota_and_floor_is_bounded() {
     use verdaxis_read::auth::limits::{SharedLimits, sample_floor};

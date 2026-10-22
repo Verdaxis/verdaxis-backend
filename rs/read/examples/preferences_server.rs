@@ -38,6 +38,7 @@ mod disposable {
             python_budget: 52,
             configured_max_connections: 100,
             kyc_execution_gate_enabled: true,
+            phase2: Default::default(),
         };
         let pools = verdaxis_read::connect(&config)
             .await

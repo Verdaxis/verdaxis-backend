@@ -39,6 +39,12 @@ pub fn client_ip(peer: Option<IpAddr>, forwarded: Option<&str>) -> String {
         .unwrap_or_else(|| "unknown".into())
 }
 
+/// The one pre-auth authority path Caddy calls before it chooses an owner.
+/// It is loopback-only in deployment and never part of the public inventory.
+pub const PREAUTH_PATH: &str = "/internal/admin-preauth";
+/// Marks a request the authority already counted. Caddy sets it after a 2xx.
+pub const PREAUTH_COUNTED_HEADER: &str = "x-verdaxis-preauth-counted";
+
 #[derive(Clone)]
 struct HttpState {
     started: Instant,
@@ -277,6 +283,15 @@ fn public_get_path(path: &str) -> bool {
             .is_some_and(|id| !id.is_empty() && !id.contains('/'))
 }
 
+fn rate_limit_response() -> Response {
+    (
+        StatusCode::TOO_MANY_REQUESTS,
+        [("retry-after", "60")],
+        axum::Json(serde_json::json!({"detail": "Rate limit exceeded"})),
+    )
+        .into_response()
+}
+
 /// Apply the two rules that sit just outside route dispatch: the Market Support
 /// context boundary and the fixed-window price limits (AD-01). Admission and
 /// CORS are separate outer layers.
@@ -297,16 +312,26 @@ async fn dispatch_boundary(
             .get("x-forwarded-for")
             .and_then(|value| value.to_str().ok()),
     );
-    if !state
-        .phase2_limits
-        .preauth(&client, path, state.started.elapsed().as_secs())
-    {
-        return (
-            StatusCode::TOO_MANY_REQUESTS,
-            [("retry-after", "60")],
-            axum::Json(serde_json::json!({"detail":"Rate limit exceeded"})),
-        )
-            .into_response();
+    let now = state.started.elapsed().as_secs();
+    // One shared pre-auth authority: Caddy calls this path before it decides
+    // whether Python or Rust owns the admin request, so both owners draw from
+    // one counter in one process (decision 78). A refused request never reaches
+    // an upstream; the admitted request carries the mark below.
+    if request.method() == axum::http::Method::GET && path == PREAUTH_PATH {
+        if state.phase2_limits.admit_admin(&client, now) {
+            return (StatusCode::NO_CONTENT, [(PREAUTH_COUNTED_HEADER, "1")]).into_response();
+        }
+        return rate_limit_response();
+    }
+    // The authority already charged this request; charging it again at its
+    // Rust owner would halve the reviewed limit. Caddy deletes any
+    // client-supplied mark on the fail-open path.
+    let counted = request
+        .headers()
+        .get(PREAUTH_COUNTED_HEADER)
+        .is_some_and(|value| value == "1");
+    if !counted && !state.phase2_limits.preauth(&client, path, now) {
+        return rate_limit_response();
     }
     if let Some(response) = crate::auth::scope::known_get_refusal(request.method().as_str(), path) {
         return response;
@@ -418,6 +443,65 @@ pub fn public_router(state: crate::AppState) -> Router {
     router_with(public_routes(), state)
 }
 
+/// The six Phase 2 groups, mounted only when the deploy projected the private
+/// Phase 2 settings. Every group draws its endpoint quota from the same
+/// authority the ingress gate uses, so one process owns the counters.
+///
+/// Some groups carry their own state and are already complete; the others
+/// still need the application state. Providing that state here makes one
+/// complete router, so the composition root can merge it with its own routes.
+fn phase2_routes(
+    state: &crate::AppState,
+    limits: crate::auth::limits::SharedLimits,
+) -> Option<Router> {
+    let settings = state.phase2.as_ref()?;
+    let verification = settings.verification.clone();
+    let mut referrals = crate::crud::referrals::ReferralSettings::new(
+        verification.clone(),
+        settings.frontend_url.clone(),
+    );
+    referrals.limits = limits.clone();
+    referrals.mail = settings.mail.clone();
+    referrals.email_from = settings.email_from.clone().into();
+    Some(
+        Router::new()
+            .merge(
+                crate::crud::notifications::routes(
+                    crate::crud::notifications::NotificationAuthority::new(
+                        verification.clone(),
+                        limits.clone(),
+                    ),
+                )
+                .with_state(state.clone()),
+            )
+            .merge(crate::crud::preferences::router(
+                state.clone(),
+                Arc::new(verification.clone()),
+                limits.clone(),
+            ))
+            .merge(
+                crate::crud::feedback::routes(Arc::new(verification.clone()), limits.clone())
+                    .with_state(state.clone()),
+            )
+            .merge(crate::crud::watchlists::router(
+                state.clone(),
+                crate::crud::watchlists::WatchlistSettings::new(
+                    verification.clone(),
+                    // PD4-G hides best-price events by event type, so no
+                    // release cutoff protects anything here; the ported guard
+                    // is the whole protection (decision 94).
+                    chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
+                ),
+            ))
+            .merge(crate::crud::alerts::router(
+                state.clone(),
+                verification,
+                limits.clone(),
+            ))
+            .merge(crate::crud::referrals::routes(referrals).with_state(state.clone())),
+    )
+}
+
 pub fn router(state: crate::AppState) -> Router {
     public_router(state)
 }
@@ -428,16 +512,24 @@ pub fn router(state: crate::AppState) -> Router {
 /// the same fallbacks, redirects, and middleware as the serving binary, so it
 /// can never mask a routing difference.
 pub fn router_with(extra: Router<crate::AppState>, state: crate::AppState) -> Router {
-    // The dispatch boundary overrides axum's implicit HEAD handler.
+    let limits = crate::auth::limits::SharedLimits::default();
+    // Complete every part with the same application state before merging, so a
+    // group that provides its own state and a group that still needs it can
+    // meet in one router. The one fallback below replaces any group fallback.
     let routes = Router::new()
         .route("/health/live", axum::routing::get(crate::live))
         .route("/health/ready", axum::routing::get(crate::ready))
         .route("/health", axum::routing::get(crate::ready))
-        .merge(extra)
+        .with_state(state.clone())
+        .merge(extra.with_state(state.clone()));
+    let routes = match phase2_routes(&state, limits.clone()) {
+        Some(phase2) => routes.merge(phase2),
+        None => routes,
+    };
+    let routes = routes
         .fallback(fallback)
-        .method_not_allowed_fallback(method_not_allowed)
-        .with_state(state.clone());
-    middleware_with_state(routes, state)
+        .method_not_allowed_fallback(method_not_allowed);
+    compose(routes, Some(state), limits)
 }
 
 async fn method_not_allowed() -> Response {

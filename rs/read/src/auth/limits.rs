@@ -13,6 +13,14 @@ impl SharedLimits {
             .preauth(client, path, now)
     }
 
+    /// The one `/api/admin/` authority every ingress path draws from.
+    pub fn admit_admin(&self, client: &str, now: u64) -> bool {
+        self.0
+            .lock()
+            .expect("quota authority lock")
+            .preauth(client, "/api/admin/", now)
+    }
+
     /// Route adapters call this after bearer/current-account admission and
     /// typed validation. Invalid authentication never consumes endpoint quota.
     pub fn check_endpoint(

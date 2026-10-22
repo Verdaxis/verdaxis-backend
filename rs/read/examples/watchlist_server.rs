@@ -31,6 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         pool_max: 17,
         python_budget: 52,
         configured_max_connections: 100,
+        phase2: Default::default(),
     };
     let state = AppState::new(
         config.clone(),
