@@ -4,6 +4,12 @@ use rust_decimal::{Decimal, RoundingStrategy};
 use serde::Serialize;
 use std::fmt;
 
+const METHANOL_LCV_MJ_KG: Decimal = Decimal::from_parts(199, 0, 0, false, 1);
+const ETHANOL_LCV_MJ_KG: Decimal = Decimal::from_parts(268, 0, 0, false, 1);
+const DEFAULT_EUR_USD_RATE: Decimal = Decimal::from_parts(108, 0, 0, false, 2);
+const FUELEU_PENALTY_EUR_PER_TONNE: Decimal = Decimal::from_parts(2400, 0, 0, false, 0);
+const GRAMS_PER_KG_TO_TONNES_PER_MT: Decimal = Decimal::from_parts(1, 0, 0, false, 3);
+
 pub struct LifecycleOverlayCore;
 
 /// The route selects this physical family from catalog policy, not user text.
@@ -92,9 +98,9 @@ impl LifecycleOverlayCore {
         let (lcv, lcv_basis) = match listing_lcv_mj_kg {
             Some(lcv) => (lcv, ValueBasis::Listing),
             None => match alcohol_family {
-                Some(AlcoholFamily::Methanol) => (Decimal::new(199, 1), ValueBasis::ProductDefault),
-                Some(AlcoholFamily::Ethanol) => (Decimal::new(268, 1), ValueBasis::ProductDefault),
-                _ => return Ok(None),
+                Some(AlcoholFamily::Methanol) => (METHANOL_LCV_MJ_KG, ValueBasis::ProductDefault),
+                Some(AlcoholFamily::Ethanol) => (ETHANOL_LCV_MJ_KG, ValueBasis::ProductDefault),
+                None => return Ok(None),
             },
         };
         if lcv <= Decimal::ZERO {
@@ -109,7 +115,7 @@ impl LifecycleOverlayCore {
         } else {
             FUELEU_REFERENCE_GHG
                 .checked_sub(ci)
-                .and_then(|difference| difference.checked_mul(Decimal::new(1, 3)))
+                .and_then(|difference| difference.checked_mul(GRAMS_PER_KG_TO_TONNES_PER_MT))
                 .and_then(|difference| difference.checked_mul(lcv))
                 .ok_or(PricingError::ArithmeticRange)?
                 .round_dp_with_strategy(3, RoundingStrategy::MidpointAwayFromZero)
@@ -134,7 +140,7 @@ impl LifecycleOverlayCore {
         eur_usd_rate: Option<Decimal>,
     ) -> Result<OverlayAssumptions, PricingError> {
         let year_target = fueleu_target(year).map_err(PricingError::ReportingYear)?;
-        let eur_usd_rate = eur_usd_rate.unwrap_or(Decimal::new(108, 2));
+        let eur_usd_rate = eur_usd_rate.unwrap_or(DEFAULT_EUR_USD_RATE);
         if eur_usd_rate <= Decimal::ZERO {
             return Err(PricingError::ExchangeRate);
         }
@@ -144,7 +150,7 @@ impl LifecycleOverlayCore {
             ghgie_actual_gco2_mj: FUELEU_REFERENCE_GHG,
             fleet_intensity_basis: FleetIntensityBasis::DefaultVlsfo,
             fleet_vessel_count,
-            penalty_eur_per_tonne: Decimal::new(2400, 0),
+            penalty_eur_per_tonne: FUELEU_PENALTY_EUR_PER_TONNE,
             year,
             year_target,
             excluded_factors: [

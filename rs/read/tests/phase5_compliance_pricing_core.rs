@@ -94,9 +94,6 @@ fn compliance_pricing_optional_cases() {
             .unwrap()
             .is_none()
     );
-    for non_decimal in ["NaN", "Infinity", "-Infinity"] {
-        assert!(Decimal::from_str(non_decimal).is_err());
-    }
     assert_eq!(
         serde_json::to_value(LifecycleOverlayCore::compute(None, None, None).unwrap(),).unwrap(),
         serde_json::Value::Null
@@ -125,6 +122,8 @@ fn compliance_pricing_assumption_cases() {
                 market::fueleu::fueleu_target(2031).unwrap()
             );
             let value = serde_json::to_value(assumptions).unwrap();
+            assert_eq!(value["year"], json!(2031));
+            assert_eq!(value["fleet_vessel_count"], json!(count));
             assert_eq!(value["fleet_intensity_basis"], "DEFAULT_VLSFO");
             assert_eq!(
                 value["excluded_factors"],
