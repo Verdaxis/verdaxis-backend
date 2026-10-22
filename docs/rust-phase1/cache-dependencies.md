@@ -127,6 +127,12 @@ hold (`CacheAuthority`):
    or revocation bumps a fence counter, so an entry or fill made earlier is
    never accepted again, even with equal identity and generation.
 
+Each entry stores the loader's evaluation clock as the lower bound of its
+validity interval. A request captured before that clock loads its own result,
+even when the generation is unchanged. Hits also require the request clock and
+current monotonic time to precede the upper boundary. For an equal authority,
+fence and generation, an earlier-clock fill cannot replace a later-clock entry.
+
 Generation numbers are not compared for rollback in process. Independent
 REPEATABLE READ snapshots can finish out of order, so a smaller generation only
 keeps a fill out of storage (the high-water mark) and never proves a restore. An

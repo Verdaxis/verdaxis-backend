@@ -734,13 +734,14 @@ async fn an_entry_from_the_prior_incarnation_is_never_a_hit() {
     let entry_a = TradingEntry::new(
         &ticket_a,
         b"rows-from-a".to_vec(),
+        TradingClock::new(clock, SystemTime::now()),
         Boundary::Never,
         "policy".into(),
     );
     assert!(cache.insert("key", entry_a.clone(), clock));
     assert!(
         cache
-            .hit(&process, &"key", &ticket_a, generation_a, "policy", clock)
+            .hit(&process, &"key", &ticket_a, "policy", TradingClock::new(clock, SystemTime::now()), clock)
             .is_some()
     );
 
@@ -766,19 +767,20 @@ async fn an_entry_from_the_prior_incarnation_is_never_a_hit() {
     assert_eq!(generation_b, base);
     assert!(
         cache
-            .hit(&process, &"key", &ticket_b, generation_b, "policy", clock)
+            .hit(&process, &"key", &ticket_b, "policy", TradingClock::new(clock, SystemTime::now()), clock)
             .is_none()
     );
     let entry_b = TradingEntry::new(
         &ticket_b,
         b"rows-from-b".to_vec(),
+        TradingClock::new(clock, SystemTime::now()),
         Boundary::Never,
         "policy".into(),
     );
     assert!(cache.insert("key", entry_b, clock));
     assert_eq!(
         cache
-            .hit(&process, &"key", &ticket_b, generation_b, "policy", clock)
+            .hit(&process, &"key", &ticket_b, "policy", TradingClock::new(clock, SystemTime::now()), clock)
             .map(|entry| entry.payload),
         Some(b"rows-from-b".to_vec())
     );

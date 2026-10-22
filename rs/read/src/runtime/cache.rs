@@ -1,5 +1,5 @@
 //! Public payload cache. Response headers and request admission are never stored.
-use crate::market::cache_dependencies::Boundary;
+use crate::market::cache_dependencies::{Boundary, TradingClock};
 use crate::runtime::cache_authority::{CacheAuthority, FenceToken, FillTicket};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, Weak};
@@ -133,6 +133,7 @@ pub struct TradingEntry {
     pub authority_revision: u64,
     pub fence_counter: u64,
     pub generation: i64,
+    pub evaluated_at: TradingClock,
     pub valid_until: Boundary,
     pub policy_identity: String,
 }
@@ -144,6 +145,7 @@ impl TradingEntry {
     pub fn new(
         ticket: &FillTicket,
         payload: Vec<u8>,
+        evaluated_at: TradingClock,
         valid_until: Boundary,
         policy_identity: String,
     ) -> Self {
@@ -156,6 +158,7 @@ impl TradingEntry {
             authority_revision: authority.revision,
             fence_counter: token.fence(),
             generation: ticket.generation(),
+            evaluated_at,
             valid_until,
             policy_identity,
         }
@@ -179,10 +182,21 @@ impl TradingEntry {
             && self.policy_identity == policy_identity
     }
 
-    /// Order of production: a later authority revision, then a later fence,
-    /// then a later generation is newer. Tuples compare in that order.
-    fn recency(&self) -> (u64, u64, i64) {
-        (self.authority_revision, self.fence_counter, self.generation)
+    /// Authority, fence and generation take precedence over evaluation time.
+    /// For the same snapshot generation, never replace a later-clock answer.
+    fn recency(&self) -> (u64, u64, i64, Instant) {
+        (
+            self.authority_revision,
+            self.fence_counter,
+            self.generation,
+            self.evaluated_at.monotonic,
+        )
+    }
+
+    fn covers(&self, clock: TradingClock) -> bool {
+        clock.monotonic >= self.evaluated_at.monotonic
+            && clock.wall >= self.evaluated_at.wall
+            && self.valid_until.is_live(clock.monotonic)
     }
 }
 
@@ -245,18 +259,19 @@ impl<K: Eq> TradingCache<K> {
     }
 
     /// Commit-safe hit check: the token must still be accepted and the entry
-    /// must name the same authority, fence, generation, policy and a live
-    /// boundary. `None` means the caller must load the payload again.
+    /// must name the same authority, fence, generation and policy. Both the
+    /// request clock and current time must be in its validity interval.
+    /// `None` means the caller must load the payload again.
     pub fn hit(
         &self,
         authority: &CacheAuthority,
         key: &K,
         ticket: &FillTicket,
-        latest_generation: i64,
         policy_identity: &str,
+        clock: TradingClock,
         now: Instant,
     ) -> Option<TradingEntry> {
-        if !authority.may_publish(ticket, latest_generation, now) {
+        if !authority.may_publish(ticket, ticket.generation(), now) {
             return None;
         }
         let mut entries = self
@@ -268,9 +283,10 @@ impl<K: Eq> TradingCache<K> {
             .iter()
             .find(|stored| {
                 &stored.key == key
+                    && stored.entry.covers(clock)
                     && stored
                         .entry
-                        .matches(ticket.token(), latest_generation, policy_identity)
+                        .matches(ticket.token(), ticket.generation(), policy_identity)
             })
             .map(|stored| stored.entry.clone())
     }
@@ -420,6 +436,10 @@ mod trading_tests {
         TradingEntry::new(
             &FillTicket::new(token.clone(), generation),
             b"payload".to_vec(),
+            TradingClock::new(
+                Instant::now() - Duration::from_secs(1),
+                std::time::UNIX_EPOCH,
+            ),
             valid_until,
             "policy".into(),
         )
@@ -507,6 +527,49 @@ mod trading_tests {
     }
 
     #[test]
+    fn an_earlier_clock_fill_cannot_replace_a_later_clock_entry() {
+        let process = process();
+        let clock = TradingClock::new(process.now, std::time::SystemTime::now());
+        let later = TradingClock::new(
+            clock.monotonic + Duration::from_secs(1),
+            clock.wall + Duration::from_secs(1),
+        );
+        let cache = TradingCache::new(4, 1024);
+        let mut early_entry = entry_for(&process.token, 10, Boundary::Never);
+        early_entry.evaluated_at = clock;
+        let mut late_entry = early_entry.clone();
+        late_entry.evaluated_at = later;
+        late_entry.payload = b"later".to_vec();
+        assert!(cache.insert("key", late_entry, later.monotonic));
+        assert!(!cache.insert("key", early_entry, later.monotonic));
+        let ticket = FillTicket::new(process.token.clone(), 10);
+        assert!(cache
+            .hit(
+                &process.authority,
+                &"key",
+                &ticket,
+                "policy",
+                clock,
+                later.monotonic
+            )
+            .is_none());
+        assert_eq!(
+            cache
+                .hit(
+                    &process.authority,
+                    &"key",
+                    &ticket,
+                    "policy",
+                    later,
+                    later.monotonic
+                )
+                .unwrap()
+                .payload,
+            b"later"
+        );
+    }
+
+    #[test]
     fn an_older_fill_never_replaces_a_newer_entry() {
         let process = process();
         let now = process.now;
@@ -515,11 +578,16 @@ mod trading_tests {
         // An overlapping snapshot at the older generation finishes later.
         assert!(!cache.insert("key", entry_for(&process.token, 10, Boundary::Never), now));
         let current = FillTicket::new(process.token.clone(), 11);
-        assert!(
-            cache
-                .hit(&process.authority, &"key", &current, 11, "policy", now)
-                .is_some()
-        );
+        assert!(cache
+            .hit(
+                &process.authority,
+                &"key",
+                &current,
+                "policy",
+                TradingClock::new(now, std::time::SystemTime::now()),
+                now
+            )
+            .is_some());
         // The same or a later generation still replaces the entry.
         assert!(cache.insert("key", entry_for(&process.token, 11, Boundary::Never), now));
         assert!(cache.insert("key", entry_for(&process.token, 12, Boundary::Never), now));

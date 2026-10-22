@@ -224,8 +224,8 @@ where
                 &authority,
                 &key,
                 &ticket,
-                generation,
                 &policy,
+                clock,
                 observer.now().monotonic,
             ) {
                 match serde_json::from_slice(&entry.payload) {
@@ -276,7 +276,7 @@ where
                 // that fell during admission or the query is refused here.
                 cache.insert(
                     key,
-                    TradingEntry::new(&ticket, payload, boundary, policy),
+                    TradingEntry::new(&ticket, payload, clock, boundary, policy),
                     observer.now().monotonic,
                 );
             }
