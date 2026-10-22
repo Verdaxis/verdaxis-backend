@@ -12,8 +12,8 @@
 //! crate items the module names, so the behavior is exercised instead of being
 //! asserted by file presence.
 
-pub use verdaxis_read::{auth, compliance};
 pub use verdaxis_read::{ApiError, ApiErrorKind};
+pub use verdaxis_read::{auth, compliance};
 
 #[path = "../src/compliance/http.rs"]
 mod compliance_http;
