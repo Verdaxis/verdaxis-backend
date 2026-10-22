@@ -47,10 +47,22 @@ def servers(context):
                  for server in base_servers(context))
 
 
+def assert_cache_change(expected, after, count):
+    for key, row in expected['public_read_cache_generations']['rows'].items():
+        assert after['public_read_cache_generations']['rows'][key] == {**row, 'generation': row['generation'] + count}
+    old = expected['public_read_cache_events']['rows']
+    new = after['public_read_cache_events']['rows']
+    assert all(new.get(key) == row for key, row in old.items())
+    assert len(new) == len(old) + count
+    for table in ('public_read_cache_generations', 'public_read_cache_events'):
+        expected[table] = copy.deepcopy(after[table])
+
+
 def only_code(before, after, response, mail):
     expected = copy.deepcopy(before)
     for key, row in expected['users']['rows'].items():
         row['referral_code'] = after['users']['rows'][key]['referral_code']
+    assert_cache_change(expected, after, int(response["status"] == 200))
     assert expected == after
     assert not mail
 
@@ -112,6 +124,7 @@ def races(context):
         def invariant(before,after,results):
             expected = copy.deepcopy(before)
             for key,row in expected['users']['rows'].items(): row['referral_code']=after['users']['rows'][key]['referral_code']
+            assert_cache_change(expected, after, 1)
             assert expected == after
             assert not errors, errors
         yield Race((Action('first','R01','POST','/api/referrals/my-code',200,headers=auth(first),actor_id=first),
