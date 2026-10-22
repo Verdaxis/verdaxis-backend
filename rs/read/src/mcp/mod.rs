@@ -1,4 +1,3 @@
-pub mod decimal;
 pub mod prices;
 mod protocol;
 mod server;
@@ -182,11 +181,12 @@ async fn dispatch(State(state): State<AppState>, request: Request) -> Response {
                 .expect("method argument rejection");
         }
         if let Err(message) = validation::tool_arguments(&tool, &mut arguments) {
-            let mut result = serde_json::json!({"content":[{"text":format!("Error executing tool {tool}: {message}"),"type":"text"}],"isError":true});
+            let mut result =
+                serde_json::json!({"content":[{"text":message,"type":"text"}],"isError":true});
             if modern {
                 result["resultType"] = serde_json::json!("complete");
             }
-            let mut envelope = transport::python_envelope(
+            let mut envelope = transport::protocol_envelope(
                 serde_json::json!({"id":input["id"],"result":result}),
                 &method,
             );
@@ -236,7 +236,7 @@ async fn dispatch(State(state): State<AppState>, request: Request) -> Response {
                     if value["error"]["code"] == -32601 {
                         value["error"] = serde_json::json!({"code":-32601,"message":"Method not found","data":method});
                     }
-                    let mut envelope = transport::python_envelope(value, &method);
+                    let mut envelope = transport::protocol_envelope(value, &method);
                     if modern {
                         append_server_info(&mut envelope);
                     }

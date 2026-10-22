@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 
 from scripts.rust_contract.compare import (
@@ -11,7 +12,7 @@ from scripts.rust_contract.compare import (
     load_cases,
     recording_differences,
 )
-from scripts.rust_contract.record import record, stable
+from scripts.rust_contract.record import record
 from scripts.rust_contract.run_disposable import ROOT
 
 
@@ -31,12 +32,12 @@ def compare_evidence(entries, evidence: Path, *, gate: bool):
         exchange = capture(stored["status"], stored["headers"], (directory / "response.body").read_bytes())
         if exchange["body_sha256"] != stored["body_sha256"]:
             raise ContractError("MCP evidence body digest mismatch")
-        expected.append({"id":entry["id"],"request":request,"exchange":exchange})
-    return recording_differences(expected, stable(entries))
+        expected.append({"id":entry["id"],"request":request,"exchange":exchange,"raw_body":(directory / "response.body").read_bytes()})
+    return recording_differences(expected, entries, profile=os.environ.get("RUST_CONTRACT_PROFILE"),
+                                 rules_sha256=os.environ.get("MEANING_RULES_SHA256"))
 
 
 def main():
-    import os
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-url", required=True)
     parser.add_argument("--evidence", type=Path, required=True)

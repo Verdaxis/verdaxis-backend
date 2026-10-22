@@ -69,6 +69,8 @@ pub struct AppState {
     pub(crate) pools: runtime::db::Pools,
     pub policy: std::sync::Arc<MarketPolicy>,
     pub reads: std::sync::Arc<tokio::sync::Semaphore>,
+    pub reference_cache:
+        std::sync::Arc<runtime::cache::ReferenceCache<runtime::cache::ReferenceKey>>,
 }
 
 impl AppState {
@@ -91,6 +93,7 @@ impl AppState {
             pools,
             policy: std::sync::Arc::new(policy),
             reads,
+            reference_cache: std::sync::Arc::new(runtime::cache::ReferenceCache::default()),
         })
     }
 }

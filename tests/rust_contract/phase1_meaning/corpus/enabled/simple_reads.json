@@ -1,0 +1,2113 @@
+{
+  "profile": "phase1-meaning-v1",
+  "rules_sha256": "f68125dd74d59f0af49f120b839d8e3cdadef1deca8027f9d0f08fc8a0b99e0e",
+  "source_sha": "56567679662daa76c9b7171015f57a7e76a3609a",
+  "clock": "2026-10-15T12:00:00+00:00",
+  "group": "simple_reads",
+  "kyc_gate": true,
+  "entries": [
+    {
+      "id": "R01-ports",
+      "request": {
+        "method": "GET",
+        "path": "/api/ports",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": [
+          {
+            "id": "T4B_BARE",
+            "name": "Corpus BARE",
+            "country": "Singapore",
+            "location": null,
+            "timezone": "Asia/Singapore",
+            "is_active": true,
+            "lat": "1.234567891234",
+            "lng": "103.123456789123",
+            "intelligence": null
+          },
+          {
+            "id": "T4B_ONE",
+            "name": "Corpus ONE",
+            "country": "Singapore",
+            "location": null,
+            "timezone": "Asia/Singapore",
+            "is_active": true,
+            "lat": "1.234567891234",
+            "lng": "103.123456789123",
+            "intelligence": {
+              "congestion_level": "Low",
+              "methanol_price_avg": "600.0",
+              "biofuel_price_avg": null,
+              "captured_at": "2026-10-15T12:00:00Z"
+            }
+          },
+          {
+            "id": "T4B_TWO",
+            "name": "Corpus TWO",
+            "country": "Singapore",
+            "location": null,
+            "timezone": "Asia/Singapore",
+            "is_active": true,
+            "lat": "1.234567891234",
+            "lng": "103.123456789123",
+            "intelligence": {
+              "congestion_level": "Low",
+              "methanol_price_avg": "601.0",
+              "biofuel_price_avg": null,
+              "captured_at": "2026-10-15T12:00:00Z"
+            }
+          }
+        ],
+        "body_sha256": "4abc57055a9e818f4817b2d12bc8b21e7d9f133bbe3c14b359bbd36313fec246"
+      },
+      "raw_body_base64": "W3siaWQiOiJUNEJfQkFSRSIsIm5hbWUiOiJDb3JwdXMgQkFSRSIsImNvdW50cnkiOiJTaW5nYXBvcmUiLCJsb2NhdGlvbiI6bnVsbCwidGltZXpvbmUiOiJBc2lhL1NpbmdhcG9yZSIsImlzX2FjdGl2ZSI6dHJ1ZSwibGF0IjoxLjIzNDU2Nzg5MTIzNCwibG5nIjoxMDMuMTIzNDU2Nzg5MTIzLCJpbnRlbGxpZ2VuY2UiOm51bGx9LHsiaWQiOiJUNEJfT05FIiwibmFtZSI6IkNvcnB1cyBPTkUiLCJjb3VudHJ5IjoiU2luZ2Fwb3JlIiwibG9jYXRpb24iOm51bGwsInRpbWV6b25lIjoiQXNpYS9TaW5nYXBvcmUiLCJpc19hY3RpdmUiOnRydWUsImxhdCI6MS4yMzQ1Njc4OTEyMzQsImxuZyI6MTAzLjEyMzQ1Njc4OTEyMywiaW50ZWxsaWdlbmNlIjp7ImNvbmdlc3Rpb25fbGV2ZWwiOiJMb3ciLCJtZXRoYW5vbF9wcmljZV9hdmciOjYwMC4wLCJiaW9mdWVsX3ByaWNlX2F2ZyI6bnVsbCwiY2FwdHVyZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwWiJ9fSx7ImlkIjoiVDRCX1RXTyIsIm5hbWUiOiJDb3JwdXMgVFdPIiwiY291bnRyeSI6IlNpbmdhcG9yZSIsImxvY2F0aW9uIjpudWxsLCJ0aW1lem9uZSI6IkFzaWEvU2luZ2Fwb3JlIiwiaXNfYWN0aXZlIjp0cnVlLCJsYXQiOjEuMjM0NTY3ODkxMjM0LCJsbmciOjEwMy4xMjM0NTY3ODkxMjMsImludGVsbGlnZW5jZSI6eyJjb25nZXN0aW9uX2xldmVsIjoiTG93IiwibWV0aGFub2xfcHJpY2VfYXZnIjo2MDEuMCwiYmlvZnVlbF9wcmljZV9hdmciOm51bGwsImNhcHR1cmVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMFoifX1d"
+    },
+    {
+      "id": "R01-ports-head",
+      "request": {
+        "method": "HEAD",
+        "path": "/api/ports",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": null,
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "raw_body_base64": ""
+    },
+    {
+      "id": "R01-ports-post-405",
+      "request": {
+        "method": "POST",
+        "path": "/api/ports",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "Method Not Allowed"
+        },
+        "body_sha256": "83c09ba9a8daedb136f90b17a294caa90ad471a016e430df6e229acb5a81e100"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJNZXRob2QgTm90IEFsbG93ZWQifQ=="
+    },
+    {
+      "id": "R01-ports-options-405",
+      "request": {
+        "method": "OPTIONS",
+        "path": "/api/ports",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "Method Not Allowed"
+        },
+        "body_sha256": "83c09ba9a8daedb136f90b17a294caa90ad471a016e430df6e229acb5a81e100"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJNZXRob2QgTm90IEFsbG93ZWQifQ=="
+    },
+    {
+      "id": "R01-ports-slash-307",
+      "request": {
+        "method": "GET",
+        "path": "/api/ports/",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 307,
+        "headers": {
+          "location": "{endpoint}/api/ports",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": null,
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "raw_body_base64": ""
+    },
+    {
+      "id": "R02-port",
+      "request": {
+        "method": "GET",
+        "path": "/api/ports/1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 404,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "Port not found"
+        },
+        "body_sha256": "21e7ee8f921bcd764d0cf5ab9a5a7ad7231e1777b6291f5d4d7222c9360b752d"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJQb3J0IG5vdCBmb3VuZCJ9"
+    },
+    {
+      "id": "R02-port-head",
+      "request": {
+        "method": "HEAD",
+        "path": "/api/ports/1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": null,
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "raw_body_base64": ""
+    },
+    {
+      "id": "R02-port-post-405",
+      "request": {
+        "method": "POST",
+        "path": "/api/ports/1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "Method Not Allowed"
+        },
+        "body_sha256": "83c09ba9a8daedb136f90b17a294caa90ad471a016e430df6e229acb5a81e100"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJNZXRob2QgTm90IEFsbG93ZWQifQ=="
+    },
+    {
+      "id": "R02-port-options-405",
+      "request": {
+        "method": "OPTIONS",
+        "path": "/api/ports/1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "Method Not Allowed"
+        },
+        "body_sha256": "83c09ba9a8daedb136f90b17a294caa90ad471a016e430df6e229acb5a81e100"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJNZXRob2QgTm90IEFsbG93ZWQifQ=="
+    },
+    {
+      "id": "R02-port-slash-307",
+      "request": {
+        "method": "GET",
+        "path": "/api/ports/1379d36c-1ca9-55b7-9c0d-5235a0ba1f36/",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 307,
+        "headers": {
+          "location": "{endpoint}/api/ports/1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": null,
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "raw_body_base64": ""
+    },
+    {
+      "id": "R02b-port-missing",
+      "request": {
+        "method": "GET",
+        "path": "/api/ports/ZZZZZ",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 404,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "Port not found"
+        },
+        "body_sha256": "21e7ee8f921bcd764d0cf5ab9a5a7ad7231e1777b6291f5d4d7222c9360b752d"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJQb3J0IG5vdCBmb3VuZCJ9"
+    },
+    {
+      "id": "R03-products",
+      "request": {
+        "method": "GET",
+        "path": "/api/catalog/products",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": [
+          {
+            "id": "c4cecebc-3d2d-5840-8021-57a9a11bc673",
+            "name": "B30",
+            "market_product": "B30",
+            "execution_mode": "ORDERBOOK",
+            "available_delivery_point_ids": [
+              "78281fb3-e726-5396-802e-34b01fda21e8",
+              "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+              "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+              "73835e92-820e-584b-8280-bb61c63aa28e",
+              "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+              "a083db06-b050-56c2-a274-3897eac2fdae",
+              "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+              "a4762444-4e0b-5bc1-b647-a185047adae5"
+            ],
+            "spec_description": "30% FAME by volume blended with 70% VLSFO; finished blend meets ISO 8217:2024 RF 380 with sulphur at most 0.50% by mass",
+            "fuel_type": "Biofuel",
+            "fuel_grade": "B30",
+            "unit": "MT",
+            "min_lot_size": "200.00",
+            "is_active": true
+          },
+          {
+            "id": "74eb9cb5-f0e3-55f1-b82c-fe29b7c45bf5",
+            "name": "B100",
+            "market_product": "B100",
+            "execution_mode": "ORDERBOOK",
+            "available_delivery_point_ids": [
+              "78281fb3-e726-5396-802e-34b01fda21e8",
+              "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+              "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+              "73835e92-820e-584b-8280-bb61c63aa28e",
+              "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+              "a083db06-b050-56c2-a274-3897eac2fdae",
+              "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+              "a4762444-4e0b-5bc1-b647-a185047adae5"
+            ],
+            "spec_description": "100% FAME, excluding HVO; finished fuel meets ISO 8217:2024 DFA with sulphur at most 0.10% by mass",
+            "fuel_type": "Biofuel",
+            "fuel_grade": "B100",
+            "unit": "MT",
+            "min_lot_size": "200.00",
+            "is_active": true
+          },
+          {
+            "id": "8f6f34a5-2927-54a6-8564-cca40ae7cb8a",
+            "name": "Bio-LNG",
+            "market_product": "BIO_LNG",
+            "execution_mode": "ORDERBOOK",
+            "available_delivery_point_ids": [
+              "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36"
+            ],
+            "spec_description": "Liquefied biomethane (bio-LNG) for marine fuel use, delivered to ISO 23306:2020 with a certified Proof of Sustainability.",
+            "fuel_type": "LNG",
+            "fuel_grade": "Bio",
+            "unit": "MT",
+            "min_lot_size": "1.00",
+            "is_active": true
+          },
+          {
+            "id": "e561e43f-d9b2-598e-981c-f1d28d515ddc",
+            "name": "UCOME B100",
+            "market_product": "UCOME_B100",
+            "execution_mode": "ORDERBOOK",
+            "available_delivery_point_ids": [
+              "73835e92-820e-584b-8280-bb61c63aa28e"
+            ],
+            "spec_description": "Neat B100 used cooking oil methyl ester for wholesale Singapore trading. 1 MT is the platform input minimum; orders require compatible quality and delivery terms.",
+            "fuel_type": "FAME",
+            "fuel_grade": "UCOME",
+            "unit": "MT",
+            "min_lot_size": "1.00",
+            "is_active": true
+          },
+          {
+            "id": "9510c713-6e39-5080-add3-0a7c29657b79",
+            "name": "Bio Methanol",
+            "market_product": "BIO_METHANOL",
+            "execution_mode": "ORDERBOOK",
+            "available_delivery_point_ids": [
+              "78281fb3-e726-5396-802e-34b01fda21e8",
+              "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+              "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+              "73835e92-820e-584b-8280-bb61c63aa28e",
+              "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+              "a083db06-b050-56c2-a274-3897eac2fdae",
+              "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+              "a4762444-4e0b-5bc1-b647-a185047adae5"
+            ],
+            "spec_description": "Bio-methanol produced from biogenic feedstocks for marine fuel use",
+            "fuel_type": "Methanol",
+            "fuel_grade": "Bio",
+            "unit": "MT",
+            "min_lot_size": "200.00",
+            "is_active": true
+          },
+          {
+            "id": "f9b20492-b445-59cd-b292-a386d913f488",
+            "name": "e-Methanol",
+            "market_product": "E_METHANOL",
+            "execution_mode": "ORDERBOOK",
+            "available_delivery_point_ids": [
+              "78281fb3-e726-5396-802e-34b01fda21e8",
+              "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+              "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+              "73835e92-820e-584b-8280-bb61c63aa28e",
+              "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+              "a083db06-b050-56c2-a274-3897eac2fdae",
+              "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+              "a4762444-4e0b-5bc1-b647-a185047adae5"
+            ],
+            "spec_description": "Synthetic methanol produced from renewable hydrogen and captured CO2",
+            "fuel_type": "Methanol",
+            "fuel_grade": "E",
+            "unit": "MT",
+            "min_lot_size": "200.00",
+            "is_active": true
+          },
+          {
+            "id": "c4a688be-f7c2-5edc-8f93-6b34e387609c",
+            "name": "Bio Ethanol",
+            "market_product": "BIO_ETHANOL",
+            "execution_mode": "ORDERBOOK",
+            "available_delivery_point_ids": [
+              "78281fb3-e726-5396-802e-34b01fda21e8",
+              "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+              "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+              "73835e92-820e-584b-8280-bb61c63aa28e",
+              "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+              "a083db06-b050-56c2-a274-3897eac2fdae",
+              "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+              "a4762444-4e0b-5bc1-b647-a185047adae5"
+            ],
+            "spec_description": "Second-generation bioethanol from waste feedstocks",
+            "fuel_type": "Ethanol",
+            "fuel_grade": "Bio",
+            "unit": "MT",
+            "min_lot_size": "200.00",
+            "is_active": true
+          }
+        ],
+        "body_sha256": "aacecbe91cc67ad34f98a249986f15c93c8e7d739b4889be6e529eb0a0df07ca"
+      },
+      "raw_body_base64": "W3siaWQiOiJjNGNlY2ViYy0zZDJkLTU4NDAtODAyMS01N2E5YTExYmM2NzMiLCJuYW1lIjoiQjMwIiwibWFya2V0X3Byb2R1Y3QiOiJCMzAiLCJleGVjdXRpb25fbW9kZSI6Ik9SREVSQk9PSyIsImF2YWlsYWJsZV9kZWxpdmVyeV9wb2ludF9pZHMiOlsiNzgyODFmYjMtZTcyNi01Mzk2LTgwMmUtMzRiMDFmZGEyMWU4IiwiMjYyZDM2YWUtNmYzNS01Nzg1LWI5ZTgtOWUyMjFiMGYxYjc4IiwiNjMzYzA1OTMtZjliOS01MmFkLWFiZTUtYTAyODVmNjg4OGQzIiwiNzM4MzVlOTItODIwZS01ODRiLTgyODAtYmI2MWM2M2FhMjhlIiwiMTM3OWQzNmMtMWNhOS01NWI3LTljMGQtNTIzNWEwYmExZjM2IiwiYTA4M2RiMDYtYjA1MC01NmMyLWEyNzQtMzg5N2VhYzJmZGFlIiwiMWJlMmE1Y2ItZmMzNC01ZTg4LThiMTUtN2Y3ZDBmZDZlNTM0IiwiYTQ3NjI0NDQtNGUwYi01YmMxLWI2NDctYTE4NTA0N2FkYWU1Il0sInNwZWNfZGVzY3JpcHRpb24iOiIzMCUgRkFNRSBieSB2b2x1bWUgYmxlbmRlZCB3aXRoIDcwJSBWTFNGTzsgZmluaXNoZWQgYmxlbmQgbWVldHMgSVNPIDgyMTc6MjAyNCBSRiAzODAgd2l0aCBzdWxwaHVyIGF0IG1vc3QgMC41MCUgYnkgbWFzcyIsImZ1ZWxfdHlwZSI6IkJpb2Z1ZWwiLCJmdWVsX2dyYWRlIjoiQjMwIiwidW5pdCI6Ik1UIiwibWluX2xvdF9zaXplIjoiMjAwLjAwIiwiaXNfYWN0aXZlIjp0cnVlfSx7ImlkIjoiNzRlYjljYjUtZjBlMy01NWYxLWI4MmMtZmUyOWI3YzQ1YmY1IiwibmFtZSI6IkIxMDAiLCJtYXJrZXRfcHJvZHVjdCI6IkIxMDAiLCJleGVjdXRpb25fbW9kZSI6Ik9SREVSQk9PSyIsImF2YWlsYWJsZV9kZWxpdmVyeV9wb2ludF9pZHMiOlsiNzgyODFmYjMtZTcyNi01Mzk2LTgwMmUtMzRiMDFmZGEyMWU4IiwiMjYyZDM2YWUtNmYzNS01Nzg1LWI5ZTgtOWUyMjFiMGYxYjc4IiwiNjMzYzA1OTMtZjliOS01MmFkLWFiZTUtYTAyODVmNjg4OGQzIiwiNzM4MzVlOTItODIwZS01ODRiLTgyODAtYmI2MWM2M2FhMjhlIiwiMTM3OWQzNmMtMWNhOS01NWI3LTljMGQtNTIzNWEwYmExZjM2IiwiYTA4M2RiMDYtYjA1MC01NmMyLWEyNzQtMzg5N2VhYzJmZGFlIiwiMWJlMmE1Y2ItZmMzNC01ZTg4LThiMTUtN2Y3ZDBmZDZlNTM0IiwiYTQ3NjI0NDQtNGUwYi01YmMxLWI2NDctYTE4NTA0N2FkYWU1Il0sInNwZWNfZGVzY3JpcHRpb24iOiIxMDAlIEZBTUUsIGV4Y2x1ZGluZyBIVk87IGZpbmlzaGVkIGZ1ZWwgbWVldHMgSVNPIDgyMTc6MjAyNCBERkEgd2l0aCBzdWxwaHVyIGF0IG1vc3QgMC4xMCUgYnkgbWFzcyIsImZ1ZWxfdHlwZSI6IkJpb2Z1ZWwiLCJmdWVsX2dyYWRlIjoiQjEwMCIsInVuaXQiOiJNVCIsIm1pbl9sb3Rfc2l6ZSI6IjIwMC4wMCIsImlzX2FjdGl2ZSI6dHJ1ZX0seyJpZCI6IjhmNmYzNGE1LTI5MjctNTRhNi04NTY0LWNjYTQwYWU3Y2I4YSIsIm5hbWUiOiJCaW8tTE5HIiwibWFya2V0X3Byb2R1Y3QiOiJCSU9fTE5HIiwiZXhlY3V0aW9uX21vZGUiOiJPUkRFUkJPT0siLCJhdmFpbGFibGVfZGVsaXZlcnlfcG9pbnRfaWRzIjpbIjEzNzlkMzZjLTFjYTktNTViNy05YzBkLTUyMzVhMGJhMWYzNiJdLCJzcGVjX2Rlc2NyaXB0aW9uIjoiTGlxdWVmaWVkIGJpb21ldGhhbmUgKGJpby1MTkcpIGZvciBtYXJpbmUgZnVlbCB1c2UsIGRlbGl2ZXJlZCB0byBJU08gMjMzMDY6MjAyMCB3aXRoIGEgY2VydGlmaWVkIFByb29mIG9mIFN1c3RhaW5hYmlsaXR5LiIsImZ1ZWxfdHlwZSI6IkxORyIsImZ1ZWxfZ3JhZGUiOiJCaW8iLCJ1bml0IjoiTVQiLCJtaW5fbG90X3NpemUiOiIxLjAwIiwiaXNfYWN0aXZlIjp0cnVlfSx7ImlkIjoiZTU2MWU0M2YtZDliMi01OThlLTk4MWMtZjFkMjhkNTE1ZGRjIiwibmFtZSI6IlVDT01FIEIxMDAiLCJtYXJrZXRfcHJvZHVjdCI6IlVDT01FX0IxMDAiLCJleGVjdXRpb25fbW9kZSI6Ik9SREVSQk9PSyIsImF2YWlsYWJsZV9kZWxpdmVyeV9wb2ludF9pZHMiOlsiNzM4MzVlOTItODIwZS01ODRiLTgyODAtYmI2MWM2M2FhMjhlIl0sInNwZWNfZGVzY3JpcHRpb24iOiJOZWF0IEIxMDAgdXNlZCBjb29raW5nIG9pbCBtZXRoeWwgZXN0ZXIgZm9yIHdob2xlc2FsZSBTaW5nYXBvcmUgdHJhZGluZy4gMSBNVCBpcyB0aGUgcGxhdGZvcm0gaW5wdXQgbWluaW11bTsgb3JkZXJzIHJlcXVpcmUgY29tcGF0aWJsZSBxdWFsaXR5IGFuZCBkZWxpdmVyeSB0ZXJtcy4iLCJmdWVsX3R5cGUiOiJGQU1FIiwiZnVlbF9ncmFkZSI6IlVDT01FIiwidW5pdCI6Ik1UIiwibWluX2xvdF9zaXplIjoiMS4wMCIsImlzX2FjdGl2ZSI6dHJ1ZX0seyJpZCI6Ijk1MTBjNzEzLTZlMzktNTA4MC1hZGQzLTBhN2MyOTY1N2I3OSIsIm5hbWUiOiJCaW8gTWV0aGFub2wiLCJtYXJrZXRfcHJvZHVjdCI6IkJJT19NRVRIQU5PTCIsImV4ZWN1dGlvbl9tb2RlIjoiT1JERVJCT09LIiwiYXZhaWxhYmxlX2RlbGl2ZXJ5X3BvaW50X2lkcyI6WyI3ODI4MWZiMy1lNzI2LTUzOTYtODAyZS0zNGIwMWZkYTIxZTgiLCIyNjJkMzZhZS02ZjM1LTU3ODUtYjllOC05ZTIyMWIwZjFiNzgiLCI2MzNjMDU5My1mOWI5LTUyYWQtYWJlNS1hMDI4NWY2ODg4ZDMiLCI3MzgzNWU5Mi04MjBlLTU4NGItODI4MC1iYjYxYzYzYWEyOGUiLCIxMzc5ZDM2Yy0xY2E5LTU1YjctOWMwZC01MjM1YTBiYTFmMzYiLCJhMDgzZGIwNi1iMDUwLTU2YzItYTI3NC0zODk3ZWFjMmZkYWUiLCIxYmUyYTVjYi1mYzM0LTVlODgtOGIxNS03ZjdkMGZkNmU1MzQiLCJhNDc2MjQ0NC00ZTBiLTViYzEtYjY0Ny1hMTg1MDQ3YWRhZTUiXSwic3BlY19kZXNjcmlwdGlvbiI6IkJpby1tZXRoYW5vbCBwcm9kdWNlZCBmcm9tIGJpb2dlbmljIGZlZWRzdG9ja3MgZm9yIG1hcmluZSBmdWVsIHVzZSIsImZ1ZWxfdHlwZSI6Ik1ldGhhbm9sIiwiZnVlbF9ncmFkZSI6IkJpbyIsInVuaXQiOiJNVCIsIm1pbl9sb3Rfc2l6ZSI6IjIwMC4wMCIsImlzX2FjdGl2ZSI6dHJ1ZX0seyJpZCI6ImY5YjIwNDkyLWI0NDUtNTljZC1iMjkyLWEzODZkOTEzZjQ4OCIsIm5hbWUiOiJlLU1ldGhhbm9sIiwibWFya2V0X3Byb2R1Y3QiOiJFX01FVEhBTk9MIiwiZXhlY3V0aW9uX21vZGUiOiJPUkRFUkJPT0siLCJhdmFpbGFibGVfZGVsaXZlcnlfcG9pbnRfaWRzIjpbIjc4MjgxZmIzLWU3MjYtNTM5Ni04MDJlLTM0YjAxZmRhMjFlOCIsIjI2MmQzNmFlLTZmMzUtNTc4NS1iOWU4LTllMjIxYjBmMWI3OCIsIjYzM2MwNTkzLWY5YjktNTJhZC1hYmU1LWEwMjg1ZjY4ODhkMyIsIjczODM1ZTkyLTgyMGUtNTg0Yi04MjgwLWJiNjFjNjNhYTI4ZSIsIjEzNzlkMzZjLTFjYTktNTViNy05YzBkLTUyMzVhMGJhMWYzNiIsImEwODNkYjA2LWIwNTAtNTZjMi1hMjc0LTM4OTdlYWMyZmRhZSIsIjFiZTJhNWNiLWZjMzQtNWU4OC04YjE1LTdmN2QwZmQ2ZTUzNCIsImE0NzYyNDQ0LTRlMGItNWJjMS1iNjQ3LWExODUwNDdhZGFlNSJdLCJzcGVjX2Rlc2NyaXB0aW9uIjoiU3ludGhldGljIG1ldGhhbm9sIHByb2R1Y2VkIGZyb20gcmVuZXdhYmxlIGh5ZHJvZ2VuIGFuZCBjYXB0dXJlZCBDTzIiLCJmdWVsX3R5cGUiOiJNZXRoYW5vbCIsImZ1ZWxfZ3JhZGUiOiJFIiwidW5pdCI6Ik1UIiwibWluX2xvdF9zaXplIjoiMjAwLjAwIiwiaXNfYWN0aXZlIjp0cnVlfSx7ImlkIjoiYzRhNjg4YmUtZjdjMi01ZWRjLThmOTMtNmIzNGUzODc2MDljIiwibmFtZSI6IkJpbyBFdGhhbm9sIiwibWFya2V0X3Byb2R1Y3QiOiJCSU9fRVRIQU5PTCIsImV4ZWN1dGlvbl9tb2RlIjoiT1JERVJCT09LIiwiYXZhaWxhYmxlX2RlbGl2ZXJ5X3BvaW50X2lkcyI6WyI3ODI4MWZiMy1lNzI2LTUzOTYtODAyZS0zNGIwMWZkYTIxZTgiLCIyNjJkMzZhZS02ZjM1LTU3ODUtYjllOC05ZTIyMWIwZjFiNzgiLCI2MzNjMDU5My1mOWI5LTUyYWQtYWJlNS1hMDI4NWY2ODg4ZDMiLCI3MzgzNWU5Mi04MjBlLTU4NGItODI4MC1iYjYxYzYzYWEyOGUiLCIxMzc5ZDM2Yy0xY2E5LTU1YjctOWMwZC01MjM1YTBiYTFmMzYiLCJhMDgzZGIwNi1iMDUwLTU2YzItYTI3NC0zODk3ZWFjMmZkYWUiLCIxYmUyYTVjYi1mYzM0LTVlODgtOGIxNS03ZjdkMGZkNmU1MzQiLCJhNDc2MjQ0NC00ZTBiLTViYzEtYjY0Ny1hMTg1MDQ3YWRhZTUiXSwic3BlY19kZXNjcmlwdGlvbiI6IlNlY29uZC1nZW5lcmF0aW9uIGJpb2V0aGFub2wgZnJvbSB3YXN0ZSBmZWVkc3RvY2tzIiwiZnVlbF90eXBlIjoiRXRoYW5vbCIsImZ1ZWxfZ3JhZGUiOiJCaW8iLCJ1bml0IjoiTVQiLCJtaW5fbG90X3NpemUiOiIyMDAuMDAiLCJpc19hY3RpdmUiOnRydWV9XQ=="
+    },
+    {
+      "id": "R03-products-head",
+      "request": {
+        "method": "HEAD",
+        "path": "/api/catalog/products",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": null,
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "raw_body_base64": ""
+    },
+    {
+      "id": "R03-products-post-405",
+      "request": {
+        "method": "POST",
+        "path": "/api/catalog/products",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "Method Not Allowed"
+        },
+        "body_sha256": "83c09ba9a8daedb136f90b17a294caa90ad471a016e430df6e229acb5a81e100"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJNZXRob2QgTm90IEFsbG93ZWQifQ=="
+    },
+    {
+      "id": "R03-products-options-405",
+      "request": {
+        "method": "OPTIONS",
+        "path": "/api/catalog/products",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "Method Not Allowed"
+        },
+        "body_sha256": "83c09ba9a8daedb136f90b17a294caa90ad471a016e430df6e229acb5a81e100"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJNZXRob2QgTm90IEFsbG93ZWQifQ=="
+    },
+    {
+      "id": "R03-products-slash-307",
+      "request": {
+        "method": "GET",
+        "path": "/api/catalog/products/",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 307,
+        "headers": {
+          "location": "{endpoint}/api/catalog/products",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": null,
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "raw_body_base64": ""
+    },
+    {
+      "id": "R04-delivery-points",
+      "request": {
+        "method": "GET",
+        "path": "/api/catalog/delivery-points",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": [
+          {
+            "id": "78281fb3-e726-5396-802e-34b01fda21e8",
+            "name": "Dalian",
+            "region": "Asia",
+            "timezone": "Asia/Shanghai",
+            "is_active": true
+          },
+          {
+            "id": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+            "name": "Busan",
+            "region": "Asia",
+            "timezone": "Asia/Seoul",
+            "is_active": true
+          },
+          {
+            "id": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+            "name": "Shanghai",
+            "region": "Asia",
+            "timezone": "Asia/Shanghai",
+            "is_active": true
+          },
+          {
+            "id": "73835e92-820e-584b-8280-bb61c63aa28e",
+            "name": "Singapore",
+            "region": "Asia",
+            "timezone": "Asia/Singapore",
+            "is_active": true
+          },
+          {
+            "id": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+            "name": "Rotterdam",
+            "region": "Europe",
+            "timezone": "Europe/Amsterdam",
+            "is_active": true
+          },
+          {
+            "id": "a083db06-b050-56c2-a274-3897eac2fdae",
+            "name": "Houston",
+            "region": "Americas",
+            "timezone": "America/Chicago",
+            "is_active": true
+          },
+          {
+            "id": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+            "name": "Los Angeles",
+            "region": "Americas",
+            "timezone": "America/Los_Angeles",
+            "is_active": true
+          }
+        ],
+        "body_sha256": "a059b082b03cc5f2ad49881df5fe0fceec3f3752f76eca33c0ad8f1348de6162"
+      },
+      "raw_body_base64": "W3siaWQiOiI3ODI4MWZiMy1lNzI2LTUzOTYtODAyZS0zNGIwMWZkYTIxZTgiLCJuYW1lIjoiRGFsaWFuIiwicmVnaW9uIjoiQXNpYSIsInRpbWV6b25lIjoiQXNpYS9TaGFuZ2hhaSIsImlzX2FjdGl2ZSI6dHJ1ZX0seyJpZCI6IjI2MmQzNmFlLTZmMzUtNTc4NS1iOWU4LTllMjIxYjBmMWI3OCIsIm5hbWUiOiJCdXNhbiIsInJlZ2lvbiI6IkFzaWEiLCJ0aW1lem9uZSI6IkFzaWEvU2VvdWwiLCJpc19hY3RpdmUiOnRydWV9LHsiaWQiOiI2MzNjMDU5My1mOWI5LTUyYWQtYWJlNS1hMDI4NWY2ODg4ZDMiLCJuYW1lIjoiU2hhbmdoYWkiLCJyZWdpb24iOiJBc2lhIiwidGltZXpvbmUiOiJBc2lhL1NoYW5naGFpIiwiaXNfYWN0aXZlIjp0cnVlfSx7ImlkIjoiNzM4MzVlOTItODIwZS01ODRiLTgyODAtYmI2MWM2M2FhMjhlIiwibmFtZSI6IlNpbmdhcG9yZSIsInJlZ2lvbiI6IkFzaWEiLCJ0aW1lem9uZSI6IkFzaWEvU2luZ2Fwb3JlIiwiaXNfYWN0aXZlIjp0cnVlfSx7ImlkIjoiMTM3OWQzNmMtMWNhOS01NWI3LTljMGQtNTIzNWEwYmExZjM2IiwibmFtZSI6IlJvdHRlcmRhbSIsInJlZ2lvbiI6IkV1cm9wZSIsInRpbWV6b25lIjoiRXVyb3BlL0Ftc3RlcmRhbSIsImlzX2FjdGl2ZSI6dHJ1ZX0seyJpZCI6ImEwODNkYjA2LWIwNTAtNTZjMi1hMjc0LTM4OTdlYWMyZmRhZSIsIm5hbWUiOiJIb3VzdG9uIiwicmVnaW9uIjoiQW1lcmljYXMiLCJ0aW1lem9uZSI6IkFtZXJpY2EvQ2hpY2FnbyIsImlzX2FjdGl2ZSI6dHJ1ZX0seyJpZCI6IjFiZTJhNWNiLWZjMzQtNWU4OC04YjE1LTdmN2QwZmQ2ZTUzNCIsIm5hbWUiOiJMb3MgQW5nZWxlcyIsInJlZ2lvbiI6IkFtZXJpY2FzIiwidGltZXpvbmUiOiJBbWVyaWNhL0xvc19BbmdlbGVzIiwiaXNfYWN0aXZlIjp0cnVlfV0="
+    },
+    {
+      "id": "R04-delivery-points-head",
+      "request": {
+        "method": "HEAD",
+        "path": "/api/catalog/delivery-points",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": null,
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "raw_body_base64": ""
+    },
+    {
+      "id": "R04-delivery-points-post-405",
+      "request": {
+        "method": "POST",
+        "path": "/api/catalog/delivery-points",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "Method Not Allowed"
+        },
+        "body_sha256": "83c09ba9a8daedb136f90b17a294caa90ad471a016e430df6e229acb5a81e100"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJNZXRob2QgTm90IEFsbG93ZWQifQ=="
+    },
+    {
+      "id": "R04-delivery-points-options-405",
+      "request": {
+        "method": "OPTIONS",
+        "path": "/api/catalog/delivery-points",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "Method Not Allowed"
+        },
+        "body_sha256": "83c09ba9a8daedb136f90b17a294caa90ad471a016e430df6e229acb5a81e100"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJNZXRob2QgTm90IEFsbG93ZWQifQ=="
+    },
+    {
+      "id": "R04-delivery-points-slash-307",
+      "request": {
+        "method": "GET",
+        "path": "/api/catalog/delivery-points/",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 307,
+        "headers": {
+          "location": "{endpoint}/api/catalog/delivery-points",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": null,
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "raw_body_base64": ""
+    },
+    {
+      "id": "R05-news",
+      "request": {
+        "method": "GET",
+        "path": "/api/news",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": [
+          {
+            "id": "46951b60-c5de-54b2-b512-5297ff3da5ba",
+            "title": "Corpus bunkers",
+            "summary": null,
+            "source": "Corpus",
+            "source_url": "https://example.test",
+            "url": "https://example.test/bunkers",
+            "category": "bunkers",
+            "relevance": 5,
+            "published_at": "2026-10-15T12:00:00+00:00",
+            "fetched_at": "2026-10-15T12:00:00+00:00"
+          },
+          {
+            "id": "6bd896cc-effe-5e18-9063-42eb89ed12c7",
+            "title": "Corpus carbon",
+            "summary": null,
+            "source": "Corpus",
+            "source_url": "https://example.test",
+            "url": "https://example.test/carbon",
+            "category": "carbon",
+            "relevance": 5,
+            "published_at": "2026-10-15T12:00:00+00:00",
+            "fetched_at": "2026-10-15T12:00:00+00:00"
+          },
+          {
+            "id": "f4d79d28-620a-54fa-84e3-76026e82ec2f",
+            "title": "Corpus commodities",
+            "summary": null,
+            "source": "Corpus",
+            "source_url": "https://example.test",
+            "url": "https://example.test/commodities",
+            "category": "commodities",
+            "relevance": 5,
+            "published_at": "2026-10-15T12:00:00+00:00",
+            "fetched_at": "2026-10-15T12:00:00+00:00"
+          },
+          {
+            "id": "b91fbcd5-03b5-5782-a6bc-f80100afeb5c",
+            "title": "Corpus markets",
+            "summary": null,
+            "source": "Corpus",
+            "source_url": "https://example.test",
+            "url": "https://example.test/markets",
+            "category": "markets",
+            "relevance": 5,
+            "published_at": "2026-10-15T12:00:00+00:00",
+            "fetched_at": "2026-10-15T12:00:00+00:00"
+          },
+          {
+            "id": "ebcc657f-f5d2-5962-8741-038c667095eb",
+            "title": "Corpus regulation",
+            "summary": null,
+            "source": "Corpus",
+            "source_url": "https://example.test",
+            "url": "https://example.test/regulation",
+            "category": "regulation",
+            "relevance": 5,
+            "published_at": "2026-10-15T12:00:00+00:00",
+            "fetched_at": "2026-10-15T12:00:00+00:00"
+          },
+          {
+            "id": "fd5b9a55-0cef-5eed-9ae9-4a4cb575643a",
+            "title": "Corpus shipping",
+            "summary": null,
+            "source": "Corpus",
+            "source_url": "https://example.test",
+            "url": "https://example.test/shipping",
+            "category": "shipping",
+            "relevance": 5,
+            "published_at": "2026-10-15T12:00:00+00:00",
+            "fetched_at": "2026-10-15T12:00:00+00:00"
+          }
+        ],
+        "body_sha256": "b2de0f06a5187c36cae3ba5f9b14eccde4cd262fd7779c493835d9cb70b9efe8",
+        "news_exact_items": [
+          "{\"id\":\"46951b60-c5de-54b2-b512-5297ff3da5ba\",\"title\":\"Corpus bunkers\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/bunkers\",\"category\":\"bunkers\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}",
+          "{\"id\":\"6bd896cc-effe-5e18-9063-42eb89ed12c7\",\"title\":\"Corpus carbon\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/carbon\",\"category\":\"carbon\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}",
+          "{\"id\":\"f4d79d28-620a-54fa-84e3-76026e82ec2f\",\"title\":\"Corpus commodities\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/commodities\",\"category\":\"commodities\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}",
+          "{\"id\":\"b91fbcd5-03b5-5782-a6bc-f80100afeb5c\",\"title\":\"Corpus markets\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/markets\",\"category\":\"markets\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}",
+          "{\"id\":\"ebcc657f-f5d2-5962-8741-038c667095eb\",\"title\":\"Corpus regulation\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/regulation\",\"category\":\"regulation\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}",
+          "{\"id\":\"fd5b9a55-0cef-5eed-9ae9-4a4cb575643a\",\"title\":\"Corpus shipping\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/shipping\",\"category\":\"shipping\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}"
+        ]
+      },
+      "raw_body_base64": "W3siaWQiOiI0Njk1MWI2MC1jNWRlLTU0YjItYjUxMi01Mjk3ZmYzZGE1YmEiLCJ0aXRsZSI6IkNvcnB1cyBidW5rZXJzIiwic3VtbWFyeSI6bnVsbCwic291cmNlIjoiQ29ycHVzIiwic291cmNlX3VybCI6Imh0dHBzOi8vZXhhbXBsZS50ZXN0IiwidXJsIjoiaHR0cHM6Ly9leGFtcGxlLnRlc3QvYnVua2VycyIsImNhdGVnb3J5IjoiYnVua2VycyIsInJlbGV2YW5jZSI6NSwicHVibGlzaGVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMCswMDowMCIsImZldGNoZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwKzAwOjAwIn0seyJpZCI6IjZiZDg5NmNjLWVmZmUtNWUxOC05MDYzLTQyZWI4OWVkMTJjNyIsInRpdGxlIjoiQ29ycHVzIGNhcmJvbiIsInN1bW1hcnkiOm51bGwsInNvdXJjZSI6IkNvcnB1cyIsInNvdXJjZV91cmwiOiJodHRwczovL2V4YW1wbGUudGVzdCIsInVybCI6Imh0dHBzOi8vZXhhbXBsZS50ZXN0L2NhcmJvbiIsImNhdGVnb3J5IjoiY2FyYm9uIiwicmVsZXZhbmNlIjo1LCJwdWJsaXNoZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwKzAwOjAwIiwiZmV0Y2hlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDArMDA6MDAifSx7ImlkIjoiZjRkNzlkMjgtNjIwYS01NGZhLTg0ZTMtNzYwMjZlODJlYzJmIiwidGl0bGUiOiJDb3JwdXMgY29tbW9kaXRpZXMiLCJzdW1tYXJ5IjpudWxsLCJzb3VyY2UiOiJDb3JwdXMiLCJzb3VyY2VfdXJsIjoiaHR0cHM6Ly9leGFtcGxlLnRlc3QiLCJ1cmwiOiJodHRwczovL2V4YW1wbGUudGVzdC9jb21tb2RpdGllcyIsImNhdGVnb3J5IjoiY29tbW9kaXRpZXMiLCJyZWxldmFuY2UiOjUsInB1Ymxpc2hlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDArMDA6MDAiLCJmZXRjaGVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMCswMDowMCJ9LHsiaWQiOiJiOTFmYmNkNS0wM2I1LTU3ODItYTZiYy1mODAxMDBhZmViNWMiLCJ0aXRsZSI6IkNvcnB1cyBtYXJrZXRzIiwic3VtbWFyeSI6bnVsbCwic291cmNlIjoiQ29ycHVzIiwic291cmNlX3VybCI6Imh0dHBzOi8vZXhhbXBsZS50ZXN0IiwidXJsIjoiaHR0cHM6Ly9leGFtcGxlLnRlc3QvbWFya2V0cyIsImNhdGVnb3J5IjoibWFya2V0cyIsInJlbGV2YW5jZSI6NSwicHVibGlzaGVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMCswMDowMCIsImZldGNoZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwKzAwOjAwIn0seyJpZCI6ImViY2M2NTdmLWY1ZDItNTk2Mi04NzQxLTAzOGM2NjcwOTVlYiIsInRpdGxlIjoiQ29ycHVzIHJlZ3VsYXRpb24iLCJzdW1tYXJ5IjpudWxsLCJzb3VyY2UiOiJDb3JwdXMiLCJzb3VyY2VfdXJsIjoiaHR0cHM6Ly9leGFtcGxlLnRlc3QiLCJ1cmwiOiJodHRwczovL2V4YW1wbGUudGVzdC9yZWd1bGF0aW9uIiwiY2F0ZWdvcnkiOiJyZWd1bGF0aW9uIiwicmVsZXZhbmNlIjo1LCJwdWJsaXNoZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwKzAwOjAwIiwiZmV0Y2hlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDArMDA6MDAifSx7ImlkIjoiZmQ1YjlhNTUtMGNlZi01ZWVkLTlhZTktNGE0Y2I1NzU2NDNhIiwidGl0bGUiOiJDb3JwdXMgc2hpcHBpbmciLCJzdW1tYXJ5IjpudWxsLCJzb3VyY2UiOiJDb3JwdXMiLCJzb3VyY2VfdXJsIjoiaHR0cHM6Ly9leGFtcGxlLnRlc3QiLCJ1cmwiOiJodHRwczovL2V4YW1wbGUudGVzdC9zaGlwcGluZyIsImNhdGVnb3J5Ijoic2hpcHBpbmciLCJyZWxldmFuY2UiOjUsInB1Ymxpc2hlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDArMDA6MDAiLCJmZXRjaGVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMCswMDowMCJ9XQ=="
+    },
+    {
+      "id": "R05-news-head",
+      "request": {
+        "method": "HEAD",
+        "path": "/api/news",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": null,
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "raw_body_base64": ""
+    },
+    {
+      "id": "R05-news-post-405",
+      "request": {
+        "method": "POST",
+        "path": "/api/news",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "Method Not Allowed"
+        },
+        "body_sha256": "83c09ba9a8daedb136f90b17a294caa90ad471a016e430df6e229acb5a81e100"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJNZXRob2QgTm90IEFsbG93ZWQifQ=="
+    },
+    {
+      "id": "R05-news-options-405",
+      "request": {
+        "method": "OPTIONS",
+        "path": "/api/news",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "Method Not Allowed"
+        },
+        "body_sha256": "83c09ba9a8daedb136f90b17a294caa90ad471a016e430df6e229acb5a81e100"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJNZXRob2QgTm90IEFsbG93ZWQifQ=="
+    },
+    {
+      "id": "R05-news-slash-307",
+      "request": {
+        "method": "GET",
+        "path": "/api/news/",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 307,
+        "headers": {
+          "location": "{endpoint}/api/news",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": null,
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "raw_body_base64": ""
+    },
+    {
+      "id": "R05b-news-limit",
+      "request": {
+        "method": "GET",
+        "path": "/api/news",
+        "query": "limit=1",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": [
+          {
+            "id": "fd5b9a55-0cef-5eed-9ae9-4a4cb575643a",
+            "title": "Corpus shipping",
+            "summary": null,
+            "source": "Corpus",
+            "source_url": "https://example.test",
+            "url": "https://example.test/shipping",
+            "category": "shipping",
+            "relevance": 5,
+            "published_at": "2026-10-15T12:00:00+00:00",
+            "fetched_at": "2026-10-15T12:00:00+00:00"
+          }
+        ],
+        "body_sha256": "fab781cd6f46bf84a78b27caaa7bcbdc20a6297bc93f28f9703b1084599b63c9",
+        "news_exact_items": [
+          "{\"id\":\"fd5b9a55-0cef-5eed-9ae9-4a4cb575643a\",\"title\":\"Corpus shipping\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/shipping\",\"category\":\"shipping\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}"
+        ]
+      },
+      "raw_body_base64": "W3siaWQiOiJmZDViOWE1NS0wY2VmLTVlZWQtOWFlOS00YTRjYjU3NTY0M2EiLCJ0aXRsZSI6IkNvcnB1cyBzaGlwcGluZyIsInN1bW1hcnkiOm51bGwsInNvdXJjZSI6IkNvcnB1cyIsInNvdXJjZV91cmwiOiJodHRwczovL2V4YW1wbGUudGVzdCIsInVybCI6Imh0dHBzOi8vZXhhbXBsZS50ZXN0L3NoaXBwaW5nIiwiY2F0ZWdvcnkiOiJzaGlwcGluZyIsInJlbGV2YW5jZSI6NSwicHVibGlzaGVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMCswMDowMCIsImZldGNoZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwKzAwOjAwIn1d"
+    },
+    {
+      "id": "R05c-news-bad-limit",
+      "request": {
+        "method": "GET",
+        "path": "/api/news",
+        "query": "limit=999",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 422,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": [
+            {
+              "type": "less_than_equal",
+              "loc": [
+                "query",
+                "limit"
+              ],
+              "msg": "Input should be less than or equal to 100",
+              "input": "999",
+              "ctx": {
+                "le": 100
+              }
+            }
+          ]
+        },
+        "body_sha256": "af988e1db391bd99d6438b006316f706ed360a0116dacd1ff5cb00bfb693cabe"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOlt7InR5cGUiOiJsZXNzX3RoYW5fZXF1YWwiLCJsb2MiOlsicXVlcnkiLCJsaW1pdCJdLCJtc2ciOiJJbnB1dCBzaG91bGQgYmUgbGVzcyB0aGFuIG9yIGVxdWFsIHRvIDEwMCIsImlucHV0IjoiOTk5IiwiY3R4Ijp7ImxlIjoxMDB9fV19"
+    },
+    {
+      "id": "R01b-ports-unknown-key",
+      "request": {
+        "method": "GET",
+        "path": "/api/ports",
+        "query": "unknown=1",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": [
+          {
+            "id": "T4B_BARE",
+            "name": "Corpus BARE",
+            "country": "Singapore",
+            "location": null,
+            "timezone": "Asia/Singapore",
+            "is_active": true,
+            "lat": "1.234567891234",
+            "lng": "103.123456789123",
+            "intelligence": null
+          },
+          {
+            "id": "T4B_ONE",
+            "name": "Corpus ONE",
+            "country": "Singapore",
+            "location": null,
+            "timezone": "Asia/Singapore",
+            "is_active": true,
+            "lat": "1.234567891234",
+            "lng": "103.123456789123",
+            "intelligence": {
+              "congestion_level": "Low",
+              "methanol_price_avg": "600.0",
+              "biofuel_price_avg": null,
+              "captured_at": "2026-10-15T12:00:00Z"
+            }
+          },
+          {
+            "id": "T4B_TWO",
+            "name": "Corpus TWO",
+            "country": "Singapore",
+            "location": null,
+            "timezone": "Asia/Singapore",
+            "is_active": true,
+            "lat": "1.234567891234",
+            "lng": "103.123456789123",
+            "intelligence": {
+              "congestion_level": "Low",
+              "methanol_price_avg": "601.0",
+              "biofuel_price_avg": null,
+              "captured_at": "2026-10-15T12:00:00Z"
+            }
+          }
+        ],
+        "body_sha256": "4abc57055a9e818f4817b2d12bc8b21e7d9f133bbe3c14b359bbd36313fec246"
+      },
+      "raw_body_base64": "W3siaWQiOiJUNEJfQkFSRSIsIm5hbWUiOiJDb3JwdXMgQkFSRSIsImNvdW50cnkiOiJTaW5nYXBvcmUiLCJsb2NhdGlvbiI6bnVsbCwidGltZXpvbmUiOiJBc2lhL1NpbmdhcG9yZSIsImlzX2FjdGl2ZSI6dHJ1ZSwibGF0IjoxLjIzNDU2Nzg5MTIzNCwibG5nIjoxMDMuMTIzNDU2Nzg5MTIzLCJpbnRlbGxpZ2VuY2UiOm51bGx9LHsiaWQiOiJUNEJfT05FIiwibmFtZSI6IkNvcnB1cyBPTkUiLCJjb3VudHJ5IjoiU2luZ2Fwb3JlIiwibG9jYXRpb24iOm51bGwsInRpbWV6b25lIjoiQXNpYS9TaW5nYXBvcmUiLCJpc19hY3RpdmUiOnRydWUsImxhdCI6MS4yMzQ1Njc4OTEyMzQsImxuZyI6MTAzLjEyMzQ1Njc4OTEyMywiaW50ZWxsaWdlbmNlIjp7ImNvbmdlc3Rpb25fbGV2ZWwiOiJMb3ciLCJtZXRoYW5vbF9wcmljZV9hdmciOjYwMC4wLCJiaW9mdWVsX3ByaWNlX2F2ZyI6bnVsbCwiY2FwdHVyZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwWiJ9fSx7ImlkIjoiVDRCX1RXTyIsIm5hbWUiOiJDb3JwdXMgVFdPIiwiY291bnRyeSI6IlNpbmdhcG9yZSIsImxvY2F0aW9uIjpudWxsLCJ0aW1lem9uZSI6IkFzaWEvU2luZ2Fwb3JlIiwiaXNfYWN0aXZlIjp0cnVlLCJsYXQiOjEuMjM0NTY3ODkxMjM0LCJsbmciOjEwMy4xMjM0NTY3ODkxMjMsImludGVsbGlnZW5jZSI6eyJjb25nZXN0aW9uX2xldmVsIjoiTG93IiwibWV0aGFub2xfcHJpY2VfYXZnIjo2MDEuMCwiYmlvZnVlbF9wcmljZV9hdmciOm51bGwsImNhcHR1cmVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMFoifX1d"
+    },
+    {
+      "id": "R01c-ports-repeat-key",
+      "request": {
+        "method": "GET",
+        "path": "/api/ports",
+        "query": "skip=1&skip=2",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": [
+          {
+            "id": "T4B_BARE",
+            "name": "Corpus BARE",
+            "country": "Singapore",
+            "location": null,
+            "timezone": "Asia/Singapore",
+            "is_active": true,
+            "lat": "1.234567891234",
+            "lng": "103.123456789123",
+            "intelligence": null
+          },
+          {
+            "id": "T4B_ONE",
+            "name": "Corpus ONE",
+            "country": "Singapore",
+            "location": null,
+            "timezone": "Asia/Singapore",
+            "is_active": true,
+            "lat": "1.234567891234",
+            "lng": "103.123456789123",
+            "intelligence": {
+              "congestion_level": "Low",
+              "methanol_price_avg": "600.0",
+              "biofuel_price_avg": null,
+              "captured_at": "2026-10-15T12:00:00Z"
+            }
+          },
+          {
+            "id": "T4B_TWO",
+            "name": "Corpus TWO",
+            "country": "Singapore",
+            "location": null,
+            "timezone": "Asia/Singapore",
+            "is_active": true,
+            "lat": "1.234567891234",
+            "lng": "103.123456789123",
+            "intelligence": {
+              "congestion_level": "Low",
+              "methanol_price_avg": "601.0",
+              "biofuel_price_avg": null,
+              "captured_at": "2026-10-15T12:00:00Z"
+            }
+          }
+        ],
+        "body_sha256": "4abc57055a9e818f4817b2d12bc8b21e7d9f133bbe3c14b359bbd36313fec246"
+      },
+      "raw_body_base64": "W3siaWQiOiJUNEJfQkFSRSIsIm5hbWUiOiJDb3JwdXMgQkFSRSIsImNvdW50cnkiOiJTaW5nYXBvcmUiLCJsb2NhdGlvbiI6bnVsbCwidGltZXpvbmUiOiJBc2lhL1NpbmdhcG9yZSIsImlzX2FjdGl2ZSI6dHJ1ZSwibGF0IjoxLjIzNDU2Nzg5MTIzNCwibG5nIjoxMDMuMTIzNDU2Nzg5MTIzLCJpbnRlbGxpZ2VuY2UiOm51bGx9LHsiaWQiOiJUNEJfT05FIiwibmFtZSI6IkNvcnB1cyBPTkUiLCJjb3VudHJ5IjoiU2luZ2Fwb3JlIiwibG9jYXRpb24iOm51bGwsInRpbWV6b25lIjoiQXNpYS9TaW5nYXBvcmUiLCJpc19hY3RpdmUiOnRydWUsImxhdCI6MS4yMzQ1Njc4OTEyMzQsImxuZyI6MTAzLjEyMzQ1Njc4OTEyMywiaW50ZWxsaWdlbmNlIjp7ImNvbmdlc3Rpb25fbGV2ZWwiOiJMb3ciLCJtZXRoYW5vbF9wcmljZV9hdmciOjYwMC4wLCJiaW9mdWVsX3ByaWNlX2F2ZyI6bnVsbCwiY2FwdHVyZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwWiJ9fSx7ImlkIjoiVDRCX1RXTyIsIm5hbWUiOiJDb3JwdXMgVFdPIiwiY291bnRyeSI6IlNpbmdhcG9yZSIsImxvY2F0aW9uIjpudWxsLCJ0aW1lem9uZSI6IkFzaWEvU2luZ2Fwb3JlIiwiaXNfYWN0aXZlIjp0cnVlLCJsYXQiOjEuMjM0NTY3ODkxMjM0LCJsbmciOjEwMy4xMjM0NTY3ODkxMjMsImludGVsbGlnZW5jZSI6eyJjb25nZXN0aW9uX2xldmVsIjoiTG93IiwibWV0aGFub2xfcHJpY2VfYXZnIjo2MDEuMCwiYmlvZnVlbF9wcmljZV9hdmciOm51bGwsImNhcHR1cmVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMFoifX1d"
+    },
+    {
+      "id": "R05d-news-percent",
+      "request": {
+        "method": "GET",
+        "path": "/api/news",
+        "query": "category=a%20b",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": [],
+        "body_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "news_exact_items": []
+      },
+      "raw_body_base64": "W10="
+    },
+    {
+      "id": "R05e-news-unicode",
+      "request": {
+        "method": "GET",
+        "path": "/api/news",
+        "query": "category=%E2%82%AC",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": [],
+        "body_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "news_exact_items": []
+      },
+      "raw_body_base64": "W10="
+    },
+    {
+      "id": "R05f-news-min-relevance",
+      "request": {
+        "method": "GET",
+        "path": "/api/news",
+        "query": "min_relevance=0",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 422,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": [
+            {
+              "type": "greater_than_equal",
+              "loc": [
+                "query",
+                "min_relevance"
+              ],
+              "msg": "Input should be greater than or equal to 1",
+              "input": "0",
+              "ctx": {
+                "ge": 1
+              }
+            }
+          ]
+        },
+        "body_sha256": "d1ff3ef44de93545e2dc2bbd3fc71db24789a0ef4b10d9c42bd60ca033c0ebd8"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOlt7InR5cGUiOiJncmVhdGVyX3RoYW5fZXF1YWwiLCJsb2MiOlsicXVlcnkiLCJtaW5fcmVsZXZhbmNlIl0sIm1zZyI6IklucHV0IHNob3VsZCBiZSBncmVhdGVyIHRoYW4gb3IgZXF1YWwgdG8gMSIsImlucHV0IjoiMCIsImN0eCI6eyJnZSI6MX19XX0="
+    },
+    {
+      "id": "R05g-news-relevance-four",
+      "request": {
+        "method": "GET",
+        "path": "/api/news",
+        "query": "min_relevance=4",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": [
+          {
+            "id": "46951b60-c5de-54b2-b512-5297ff3da5ba",
+            "title": "Corpus bunkers",
+            "summary": null,
+            "source": "Corpus",
+            "source_url": "https://example.test",
+            "url": "https://example.test/bunkers",
+            "category": "bunkers",
+            "relevance": 5,
+            "published_at": "2026-10-15T12:00:00+00:00",
+            "fetched_at": "2026-10-15T12:00:00+00:00"
+          },
+          {
+            "id": "6bd896cc-effe-5e18-9063-42eb89ed12c7",
+            "title": "Corpus carbon",
+            "summary": null,
+            "source": "Corpus",
+            "source_url": "https://example.test",
+            "url": "https://example.test/carbon",
+            "category": "carbon",
+            "relevance": 5,
+            "published_at": "2026-10-15T12:00:00+00:00",
+            "fetched_at": "2026-10-15T12:00:00+00:00"
+          },
+          {
+            "id": "f4d79d28-620a-54fa-84e3-76026e82ec2f",
+            "title": "Corpus commodities",
+            "summary": null,
+            "source": "Corpus",
+            "source_url": "https://example.test",
+            "url": "https://example.test/commodities",
+            "category": "commodities",
+            "relevance": 5,
+            "published_at": "2026-10-15T12:00:00+00:00",
+            "fetched_at": "2026-10-15T12:00:00+00:00"
+          },
+          {
+            "id": "b91fbcd5-03b5-5782-a6bc-f80100afeb5c",
+            "title": "Corpus markets",
+            "summary": null,
+            "source": "Corpus",
+            "source_url": "https://example.test",
+            "url": "https://example.test/markets",
+            "category": "markets",
+            "relevance": 5,
+            "published_at": "2026-10-15T12:00:00+00:00",
+            "fetched_at": "2026-10-15T12:00:00+00:00"
+          },
+          {
+            "id": "ebcc657f-f5d2-5962-8741-038c667095eb",
+            "title": "Corpus regulation",
+            "summary": null,
+            "source": "Corpus",
+            "source_url": "https://example.test",
+            "url": "https://example.test/regulation",
+            "category": "regulation",
+            "relevance": 5,
+            "published_at": "2026-10-15T12:00:00+00:00",
+            "fetched_at": "2026-10-15T12:00:00+00:00"
+          },
+          {
+            "id": "fd5b9a55-0cef-5eed-9ae9-4a4cb575643a",
+            "title": "Corpus shipping",
+            "summary": null,
+            "source": "Corpus",
+            "source_url": "https://example.test",
+            "url": "https://example.test/shipping",
+            "category": "shipping",
+            "relevance": 5,
+            "published_at": "2026-10-15T12:00:00+00:00",
+            "fetched_at": "2026-10-15T12:00:00+00:00"
+          }
+        ],
+        "body_sha256": "b2de0f06a5187c36cae3ba5f9b14eccde4cd262fd7779c493835d9cb70b9efe8",
+        "news_exact_items": [
+          "{\"id\":\"46951b60-c5de-54b2-b512-5297ff3da5ba\",\"title\":\"Corpus bunkers\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/bunkers\",\"category\":\"bunkers\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}",
+          "{\"id\":\"6bd896cc-effe-5e18-9063-42eb89ed12c7\",\"title\":\"Corpus carbon\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/carbon\",\"category\":\"carbon\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}",
+          "{\"id\":\"f4d79d28-620a-54fa-84e3-76026e82ec2f\",\"title\":\"Corpus commodities\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/commodities\",\"category\":\"commodities\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}",
+          "{\"id\":\"b91fbcd5-03b5-5782-a6bc-f80100afeb5c\",\"title\":\"Corpus markets\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/markets\",\"category\":\"markets\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}",
+          "{\"id\":\"ebcc657f-f5d2-5962-8741-038c667095eb\",\"title\":\"Corpus regulation\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/regulation\",\"category\":\"regulation\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}",
+          "{\"id\":\"fd5b9a55-0cef-5eed-9ae9-4a4cb575643a\",\"title\":\"Corpus shipping\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/shipping\",\"category\":\"shipping\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}"
+        ]
+      },
+      "raw_body_base64": "W3siaWQiOiI0Njk1MWI2MC1jNWRlLTU0YjItYjUxMi01Mjk3ZmYzZGE1YmEiLCJ0aXRsZSI6IkNvcnB1cyBidW5rZXJzIiwic3VtbWFyeSI6bnVsbCwic291cmNlIjoiQ29ycHVzIiwic291cmNlX3VybCI6Imh0dHBzOi8vZXhhbXBsZS50ZXN0IiwidXJsIjoiaHR0cHM6Ly9leGFtcGxlLnRlc3QvYnVua2VycyIsImNhdGVnb3J5IjoiYnVua2VycyIsInJlbGV2YW5jZSI6NSwicHVibGlzaGVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMCswMDowMCIsImZldGNoZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwKzAwOjAwIn0seyJpZCI6IjZiZDg5NmNjLWVmZmUtNWUxOC05MDYzLTQyZWI4OWVkMTJjNyIsInRpdGxlIjoiQ29ycHVzIGNhcmJvbiIsInN1bW1hcnkiOm51bGwsInNvdXJjZSI6IkNvcnB1cyIsInNvdXJjZV91cmwiOiJodHRwczovL2V4YW1wbGUudGVzdCIsInVybCI6Imh0dHBzOi8vZXhhbXBsZS50ZXN0L2NhcmJvbiIsImNhdGVnb3J5IjoiY2FyYm9uIiwicmVsZXZhbmNlIjo1LCJwdWJsaXNoZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwKzAwOjAwIiwiZmV0Y2hlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDArMDA6MDAifSx7ImlkIjoiZjRkNzlkMjgtNjIwYS01NGZhLTg0ZTMtNzYwMjZlODJlYzJmIiwidGl0bGUiOiJDb3JwdXMgY29tbW9kaXRpZXMiLCJzdW1tYXJ5IjpudWxsLCJzb3VyY2UiOiJDb3JwdXMiLCJzb3VyY2VfdXJsIjoiaHR0cHM6Ly9leGFtcGxlLnRlc3QiLCJ1cmwiOiJodHRwczovL2V4YW1wbGUudGVzdC9jb21tb2RpdGllcyIsImNhdGVnb3J5IjoiY29tbW9kaXRpZXMiLCJyZWxldmFuY2UiOjUsInB1Ymxpc2hlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDArMDA6MDAiLCJmZXRjaGVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMCswMDowMCJ9LHsiaWQiOiJiOTFmYmNkNS0wM2I1LTU3ODItYTZiYy1mODAxMDBhZmViNWMiLCJ0aXRsZSI6IkNvcnB1cyBtYXJrZXRzIiwic3VtbWFyeSI6bnVsbCwic291cmNlIjoiQ29ycHVzIiwic291cmNlX3VybCI6Imh0dHBzOi8vZXhhbXBsZS50ZXN0IiwidXJsIjoiaHR0cHM6Ly9leGFtcGxlLnRlc3QvbWFya2V0cyIsImNhdGVnb3J5IjoibWFya2V0cyIsInJlbGV2YW5jZSI6NSwicHVibGlzaGVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMCswMDowMCIsImZldGNoZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwKzAwOjAwIn0seyJpZCI6ImViY2M2NTdmLWY1ZDItNTk2Mi04NzQxLTAzOGM2NjcwOTVlYiIsInRpdGxlIjoiQ29ycHVzIHJlZ3VsYXRpb24iLCJzdW1tYXJ5IjpudWxsLCJzb3VyY2UiOiJDb3JwdXMiLCJzb3VyY2VfdXJsIjoiaHR0cHM6Ly9leGFtcGxlLnRlc3QiLCJ1cmwiOiJodHRwczovL2V4YW1wbGUudGVzdC9yZWd1bGF0aW9uIiwiY2F0ZWdvcnkiOiJyZWd1bGF0aW9uIiwicmVsZXZhbmNlIjo1LCJwdWJsaXNoZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwKzAwOjAwIiwiZmV0Y2hlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDArMDA6MDAifSx7ImlkIjoiZmQ1YjlhNTUtMGNlZi01ZWVkLTlhZTktNGE0Y2I1NzU2NDNhIiwidGl0bGUiOiJDb3JwdXMgc2hpcHBpbmciLCJzdW1tYXJ5IjpudWxsLCJzb3VyY2UiOiJDb3JwdXMiLCJzb3VyY2VfdXJsIjoiaHR0cHM6Ly9leGFtcGxlLnRlc3QiLCJ1cmwiOiJodHRwczovL2V4YW1wbGUudGVzdC9zaGlwcGluZyIsImNhdGVnb3J5Ijoic2hpcHBpbmciLCJyZWxldmFuY2UiOjUsInB1Ymxpc2hlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDArMDA6MDAiLCJmZXRjaGVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMCswMDowMCJ9XQ=="
+    },
+    {
+      "id": "R05h-news-empty-category",
+      "request": {
+        "method": "GET",
+        "path": "/api/news",
+        "query": "category=",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": [
+          {
+            "id": "46951b60-c5de-54b2-b512-5297ff3da5ba",
+            "title": "Corpus bunkers",
+            "summary": null,
+            "source": "Corpus",
+            "source_url": "https://example.test",
+            "url": "https://example.test/bunkers",
+            "category": "bunkers",
+            "relevance": 5,
+            "published_at": "2026-10-15T12:00:00+00:00",
+            "fetched_at": "2026-10-15T12:00:00+00:00"
+          },
+          {
+            "id": "6bd896cc-effe-5e18-9063-42eb89ed12c7",
+            "title": "Corpus carbon",
+            "summary": null,
+            "source": "Corpus",
+            "source_url": "https://example.test",
+            "url": "https://example.test/carbon",
+            "category": "carbon",
+            "relevance": 5,
+            "published_at": "2026-10-15T12:00:00+00:00",
+            "fetched_at": "2026-10-15T12:00:00+00:00"
+          },
+          {
+            "id": "f4d79d28-620a-54fa-84e3-76026e82ec2f",
+            "title": "Corpus commodities",
+            "summary": null,
+            "source": "Corpus",
+            "source_url": "https://example.test",
+            "url": "https://example.test/commodities",
+            "category": "commodities",
+            "relevance": 5,
+            "published_at": "2026-10-15T12:00:00+00:00",
+            "fetched_at": "2026-10-15T12:00:00+00:00"
+          },
+          {
+            "id": "b91fbcd5-03b5-5782-a6bc-f80100afeb5c",
+            "title": "Corpus markets",
+            "summary": null,
+            "source": "Corpus",
+            "source_url": "https://example.test",
+            "url": "https://example.test/markets",
+            "category": "markets",
+            "relevance": 5,
+            "published_at": "2026-10-15T12:00:00+00:00",
+            "fetched_at": "2026-10-15T12:00:00+00:00"
+          },
+          {
+            "id": "ebcc657f-f5d2-5962-8741-038c667095eb",
+            "title": "Corpus regulation",
+            "summary": null,
+            "source": "Corpus",
+            "source_url": "https://example.test",
+            "url": "https://example.test/regulation",
+            "category": "regulation",
+            "relevance": 5,
+            "published_at": "2026-10-15T12:00:00+00:00",
+            "fetched_at": "2026-10-15T12:00:00+00:00"
+          },
+          {
+            "id": "fd5b9a55-0cef-5eed-9ae9-4a4cb575643a",
+            "title": "Corpus shipping",
+            "summary": null,
+            "source": "Corpus",
+            "source_url": "https://example.test",
+            "url": "https://example.test/shipping",
+            "category": "shipping",
+            "relevance": 5,
+            "published_at": "2026-10-15T12:00:00+00:00",
+            "fetched_at": "2026-10-15T12:00:00+00:00"
+          }
+        ],
+        "body_sha256": "b2de0f06a5187c36cae3ba5f9b14eccde4cd262fd7779c493835d9cb70b9efe8",
+        "news_exact_items": [
+          "{\"id\":\"46951b60-c5de-54b2-b512-5297ff3da5ba\",\"title\":\"Corpus bunkers\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/bunkers\",\"category\":\"bunkers\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}",
+          "{\"id\":\"6bd896cc-effe-5e18-9063-42eb89ed12c7\",\"title\":\"Corpus carbon\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/carbon\",\"category\":\"carbon\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}",
+          "{\"id\":\"f4d79d28-620a-54fa-84e3-76026e82ec2f\",\"title\":\"Corpus commodities\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/commodities\",\"category\":\"commodities\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}",
+          "{\"id\":\"b91fbcd5-03b5-5782-a6bc-f80100afeb5c\",\"title\":\"Corpus markets\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/markets\",\"category\":\"markets\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}",
+          "{\"id\":\"ebcc657f-f5d2-5962-8741-038c667095eb\",\"title\":\"Corpus regulation\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/regulation\",\"category\":\"regulation\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}",
+          "{\"id\":\"fd5b9a55-0cef-5eed-9ae9-4a4cb575643a\",\"title\":\"Corpus shipping\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/shipping\",\"category\":\"shipping\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}"
+        ]
+      },
+      "raw_body_base64": "W3siaWQiOiI0Njk1MWI2MC1jNWRlLTU0YjItYjUxMi01Mjk3ZmYzZGE1YmEiLCJ0aXRsZSI6IkNvcnB1cyBidW5rZXJzIiwic3VtbWFyeSI6bnVsbCwic291cmNlIjoiQ29ycHVzIiwic291cmNlX3VybCI6Imh0dHBzOi8vZXhhbXBsZS50ZXN0IiwidXJsIjoiaHR0cHM6Ly9leGFtcGxlLnRlc3QvYnVua2VycyIsImNhdGVnb3J5IjoiYnVua2VycyIsInJlbGV2YW5jZSI6NSwicHVibGlzaGVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMCswMDowMCIsImZldGNoZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwKzAwOjAwIn0seyJpZCI6IjZiZDg5NmNjLWVmZmUtNWUxOC05MDYzLTQyZWI4OWVkMTJjNyIsInRpdGxlIjoiQ29ycHVzIGNhcmJvbiIsInN1bW1hcnkiOm51bGwsInNvdXJjZSI6IkNvcnB1cyIsInNvdXJjZV91cmwiOiJodHRwczovL2V4YW1wbGUudGVzdCIsInVybCI6Imh0dHBzOi8vZXhhbXBsZS50ZXN0L2NhcmJvbiIsImNhdGVnb3J5IjoiY2FyYm9uIiwicmVsZXZhbmNlIjo1LCJwdWJsaXNoZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwKzAwOjAwIiwiZmV0Y2hlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDArMDA6MDAifSx7ImlkIjoiZjRkNzlkMjgtNjIwYS01NGZhLTg0ZTMtNzYwMjZlODJlYzJmIiwidGl0bGUiOiJDb3JwdXMgY29tbW9kaXRpZXMiLCJzdW1tYXJ5IjpudWxsLCJzb3VyY2UiOiJDb3JwdXMiLCJzb3VyY2VfdXJsIjoiaHR0cHM6Ly9leGFtcGxlLnRlc3QiLCJ1cmwiOiJodHRwczovL2V4YW1wbGUudGVzdC9jb21tb2RpdGllcyIsImNhdGVnb3J5IjoiY29tbW9kaXRpZXMiLCJyZWxldmFuY2UiOjUsInB1Ymxpc2hlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDArMDA6MDAiLCJmZXRjaGVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMCswMDowMCJ9LHsiaWQiOiJiOTFmYmNkNS0wM2I1LTU3ODItYTZiYy1mODAxMDBhZmViNWMiLCJ0aXRsZSI6IkNvcnB1cyBtYXJrZXRzIiwic3VtbWFyeSI6bnVsbCwic291cmNlIjoiQ29ycHVzIiwic291cmNlX3VybCI6Imh0dHBzOi8vZXhhbXBsZS50ZXN0IiwidXJsIjoiaHR0cHM6Ly9leGFtcGxlLnRlc3QvbWFya2V0cyIsImNhdGVnb3J5IjoibWFya2V0cyIsInJlbGV2YW5jZSI6NSwicHVibGlzaGVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMCswMDowMCIsImZldGNoZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwKzAwOjAwIn0seyJpZCI6ImViY2M2NTdmLWY1ZDItNTk2Mi04NzQxLTAzOGM2NjcwOTVlYiIsInRpdGxlIjoiQ29ycHVzIHJlZ3VsYXRpb24iLCJzdW1tYXJ5IjpudWxsLCJzb3VyY2UiOiJDb3JwdXMiLCJzb3VyY2VfdXJsIjoiaHR0cHM6Ly9leGFtcGxlLnRlc3QiLCJ1cmwiOiJodHRwczovL2V4YW1wbGUudGVzdC9yZWd1bGF0aW9uIiwiY2F0ZWdvcnkiOiJyZWd1bGF0aW9uIiwicmVsZXZhbmNlIjo1LCJwdWJsaXNoZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwKzAwOjAwIiwiZmV0Y2hlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDArMDA6MDAifSx7ImlkIjoiZmQ1YjlhNTUtMGNlZi01ZWVkLTlhZTktNGE0Y2I1NzU2NDNhIiwidGl0bGUiOiJDb3JwdXMgc2hpcHBpbmciLCJzdW1tYXJ5IjpudWxsLCJzb3VyY2UiOiJDb3JwdXMiLCJzb3VyY2VfdXJsIjoiaHR0cHM6Ly9leGFtcGxlLnRlc3QiLCJ1cmwiOiJodHRwczovL2V4YW1wbGUudGVzdC9zaGlwcGluZyIsImNhdGVnb3J5Ijoic2hpcHBpbmciLCJyZWxldmFuY2UiOjUsInB1Ymxpc2hlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDArMDA6MDAiLCJmZXRjaGVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMCswMDowMCJ9XQ=="
+    },
+    {
+      "id": "R05-padded-int",
+      "request": {
+        "method": "GET",
+        "path": "/api/news",
+        "query": "limit=%2020%20",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": [
+          {
+            "id": "46951b60-c5de-54b2-b512-5297ff3da5ba",
+            "title": "Corpus bunkers",
+            "summary": null,
+            "source": "Corpus",
+            "source_url": "https://example.test",
+            "url": "https://example.test/bunkers",
+            "category": "bunkers",
+            "relevance": 5,
+            "published_at": "2026-10-15T12:00:00+00:00",
+            "fetched_at": "2026-10-15T12:00:00+00:00"
+          },
+          {
+            "id": "6bd896cc-effe-5e18-9063-42eb89ed12c7",
+            "title": "Corpus carbon",
+            "summary": null,
+            "source": "Corpus",
+            "source_url": "https://example.test",
+            "url": "https://example.test/carbon",
+            "category": "carbon",
+            "relevance": 5,
+            "published_at": "2026-10-15T12:00:00+00:00",
+            "fetched_at": "2026-10-15T12:00:00+00:00"
+          },
+          {
+            "id": "f4d79d28-620a-54fa-84e3-76026e82ec2f",
+            "title": "Corpus commodities",
+            "summary": null,
+            "source": "Corpus",
+            "source_url": "https://example.test",
+            "url": "https://example.test/commodities",
+            "category": "commodities",
+            "relevance": 5,
+            "published_at": "2026-10-15T12:00:00+00:00",
+            "fetched_at": "2026-10-15T12:00:00+00:00"
+          },
+          {
+            "id": "b91fbcd5-03b5-5782-a6bc-f80100afeb5c",
+            "title": "Corpus markets",
+            "summary": null,
+            "source": "Corpus",
+            "source_url": "https://example.test",
+            "url": "https://example.test/markets",
+            "category": "markets",
+            "relevance": 5,
+            "published_at": "2026-10-15T12:00:00+00:00",
+            "fetched_at": "2026-10-15T12:00:00+00:00"
+          },
+          {
+            "id": "ebcc657f-f5d2-5962-8741-038c667095eb",
+            "title": "Corpus regulation",
+            "summary": null,
+            "source": "Corpus",
+            "source_url": "https://example.test",
+            "url": "https://example.test/regulation",
+            "category": "regulation",
+            "relevance": 5,
+            "published_at": "2026-10-15T12:00:00+00:00",
+            "fetched_at": "2026-10-15T12:00:00+00:00"
+          },
+          {
+            "id": "fd5b9a55-0cef-5eed-9ae9-4a4cb575643a",
+            "title": "Corpus shipping",
+            "summary": null,
+            "source": "Corpus",
+            "source_url": "https://example.test",
+            "url": "https://example.test/shipping",
+            "category": "shipping",
+            "relevance": 5,
+            "published_at": "2026-10-15T12:00:00+00:00",
+            "fetched_at": "2026-10-15T12:00:00+00:00"
+          }
+        ],
+        "body_sha256": "b2de0f06a5187c36cae3ba5f9b14eccde4cd262fd7779c493835d9cb70b9efe8",
+        "news_exact_items": [
+          "{\"id\":\"46951b60-c5de-54b2-b512-5297ff3da5ba\",\"title\":\"Corpus bunkers\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/bunkers\",\"category\":\"bunkers\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}",
+          "{\"id\":\"6bd896cc-effe-5e18-9063-42eb89ed12c7\",\"title\":\"Corpus carbon\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/carbon\",\"category\":\"carbon\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}",
+          "{\"id\":\"f4d79d28-620a-54fa-84e3-76026e82ec2f\",\"title\":\"Corpus commodities\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/commodities\",\"category\":\"commodities\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}",
+          "{\"id\":\"b91fbcd5-03b5-5782-a6bc-f80100afeb5c\",\"title\":\"Corpus markets\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/markets\",\"category\":\"markets\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}",
+          "{\"id\":\"ebcc657f-f5d2-5962-8741-038c667095eb\",\"title\":\"Corpus regulation\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/regulation\",\"category\":\"regulation\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}",
+          "{\"id\":\"fd5b9a55-0cef-5eed-9ae9-4a4cb575643a\",\"title\":\"Corpus shipping\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/shipping\",\"category\":\"shipping\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}"
+        ]
+      },
+      "raw_body_base64": "W3siaWQiOiI0Njk1MWI2MC1jNWRlLTU0YjItYjUxMi01Mjk3ZmYzZGE1YmEiLCJ0aXRsZSI6IkNvcnB1cyBidW5rZXJzIiwic3VtbWFyeSI6bnVsbCwic291cmNlIjoiQ29ycHVzIiwic291cmNlX3VybCI6Imh0dHBzOi8vZXhhbXBsZS50ZXN0IiwidXJsIjoiaHR0cHM6Ly9leGFtcGxlLnRlc3QvYnVua2VycyIsImNhdGVnb3J5IjoiYnVua2VycyIsInJlbGV2YW5jZSI6NSwicHVibGlzaGVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMCswMDowMCIsImZldGNoZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwKzAwOjAwIn0seyJpZCI6IjZiZDg5NmNjLWVmZmUtNWUxOC05MDYzLTQyZWI4OWVkMTJjNyIsInRpdGxlIjoiQ29ycHVzIGNhcmJvbiIsInN1bW1hcnkiOm51bGwsInNvdXJjZSI6IkNvcnB1cyIsInNvdXJjZV91cmwiOiJodHRwczovL2V4YW1wbGUudGVzdCIsInVybCI6Imh0dHBzOi8vZXhhbXBsZS50ZXN0L2NhcmJvbiIsImNhdGVnb3J5IjoiY2FyYm9uIiwicmVsZXZhbmNlIjo1LCJwdWJsaXNoZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwKzAwOjAwIiwiZmV0Y2hlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDArMDA6MDAifSx7ImlkIjoiZjRkNzlkMjgtNjIwYS01NGZhLTg0ZTMtNzYwMjZlODJlYzJmIiwidGl0bGUiOiJDb3JwdXMgY29tbW9kaXRpZXMiLCJzdW1tYXJ5IjpudWxsLCJzb3VyY2UiOiJDb3JwdXMiLCJzb3VyY2VfdXJsIjoiaHR0cHM6Ly9leGFtcGxlLnRlc3QiLCJ1cmwiOiJodHRwczovL2V4YW1wbGUudGVzdC9jb21tb2RpdGllcyIsImNhdGVnb3J5IjoiY29tbW9kaXRpZXMiLCJyZWxldmFuY2UiOjUsInB1Ymxpc2hlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDArMDA6MDAiLCJmZXRjaGVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMCswMDowMCJ9LHsiaWQiOiJiOTFmYmNkNS0wM2I1LTU3ODItYTZiYy1mODAxMDBhZmViNWMiLCJ0aXRsZSI6IkNvcnB1cyBtYXJrZXRzIiwic3VtbWFyeSI6bnVsbCwic291cmNlIjoiQ29ycHVzIiwic291cmNlX3VybCI6Imh0dHBzOi8vZXhhbXBsZS50ZXN0IiwidXJsIjoiaHR0cHM6Ly9leGFtcGxlLnRlc3QvbWFya2V0cyIsImNhdGVnb3J5IjoibWFya2V0cyIsInJlbGV2YW5jZSI6NSwicHVibGlzaGVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMCswMDowMCIsImZldGNoZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwKzAwOjAwIn0seyJpZCI6ImViY2M2NTdmLWY1ZDItNTk2Mi04NzQxLTAzOGM2NjcwOTVlYiIsInRpdGxlIjoiQ29ycHVzIHJlZ3VsYXRpb24iLCJzdW1tYXJ5IjpudWxsLCJzb3VyY2UiOiJDb3JwdXMiLCJzb3VyY2VfdXJsIjoiaHR0cHM6Ly9leGFtcGxlLnRlc3QiLCJ1cmwiOiJodHRwczovL2V4YW1wbGUudGVzdC9yZWd1bGF0aW9uIiwiY2F0ZWdvcnkiOiJyZWd1bGF0aW9uIiwicmVsZXZhbmNlIjo1LCJwdWJsaXNoZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwKzAwOjAwIiwiZmV0Y2hlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDArMDA6MDAifSx7ImlkIjoiZmQ1YjlhNTUtMGNlZi01ZWVkLTlhZTktNGE0Y2I1NzU2NDNhIiwidGl0bGUiOiJDb3JwdXMgc2hpcHBpbmciLCJzdW1tYXJ5IjpudWxsLCJzb3VyY2UiOiJDb3JwdXMiLCJzb3VyY2VfdXJsIjoiaHR0cHM6Ly9leGFtcGxlLnRlc3QiLCJ1cmwiOiJodHRwczovL2V4YW1wbGUudGVzdC9zaGlwcGluZyIsImNhdGVnb3J5Ijoic2hpcHBpbmciLCJyZWxldmFuY2UiOjUsInB1Ymxpc2hlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDArMDA6MDAiLCJmZXRjaGVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMCswMDowMCJ9XQ=="
+    },
+    {
+      "id": "R05-decimal-int",
+      "request": {
+        "method": "GET",
+        "path": "/api/news",
+        "query": "limit=20.0",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": [
+          {
+            "id": "46951b60-c5de-54b2-b512-5297ff3da5ba",
+            "title": "Corpus bunkers",
+            "summary": null,
+            "source": "Corpus",
+            "source_url": "https://example.test",
+            "url": "https://example.test/bunkers",
+            "category": "bunkers",
+            "relevance": 5,
+            "published_at": "2026-10-15T12:00:00+00:00",
+            "fetched_at": "2026-10-15T12:00:00+00:00"
+          },
+          {
+            "id": "6bd896cc-effe-5e18-9063-42eb89ed12c7",
+            "title": "Corpus carbon",
+            "summary": null,
+            "source": "Corpus",
+            "source_url": "https://example.test",
+            "url": "https://example.test/carbon",
+            "category": "carbon",
+            "relevance": 5,
+            "published_at": "2026-10-15T12:00:00+00:00",
+            "fetched_at": "2026-10-15T12:00:00+00:00"
+          },
+          {
+            "id": "f4d79d28-620a-54fa-84e3-76026e82ec2f",
+            "title": "Corpus commodities",
+            "summary": null,
+            "source": "Corpus",
+            "source_url": "https://example.test",
+            "url": "https://example.test/commodities",
+            "category": "commodities",
+            "relevance": 5,
+            "published_at": "2026-10-15T12:00:00+00:00",
+            "fetched_at": "2026-10-15T12:00:00+00:00"
+          },
+          {
+            "id": "b91fbcd5-03b5-5782-a6bc-f80100afeb5c",
+            "title": "Corpus markets",
+            "summary": null,
+            "source": "Corpus",
+            "source_url": "https://example.test",
+            "url": "https://example.test/markets",
+            "category": "markets",
+            "relevance": 5,
+            "published_at": "2026-10-15T12:00:00+00:00",
+            "fetched_at": "2026-10-15T12:00:00+00:00"
+          },
+          {
+            "id": "ebcc657f-f5d2-5962-8741-038c667095eb",
+            "title": "Corpus regulation",
+            "summary": null,
+            "source": "Corpus",
+            "source_url": "https://example.test",
+            "url": "https://example.test/regulation",
+            "category": "regulation",
+            "relevance": 5,
+            "published_at": "2026-10-15T12:00:00+00:00",
+            "fetched_at": "2026-10-15T12:00:00+00:00"
+          },
+          {
+            "id": "fd5b9a55-0cef-5eed-9ae9-4a4cb575643a",
+            "title": "Corpus shipping",
+            "summary": null,
+            "source": "Corpus",
+            "source_url": "https://example.test",
+            "url": "https://example.test/shipping",
+            "category": "shipping",
+            "relevance": 5,
+            "published_at": "2026-10-15T12:00:00+00:00",
+            "fetched_at": "2026-10-15T12:00:00+00:00"
+          }
+        ],
+        "body_sha256": "b2de0f06a5187c36cae3ba5f9b14eccde4cd262fd7779c493835d9cb70b9efe8",
+        "news_exact_items": [
+          "{\"id\":\"46951b60-c5de-54b2-b512-5297ff3da5ba\",\"title\":\"Corpus bunkers\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/bunkers\",\"category\":\"bunkers\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}",
+          "{\"id\":\"6bd896cc-effe-5e18-9063-42eb89ed12c7\",\"title\":\"Corpus carbon\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/carbon\",\"category\":\"carbon\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}",
+          "{\"id\":\"f4d79d28-620a-54fa-84e3-76026e82ec2f\",\"title\":\"Corpus commodities\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/commodities\",\"category\":\"commodities\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}",
+          "{\"id\":\"b91fbcd5-03b5-5782-a6bc-f80100afeb5c\",\"title\":\"Corpus markets\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/markets\",\"category\":\"markets\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}",
+          "{\"id\":\"ebcc657f-f5d2-5962-8741-038c667095eb\",\"title\":\"Corpus regulation\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/regulation\",\"category\":\"regulation\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}",
+          "{\"id\":\"fd5b9a55-0cef-5eed-9ae9-4a4cb575643a\",\"title\":\"Corpus shipping\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/shipping\",\"category\":\"shipping\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}"
+        ]
+      },
+      "raw_body_base64": "W3siaWQiOiI0Njk1MWI2MC1jNWRlLTU0YjItYjUxMi01Mjk3ZmYzZGE1YmEiLCJ0aXRsZSI6IkNvcnB1cyBidW5rZXJzIiwic3VtbWFyeSI6bnVsbCwic291cmNlIjoiQ29ycHVzIiwic291cmNlX3VybCI6Imh0dHBzOi8vZXhhbXBsZS50ZXN0IiwidXJsIjoiaHR0cHM6Ly9leGFtcGxlLnRlc3QvYnVua2VycyIsImNhdGVnb3J5IjoiYnVua2VycyIsInJlbGV2YW5jZSI6NSwicHVibGlzaGVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMCswMDowMCIsImZldGNoZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwKzAwOjAwIn0seyJpZCI6IjZiZDg5NmNjLWVmZmUtNWUxOC05MDYzLTQyZWI4OWVkMTJjNyIsInRpdGxlIjoiQ29ycHVzIGNhcmJvbiIsInN1bW1hcnkiOm51bGwsInNvdXJjZSI6IkNvcnB1cyIsInNvdXJjZV91cmwiOiJodHRwczovL2V4YW1wbGUudGVzdCIsInVybCI6Imh0dHBzOi8vZXhhbXBsZS50ZXN0L2NhcmJvbiIsImNhdGVnb3J5IjoiY2FyYm9uIiwicmVsZXZhbmNlIjo1LCJwdWJsaXNoZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwKzAwOjAwIiwiZmV0Y2hlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDArMDA6MDAifSx7ImlkIjoiZjRkNzlkMjgtNjIwYS01NGZhLTg0ZTMtNzYwMjZlODJlYzJmIiwidGl0bGUiOiJDb3JwdXMgY29tbW9kaXRpZXMiLCJzdW1tYXJ5IjpudWxsLCJzb3VyY2UiOiJDb3JwdXMiLCJzb3VyY2VfdXJsIjoiaHR0cHM6Ly9leGFtcGxlLnRlc3QiLCJ1cmwiOiJodHRwczovL2V4YW1wbGUudGVzdC9jb21tb2RpdGllcyIsImNhdGVnb3J5IjoiY29tbW9kaXRpZXMiLCJyZWxldmFuY2UiOjUsInB1Ymxpc2hlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDArMDA6MDAiLCJmZXRjaGVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMCswMDowMCJ9LHsiaWQiOiJiOTFmYmNkNS0wM2I1LTU3ODItYTZiYy1mODAxMDBhZmViNWMiLCJ0aXRsZSI6IkNvcnB1cyBtYXJrZXRzIiwic3VtbWFyeSI6bnVsbCwic291cmNlIjoiQ29ycHVzIiwic291cmNlX3VybCI6Imh0dHBzOi8vZXhhbXBsZS50ZXN0IiwidXJsIjoiaHR0cHM6Ly9leGFtcGxlLnRlc3QvbWFya2V0cyIsImNhdGVnb3J5IjoibWFya2V0cyIsInJlbGV2YW5jZSI6NSwicHVibGlzaGVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMCswMDowMCIsImZldGNoZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwKzAwOjAwIn0seyJpZCI6ImViY2M2NTdmLWY1ZDItNTk2Mi04NzQxLTAzOGM2NjcwOTVlYiIsInRpdGxlIjoiQ29ycHVzIHJlZ3VsYXRpb24iLCJzdW1tYXJ5IjpudWxsLCJzb3VyY2UiOiJDb3JwdXMiLCJzb3VyY2VfdXJsIjoiaHR0cHM6Ly9leGFtcGxlLnRlc3QiLCJ1cmwiOiJodHRwczovL2V4YW1wbGUudGVzdC9yZWd1bGF0aW9uIiwiY2F0ZWdvcnkiOiJyZWd1bGF0aW9uIiwicmVsZXZhbmNlIjo1LCJwdWJsaXNoZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwKzAwOjAwIiwiZmV0Y2hlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDArMDA6MDAifSx7ImlkIjoiZmQ1YjlhNTUtMGNlZi01ZWVkLTlhZTktNGE0Y2I1NzU2NDNhIiwidGl0bGUiOiJDb3JwdXMgc2hpcHBpbmciLCJzdW1tYXJ5IjpudWxsLCJzb3VyY2UiOiJDb3JwdXMiLCJzb3VyY2VfdXJsIjoiaHR0cHM6Ly9leGFtcGxlLnRlc3QiLCJ1cmwiOiJodHRwczovL2V4YW1wbGUudGVzdC9zaGlwcGluZyIsImNhdGVnb3J5Ijoic2hpcHBpbmciLCJyZWxldmFuY2UiOjUsInB1Ymxpc2hlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDArMDA6MDAiLCJmZXRjaGVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMCswMDowMCJ9XQ=="
+    },
+    {
+      "id": "R05-separator-int",
+      "request": {
+        "method": "GET",
+        "path": "/api/news",
+        "query": "limit=1_0",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": [
+          {
+            "id": "46951b60-c5de-54b2-b512-5297ff3da5ba",
+            "title": "Corpus bunkers",
+            "summary": null,
+            "source": "Corpus",
+            "source_url": "https://example.test",
+            "url": "https://example.test/bunkers",
+            "category": "bunkers",
+            "relevance": 5,
+            "published_at": "2026-10-15T12:00:00+00:00",
+            "fetched_at": "2026-10-15T12:00:00+00:00"
+          },
+          {
+            "id": "6bd896cc-effe-5e18-9063-42eb89ed12c7",
+            "title": "Corpus carbon",
+            "summary": null,
+            "source": "Corpus",
+            "source_url": "https://example.test",
+            "url": "https://example.test/carbon",
+            "category": "carbon",
+            "relevance": 5,
+            "published_at": "2026-10-15T12:00:00+00:00",
+            "fetched_at": "2026-10-15T12:00:00+00:00"
+          },
+          {
+            "id": "f4d79d28-620a-54fa-84e3-76026e82ec2f",
+            "title": "Corpus commodities",
+            "summary": null,
+            "source": "Corpus",
+            "source_url": "https://example.test",
+            "url": "https://example.test/commodities",
+            "category": "commodities",
+            "relevance": 5,
+            "published_at": "2026-10-15T12:00:00+00:00",
+            "fetched_at": "2026-10-15T12:00:00+00:00"
+          },
+          {
+            "id": "b91fbcd5-03b5-5782-a6bc-f80100afeb5c",
+            "title": "Corpus markets",
+            "summary": null,
+            "source": "Corpus",
+            "source_url": "https://example.test",
+            "url": "https://example.test/markets",
+            "category": "markets",
+            "relevance": 5,
+            "published_at": "2026-10-15T12:00:00+00:00",
+            "fetched_at": "2026-10-15T12:00:00+00:00"
+          },
+          {
+            "id": "ebcc657f-f5d2-5962-8741-038c667095eb",
+            "title": "Corpus regulation",
+            "summary": null,
+            "source": "Corpus",
+            "source_url": "https://example.test",
+            "url": "https://example.test/regulation",
+            "category": "regulation",
+            "relevance": 5,
+            "published_at": "2026-10-15T12:00:00+00:00",
+            "fetched_at": "2026-10-15T12:00:00+00:00"
+          },
+          {
+            "id": "fd5b9a55-0cef-5eed-9ae9-4a4cb575643a",
+            "title": "Corpus shipping",
+            "summary": null,
+            "source": "Corpus",
+            "source_url": "https://example.test",
+            "url": "https://example.test/shipping",
+            "category": "shipping",
+            "relevance": 5,
+            "published_at": "2026-10-15T12:00:00+00:00",
+            "fetched_at": "2026-10-15T12:00:00+00:00"
+          }
+        ],
+        "body_sha256": "b2de0f06a5187c36cae3ba5f9b14eccde4cd262fd7779c493835d9cb70b9efe8",
+        "news_exact_items": [
+          "{\"id\":\"46951b60-c5de-54b2-b512-5297ff3da5ba\",\"title\":\"Corpus bunkers\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/bunkers\",\"category\":\"bunkers\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}",
+          "{\"id\":\"6bd896cc-effe-5e18-9063-42eb89ed12c7\",\"title\":\"Corpus carbon\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/carbon\",\"category\":\"carbon\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}",
+          "{\"id\":\"f4d79d28-620a-54fa-84e3-76026e82ec2f\",\"title\":\"Corpus commodities\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/commodities\",\"category\":\"commodities\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}",
+          "{\"id\":\"b91fbcd5-03b5-5782-a6bc-f80100afeb5c\",\"title\":\"Corpus markets\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/markets\",\"category\":\"markets\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}",
+          "{\"id\":\"ebcc657f-f5d2-5962-8741-038c667095eb\",\"title\":\"Corpus regulation\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/regulation\",\"category\":\"regulation\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}",
+          "{\"id\":\"fd5b9a55-0cef-5eed-9ae9-4a4cb575643a\",\"title\":\"Corpus shipping\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/shipping\",\"category\":\"shipping\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}"
+        ]
+      },
+      "raw_body_base64": "W3siaWQiOiI0Njk1MWI2MC1jNWRlLTU0YjItYjUxMi01Mjk3ZmYzZGE1YmEiLCJ0aXRsZSI6IkNvcnB1cyBidW5rZXJzIiwic3VtbWFyeSI6bnVsbCwic291cmNlIjoiQ29ycHVzIiwic291cmNlX3VybCI6Imh0dHBzOi8vZXhhbXBsZS50ZXN0IiwidXJsIjoiaHR0cHM6Ly9leGFtcGxlLnRlc3QvYnVua2VycyIsImNhdGVnb3J5IjoiYnVua2VycyIsInJlbGV2YW5jZSI6NSwicHVibGlzaGVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMCswMDowMCIsImZldGNoZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwKzAwOjAwIn0seyJpZCI6IjZiZDg5NmNjLWVmZmUtNWUxOC05MDYzLTQyZWI4OWVkMTJjNyIsInRpdGxlIjoiQ29ycHVzIGNhcmJvbiIsInN1bW1hcnkiOm51bGwsInNvdXJjZSI6IkNvcnB1cyIsInNvdXJjZV91cmwiOiJodHRwczovL2V4YW1wbGUudGVzdCIsInVybCI6Imh0dHBzOi8vZXhhbXBsZS50ZXN0L2NhcmJvbiIsImNhdGVnb3J5IjoiY2FyYm9uIiwicmVsZXZhbmNlIjo1LCJwdWJsaXNoZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwKzAwOjAwIiwiZmV0Y2hlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDArMDA6MDAifSx7ImlkIjoiZjRkNzlkMjgtNjIwYS01NGZhLTg0ZTMtNzYwMjZlODJlYzJmIiwidGl0bGUiOiJDb3JwdXMgY29tbW9kaXRpZXMiLCJzdW1tYXJ5IjpudWxsLCJzb3VyY2UiOiJDb3JwdXMiLCJzb3VyY2VfdXJsIjoiaHR0cHM6Ly9leGFtcGxlLnRlc3QiLCJ1cmwiOiJodHRwczovL2V4YW1wbGUudGVzdC9jb21tb2RpdGllcyIsImNhdGVnb3J5IjoiY29tbW9kaXRpZXMiLCJyZWxldmFuY2UiOjUsInB1Ymxpc2hlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDArMDA6MDAiLCJmZXRjaGVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMCswMDowMCJ9LHsiaWQiOiJiOTFmYmNkNS0wM2I1LTU3ODItYTZiYy1mODAxMDBhZmViNWMiLCJ0aXRsZSI6IkNvcnB1cyBtYXJrZXRzIiwic3VtbWFyeSI6bnVsbCwic291cmNlIjoiQ29ycHVzIiwic291cmNlX3VybCI6Imh0dHBzOi8vZXhhbXBsZS50ZXN0IiwidXJsIjoiaHR0cHM6Ly9leGFtcGxlLnRlc3QvbWFya2V0cyIsImNhdGVnb3J5IjoibWFya2V0cyIsInJlbGV2YW5jZSI6NSwicHVibGlzaGVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMCswMDowMCIsImZldGNoZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwKzAwOjAwIn0seyJpZCI6ImViY2M2NTdmLWY1ZDItNTk2Mi04NzQxLTAzOGM2NjcwOTVlYiIsInRpdGxlIjoiQ29ycHVzIHJlZ3VsYXRpb24iLCJzdW1tYXJ5IjpudWxsLCJzb3VyY2UiOiJDb3JwdXMiLCJzb3VyY2VfdXJsIjoiaHR0cHM6Ly9leGFtcGxlLnRlc3QiLCJ1cmwiOiJodHRwczovL2V4YW1wbGUudGVzdC9yZWd1bGF0aW9uIiwiY2F0ZWdvcnkiOiJyZWd1bGF0aW9uIiwicmVsZXZhbmNlIjo1LCJwdWJsaXNoZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwKzAwOjAwIiwiZmV0Y2hlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDArMDA6MDAifSx7ImlkIjoiZmQ1YjlhNTUtMGNlZi01ZWVkLTlhZTktNGE0Y2I1NzU2NDNhIiwidGl0bGUiOiJDb3JwdXMgc2hpcHBpbmciLCJzdW1tYXJ5IjpudWxsLCJzb3VyY2UiOiJDb3JwdXMiLCJzb3VyY2VfdXJsIjoiaHR0cHM6Ly9leGFtcGxlLnRlc3QiLCJ1cmwiOiJodHRwczovL2V4YW1wbGUudGVzdC9zaGlwcGluZyIsImNhdGVnb3J5Ijoic2hpcHBpbmciLCJyZWxldmFuY2UiOjUsInB1Ymxpc2hlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDArMDA6MDAiLCJmZXRjaGVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMCswMDowMCJ9XQ=="
+    },
+    {
+      "id": "R05-both-invalid",
+      "request": {
+        "method": "GET",
+        "path": "/api/news",
+        "query": "limit=0&min_relevance=0",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 422,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": [
+            {
+              "type": "greater_than_equal",
+              "loc": [
+                "query",
+                "limit"
+              ],
+              "msg": "Input should be greater than or equal to 1",
+              "input": "0",
+              "ctx": {
+                "ge": 1
+              }
+            },
+            {
+              "type": "greater_than_equal",
+              "loc": [
+                "query",
+                "min_relevance"
+              ],
+              "msg": "Input should be greater than or equal to 1",
+              "input": "0",
+              "ctx": {
+                "ge": 1
+              }
+            }
+          ]
+        },
+        "body_sha256": "b321ce97dcc4509beb7e00d14310a56ed45f9513f3d30cff846059c0170de215"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOlt7InR5cGUiOiJncmVhdGVyX3RoYW5fZXF1YWwiLCJsb2MiOlsicXVlcnkiLCJsaW1pdCJdLCJtc2ciOiJJbnB1dCBzaG91bGQgYmUgZ3JlYXRlciB0aGFuIG9yIGVxdWFsIHRvIDEiLCJpbnB1dCI6IjAiLCJjdHgiOnsiZ2UiOjF9fSx7InR5cGUiOiJncmVhdGVyX3RoYW5fZXF1YWwiLCJsb2MiOlsicXVlcnkiLCJtaW5fcmVsZXZhbmNlIl0sIm1zZyI6IklucHV0IHNob3VsZCBiZSBncmVhdGVyIHRoYW4gb3IgZXF1YWwgdG8gMSIsImlucHV0IjoiMCIsImN0eCI6eyJnZSI6MX19XX0="
+    },
+    {
+      "id": "R05-large-int",
+      "request": {
+        "method": "GET",
+        "path": "/api/news",
+        "query": "limit=9223372036854775808",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 422,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": [
+            {
+              "type": "less_than_equal",
+              "loc": [
+                "query",
+                "limit"
+              ],
+              "msg": "Input should be less than or equal to 100",
+              "input": "9223372036854775808",
+              "ctx": {
+                "le": 100
+              }
+            }
+          ]
+        },
+        "body_sha256": "e265a969127be2bc4289043ca0edf656bd3fa1047d7f3c3c7c89067c80f56a9a"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOlt7InR5cGUiOiJsZXNzX3RoYW5fZXF1YWwiLCJsb2MiOlsicXVlcnkiLCJsaW1pdCJdLCJtc2ciOiJJbnB1dCBzaG91bGQgYmUgbGVzcyB0aGFuIG9yIGVxdWFsIHRvIDEwMCIsImlucHV0IjoiOTIyMzM3MjAzNjg1NDc3NTgwOCIsImN0eCI6eyJsZSI6MTAwfX1dfQ=="
+    },
+    {
+      "id": "T4B-port-bare",
+      "request": {
+        "method": "GET",
+        "path": "/api/ports/T4B_BARE",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "id": "T4B_BARE",
+          "name": "Corpus BARE",
+          "country": "Singapore",
+          "location": null,
+          "timezone": "Asia/Singapore",
+          "is_active": true,
+          "lat": "1.234567891234",
+          "lng": "103.123456789123",
+          "intelligence": null
+        },
+        "body_sha256": "0d46d3606c16a8ed9706d7add1759bdfdc8f0da670a403758352b54e94fecd6c"
+      },
+      "raw_body_base64": "eyJpZCI6IlQ0Ql9CQVJFIiwibmFtZSI6IkNvcnB1cyBCQVJFIiwiY291bnRyeSI6IlNpbmdhcG9yZSIsImxvY2F0aW9uIjpudWxsLCJ0aW1lem9uZSI6IkFzaWEvU2luZ2Fwb3JlIiwiaXNfYWN0aXZlIjp0cnVlLCJsYXQiOjEuMjM0NTY3ODkxMjM0LCJsbmciOjEwMy4xMjM0NTY3ODkxMjMsImludGVsbGlnZW5jZSI6bnVsbH0="
+    },
+    {
+      "id": "T4B-port-one",
+      "request": {
+        "method": "GET",
+        "path": "/api/ports/T4B_ONE",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "id": "T4B_ONE",
+          "name": "Corpus ONE",
+          "country": "Singapore",
+          "location": null,
+          "timezone": "Asia/Singapore",
+          "is_active": true,
+          "lat": "1.234567891234",
+          "lng": "103.123456789123",
+          "intelligence": {
+            "congestion_level": "Low",
+            "methanol_price_avg": "600.0",
+            "biofuel_price_avg": null,
+            "captured_at": "2026-10-15T12:00:00Z"
+          }
+        },
+        "body_sha256": "8fc618a64c07ce0a976e92dea9f4806d472ff70706be17302d8c7a40c4366547"
+      },
+      "raw_body_base64": "eyJpZCI6IlQ0Ql9PTkUiLCJuYW1lIjoiQ29ycHVzIE9ORSIsImNvdW50cnkiOiJTaW5nYXBvcmUiLCJsb2NhdGlvbiI6bnVsbCwidGltZXpvbmUiOiJBc2lhL1NpbmdhcG9yZSIsImlzX2FjdGl2ZSI6dHJ1ZSwibGF0IjoxLjIzNDU2Nzg5MTIzNCwibG5nIjoxMDMuMTIzNDU2Nzg5MTIzLCJpbnRlbGxpZ2VuY2UiOnsiY29uZ2VzdGlvbl9sZXZlbCI6IkxvdyIsIm1ldGhhbm9sX3ByaWNlX2F2ZyI6NjAwLjAsImJpb2Z1ZWxfcHJpY2VfYXZnIjpudWxsLCJjYXB0dXJlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDBaIn19"
+    },
+    {
+      "id": "T4B-port-two",
+      "request": {
+        "method": "GET",
+        "path": "/api/ports/T4B_TWO",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "id": "T4B_TWO",
+          "name": "Corpus TWO",
+          "country": "Singapore",
+          "location": null,
+          "timezone": "Asia/Singapore",
+          "is_active": true,
+          "lat": "1.234567891234",
+          "lng": "103.123456789123",
+          "intelligence": {
+            "congestion_level": "Low",
+            "methanol_price_avg": "601.0",
+            "biofuel_price_avg": null,
+            "captured_at": "2026-10-15T12:00:00Z"
+          }
+        },
+        "body_sha256": "f5a97135f6a97e712cd45c1040af34d2ea8b78e7febfa500d353b98b7a336e52"
+      },
+      "raw_body_base64": "eyJpZCI6IlQ0Ql9UV08iLCJuYW1lIjoiQ29ycHVzIFRXTyIsImNvdW50cnkiOiJTaW5nYXBvcmUiLCJsb2NhdGlvbiI6bnVsbCwidGltZXpvbmUiOiJBc2lhL1NpbmdhcG9yZSIsImlzX2FjdGl2ZSI6dHJ1ZSwibGF0IjoxLjIzNDU2Nzg5MTIzNCwibG5nIjoxMDMuMTIzNDU2Nzg5MTIzLCJpbnRlbGxpZ2VuY2UiOnsiY29uZ2VzdGlvbl9sZXZlbCI6IkxvdyIsIm1ldGhhbm9sX3ByaWNlX2F2ZyI6NjAxLjAsImJpb2Z1ZWxfcHJpY2VfYXZnIjpudWxsLCJjYXB0dXJlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDBaIn19"
+    },
+    {
+      "id": "T4B-news-bunkers",
+      "request": {
+        "method": "GET",
+        "path": "/api/news",
+        "query": "category=bunkers",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": [
+          {
+            "id": "46951b60-c5de-54b2-b512-5297ff3da5ba",
+            "title": "Corpus bunkers",
+            "summary": null,
+            "source": "Corpus",
+            "source_url": "https://example.test",
+            "url": "https://example.test/bunkers",
+            "category": "bunkers",
+            "relevance": 5,
+            "published_at": "2026-10-15T12:00:00+00:00",
+            "fetched_at": "2026-10-15T12:00:00+00:00"
+          }
+        ],
+        "body_sha256": "86ccde53178fb1306a363be5c942f3665edb497b89e15c694cc8e84fd4cb9b42",
+        "news_exact_items": [
+          "{\"id\":\"46951b60-c5de-54b2-b512-5297ff3da5ba\",\"title\":\"Corpus bunkers\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/bunkers\",\"category\":\"bunkers\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}"
+        ]
+      },
+      "raw_body_base64": "W3siaWQiOiI0Njk1MWI2MC1jNWRlLTU0YjItYjUxMi01Mjk3ZmYzZGE1YmEiLCJ0aXRsZSI6IkNvcnB1cyBidW5rZXJzIiwic3VtbWFyeSI6bnVsbCwic291cmNlIjoiQ29ycHVzIiwic291cmNlX3VybCI6Imh0dHBzOi8vZXhhbXBsZS50ZXN0IiwidXJsIjoiaHR0cHM6Ly9leGFtcGxlLnRlc3QvYnVua2VycyIsImNhdGVnb3J5IjoiYnVua2VycyIsInJlbGV2YW5jZSI6NSwicHVibGlzaGVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMCswMDowMCIsImZldGNoZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwKzAwOjAwIn1d"
+    },
+    {
+      "id": "T4B-news-carbon",
+      "request": {
+        "method": "GET",
+        "path": "/api/news",
+        "query": "category=carbon",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": [
+          {
+            "id": "6bd896cc-effe-5e18-9063-42eb89ed12c7",
+            "title": "Corpus carbon",
+            "summary": null,
+            "source": "Corpus",
+            "source_url": "https://example.test",
+            "url": "https://example.test/carbon",
+            "category": "carbon",
+            "relevance": 5,
+            "published_at": "2026-10-15T12:00:00+00:00",
+            "fetched_at": "2026-10-15T12:00:00+00:00"
+          }
+        ],
+        "body_sha256": "34f5122433f7a85603a644dec0bae7b5b27be1c16df0405a13c1e513fb548df8",
+        "news_exact_items": [
+          "{\"id\":\"6bd896cc-effe-5e18-9063-42eb89ed12c7\",\"title\":\"Corpus carbon\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/carbon\",\"category\":\"carbon\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}"
+        ]
+      },
+      "raw_body_base64": "W3siaWQiOiI2YmQ4OTZjYy1lZmZlLTVlMTgtOTA2My00MmViODllZDEyYzciLCJ0aXRsZSI6IkNvcnB1cyBjYXJib24iLCJzdW1tYXJ5IjpudWxsLCJzb3VyY2UiOiJDb3JwdXMiLCJzb3VyY2VfdXJsIjoiaHR0cHM6Ly9leGFtcGxlLnRlc3QiLCJ1cmwiOiJodHRwczovL2V4YW1wbGUudGVzdC9jYXJib24iLCJjYXRlZ29yeSI6ImNhcmJvbiIsInJlbGV2YW5jZSI6NSwicHVibGlzaGVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMCswMDowMCIsImZldGNoZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwKzAwOjAwIn1d"
+    },
+    {
+      "id": "T4B-news-commodities",
+      "request": {
+        "method": "GET",
+        "path": "/api/news",
+        "query": "category=commodities",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": [
+          {
+            "id": "f4d79d28-620a-54fa-84e3-76026e82ec2f",
+            "title": "Corpus commodities",
+            "summary": null,
+            "source": "Corpus",
+            "source_url": "https://example.test",
+            "url": "https://example.test/commodities",
+            "category": "commodities",
+            "relevance": 5,
+            "published_at": "2026-10-15T12:00:00+00:00",
+            "fetched_at": "2026-10-15T12:00:00+00:00"
+          }
+        ],
+        "body_sha256": "0b171f859c0a2930f55ca6754216d367c0c2a4b8d9ecd67ecae5df7e33934fe1",
+        "news_exact_items": [
+          "{\"id\":\"f4d79d28-620a-54fa-84e3-76026e82ec2f\",\"title\":\"Corpus commodities\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/commodities\",\"category\":\"commodities\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}"
+        ]
+      },
+      "raw_body_base64": "W3siaWQiOiJmNGQ3OWQyOC02MjBhLTU0ZmEtODRlMy03NjAyNmU4MmVjMmYiLCJ0aXRsZSI6IkNvcnB1cyBjb21tb2RpdGllcyIsInN1bW1hcnkiOm51bGwsInNvdXJjZSI6IkNvcnB1cyIsInNvdXJjZV91cmwiOiJodHRwczovL2V4YW1wbGUudGVzdCIsInVybCI6Imh0dHBzOi8vZXhhbXBsZS50ZXN0L2NvbW1vZGl0aWVzIiwiY2F0ZWdvcnkiOiJjb21tb2RpdGllcyIsInJlbGV2YW5jZSI6NSwicHVibGlzaGVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMCswMDowMCIsImZldGNoZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwKzAwOjAwIn1d"
+    },
+    {
+      "id": "T4B-news-markets",
+      "request": {
+        "method": "GET",
+        "path": "/api/news",
+        "query": "category=markets",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": [
+          {
+            "id": "b91fbcd5-03b5-5782-a6bc-f80100afeb5c",
+            "title": "Corpus markets",
+            "summary": null,
+            "source": "Corpus",
+            "source_url": "https://example.test",
+            "url": "https://example.test/markets",
+            "category": "markets",
+            "relevance": 5,
+            "published_at": "2026-10-15T12:00:00+00:00",
+            "fetched_at": "2026-10-15T12:00:00+00:00"
+          }
+        ],
+        "body_sha256": "2fc665ea66d5436084410e566e4d096c55e64d6212e6a932bb3161df416a6b0a",
+        "news_exact_items": [
+          "{\"id\":\"b91fbcd5-03b5-5782-a6bc-f80100afeb5c\",\"title\":\"Corpus markets\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/markets\",\"category\":\"markets\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}"
+        ]
+      },
+      "raw_body_base64": "W3siaWQiOiJiOTFmYmNkNS0wM2I1LTU3ODItYTZiYy1mODAxMDBhZmViNWMiLCJ0aXRsZSI6IkNvcnB1cyBtYXJrZXRzIiwic3VtbWFyeSI6bnVsbCwic291cmNlIjoiQ29ycHVzIiwic291cmNlX3VybCI6Imh0dHBzOi8vZXhhbXBsZS50ZXN0IiwidXJsIjoiaHR0cHM6Ly9leGFtcGxlLnRlc3QvbWFya2V0cyIsImNhdGVnb3J5IjoibWFya2V0cyIsInJlbGV2YW5jZSI6NSwicHVibGlzaGVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMCswMDowMCIsImZldGNoZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwKzAwOjAwIn1d"
+    },
+    {
+      "id": "T4B-news-regulation",
+      "request": {
+        "method": "GET",
+        "path": "/api/news",
+        "query": "category=regulation",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": [
+          {
+            "id": "ebcc657f-f5d2-5962-8741-038c667095eb",
+            "title": "Corpus regulation",
+            "summary": null,
+            "source": "Corpus",
+            "source_url": "https://example.test",
+            "url": "https://example.test/regulation",
+            "category": "regulation",
+            "relevance": 5,
+            "published_at": "2026-10-15T12:00:00+00:00",
+            "fetched_at": "2026-10-15T12:00:00+00:00"
+          }
+        ],
+        "body_sha256": "d2b61aab92cf2bb2d088674f9dc5f8b73d8307709d31ea12629572160188c9ee",
+        "news_exact_items": [
+          "{\"id\":\"ebcc657f-f5d2-5962-8741-038c667095eb\",\"title\":\"Corpus regulation\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/regulation\",\"category\":\"regulation\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}"
+        ]
+      },
+      "raw_body_base64": "W3siaWQiOiJlYmNjNjU3Zi1mNWQyLTU5NjItODc0MS0wMzhjNjY3MDk1ZWIiLCJ0aXRsZSI6IkNvcnB1cyByZWd1bGF0aW9uIiwic3VtbWFyeSI6bnVsbCwic291cmNlIjoiQ29ycHVzIiwic291cmNlX3VybCI6Imh0dHBzOi8vZXhhbXBsZS50ZXN0IiwidXJsIjoiaHR0cHM6Ly9leGFtcGxlLnRlc3QvcmVndWxhdGlvbiIsImNhdGVnb3J5IjoicmVndWxhdGlvbiIsInJlbGV2YW5jZSI6NSwicHVibGlzaGVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMCswMDowMCIsImZldGNoZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwKzAwOjAwIn1d"
+    },
+    {
+      "id": "T4B-news-shipping",
+      "request": {
+        "method": "GET",
+        "path": "/api/news",
+        "query": "category=shipping",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": [
+          {
+            "id": "fd5b9a55-0cef-5eed-9ae9-4a4cb575643a",
+            "title": "Corpus shipping",
+            "summary": null,
+            "source": "Corpus",
+            "source_url": "https://example.test",
+            "url": "https://example.test/shipping",
+            "category": "shipping",
+            "relevance": 5,
+            "published_at": "2026-10-15T12:00:00+00:00",
+            "fetched_at": "2026-10-15T12:00:00+00:00"
+          }
+        ],
+        "body_sha256": "fab781cd6f46bf84a78b27caaa7bcbdc20a6297bc93f28f9703b1084599b63c9",
+        "news_exact_items": [
+          "{\"id\":\"fd5b9a55-0cef-5eed-9ae9-4a4cb575643a\",\"title\":\"Corpus shipping\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/shipping\",\"category\":\"shipping\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}"
+        ]
+      },
+      "raw_body_base64": "W3siaWQiOiJmZDViOWE1NS0wY2VmLTVlZWQtOWFlOS00YTRjYjU3NTY0M2EiLCJ0aXRsZSI6IkNvcnB1cyBzaGlwcGluZyIsInN1bW1hcnkiOm51bGwsInNvdXJjZSI6IkNvcnB1cyIsInNvdXJjZV91cmwiOiJodHRwczovL2V4YW1wbGUudGVzdCIsInVybCI6Imh0dHBzOi8vZXhhbXBsZS50ZXN0L3NoaXBwaW5nIiwiY2F0ZWdvcnkiOiJzaGlwcGluZyIsInJlbGV2YW5jZSI6NSwicHVibGlzaGVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMCswMDowMCIsImZldGNoZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwKzAwOjAwIn1d"
+    }
+  ]
+}

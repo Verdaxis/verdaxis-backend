@@ -138,6 +138,7 @@ pub async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         pools,
         policy: Arc::new(policy),
         reads: Arc::new(tokio::sync::Semaphore::new(16)),
+        reference_cache: Arc::new(crate::runtime::cache::ReferenceCache::default()),
     };
     let app = super::router(
         state,

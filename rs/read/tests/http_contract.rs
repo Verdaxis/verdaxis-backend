@@ -62,6 +62,31 @@ async fn middleware_wraps_errors_and_preflight() {
 }
 
 #[test]
+fn browser_origins_are_bound_to_the_deployed_environment() {
+    use verdaxis_read::runtime::http::allowed_browser_origin;
+    assert!(allowed_browser_origin(
+        "production",
+        "https://app.verdaxis.exchange"
+    ));
+    assert!(!allowed_browser_origin(
+        "production",
+        "https://staging.verdaxis.exchange"
+    ));
+    assert!(!allowed_browser_origin(
+        "staging",
+        "https://app.verdaxis.exchange"
+    ));
+    assert!(allowed_browser_origin(
+        "staging",
+        "https://staging.verdaxis.exchange"
+    ));
+    assert!(!allowed_browser_origin(
+        "production",
+        "https://denied.invalid"
+    ));
+}
+
+#[test]
 fn forwarded_client_uses_final_hop_only_from_loopback() {
     use verdaxis_read::runtime::http::client_ip;
     assert_eq!(
@@ -767,7 +792,7 @@ async fn cors_wraps_saturated_admission() {
         .oneshot(
             Request::builder()
                 .uri("/api/ports")
-                .header("origin", "https://staging.verdaxis.exchange")
+                .header("origin", "https://test")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -777,7 +802,7 @@ async fn cors_wraps_saturated_admission() {
     assert_eq!(response.headers()["retry-after"], "1");
     assert_eq!(
         response.headers()["access-control-allow-origin"],
-        "https://staging.verdaxis.exchange"
+        "https://test"
     );
     assert_eq!(
         to_bytes(response.into_body(), 1024).await.unwrap(),

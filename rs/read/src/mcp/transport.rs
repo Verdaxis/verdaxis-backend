@@ -4,66 +4,13 @@ use axum::{
     response::Response,
 };
 
-/// Adapt SDK model field order, not tool payload order or values.
-/// Python's MCP models sort envelope fields; structured tool data retains schema order.
-pub fn python_envelope(mut value: crate::Json, method: &str) -> crate::Json {
-    fn sorted(value: &crate::Json) -> crate::Json {
-        match value {
-            crate::Json::Object(fields) => {
-                let mut keys: Vec<_> = fields.keys().collect();
-                keys.sort();
-                crate::Json::Object(
-                    keys.into_iter()
-                        .map(|key| {
-                            (
-                                key.clone(),
-                                if key == "structuredContent"
-                                    || key == "inputSchema"
-                                    || key == "outputSchema"
-                                {
-                                    fields[key].clone()
-                                } else {
-                                    sorted(&fields[key])
-                                },
-                            )
-                        })
-                        .collect(),
-                )
-            }
-            crate::Json::Array(values) => crate::Json::Array(values.iter().map(sorted).collect()),
-            _ => value.clone(),
-        }
-    }
-    fn schema_order(value: &crate::Json) -> crate::Json {
-        let fields = value.as_object().expect("tool object schema");
-        let mut output = serde_json::Map::new();
-        for key in ["properties", "required", "type"] {
-            if let Some(value) = fields.get(key) {
-                output.insert(key.into(), value.clone());
-            }
-        }
-        for (key, value) in fields {
-            if !output.contains_key(key) {
-                output.insert(key.clone(), value.clone());
-            }
-        }
-        crate::Json::Object(output)
-    }
-    fn modern_input(value: &crate::Json) -> crate::Json {
-        let mut fields = serde_json::Map::new();
-        fields.insert("type".into(), value["type"].clone());
-        for (key, value) in value.as_object().expect("input schema") {
-            if key != "type" {
-                fields.insert(key.clone(), value.clone());
-            }
-        }
-        crate::Json::Object(fields)
-    }
+/// Keep protocol field membership and exported tool schemas; key order is not semantic.
+pub fn protocol_envelope(mut value: crate::Json, method: &str) -> crate::Json {
+    value["jsonrpc"] = serde_json::json!("2.0");
     if method == "tools/list" && value.get("result").is_some() {
-        let modern = value["result"].get("resultType").is_some();
         let schemas: crate::Json =
             serde_json::from_str(include_str!("../../../../deploy/rust/mcp-tools.json"))
-                .expect("committed Python tool schemas");
+                .expect("committed tool schemas");
         let registered = value["result"]["tools"]
             .as_array()
             .cloned()
@@ -74,36 +21,14 @@ pub fn python_envelope(mut value: crate::Json, method: &str) -> crate::Json {
                 .expect("tool schemas")
                 .iter()
                 .filter(|schema| registered.iter().any(|tool| tool["name"] == schema["name"]))
-                .map(|schema| serde_json::json!({"annotations":sorted(&schema["annotations"]),"description":schema["description"],"inputSchema":if modern { modern_input(&schema["inputSchema"]) } else { schema_order(&schema["inputSchema"]) },"name":schema["name"],"outputSchema":if modern { schema["outputSchema"].clone() } else { schema_order(&schema["outputSchema"]) }}))
+                .cloned()
                 .collect(),
         );
-    }
-    let mut result = serde_json::json!({"jsonrpc":"2.0","id":value["id"]});
-    if let Some(error) = value.get("error") {
-        result["error"] = serde_json::json!({"code":error["code"],"message":error["message"]});
-        if let Some(data) = error.get("data") {
-            result["error"]["data"] = data.clone();
+        if value["result"].get("resultType").is_some() {
+            value["result"]["cacheScope"] = serde_json::json!("private");
         }
     }
-    if let Some(body) = value.get("result") {
-        result["result"] = if method == "tools/list" {
-            if body.get("resultType").is_some() {
-                let mut ordered = serde_json::Map::new();
-                for key in ["cacheScope", "resultType", "tools", "ttlMs"] {
-                    if let Some(value) = body.get(key) {
-                        ordered.insert(key.into(), value.clone());
-                    }
-                }
-                ordered.insert("cacheScope".into(), serde_json::json!("private"));
-                crate::Json::Object(ordered)
-            } else {
-                body.clone()
-            }
-        } else {
-            sorted(body)
-        };
-    }
-    result
+    value
 }
 
 pub fn python_string_repr(text: &str) -> String {

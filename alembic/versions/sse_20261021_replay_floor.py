@@ -1,7 +1,7 @@
 """Durable replay floor, retention ownership fence and replay membership index.
 
 Revision ID: sse_20261021_replay_floor
-Revises: p0_20261016_union
+Revises: prc_20261018_cache
 
 Additive schema for private market replay:
 
@@ -31,7 +31,7 @@ from __future__ import annotations
 from alembic import op
 
 revision = "sse_20261021_replay_floor"
-down_revision = "p0_20261016_union"
+down_revision = "prc_20261018_cache"
 branch_labels = None
 depends_on = None
 
