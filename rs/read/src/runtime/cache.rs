@@ -527,6 +527,31 @@ mod trading_tests {
     }
 
     #[test]
+    fn request_wall_time_must_precede_the_evaluation_wall_deadline() {
+        let process = process();
+        let clock = TradingClock::new(process.now, std::time::SystemTime::now());
+        let mut entry = entry_for(
+            &process.token,
+            10,
+            Boundary::At(clock.monotonic + Duration::from_secs(1)),
+        );
+        entry.evaluated_at = clock;
+        let request_monotonic = clock.monotonic + Duration::from_millis(100);
+        assert!(entry.covers(TradingClock::new(
+            request_monotonic,
+            clock.wall + Duration::from_millis(999),
+        )));
+        assert!(!entry.covers(TradingClock::new(
+            request_monotonic,
+            clock.wall + Duration::from_secs(1),
+        )));
+        assert!(!entry.covers(TradingClock::new(
+            request_monotonic,
+            clock.wall + Duration::from_secs(2),
+        )));
+    }
+
+    #[test]
     fn an_earlier_clock_fill_cannot_replace_a_later_clock_entry() {
         let process = process();
         let clock = TradingClock::new(process.now, std::time::SystemTime::now());
@@ -543,18 +568,16 @@ mod trading_tests {
         assert!(cache.insert("key", late_entry, later.monotonic));
         assert!(!cache.insert("key", early_entry, later.monotonic));
         let ticket = FillTicket::new(process.token.clone(), 10);
-        assert!(
-            cache
-                .hit(
-                    &process.authority,
-                    &"key",
-                    &ticket,
-                    "policy",
-                    clock,
-                    later.monotonic
-                )
-                .is_none()
-        );
+        assert!(cache
+            .hit(
+                &process.authority,
+                &"key",
+                &ticket,
+                "policy",
+                clock,
+                later.monotonic
+            )
+            .is_none());
         assert_eq!(
             cache
                 .hit(
@@ -580,18 +603,16 @@ mod trading_tests {
         // An overlapping snapshot at the older generation finishes later.
         assert!(!cache.insert("key", entry_for(&process.token, 10, Boundary::Never), now));
         let current = FillTicket::new(process.token.clone(), 11);
-        assert!(
-            cache
-                .hit(
-                    &process.authority,
-                    &"key",
-                    &current,
-                    "policy",
-                    TradingClock::new(now, std::time::SystemTime::now()),
-                    now
-                )
-                .is_some()
-        );
+        assert!(cache
+            .hit(
+                &process.authority,
+                &"key",
+                &current,
+                "policy",
+                TradingClock::new(now, std::time::SystemTime::now()),
+                now
+            )
+            .is_some());
         // The same or a later generation still replaces the entry.
         assert!(cache.insert("key", entry_for(&process.token, 11, Boundary::Never), now));
         assert!(cache.insert("key", entry_for(&process.token, 12, Boundary::Never), now));

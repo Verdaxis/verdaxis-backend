@@ -1193,10 +1193,79 @@ impl TradingReadObserver for ControlledClock {
 }
 impl ControlledClock {
     fn advance(&self, duration: Duration) {
-        let mut clock = self.0.lock().unwrap();
-        clock.monotonic += duration;
-        clock.wall += duration;
+        self.advance_separately(duration, duration);
     }
+
+    fn advance_separately(&self, monotonic: Duration, wall: Duration) {
+        let mut clock = self.0.lock().unwrap();
+        clock.monotonic += monotonic;
+        clock.wall += wall;
+    }
+}
+
+#[tokio::test]
+async fn wall_deadlines_expire_entries_before_their_monotonic_boundary() {
+    let _serial = SERIAL.lock().await;
+    let Some((url, mut writer)) = writer().await else {
+        return;
+    };
+    let (mut state, runtime, _record) = admitted_state(&url, &mut writer).await;
+    let initial_generation = generation(&mut writer).await;
+    let mut results = Vec::new();
+    for (kind, family) in [("expiry", "orderbook"), ("rolling", "trade_tape")] {
+        let start = instant_at("2026-10-22T08:00:00Z");
+        let clock = Arc::new(ControlledClock(std::sync::Mutex::new(TradingClock::new(
+            Instant::now(),
+            start,
+        ))));
+        state.trading_read_observer = clock.clone();
+        let cache = Arc::new(TradingCache::new(4, 1024));
+        let runs = Arc::new(AtomicUsize::new(0));
+        let mut totals = Vec::new();
+        for read in 0..4 {
+            runtime
+                .authority()
+                .refresh(runtime.record_path(), clock.now().monotonic);
+            let loads = runs.clone();
+            let total = run_trading_read(
+                &state,
+                &cache,
+                kind,
+                family,
+                clock.now(),
+                move |connection, clock| {
+                    Box::pin(async move {
+                        loads.fetch_add(1, Ordering::SeqCst);
+                        clock_case(connection, kind, start, &clock).await
+                    })
+                },
+            )
+            .await
+            .unwrap();
+            totals.push(total);
+            if read == 0 {
+                assert_eq!(cache.len(), 1);
+                // A distinct forward clock inside both bounds must still hit.
+                clock.advance(Duration::from_millis(100));
+            } else if read == 1 {
+                // Both request/current monotonic instants remain before the
+                // stored boundary, but the SQL wall clock crosses departure.
+                clock.advance_separately(Duration::from_millis(100), Duration::from_secs(2));
+            }
+        }
+        results.push((kind, totals, runs.load(Ordering::SeqCst)));
+    }
+    assert_eq!(generation(&mut writer).await, initial_generation);
+    reset(&mut writer).await;
+    writer.close().await.unwrap();
+    assert_eq!(
+        results,
+        [
+            ("expiry", vec![1, 1, 0, 0], 2),
+            ("rolling", vec![1, 1, 0, 0], 2),
+        ],
+        "wall expiry must reload; ordinary and post-departure reads must still hit"
+    );
 }
 
 /// One row that the clock removes one second after `start`, read through its
