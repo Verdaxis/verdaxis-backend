@@ -15,6 +15,7 @@ import json
 from dataclasses import replace
 
 from scripts.rust_contract.phase2_scenarios import Action, Scenario
+from scripts.rust_contract.phase2_state import expect_cache_invalidations
 from scripts.rust_contract.referral_allocation import auth
 from scripts.rust_contract.referral_allocation import servers as allocation_servers
 

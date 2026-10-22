@@ -10,6 +10,7 @@ from scripts.rust_contract.phase2_referrals import headers as base_headers
 from scripts.rust_contract.phase2_referrals import servers as base_servers
 from scripts.rust_contract.phase2_scenarios import Action, Race, Scenario
 from scripts.rust_contract.phase2_seed import connect
+from scripts.rust_contract.phase2_state import expect_cache_invalidations
 
 IDS = [f'20000000-0000-4000-8000-{i:012d}' for i in range(101, 109)]
 CODES = {IDS[0]: ['VDX-TAKEN1'] * 10, IDS[1]: ['VDX-TAKEN1'] * 9 + ['VDX-FREE01'],
