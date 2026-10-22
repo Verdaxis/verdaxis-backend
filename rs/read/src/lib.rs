@@ -30,7 +30,9 @@ pub use market::visibility::{
 pub use market::windows::{
     normalize_window, window_display_label, window_sort_key, window_start_date,
 };
-pub use runtime::admission::{DEFAULT_READ_ADMISSION_SLOTS, run_admitted, selected_read, try_read};
+pub use runtime::admission::{
+    DEFAULT_READ_ADMISSION_SLOTS, run_admitted, run_market_read, selected_read, try_read,
+};
 pub use runtime::artifact::{
     ARTIFACT_VERSION, LIBC_MIN, verify_artifact_identity, verify_compiled_identity, version_json,
 };
