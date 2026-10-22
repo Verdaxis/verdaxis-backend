@@ -597,6 +597,25 @@ async def test_fee_migration_refuses_downgrade_that_would_lose_fee_data(
     assert preserved.scalar_one() == 1
 
 
+def test_alembic_timeout_reaps_the_child(monkeypatch):
+    real_popen = subprocess.Popen
+    children = []
+
+    def start_sleeping_child(arguments, **kwargs):
+        child = real_popen(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            **kwargs,
+        )
+        children.append(child)
+        return child
+
+    monkeypatch.setattr(subprocess, "Popen", start_sleeping_child)
+    with pytest.raises(subprocess.TimeoutExpired):
+        _alembic("unused", "current", timeout=0.1)
+    assert len(children) == 1
+    assert children[0].poll() is not None
+
+
 @pytest.mark.asyncio
 async def test_fee_downgrade_fails_fast_during_idempotent_trade_read(
     migration_database,
