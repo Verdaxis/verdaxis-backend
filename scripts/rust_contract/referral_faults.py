@@ -4,7 +4,7 @@ import json
 from dataclasses import replace
 
 from scripts.rust_contract.phase2_scenarios import Action, Scenario
-from scripts.rust_contract.referral_allocation import auth
+from scripts.rust_contract.referral_allocation import assert_cache_change, auth
 from scripts.rust_contract.referral_allocation import servers as allocation_servers
 
 BEFORE = '20000000-0000-4000-8000-000000000201'
@@ -39,6 +39,8 @@ def retained(before,after,response,mail):
     rows=expected['users']['rows']
     for row in rows.values():
         if row['id']==AFTER: row['referral_code']='VDX-AFTER1'
+    # The committed code update is one users statement: one cache generation.
+    assert_cache_change(expected, after, 1)
     assert expected==after
     assert not mail
 
