@@ -52,7 +52,16 @@ COUNT = re.compile(r"\d+")
 
 # The disposable PostgreSQL harness prints the pinned image it starts.
 DATABASE = re.compile(r"Starting (\S+@sha256:[0-9a-f]{64}) as verdaxis-analytics-test-\S+")
+ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 COMPILE_ERROR = re.compile(r"error\[(E\d{4})\]: (.*)")
+# Only these terminal lines summarize primary errors already printed by rustc.
+COMPILE_SUMMARY = re.compile(
+    r"error: (?:could not compile `[^`]+`(?: \([^()]+\))? due to "
+    r"|aborting due to )[1-9]\d* previous errors?(?:; [1-9]\d* warnings? emitted)?"
+)
+BUILD_ERROR = re.compile(
+    r"(?:error\b|fatal\b|Caused by:|.*process didn't exit successfully:)"
+)
 CARGO_RUNNING = re.compile(r"\s*Running (?:unittests )?(\S+\.rs) \(.*\)")
 CARGO_PANIC = re.compile(r"thread '([^']+)' panicked at .*")
 VITEST_FAILURE = re.compile(r"\s*FAIL\s+(\S.*? > .*?\S)")
@@ -168,12 +177,19 @@ class Run:
 
     def read(self, line):
         """Record one output line of the section's commands."""
+        diagnostic_line = ANSI_ESCAPE.sub("", line).strip()
         if match := DATABASE.fullmatch(line):
             require(self.database in (None, match.group(1)), "database fixture changed in a run")
             self.database = match.group(1)
-        elif match := COMPILE_ERROR.match(line):
+        elif COMPILE_SUMMARY.fullmatch(diagnostic_line):
+            pass
+        elif match := COMPILE_ERROR.fullmatch(diagnostic_line):
             self.compile_errors += 1
             self.diagnostics.append({"code": match.group(1), "message": match.group(2)})
+        elif BUILD_ERROR.match(diagnostic_line):
+            # Uncoded, malformed and build-tool errors can never prove a missing interface.
+            self.compile_errors += 1
+            self.diagnostics.append({"code": None, "message": diagnostic_line})
         elif line.startswith("CARGO_PACKAGE_ROOT="):
             root = line.removeprefix("CARGO_PACKAGE_ROOT=")
             require(root and not Path(root).is_absolute() and ".." not in Path(root).parts,
