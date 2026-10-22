@@ -90,8 +90,7 @@ fn compliance_mix_cases() {
         );
     }
 
-    // The total must be positive and finite: an empty or all-zero mix has no
-    // defined share, and an unknown name is never silently treated as VLSFO.
+    // The total must be positive and finite. Only known fuel names are accepted.
     assert_eq!(rejected(&[]), MixErrorKind::FractionSumNotPositive);
     assert_eq!(
         rejected(&[("VLSFO", "0")]),

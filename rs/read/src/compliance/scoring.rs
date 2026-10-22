@@ -14,10 +14,10 @@
 //!
 //! Reporting-year limits come from [`crate::market::fueleu`]; this module holds
 //! no second schedule and no second reference value.
-use crate::Json;
 use crate::compliance::validation::{FuelMix, ReportingYear};
 use crate::market::fueleu::FUELEU_REFERENCE_GHG;
-use rust_decimal::{Decimal, RoundingStrategy, prelude::ToPrimitive};
+use crate::Json;
+use rust_decimal::{prelude::ToPrimitive, Decimal, RoundingStrategy};
 use serde_json::json;
 
 /// Annex IV Part B deficit penalty, EUR per tonne of VLSFO equivalent.
@@ -66,8 +66,7 @@ pub fn known_fuel_intensity(fuel: &str) -> Option<Decimal> {
 
 /// Weighted lifecycle intensity of a validated mix, in gCO2eq/MJ.
 ///
-/// A [`FuelMix`] holds known fuels only, so the lookup cannot fall back to an
-/// invented intensity.
+/// A [`FuelMix`] holds known fuels only, so each lookup has a table entry.
 pub fn weighted_intensity(mix: &FuelMix) -> Decimal {
     mix.entries()
         .iter()

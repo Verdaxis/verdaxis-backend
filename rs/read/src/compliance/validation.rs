@@ -7,7 +7,7 @@
 //!
 //! * at most [`MAX_MIX_ENTRIES`] entries, counted before any key is read;
 //! * each fuel name at most [`MAX_FUEL_KEY_BYTES`] bytes and in the known
-//!   table, so no request falls back to an invented intensity;
+//!   table; any other name is refused;
 //! * each coefficient at most [`MAX_COEFFICIENT_DIGITS`] digits, a scale of at
 //!   most [`MAX_FUEL_FRACTION_SCALE`] and a value in `0..=1.05`, read from the
 //!   literal text so an exponent cannot underflow to zero unnoticed;
@@ -15,9 +15,9 @@
 //!   [`FRACTION_TOLERANCE`], matching the five percent tolerance the current
 //!   user interface offers.
 //!
-//! The coefficient text is the JSON number spelling. Callers pass the exact
-//! token, never a parsed float: `1e-13` is refused even though it rounds to
-//! zero.
+//! The coefficient text is a decimal string or the JSON number spelling.
+//! Callers pass the exact token, never a parsed float, so lexical bounds are
+//! checked before decimal conversion.
 use crate::compliance::scoring::known_fuel_intensity;
 use crate::market::fueleu::{fueleu_target, FIRST_REPORTING_YEAR, LAST_REPORTING_YEAR};
 use crate::Json;
@@ -192,8 +192,8 @@ pub fn validate_fuel_mix(entries: &[RawMixEntry]) -> Result<FuelMix, ValidationE
 
 /// Read a mix straight from the request document.
 ///
-/// The coefficient text is the number as written. `serde_json` keeps that
-/// spelling, so the lexical bounds above see the real exponent.
+/// Decimal strings and numbers share the same exact parser. `serde_json`
+/// preserves number spelling, including the exponent used by lexical bounds.
 pub fn fuel_mix_from_json(value: &Json) -> Result<FuelMix, ValidationError> {
     let object = value.as_object().ok_or_else(|| {
         ValidationError::new(
@@ -210,18 +210,16 @@ pub fn fuel_mix_from_json(value: &Json) -> Result<FuelMix, ValidationError> {
     let entries: Vec<RawMixEntry> = object
         .iter()
         .map(|(fuel, coefficient)| {
-            let token = coefficient
-                .as_number()
-                .map(ToString::to_string)
-                .ok_or_else(|| {
-                    ValidationError::new(
-                        MixErrorKind::InvalidCoefficient,
-                        format!("fuel_mix['{fuel}'] must be a decimal number"),
-                    )
-                })?;
-            Ok(RawMixEntry::new(fuel.clone(), token))
+            let token = match coefficient {
+                Json::String(text) => text.clone(),
+                Json::Number(number) => number.to_string(),
+                // An empty token is refused by the shared parser, after the
+                // fuel name has passed its length and known-name checks.
+                _ => String::new(),
+            };
+            RawMixEntry::new(fuel.clone(), token)
         })
-        .collect::<Result<_, ValidationError>>()?;
+        .collect();
     validate_fuel_mix(&entries)
 }
 
