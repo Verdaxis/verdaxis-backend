@@ -590,6 +590,67 @@ async fn reset_tokens_replace_and_consume_once() {
 }
 
 #[tokio::test]
+async fn reset_token_issuance_keeps_other_users_independent() {
+    let Some(database) = database() else { return };
+    let mut owner = connect(&database.owner).await;
+    let mut fixture = Fixture::default();
+    let users = [
+        fixture.user(&mut owner, None).await,
+        fixture.user(&mut owner, None).await,
+    ];
+    let now = Utc::now();
+    for user in users {
+        sqlx::query(
+            "INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)",
+        )
+        .bind(user)
+        .bind(sha256_hex(&format!("expired-{user}")))
+        .bind(now - TimeDelta::hours(1))
+        .execute(&mut owner)
+        .await
+        .unwrap();
+    }
+
+    let start = Arc::new(Barrier::new(2));
+    let issued = Arc::new(Barrier::new(2));
+    let mut tasks = Vec::new();
+    for user in users {
+        let (start, issued, runtime) = (start.clone(), issued.clone(), database.runtime.clone());
+        tasks.push(tokio::spawn(async move {
+            let mut connection = connect(&runtime).await;
+            let mut transaction = connection.begin().await.unwrap();
+            lock_user(&mut transaction, user).await.unwrap();
+            start.wait().await;
+            let token = NewResetToken {
+                user_id: user,
+                token_hash: sha256_hex(&format!("replacement-{user}")),
+                expires_at: now + TimeDelta::hours(1),
+            };
+            // Both writes must finish before either transaction commits. A sweep
+            // of another user's row makes one writer wait on the other writer,
+            // which is waiting at the completion barrier: a dependency cycle.
+            let result = tokio::time::timeout(Duration::from_secs(5), async {
+                upsert_reset_token(&mut transaction, &token, now).await.unwrap();
+                issued.wait().await;
+            })
+            .await;
+            if result.is_ok() {
+                transaction.commit().await.unwrap();
+            } else {
+                transaction.rollback().await.unwrap();
+            }
+            result
+        }));
+    }
+    let mut completed = Vec::new();
+    for task in tasks {
+        completed.push(task.await.unwrap());
+    }
+    fixture.remove(&mut owner).await;
+    assert!(completed.iter().all(Result::is_ok), "issuance must not wait on another user's reset row: {completed:?}");
+}
+
+#[tokio::test]
 async fn organization_write_locks_follow_one_order() {
     let Some(database) = database() else { return };
     let mut owner = connect(&database.owner).await;
