@@ -310,6 +310,12 @@ impl ElectionSession {
         })
     }
 
+    /// Inspect the reconnect fence in contract tests without exposing the pool.
+    #[cfg(feature = "contract-tests")]
+    pub fn pool_is_closed(&self) -> bool {
+        self.pool.is_closed()
+    }
+
     /// PostgreSQL backend process of this session, for diagnostics.
     pub fn backend_pid(&self) -> u32 {
         self.backend_pid

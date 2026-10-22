@@ -46,6 +46,8 @@ DATABASE_TESTS = {
     "session_close_releases_lock",
     "wake_follows_other_sessions",
     "assignment_waits_for_shared_row",
+    "session_pool_stays_closed",
+    "session_ends_before_commit",
 }
 PASSED_LINE = re.compile(r"^test (\w+) \.\.\. ok$", re.MULTILINE)
 SUMMARY_LINE = re.compile(

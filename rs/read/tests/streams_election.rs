@@ -612,6 +612,56 @@ async fn session_replacement_requires_election() {
 
 #[tokio::test]
 #[ignore = "requires the disposable PostgreSQL harness"]
+async fn session_pool_stays_closed() {
+    let db = Database::open().await;
+    let session = open(&db.settings()).await;
+    // A closed pool keeps its one connection but never opens another.
+    assert!(session.pool_is_closed());
+    session.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires the disposable PostgreSQL harness"]
+async fn session_ends_before_commit() {
+    let mut db = Database::open().await;
+    drain(&db.settings()).await;
+    let marker = "session_ends_before_commit";
+    insert_rows(&mut db.observer, marker, 3).await;
+    let killer = Arc::new(TerminateAt {
+        stage: Stage::Assigned,
+        observer: tokio::sync::Mutex::new(connect(&db.url).await),
+    });
+    let mut session = open(&db.settings().with_stage_hook(killer)).await;
+    let backend = session.backend_pid();
+    assert_eq!(
+        session.assign_one_batch().await,
+        Err(ElectionError::SessionLost)
+    );
+    wait_until_gone(&mut db.observer, backend).await;
+    // The server rolled the whole batch back with the session.
+    assert_eq!(pending(&mut db.observer, marker).await, 3);
+    assert!(assigned(&mut db.observer, marker).await.is_empty());
+    assert_eq!(delivery_attempts(&mut db.observer, marker).await, [0, 0, 0]);
+    assert_eq!(lock_holder(&mut db.observer).await, None);
+    session.close().await;
+
+    // A new session wins the key and sequences every row exactly once.
+    let mut successor = open(&db.settings()).await;
+    assert_ne!(successor.backend_pid(), backend);
+    assert_eq!(
+        successor.assign_one_batch().await,
+        Ok(AssignOutcome::Committed { assigned: 3 })
+    );
+    assert_eq!(pending(&mut db.observer, marker).await, 0);
+    let sequences = assigned(&mut db.observer, marker).await;
+    assert_eq!(sequences.len(), 3);
+    assert_eq!(sequences.iter().collect::<HashSet<_>>().len(), 3);
+    assert_eq!(delivery_attempts(&mut db.observer, marker).await, [1, 1, 1]);
+    successor.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires the disposable PostgreSQL harness"]
 async fn unknown_commit_outcome() {
     let mut db = Database::open().await;
     drain(&db.settings()).await;
