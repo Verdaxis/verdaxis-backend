@@ -28,6 +28,7 @@
     "alert_python_direct_invocation_is_fenced_until_native_journal_drained",
     "alert_python_rust_same_check_handover_preserves_failure_then_healthy",
     "alert_receipts_prevent_duplicate_delivery_per_destination",
+    "alert_recovery_after_final_name_rename_completes_fsync_and_bookkeeping",
     "alert_reminder_respects_the_hourly_repeat",
     "alert_state_is_atomic_and_schema_compatible",
     "alert_telegram_and_healthchecks_failures_are_independent",
@@ -42,6 +43,7 @@
     "backup_ignores_unlisted_future_and_duplicate_generations",
     "backup_reader_can_dump_and_restore_sqlx_history_but_cannot_write_it",
     "backup_rejects_an_oversize_uncompressed_artifact",
+    "backup_restore_preserves_inventory_and_row_counts",
     "backup_status_is_private_and_key_compatible",
     "backup_streams_gzip_within_the_128_mib_unit_limit",
     "backup_verifies_metadata_and_the_newest_listed_artifacts",
@@ -73,7 +75,6 @@
     "cleanup_deletes_expired_refresh_sessions_without_successor",
     "cleanup_does_not_clear_a_token_renewed_under_lock",
     "daily_backup_and_staging_pull_still_run",
-    "db",
     "deleted_paths_are_absent_on_both_hosts",
     "demo_coverage_and_order_write_do_not_deadlock",
     "demo_coverage_preserves_order_identity_and_updates_only_managed_fields",
@@ -91,7 +92,6 @@
     "dispatch_never_panics_on_bad_utf8_arguments",
     "dry_run_real_run_and_postcheck_bind_the_same_exact_transition",
     "duplicate_nonregular_link_and_device_members_are_refused",
-    "environment",
     "every_command_has_help_and_no_hidden_flag",
     "every_required_scenario_has_evidence",
     "every_unit_exec_start_is_the_release_binary_or_a_shell_guard",
@@ -102,6 +102,7 @@
     "expiry_payload_preserves_all_order_and_provider_keys",
     "expiry_scan_and_claim_yield_one_send",
     "external_checks_are_bounded_one_request_each_and_isolated",
+    "external_monitor_alerts_on_producer_exit_4_with_healthy_status",
     "external_monitor_checks_route_uptime_database_outbox_and_backup",
     "external_monitor_classifies_vercel_challenges_without_an_alert",
     "external_monitor_expensive_checks_are_cached_for_thirty_minutes",
@@ -114,8 +115,12 @@
     "failure_after_migrate_leaves_durable_blocked_state",
     "failure_leaves_the_output_directory_empty",
     "fingerprint_is_stable_and_changes_on_a_new_column",
+    "fleet_disposition_record_is_complete_and_bound_to_green_w0",
+    "fleet_disposition_requires_installed_evidence",
     "fleet_installed_dependency_is_classified",
-    "flock",
+    "fleet_offhost_has_no_removed_package_dependency",
+    "fleet_offhost_is_not_installed_or_ported",
+    "fleet_retained_tool_has_no_deleted_package_dependency",
     "gena_allow_blank_id_is_explicit_and_counted",
     "gena_blank_id_is_refused_by_default",
     "gena_concurrent_import_keeps_one_row",
@@ -126,7 +131,6 @@
     "gena_same_id_replay_inserts_once",
     "gena_unknown_status_defaults_to_announced",
     "gena_zero_coordinate_is_preserved",
-    "gone",
     "guard_scripts_contain_no_python",
     "health_503_body_has_no_provenance",
     "health_guard_accepts_exactly_four_keys",
@@ -148,6 +152,7 @@
     "inspect_users_is_read_only_and_never_writes_a_status_file",
     "inspect_users_masks_email_by_default",
     "inspect_users_show_emails_requires_the_explicit_flag",
+    "installer_dispatcher_effective_acl_survives_producer_restart_and_boot",
     "installer_enforces_per_check_handoff_acl_and_identity_boundary",
     "installer_refuses_a_manifest_digest_mismatch",
     "installer_restart_and_revert_preserve_admitted_alert_state",
@@ -180,7 +185,6 @@
     "measure_reports_5xx_503_error_rate_observations_and_peak_rss",
     "measure_reports_per_route_and_weighted_p95",
     "measurement_runs_after_cutover_only",
-    "message",
     "metadata_policy_allowlist_and_each_member_digest_are_bound",
     "migrate_and_app_request_do_not_half_apply",
     "migrate_runs_before_any_restart",
@@ -212,15 +216,21 @@
     "onboarding_state_is_atomic_0600_and_schema_v1",
     "onboarding_suppresses_same_stage_and_alerts_on_change",
     "onboarding_three_processes_remain_exclusive_across_state_rename",
+    "only_superseded_exact_cron_entries_are_removed",
     "operator_acl_grants_only_ingestion_objects",
     "operator_role_is_exact_and_not_a_member_of_the_app_role",
     "outbox_output_never_contains_the_dsn",
     "outbox_probe_exit_codes_and_thresholds_match_python",
     "outbox_query_is_bounded_read_only_and_times_out",
     "oversize_member_and_member_count_are_refused",
+    "owner_acceptance_covers_each_required_replacement",
     "packaged_attested_switch_artifact_passes_without_candidate_execution",
     "passive_harm_checks_are_clean_for_each_group",
     "phase0_and_benchmark_tools_are_ci_or_offhost_only",
+    "phase7_decision_names_exactly_one_path",
+    "phase7_exact_twenty_operations_have_accepted_ownership",
+    "phase7_path_b_exact_matchers_do_not_steal_adjacent_routes",
+    "phase7_path_b_preserves_all_tables_and_rows",
     "phase7_retirement_exact_operations_return_404",
     "phase7_retirement_preserves_table_and_row_identity",
     "phase7_routes_have_their_recorded_end_state",
@@ -247,10 +257,10 @@
     "rehearsal_rollback_is_one_change_per_group",
     "rehearsal_runs_every_installed_unit_once",
     "release_bundle_rollback_starts_the_actual_pre_m_binary",
-    "release_sha",
     "reminders_refuse_nonproduction_before_pool",
     "reminders_scan_is_bounded_and_locks_the_order",
     "removal_ledger_has_no_gate_or_ownerless_rows",
+    "required_verdaxis_python_has_no_exception",
     "retired_tools_are_absent_from_the_release_artifact",
     "retry_stops_after_three_attempts",
     "rollback_interruption_at_each_publication_never_starts_a_mixed_bundle",
@@ -260,15 +270,12 @@
     "root_returns_the_exact_python_body",
     "run_to_exact_approved_target_is_idempotent",
     "runtime_files_are_regular_0600_and_never_symlinks",
-    "rust",
     "rust_start_requires_regular_budget_and_revision_files",
     "seed_and_remediation_tools_are_not_installed_by_any_script",
-    "sent_at",
     "serve_env_carries_the_monitor_token_only_when_configured",
     "serve_env_contains_only_reviewed_http_credentials",
     "serve_env_has_no_migrator_or_job_only_key",
     "serve_env_requires_auth_keys_and_issues_and_verifies_sessions",
-    "shell",
     "shellcheck_job_pins_version_digest_and_checks_every_reviewed_script",
     "signal_csv_headers_are_exact_per_family",
     "signal_dry_run_writes_nothing_and_reports_would_insert",
@@ -281,9 +288,9 @@
     "sqlx_control_acl_converges_twice_with_migrator_only_writes",
     "staged_binary_is_the_only_artifact_executed_before_install",
     "staging_is_cleaned_before_production",
+    "staging_pull_preserves_target_identity_and_schedule",
     "state_lock_is_nonblocking",
     "state_reader_refuses_oversize_symlink_and_invalid_json",
-    "status",
     "subcommand_dispatch_is_exact",
     "symlink_output_and_extraction_substitution_are_refused",
     "tampered_archive_bit_flip_is_refused",
@@ -297,8 +304,10 @@
     "timer_catch_up_after_restart_runs_once",
     "unapproved_transition_or_pending_version_refuses_before_mutation",
     "valid_fixture_extracts_only_allowlisted_members",
-    "version",
     "version_json_is_still_first",
+    "w0_classification_does_not_create_a_schedule",
+    "w0_covers_both_hosts_and_host_owned_automation",
+    "w0_missing_dependency_is_refused",
     "write_state_is_atomic_and_0600",
     "wrong_public_key_and_wrong_source_sha_are_refused",
     "wrong_repository_workflow_path_ref_source_ref_and_target_are_refused"
@@ -347,5 +356,1850 @@
     "status": "open; Task 5 must close all producers before baseline",
     "schema_owner": "Alembic until switch release M"
   },
-  "evidence_location": "private external evidence directory; no host inventories or personal data committed"
+  "evidence_location": "private external evidence directory; no host inventories or personal data committed",
+  "scenario_catalog": [
+    {
+      "id": "acl_convergence_runs_between_migrate_and_restart",
+      "owner_task": 7,
+      "plan_requirement": "Task 7, test assertions",
+      "required_result": "acl convergence runs between migrate and restart."
+    },
+    {
+      "id": "adoption_checksum_matches_sqlx",
+      "owner_task": 6,
+      "plan_requirement": "Task 6, test assertions",
+      "required_result": "adoption checksum matches sqlx."
+    },
+    {
+      "id": "adoption_commit_then_interruption_resumes_each_publication_boundary",
+      "owner_task": 6,
+      "plan_requirement": "Task 6, test assertions",
+      "required_result": "adoption commit then interruption resumes each publication boundary."
+    },
+    {
+      "id": "adoption_row_matches_sqlx_created_table",
+      "owner_task": 6,
+      "plan_requirement": "Task 6, test assertions",
+      "required_result": "adoption row matches sqlx created table."
+    },
+    {
+      "id": "alembic_history_is_inert_and_unreferenced",
+      "owner_task": 32,
+      "plan_requirement": "Task 32, test assertions",
+      "required_result": "alembic history is inert and unreferenced."
+    },
+    {
+      "id": "alert_acknowledgement_before_remove_survives_restart_and_revert",
+      "owner_task": 28,
+      "plan_requirement": "Task 28, test assertions",
+      "required_result": "alert acknowledgement before remove survives restart and revert."
+    },
+    {
+      "id": "alert_crash_resume_retains_head_and_confirmed_destination_progress",
+      "owner_task": 28,
+      "plan_requirement": "Task 28, test assertions",
+      "required_result": "alert crash resume retains head and confirmed destination progress."
+    },
+    {
+      "id": "alert_delivery_lock_timeout_retains_admitted_head",
+      "owner_task": 28,
+      "plan_requirement": "Task 28, test assertions",
+      "required_result": "alert delivery lock timeout retains admitted head."
+    },
+    {
+      "id": "alert_different_checks_do_not_share_a_global_lock",
+      "owner_task": 28,
+      "plan_requirement": "Task 28, test assertions",
+      "required_result": "alert different checks do not share a global lock."
+    },
+    {
+      "id": "alert_dispatch_serializes_events",
+      "owner_task": 28,
+      "plan_requirement": "Task 28, test assertions",
+      "required_result": "alert dispatch serializes events."
+    },
+    {
+      "id": "alert_enqueue_is_durable_idempotent_and_bounded_before_status_publication",
+      "owner_task": 28,
+      "plan_requirement": "Task 28, test assertions",
+      "required_result": "alert enqueue is durable idempotent and bounded before status publication."
+    },
+    {
+      "id": "alert_exhaustion_or_uncertain_send_blocks_later_sequence_until_reconciled",
+      "owner_task": 28,
+      "plan_requirement": "Task 28, test assertions",
+      "required_result": "alert exhaustion or uncertain send blocks later sequence until reconciled."
+    },
+    {
+      "id": "alert_failed_enqueue_has_failed_unit_and_no_status_publication",
+      "owner_task": 28,
+      "plan_requirement": "Task 28, test assertions",
+      "required_result": "alert failed enqueue has failed unit and no status publication."
+    },
+    {
+      "id": "alert_full_journal_refuses_before_admission_then_converges",
+      "owner_task": 28,
+      "plan_requirement": "Task 28, test assertions",
+      "required_result": "alert full journal refuses before admission then converges."
+    },
+    {
+      "id": "alert_handoff_acl_modes_and_dispatcher_read_remove_only",
+      "owner_task": 28,
+      "plan_requirement": "Task 28, test assertions",
+      "required_result": "alert handoff acl modes and dispatcher read remove only."
+    },
+    {
+      "id": "alert_handoff_producers_cannot_read_other_check_receipts_or_credentials",
+      "owner_task": 28,
+      "plan_requirement": "Task 28, test assertions",
+      "required_result": "alert handoff producers cannot read other check receipts or credentials."
+    },
+    {
+      "id": "alert_handoff_real_identities_enqueue_and_dispatch",
+      "owner_task": 28,
+      "plan_requirement": "Task 28, test assertions",
+      "required_result": "alert handoff real identities enqueue and dispatch."
+    },
+    {
+      "id": "alert_healthy_wakeup_before_failure_retry_cannot_overtake",
+      "owner_task": 28,
+      "plan_requirement": "Task 28, test assertions",
+      "required_result": "alert healthy wakeup before failure retry cannot overtake."
+    },
+    {
+      "id": "alert_journal_lock_timeout_refuses_before_admission_then_converges",
+      "owner_task": 28,
+      "plan_requirement": "Task 28, test assertions",
+      "required_result": "alert journal lock timeout refuses before admission then converges."
+    },
+    {
+      "id": "alert_never_prints_a_token_or_chat_id",
+      "owner_task": 28,
+      "plan_requirement": "Task 28, test assertions",
+      "required_result": "alert never prints a token or chat id."
+    },
+    {
+      "id": "alert_producer_death_before_commit_then_changed_observation_converges",
+      "owner_task": 28,
+      "plan_requirement": "Task 28, test assertions",
+      "required_result": "alert producer death before commit then changed observation converges."
+    },
+    {
+      "id": "alert_python_direct_invocation_is_fenced_until_native_journal_drained",
+      "owner_task": 28,
+      "plan_requirement": "Task 28, test assertions",
+      "required_result": "alert python direct invocation is fenced until native journal drained."
+    },
+    {
+      "id": "alert_python_rust_same_check_handover_preserves_failure_then_healthy",
+      "owner_task": 28,
+      "plan_requirement": "Task 28, test assertions",
+      "required_result": "alert python rust same check handover preserves failure then healthy."
+    },
+    {
+      "id": "alert_receipts_prevent_duplicate_delivery_per_destination",
+      "owner_task": 28,
+      "plan_requirement": "Task 28, test assertions",
+      "required_result": "alert receipts prevent duplicate delivery per destination."
+    },
+    {
+      "id": "alert_recovery_after_final_name_rename_completes_fsync_and_bookkeeping",
+      "owner_task": 28,
+      "plan_requirement": "\u00a722 R4-1; Task 28, PM acceptance",
+      "required_result": "Kill before rename, after final-name rename before directory fsync, and after fsync before bookkeeping. Under the journal lock, recover any valid final-name entry by completing fsync and cursor bookkeeping before delivery. In-doubt recovery yields no entry or one ordered entry, never duplicate admission or out-of-order delivery."
+    },
+    {
+      "id": "alert_reminder_respects_the_hourly_repeat",
+      "owner_task": 28,
+      "plan_requirement": "Task 28, test assertions",
+      "required_result": "alert reminder respects the hourly repeat."
+    },
+    {
+      "id": "alert_state_is_atomic_and_schema_compatible",
+      "owner_task": 28,
+      "plan_requirement": "Task 28, test assertions",
+      "required_result": "alert state is atomic and schema compatible."
+    },
+    {
+      "id": "alert_telegram_and_healthchecks_failures_are_independent",
+      "owner_task": 28,
+      "plan_requirement": "Task 28, test assertions",
+      "required_result": "alert telegram and healthchecks failures are independent."
+    },
+    {
+      "id": "app_role_is_denied_sqlx_control_table",
+      "owner_task": 6,
+      "plan_requirement": "Task 6, test assertions",
+      "required_result": "app role is denied sqlx control table."
+    },
+    {
+      "id": "approval_mail_claim_is_transition_scoped",
+      "owner_task": 12,
+      "plan_requirement": "Task 12, test assertions",
+      "required_result": "approval mail claim is transition scoped."
+    },
+    {
+      "id": "approval_mail_failure_defers_one_hour",
+      "owner_task": 12,
+      "plan_requirement": "Task 12, test assertions",
+      "required_result": "approval mail failure defers one hour."
+    },
+    {
+      "id": "approval_mail_never_holds_a_user_lock_across_provider_io",
+      "owner_task": 12,
+      "plan_requirement": "Task 12, test assertions",
+      "required_result": "approval mail never holds a user lock across provider io."
+    },
+    {
+      "id": "approval_mail_queue_is_ordered_due_and_bounded",
+      "owner_task": 12,
+      "plan_requirement": "Task 12, test assertions",
+      "required_result": "approval mail queue is ordered due and bounded."
+    },
+    {
+      "id": "artifact_verifier_rejects_tampering",
+      "owner_task": 8,
+      "plan_requirement": "Task 8, test assertions",
+      "required_result": "artifact verifier rejects tampering."
+    },
+    {
+      "id": "auth_and_reminder_envs_have_mail_but_no_jwt_signing_key",
+      "owner_task": 9,
+      "plan_requirement": "Task 9, test assertions",
+      "required_result": "auth and reminder envs have mail but no jwt signing key."
+    },
+    {
+      "id": "backup_and_staging_pull_schedules_are_unchanged",
+      "owner_task": 33,
+      "plan_requirement": "Task 33, test assertions",
+      "required_result": "backup and staging pull schedules are unchanged."
+    },
+    {
+      "id": "backup_ignores_unlisted_future_and_duplicate_generations",
+      "owner_task": 27,
+      "plan_requirement": "Task 27, test assertions",
+      "required_result": "backup ignores unlisted future and duplicate generations."
+    },
+    {
+      "id": "backup_reader_can_dump_and_restore_sqlx_history_but_cannot_write_it",
+      "owner_task": 6,
+      "plan_requirement": "Task 6, test assertions",
+      "required_result": "backup reader can dump and restore sqlx history but cannot write it."
+    },
+    {
+      "id": "backup_rejects_an_oversize_uncompressed_artifact",
+      "owner_task": 27,
+      "plan_requirement": "Task 27, test assertions",
+      "required_result": "backup rejects an oversize uncompressed artifact."
+    },
+    {
+      "id": "backup_restore_preserves_inventory_and_row_counts",
+      "owner_task": 36,
+      "plan_requirement": "Task 36, test assertions",
+      "required_result": "backup restore preserves inventory and row counts."
+    },
+    {
+      "id": "backup_status_is_private_and_key_compatible",
+      "owner_task": 27,
+      "plan_requirement": "Task 27, test assertions",
+      "required_result": "backup status is private and key compatible."
+    },
+    {
+      "id": "backup_streams_gzip_within_the_128_mib_unit_limit",
+      "owner_task": 27,
+      "plan_requirement": "Task 27, test assertions",
+      "required_result": "backup streams gzip within the 128 mib unit limit."
+    },
+    {
+      "id": "backup_verifies_metadata_and_the_newest_listed_artifacts",
+      "owner_task": 27,
+      "plan_requirement": "Task 27, test assertions",
+      "required_result": "backup verifies metadata and the newest listed artifacts."
+    },
+    {
+      "id": "baseline_contains_reference_rows_and_no_application_rows",
+      "owner_task": 5,
+      "plan_requirement": "Task 5, test assertions",
+      "required_result": "baseline contains reference rows and no application rows."
+    },
+    {
+      "id": "baseline_dump_has_no_owner_or_privilege_clauses",
+      "owner_task": 5,
+      "plan_requirement": "Task 5, test assertions",
+      "required_result": "baseline dump has no owner or privilege clauses."
+    },
+    {
+      "id": "baseline_fingerprint_matches_the_committed_artifact",
+      "owner_task": 5,
+      "plan_requirement": "Task 5, test assertions",
+      "required_result": "baseline fingerprint matches the committed artifact."
+    },
+    {
+      "id": "baseline_refuses_wrong_head_fingerprint_or_foreign_failed_history",
+      "owner_task": 6,
+      "plan_requirement": "Task 6, test assertions",
+      "required_result": "baseline refuses wrong head fingerprint or foreign failed history."
+    },
+    {
+      "id": "baseline_restores_into_an_empty_database",
+      "owner_task": 5,
+      "plan_requirement": "Task 5, test assertions",
+      "required_result": "baseline restores into an empty database."
+    },
+    {
+      "id": "budget_matches_configured_authority_not_measured_load",
+      "owner_task": 9,
+      "plan_requirement": "Task 9, test assertions",
+      "required_result": "budget matches configured authority not measured load."
+    },
+    {
+      "id": "cache_activate_revokes_then_binds_the_row_then_publishes",
+      "owner_task": 24,
+      "plan_requirement": "Task 24, test assertions",
+      "required_result": "cache activate revokes then binds the row then publishes."
+    },
+    {
+      "id": "cache_activate_uses_the_migrator_role_only",
+      "owner_task": 24,
+      "plan_requirement": "Task 24, test assertions",
+      "required_result": "cache activate uses the migrator role only."
+    },
+    {
+      "id": "cache_failure_between_steps_leaves_the_record_revoked",
+      "owner_task": 24,
+      "plan_requirement": "Task 24, test assertions",
+      "required_result": "cache failure between steps leaves the record revoked."
+    },
+    {
+      "id": "cache_lease_and_fence_match_the_reader",
+      "owner_task": 24,
+      "plan_requirement": "Task 24, test assertions",
+      "required_result": "cache lease and fence match the reader."
+    },
+    {
+      "id": "cache_record_is_bounded_atomic_and_0600",
+      "owner_task": 24,
+      "plan_requirement": "Task 24, test assertions",
+      "required_result": "cache record is bounded atomic and 0600."
+    },
+    {
+      "id": "cache_revision_is_monotonic_and_rejects_out_of_range_values",
+      "owner_task": 24,
+      "plan_requirement": "Task 24, test assertions",
+      "required_result": "cache revision is monotonic and rejects out of range values."
+    },
+    {
+      "id": "cache_revoke_publishes_revoked_before_the_drain_wait",
+      "owner_task": 24,
+      "plan_requirement": "Task 24, test assertions",
+      "required_result": "cache revoke publishes revoked before the drain wait."
+    },
+    {
+      "id": "cache_status_never_prints_a_full_identity",
+      "owner_task": 24,
+      "plan_requirement": "Task 24, test assertions",
+      "required_result": "cache status never prints a full identity."
+    },
+    {
+      "id": "canary_cli_requires_apply_and_the_route_uses_the_same_function",
+      "owner_task": 19,
+      "plan_requirement": "Task 19, test assertions",
+      "required_result": "canary cli requires apply and the route uses the same function."
+    },
+    {
+      "id": "canary_concurrent_cleanup_deletes_once",
+      "owner_task": 19,
+      "plan_requirement": "Task 19, test assertions",
+      "required_result": "canary concurrent cleanup deletes once."
+    },
+    {
+      "id": "canary_deletes_the_organization_only_when_it_has_no_members_and_matches_the_domain",
+      "owner_task": 19,
+      "plan_requirement": "Task 19, test assertions",
+      "required_result": "canary deletes the organization only when it has no members and matches the domain."
+    },
+    {
+      "id": "canary_deletes_the_user_before_the_organization",
+      "owner_task": 19,
+      "plan_requirement": "Task 19, test assertions",
+      "required_result": "canary deletes the user before the organization."
+    },
+    {
+      "id": "canary_rejects_a_malformed_or_non_canary_email_with_422",
+      "owner_task": 19,
+      "plan_requirement": "Task 19, test assertions",
+      "required_result": "canary rejects a malformed or non canary email with 422."
+    },
+    {
+      "id": "canary_repeat_returns_zeros",
+      "owner_task": 19,
+      "plan_requirement": "Task 19, test assertions",
+      "required_result": "canary repeat returns zeros."
+    },
+    {
+      "id": "canary_retained_kyc_documents_block_both_deletions_with_409",
+      "owner_task": 19,
+      "plan_requirement": "Task 19, test assertions",
+      "required_result": "canary retained kyc documents block both deletions with 409."
+    },
+    {
+      "id": "canary_token_unset_returns_404_without_opening_a_transaction",
+      "owner_task": 19,
+      "plan_requirement": "Task 19, test assertions",
+      "required_result": "canary token unset returns 404 without opening a transaction."
+    },
+    {
+      "id": "canary_wrong_token_returns_401_and_the_token_never_appears_in_output",
+      "owner_task": 19,
+      "plan_requirement": "Task 19, test assertions",
+      "required_result": "canary wrong token returns 401 and the token never appears in output."
+    },
+    {
+      "id": "ci_harness_does_not_import_the_deleted_application",
+      "owner_task": 32,
+      "plan_requirement": "Task 32, test assertions",
+      "required_result": "ci harness does not import the deleted application."
+    },
+    {
+      "id": "cleanup_and_approval_claim_do_not_double_send",
+      "owner_task": 12,
+      "plan_requirement": "Task 12, test assertions",
+      "required_result": "cleanup and approval claim do not double send."
+    },
+    {
+      "id": "cleanup_deletes_expired_refresh_sessions_without_successor",
+      "owner_task": 12,
+      "plan_requirement": "Task 12, test assertions",
+      "required_result": "cleanup deletes expired refresh sessions without successor."
+    },
+    {
+      "id": "cleanup_does_not_clear_a_token_renewed_under_lock",
+      "owner_task": 12,
+      "plan_requirement": "Task 12, test assertions",
+      "required_result": "cleanup does not clear a token renewed under lock."
+    },
+    {
+      "id": "daily_backup_and_staging_pull_still_run",
+      "owner_task": 32,
+      "plan_requirement": "Task 32, test assertions",
+      "required_result": "daily backup and staging pull still run."
+    },
+    {
+      "id": "deleted_paths_are_absent_on_both_hosts",
+      "owner_task": 33,
+      "plan_requirement": "Task 33, test assertions",
+      "required_result": "deleted paths are absent on both hosts."
+    },
+    {
+      "id": "demo_coverage_and_order_write_do_not_deadlock",
+      "owner_task": 17,
+      "plan_requirement": "Task 17, test assertions",
+      "required_result": "demo coverage and order write do not deadlock."
+    },
+    {
+      "id": "demo_coverage_preserves_order_identity_and_updates_only_managed_fields",
+      "owner_task": 17,
+      "plan_requirement": "Task 17, test assertions",
+      "required_result": "demo coverage preserves order identity and updates only managed fields."
+    },
+    {
+      "id": "demo_never_creates_kyc_or_synthetic_lng_prices",
+      "owner_task": 17,
+      "plan_requirement": "Task 17, test assertions",
+      "required_result": "demo never creates kyc or synthetic lng prices."
+    },
+    {
+      "id": "demo_phases_are_four_separate_transactions",
+      "owner_task": 17,
+      "plan_requirement": "Task 17, test assertions",
+      "required_result": "demo phases are four separate transactions."
+    },
+    {
+      "id": "demo_prune_respects_customer_pins_and_history",
+      "owner_task": 17,
+      "plan_requirement": "Task 17, test assertions",
+      "required_result": "demo prune respects customer pins and history."
+    },
+    {
+      "id": "demo_requires_the_exact_pair_and_one_canonical_match",
+      "owner_task": 17,
+      "plan_requirement": "Task 17, test assertions",
+      "required_result": "demo requires the exact pair and one canonical match."
+    },
+    {
+      "id": "demo_tick_is_idempotent",
+      "owner_task": 17,
+      "plan_requirement": "Task 17, test assertions",
+      "required_result": "demo tick is idempotent."
+    },
+    {
+      "id": "deploy_guard_allows_absent_state",
+      "owner_task": 4,
+      "plan_requirement": "Task 4, test assertions",
+      "required_result": "deploy guard allows absent state."
+    },
+    {
+      "id": "deploy_guard_rejects_dangling_state_and_wrong_sha",
+      "owner_task": 4,
+      "plan_requirement": "Task 4, test assertions",
+      "required_result": "deploy guard rejects dangling state and wrong sha."
+    },
+    {
+      "id": "deploy_guard_requires_both_locks_for_restart_authorization",
+      "owner_task": 4,
+      "plan_requirement": "Task 4, test assertions",
+      "required_result": "deploy guard requires both locks for restart authorization."
+    },
+    {
+      "id": "deploy_owned_migration_accepts_only_its_blocked_state_and_held_locks",
+      "owner_task": 7,
+      "plan_requirement": "Task 7, test assertions",
+      "required_result": "deploy owned migration accepts only its blocked state and held locks."
+    },
+    {
+      "id": "deploy_owned_requires_exact_state_nonce_sha_and_both_locks",
+      "owner_task": 6,
+      "plan_requirement": "Task 6, test assertions",
+      "required_result": "deploy owned requires exact state nonce sha and both locks."
+    },
+    {
+      "id": "deploy_script_has_no_python_or_pip_reference",
+      "owner_task": 7,
+      "plan_requirement": "Task 7, test assertions",
+      "required_result": "deploy script has no python or pip reference."
+    },
+    {
+      "id": "dispatch_never_panics_on_bad_utf8_arguments",
+      "owner_task": 2,
+      "plan_requirement": "Task 2, test assertions",
+      "required_result": "dispatch never panics on bad utf8 arguments."
+    },
+    {
+      "id": "dry_run_real_run_and_postcheck_bind_the_same_exact_transition",
+      "owner_task": 7,
+      "plan_requirement": "Task 7, test assertions",
+      "required_result": "dry run real run and postcheck bind the same exact transition."
+    },
+    {
+      "id": "duplicate_nonregular_link_and_device_members_are_refused",
+      "owner_task": 8,
+      "plan_requirement": "Task 8, test assertions",
+      "required_result": "duplicate nonregular link and device members are refused."
+    },
+    {
+      "id": "every_command_has_help_and_no_hidden_flag",
+      "owner_task": 2,
+      "plan_requirement": "Task 2, test assertions",
+      "required_result": "every command has help and no hidden flag."
+    },
+    {
+      "id": "every_required_scenario_has_evidence",
+      "owner_task": 31,
+      "plan_requirement": "Task 31, test assertions",
+      "required_result": "every required scenario has evidence."
+    },
+    {
+      "id": "every_unit_exec_start_is_the_release_binary_or_a_shell_guard",
+      "owner_task": 10,
+      "plan_requirement": "Task 10, test assertions",
+      "required_result": "every unit exec start is the release binary or a shell guard."
+    },
+    {
+      "id": "exact_adoption_resume_is_read_only_and_idempotent",
+      "owner_task": 6,
+      "plan_requirement": "Task 6, test assertions",
+      "required_result": "exact adoption resume is read only and idempotent."
+    },
+    {
+      "id": "expiry_batch_is_at_most_twenty",
+      "owner_task": 14,
+      "plan_requirement": "Task 14, test assertions",
+      "required_result": "expiry batch is at most twenty."
+    },
+    {
+      "id": "expiry_mail_discards_changed_owner_and_past_deadline",
+      "owner_task": 14,
+      "plan_requirement": "Task 14, test assertions",
+      "required_result": "expiry mail discards changed owner and past deadline."
+    },
+    {
+      "id": "expiry_mail_lease_is_exclusive",
+      "owner_task": 14,
+      "plan_requirement": "Task 14, test assertions",
+      "required_result": "expiry mail lease is exclusive."
+    },
+    {
+      "id": "expiry_payload_preserves_all_order_and_provider_keys",
+      "owner_task": 14,
+      "plan_requirement": "Task 14, test assertions",
+      "required_result": "expiry payload preserves all order and provider keys."
+    },
+    {
+      "id": "expiry_scan_and_claim_yield_one_send",
+      "owner_task": 14,
+      "plan_requirement": "Task 14, test assertions",
+      "required_result": "expiry scan and claim yield one send."
+    },
+    {
+      "id": "external_checks_are_bounded_one_request_each_and_isolated",
+      "owner_task": 29,
+      "plan_requirement": "Task 29, test assertions",
+      "required_result": "external checks are bounded one request each and isolated."
+    },
+    {
+      "id": "external_monitor_alerts_on_producer_exit_4_with_healthy_status",
+      "owner_task": 29,
+      "plan_requirement": "\u00a722 R4-3; Tasks 28 and 29, PM acceptance",
+      "required_result": "For both producer units, journal-lock timeout on a healthy observation exits 4 with no admitted entry and unchanged healthy status. The bounded failed-unit check on the external monitor main path alerts using unit state only; it neither reads producer credentials nor enqueues the refused observation nor changes failure to success."
+    },
+    {
+      "id": "external_monitor_checks_route_uptime_database_outbox_and_backup",
+      "owner_task": 29,
+      "plan_requirement": "Task 29, test assertions",
+      "required_result": "external monitor checks route uptime database outbox and backup."
+    },
+    {
+      "id": "external_monitor_classifies_vercel_challenges_without_an_alert",
+      "owner_task": 29,
+      "plan_requirement": "Task 29, test assertions",
+      "required_result": "external monitor classifies vercel challenges without an alert."
+    },
+    {
+      "id": "external_monitor_expensive_checks_are_cached_for_thirty_minutes",
+      "owner_task": 29,
+      "plan_requirement": "Task 29, test assertions",
+      "required_result": "external monitor expensive checks are cached for thirty minutes."
+    },
+    {
+      "id": "external_monitor_never_shells_out_with_interpolation",
+      "owner_task": 29,
+      "plan_requirement": "Task 29, test assertions",
+      "required_result": "external monitor never shells out with interpolation."
+    },
+    {
+      "id": "external_monitor_redacts_bodies_secrets_and_headers",
+      "owner_task": 29,
+      "plan_requirement": "Task 29, test assertions",
+      "required_result": "external monitor redacts bodies secrets and headers."
+    },
+    {
+      "id": "external_monitor_signup_canary_creates_then_cleans_up",
+      "owner_task": 29,
+      "plan_requirement": "Task 29, test assertions",
+      "required_result": "external monitor signup canary creates then cleans up."
+    },
+    {
+      "id": "external_monitor_state_and_status_keep_existing_keys",
+      "owner_task": 29,
+      "plan_requirement": "Task 29, test assertions",
+      "required_result": "external monitor state and status keep existing keys."
+    },
+    {
+      "id": "external_monitor_telegram_disabled_suppresses_alerts",
+      "owner_task": 29,
+      "plan_requirement": "Task 29, test assertions",
+      "required_result": "external monitor telegram disabled suppresses alerts."
+    },
+    {
+      "id": "extra_member_and_path_traversal_are_refused",
+      "owner_task": 8,
+      "plan_requirement": "Task 8, test assertions",
+      "required_result": "extra member and path traversal are refused."
+    },
+    {
+      "id": "failure_after_migrate_leaves_durable_blocked_state",
+      "owner_task": 7,
+      "plan_requirement": "Task 7, test assertions",
+      "required_result": "failure after migrate leaves durable blocked state."
+    },
+    {
+      "id": "failure_leaves_the_output_directory_empty",
+      "owner_task": 8,
+      "plan_requirement": "Task 8, test assertions",
+      "required_result": "failure leaves the output directory empty."
+    },
+    {
+      "id": "fingerprint_is_stable_and_changes_on_a_new_column",
+      "owner_task": 5,
+      "plan_requirement": "Task 5, test assertions",
+      "required_result": "fingerprint is stable and changes on a new column."
+    },
+    {
+      "id": "fleet_disposition_record_is_complete_and_bound_to_green_w0",
+      "owner_task": 25,
+      "plan_requirement": "Task 25, test assertions",
+      "required_result": "fleet disposition record is complete and bound to green w0."
+    },
+    {
+      "id": "fleet_disposition_requires_installed_evidence",
+      "owner_task": 25,
+      "plan_requirement": "Task 25, test assertions",
+      "required_result": "fleet disposition requires installed evidence."
+    },
+    {
+      "id": "fleet_installed_dependency_is_classified",
+      "owner_task": 25,
+      "plan_requirement": "\u00a74.7; Task 25",
+      "required_result": "Final fleet disposition is bound to accepted W0 evidence; no schedule or port is invented."
+    },
+    {
+      "id": "fleet_offhost_has_no_removed_package_dependency",
+      "owner_task": 35,
+      "plan_requirement": "Task 35, test assertions",
+      "required_result": "fleet offhost has no removed package dependency."
+    },
+    {
+      "id": "fleet_offhost_is_not_installed_or_ported",
+      "owner_task": 25,
+      "plan_requirement": "Task 25, test assertions",
+      "required_result": "fleet offhost is not installed or ported."
+    },
+    {
+      "id": "fleet_retained_tool_has_no_deleted_package_dependency",
+      "owner_task": 25,
+      "plan_requirement": "Task 25, test assertions",
+      "required_result": "fleet retained tool has no deleted package dependency."
+    },
+    {
+      "id": "gena_allow_blank_id_is_explicit_and_counted",
+      "owner_task": 22,
+      "plan_requirement": "Task 22, test assertions",
+      "required_result": "gena allow blank id is explicit and counted."
+    },
+    {
+      "id": "gena_blank_id_is_refused_by_default",
+      "owner_task": 22,
+      "plan_requirement": "Task 22, test assertions",
+      "required_result": "gena blank id is refused by default."
+    },
+    {
+      "id": "gena_concurrent_import_keeps_one_row",
+      "owner_task": 22,
+      "plan_requirement": "Task 22, test assertions",
+      "required_result": "gena concurrent import keeps one row."
+    },
+    {
+      "id": "gena_dry_run_writes_nothing",
+      "owner_task": 22,
+      "plan_requirement": "Task 22, test assertions",
+      "required_result": "gena dry run writes nothing."
+    },
+    {
+      "id": "gena_file_and_row_bounds_are_enforced",
+      "owner_task": 22,
+      "plan_requirement": "Task 22, test assertions",
+      "required_result": "gena file and row bounds are enforced."
+    },
+    {
+      "id": "gena_invalid_coordinate_or_missing_required_text_fails_before_any_write",
+      "owner_task": 22,
+      "plan_requirement": "Task 22, test assertions",
+      "required_result": "gena invalid coordinate or missing required text fails before any write."
+    },
+    {
+      "id": "gena_operator_grant_is_exact_and_app_role_stays_read_only",
+      "owner_task": 22,
+      "plan_requirement": "Task 22, test assertions",
+      "required_result": "gena operator grant is exact and app role stays read only."
+    },
+    {
+      "id": "gena_same_id_replay_inserts_once",
+      "owner_task": 22,
+      "plan_requirement": "Task 22, test assertions",
+      "required_result": "gena same id replay inserts once."
+    },
+    {
+      "id": "gena_unknown_status_defaults_to_announced",
+      "owner_task": 22,
+      "plan_requirement": "Task 22, test assertions",
+      "required_result": "gena unknown status defaults to announced."
+    },
+    {
+      "id": "gena_zero_coordinate_is_preserved",
+      "owner_task": 22,
+      "plan_requirement": "Task 22, test assertions",
+      "required_result": "gena zero coordinate is preserved."
+    },
+    {
+      "id": "guard_scripts_contain_no_python",
+      "owner_task": 4,
+      "plan_requirement": "Task 4, test assertions",
+      "required_result": "guard scripts contain no python."
+    },
+    {
+      "id": "health_503_body_has_no_provenance",
+      "owner_task": 18,
+      "plan_requirement": "Task 18, test assertions",
+      "required_result": "health 503 body has no provenance."
+    },
+    {
+      "id": "health_guard_accepts_exactly_four_keys",
+      "owner_task": 4,
+      "plan_requirement": "Task 4, test assertions",
+      "required_result": "health guard accepts exactly four keys."
+    },
+    {
+      "id": "health_quarantines_a_malformed_previous_status",
+      "owner_task": 27,
+      "plan_requirement": "Task 27, test assertions",
+      "required_result": "health quarantines a malformed previous status."
+    },
+    {
+      "id": "health_rejects_a_zero_or_short_release_sha",
+      "owner_task": 27,
+      "plan_requirement": "Task 27, test assertions",
+      "required_result": "health rejects a zero or short release sha."
+    },
+    {
+      "id": "health_routes_keep_the_exact_four_key_body",
+      "owner_task": 18,
+      "plan_requirement": "Task 18, test assertions",
+      "required_result": "health routes keep the exact four key body."
+    },
+    {
+      "id": "health_status_keys_match_the_python_document",
+      "owner_task": 27,
+      "plan_requirement": "Task 27, test assertions",
+      "required_result": "health status keys match the python document."
+    },
+    {
+      "id": "health_total_timeout_and_body_bound_are_enforced",
+      "owner_task": 27,
+      "plan_requirement": "Task 27, test assertions",
+      "required_result": "health total timeout and body bound are enforced."
+    },
+    {
+      "id": "health_validates_the_exact_identity_and_readiness_keys",
+      "owner_task": 27,
+      "plan_requirement": "Task 27, test assertions",
+      "required_result": "health validates the exact identity and readiness keys."
+    },
+    {
+      "id": "health_works_with_the_database_down",
+      "owner_task": 27,
+      "plan_requirement": "Task 27, test assertions",
+      "required_result": "health works with the database down."
+    },
+    {
+      "id": "host_inventory_covers_units_timers_dropins_cron_usr_local_backup_and_processes",
+      "owner_task": 31,
+      "plan_requirement": "Task 31, test assertions",
+      "required_result": "host inventory covers units timers dropins cron usr local backup and processes."
+    },
+    {
+      "id": "host_inventory_is_complete_and_signed",
+      "owner_task": 31,
+      "plan_requirement": "Task 31, test assertions",
+      "required_result": "host inventory is complete and signed."
+    },
+    {
+      "id": "host_python_cleanup_removes_only_verdaxis_owned_paths",
+      "owner_task": 32,
+      "plan_requirement": "Task 32, test assertions",
+      "required_result": "host python cleanup removes only verdaxis owned paths."
+    },
+    {
+      "id": "host_replacements_preserve_backup_and_staging_pull",
+      "owner_task": 36,
+      "plan_requirement": "\u00a74.6; Task 36",
+      "required_result": "Each proved replacement preserves backup/restore and staging-pull contracts and has owner acceptance."
+    },
+    {
+      "id": "independent_review_findings_are_closed",
+      "owner_task": 33,
+      "plan_requirement": "Task 33, test assertions",
+      "required_result": "independent review findings are closed."
+    },
+    {
+      "id": "inspect_blockers_exits_2_when_any_count_is_nonzero",
+      "owner_task": 23,
+      "plan_requirement": "Task 23, test assertions",
+      "required_result": "inspect blockers exits 2 when any count is nonzero."
+    },
+    {
+      "id": "inspect_blockers_matches_the_python_counts_on_the_same_fixture",
+      "owner_task": 23,
+      "plan_requirement": "Task 23, test assertions",
+      "required_result": "inspect blockers matches the python counts on the same fixture."
+    },
+    {
+      "id": "inspect_json_is_one_object_with_stable_keys",
+      "owner_task": 23,
+      "plan_requirement": "Task 23, test assertions",
+      "required_result": "inspect json is one object with stable keys."
+    },
+    {
+      "id": "inspect_users_is_read_only_and_never_writes_a_status_file",
+      "owner_task": 23,
+      "plan_requirement": "Task 23, test assertions",
+      "required_result": "inspect users is read only and never writes a status file."
+    },
+    {
+      "id": "inspect_users_masks_email_by_default",
+      "owner_task": 23,
+      "plan_requirement": "Task 23, test assertions",
+      "required_result": "inspect users masks email by default."
+    },
+    {
+      "id": "inspect_users_show_emails_requires_the_explicit_flag",
+      "owner_task": 23,
+      "plan_requirement": "Task 23, test assertions",
+      "required_result": "inspect users show emails requires the explicit flag."
+    },
+    {
+      "id": "installer_dispatcher_effective_acl_survives_producer_restart_and_boot",
+      "owner_task": 10,
+      "plan_requirement": "\u00a722 R4-2; Task 10, PM acceptance",
+      "required_result": "For both producer units, prove effective ACLs after stop/start and boot ordering: dispatcher can traverse, lock, read and remove an admitted entry but cannot modify contents, cursor or status. Owning-group and other entries stay empty; no shared producer membership or unrelated access."
+    },
+    {
+      "id": "installer_enforces_per_check_handoff_acl_and_identity_boundary",
+      "owner_task": 10,
+      "plan_requirement": "Task 10, test assertions",
+      "required_result": "installer enforces per check handoff acl and identity boundary."
+    },
+    {
+      "id": "installer_refuses_a_manifest_digest_mismatch",
+      "owner_task": 10,
+      "plan_requirement": "Task 10, test assertions",
+      "required_result": "installer refuses a manifest digest mismatch."
+    },
+    {
+      "id": "installer_restart_and_revert_preserve_admitted_alert_state",
+      "owner_task": 10,
+      "plan_requirement": "Task 10, test assertions",
+      "required_result": "installer restart and revert preserve admitted alert state."
+    },
+    {
+      "id": "interruption_at_each_state_identity_revision_and_binary_publication_fails_closed",
+      "owner_task": 7,
+      "plan_requirement": "Task 7, test assertions",
+      "required_result": "interruption at each state identity revision and binary publication fails closed."
+    },
+    {
+      "id": "job_preflight_refuses_dangling_state_and_live_deploy",
+      "owner_task": 3,
+      "plan_requirement": "Task 3, test assertions",
+      "required_result": "job preflight refuses dangling state and live deploy."
+    },
+    {
+      "id": "job_units_load_only_their_purpose_env",
+      "owner_task": 10,
+      "plan_requirement": "Task 10, test assertions",
+      "required_result": "job units load only their purpose env."
+    },
+    {
+      "id": "kyc_claim_is_permanent_after_crash",
+      "owner_task": 15,
+      "plan_requirement": "Task 15, test assertions",
+      "required_result": "kyc claim is permanent after crash."
+    },
+    {
+      "id": "kyc_claim_is_permanent_and_not_retried",
+      "owner_task": 15,
+      "plan_requirement": "Task 15, test assertions",
+      "required_result": "kyc claim is permanent and not retried."
+    },
+    {
+      "id": "kyc_gate_disabled_exits_before_pool",
+      "owner_task": 15,
+      "plan_requirement": "Task 15, test assertions",
+      "required_result": "kyc gate disabled exits before pool."
+    },
+    {
+      "id": "kyc_live_send_requires_separate_founder_authorization",
+      "owner_task": 15,
+      "plan_requirement": "Task 15, test assertions",
+      "required_result": "kyc live send requires separate founder authorization."
+    },
+    {
+      "id": "kyc_notice_keeps_approved_unbound_and_skips_approved_bound_without_dependency",
+      "owner_task": 15,
+      "plan_requirement": "Task 15, test assertions",
+      "required_result": "kyc notice keeps approved unbound and skips approved bound without dependency."
+    },
+    {
+      "id": "kyc_notice_pages_are_bounded",
+      "owner_task": 15,
+      "plan_requirement": "Task 15, test assertions",
+      "required_result": "kyc notice pages are bounded."
+    },
+    {
+      "id": "kyc_notice_sends_to_the_grace_user_not_org_admins",
+      "owner_task": 15,
+      "plan_requirement": "Task 15, test assertions",
+      "required_result": "kyc notice sends to the grace user not org admins."
+    },
+    {
+      "id": "kyc_notice_skips_changed_organization",
+      "owner_task": 15,
+      "plan_requirement": "Task 15, test assertions",
+      "required_result": "kyc notice skips changed organization."
+    },
+    {
+      "id": "kyc_notice_skips_expired_grace",
+      "owner_task": 15,
+      "plan_requirement": "Task 15, test assertions",
+      "required_result": "kyc notice skips expired grace."
+    },
+    {
+      "id": "kyc_notice_skips_rejected_and_keeps_eligible_bound_users",
+      "owner_task": 15,
+      "plan_requirement": "Task 15, test assertions",
+      "required_result": "kyc notice skips rejected and keeps eligible bound users."
+    },
+    {
+      "id": "legacy_bind_form_still_serves",
+      "owner_task": 2,
+      "plan_requirement": "Task 2, test assertions",
+      "required_result": "legacy bind form still serves."
+    },
+    {
+      "id": "mail_transport_logs_recipient_digest_never_address",
+      "owner_task": 3,
+      "plan_requirement": "Task 3, test assertions",
+      "required_result": "mail transport logs recipient digest never address."
+    },
+    {
+      "id": "main_and_restart_locks_precede_authorization",
+      "owner_task": 7,
+      "plan_requirement": "Task 7, test assertions",
+      "required_result": "main and restart locks precede authorization."
+    },
+    {
+      "id": "manifest_counts_are_16_canonical_11_local_8_external",
+      "owner_task": 10,
+      "plan_requirement": "Task 10, test assertions",
+      "required_result": "manifest counts are 16 canonical 11 local 8 external."
+    },
+    {
+      "id": "measure_artifact_is_report_only",
+      "owner_task": 34,
+      "plan_requirement": "Task 34, test assertions",
+      "required_result": "measure artifact is report only."
+    },
+    {
+      "id": "measure_extracts_digest_pinned_python_memory_and_computes_absolute_and_percentage_differences",
+      "owner_task": 34,
+      "plan_requirement": "Task 34, test assertions",
+      "required_result": "measure extracts digest pinned python memory and computes absolute and percentage differences."
+    },
+    {
+      "id": "measure_marks_the_below_floor_caveat",
+      "owner_task": 34,
+      "plan_requirement": "Task 34, test assertions",
+      "required_result": "measure marks the below floor caveat."
+    },
+    {
+      "id": "measure_memory_comparison_excludes_warmup_and_ramp",
+      "owner_task": 34,
+      "plan_requirement": "Task 34, test assertions",
+      "required_result": "measure memory comparison excludes warmup and ramp."
+    },
+    {
+      "id": "measure_missing_comparable_python_memory_reports_unavailable_without_a_run",
+      "owner_task": 34,
+      "plan_requirement": "Task 34, test assertions",
+      "required_result": "measure missing comparable python memory reports unavailable without a run."
+    },
+    {
+      "id": "measure_never_changes_the_service_or_deploy_state",
+      "owner_task": 34,
+      "plan_requirement": "Task 34, test assertions",
+      "required_result": "measure never changes the service or deploy state."
+    },
+    {
+      "id": "measure_refuses_without_the_pinned_seed",
+      "owner_task": 34,
+      "plan_requirement": "Task 34, test assertions",
+      "required_result": "measure refuses without the pinned seed."
+    },
+    {
+      "id": "measure_rejects_memory_digest_metric_scope_window_and_worker_mismatch",
+      "owner_task": 34,
+      "plan_requirement": "Task 34, test assertions",
+      "required_result": "measure rejects memory digest metric scope window and worker mismatch."
+    },
+    {
+      "id": "measure_replays_the_exact_schedule_and_route_mix",
+      "owner_task": 34,
+      "plan_requirement": "Task 34, test assertions",
+      "required_result": "measure replays the exact schedule and route mix."
+    },
+    {
+      "id": "measure_reports_5xx_503_error_rate_observations_and_peak_rss",
+      "owner_task": 34,
+      "plan_requirement": "Task 34, test assertions",
+      "required_result": "measure reports 5xx 503 error rate observations and peak rss."
+    },
+    {
+      "id": "measure_reports_per_route_and_weighted_p95",
+      "owner_task": 34,
+      "plan_requirement": "Task 34, test assertions",
+      "required_result": "measure reports per route and weighted p95."
+    },
+    {
+      "id": "measurement_runs_after_cutover_only",
+      "owner_task": 34,
+      "plan_requirement": "Task 34, test assertions",
+      "required_result": "measurement runs after cutover only."
+    },
+    {
+      "id": "metadata_policy_allowlist_and_each_member_digest_are_bound",
+      "owner_task": 8,
+      "plan_requirement": "Task 8, test assertions",
+      "required_result": "metadata policy allowlist and each member digest are bound."
+    },
+    {
+      "id": "migrate_and_app_request_do_not_half_apply",
+      "owner_task": 6,
+      "plan_requirement": "Task 6, test assertions",
+      "required_result": "migrate and app request do not half apply."
+    },
+    {
+      "id": "migrate_runs_before_any_restart",
+      "owner_task": 7,
+      "plan_requirement": "Task 7, test assertions",
+      "required_result": "migrate runs before any restart."
+    },
+    {
+      "id": "migrate_status_is_read_only_and_reports_pending",
+      "owner_task": 6,
+      "plan_requirement": "Task 6, test assertions",
+      "required_result": "migrate status is read only and reports pending."
+    },
+    {
+      "id": "migrator_url_is_only_in_the_migrate_invocation",
+      "owner_task": 9,
+      "plan_requirement": "Task 9, test assertions",
+      "required_result": "migrator url is only in the migrate invocation."
+    },
+    {
+      "id": "monitor_units_exec_the_digest_pinned_host_copy",
+      "owner_task": 10,
+      "plan_requirement": "Task 10, test assertions",
+      "required_result": "monitor units exec the digest pinned host copy."
+    },
+    {
+      "id": "news_and_prune_envs_have_no_mail_jwt_or_migrator_key",
+      "owner_task": 9,
+      "plan_requirement": "Task 9, test assertions",
+      "required_result": "news and prune envs have no mail jwt or migrator key."
+    },
+    {
+      "id": "news_falls_back_to_rss_when_webz_is_absent",
+      "owner_task": 11,
+      "plan_requirement": "Task 11, test assertions",
+      "required_result": "news falls back to rss when webz is absent."
+    },
+    {
+      "id": "news_inserts_only_new_urls",
+      "owner_task": 11,
+      "plan_requirement": "Task 11, test assertions",
+      "required_result": "news inserts only new urls."
+    },
+    {
+      "id": "news_lock_busy_is_a_successful_noop",
+      "owner_task": 11,
+      "plan_requirement": "Task 11, test assertions",
+      "required_result": "news lock busy is a successful noop."
+    },
+    {
+      "id": "news_overlap_inserts_once",
+      "owner_task": 11,
+      "plan_requirement": "Task 11, test assertions",
+      "required_result": "news overlap inserts once."
+    },
+    {
+      "id": "news_rejects_oversize_provider_body_and_feed",
+      "owner_task": 11,
+      "plan_requirement": "Task 11, test assertions",
+      "required_result": "news rejects oversize provider body and feed."
+    },
+    {
+      "id": "nightly_backup_and_staging_pull_schedules_are_unchanged",
+      "owner_task": 31,
+      "plan_requirement": "Task 31, test assertions",
+      "required_result": "nightly backup and staging pull schedules are unchanged."
+    },
+    {
+      "id": "no_caddy_upstream_or_route_points_at_python",
+      "owner_task": 32,
+      "plan_requirement": "Task 32, test assertions",
+      "required_result": "no caddy upstream or route points at python."
+    },
+    {
+      "id": "no_installed_reference_to_a_deleted_python_path",
+      "owner_task": 32,
+      "plan_requirement": "Task 32, test assertions",
+      "required_result": "no installed reference to a deleted python path."
+    },
+    {
+      "id": "no_python_process_remains_after_the_rehearsal",
+      "owner_task": 31,
+      "plan_requirement": "Task 31, test assertions",
+      "required_result": "no python process remains after the rehearsal."
+    },
+    {
+      "id": "no_python_process_unit_timer_or_cron_on_either_host",
+      "owner_task": 33,
+      "plan_requirement": "Task 33, test assertions",
+      "required_result": "no python process unit timer or cron on either host."
+    },
+    {
+      "id": "no_unit_contains_python_or_a_venv_path",
+      "owner_task": 10,
+      "plan_requirement": "Task 10, test assertions",
+      "required_result": "no unit contains python or a venv path."
+    },
+    {
+      "id": "no_unit_timer_cron_or_deploy_references_a_retired_tool",
+      "owner_task": 26,
+      "plan_requirement": "Task 26, test assertions",
+      "required_result": "no unit timer cron or deploy references a retired tool."
+    },
+    {
+      "id": "offhost_rows_name_a_tool_a_reason_and_a_location",
+      "owner_task": 26,
+      "plan_requirement": "Task 26, test assertions",
+      "required_result": "offhost rows name a tool a reason and a location."
+    },
+    {
+      "id": "old_timer_and_new_job_do_not_duplicate",
+      "owner_task": 32,
+      "plan_requirement": "Task 32, test assertions",
+      "required_result": "old timer and new job do not duplicate."
+    },
+    {
+      "id": "old_unit_can_start_the_new_binary",
+      "owner_task": 10,
+      "plan_requirement": "Task 10, test assertions",
+      "required_result": "old unit can start the new binary."
+    },
+    {
+      "id": "onboarding_bootstrap_is_silent",
+      "owner_task": 16,
+      "plan_requirement": "Task 16, test assertions",
+      "required_result": "onboarding bootstrap is silent."
+    },
+    {
+      "id": "onboarding_handover_drains_and_fences_unlocked_python",
+      "owner_task": 16,
+      "plan_requirement": "Task 16, test assertions",
+      "required_result": "onboarding handover drains and fences unlocked python."
+    },
+    {
+      "id": "onboarding_reads_python_v1_state_without_alerting",
+      "owner_task": 16,
+      "plan_requirement": "Task 16, test assertions",
+      "required_result": "onboarding reads python v1 state without alerting."
+    },
+    {
+      "id": "onboarding_repeated_crashes_can_repeat_delivery",
+      "owner_task": 16,
+      "plan_requirement": "Task 16, test assertions",
+      "required_result": "onboarding repeated crashes can repeat delivery."
+    },
+    {
+      "id": "onboarding_second_process_exits_without_alert",
+      "owner_task": 16,
+      "plan_requirement": "Task 16, test assertions",
+      "required_result": "onboarding second process exits without alert."
+    },
+    {
+      "id": "onboarding_stable_lock_busy_exits_without_send",
+      "owner_task": 16,
+      "plan_requirement": "Task 16, test assertions",
+      "required_result": "onboarding stable lock busy exits without send."
+    },
+    {
+      "id": "onboarding_state_is_atomic_0600_and_schema_v1",
+      "owner_task": 16,
+      "plan_requirement": "Task 16, test assertions",
+      "required_result": "onboarding state is atomic 0600 and schema v1."
+    },
+    {
+      "id": "onboarding_suppresses_same_stage_and_alerts_on_change",
+      "owner_task": 16,
+      "plan_requirement": "Task 16, test assertions",
+      "required_result": "onboarding suppresses same stage and alerts on change."
+    },
+    {
+      "id": "onboarding_three_processes_remain_exclusive_across_state_rename",
+      "owner_task": 16,
+      "plan_requirement": "Task 16, test assertions",
+      "required_result": "onboarding three processes remain exclusive across state rename."
+    },
+    {
+      "id": "only_superseded_exact_cron_entries_are_removed",
+      "owner_task": 36,
+      "plan_requirement": "Task 36, test assertions",
+      "required_result": "only superseded exact cron entries are removed."
+    },
+    {
+      "id": "operator_acl_grants_only_ingestion_objects",
+      "owner_task": 21,
+      "plan_requirement": "Task 21, test assertions",
+      "required_result": "operator acl grants only ingestion objects."
+    },
+    {
+      "id": "operator_role_is_exact_and_not_a_member_of_the_app_role",
+      "owner_task": 21,
+      "plan_requirement": "Task 21, test assertions",
+      "required_result": "operator role is exact and not a member of the app role."
+    },
+    {
+      "id": "outbox_output_never_contains_the_dsn",
+      "owner_task": 28,
+      "plan_requirement": "Task 28, test assertions",
+      "required_result": "outbox output never contains the dsn."
+    },
+    {
+      "id": "outbox_probe_exit_codes_and_thresholds_match_python",
+      "owner_task": 28,
+      "plan_requirement": "Task 28, test assertions",
+      "required_result": "outbox probe exit codes and thresholds match python."
+    },
+    {
+      "id": "outbox_query_is_bounded_read_only_and_times_out",
+      "owner_task": 28,
+      "plan_requirement": "Task 28, test assertions",
+      "required_result": "outbox query is bounded read only and times out."
+    },
+    {
+      "id": "oversize_member_and_member_count_are_refused",
+      "owner_task": 8,
+      "plan_requirement": "Task 8, test assertions",
+      "required_result": "oversize member and member count are refused."
+    },
+    {
+      "id": "owner_acceptance_covers_each_required_replacement",
+      "owner_task": 36,
+      "plan_requirement": "Task 36, test assertions",
+      "required_result": "owner acceptance covers each required replacement."
+    },
+    {
+      "id": "packaged_attested_switch_artifact_passes_without_candidate_execution",
+      "owner_task": 8,
+      "plan_requirement": "Task 8, test assertions",
+      "required_result": "packaged attested switch artifact passes without candidate execution."
+    },
+    {
+      "id": "passive_harm_checks_are_clean_for_each_group",
+      "owner_task": 33,
+      "plan_requirement": "Task 33, test assertions",
+      "required_result": "passive harm checks are clean for each group."
+    },
+    {
+      "id": "phase0_and_benchmark_tools_are_ci_or_offhost_only",
+      "owner_task": 26,
+      "plan_requirement": "Task 26, test assertions",
+      "required_result": "phase0 and benchmark tools are ci or offhost only."
+    },
+    {
+      "id": "phase7_decision_names_exactly_one_path",
+      "owner_task": 20,
+      "plan_requirement": "Task 20, test assertions",
+      "required_result": "phase7 decision names exactly one path."
+    },
+    {
+      "id": "phase7_exact_twenty_operations_have_accepted_ownership",
+      "owner_task": 20,
+      "plan_requirement": "Task 20, test assertions",
+      "required_result": "phase7 exact twenty operations have accepted ownership."
+    },
+    {
+      "id": "phase7_path_b_exact_matchers_do_not_steal_adjacent_routes",
+      "owner_task": 20,
+      "plan_requirement": "Task 20, test assertions",
+      "required_result": "phase7 path b exact matchers do not steal adjacent routes."
+    },
+    {
+      "id": "phase7_path_b_preserves_all_tables_and_rows",
+      "owner_task": 20,
+      "plan_requirement": "Task 20, test assertions",
+      "required_result": "phase7 path b preserves all tables and rows."
+    },
+    {
+      "id": "phase7_retirement_exact_operations_return_404",
+      "owner_task": 20,
+      "plan_requirement": "\u00a723; Task 20, Path B",
+      "required_result": "Exactly the 20 retired method/path operations return 404; adjacent routes remain available."
+    },
+    {
+      "id": "phase7_retirement_preserves_table_and_row_identity",
+      "owner_task": 20,
+      "plan_requirement": "\u00a723; Task 20, Path B",
+      "required_result": "Retirement leaves all retained table and row identities and logical digests unchanged."
+    },
+    {
+      "id": "phase7_routes_have_their_recorded_end_state",
+      "owner_task": 32,
+      "plan_requirement": "Task 32, test assertions",
+      "required_result": "phase7 routes have their recorded end state."
+    },
+    {
+      "id": "preflight_rejects_wrong_database_role_and_environment",
+      "owner_task": 9,
+      "plan_requirement": "Task 9, test assertions",
+      "required_result": "preflight rejects wrong database role and environment."
+    },
+    {
+      "id": "previous_release_artifact_still_starts",
+      "owner_task": 32,
+      "plan_requirement": "Task 32, test assertions",
+      "required_result": "previous release artifact still starts."
+    },
+    {
+      "id": "production_literal_and_allowlist_move_together",
+      "owner_task": 6,
+      "plan_requirement": "Task 6, test assertions",
+      "required_result": "production literal and allowlist move together."
+    },
+    {
+      "id": "prune_is_idempotent_on_the_same_day",
+      "owner_task": 13,
+      "plan_requirement": "Task 13, test assertions",
+      "required_result": "prune is idempotent on the same day."
+    },
+    {
+      "id": "prune_keeps_exactly_800_utc_dates",
+      "owner_task": 13,
+      "plan_requirement": "Task 13, test assertions",
+      "required_result": "prune keeps exactly 800 utc dates."
+    },
+    {
+      "id": "prune_never_deletes_status_transitions",
+      "owner_task": 13,
+      "plan_requirement": "Task 13, test assertions",
+      "required_result": "prune never deletes status transitions."
+    },
+    {
+      "id": "prune_refuses_wrong_environment_or_sha",
+      "owner_task": 13,
+      "plan_requirement": "Task 13, test assertions",
+      "required_result": "prune refuses wrong environment or sha."
+    },
+    {
+      "id": "python_application_tree_is_absent",
+      "owner_task": 32,
+      "plan_requirement": "Task 32, test assertions",
+      "required_result": "python application tree is absent."
+    },
+    {
+      "id": "python_tests_that_import_app_are_removed_or_offhost",
+      "owner_task": 32,
+      "plan_requirement": "Task 32, test assertions",
+      "required_result": "python tests that import app are removed or offhost."
+    },
+    {
+      "id": "readiness_requires_the_exact_four_key_body",
+      "owner_task": 7,
+      "plan_requirement": "Task 7, test assertions",
+      "required_result": "readiness requires the exact four key body."
+    },
+    {
+      "id": "recover_attempts_once_per_fingerprint_and_cooldown",
+      "owner_task": 30,
+      "plan_requirement": "Task 30, test assertions",
+      "required_result": "recover attempts once per fingerprint and cooldown."
+    },
+    {
+      "id": "recover_dry_run_changes_nothing",
+      "owner_task": 30,
+      "plan_requirement": "Task 30, test assertions",
+      "required_result": "recover dry run changes nothing."
+    },
+    {
+      "id": "recover_lock_is_nonblocking",
+      "owner_task": 30,
+      "plan_requirement": "Task 30, test assertions",
+      "required_result": "recover lock is nonblocking."
+    },
+    {
+      "id": "recover_may_start_the_host_owned_backup_unit",
+      "owner_task": 30,
+      "plan_requirement": "Task 30, test assertions",
+      "required_result": "recover may start the host owned backup unit."
+    },
+    {
+      "id": "recover_never_starts_or_stops_a_python_unit",
+      "owner_task": 30,
+      "plan_requirement": "Task 30, test assertions",
+      "required_result": "recover never starts or stops a python unit."
+    },
+    {
+      "id": "recover_output_is_redacted_and_bounded",
+      "owner_task": 30,
+      "plan_requirement": "Task 30, test assertions",
+      "required_result": "recover output is redacted and bounded."
+    },
+    {
+      "id": "recover_refuses_an_active_deploy_or_unhealthy_database",
+      "owner_task": 30,
+      "plan_requirement": "Task 30, test assertions",
+      "required_result": "recover refuses an active deploy or unhealthy database."
+    },
+    {
+      "id": "recover_runs_only_allowlisted_commands",
+      "owner_task": 30,
+      "plan_requirement": "Task 30, test assertions",
+      "required_result": "recover runs only allowlisted commands."
+    },
+    {
+      "id": "recover_validates_caddy_before_reload_or_restart",
+      "owner_task": 30,
+      "plan_requirement": "Task 30, test assertions",
+      "required_result": "recover validates caddy before reload or restart."
+    },
+    {
+      "id": "rehearsal_deletes_python_and_nothing_restarts",
+      "owner_task": 31,
+      "plan_requirement": "Task 31, test assertions",
+      "required_result": "rehearsal deletes python and nothing restarts."
+    },
+    {
+      "id": "rehearsal_rollback_is_one_change_per_group",
+      "owner_task": 31,
+      "plan_requirement": "Task 31, test assertions",
+      "required_result": "rehearsal rollback is one change per group."
+    },
+    {
+      "id": "rehearsal_runs_every_installed_unit_once",
+      "owner_task": 31,
+      "plan_requirement": "Task 31, test assertions",
+      "required_result": "rehearsal runs every installed unit once."
+    },
+    {
+      "id": "release_bundle_rollback_starts_the_actual_pre_m_binary",
+      "owner_task": 31,
+      "plan_requirement": "Task 31, test assertions",
+      "required_result": "release bundle rollback starts the actual pre m binary."
+    },
+    {
+      "id": "reminders_refuse_nonproduction_before_pool",
+      "owner_task": 14,
+      "plan_requirement": "Task 14, test assertions",
+      "required_result": "reminders refuse nonproduction before pool."
+    },
+    {
+      "id": "reminders_scan_is_bounded_and_locks_the_order",
+      "owner_task": 14,
+      "plan_requirement": "Task 14, test assertions",
+      "required_result": "reminders scan is bounded and locks the order."
+    },
+    {
+      "id": "removal_ledger_has_no_gate_or_ownerless_rows",
+      "owner_task": 33,
+      "plan_requirement": "Task 33, test assertions",
+      "required_result": "removal ledger has no gate or ownerless rows."
+    },
+    {
+      "id": "required_verdaxis_python_has_no_exception",
+      "owner_task": 36,
+      "plan_requirement": "Task 36, test assertions",
+      "required_result": "required verdaxis python has no exception."
+    },
+    {
+      "id": "retired_tools_are_absent_from_the_release_artifact",
+      "owner_task": 26,
+      "plan_requirement": "Task 26, test assertions",
+      "required_result": "retired tools are absent from the release artifact."
+    },
+    {
+      "id": "retry_stops_after_three_attempts",
+      "owner_task": 3,
+      "plan_requirement": "Task 3, test assertions",
+      "required_result": "retry stops after three attempts."
+    },
+    {
+      "id": "rollback_interruption_at_each_publication_never_starts_a_mixed_bundle",
+      "owner_task": 31,
+      "plan_requirement": "Task 31, test assertions",
+      "required_result": "rollback interruption at each publication never starts a mixed bundle."
+    },
+    {
+      "id": "root_does_not_touch_the_database",
+      "owner_task": 18,
+      "plan_requirement": "Task 18, test assertions",
+      "required_result": "root does not touch the database."
+    },
+    {
+      "id": "root_health_snippet_has_one_argument_and_exact_paths",
+      "owner_task": 18,
+      "plan_requirement": "Task 18, test assertions",
+      "required_result": "root health snippet has one argument and exact paths."
+    },
+    {
+      "id": "root_is_get_only",
+      "owner_task": 18,
+      "plan_requirement": "Task 18, test assertions",
+      "required_result": "root is get only."
+    },
+    {
+      "id": "root_returns_the_exact_python_body",
+      "owner_task": 18,
+      "plan_requirement": "Task 18, test assertions",
+      "required_result": "root returns the exact python body."
+    },
+    {
+      "id": "run_to_exact_approved_target_is_idempotent",
+      "owner_task": 6,
+      "plan_requirement": "Task 6, test assertions",
+      "required_result": "run to exact approved target is idempotent."
+    },
+    {
+      "id": "runtime_files_are_regular_0600_and_never_symlinks",
+      "owner_task": 9,
+      "plan_requirement": "Task 9, test assertions",
+      "required_result": "runtime files are regular 0600 and never symlinks."
+    },
+    {
+      "id": "rust_start_requires_regular_budget_and_revision_files",
+      "owner_task": 4,
+      "plan_requirement": "Task 4, test assertions",
+      "required_result": "rust start requires regular budget and revision files."
+    },
+    {
+      "id": "seed_and_remediation_tools_are_not_installed_by_any_script",
+      "owner_task": 26,
+      "plan_requirement": "Task 26, test assertions",
+      "required_result": "seed and remediation tools are not installed by any script."
+    },
+    {
+      "id": "serve_env_carries_the_monitor_token_only_when_configured",
+      "owner_task": 19,
+      "plan_requirement": "Task 19, test assertions",
+      "required_result": "serve env carries the monitor token only when configured."
+    },
+    {
+      "id": "serve_env_contains_only_reviewed_http_credentials",
+      "owner_task": 9,
+      "plan_requirement": "Task 9, test assertions",
+      "required_result": "serve env contains only reviewed http credentials."
+    },
+    {
+      "id": "serve_env_has_no_migrator_or_job_only_key",
+      "owner_task": 9,
+      "plan_requirement": "Task 9, test assertions",
+      "required_result": "serve env has no migrator or job only key."
+    },
+    {
+      "id": "serve_env_requires_auth_keys_and_issues_and_verifies_sessions",
+      "owner_task": 9,
+      "plan_requirement": "Task 9, test assertions",
+      "required_result": "serve env requires auth keys and issues and verifies sessions."
+    },
+    {
+      "id": "shellcheck_job_pins_version_digest_and_checks_every_reviewed_script",
+      "owner_task": 8,
+      "plan_requirement": "Task 8, test assertions",
+      "required_result": "shellcheck job pins version digest and checks every reviewed script."
+    },
+    {
+      "id": "signal_csv_headers_are_exact_per_family",
+      "owner_task": 21,
+      "plan_requirement": "Task 21, test assertions",
+      "required_result": "signal csv headers are exact per family."
+    },
+    {
+      "id": "signal_dry_run_writes_nothing_and_reports_would_insert",
+      "owner_task": 21,
+      "plan_requirement": "Task 21, test assertions",
+      "required_result": "signal dry run writes nothing and reports would insert."
+    },
+    {
+      "id": "signal_duplicate_source_event_id_is_skipped_not_failed",
+      "owner_task": 21,
+      "plan_requirement": "Task 21, test assertions",
+      "required_result": "signal duplicate source event id is skipped not failed."
+    },
+    {
+      "id": "signal_ingest_refuses_production_and_any_unattested_target",
+      "owner_task": 21,
+      "plan_requirement": "Task 21, test assertions",
+      "required_result": "signal ingest refuses production and any unattested target."
+    },
+    {
+      "id": "signal_ingest_uses_operator_role_and_app_role_is_denied",
+      "owner_task": 21,
+      "plan_requirement": "Task 21, test assertions",
+      "required_result": "signal ingest uses operator role and app role is denied."
+    },
+    {
+      "id": "signal_output_contains_counts_but_no_row_contents",
+      "owner_task": 21,
+      "plan_requirement": "Task 21, test assertions",
+      "required_result": "signal output contains counts but no row contents."
+    },
+    {
+      "id": "signal_row_error_rolls_back_only_that_row",
+      "owner_task": 21,
+      "plan_requirement": "Task 21, test assertions",
+      "required_result": "signal row error rolls back only that row."
+    },
+    {
+      "id": "signal_source_pattern_and_file_size_are_bounded",
+      "owner_task": 21,
+      "plan_requirement": "Task 21, test assertions",
+      "required_result": "signal source pattern and file size are bounded."
+    },
+    {
+      "id": "sqlx_control_acl_converges_twice_with_migrator_only_writes",
+      "owner_task": 6,
+      "plan_requirement": "Task 6, test assertions",
+      "required_result": "sqlx control acl converges twice with migrator only writes."
+    },
+    {
+      "id": "staged_binary_is_the_only_artifact_executed_before_install",
+      "owner_task": 7,
+      "plan_requirement": "Task 7, test assertions",
+      "required_result": "staged binary is the only artifact executed before install."
+    },
+    {
+      "id": "staging_is_cleaned_before_production",
+      "owner_task": 32,
+      "plan_requirement": "Task 32, test assertions",
+      "required_result": "staging is cleaned before production."
+    },
+    {
+      "id": "staging_pull_preserves_target_identity_and_schedule",
+      "owner_task": 36,
+      "plan_requirement": "Task 36, test assertions",
+      "required_result": "staging pull preserves target identity and schedule."
+    },
+    {
+      "id": "state_lock_is_nonblocking",
+      "owner_task": 3,
+      "plan_requirement": "Task 3, test assertions",
+      "required_result": "state lock is nonblocking."
+    },
+    {
+      "id": "state_reader_refuses_oversize_symlink_and_invalid_json",
+      "owner_task": 3,
+      "plan_requirement": "Task 3, test assertions",
+      "required_result": "state reader refuses oversize symlink and invalid json."
+    },
+    {
+      "id": "subcommand_dispatch_is_exact",
+      "owner_task": 2,
+      "plan_requirement": "Task 2, test assertions",
+      "required_result": "subcommand dispatch is exact."
+    },
+    {
+      "id": "symlink_output_and_extraction_substitution_are_refused",
+      "owner_task": 8,
+      "plan_requirement": "Task 8, test assertions",
+      "required_result": "symlink output and extraction substitution are refused."
+    },
+    {
+      "id": "tampered_archive_bit_flip_is_refused",
+      "owner_task": 8,
+      "plan_requirement": "Task 8, test assertions",
+      "required_result": "tampered archive bit flip is refused."
+    },
+    {
+      "id": "target_attestation_rejects_wrong_database_and_role",
+      "owner_task": 3,
+      "plan_requirement": "Task 3, test assertions",
+      "required_result": "target attestation rejects wrong database and role."
+    },
+    {
+      "id": "test_phase10_helpers_are_exactly_14",
+      "owner_task": 1,
+      "plan_requirement": "Task 1, test assertions",
+      "required_result": "test phase10 helpers are exactly 14."
+    },
+    {
+      "id": "test_phase10_no_row_is_ownerless_or_untested",
+      "owner_task": 1,
+      "plan_requirement": "Task 1, test assertions",
+      "required_result": "test phase10 no row is ownerless or untested."
+    },
+    {
+      "id": "test_phase10_routes_are_exactly_188",
+      "owner_task": 1,
+      "plan_requirement": "Task 1, test assertions",
+      "required_result": "test phase10 routes are exactly 188."
+    },
+    {
+      "id": "test_phase10_scripts_are_exactly_40",
+      "owner_task": 1,
+      "plan_requirement": "Task 1, test assertions",
+      "required_result": "test phase10 scripts are exactly 40."
+    },
+    {
+      "id": "test_phase10_units_are_exactly_41",
+      "owner_task": 1,
+      "plan_requirement": "Task 1, test assertions",
+      "required_result": "test phase10 units are exactly 41."
+    },
+    {
+      "id": "the_rust_backup_verify_monitor_accepts_the_nightly_artifact",
+      "owner_task": 33,
+      "plan_requirement": "Task 33, test assertions",
+      "required_result": "the rust backup verify monitor accepts the nightly artifact."
+    },
+    {
+      "id": "timer_catch_up_after_restart_runs_once",
+      "owner_task": 10,
+      "plan_requirement": "Task 10, test assertions",
+      "required_result": "timer catch up after restart runs once."
+    },
+    {
+      "id": "unapproved_transition_or_pending_version_refuses_before_mutation",
+      "owner_task": 6,
+      "plan_requirement": "Task 6, test assertions",
+      "required_result": "unapproved transition or pending version refuses before mutation."
+    },
+    {
+      "id": "valid_fixture_extracts_only_allowlisted_members",
+      "owner_task": 8,
+      "plan_requirement": "Task 8, test assertions",
+      "required_result": "valid fixture extracts only allowlisted members."
+    },
+    {
+      "id": "version_json_is_still_first",
+      "owner_task": 2,
+      "plan_requirement": "Task 2, test assertions",
+      "required_result": "version json is still first."
+    },
+    {
+      "id": "w0_classification_does_not_create_a_schedule",
+      "owner_task": 35,
+      "plan_requirement": "Task 35, test assertions",
+      "required_result": "w0 classification does not create a schedule."
+    },
+    {
+      "id": "w0_covers_both_hosts_and_host_owned_automation",
+      "owner_task": 35,
+      "plan_requirement": "Task 35, test assertions",
+      "required_result": "w0 covers both hosts and host owned automation."
+    },
+    {
+      "id": "w0_missing_dependency_is_refused",
+      "owner_task": 35,
+      "plan_requirement": "Task 35, test assertions",
+      "required_result": "w0 missing dependency is refused."
+    },
+    {
+      "id": "write_state_is_atomic_and_0600",
+      "owner_task": 3,
+      "plan_requirement": "Task 3, test assertions",
+      "required_result": "write state is atomic and 0600."
+    },
+    {
+      "id": "wrong_public_key_and_wrong_source_sha_are_refused",
+      "owner_task": 8,
+      "plan_requirement": "Task 8, test assertions",
+      "required_result": "wrong public key and wrong source sha are refused."
+    },
+    {
+      "id": "wrong_repository_workflow_path_ref_source_ref_and_target_are_refused",
+      "owner_task": 8,
+      "plan_requirement": "Task 8, test assertions",
+      "required_result": "wrong repository workflow path ref source ref and target are refused."
+    }
+  ],
+  "scenario_catalog_policy": "Reviewed required test identifiers and explicit acceptance cells; not inline-code extraction. Task 20 Path A is excluded by the accepted Path B decision. Results never define required membership."
 }
