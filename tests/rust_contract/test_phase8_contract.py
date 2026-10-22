@@ -290,31 +290,33 @@ def executed_statement_text(call):
 
 
 def review_migration_operations(upgrade, manifest):
-    """Allow a bind only inside the exact head query; never expose a connection."""
+    """Allow only the complete head-read statement, never its query subtree."""
     permitted = manifest["permitted_migration_operations"]
     reviewed_statements = {normalize_statement(statement) for statement in permitted["reviewed_statements"]}
-    head_check = ast.parse(
-        f'op.get_bind().execute(sa.text({permitted["head_check"]["statement"]!r}))',
-        mode="eval",
-    ).body
-    approved_head_calls = {
-        node for node in ast.walk(upgrade)
-        if isinstance(node, ast.Call) and ast.dump(node) == ast.dump(head_check)
+    head_read = ast.parse(
+        f'heads = op.get_bind().execute(sa.text({permitted["head_check"]["statement"]!r})).scalars().all()'
+    ).body[0]
+    # Match a whole top-level statement, including assignment and consumption.
+    # Matching only execute() would expose CursorResult.connection to other SQL.
+    approved_head_nodes = {
+        child
+        for statement in upgrade.body
+        if ast.dump(statement) == ast.dump(head_read)
+        for child in ast.walk(statement)
     }
-    approved_bind_attributes = {node.func.value.func for node in approved_head_calls}
     violations = []
     for node in ast.walk(upgrade):
-        # Inspect references as well as calls, so aliasing or passing the accessor
-        # cannot turn the head-query allowance into general connection access.
+        if node in approved_head_nodes:
+            continue
+        # References are checked too: storing or passing an accessor is not a read.
         if isinstance(node, ast.Attribute) and ast.unparse(node.value) == "op" and node.attr in {"get_bind", "get_context"}:
-            if node not in approved_bind_attributes:
-                violations.append(f"unreviewed connection access: op.{node.attr}")
+            violations.append(f"unreviewed connection access: op.{node.attr}")
         if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
             continue
         receiver = ast.unparse(node.func.value)
         operation = node.func.attr
         if receiver != "op":
-            if operation == "execute" and node not in approved_head_calls:
+            if operation in {"execute", "exec_driver_sql"}:
                 violations.append(f"unreviewed connection execute: {receiver}")
             continue
         if operation in permitted["ddl"] or operation in {"get_bind", "get_context"}:
