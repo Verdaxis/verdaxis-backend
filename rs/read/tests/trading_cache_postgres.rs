@@ -253,19 +253,26 @@ async fn read_family(
     runs: Arc<AtomicUsize>,
 ) -> i64 {
     let clock = state.trading_read_observer.now();
-    run_trading_read(state, cache, key, family, clock, move |connection, _clock| {
-        Box::pin(async move {
-            runs.fetch_add(1, Ordering::SeqCst);
-            let value: i64 = sqlx::query_scalar(
-                "SELECT generation FROM public.public_read_cache_generations \
+    run_trading_read(
+        state,
+        cache,
+        key,
+        family,
+        clock,
+        move |connection, _clock| {
+            Box::pin(async move {
+                runs.fetch_add(1, Ordering::SeqCst);
+                let value: i64 = sqlx::query_scalar(
+                    "SELECT generation FROM public.public_read_cache_generations \
                  WHERE domain = 'trading'",
-            )
-            .fetch_one(connection)
-            .await
-            .map_err(|_| ApiError::database())?;
-            Ok(TradingFill { value, facts })
-        })
-    })
+                )
+                .fetch_one(connection)
+                .await
+                .map_err(|_| ApiError::database())?;
+                Ok(TradingFill { value, facts })
+            })
+        },
+    )
     .await
     .unwrap()
 }
@@ -497,7 +504,15 @@ async fn moving_windows_without_a_derived_departure_bypass_storage() {
                 runtime
                     .authority()
                     .refresh(runtime.record_path(), Instant::now());
-                read_family(&state, &cache, "moving", family, facts.clone(), runs.clone()).await;
+                read_family(
+                    &state,
+                    &cache,
+                    "moving",
+                    family,
+                    facts.clone(),
+                    runs.clone(),
+                )
+                .await;
             }
             if runs.load(Ordering::SeqCst) != 2 || !cache.is_empty() {
                 stored.push(format!("{family}: {name}"));
@@ -803,23 +818,30 @@ async fn a_fill_that_loses_its_authority_is_not_stored_or_answered() {
     let authority = runtime.authority().clone();
 
     let clock = state.trading_read_observer.now();
-    let result = run_trading_read(&state, &cache, "stale", "prices_fixed", clock, move |connection, _clock| {
-        Box::pin(async move {
-            let value: i64 = sqlx::query_scalar(
-                "SELECT generation FROM public.public_read_cache_generations \
+    let result = run_trading_read(
+        &state,
+        &cache,
+        "stale",
+        "prices_fixed",
+        clock,
+        move |connection, _clock| {
+            Box::pin(async move {
+                let value: i64 = sqlx::query_scalar(
+                    "SELECT generation FROM public.public_read_cache_generations \
                  WHERE domain = 'trading'",
-            )
-            .fetch_one(connection)
-            .await
-            .map_err(|_| ApiError::database())?;
-            // The owner revokes while this fill is in flight.
-            authority.revoke();
-            Ok(TradingFill {
-                value,
-                facts: TemporalFacts::proven_written_only(),
+                )
+                .fetch_one(connection)
+                .await
+                .map_err(|_| ApiError::database())?;
+                // The owner revokes while this fill is in flight.
+                authority.revoke();
+                Ok(TradingFill {
+                    value,
+                    facts: TemporalFacts::proven_written_only(),
+                })
             })
-        })
-    })
+        },
+    )
     .await;
 
     assert!(
@@ -871,25 +893,32 @@ async fn unadmitted_connections_never_publish() {
         }
         let cache = Arc::new(TradingCache::new(4, 1024));
         let clock = state.trading_read_observer.now();
-        let result = run_trading_read(&state, &cache, reason, "prices_fixed", clock, move |connection, _clock| {
-            Box::pin(async move {
-                let value: i64 = sqlx::query_scalar("SELECT 42::bigint")
-                    .fetch_one(connection)
-                    .await
-                    .map_err(|_| ApiError::database())?;
-                if reason == "rotation" {
-                    // This loader started without a token. A later activation
-                    // must not authorize its old-connection response.
-                    process
-                        .synchronize(Some(authority(3)), Instant::now())
-                        .unwrap();
-                }
-                Ok(TradingFill {
-                    value,
-                    facts: TemporalFacts::proven_written_only(),
+        let result = run_trading_read(
+            &state,
+            &cache,
+            reason,
+            "prices_fixed",
+            clock,
+            move |connection, _clock| {
+                Box::pin(async move {
+                    let value: i64 = sqlx::query_scalar("SELECT 42::bigint")
+                        .fetch_one(connection)
+                        .await
+                        .map_err(|_| ApiError::database())?;
+                    if reason == "rotation" {
+                        // This loader started without a token. A later activation
+                        // must not authorize its old-connection response.
+                        process
+                            .synchronize(Some(authority(3)), Instant::now())
+                            .unwrap();
+                    }
+                    Ok(TradingFill {
+                        value,
+                        facts: TemporalFacts::proven_written_only(),
+                    })
                 })
-            })
-        })
+            },
+        )
         .await;
         if result.is_ok() {
             published.push(reason);
@@ -1036,8 +1065,7 @@ async fn clock_case(
         // A seven-day lookback (a price summary over 168 hours) keeps a row on
         // its edge, so this trade leaves half a second before `edge`.
         "rolling" => {
-            let confirmed_at =
-                edge - Duration::from_secs(7 * 86_400) - Duration::from_millis(500);
+            let confirmed_at = edge - Duration::from_secs(7 * 86_400) - Duration::from_millis(500);
             trade_in_window(connection, confirmed_at, clock).await
         }
         // Valid through 22 October, the Singapore date of `start`.
@@ -1088,16 +1116,17 @@ async fn clock_boundaries_change_payloads_without_writes() {
                 family,
                 clock.now(),
                 move |connection, now| {
-                Box::pin(async move {
-                    loads.fetch_add(1, Ordering::SeqCst);
-                    let fill = clock_case(connection, kind, start, &now).await;
-                    if kind == "late-fill" && read == 0 {
-                        // The read itself outlasts the order.
-                        loader_clock.advance(Duration::from_secs(1));
-                    }
-                    fill
-                })
-            })
+                    Box::pin(async move {
+                        loads.fetch_add(1, Ordering::SeqCst);
+                        let fill = clock_case(connection, kind, start, &now).await;
+                        if kind == "late-fill" && read == 0 {
+                            // The read itself outlasts the order.
+                            loader_clock.advance(Duration::from_secs(1));
+                        }
+                        fill
+                    })
+                },
+            )
             .await
             .unwrap();
             if kind == "late-fill" && read == 0 {
@@ -1142,15 +1171,22 @@ async fn read_epoch(
     runs: Arc<AtomicUsize>,
 ) -> String {
     let clock = state.trading_read_observer.now();
-    run_trading_read(state, cache, "rotation", "prices_fixed", clock, move |connection, _clock| {
-        Box::pin(async move {
-            runs.fetch_add(1, Ordering::SeqCst);
-            Ok(TradingFill {
-                value: incarnation_epoch(connection).await?,
-                facts: TemporalFacts::proven_written_only(),
+    run_trading_read(
+        state,
+        cache,
+        "rotation",
+        "prices_fixed",
+        clock,
+        move |connection, _clock| {
+            Box::pin(async move {
+                runs.fetch_add(1, Ordering::SeqCst);
+                Ok(TradingFill {
+                    value: incarnation_epoch(connection).await?,
+                    facts: TemporalFacts::proven_written_only(),
+                })
             })
-        })
-    })
+        },
+    )
     .await
     .unwrap()
 }
@@ -1205,14 +1241,21 @@ async fn authority_rotation_at_each_publication_barrier_rejects_old_fills() {
             let paused_cache = cache.clone();
             let old = tokio::spawn(async move {
                 let clock = paused.trading_read_observer.now();
-                run_trading_read(&paused, &paused_cache, "rotation", "prices_fixed", clock, |connection, _clock| {
-                    Box::pin(async move {
-                        Ok(TradingFill {
-                            value: incarnation_epoch(connection).await?,
-                            facts: TemporalFacts::proven_written_only(),
+                run_trading_read(
+                    &paused,
+                    &paused_cache,
+                    "rotation",
+                    "prices_fixed",
+                    clock,
+                    |connection, _clock| {
+                        Box::pin(async move {
+                            Ok(TradingFill {
+                                value: incarnation_epoch(connection).await?,
+                                facts: TemporalFacts::proven_written_only(),
+                            })
                         })
-                    })
-                })
+                    },
+                )
                 .await
             });
             tokio::time::timeout(Duration::from_secs(30), gate.entered.notified())

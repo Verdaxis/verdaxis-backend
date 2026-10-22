@@ -198,10 +198,9 @@ where
                 .execute(&mut *transaction)
                 .await
                 .map_err(|_| ApiError::database())?;
-            let admitted =
-                admit_connection(&authority, &mut transaction, observer.now().monotonic)
-                    .await
-                    .map_err(|_| ApiError::database())?;
+            let admitted = admit_connection(&authority, &mut transaction, observer.now().monotonic)
+                .await
+                .map_err(|_| ApiError::database())?;
             // Even an uncached answer needs an authoritative connection: without
             // a token there is no fence to check before publication.
             let Some((token, generation)) = admitted else {
