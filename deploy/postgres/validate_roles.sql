@@ -394,37 +394,120 @@ SELECT pg_temp.assert_role_policy(
     'audit and status history must remain append-only for app and read-only for backup'
 );
 
+-- Replay retention objects arrive with sse_20261021_replay_floor. A database
+-- at an earlier checkpoint has none of them; a database at or after that
+-- checkpoint has exactly the objects below. The checks therefore expect them
+-- only when the replay state table exists, and refuse any partial set.
 SELECT pg_temp.assert_role_policy(
-    count(*) = 2
-    AND bool_and(trigger.tgenabled = 'A')
-    AND bool_and(NOT trigger.tgisinternal),
-    'replay floor triggers must exist on the outbox and be enabled ALWAYS'
-)
-FROM pg_catalog.pg_trigger AS trigger
-JOIN pg_catalog.pg_class AS relation ON relation.oid = trigger.tgrelid
-JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = relation.relnamespace
-WHERE namespace.nspname = 'public'
-  AND relation.relname = 'market_event_outbox'
-  AND trigger.tgname IN (
-      'trg_market_event_outbox_replay_floor',
-      'trg_market_event_outbox_refuse_truncate'
-  );
+    (to_regclass('public.market_event_replay_state') IS NULL)
+        = (to_regclass('public.market_event_retention_control') IS NULL),
+    'replay retention tables must be installed together'
+);
+
+-- pg_trigger.tgtype bits: ROW = 1, BEFORE = 2, DELETE = 8, TRUNCATE = 32.
+-- Every trigger that has an expected name or calls a retention function is
+-- compared, so a moved, conditional, disabled or extra trigger is refused.
+SELECT pg_temp.assert_role_policy(
+    NOT EXISTS (
+        WITH expected(
+            relation_name, trigger_name, function_name, trigger_type,
+            enabled, conditional, argument_count, internal
+        ) AS (
+            SELECT *
+            FROM (VALUES
+                ('public.market_event_outbox',
+                 'trg_market_event_outbox_replay_floor',
+                 'public.market_event_outbox_advance_replay_floor',
+                 1 + 2 + 8, 'A', false, 0, false),
+                ('public.market_event_outbox',
+                 'trg_market_event_outbox_refuse_truncate',
+                 'public.market_event_outbox_refuse_truncate',
+                 2 + 32, 'A', false, 0, false)
+            ) AS installed
+            WHERE to_regclass('public.market_event_replay_state') IS NOT NULL
+        ), actual AS (
+            SELECT namespace.nspname || '.' || relation.relname AS relation_name,
+                   trigger.tgname::text AS trigger_name,
+                   function_namespace.nspname || '.' || procedure.proname
+                       AS function_name,
+                   trigger.tgtype::integer AS trigger_type,
+                   trigger.tgenabled::text AS enabled,
+                   trigger.tgqual IS NOT NULL AS conditional,
+                   trigger.tgnargs::integer AS argument_count,
+                   trigger.tgisinternal AS internal
+            FROM pg_catalog.pg_trigger AS trigger
+            JOIN pg_catalog.pg_class AS relation ON relation.oid = trigger.tgrelid
+            JOIN pg_catalog.pg_namespace AS namespace
+              ON namespace.oid = relation.relnamespace
+            JOIN pg_catalog.pg_proc AS procedure ON procedure.oid = trigger.tgfoid
+            JOIN pg_catalog.pg_namespace AS function_namespace
+              ON function_namespace.oid = procedure.pronamespace
+            WHERE (
+                namespace.nspname = 'public'
+                AND relation.relname = 'market_event_outbox'
+                AND trigger.tgname IN (
+                    'trg_market_event_outbox_replay_floor',
+                    'trg_market_event_outbox_refuse_truncate'
+                )
+            )
+            OR (
+                function_namespace.nspname = 'public'
+                AND procedure.proname IN (
+                    'market_event_outbox_advance_replay_floor',
+                    'market_event_outbox_refuse_truncate'
+                )
+            )
+        ), differences AS (
+            (SELECT * FROM actual EXCEPT ALL SELECT * FROM expected)
+            UNION ALL
+            (SELECT * FROM expected EXCEPT ALL SELECT * FROM actual)
+        )
+        SELECT 1 FROM differences
+    ),
+    'replay retention triggers must exactly match the installed checkpoint'
+);
 
 SELECT pg_temp.assert_role_policy(
-    count(*) = 2
-    AND bool_and(procedure.prosecdef)
-    AND bool_and(
-        procedure.proconfig @> ARRAY['search_path=pg_catalog, public']
+    NOT EXISTS (
+        WITH expected(
+            function_name, owner_name, language_name, return_type,
+            argument_count, security_definer, configuration
+        ) AS (
+            SELECT installed.function_name, :'migrator_role', 'plpgsql', 'trigger',
+                   0, true, ARRAY['search_path=pg_catalog, public']
+            FROM (VALUES
+                ('market_event_outbox_advance_replay_floor'),
+                ('market_event_outbox_refuse_truncate')
+            ) AS installed(function_name)
+            WHERE to_regclass('public.market_event_replay_state') IS NOT NULL
+        ), actual AS (
+            SELECT procedure.proname::text AS function_name,
+                   owner.rolname::text AS owner_name,
+                   procedure_language.lanname::text AS language_name,
+                   procedure.prorettype::regtype::text AS return_type,
+                   procedure.pronargs::integer AS argument_count,
+                   procedure.prosecdef AS security_definer,
+                   procedure.proconfig AS configuration
+            FROM pg_catalog.pg_proc AS procedure
+            JOIN pg_catalog.pg_namespace AS namespace
+              ON namespace.oid = procedure.pronamespace
+            JOIN pg_catalog.pg_roles AS owner ON owner.oid = procedure.proowner
+            JOIN pg_catalog.pg_language AS procedure_language
+              ON procedure_language.oid = procedure.prolang
+            WHERE namespace.nspname = 'public'
+              AND procedure.proname IN (
+                  'market_event_outbox_advance_replay_floor',
+                  'market_event_outbox_refuse_truncate'
+              )
+        ), differences AS (
+            (SELECT * FROM actual EXCEPT ALL SELECT * FROM expected)
+            UNION ALL
+            (SELECT * FROM expected EXCEPT ALL SELECT * FROM actual)
+        )
+        SELECT 1 FROM differences
     ),
-    'retention trigger functions must be fixed-search-path SECURITY DEFINER'
-)
-FROM pg_catalog.pg_proc AS procedure
-JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = procedure.pronamespace
-WHERE namespace.nspname = 'public'
-  AND procedure.proname IN (
-      'market_event_outbox_advance_replay_floor',
-      'market_event_outbox_refuse_truncate'
-  );
+    'replay retention functions must exactly match the installed checkpoint'
+);
 
 SELECT pg_temp.assert_role_policy(
     NOT EXISTS (
@@ -442,7 +525,7 @@ SELECT pg_temp.assert_role_policy(
               OR has_function_privilege(:'backup_role', procedure.oid, 'EXECUTE')
           )
     ),
-    'retention trigger functions must not be executable by app or backup roles'
+    'replay retention functions must not be executable by app or backup roles'
 );
 
 WITH expected(
