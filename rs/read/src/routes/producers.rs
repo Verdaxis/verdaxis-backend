@@ -60,7 +60,9 @@ impl ProducerQuery {
                         "OPERATIONAL" => ProjectStatus::Operational,
                         "CANCELLED" => ProjectStatus::Cancelled,
                         _ => {
-                            return Err(market_data_error::invalid_input("Unknown project status."));
+                            return Err(market_data_error::invalid_input(
+                                "Unknown project status.",
+                            ));
                         }
                     });
                 }
