@@ -7,9 +7,9 @@
 //! service that would answer with the wrong token authority or sender.
 use std::fmt;
 
-use crate::Phase2Options;
 use crate::auth::VerificationSettings;
 use crate::crud::referrals::invite::MailClient;
+use crate::Phase2Options;
 
 /// The verification and invite authority shared by the Phase 2 route groups.
 #[derive(Clone)]
@@ -127,11 +127,9 @@ mod tests {
 
     #[test]
     fn absent_options_mount_no_phase2_group() {
-        assert!(
-            Phase2Settings::from_options(&Phase2Options::default())
-                .unwrap()
-                .is_none()
-        );
+        assert!(Phase2Settings::from_options(&Phase2Options::default())
+            .unwrap()
+            .is_none());
     }
 
     #[test]
@@ -152,6 +150,39 @@ mod tests {
         let settings = Phase2Settings::from_options(&options).unwrap().unwrap();
         assert!(!format!("{settings:?}").contains(&"c".repeat(40)));
         assert!(!format!("{settings:?}").contains(&"p".repeat(40)));
+    }
+
+    #[test]
+    fn verification_keeps_the_deployed_key_and_claim_bytes() {
+        use chrono::Utc;
+        use jsonwebtoken::{encode, EncodingKey, Header};
+        use serde_json::json;
+
+        let mut options = complete();
+        options.jwt_secret = Some(format!(" {} ", "c".repeat(40)));
+        options.jwt_secret_previous = Some(format!(" {} ", "p".repeat(40)));
+        options.jwt_issuer = Some(" issuer ".into());
+        options.jwt_audience = Some(" audience ".into());
+        options.email_from = Some(" sender@example.test ".into());
+        let settings = Phase2Settings::from_options(&options).unwrap().unwrap();
+        let now = Utc::now();
+        let claims = json!({
+            "sub": "20000000-0000-4000-8000-000000000001",
+            "iss": " issuer ",
+            "aud": " audience ",
+            "exp": now.timestamp() + 300,
+            "type": "access",
+        });
+        for secret in [&options.jwt_secret, &options.jwt_secret_previous] {
+            let token = encode(
+                &Header::default(),
+                &claims,
+                &EncodingKey::from_secret(secret.as_ref().unwrap().as_bytes()),
+            )
+            .unwrap();
+            assert!(crate::auth::verify_access(&token, &settings.verification, now).is_ok());
+        }
+        assert_eq!(settings.email_from, " sender@example.test ");
     }
 
     #[test]
