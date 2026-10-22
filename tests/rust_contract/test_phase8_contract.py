@@ -117,6 +117,14 @@ def test_phase8_route_inventory_matches_source():
             assert row[field], f"{row['route_id']}: empty {field}"
         response = next((ast.unparse(k.value) for k in decorator.keywords if k.arg == "response_model"), None)
         assert response == row["source_response_model"]
+        annotations = {
+            argument.arg: ast.unparse(argument.annotation)
+            for argument in node.args.args + node.args.kwonlyargs
+            if argument.annotation is not None
+        }
+        assert annotations == row["source_request_annotations"]
+        assert set(row["scenario_descriptions"]) == set(row["required_scenarios"])
+        assert all(row["scenario_descriptions"].values())
     assert len(pairs) == 28
     # All workspace and commission routes are in this phase, not just a selected subset.
     for module in ("market_support", "orders"):
@@ -180,7 +188,9 @@ def test_phase8_router_exposes_exact_pairs():
 @pytest.mark.skipif(os.environ.get("PHASE8_COMPLETENESS") != "1", reason="Task 14 gate: requires the integrated Task 5a revision")
 def test_phase8_change_set_is_one_additive_revision():
     manifest = load_ledger()["schema_change_set"]
-    changes = subprocess.check_output(["git", "diff", "--name-status", BASE, "HEAD", "--", "alembic/versions"], cwd=ROOT, text=True)
+    schema_base = os.environ.get("PHASE8_SCHEMA_BASE", "")
+    assert re.fullmatch(r"[0-9a-f]{40}", schema_base), "Task 5a must record the integrated predecessor SHA in PHASE8_SCHEMA_BASE"
+    changes = subprocess.check_output(["git", "diff", "--name-status", schema_base, "HEAD", "--", "alembic/versions"], cwd=ROOT, text=True)
     assert changes.splitlines() == ["A\t" + manifest["added_migrations"][0]]
     changed = set(subprocess.check_output(["git", "diff", "--name-only", BASE, "HEAD"], cwd=ROOT, text=True).splitlines())
     assert set(manifest["expected_modified_paths"]) <= changed
@@ -197,7 +207,8 @@ def test_phase8_change_set_is_one_additive_revision():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("row_count", [0, 1001])
-async def test_phase8_commission_array_is_unbounded(row_count):
+@pytest.mark.parametrize("backend", ["sqlite", "postgresql"])
+async def test_phase8_commission_array_is_unbounded(row_count, backend):
     from datetime import datetime, timezone
     from decimal import Decimal
     from types import SimpleNamespace
@@ -213,9 +224,29 @@ async def test_phase8_commission_array_is_unbounded(row_count):
     from app.routers.auth_simple import get_current_user
     from app.routers.orders import router
 
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    schema = None
+    if backend == "postgresql":
+        from uuid import uuid4
+
+        from sqlalchemy.engine import make_url
+
+        raw_url = os.environ.get("PHASE8_DISPOSABLE_DATABASE_URL")
+        if not raw_url:
+            pytest.skip("PostgreSQL fixture requires an explicitly started disposable database on the Linux test host")
+        url = make_url(raw_url)
+        assert url.drivername == "postgresql+asyncpg"
+        assert url.host == "127.0.0.1" and url.port not in {None, 5432, 5433}
+        assert url.database.startswith("phase8_disposable_")
+        assert os.environ.get("PHASE8_DISPOSABLE_ACK") == "isolated-container"
+        schema = "commission_" + uuid4().hex
+        engine = create_async_engine(url, connect_args={"server_settings": {"search_path": schema}})
+    else:
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     try:
         async with engine.begin() as connection:
+            if schema:
+                await connection.exec_driver_sql(f'CREATE SCHEMA "{schema}"')
+                await connection.exec_driver_sql("CREATE TABLE trades (id uuid PRIMARY KEY)")
             await connection.run_sync(Commission.__table__.create)
         sessions = async_sessionmaker(engine, expire_on_commit=False)
         now = datetime(2026, 10, 22, tzinfo=timezone.utc)
@@ -241,4 +272,7 @@ async def test_phase8_commission_array_is_unbounded(row_count):
         assert len({row["id"] for row in body}) == row_count
         assert all(row["trade_id"] is None for row in body)
     finally:
+        if schema:
+            async with engine.begin() as connection:
+                await connection.exec_driver_sql(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
         await engine.dispose()

@@ -1,0 +1,1832 @@
+{
+  "version": 1,
+  "phase": 8,
+  "source_checkpoint": "274bd3ab737621339d158ab4795578009de5bf4f",
+  "description": "Method/path requirements for the market workspace. Scenario IDs are requirements, not discovered test results. Null refusal codes denote source status-only errors; Rust supplies the structured detail envelope.",
+  "routes": [
+    {
+      "route_id": "O3",
+      "method": "DELETE",
+      "path": "/api/orderbook/{order_id}",
+      "auth_class": "A: authenticated cleanup; recorded owner",
+      "auth_dependency": "get_authenticated_user",
+      "request_schema": "OrderCancelRequest | null; reason optional for DELETE, required for assisted",
+      "response_schema": "empty",
+      "success_status": 204,
+      "source_response_model": null,
+      "source_module": "orderbook",
+      "source_guards": [],
+      "source": {
+        "path": "app/routers/orderbook.py",
+        "line": 2800,
+        "handler": "cancel_order"
+      },
+      "required_scenarios": [
+        "R01-success",
+        "R01-admission",
+        "R01-replay",
+        "R01-etag",
+        "R01-reservation"
+      ],
+      "owning_task": 7,
+      "group": "D",
+      "refusals": [
+        {
+          "status": 401,
+          "condition": "invalid authentication",
+          "code": null
+        },
+        {
+          "status": 403,
+          "condition": "role, ownership or admission refused",
+          "code": null
+        },
+        {
+          "status": 428,
+          "condition": "missing assisted ETag",
+          "code": null
+        },
+        {
+          "status": 400,
+          "condition": "malformed ETag or terminal order",
+          "code": null
+        },
+        {
+          "status": 412,
+          "condition": "stale ETag",
+          "code": null
+        },
+        {
+          "status": 404,
+          "condition": "missing order",
+          "code": null
+        }
+      ],
+      "source_request_annotations": {
+        "order_id": "UUID",
+        "request": "Request",
+        "current_user": "User",
+        "db": "AsyncSession",
+        "if_match": "Annotated[str | None, Header(alias='If-Match')]",
+        "body": "OrderCancelRequest | None"
+      },
+      "scenario_descriptions": {
+        "R01-success": "204 with empty; preserve fields and types, not JSON spelling",
+        "R01-admission": "enforce A: authenticated cleanup; recorded owner without cross-organization access",
+        "R01-replay": "same owned key returns recorded 204 without duplicate effects",
+        "R01-etag": "assisted missing/malformed/stale/current ETag gives 428/400/412/success",
+        "R01-reservation": "release only unfilled reservation and preserve pending trades"
+      }
+    },
+    {
+      "route_id": "O4",
+      "method": "POST",
+      "path": "/api/orderbook/{order_id}/cancel",
+      "auth_class": "A: authenticated cleanup; owner; optional bound support context",
+      "auth_dependency": "get_authenticated_user",
+      "request_schema": "OrderCancelRequest; reason required",
+      "response_schema": "empty",
+      "success_status": 204,
+      "source_response_model": null,
+      "source_module": "orderbook",
+      "source_guards": [],
+      "source": {
+        "path": "app/routers/orderbook.py",
+        "line": 2800,
+        "handler": "cancel_order"
+      },
+      "required_scenarios": [
+        "R02-success",
+        "R02-admission",
+        "R02-reason",
+        "R02-shared-cancel"
+      ],
+      "owning_task": 7,
+      "group": "D",
+      "refusals": [
+        {
+          "status": 401,
+          "condition": "invalid authentication",
+          "code": null
+        },
+        {
+          "status": 403,
+          "condition": "role, ownership or admission refused",
+          "code": null
+        },
+        {
+          "status": 428,
+          "condition": "missing assisted ETag",
+          "code": null
+        },
+        {
+          "status": 400,
+          "condition": "missing reason, malformed ETag or terminal order",
+          "code": null
+        },
+        {
+          "status": 412,
+          "condition": "stale ETag",
+          "code": null
+        },
+        {
+          "status": 404,
+          "condition": "missing order",
+          "code": null
+        }
+      ],
+      "source_request_annotations": {
+        "order_id": "UUID",
+        "request": "Request",
+        "current_user": "User",
+        "db": "AsyncSession",
+        "if_match": "Annotated[str | None, Header(alias='If-Match')]",
+        "body": "OrderCancelRequest | None"
+      },
+      "scenario_descriptions": {
+        "R02-success": "204 with empty; preserve fields and types, not JSON spelling",
+        "R02-admission": "enforce A: authenticated cleanup; owner; optional bound support context without cross-organization access",
+        "R02-reason": "POST cancellation requires reason for ordinary and assisted orders",
+        "R02-shared-cancel": "POST and DELETE use one cancellation transaction"
+      }
+    },
+    {
+      "route_id": "O5",
+      "method": "GET",
+      "path": "/api/orderbook/my",
+      "auth_class": "U: approved account; optional bound support context",
+      "auth_dependency": "get_current_user",
+      "request_schema": "skip=0, limit=50 (1..100); optional support context",
+      "response_schema": "list[OrderMyResponse]",
+      "success_status": 200,
+      "source_response_model": "list[OrderMyResponse]",
+      "source_module": "orderbook",
+      "source_guards": [],
+      "source": {
+        "path": "app/routers/orderbook.py",
+        "line": 1111,
+        "handler": "list_my_orders"
+      },
+      "required_scenarios": [
+        "R03-success",
+        "R03-admission"
+      ],
+      "owning_task": 7,
+      "group": "D",
+      "refusals": [
+        {
+          "status": 401,
+          "condition": "invalid authentication",
+          "code": null
+        },
+        {
+          "status": 403,
+          "condition": "role, ownership or admission refused",
+          "code": null
+        },
+        {
+          "status": 400,
+          "condition": "no organization",
+          "code": null
+        }
+      ],
+      "source_request_annotations": {
+        "skip": "Annotated[int, Query(ge=0)]",
+        "limit": "Annotated[int, Query(ge=1, le=100)]",
+        "current_user": "User",
+        "db": "AsyncSession",
+        "request": "Request"
+      },
+      "scenario_descriptions": {
+        "R03-success": "200 with list[OrderMyResponse]; preserve fields and types, not JSON spelling",
+        "R03-admission": "enforce U: approved account; optional bound support context without cross-organization access"
+      }
+    },
+    {
+      "route_id": "O6",
+      "method": "GET",
+      "path": "/api/orderbook/my/latest-ask-template",
+      "auth_class": "U: approved account; optional bound support context",
+      "auth_dependency": "get_current_user",
+      "request_schema": "none; optional support context",
+      "response_schema": "Optional[SupplierListingTemplateResponse]",
+      "success_status": 200,
+      "source_response_model": "Optional[SupplierListingTemplateResponse]",
+      "source_module": "orderbook",
+      "source_guards": [],
+      "source": {
+        "path": "app/routers/orderbook.py",
+        "line": 1163,
+        "handler": "latest_supplier_listing_template"
+      },
+      "required_scenarios": [
+        "R04-success",
+        "R04-admission"
+      ],
+      "owning_task": 7,
+      "group": "D",
+      "refusals": [
+        {
+          "status": 401,
+          "condition": "invalid authentication",
+          "code": null
+        },
+        {
+          "status": 403,
+          "condition": "role, ownership or admission refused",
+          "code": null
+        },
+        {
+          "status": 400,
+          "condition": "no organization",
+          "code": null
+        }
+      ],
+      "source_request_annotations": {
+        "current_user": "User",
+        "db": "AsyncSession",
+        "request": "Request"
+      },
+      "scenario_descriptions": {
+        "R04-success": "200 with Optional[SupplierListingTemplateResponse]; preserve fields and types, not JSON spelling",
+        "R04-admission": "enforce U: approved account; optional bound support context without cross-organization access"
+      }
+    },
+    {
+      "route_id": "I1",
+      "method": "GET",
+      "path": "/api/inventory",
+      "auth_class": "U: approved account; SUPPLIER",
+      "auth_dependency": "get_current_user",
+      "request_schema": "skip=0, limit=50 (1..100)",
+      "response_schema": "List[InventoryResponse]",
+      "success_status": 200,
+      "source_response_model": "List[InventoryResponse]",
+      "source_module": "inventory",
+      "source_guards": [
+        "UserRole.SUPPLIER"
+      ],
+      "source": {
+        "path": "app/routers/inventory.py",
+        "line": 164,
+        "handler": "list_inventory"
+      },
+      "required_scenarios": [
+        "R05-success",
+        "R05-admission"
+      ],
+      "owning_task": 8,
+      "group": "B",
+      "refusals": [
+        {
+          "status": 401,
+          "condition": "invalid authentication",
+          "code": null
+        },
+        {
+          "status": 403,
+          "condition": "role, ownership or admission refused",
+          "code": null
+        }
+      ],
+      "source_request_annotations": {
+        "db": "Annotated[AsyncSession, Depends(get_db)]",
+        "current_user": "Annotated[User, Depends(get_current_user)]",
+        "skip": "Annotated[int, Query(ge=0)]",
+        "limit": "Annotated[int, Query(ge=1, le=100)]"
+      },
+      "scenario_descriptions": {
+        "R05-success": "200 with List[InventoryResponse]; preserve fields and types, not JSON spelling",
+        "R05-admission": "enforce U: approved account; SUPPLIER without cross-organization access"
+      }
+    },
+    {
+      "route_id": "I2",
+      "method": "POST",
+      "path": "/api/inventory",
+      "auth_class": "security-market admission; SUPPLIER",
+      "auth_dependency": "require_security_market_admission",
+      "request_schema": "InventoryCreate",
+      "response_schema": "InventoryResponse",
+      "success_status": 200,
+      "source_response_model": "InventoryResponse",
+      "source_module": "inventory",
+      "source_guards": [
+        "UserRole.SUPPLIER"
+      ],
+      "source": {
+        "path": "app/routers/inventory.py",
+        "line": 187,
+        "handler": "add_inventory"
+      },
+      "required_scenarios": [
+        "R06-success",
+        "R06-admission"
+      ],
+      "owning_task": 8,
+      "group": "B",
+      "refusals": [
+        {
+          "status": 401,
+          "condition": "invalid authentication",
+          "code": null
+        },
+        {
+          "status": 403,
+          "condition": "role, ownership or admission refused",
+          "code": null
+        },
+        {
+          "status": 404,
+          "condition": "missing port",
+          "code": null
+        },
+        {
+          "status": 409,
+          "condition": "admission changed under lock",
+          "code": null
+        }
+      ],
+      "source_request_annotations": {
+        "item": "InventoryCreate",
+        "db": "Annotated[AsyncSession, Depends(get_db)]",
+        "current_user": "Annotated[User, Depends(require_security_market_admission)]"
+      },
+      "scenario_descriptions": {
+        "R06-success": "200 with InventoryResponse; preserve fields and types, not JSON spelling",
+        "R06-admission": "enforce security-market admission; SUPPLIER without cross-organization access"
+      }
+    },
+    {
+      "route_id": "I3",
+      "method": "PATCH",
+      "path": "/api/inventory/{item_id}",
+      "auth_class": "security-market admission; SUPPLIER",
+      "auth_dependency": "require_security_market_admission",
+      "request_schema": "InventoryItemUpdate",
+      "response_schema": "InventoryResponse",
+      "success_status": 200,
+      "source_response_model": "InventoryResponse",
+      "source_module": "inventory",
+      "source_guards": [
+        "UserRole.SUPPLIER"
+      ],
+      "source": {
+        "path": "app/routers/inventory.py",
+        "line": 263,
+        "handler": "update_inventory"
+      },
+      "required_scenarios": [
+        "R07-success",
+        "R07-admission"
+      ],
+      "owning_task": 8,
+      "group": "B",
+      "refusals": [
+        {
+          "status": 401,
+          "condition": "invalid authentication",
+          "code": null
+        },
+        {
+          "status": 403,
+          "condition": "role, ownership or admission refused",
+          "code": null
+        },
+        {
+          "status": 404,
+          "condition": "foreign or missing item",
+          "code": null
+        },
+        {
+          "status": 409,
+          "condition": "reservation or nonterminal work",
+          "code": null
+        }
+      ],
+      "source_request_annotations": {
+        "item_id": "UUID",
+        "updates": "InventoryItemUpdate",
+        "db": "Annotated[AsyncSession, Depends(get_db)]",
+        "current_user": "Annotated[User, Depends(require_security_market_admission)]"
+      },
+      "scenario_descriptions": {
+        "R07-success": "200 with InventoryResponse; preserve fields and types, not JSON spelling",
+        "R07-admission": "enforce security-market admission; SUPPLIER without cross-organization access"
+      }
+    },
+    {
+      "route_id": "I4",
+      "method": "DELETE",
+      "path": "/api/inventory/{item_id}",
+      "auth_class": "security-market admission; SUPPLIER",
+      "auth_dependency": "require_security_market_admission",
+      "request_schema": "none",
+      "response_schema": "empty",
+      "success_status": 204,
+      "source_response_model": null,
+      "source_module": "inventory",
+      "source_guards": [
+        "UserRole.SUPPLIER"
+      ],
+      "source": {
+        "path": "app/routers/inventory.py",
+        "line": 335,
+        "handler": "delete_inventory"
+      },
+      "required_scenarios": [
+        "R08-success",
+        "R08-admission"
+      ],
+      "owning_task": 8,
+      "group": "B",
+      "refusals": [
+        {
+          "status": 401,
+          "condition": "invalid authentication",
+          "code": null
+        },
+        {
+          "status": 403,
+          "condition": "role, ownership or admission refused",
+          "code": null
+        },
+        {
+          "status": 404,
+          "condition": "foreign or missing item",
+          "code": null
+        },
+        {
+          "status": 409,
+          "condition": "reservation, nonterminal work or preserved order history",
+          "code": null
+        }
+      ],
+      "source_request_annotations": {
+        "item_id": "UUID",
+        "db": "Annotated[AsyncSession, Depends(get_db)]",
+        "current_user": "Annotated[User, Depends(require_security_market_admission)]"
+      },
+      "scenario_descriptions": {
+        "R08-success": "204 with empty; preserve fields and types, not JSON spelling",
+        "R08-admission": "enforce security-market admission; SUPPLIER without cross-organization access"
+      }
+    },
+    {
+      "route_id": "I7",
+      "method": "GET",
+      "path": "/api/listings/my",
+      "auth_class": "U: approved account; SUPPLIER",
+      "auth_dependency": "get_current_user",
+      "request_schema": "skip=0, limit=50 (1..100)",
+      "response_schema": "compatibility listing dict array",
+      "success_status": 200,
+      "source_response_model": null,
+      "source_module": "inventory",
+      "source_guards": [
+        "UserRole.SUPPLIER"
+      ],
+      "source": {
+        "path": "app/routers/inventory.py",
+        "line": 848,
+        "handler": "list_my_listings"
+      },
+      "required_scenarios": [
+        "R09-success",
+        "R09-admission"
+      ],
+      "owning_task": 8,
+      "group": "B",
+      "refusals": [
+        {
+          "status": 401,
+          "condition": "invalid authentication",
+          "code": null
+        },
+        {
+          "status": 403,
+          "condition": "role, ownership or admission refused",
+          "code": null
+        }
+      ],
+      "source_request_annotations": {
+        "db": "Annotated[AsyncSession, Depends(get_db)]",
+        "current_user": "Annotated[User, Depends(get_current_user)]",
+        "skip": "Annotated[int, Query(ge=0)]",
+        "limit": "Annotated[int, Query(ge=1, le=100)]"
+      },
+      "scenario_descriptions": {
+        "R09-success": "200 with compatibility listing dict array; preserve fields and types, not JSON spelling",
+        "R09-admission": "enforce U: approved account; SUPPLIER without cross-organization access"
+      }
+    },
+    {
+      "route_id": "S1",
+      "method": "GET",
+      "path": "/api/admin/market-support/capabilities",
+      "auth_class": "S: enabled support; approved ADMIN",
+      "auth_dependency": "require_market_support_admin",
+      "request_schema": "none",
+      "response_schema": "list[MarketSupportCapability]",
+      "success_status": 200,
+      "source_response_model": "list[MarketSupportCapability]",
+      "source_module": "market_support",
+      "source_guards": [
+        "MarketSupportCapability.MARKET_SUPPORT_LISTINGS"
+      ],
+      "source": {
+        "path": "app/routers/market_support.py",
+        "line": 443,
+        "handler": "capabilities"
+      },
+      "required_scenarios": [
+        "R10-success",
+        "R10-admission"
+      ],
+      "owning_task": 9,
+      "group": "C",
+      "refusals": [
+        {
+          "status": 401,
+          "condition": "invalid authentication",
+          "code": null
+        },
+        {
+          "status": 403,
+          "condition": "role, ownership or admission refused",
+          "code": null
+        },
+        {
+          "status": 404,
+          "condition": "feature disabled",
+          "code": null
+        }
+      ],
+      "source_request_annotations": {
+        "db": "Annotated[AsyncSession, Depends(get_db)]",
+        "current_user": "Annotated[User, Depends(require_market_support_admin)]"
+      },
+      "scenario_descriptions": {
+        "R10-success": "200 with list[MarketSupportCapability]; preserve fields and types, not JSON spelling",
+        "R10-admission": "enforce S: enabled support; approved ADMIN without cross-organization access"
+      }
+    },
+    {
+      "route_id": "S2",
+      "method": "POST",
+      "path": "/api/admin/market-support/capability-assignments",
+      "auth_class": "S: enabled support; approved ADMIN; bootstrap allowlist",
+      "auth_dependency": "require_market_support_admin",
+      "request_schema": "CapabilityAssignmentCreate",
+      "response_schema": "CapabilityAssignmentResponse",
+      "success_status": 201,
+      "source_response_model": "CapabilityAssignmentResponse",
+      "source_module": "market_support",
+      "source_guards": [
+        "_require_bootstrap_operator(current_user)"
+      ],
+      "source": {
+        "path": "app/routers/market_support.py",
+        "line": 457,
+        "handler": "create_capability_assignment"
+      },
+      "required_scenarios": [
+        "R11-success",
+        "R11-admission"
+      ],
+      "owning_task": 9,
+      "group": "C",
+      "refusals": [
+        {
+          "status": 401,
+          "condition": "invalid authentication",
+          "code": null
+        },
+        {
+          "status": 403,
+          "condition": "role, ownership or admission refused",
+          "code": null
+        },
+        {
+          "status": 409,
+          "condition": "target is not an approved administrator",
+          "code": null
+        },
+        {
+          "status": 404,
+          "condition": "feature disabled",
+          "code": null
+        }
+      ],
+      "source_request_annotations": {
+        "request": "Request",
+        "body": "CapabilityAssignmentCreate",
+        "db": "Annotated[AsyncSession, Depends(get_db)]",
+        "current_user": "Annotated[User, Depends(require_market_support_admin)]"
+      },
+      "scenario_descriptions": {
+        "R11-success": "201 with CapabilityAssignmentResponse; preserve fields and types, not JSON spelling",
+        "R11-admission": "enforce S: enabled support; approved ADMIN; bootstrap allowlist without cross-organization access"
+      }
+    },
+    {
+      "route_id": "S3",
+      "method": "POST",
+      "path": "/api/admin/market-support/capability-assignments/{assignment_id}/revoke",
+      "auth_class": "S: enabled support; approved ADMIN; bootstrap allowlist",
+      "auth_dependency": "require_market_support_admin",
+      "request_schema": "CapabilityAssignmentRevoke",
+      "response_schema": "CapabilityAssignmentResponse",
+      "success_status": 200,
+      "source_response_model": "CapabilityAssignmentResponse",
+      "source_module": "market_support",
+      "source_guards": [
+        "_require_bootstrap_operator(current_user)"
+      ],
+      "source": {
+        "path": "app/routers/market_support.py",
+        "line": 517,
+        "handler": "revoke_capability_assignment"
+      },
+      "required_scenarios": [
+        "R12-success",
+        "R12-admission"
+      ],
+      "owning_task": 9,
+      "group": "C",
+      "refusals": [
+        {
+          "status": 401,
+          "condition": "invalid authentication",
+          "code": null
+        },
+        {
+          "status": 403,
+          "condition": "role, ownership or admission refused",
+          "code": null
+        },
+        {
+          "status": 404,
+          "condition": "assignment missing",
+          "code": null
+        },
+        {
+          "status": 404,
+          "condition": "feature disabled",
+          "code": null
+        }
+      ],
+      "source_request_annotations": {
+        "assignment_id": "UUID",
+        "request": "Request",
+        "body": "CapabilityAssignmentRevoke",
+        "db": "Annotated[AsyncSession, Depends(get_db)]",
+        "current_user": "Annotated[User, Depends(require_market_support_admin)]"
+      },
+      "scenario_descriptions": {
+        "R12-success": "200 with CapabilityAssignmentResponse; preserve fields and types, not JSON spelling",
+        "R12-admission": "enforce S: enabled support; approved ADMIN; bootstrap allowlist without cross-organization access"
+      }
+    },
+    {
+      "route_id": "S4",
+      "method": "GET",
+      "path": "/api/admin/market-support/organizations",
+      "auth_class": "S: enabled support; approved ADMIN; any capability",
+      "auth_dependency": "require_market_support_admin",
+      "request_schema": "query optional (max 100), skip=0, limit=25 (1..100)",
+      "response_schema": "OrganizationPage",
+      "success_status": 200,
+      "source_response_model": "OrganizationPage",
+      "source_module": "market_support",
+      "source_guards": [
+        "_require_any_capability(db, current_user.id)"
+      ],
+      "source": {
+        "path": "app/routers/market_support.py",
+        "line": 586,
+        "handler": "organizations"
+      },
+      "required_scenarios": [
+        "R13-success",
+        "R13-admission"
+      ],
+      "owning_task": 10,
+      "group": "C",
+      "refusals": [
+        {
+          "status": 401,
+          "condition": "invalid authentication",
+          "code": null
+        },
+        {
+          "status": 403,
+          "condition": "role, ownership or admission refused",
+          "code": null
+        },
+        {
+          "status": 404,
+          "condition": "feature disabled",
+          "code": null
+        }
+      ],
+      "source_request_annotations": {
+        "db": "Annotated[AsyncSession, Depends(get_db)]",
+        "current_user": "Annotated[User, Depends(require_market_support_admin)]",
+        "query": "Annotated[str | None, Query(max_length=100)]",
+        "skip": "Annotated[int, Query(ge=0)]",
+        "limit": "Annotated[int, Query(ge=1, le=100)]"
+      },
+      "scenario_descriptions": {
+        "R13-success": "200 with OrganizationPage; preserve fields and types, not JSON spelling",
+        "R13-admission": "enforce S: enabled support; approved ADMIN; any capability without cross-organization access"
+      }
+    },
+    {
+      "route_id": "S5",
+      "method": "GET",
+      "path": "/api/admin/market-support/organizations/{organization_id}/entry",
+      "auth_class": "S: enabled support; approved ADMIN; both capabilities",
+      "auth_dependency": "require_market_support_admin",
+      "request_schema": "none",
+      "response_schema": "MarketSupportEntryResponse",
+      "success_status": 200,
+      "source_response_model": "MarketSupportEntryResponse",
+      "source_module": "market_support",
+      "source_guards": [
+        "_require_context_capabilities(db, current_user.id)"
+      ],
+      "source": {
+        "path": "app/routers/market_support.py",
+        "line": 620,
+        "handler": "organization_entry"
+      },
+      "required_scenarios": [
+        "R14-success",
+        "R14-admission"
+      ],
+      "owning_task": 10,
+      "group": "C",
+      "refusals": [
+        {
+          "status": 401,
+          "condition": "invalid authentication",
+          "code": null
+        },
+        {
+          "status": 403,
+          "condition": "role, ownership or admission refused",
+          "code": null
+        },
+        {
+          "status": 404,
+          "condition": "organization missing",
+          "code": null
+        },
+        {
+          "status": 409,
+          "condition": "organization is not approved",
+          "code": "ORGANIZATION_NOT_APPROVED"
+        },
+        {
+          "status": 409,
+          "condition": "organization is not real",
+          "code": "ORGANIZATION_NOT_REAL"
+        },
+        {
+          "status": 404,
+          "condition": "feature disabled",
+          "code": null
+        },
+        {
+          "status": 403,
+          "condition": "required capability absent",
+          "code": "MARKET_SUPPORT_CAPABILITY_REQUIRED"
+        }
+      ],
+      "source_request_annotations": {
+        "organization_id": "UUID",
+        "db": "Annotated[AsyncSession, Depends(get_db)]",
+        "current_user": "Annotated[User, Depends(require_market_support_admin)]"
+      },
+      "scenario_descriptions": {
+        "R14-success": "200 with MarketSupportEntryResponse; preserve fields and types, not JSON spelling",
+        "R14-admission": "enforce S: enabled support; approved ADMIN; both capabilities without cross-organization access"
+      }
+    },
+    {
+      "route_id": "S6",
+      "method": "POST",
+      "path": "/api/admin/market-support/contexts",
+      "auth_class": "S: enabled support; approved ADMIN; both capabilities",
+      "auth_dependency": "require_market_support_admin",
+      "request_schema": "MarketSupportContextCreate",
+      "response_schema": "MarketSupportContextResponse",
+      "success_status": 201,
+      "source_response_model": "MarketSupportContextResponse",
+      "source_module": "market_support",
+      "source_guards": [
+        "_require_context_capabilities(db, current_user.id)"
+      ],
+      "source": {
+        "path": "app/routers/market_support.py",
+        "line": 646,
+        "handler": "create_context"
+      },
+      "required_scenarios": [
+        "R15-success",
+        "R15-admission",
+        "R15-reuse",
+        "R15-replacement",
+        "R15-expiry"
+      ],
+      "owning_task": 10,
+      "group": "C",
+      "refusals": [
+        {
+          "status": 401,
+          "condition": "invalid authentication",
+          "code": null
+        },
+        {
+          "status": 403,
+          "condition": "role, ownership or admission refused",
+          "code": null
+        },
+        {
+          "status": 409,
+          "condition": "different active organization requires confirmation",
+          "code": "CONTEXT_REPLACEMENT_REQUIRED"
+        },
+        {
+          "status": 404,
+          "condition": "feature disabled",
+          "code": null
+        },
+        {
+          "status": 403,
+          "condition": "required capability absent",
+          "code": "MARKET_SUPPORT_CAPABILITY_REQUIRED"
+        }
+      ],
+      "source_request_annotations": {
+        "request": "Request",
+        "body": "MarketSupportContextCreate",
+        "db": "Annotated[AsyncSession, Depends(get_db)]",
+        "current_user": "Annotated[User, Depends(require_market_support_admin)]"
+      },
+      "scenario_descriptions": {
+        "R15-success": "201 with MarketSupportContextResponse; preserve fields and types, not JSON spelling",
+        "R15-admission": "enforce S: enabled support; approved ADMIN; both capabilities without cross-organization access",
+        "R15-reuse": "same organization reuses active context",
+        "R15-replacement": "different organization requires explicit confirmation and exits old context",
+        "R15-expiry": "expired context is committed as EXPIRED"
+      }
+    },
+    {
+      "route_id": "S7",
+      "method": "GET",
+      "path": "/api/admin/market-support/contexts/active",
+      "auth_class": "S: enabled support; approved ADMIN; both capabilities",
+      "auth_dependency": "require_market_support_admin",
+      "request_schema": "none",
+      "response_schema": "MarketSupportContextResponse | None",
+      "success_status": 200,
+      "source_response_model": "MarketSupportContextResponse | None",
+      "source_module": "market_support",
+      "source_guards": [
+        "_require_context_capabilities(db, current_user.id)"
+      ],
+      "source": {
+        "path": "app/routers/market_support.py",
+        "line": 748,
+        "handler": "active_context"
+      },
+      "required_scenarios": [
+        "R16-success",
+        "R16-admission"
+      ],
+      "owning_task": 10,
+      "group": "C",
+      "refusals": [
+        {
+          "status": 401,
+          "condition": "invalid authentication",
+          "code": null
+        },
+        {
+          "status": 403,
+          "condition": "role, ownership or admission refused",
+          "code": null
+        },
+        {
+          "status": 404,
+          "condition": "feature disabled",
+          "code": null
+        },
+        {
+          "status": 403,
+          "condition": "required capability absent",
+          "code": "MARKET_SUPPORT_CAPABILITY_REQUIRED"
+        }
+      ],
+      "source_request_annotations": {
+        "db": "Annotated[AsyncSession, Depends(get_db)]",
+        "current_user": "Annotated[User, Depends(require_market_support_admin)]"
+      },
+      "scenario_descriptions": {
+        "R16-success": "200 with MarketSupportContextResponse | None; preserve fields and types, not JSON spelling",
+        "R16-admission": "enforce S: enabled support; approved ADMIN; both capabilities without cross-organization access"
+      }
+    },
+    {
+      "route_id": "S8",
+      "method": "GET",
+      "path": "/api/admin/market-support/contexts/{context_id}",
+      "auth_class": "S: enabled support; approved ADMIN; both capabilities; actor-owned",
+      "auth_dependency": "require_market_support_admin",
+      "request_schema": "context_id UUID",
+      "response_schema": "MarketSupportContextResponse",
+      "success_status": 200,
+      "source_response_model": "MarketSupportContextResponse",
+      "source_module": "market_support",
+      "source_guards": [
+        "_require_context_capabilities(db, current_user.id)"
+      ],
+      "source": {
+        "path": "app/routers/market_support.py",
+        "line": 780,
+        "handler": "get_context"
+      },
+      "required_scenarios": [
+        "R17-success",
+        "R17-admission"
+      ],
+      "owning_task": 10,
+      "group": "C",
+      "refusals": [
+        {
+          "status": 401,
+          "condition": "invalid authentication",
+          "code": null
+        },
+        {
+          "status": 403,
+          "condition": "role, ownership or admission refused",
+          "code": null
+        },
+        {
+          "status": 404,
+          "condition": "foreign or missing context",
+          "code": null
+        },
+        {
+          "status": 404,
+          "condition": "feature disabled",
+          "code": null
+        },
+        {
+          "status": 403,
+          "condition": "required capability absent",
+          "code": "MARKET_SUPPORT_CAPABILITY_REQUIRED"
+        }
+      ],
+      "source_request_annotations": {
+        "context_id": "UUID",
+        "db": "Annotated[AsyncSession, Depends(get_db)]",
+        "current_user": "Annotated[User, Depends(require_market_support_admin)]"
+      },
+      "scenario_descriptions": {
+        "R17-success": "200 with MarketSupportContextResponse; preserve fields and types, not JSON spelling",
+        "R17-admission": "enforce S: enabled support; approved ADMIN; both capabilities; actor-owned without cross-organization access"
+      }
+    },
+    {
+      "route_id": "S9",
+      "method": "POST",
+      "path": "/api/admin/market-support/contexts/{context_id}/exit",
+      "auth_class": "S: enabled support; approved ADMIN; both capabilities; actor-owned",
+      "auth_dependency": "require_market_support_admin",
+      "request_schema": "context_id UUID",
+      "response_schema": "MarketSupportContextResponse",
+      "success_status": 200,
+      "source_response_model": "MarketSupportContextResponse",
+      "source_module": "market_support",
+      "source_guards": [
+        "_require_context_capabilities(db, current_user.id)"
+      ],
+      "source": {
+        "path": "app/routers/market_support.py",
+        "line": 801,
+        "handler": "exit_context"
+      },
+      "required_scenarios": [
+        "R18-success",
+        "R18-admission"
+      ],
+      "owning_task": 10,
+      "group": "C",
+      "refusals": [
+        {
+          "status": 401,
+          "condition": "invalid authentication",
+          "code": null
+        },
+        {
+          "status": 403,
+          "condition": "role, ownership or admission refused",
+          "code": null
+        },
+        {
+          "status": 404,
+          "condition": "foreign or missing context",
+          "code": null
+        },
+        {
+          "status": 404,
+          "condition": "feature disabled",
+          "code": null
+        },
+        {
+          "status": 403,
+          "condition": "required capability absent",
+          "code": "MARKET_SUPPORT_CAPABILITY_REQUIRED"
+        }
+      ],
+      "source_request_annotations": {
+        "context_id": "UUID",
+        "request": "Request",
+        "db": "Annotated[AsyncSession, Depends(get_db)]",
+        "current_user": "Annotated[User, Depends(require_market_support_admin)]"
+      },
+      "scenario_descriptions": {
+        "R18-success": "200 with MarketSupportContextResponse; preserve fields and types, not JSON spelling",
+        "R18-admission": "enforce S: enabled support; approved ADMIN; both capabilities; actor-owned without cross-organization access"
+      }
+    },
+    {
+      "route_id": "S10",
+      "method": "POST",
+      "path": "/api/admin/market-support/organizations/{organization_id}/authorizations",
+      "auth_class": "S: enabled support; approved ADMIN; retirement before capability check",
+      "auth_dependency": "require_market_support_admin",
+      "request_schema": "AuthorizationCreate (retired); Idempotency-Key declared",
+      "response_schema": "error envelope",
+      "success_status": 410,
+      "source_response_model": "AuthorizationResponse",
+      "source_module": "market_support",
+      "source_guards": [
+        "_reject_legacy_workspace_mutation()"
+      ],
+      "source": {
+        "path": "app/routers/market_support.py",
+        "line": 838,
+        "handler": "create_authorization"
+      },
+      "required_scenarios": [
+        "R19-success",
+        "R19-admission"
+      ],
+      "owning_task": 9,
+      "group": "C",
+      "refusals": [
+        {
+          "status": 401,
+          "condition": "invalid authentication",
+          "code": null
+        },
+        {
+          "status": 403,
+          "condition": "role, ownership or admission refused",
+          "code": null
+        },
+        {
+          "status": 404,
+          "condition": "feature disabled",
+          "code": null
+        },
+        {
+          "status": 410,
+          "condition": "legacy mutation retired when enabled",
+          "code": "MARKET_SUPPORT_LEGACY_MUTATION_RETIRED"
+        }
+      ],
+      "source_request_annotations": {
+        "organization_id": "UUID",
+        "request": "Request",
+        "body": "AuthorizationCreate",
+        "db": "Annotated[AsyncSession, Depends(get_db)]",
+        "current_user": "Annotated[User, Depends(require_market_support_admin)]",
+        "idempotency_key_header": "Annotated[str | None, Header(alias='Idempotency-Key')]"
+      },
+      "scenario_descriptions": {
+        "R19-success": "410 with error envelope; preserve fields and types, not JSON spelling",
+        "R19-admission": "enforce S: enabled support; approved ADMIN; retirement before capability check without cross-organization access"
+      }
+    },
+    {
+      "route_id": "S11",
+      "method": "GET",
+      "path": "/api/admin/market-support/organizations/{organization_id}/authorizations",
+      "auth_class": "S: enabled support; approved ADMIN; authorization capability",
+      "auth_dependency": "require_market_support_admin",
+      "request_schema": "skip=0, limit=25 (1..100)",
+      "response_schema": "AuthorizationPage",
+      "success_status": 200,
+      "source_response_model": "AuthorizationPage",
+      "source_module": "market_support",
+      "source_guards": [
+        "MarketSupportCapability.MARKET_SUPPORT_AUTHORIZATIONS"
+      ],
+      "source": {
+        "path": "app/routers/market_support.py",
+        "line": 1015,
+        "handler": "list_authorizations"
+      },
+      "required_scenarios": [
+        "R20-success",
+        "R20-admission"
+      ],
+      "owning_task": 9,
+      "group": "C",
+      "refusals": [
+        {
+          "status": 401,
+          "condition": "invalid authentication",
+          "code": null
+        },
+        {
+          "status": 403,
+          "condition": "role, ownership or admission refused",
+          "code": null
+        },
+        {
+          "status": 404,
+          "condition": "feature disabled",
+          "code": null
+        },
+        {
+          "status": 403,
+          "condition": "required capability absent",
+          "code": "MARKET_SUPPORT_CAPABILITY_REQUIRED"
+        }
+      ],
+      "source_request_annotations": {
+        "organization_id": "UUID",
+        "db": "Annotated[AsyncSession, Depends(get_db)]",
+        "current_user": "Annotated[User, Depends(require_market_support_admin)]",
+        "skip": "Annotated[int, Query(ge=0)]",
+        "limit": "Annotated[int, Query(ge=1, le=100)]"
+      },
+      "scenario_descriptions": {
+        "R20-success": "200 with AuthorizationPage; preserve fields and types, not JSON spelling",
+        "R20-admission": "enforce S: enabled support; approved ADMIN; authorization capability without cross-organization access"
+      }
+    },
+    {
+      "route_id": "S12",
+      "method": "POST",
+      "path": "/api/admin/market-support/organizations/{organization_id}/listings",
+      "auth_class": "S: enabled support; approved ADMIN; retirement before capability check",
+      "auth_dependency": "require_market_support_admin",
+      "request_schema": "AssistedListingCreate (retired); Idempotency-Key declared",
+      "response_schema": "error envelope",
+      "success_status": 410,
+      "source_response_model": "AssistedListingResponse",
+      "source_module": "market_support",
+      "source_guards": [
+        "_reject_legacy_workspace_mutation()"
+      ],
+      "source": {
+        "path": "app/routers/market_support.py",
+        "line": 1097,
+        "handler": "create_listing"
+      },
+      "required_scenarios": [
+        "R21-success",
+        "R21-admission"
+      ],
+      "owning_task": 9,
+      "group": "C",
+      "refusals": [
+        {
+          "status": 401,
+          "condition": "invalid authentication",
+          "code": null
+        },
+        {
+          "status": 403,
+          "condition": "role, ownership or admission refused",
+          "code": null
+        },
+        {
+          "status": 404,
+          "condition": "feature disabled",
+          "code": null
+        },
+        {
+          "status": 410,
+          "condition": "legacy mutation retired when enabled",
+          "code": "MARKET_SUPPORT_LEGACY_MUTATION_RETIRED"
+        }
+      ],
+      "source_request_annotations": {
+        "organization_id": "UUID",
+        "request": "Request",
+        "response": "Response",
+        "body": "AssistedListingCreate",
+        "db": "Annotated[AsyncSession, Depends(get_db)]",
+        "current_user": "Annotated[User, Depends(require_market_support_admin)]",
+        "idempotency_key_header": "Annotated[str | None, Header(alias='Idempotency-Key')]"
+      },
+      "scenario_descriptions": {
+        "R21-success": "410 with error envelope; preserve fields and types, not JSON spelling",
+        "R21-admission": "enforce S: enabled support; approved ADMIN; retirement before capability check without cross-organization access"
+      }
+    },
+    {
+      "route_id": "S13",
+      "method": "GET",
+      "path": "/api/admin/market-support/organizations/{organization_id}/listings",
+      "auth_class": "S: enabled support; approved ADMIN; listing capability",
+      "auth_dependency": "require_market_support_admin",
+      "request_schema": "skip=0, limit=25 (1..100)",
+      "response_schema": "AssistedListingPage",
+      "success_status": 200,
+      "source_response_model": "AssistedListingPage",
+      "source_module": "market_support",
+      "source_guards": [
+        "MarketSupportCapability.MARKET_SUPPORT_LISTINGS"
+      ],
+      "source": {
+        "path": "app/routers/market_support.py",
+        "line": 1262,
+        "handler": "list_listings"
+      },
+      "required_scenarios": [
+        "R22-success",
+        "R22-admission"
+      ],
+      "owning_task": 9,
+      "group": "C",
+      "refusals": [
+        {
+          "status": 401,
+          "condition": "invalid authentication",
+          "code": null
+        },
+        {
+          "status": 403,
+          "condition": "role, ownership or admission refused",
+          "code": null
+        },
+        {
+          "status": 404,
+          "condition": "feature disabled",
+          "code": null
+        },
+        {
+          "status": 403,
+          "condition": "required capability absent",
+          "code": "MARKET_SUPPORT_CAPABILITY_REQUIRED"
+        }
+      ],
+      "source_request_annotations": {
+        "organization_id": "UUID",
+        "db": "Annotated[AsyncSession, Depends(get_db)]",
+        "current_user": "Annotated[User, Depends(require_market_support_admin)]",
+        "skip": "Annotated[int, Query(ge=0)]",
+        "limit": "Annotated[int, Query(ge=1, le=100)]"
+      },
+      "scenario_descriptions": {
+        "R22-success": "200 with AssistedListingPage; preserve fields and types, not JSON spelling",
+        "R22-admission": "enforce S: enabled support; approved ADMIN; listing capability without cross-organization access"
+      }
+    },
+    {
+      "route_id": "S14",
+      "method": "POST",
+      "path": "/api/admin/market-support/organizations/{organization_id}/listings/{order_id}/cancel",
+      "auth_class": "S: enabled support; approved ADMIN; retirement before capability check",
+      "auth_dependency": "require_market_support_admin",
+      "request_schema": "AssistedListingCancel (retired); If-Match declared",
+      "response_schema": "error envelope",
+      "success_status": 410,
+      "source_response_model": "AssistedListingResponse",
+      "source_module": "market_support",
+      "source_guards": [
+        "_reject_legacy_workspace_mutation()"
+      ],
+      "source": {
+        "path": "app/routers/market_support.py",
+        "line": 1343,
+        "handler": "cancel_listing"
+      },
+      "required_scenarios": [
+        "R23-success",
+        "R23-admission"
+      ],
+      "owning_task": 9,
+      "group": "C",
+      "refusals": [
+        {
+          "status": 401,
+          "condition": "invalid authentication",
+          "code": null
+        },
+        {
+          "status": 403,
+          "condition": "role, ownership or admission refused",
+          "code": null
+        },
+        {
+          "status": 404,
+          "condition": "feature disabled",
+          "code": null
+        },
+        {
+          "status": 410,
+          "condition": "legacy mutation retired when enabled",
+          "code": "MARKET_SUPPORT_LEGACY_MUTATION_RETIRED"
+        }
+      ],
+      "source_request_annotations": {
+        "organization_id": "UUID",
+        "order_id": "UUID",
+        "request": "Request",
+        "response": "Response",
+        "body": "AssistedListingCancel",
+        "db": "Annotated[AsyncSession, Depends(get_db)]",
+        "current_user": "Annotated[User, Depends(require_market_support_admin)]",
+        "if_match": "Annotated[str | None, Header(alias='If-Match')]"
+      },
+      "scenario_descriptions": {
+        "R23-success": "410 with error envelope; preserve fields and types, not JSON spelling",
+        "R23-admission": "enforce S: enabled support; approved ADMIN; retirement before capability check without cross-organization access"
+      }
+    },
+    {
+      "route_id": "S15",
+      "method": "POST",
+      "path": "/api/admin/market-support/organizations/{organization_id}/authorizations/{authorization_id}/revoke",
+      "auth_class": "S: enabled support; approved ADMIN; retirement before capability check",
+      "auth_dependency": "require_market_support_admin",
+      "request_schema": "AuthorizationRevoke (retired)",
+      "response_schema": "error envelope",
+      "success_status": 410,
+      "source_response_model": "AuthorizationResponse",
+      "source_module": "market_support",
+      "source_guards": [
+        "_reject_legacy_workspace_mutation()"
+      ],
+      "source": {
+        "path": "app/routers/market_support.py",
+        "line": 1376,
+        "handler": "revoke_authorization"
+      },
+      "required_scenarios": [
+        "R24-success",
+        "R24-admission"
+      ],
+      "owning_task": 9,
+      "group": "C",
+      "refusals": [
+        {
+          "status": 401,
+          "condition": "invalid authentication",
+          "code": null
+        },
+        {
+          "status": 403,
+          "condition": "role, ownership or admission refused",
+          "code": null
+        },
+        {
+          "status": 404,
+          "condition": "feature disabled",
+          "code": null
+        },
+        {
+          "status": 410,
+          "condition": "legacy mutation retired when enabled",
+          "code": "MARKET_SUPPORT_LEGACY_MUTATION_RETIRED"
+        }
+      ],
+      "source_request_annotations": {
+        "organization_id": "UUID",
+        "authorization_id": "UUID",
+        "request": "Request",
+        "body": "AuthorizationRevoke",
+        "db": "Annotated[AsyncSession, Depends(get_db)]",
+        "current_user": "Annotated[User, Depends(require_market_support_admin)]"
+      },
+      "scenario_descriptions": {
+        "R24-success": "410 with error envelope; preserve fields and types, not JSON spelling",
+        "R24-admission": "enforce S: enabled support; approved ADMIN; retirement before capability check without cross-organization access"
+      }
+    },
+    {
+      "route_id": "S16",
+      "method": "GET",
+      "path": "/api/admin/market-support/organizations/{organization_id}/context",
+      "auth_class": "S: enabled support; approved ADMIN; both capabilities",
+      "auth_dependency": "require_market_support_admin",
+      "request_schema": "none",
+      "response_schema": "MarketSupportContext",
+      "success_status": 200,
+      "source_response_model": "MarketSupportContext",
+      "source_module": "market_support",
+      "source_guards": [
+        "_require_context_capabilities(db, current_user.id)"
+      ],
+      "source": {
+        "path": "app/routers/market_support.py",
+        "line": 1440,
+        "handler": "organization_context"
+      },
+      "required_scenarios": [
+        "R25-success",
+        "R25-admission"
+      ],
+      "owning_task": 10,
+      "group": "C",
+      "refusals": [
+        {
+          "status": 401,
+          "condition": "invalid authentication",
+          "code": null
+        },
+        {
+          "status": 403,
+          "condition": "role, ownership or admission refused",
+          "code": null
+        },
+        {
+          "status": 404,
+          "condition": "feature disabled",
+          "code": null
+        },
+        {
+          "status": 403,
+          "condition": "required capability absent",
+          "code": "MARKET_SUPPORT_CAPABILITY_REQUIRED"
+        }
+      ],
+      "source_request_annotations": {
+        "organization_id": "UUID",
+        "db": "Annotated[AsyncSession, Depends(get_db)]",
+        "current_user": "Annotated[User, Depends(require_market_support_admin)]"
+      },
+      "scenario_descriptions": {
+        "R25-success": "200 with MarketSupportContext; preserve fields and types, not JSON spelling",
+        "R25-admission": "enforce S: enabled support; approved ADMIN; both capabilities without cross-organization access"
+      }
+    },
+    {
+      "route_id": "C1",
+      "method": "GET",
+      "path": "/api/orders/admin/commissions",
+      "auth_class": "U: approved account; ADMIN",
+      "auth_dependency": "get_current_user",
+      "request_schema": "none (unbounded)",
+      "response_schema": "list[CommissionResponse]",
+      "success_status": 200,
+      "source_response_model": "list[CommissionResponse]",
+      "source_module": "orders",
+      "source_guards": [
+        "UserRole.ADMIN"
+      ],
+      "source": {
+        "path": "app/routers/orders.py",
+        "line": 29,
+        "handler": "list_all_commissions"
+      },
+      "required_scenarios": [
+        "R26-success",
+        "R26-admission",
+        "R26-empty",
+        "R26-1001",
+        "R26-legacy-only"
+      ],
+      "owning_task": 11,
+      "group": "A",
+      "refusals": [
+        {
+          "status": 401,
+          "condition": "invalid authentication",
+          "code": null
+        },
+        {
+          "status": 403,
+          "condition": "role, ownership or admission refused",
+          "code": null
+        }
+      ],
+      "source_request_annotations": {
+        "current_user": "User",
+        "db": "AsyncSession"
+      },
+      "scenario_descriptions": {
+        "R26-success": "200 with list[CommissionResponse]; preserve fields and types, not JSON spelling",
+        "R26-admission": "enforce U: approved account; ADMIN without cross-organization access",
+        "R26-empty": "empty disposable commission table returns []",
+        "R26-1001": "1001 disposable legacy rows return 1001 array items without paging",
+        "R26-legacy-only": "unlinked legacy commission rows remain readable; no trade-fee accrual"
+      }
+    },
+    {
+      "route_id": "C2",
+      "method": "GET",
+      "path": "/api/orders/admin/commissions/summary",
+      "auth_class": "U: approved account; ADMIN",
+      "auth_dependency": "get_current_user",
+      "request_schema": "none",
+      "response_schema": "CommissionSummary",
+      "success_status": 200,
+      "source_response_model": "CommissionSummary",
+      "source_module": "orders",
+      "source_guards": [
+        "UserRole.ADMIN"
+      ],
+      "source": {
+        "path": "app/routers/orders.py",
+        "line": 48,
+        "handler": "get_commission_summary"
+      },
+      "required_scenarios": [
+        "R27-success",
+        "R27-admission"
+      ],
+      "owning_task": 11,
+      "group": "A",
+      "refusals": [
+        {
+          "status": 401,
+          "condition": "invalid authentication",
+          "code": null
+        },
+        {
+          "status": 403,
+          "condition": "role, ownership or admission refused",
+          "code": null
+        }
+      ],
+      "source_request_annotations": {
+        "current_user": "User",
+        "db": "AsyncSession"
+      },
+      "scenario_descriptions": {
+        "R27-success": "200 with CommissionSummary; preserve fields and types, not JSON spelling",
+        "R27-admission": "enforce U: approved account; ADMIN without cross-organization access"
+      }
+    },
+    {
+      "route_id": "C3",
+      "method": "PUT",
+      "path": "/api/orders/admin/commissions/{commission_id}",
+      "auth_class": "U: approved account; ADMIN",
+      "auth_dependency": "get_current_user",
+      "request_schema": "CommissionUpdate (partial)",
+      "response_schema": "CommissionResponse",
+      "success_status": 200,
+      "source_response_model": "CommissionResponse",
+      "source_module": "orders",
+      "source_guards": [
+        "UserRole.ADMIN"
+      ],
+      "source": {
+        "path": "app/routers/orders.py",
+        "line": 95,
+        "handler": "update_commission"
+      },
+      "required_scenarios": [
+        "R28-success",
+        "R28-admission"
+      ],
+      "owning_task": 11,
+      "group": "A",
+      "refusals": [
+        {
+          "status": 401,
+          "condition": "invalid authentication",
+          "code": null
+        },
+        {
+          "status": 403,
+          "condition": "role, ownership or admission refused",
+          "code": null
+        },
+        {
+          "status": 404,
+          "condition": "commission absent",
+          "code": null
+        }
+      ],
+      "source_request_annotations": {
+        "commission_id": "UUID",
+        "request": "Request",
+        "update_data": "CommissionUpdate",
+        "current_user": "User",
+        "db": "AsyncSession"
+      },
+      "scenario_descriptions": {
+        "R28-success": "200 with CommissionResponse; preserve fields and types, not JSON spelling",
+        "R28-admission": "enforce U: approved account; ADMIN without cross-organization access"
+      }
+    }
+  ],
+  "invariants": [
+    {
+      "scenario_id": "R29",
+      "description": "complete party preview, sorted organizations and users precede slices; drift restarts without late locks",
+      "required_scenarios": [
+        "R29-invariant"
+      ],
+      "owning_tasks": [
+        3,
+        12
+      ]
+    },
+    {
+      "scenario_id": "R30",
+      "description": "prepare response before commit; distinguish failed, committed and ambiguous outcomes; never retry unknown commit",
+      "required_scenarios": [
+        "R30-invariant"
+      ],
+      "owning_tasks": [
+        6
+      ]
+    },
+    {
+      "scenario_id": "R31",
+      "description": "rebuild both benchmark sides for every changed order slice",
+      "required_scenarios": [
+        "R31-invariant"
+      ],
+      "owning_tasks": [
+        5,
+        20
+      ]
+    },
+    {
+      "scenario_id": "R32",
+      "description": "amendment fields distinguish omitted, clearable and required-if-present values before locks",
+      "required_scenarios": [
+        "R32-invariant"
+      ],
+      "owning_tasks": [
+        20
+      ]
+    },
+    {
+      "scenario_id": "R33",
+      "description": "publication replay binds the recorded owner and accountable actor and survives admission change",
+      "required_scenarios": [
+        "R33-invariant"
+      ],
+      "owning_tasks": [
+        6,
+        24
+      ]
+    },
+    {
+      "scenario_id": "R34",
+      "description": "newly execution-qualified order gets a new slice-locked acceptance ordinal",
+      "required_scenarios": [
+        "R34-invariant"
+      ],
+      "owning_tasks": [
+        20
+      ]
+    },
+    {
+      "scenario_id": "R35",
+      "description": "derive public events from committed before/after evidence, captured subscriptions and full public scope; deduplicate restart replay",
+      "required_scenarios": [
+        "R35-invariant"
+      ],
+      "owning_tasks": [
+        5,
+        "5a",
+        "5b",
+        "5c"
+      ]
+    },
+    {
+      "scenario_id": "R36",
+      "description": "suggestion candidates use the shared public relation and private-field projection",
+      "required_scenarios": [
+        "R36-invariant"
+      ],
+      "owning_tasks": [
+        25
+      ]
+    },
+    {
+      "scenario_id": "R37",
+      "description": "recorded-party cleanup remains available after rejection or detachment; confirm requires fresh admission",
+      "required_scenarios": [
+        "R37-invariant"
+      ],
+      "owning_tasks": [
+        22,
+        23
+      ]
+    },
+    {
+      "scenario_id": "R38",
+      "description": "commission updates serialize and audit locked before and after values",
+      "required_scenarios": [
+        "R38-invariant"
+      ],
+      "owning_tasks": [
+        11
+      ]
+    },
+    {
+      "scenario_id": "R39",
+      "description": "commission administration reads only legacy commission rows; trade fee snapshots remain separate",
+      "required_scenarios": [
+        "R39-invariant"
+      ],
+      "owning_tasks": [
+        11
+      ]
+    },
+    {
+      "scenario_id": "R40",
+      "description": "manual and automatic confirmation share one exactly-once referral activation effect",
+      "required_scenarios": [
+        "R40-invariant"
+      ],
+      "owning_tasks": [
+        18,
+        22
+      ]
+    }
+  ],
+  "schema_change_set": {
+    "baseline_sha": "274bd3ab737621339d158ab4795578009de5bf4f",
+    "completion_gate": "PHASE8_COMPLETENESS=1 and PHASE8_SCHEMA_BASE=<Task 5a integrated predecessor full SHA>; Task 14 after Task 5a; PostgreSQL definition and ACL proof remain Task 5a gates",
+    "added_migrations": [
+      "alembic/versions/p89_20261022_watchlist_producer.py"
+    ],
+    "modified_existing_migrations": [],
+    "expected_modified_paths": [
+      "deploy/postgres/app_acl_policy.sql",
+      "deploy/migration-checkpoints.tsv",
+      "deploy/rust/allowed-revisions.json",
+      "rs/read/src/runtime/artifact.rs",
+      "rs/read/src/runtime/config.rs",
+      "scripts/prepare_rust_runtime.py"
+    ],
+    "parent_policy": "single integrated Alembic head recorded immediately before Task 5a, not the Task 1 baseline head",
+    "columns": {
+      "watchlist_events.producer": "varchar(32) NOT NULL DEFAULT 'legacy-python'; allowed values legacy-python, rust-market-v1",
+      "watchlist_events.source_event_id": "uuid NULL; no FK",
+      "watchlist_events.source_stream_seq": "bigint NULL",
+      "watchlist_events.scope_attested_at": "timestamptz NULL",
+      "watchlist_events.derived_event_key": "varchar(255) NULL; nonempty on trusted rows",
+      "market_event_outbox.producer_evidence": "jsonb NULL DEFAULT NULL; internal envelope only"
+    },
+    "constraints": {
+      "ck_watchlist_events_producer_identity": "(producer = 'legacy-python' AND source_event_id IS NULL AND source_stream_seq IS NULL AND scope_attested_at IS NULL AND derived_event_key IS NULL) OR (producer = 'rust-market-v1' AND source_event_id IS NOT NULL AND source_stream_seq IS NOT NULL AND scope_attested_at IS NOT NULL AND derived_event_key IS NOT NULL AND char_length(derived_event_key) > 0)"
+    },
+    "indexes": {
+      "uq_watchlist_events_producer_source_target_derived": "UNIQUE (producer, source_event_id, watchlist_target_id, derived_event_key) WHERE source_event_id IS NOT NULL"
+    },
+    "tables": {
+      "watchlist_producer_state": {
+        "singleton": "boolean PRIMARY KEY CHECK (singleton)",
+        "consumed_through_seq": "bigint NOT NULL DEFAULT 0 CHECK (consumed_through_seq >= 0)",
+        "updated_at": "timestamptz NOT NULL DEFAULT now()"
+      }
+    },
+    "acl": {
+      "watchlist_producer_state": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "market_event_outbox": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "denied": [
+        "DELETE on watermark and outbox",
+        "consumer outbox mutation",
+        "direct app EXECUTE on migrator helpers"
+      ],
+      "watchlist_targets": "retain economic writer display UPDATE; consumer SELECT only",
+      "watchlist_events": "retain insertion and target cascade; no new DELETE"
+    },
+    "forbidden": [
+      "alter existing column",
+      "drop existing object or trigger",
+      "modify pre-existing migration",
+      "new dispatcher",
+      "transport serialization of producer_evidence"
+    ]
+  }
+}
