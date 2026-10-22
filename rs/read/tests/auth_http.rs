@@ -383,20 +383,34 @@ async fn cors_uses_the_environment_origin_set() {
                 } else {
                     request = request.header(header::COOKIE, "refresh_token=fixture");
                 }
-                let response = app.clone().oneshot(request.body(Body::empty()).unwrap()).await.unwrap();
+                let response = app
+                    .clone()
+                    .oneshot(request.body(Body::empty()).unwrap())
+                    .await
+                    .unwrap();
                 let case = format!("{environment} {origin} preflight={preflight}");
                 assert_eq!(
                     response.status(),
-                    if preflight && !allowed { StatusCode::BAD_REQUEST } else { StatusCode::OK },
+                    if preflight && !allowed {
+                        StatusCode::BAD_REQUEST
+                    } else {
+                        StatusCode::OK
+                    },
                     "{case}",
                 );
                 assert_eq!(
-                    response.headers().get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+                    response
+                        .headers()
+                        .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
                         .map(|value| value.to_str().unwrap()),
                     allowed.then_some(*origin),
                     "{case}",
                 );
-                assert_eq!(response.headers()[header::ACCESS_CONTROL_ALLOW_CREDENTIALS], "true", "{case}");
+                assert_eq!(
+                    response.headers()[header::ACCESS_CONTROL_ALLOW_CREDENTIALS],
+                    "true",
+                    "{case}"
+                );
             }
         }
     }
@@ -420,12 +434,15 @@ fn is_upper_snake(code: &str) -> bool {
 async fn api_errors_preserve_auth_responses() {
     for code in AuthCode::ALL {
         let direct = render(AuthFailure::new(code).into_response()).await;
-        let converted = render(verdaxis_read::ApiError::from(AuthFailure::new(code)).into_response()).await;
+        let converted =
+            render(verdaxis_read::ApiError::from(AuthFailure::new(code)).into_response()).await;
         assert_eq!(converted.0, code.status(), "{}", code.as_str());
         assert_eq!(converted.2, direct.2, "{}", code.as_str());
         for headers in [&direct.1, &converted.1] {
             assert_eq!(
-                headers.get(header::WWW_AUTHENTICATE).map(|value| value.to_str().unwrap()),
+                headers
+                    .get(header::WWW_AUTHENTICATE)
+                    .map(|value| value.to_str().unwrap()),
                 (code.status() == StatusCode::UNAUTHORIZED).then_some("Bearer"),
                 "{}: WWW-Authenticate only on 401",
                 code.as_str(),
