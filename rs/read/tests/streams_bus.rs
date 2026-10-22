@@ -320,6 +320,70 @@ async fn b09() {
     assert_eq!(hub.subscriber_count(), 0);
 }
 
+#[tokio::test]
+async fn b10() {
+    retained_subscriptions(1).await;
+}
+
+#[tokio::test]
+async fn b11() {
+    retained_subscriptions(10).await;
+}
+
+async fn retained_subscriptions(channel_count: usize) {
+    let hub = StreamHub::new(StreamPolicy::new(200, 2000, 1).unwrap());
+    let organizations: Vec<_> = (0..channel_count).map(|_| Uuid::new_v4()).collect();
+    for mode in 0..3 {
+        for cycle in 0..3 {
+            let mut subscriptions = Vec::new();
+            let mut payloads = Vec::new();
+            for &org in &organizations {
+                for _ in 0..200 {
+                    subscriptions.push(hub.subscribe_org(org).unwrap());
+                }
+                let shared = event(cycle + 1, vec![org]);
+                payloads.push(Arc::downgrade(&shared));
+                hub.publish_private(shared).unwrap();
+                if mode == 0 {
+                    hub.publish_private(event(cycle + 2, vec![org])).unwrap();
+                }
+            }
+            let terminal = match mode {
+                0 => Terminal::Overflow,
+                1 => {
+                    for subscription in &subscriptions {
+                        subscription.terminate(Terminal::Retention);
+                    }
+                    Terminal::Retention
+                }
+                _ => {
+                    hub.terminate_all(Terminal::Shutdown);
+                    Terminal::Shutdown
+                }
+            };
+            assert_eq!(hub.subscriber_count(), 0);
+            for &org in &organizations {
+                assert!(hub.subscribe_org(org).is_err());
+            }
+            if channel_count == 10 {
+                assert!(hub.subscribe_org(Uuid::new_v4()).is_err());
+                assert!(hub.subscribe_public(PublicChannel::Prices).is_err());
+            }
+            for subscription in &mut subscriptions {
+                assert!(matches!(
+                    next(subscription).await,
+                    Some(Delivery::Terminal(actual)) if actual == terminal
+                ));
+                assert!(next(subscription).await.is_none());
+            }
+            assert!(payloads.iter().all(|payload| payload.upgrade().is_none()));
+            assert!(hub.subscribe_org(organizations[0]).is_err());
+            drop(subscriptions);
+            assert!(hub.subscribe_org(organizations[0]).is_ok());
+        }
+    }
+}
+
 #[test]
 fn b05() {
     for limits in [
