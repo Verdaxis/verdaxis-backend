@@ -8,25 +8,31 @@
       "route_id": "O3",
       "method": "DELETE",
       "path": "/api/orderbook/{order_id}",
-      "auth_class": "A: authenticated cleanup; recorded owner",
+      "auth_class": "A: authenticated cleanup; recorded owner; optional bound support context",
       "auth_dependency": "get_authenticated_user",
       "request_schema": "OrderCancelRequest | null; reason optional for DELETE, required for assisted",
       "response_schema": "empty",
       "success_status": 204,
       "source_response_model": null,
       "source_module": "orderbook",
-      "source_guards": [],
+      "source_guards": [
+        "_reject_admin_legacy_workspace_mutation",
+        "MARKET_SUPPORT_CONTEXT_HEADER",
+        "resolve_request_party"
+      ],
       "source": {
         "path": "app/routers/orderbook.py",
         "line": 2800,
         "handler": "cancel_order"
       },
       "required_scenarios": [
-        "R01-success",
-        "R01-admission",
-        "R01-replay",
-        "R01-etag",
-        "R01-reservation"
+        "W01-success",
+        "W01-admission",
+        "W01-replay",
+        "W01-etag",
+        "W01-reservation",
+        "W01-context-scope",
+        "W01-admin-without-context"
       ],
       "owning_task": 7,
       "group": "D",
@@ -60,6 +66,21 @@
           "status": 404,
           "condition": "missing order",
           "code": null
+        },
+        {
+          "status": 410,
+          "condition": "ADMIN without support context while support is enabled",
+          "code": "MARKET_SUPPORT_LEGACY_MUTATION_RETIRED"
+        },
+        {
+          "status": 403,
+          "condition": "DELETE with a support context header is not classified as a support mutation",
+          "code": "MARKET_SUPPORT_MUTATION_NOT_ALLOWED"
+        },
+        {
+          "status": 409,
+          "condition": "order slice changed; retry the cancellation",
+          "code": null
         }
       ],
       "source_request_annotations": {
@@ -71,11 +92,13 @@
         "body": "OrderCancelRequest | None"
       },
       "scenario_descriptions": {
-        "R01-success": "204 with empty; preserve fields and types, not JSON spelling",
-        "R01-admission": "enforce A: authenticated cleanup; recorded owner without cross-organization access",
-        "R01-replay": "same owned key returns recorded 204 without duplicate effects",
-        "R01-etag": "assisted missing/malformed/stale/current ETag gives 428/400/412/success",
-        "R01-reservation": "release only unfilled reservation and preserve pending trades"
+        "W01-success": "204 with empty; preserve fields and types, not JSON spelling",
+        "W01-admission": "enforce A: authenticated cleanup; recorded owner without cross-organization access",
+        "W01-replay": "same owned key returns recorded 204 without duplicate effects",
+        "W01-etag": "assisted missing/malformed/stale/current ETag gives 428/400/412/success",
+        "W01-reservation": "release only unfilled reservation and preserve pending trades",
+        "W01-context-scope": "a context-bearing DELETE is refused before the handler; no other context refusal exists for this verb",
+        "W01-admin-without-context": "an ADMIN without a context header gets 410 MARKET_SUPPORT_LEGACY_MUTATION_RETIRED while support is enabled"
       }
     },
     {
@@ -89,17 +112,23 @@
       "success_status": 204,
       "source_response_model": null,
       "source_module": "orderbook",
-      "source_guards": [],
+      "source_guards": [
+        "_reject_admin_legacy_workspace_mutation",
+        "MARKET_SUPPORT_CONTEXT_HEADER",
+        "resolve_request_party"
+      ],
       "source": {
         "path": "app/routers/orderbook.py",
         "line": 2800,
         "handler": "cancel_order"
       },
       "required_scenarios": [
-        "R02-success",
-        "R02-admission",
-        "R02-reason",
-        "R02-shared-cancel"
+        "W02-success",
+        "W02-admission",
+        "W02-reason",
+        "W02-shared-cancel",
+        "W02-context-invalid",
+        "W02-admin-without-context"
       ],
       "owning_task": 7,
       "group": "D",
@@ -133,6 +162,43 @@
           "status": 404,
           "condition": "missing order",
           "code": null
+        },
+        {
+          "status": 410,
+          "condition": "ADMIN without support context while support is enabled",
+          "code": "MARKET_SUPPORT_LEGACY_MUTATION_RETIRED"
+        },
+        {
+          "status": 400,
+          "condition": "support context header is not a UUID",
+          "code": "MARKET_SUPPORT_CONTEXT_INVALID",
+          "clearing_headers": [
+            "X-Verdaxis-Market-Support-Context-Invalid",
+            "X-Verdaxis-Market-Support-Context-Code"
+          ]
+        },
+        {
+          "status": 404,
+          "condition": "support context unknown, foreign or capability absent",
+          "code": "MARKET_SUPPORT_CONTEXT_INVALID",
+          "clearing_headers": [
+            "X-Verdaxis-Market-Support-Context-Invalid",
+            "X-Verdaxis-Market-Support-Context-Code"
+          ]
+        },
+        {
+          "status": 409,
+          "condition": "support context expired, exited, wrong scope or invalid target",
+          "code": "MARKET_SUPPORT_CONTEXT_INVALID",
+          "clearing_headers": [
+            "X-Verdaxis-Market-Support-Context-Invalid",
+            "X-Verdaxis-Market-Support-Context-Code"
+          ]
+        },
+        {
+          "status": 409,
+          "code": null,
+          "condition": "order slice changed; retry the cancellation"
         }
       ],
       "source_request_annotations": {
@@ -144,10 +210,12 @@
         "body": "OrderCancelRequest | None"
       },
       "scenario_descriptions": {
-        "R02-success": "204 with empty; preserve fields and types, not JSON spelling",
-        "R02-admission": "enforce A: authenticated cleanup; owner; optional bound support context without cross-organization access",
-        "R02-reason": "POST cancellation requires reason for ordinary and assisted orders",
-        "R02-shared-cancel": "POST and DELETE use one cancellation transaction"
+        "W02-success": "204 with empty; preserve fields and types, not JSON spelling",
+        "W02-admission": "enforce A: authenticated cleanup; owner; optional bound support context without cross-organization access",
+        "W02-reason": "POST cancellation requires reason for ordinary and assisted orders",
+        "W02-shared-cancel": "POST and DELETE use one cancellation transaction",
+        "W02-context-invalid": "invalid, foreign, expired or wrong-scope context gives 400/404/409 MARKET_SUPPORT_CONTEXT_INVALID with both clearing headers",
+        "W02-admin-without-context": "an ADMIN without a context header gets 410 MARKET_SUPPORT_LEGACY_MUTATION_RETIRED while support is enabled"
       }
     },
     {
@@ -161,15 +229,19 @@
       "success_status": 200,
       "source_response_model": "list[OrderMyResponse]",
       "source_module": "orderbook",
-      "source_guards": [],
+      "source_guards": [
+        "MARKET_SUPPORT_CONTEXT_HEADER",
+        "resolve_request_party"
+      ],
       "source": {
         "path": "app/routers/orderbook.py",
         "line": 1111,
         "handler": "list_my_orders"
       },
       "required_scenarios": [
-        "R03-success",
-        "R03-admission"
+        "W03-success",
+        "W03-admission",
+        "W03-context-invalid"
       ],
       "owning_task": 7,
       "group": "D",
@@ -188,6 +260,33 @@
           "status": 400,
           "condition": "no organization",
           "code": null
+        },
+        {
+          "status": 400,
+          "condition": "support context header is not a UUID",
+          "code": "MARKET_SUPPORT_CONTEXT_INVALID",
+          "clearing_headers": [
+            "X-Verdaxis-Market-Support-Context-Invalid",
+            "X-Verdaxis-Market-Support-Context-Code"
+          ]
+        },
+        {
+          "status": 404,
+          "condition": "support context unknown, foreign or capability absent",
+          "code": "MARKET_SUPPORT_CONTEXT_INVALID",
+          "clearing_headers": [
+            "X-Verdaxis-Market-Support-Context-Invalid",
+            "X-Verdaxis-Market-Support-Context-Code"
+          ]
+        },
+        {
+          "status": 409,
+          "condition": "support context expired, exited, wrong scope or invalid target",
+          "code": "MARKET_SUPPORT_CONTEXT_INVALID",
+          "clearing_headers": [
+            "X-Verdaxis-Market-Support-Context-Invalid",
+            "X-Verdaxis-Market-Support-Context-Code"
+          ]
         }
       ],
       "source_request_annotations": {
@@ -198,8 +297,9 @@
         "request": "Request"
       },
       "scenario_descriptions": {
-        "R03-success": "200 with list[OrderMyResponse]; preserve fields and types, not JSON spelling",
-        "R03-admission": "enforce U: approved account; optional bound support context without cross-organization access"
+        "W03-success": "200 with list[OrderMyResponse]; preserve fields and types, not JSON spelling",
+        "W03-admission": "enforce U: approved account; optional bound support context without cross-organization access",
+        "W03-context-invalid": "invalid, foreign, expired or wrong-scope context gives 400/404/409 MARKET_SUPPORT_CONTEXT_INVALID with both clearing headers"
       }
     },
     {
@@ -213,15 +313,19 @@
       "success_status": 200,
       "source_response_model": "Optional[SupplierListingTemplateResponse]",
       "source_module": "orderbook",
-      "source_guards": [],
+      "source_guards": [
+        "MARKET_SUPPORT_CONTEXT_HEADER",
+        "resolve_request_party"
+      ],
       "source": {
         "path": "app/routers/orderbook.py",
         "line": 1163,
         "handler": "latest_supplier_listing_template"
       },
       "required_scenarios": [
-        "R04-success",
-        "R04-admission"
+        "W04-success",
+        "W04-admission",
+        "W04-context-invalid"
       ],
       "owning_task": 7,
       "group": "D",
@@ -240,6 +344,33 @@
           "status": 400,
           "condition": "no organization",
           "code": null
+        },
+        {
+          "status": 400,
+          "condition": "support context header is not a UUID",
+          "code": "MARKET_SUPPORT_CONTEXT_INVALID",
+          "clearing_headers": [
+            "X-Verdaxis-Market-Support-Context-Invalid",
+            "X-Verdaxis-Market-Support-Context-Code"
+          ]
+        },
+        {
+          "status": 404,
+          "condition": "support context unknown, foreign or capability absent",
+          "code": "MARKET_SUPPORT_CONTEXT_INVALID",
+          "clearing_headers": [
+            "X-Verdaxis-Market-Support-Context-Invalid",
+            "X-Verdaxis-Market-Support-Context-Code"
+          ]
+        },
+        {
+          "status": 409,
+          "condition": "support context expired, exited, wrong scope or invalid target",
+          "code": "MARKET_SUPPORT_CONTEXT_INVALID",
+          "clearing_headers": [
+            "X-Verdaxis-Market-Support-Context-Invalid",
+            "X-Verdaxis-Market-Support-Context-Code"
+          ]
         }
       ],
       "source_request_annotations": {
@@ -248,8 +379,9 @@
         "request": "Request"
       },
       "scenario_descriptions": {
-        "R04-success": "200 with Optional[SupplierListingTemplateResponse]; preserve fields and types, not JSON spelling",
-        "R04-admission": "enforce U: approved account; optional bound support context without cross-organization access"
+        "W04-success": "200 with Optional[SupplierListingTemplateResponse]; preserve fields and types, not JSON spelling",
+        "W04-admission": "enforce U: approved account; optional bound support context without cross-organization access",
+        "W04-context-invalid": "invalid, foreign, expired or wrong-scope context gives 400/404/409 MARKET_SUPPORT_CONTEXT_INVALID with both clearing headers"
       }
     },
     {
@@ -272,8 +404,8 @@
         "handler": "list_inventory"
       },
       "required_scenarios": [
-        "R05-success",
-        "R05-admission"
+        "W05-success",
+        "W05-admission"
       ],
       "owning_task": 8,
       "group": "B",
@@ -296,8 +428,8 @@
         "limit": "Annotated[int, Query(ge=1, le=100)]"
       },
       "scenario_descriptions": {
-        "R05-success": "200 with List[InventoryResponse]; preserve fields and types, not JSON spelling",
-        "R05-admission": "enforce U: approved account; SUPPLIER without cross-organization access"
+        "W05-success": "200 with List[InventoryResponse]; preserve fields and types, not JSON spelling",
+        "W05-admission": "enforce U: approved account; SUPPLIER without cross-organization access"
       }
     },
     {
@@ -320,8 +452,8 @@
         "handler": "add_inventory"
       },
       "required_scenarios": [
-        "R06-success",
-        "R06-admission"
+        "W06-success",
+        "W06-admission"
       ],
       "owning_task": 8,
       "group": "B",
@@ -345,6 +477,16 @@
           "status": 409,
           "condition": "admission changed under lock",
           "code": null
+        },
+        {
+          "status": 400,
+          "condition": "no organization",
+          "code": null
+        },
+        {
+          "status": 422,
+          "condition": "body validation refused by the merged declaration",
+          "code": null
         }
       ],
       "source_request_annotations": {
@@ -353,8 +495,8 @@
         "current_user": "Annotated[User, Depends(require_security_market_admission)]"
       },
       "scenario_descriptions": {
-        "R06-success": "200 with InventoryResponse; preserve fields and types, not JSON spelling",
-        "R06-admission": "enforce security-market admission; SUPPLIER without cross-organization access"
+        "W06-success": "200 with InventoryResponse; preserve fields and types, not JSON spelling",
+        "W06-admission": "enforce security-market admission; SUPPLIER without cross-organization access"
       }
     },
     {
@@ -377,8 +519,8 @@
         "handler": "update_inventory"
       },
       "required_scenarios": [
-        "R07-success",
-        "R07-admission"
+        "W07-success",
+        "W07-admission"
       ],
       "owning_task": 8,
       "group": "B",
@@ -402,6 +544,21 @@
           "status": 409,
           "condition": "reservation or nonterminal work",
           "code": null
+        },
+        {
+          "status": 400,
+          "condition": "no organization",
+          "code": null
+        },
+        {
+          "status": 422,
+          "condition": "body validation refused by the merged declaration",
+          "code": null
+        },
+        {
+          "status": 409,
+          "condition": "admission changed under lock (organization, user or provenance)",
+          "code": null
         }
       ],
       "source_request_annotations": {
@@ -411,8 +568,8 @@
         "current_user": "Annotated[User, Depends(require_security_market_admission)]"
       },
       "scenario_descriptions": {
-        "R07-success": "200 with InventoryResponse; preserve fields and types, not JSON spelling",
-        "R07-admission": "enforce security-market admission; SUPPLIER without cross-organization access"
+        "W07-success": "200 with InventoryResponse; preserve fields and types, not JSON spelling",
+        "W07-admission": "enforce security-market admission; SUPPLIER without cross-organization access"
       }
     },
     {
@@ -435,8 +592,8 @@
         "handler": "delete_inventory"
       },
       "required_scenarios": [
-        "R08-success",
-        "R08-admission"
+        "W08-success",
+        "W08-admission"
       ],
       "owning_task": 8,
       "group": "B",
@@ -460,6 +617,16 @@
           "status": 409,
           "condition": "reservation, nonterminal work or preserved order history",
           "code": null
+        },
+        {
+          "status": 400,
+          "condition": "no organization",
+          "code": null
+        },
+        {
+          "status": 409,
+          "condition": "admission changed under lock (organization, user or provenance)",
+          "code": null
         }
       ],
       "source_request_annotations": {
@@ -468,8 +635,8 @@
         "current_user": "Annotated[User, Depends(require_security_market_admission)]"
       },
       "scenario_descriptions": {
-        "R08-success": "204 with empty; preserve fields and types, not JSON spelling",
-        "R08-admission": "enforce security-market admission; SUPPLIER without cross-organization access"
+        "W08-success": "204 with empty; preserve fields and types, not JSON spelling",
+        "W08-admission": "enforce security-market admission; SUPPLIER without cross-organization access"
       }
     },
     {
@@ -492,8 +659,9 @@
         "handler": "list_my_listings"
       },
       "required_scenarios": [
-        "R09-success",
-        "R09-admission"
+        "W09-success",
+        "W09-admission",
+        "W09-no-organization"
       ],
       "owning_task": 8,
       "group": "B",
@@ -516,8 +684,9 @@
         "limit": "Annotated[int, Query(ge=1, le=100)]"
       },
       "scenario_descriptions": {
-        "R09-success": "200 with compatibility listing dict array; preserve fields and types, not JSON spelling",
-        "R09-admission": "enforce U: approved account; SUPPLIER without cross-organization access"
+        "W09-success": "200 with compatibility listing dict array; preserve fields and types, not JSON spelling",
+        "W09-admission": "enforce U: approved account; SUPPLIER without cross-organization access",
+        "W09-no-organization": "a supplier without an organization receives [] without error"
       }
     },
     {
@@ -540,8 +709,8 @@
         "handler": "capabilities"
       },
       "required_scenarios": [
-        "R10-success",
-        "R10-admission"
+        "W10-success",
+        "W10-admission"
       ],
       "owning_task": 9,
       "group": "C",
@@ -567,8 +736,8 @@
         "current_user": "Annotated[User, Depends(require_market_support_admin)]"
       },
       "scenario_descriptions": {
-        "R10-success": "200 with list[MarketSupportCapability]; preserve fields and types, not JSON spelling",
-        "R10-admission": "enforce S: enabled support; approved ADMIN without cross-organization access"
+        "W10-success": "200 with list[MarketSupportCapability]; preserve fields and types, not JSON spelling",
+        "W10-admission": "enforce S: enabled support; approved ADMIN without cross-organization access"
       }
     },
     {
@@ -591,8 +760,8 @@
         "handler": "create_capability_assignment"
       },
       "required_scenarios": [
-        "R11-success",
-        "R11-admission"
+        "W11-success",
+        "W11-admission"
       ],
       "owning_task": 9,
       "group": "C",
@@ -625,8 +794,8 @@
         "current_user": "Annotated[User, Depends(require_market_support_admin)]"
       },
       "scenario_descriptions": {
-        "R11-success": "201 with CapabilityAssignmentResponse; preserve fields and types, not JSON spelling",
-        "R11-admission": "enforce S: enabled support; approved ADMIN; bootstrap allowlist without cross-organization access"
+        "W11-success": "201 with CapabilityAssignmentResponse; preserve fields and types, not JSON spelling",
+        "W11-admission": "enforce S: enabled support; approved ADMIN; bootstrap allowlist without cross-organization access"
       }
     },
     {
@@ -649,8 +818,8 @@
         "handler": "revoke_capability_assignment"
       },
       "required_scenarios": [
-        "R12-success",
-        "R12-admission"
+        "W12-success",
+        "W12-admission"
       ],
       "owning_task": 9,
       "group": "C",
@@ -684,8 +853,8 @@
         "current_user": "Annotated[User, Depends(require_market_support_admin)]"
       },
       "scenario_descriptions": {
-        "R12-success": "200 with CapabilityAssignmentResponse; preserve fields and types, not JSON spelling",
-        "R12-admission": "enforce S: enabled support; approved ADMIN; bootstrap allowlist without cross-organization access"
+        "W12-success": "200 with CapabilityAssignmentResponse; preserve fields and types, not JSON spelling",
+        "W12-admission": "enforce S: enabled support; approved ADMIN; bootstrap allowlist without cross-organization access"
       }
     },
     {
@@ -708,8 +877,8 @@
         "handler": "organizations"
       },
       "required_scenarios": [
-        "R13-success",
-        "R13-admission"
+        "W13-success",
+        "W13-admission"
       ],
       "owning_task": 10,
       "group": "C",
@@ -738,8 +907,8 @@
         "limit": "Annotated[int, Query(ge=1, le=100)]"
       },
       "scenario_descriptions": {
-        "R13-success": "200 with OrganizationPage; preserve fields and types, not JSON spelling",
-        "R13-admission": "enforce S: enabled support; approved ADMIN; any capability without cross-organization access"
+        "W13-success": "200 with OrganizationPage; preserve fields and types, not JSON spelling",
+        "W13-admission": "enforce S: enabled support; approved ADMIN; any capability without cross-organization access"
       }
     },
     {
@@ -762,8 +931,8 @@
         "handler": "organization_entry"
       },
       "required_scenarios": [
-        "R14-success",
-        "R14-admission"
+        "W14-success",
+        "W14-admission"
       ],
       "owning_task": 10,
       "group": "C",
@@ -810,8 +979,8 @@
         "current_user": "Annotated[User, Depends(require_market_support_admin)]"
       },
       "scenario_descriptions": {
-        "R14-success": "200 with MarketSupportEntryResponse; preserve fields and types, not JSON spelling",
-        "R14-admission": "enforce S: enabled support; approved ADMIN; both capabilities without cross-organization access"
+        "W14-success": "200 with MarketSupportEntryResponse; preserve fields and types, not JSON spelling",
+        "W14-admission": "enforce S: enabled support; approved ADMIN; both capabilities without cross-organization access"
       }
     },
     {
@@ -834,11 +1003,11 @@
         "handler": "create_context"
       },
       "required_scenarios": [
-        "R15-success",
-        "R15-admission",
-        "R15-reuse",
-        "R15-replacement",
-        "R15-expiry"
+        "W15-success",
+        "W15-admission",
+        "W15-reuse",
+        "W15-replacement",
+        "W15-expiry"
       ],
       "owning_task": 10,
       "group": "C",
@@ -856,7 +1025,11 @@
         {
           "status": 409,
           "condition": "different active organization requires confirmation",
-          "code": "CONTEXT_REPLACEMENT_REQUIRED"
+          "code": "MARKET_SUPPORT_CONTEXT_REPLACEMENT_REQUIRED",
+          "clearing_headers": [
+            "X-Verdaxis-Market-Support-Context-Invalid",
+            "X-Verdaxis-Market-Support-Context-Code"
+          ]
         },
         {
           "status": 404,
@@ -867,6 +1040,21 @@
           "status": 403,
           "condition": "required capability absent",
           "code": "MARKET_SUPPORT_CAPABILITY_REQUIRED"
+        },
+        {
+          "status": 404,
+          "condition": "organization missing",
+          "code": null
+        },
+        {
+          "status": 409,
+          "condition": "organization is not approved",
+          "code": "ORGANIZATION_NOT_APPROVED"
+        },
+        {
+          "status": 409,
+          "condition": "organization is not real",
+          "code": "ORGANIZATION_NOT_REAL"
         }
       ],
       "source_request_annotations": {
@@ -876,11 +1064,11 @@
         "current_user": "Annotated[User, Depends(require_market_support_admin)]"
       },
       "scenario_descriptions": {
-        "R15-success": "201 with MarketSupportContextResponse; preserve fields and types, not JSON spelling",
-        "R15-admission": "enforce S: enabled support; approved ADMIN; both capabilities without cross-organization access",
-        "R15-reuse": "same organization reuses active context",
-        "R15-replacement": "different organization requires explicit confirmation and exits old context",
-        "R15-expiry": "expired context is committed as EXPIRED"
+        "W15-success": "201 with MarketSupportContextResponse; preserve fields and types, not JSON spelling",
+        "W15-admission": "enforce S: enabled support; approved ADMIN; both capabilities without cross-organization access",
+        "W15-reuse": "same organization reuses active context",
+        "W15-replacement": "different organization requires explicit confirmation and exits old context",
+        "W15-expiry": "expired context is committed as EXPIRED"
       }
     },
     {
@@ -903,8 +1091,9 @@
         "handler": "active_context"
       },
       "required_scenarios": [
-        "R16-success",
-        "R16-admission"
+        "W16-success",
+        "W16-admission",
+        "W16-stale-expiry"
       ],
       "owning_task": 10,
       "group": "C",
@@ -935,8 +1124,9 @@
         "current_user": "Annotated[User, Depends(require_market_support_admin)]"
       },
       "scenario_descriptions": {
-        "R16-success": "200 with MarketSupportContextResponse | None; preserve fields and types, not JSON spelling",
-        "R16-admission": "enforce S: enabled support; approved ADMIN; both capabilities without cross-organization access"
+        "W16-success": "200 with MarketSupportContextResponse | None; preserve fields and types, not JSON spelling",
+        "W16-admission": "enforce S: enabled support; approved ADMIN; both capabilities without cross-organization access",
+        "W16-stale-expiry": "a stale active context is committed EXPIRED and the route returns null"
       }
     },
     {
@@ -959,8 +1149,9 @@
         "handler": "get_context"
       },
       "required_scenarios": [
-        "R17-success",
-        "R17-admission"
+        "W17-success",
+        "W17-admission",
+        "W17-stale-expiry"
       ],
       "owning_task": 10,
       "group": "C",
@@ -997,8 +1188,9 @@
         "current_user": "Annotated[User, Depends(require_market_support_admin)]"
       },
       "scenario_descriptions": {
-        "R17-success": "200 with MarketSupportContextResponse; preserve fields and types, not JSON spelling",
-        "R17-admission": "enforce S: enabled support; approved ADMIN; both capabilities; actor-owned without cross-organization access"
+        "W17-success": "200 with MarketSupportContextResponse; preserve fields and types, not JSON spelling",
+        "W17-admission": "enforce S: enabled support; approved ADMIN; both capabilities; actor-owned without cross-organization access",
+        "W17-stale-expiry": "a stale active context is committed EXPIRED before its response is returned"
       }
     },
     {
@@ -1021,8 +1213,8 @@
         "handler": "exit_context"
       },
       "required_scenarios": [
-        "R18-success",
-        "R18-admission"
+        "W18-success",
+        "W18-admission"
       ],
       "owning_task": 10,
       "group": "C",
@@ -1060,8 +1252,8 @@
         "current_user": "Annotated[User, Depends(require_market_support_admin)]"
       },
       "scenario_descriptions": {
-        "R18-success": "200 with MarketSupportContextResponse; preserve fields and types, not JSON spelling",
-        "R18-admission": "enforce S: enabled support; approved ADMIN; both capabilities; actor-owned without cross-organization access"
+        "W18-success": "200 with MarketSupportContextResponse; preserve fields and types, not JSON spelling",
+        "W18-admission": "enforce S: enabled support; approved ADMIN; both capabilities; actor-owned without cross-organization access"
       }
     },
     {
@@ -1084,8 +1276,8 @@
         "handler": "create_authorization"
       },
       "required_scenarios": [
-        "R19-success",
-        "R19-admission"
+        "W19-success",
+        "W19-admission"
       ],
       "owning_task": 9,
       "group": "C",
@@ -1120,8 +1312,8 @@
         "idempotency_key_header": "Annotated[str | None, Header(alias='Idempotency-Key')]"
       },
       "scenario_descriptions": {
-        "R19-success": "410 with error envelope; preserve fields and types, not JSON spelling",
-        "R19-admission": "enforce S: enabled support; approved ADMIN; retirement before capability check without cross-organization access"
+        "W19-success": "410 with error envelope; preserve fields and types, not JSON spelling",
+        "W19-admission": "enforce S: enabled support; approved ADMIN; retirement before capability check without cross-organization access"
       }
     },
     {
@@ -1144,8 +1336,8 @@
         "handler": "list_authorizations"
       },
       "required_scenarios": [
-        "R20-success",
-        "R20-admission"
+        "W20-success",
+        "W20-admission"
       ],
       "owning_task": 9,
       "group": "C",
@@ -1169,6 +1361,21 @@
           "status": 403,
           "condition": "required capability absent",
           "code": "MARKET_SUPPORT_CAPABILITY_REQUIRED"
+        },
+        {
+          "status": 404,
+          "condition": "organization missing",
+          "code": null
+        },
+        {
+          "status": 409,
+          "condition": "organization is not approved",
+          "code": "ORGANIZATION_NOT_APPROVED"
+        },
+        {
+          "status": 409,
+          "condition": "organization is not real",
+          "code": "ORGANIZATION_NOT_REAL"
         }
       ],
       "source_request_annotations": {
@@ -1179,8 +1386,8 @@
         "limit": "Annotated[int, Query(ge=1, le=100)]"
       },
       "scenario_descriptions": {
-        "R20-success": "200 with AuthorizationPage; preserve fields and types, not JSON spelling",
-        "R20-admission": "enforce S: enabled support; approved ADMIN; authorization capability without cross-organization access"
+        "W20-success": "200 with AuthorizationPage; preserve fields and types, not JSON spelling",
+        "W20-admission": "enforce S: enabled support; approved ADMIN; authorization capability without cross-organization access"
       }
     },
     {
@@ -1203,8 +1410,8 @@
         "handler": "create_listing"
       },
       "required_scenarios": [
-        "R21-success",
-        "R21-admission"
+        "W21-success",
+        "W21-admission"
       ],
       "owning_task": 9,
       "group": "C",
@@ -1240,8 +1447,8 @@
         "idempotency_key_header": "Annotated[str | None, Header(alias='Idempotency-Key')]"
       },
       "scenario_descriptions": {
-        "R21-success": "410 with error envelope; preserve fields and types, not JSON spelling",
-        "R21-admission": "enforce S: enabled support; approved ADMIN; retirement before capability check without cross-organization access"
+        "W21-success": "410 with error envelope; preserve fields and types, not JSON spelling",
+        "W21-admission": "enforce S: enabled support; approved ADMIN; retirement before capability check without cross-organization access"
       }
     },
     {
@@ -1264,8 +1471,8 @@
         "handler": "list_listings"
       },
       "required_scenarios": [
-        "R22-success",
-        "R22-admission"
+        "W22-success",
+        "W22-admission"
       ],
       "owning_task": 9,
       "group": "C",
@@ -1289,6 +1496,21 @@
           "status": 403,
           "condition": "required capability absent",
           "code": "MARKET_SUPPORT_CAPABILITY_REQUIRED"
+        },
+        {
+          "status": 404,
+          "condition": "organization missing",
+          "code": null
+        },
+        {
+          "status": 409,
+          "condition": "organization is not approved",
+          "code": "ORGANIZATION_NOT_APPROVED"
+        },
+        {
+          "status": 409,
+          "condition": "organization is not real",
+          "code": "ORGANIZATION_NOT_REAL"
         }
       ],
       "source_request_annotations": {
@@ -1299,8 +1521,8 @@
         "limit": "Annotated[int, Query(ge=1, le=100)]"
       },
       "scenario_descriptions": {
-        "R22-success": "200 with AssistedListingPage; preserve fields and types, not JSON spelling",
-        "R22-admission": "enforce S: enabled support; approved ADMIN; listing capability without cross-organization access"
+        "W22-success": "200 with AssistedListingPage; preserve fields and types, not JSON spelling",
+        "W22-admission": "enforce S: enabled support; approved ADMIN; listing capability without cross-organization access"
       }
     },
     {
@@ -1323,8 +1545,8 @@
         "handler": "cancel_listing"
       },
       "required_scenarios": [
-        "R23-success",
-        "R23-admission"
+        "W23-success",
+        "W23-admission"
       ],
       "owning_task": 9,
       "group": "C",
@@ -1361,8 +1583,8 @@
         "if_match": "Annotated[str | None, Header(alias='If-Match')]"
       },
       "scenario_descriptions": {
-        "R23-success": "410 with error envelope; preserve fields and types, not JSON spelling",
-        "R23-admission": "enforce S: enabled support; approved ADMIN; retirement before capability check without cross-organization access"
+        "W23-success": "410 with error envelope; preserve fields and types, not JSON spelling",
+        "W23-admission": "enforce S: enabled support; approved ADMIN; retirement before capability check without cross-organization access"
       }
     },
     {
@@ -1385,8 +1607,8 @@
         "handler": "revoke_authorization"
       },
       "required_scenarios": [
-        "R24-success",
-        "R24-admission"
+        "W24-success",
+        "W24-admission"
       ],
       "owning_task": 9,
       "group": "C",
@@ -1421,8 +1643,8 @@
         "current_user": "Annotated[User, Depends(require_market_support_admin)]"
       },
       "scenario_descriptions": {
-        "R24-success": "410 with error envelope; preserve fields and types, not JSON spelling",
-        "R24-admission": "enforce S: enabled support; approved ADMIN; retirement before capability check without cross-organization access"
+        "W24-success": "410 with error envelope; preserve fields and types, not JSON spelling",
+        "W24-admission": "enforce S: enabled support; approved ADMIN; retirement before capability check without cross-organization access"
       }
     },
     {
@@ -1445,8 +1667,8 @@
         "handler": "organization_context"
       },
       "required_scenarios": [
-        "R25-success",
-        "R25-admission"
+        "W25-success",
+        "W25-admission"
       ],
       "owning_task": 10,
       "group": "C",
@@ -1470,6 +1692,21 @@
           "status": 403,
           "condition": "required capability absent",
           "code": "MARKET_SUPPORT_CAPABILITY_REQUIRED"
+        },
+        {
+          "status": 404,
+          "condition": "organization missing",
+          "code": null
+        },
+        {
+          "status": 409,
+          "condition": "organization is not approved",
+          "code": "ORGANIZATION_NOT_APPROVED"
+        },
+        {
+          "status": 409,
+          "condition": "organization is not real",
+          "code": "ORGANIZATION_NOT_REAL"
         }
       ],
       "source_request_annotations": {
@@ -1478,8 +1715,8 @@
         "current_user": "Annotated[User, Depends(require_market_support_admin)]"
       },
       "scenario_descriptions": {
-        "R25-success": "200 with MarketSupportContext; preserve fields and types, not JSON spelling",
-        "R25-admission": "enforce S: enabled support; approved ADMIN; both capabilities without cross-organization access"
+        "W25-success": "200 with MarketSupportContext; preserve fields and types, not JSON spelling",
+        "W25-admission": "enforce S: enabled support; approved ADMIN; both capabilities without cross-organization access"
       }
     },
     {
@@ -1502,11 +1739,11 @@
         "handler": "list_all_commissions"
       },
       "required_scenarios": [
-        "R26-success",
-        "R26-admission",
-        "R26-empty",
-        "R26-1001",
-        "R26-legacy-only"
+        "W26-success",
+        "W26-admission",
+        "W26-empty",
+        "W26-1001",
+        "W26-legacy-only"
       ],
       "owning_task": 11,
       "group": "A",
@@ -1527,11 +1764,11 @@
         "db": "AsyncSession"
       },
       "scenario_descriptions": {
-        "R26-success": "200 with list[CommissionResponse]; preserve fields and types, not JSON spelling",
-        "R26-admission": "enforce U: approved account; ADMIN without cross-organization access",
-        "R26-empty": "empty disposable commission table returns []",
-        "R26-1001": "1001 disposable legacy rows return 1001 array items without paging",
-        "R26-legacy-only": "unlinked legacy commission rows remain readable; no trade-fee accrual"
+        "W26-success": "200 with list[CommissionResponse]; preserve fields and types, not JSON spelling",
+        "W26-admission": "enforce U: approved account; ADMIN without cross-organization access",
+        "W26-empty": "empty disposable commission table returns []",
+        "W26-1001": "1001 disposable legacy rows return 1001 array items without paging",
+        "W26-legacy-only": "unlinked legacy commission rows remain readable; no trade-fee accrual"
       }
     },
     {
@@ -1554,8 +1791,8 @@
         "handler": "get_commission_summary"
       },
       "required_scenarios": [
-        "R27-success",
-        "R27-admission"
+        "W27-success",
+        "W27-admission"
       ],
       "owning_task": 11,
       "group": "A",
@@ -1576,8 +1813,8 @@
         "db": "AsyncSession"
       },
       "scenario_descriptions": {
-        "R27-success": "200 with CommissionSummary; preserve fields and types, not JSON spelling",
-        "R27-admission": "enforce U: approved account; ADMIN without cross-organization access"
+        "W27-success": "200 with CommissionSummary; preserve fields and types, not JSON spelling",
+        "W27-admission": "enforce U: approved account; ADMIN without cross-organization access"
       }
     },
     {
@@ -1600,8 +1837,8 @@
         "handler": "update_commission"
       },
       "required_scenarios": [
-        "R28-success",
-        "R28-admission"
+        "W28-success",
+        "W28-admission"
       ],
       "owning_task": 11,
       "group": "A",
@@ -1630,17 +1867,17 @@
         "db": "AsyncSession"
       },
       "scenario_descriptions": {
-        "R28-success": "200 with CommissionResponse; preserve fields and types, not JSON spelling",
-        "R28-admission": "enforce U: approved account; ADMIN without cross-organization access"
+        "W28-success": "200 with CommissionResponse; preserve fields and types, not JSON spelling",
+        "W28-admission": "enforce U: approved account; ADMIN without cross-organization access"
       }
     }
   ],
   "invariants": [
     {
-      "scenario_id": "R29",
+      "scenario_id": "W29",
       "description": "complete party preview, sorted organizations and users precede slices; drift restarts without late locks",
       "required_scenarios": [
-        "R29-invariant"
+        "W29-invariant"
       ],
       "owning_tasks": [
         3,
@@ -1648,20 +1885,20 @@
       ]
     },
     {
-      "scenario_id": "R30",
+      "scenario_id": "W30",
       "description": "prepare response before commit; distinguish failed, committed and ambiguous outcomes; never retry unknown commit",
       "required_scenarios": [
-        "R30-invariant"
+        "W30-invariant"
       ],
       "owning_tasks": [
         6
       ]
     },
     {
-      "scenario_id": "R31",
+      "scenario_id": "W31",
       "description": "rebuild both benchmark sides for every changed order slice",
       "required_scenarios": [
-        "R31-invariant"
+        "W31-invariant"
       ],
       "owning_tasks": [
         5,
@@ -1669,20 +1906,20 @@
       ]
     },
     {
-      "scenario_id": "R32",
+      "scenario_id": "W32",
       "description": "amendment fields distinguish omitted, clearable and required-if-present values before locks",
       "required_scenarios": [
-        "R32-invariant"
+        "W32-invariant"
       ],
       "owning_tasks": [
         20
       ]
     },
     {
-      "scenario_id": "R33",
+      "scenario_id": "W33",
       "description": "publication replay binds the recorded owner and accountable actor and survives admission change",
       "required_scenarios": [
-        "R33-invariant"
+        "W33-invariant"
       ],
       "owning_tasks": [
         6,
@@ -1690,20 +1927,20 @@
       ]
     },
     {
-      "scenario_id": "R34",
+      "scenario_id": "W34",
       "description": "newly execution-qualified order gets a new slice-locked acceptance ordinal",
       "required_scenarios": [
-        "R34-invariant"
+        "W34-invariant"
       ],
       "owning_tasks": [
         20
       ]
     },
     {
-      "scenario_id": "R35",
+      "scenario_id": "W35",
       "description": "derive public events from committed before/after evidence, captured subscriptions and full public scope; deduplicate restart replay",
       "required_scenarios": [
-        "R35-invariant"
+        "W35-invariant"
       ],
       "owning_tasks": [
         5,
@@ -1713,20 +1950,20 @@
       ]
     },
     {
-      "scenario_id": "R36",
+      "scenario_id": "W36",
       "description": "suggestion candidates use the shared public relation and private-field projection",
       "required_scenarios": [
-        "R36-invariant"
+        "W36-invariant"
       ],
       "owning_tasks": [
         25
       ]
     },
     {
-      "scenario_id": "R37",
+      "scenario_id": "W37",
       "description": "recorded-party cleanup remains available after rejection or detachment; confirm requires fresh admission",
       "required_scenarios": [
-        "R37-invariant"
+        "W37-invariant"
       ],
       "owning_tasks": [
         22,
@@ -1734,30 +1971,30 @@
       ]
     },
     {
-      "scenario_id": "R38",
+      "scenario_id": "W38",
       "description": "commission updates serialize and audit locked before and after values",
       "required_scenarios": [
-        "R38-invariant"
+        "W38-invariant"
       ],
       "owning_tasks": [
         11
       ]
     },
     {
-      "scenario_id": "R39",
+      "scenario_id": "W39",
       "description": "commission administration reads only legacy commission rows; trade fee snapshots remain separate",
       "required_scenarios": [
-        "R39-invariant"
+        "W39-invariant"
       ],
       "owning_tasks": [
         11
       ]
     },
     {
-      "scenario_id": "R40",
+      "scenario_id": "W40",
       "description": "manual and automatic confirmation share one exactly-once referral activation effect",
       "required_scenarios": [
-        "R40-invariant"
+        "W40-invariant"
       ],
       "owning_tasks": [
         18,
@@ -1767,7 +2004,7 @@
   ],
   "schema_change_set": {
     "baseline_sha": "274bd3ab737621339d158ab4795578009de5bf4f",
-    "completion_gate": "PHASE8_COMPLETENESS=1 and PHASE8_SCHEMA_BASE=<Task 5a integrated predecessor full SHA>; Task 14 after Task 5a; PostgreSQL definition and ACL proof remain Task 5a gates",
+    "completion_gate": "PHASE8_COMPLETENESS=1 and PHASE8_SCHEMA_BASE=<Task 5a integrated predecessor full SHA>; Task 14 after Task 5a; revisions added by other phases after the recorded base do not belong to this change set and do not fail it; PostgreSQL definition and ACL proof remain Task 5a gates",
     "added_migrations": [
       "alembic/versions/p89_20261022_watchlist_producer.py"
     ],
@@ -1827,6 +2064,25 @@
       "modify pre-existing migration",
       "new dispatcher",
       "transport serialization of producer_evidence"
-    ]
+    ],
+    "permitted_migration_operations": {
+      "ddl": [
+        "add_column",
+        "create_table",
+        "create_check_constraint",
+        "create_index"
+      ],
+      "reviewed_calls": [
+        "op.get_bind",
+        "op.get_context"
+      ],
+      "reviewed_statements": [
+        "UPDATE watchlist_events SET producer = 'legacy-python'"
+      ],
+      "inline_checks": [
+        "watchlist_events.producer"
+      ],
+      "other_phase_note": "the Task 14 diff scope check attributes only pre-existing-file edits to this phase; additions by other phases are permitted"
+    }
   }
 }
