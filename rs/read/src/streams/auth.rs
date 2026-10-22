@@ -175,12 +175,14 @@ pub fn admit_organization(verification_status: Option<&str>) -> Result<(), Strea
     }
 }
 
-/// The account and its current organization, read by one statement so both
-/// come from the same snapshot.
+/// The account, its current organization and the state of the token's
+/// organization, read by one statement so all come from the same snapshot.
+/// Reading the token's organization keeps membership and organization state
+/// separate rules; an admitted account belongs to that organization.
 const ADMISSION_STATE: &str = "SELECT u.organization_id, u.status::text AS status, \
      u.must_change_password, u.password_changed_at, u.authentication_revoked_at, \
      o.verification_status::text AS organization_status \
-     FROM users u LEFT JOIN organizations o ON o.id = u.organization_id \
+     FROM users u LEFT JOIN organizations o ON o.id = $2 \
      WHERE u.id = $1";
 
 #[derive(sqlx::FromRow)]
@@ -207,6 +209,7 @@ pub async fn revalidate(
 ) -> Result<(), StreamError> {
     let state: Option<AdmissionState> = sqlx::query_as(ADMISSION_STATE)
         .bind(principal.user_id)
+        .bind(principal.organization_id)
         .fetch_optional(&mut *db)
         .await
         .map_err(|_| StreamError::AuthorizationUnavailable)?;
