@@ -1,5 +1,4 @@
-//! Token verification and issuance, password primitives and the auth HTTP
-//! boundary (cookies, origin rule, errors and body limit).
+//! Token verification, token issuance and password primitives.
 mod actor;
 mod claims;
 pub mod cookies;
