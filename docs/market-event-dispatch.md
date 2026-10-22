@@ -85,12 +85,28 @@ Nothing in this repository deletes outbox rows automatically, and no timer
 for it exists or is installed.
 
 - Retention window: keep sequenced rows (`stream_seq IS NOT NULL`) for **14
-  days**. The window bounds `Last-Event-ID` replay: a client reconnecting
-  with a cursor older than the horizon receives only retained events and
-  must treat the gap as a full-resync signal (refetch via REST).
-- Rows with `stream_seq IS NULL` are pending dispatch and must never be
-  pruned.
-- Operator statement (manual, environment-attested session, migrator role):
+  days**. The durable `market_event_replay_state.discarded_through_seq` coverage
+  barrier advances in the same transaction as each authorized deletion. A Rust
+  replay cursor below that barrier receives a terminal `replay_retention` reset
+  and must reload REST state. Cursor equal to the barrier remains usable.
+- Rows with `stream_seq IS NULL` are pending dispatch and cannot be deleted.
+  `TRUNCATE` is refused, including under replica session mode. Do not disable
+  triggers for online pruning.
+- `market_event_retention_control` defaults to `blocked`. Keep it blocked while
+  Python owns any private stream, during selector changes or drains, when drain
+  evidence is unknown, or while Rust streams are unavailable. A selector reload
+  alone does not authorize pruning. Only a separately authorized operator transaction after verified
+  Rust-only ownership and drain may record `rust_active` with exact environment,
+  release SHA, selector digest, completed drain and increasing ownership epoch.
+  The deployment owner supplies the reviewed ownership-transition procedure;
+  this migration does not authorize activation.
+- Before rollback or a selector change to Python, commit `blocked` under
+  `FOR UPDATE` on the ownership row. This waits for any authorized in-flight
+  prune, which holds `FOR SHARE`. Record the current floor and drain evidence
+  privately; Python active cursor coverage is unknown. Leave the additive
+  tables, triggers and floor installed. Never lower the floor.
+- Operator statement (manual, environment-attested session, migrator role,
+  **only after** independent ownership authorization):
 
   ```sql
   DELETE FROM market_event_outbox

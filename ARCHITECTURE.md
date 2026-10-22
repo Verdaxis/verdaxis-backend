@@ -26,6 +26,16 @@ is activated, and empty targets are not acceptance evidence. Token issuance
 remains authentication-owned; activity remains Python-owned. Watchlist producers
 are not part of this component.
 
+The additive `sse_20261021_replay_floor` migration owns the replay coverage
+singleton, retention ownership singleton, outbox DELETE/TRUNCATE triggers and
+participant-membership GIN index. The app and backup roles can only read the
+new tables. Pruning defaults to blocked and requires an independently authorized
+Rust ownership record. `streams/store.rs` uses short read-only repeatable-read
+snapshots for participant-scoped pages and their coverage boundary, with metadata
+checks before payload decoding. The component remains inactive; no stream route,
+sequencer or prune job is started. Schema/ACL and read-store proofs use
+`tests/postgres/test_phase6_retention.py` and `rs/read/tests/streams_store.rs`.
+
 ## Rust Phase 2 feedback
 
 `rs/read/src/crud/feedback.rs` provides the Task 10 feedback submission and
