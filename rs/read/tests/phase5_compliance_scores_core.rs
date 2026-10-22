@@ -6,13 +6,13 @@
 use rust_decimal::Decimal;
 use serde_json::json;
 use verdaxis_read::compliance::scoring::{
-    CalculationStatus, ComplianceStatus, DEFAULT_ETS_PRICE_EUR, FUEL_INTENSITIES, ScoreInput,
-    TrafficLight, cii_result, compliance_score, ets_phase_in, ets_result, fueleu_band,
-    known_fuel_intensity, status_for, weighted_intensity,
+    cii_result, compliance_score, ets_phase_in, ets_result, fueleu_band, known_fuel_intensity,
+    status_for, weighted_intensity, CalculationStatus, ComplianceStatus, ScoreInput, TrafficLight,
+    DEFAULT_ETS_PRICE_EUR, FUEL_INTENSITIES,
 };
 use verdaxis_read::compliance::validation::{
-    FuelMix, MAX_FUEL_KEY_BYTES, MAX_MIX_ENTRIES, MixErrorKind, RawMixEntry, ReportingYear,
-    fuel_mix_from_json, validate_fuel_mix,
+    fuel_mix_from_json, validate_fuel_mix, FuelMix, MixErrorKind, RawMixEntry, ReportingYear,
+    MAX_FUEL_KEY_BYTES, MAX_MIX_ENTRIES,
 };
 
 fn decimal(text: &str) -> Decimal {
@@ -142,11 +142,17 @@ fn compliance_mix_cases() {
         serde_json::from_str(r#"{"VLSFO": 0.9, "Methanol": 1e-1}"#).expect("valid JSON");
     let parsed = fuel_mix_from_json(&document).expect("a valid mix object");
     assert_eq!(parsed.fraction("Methanol"), Some(decimal("0.1")));
+    let dashboard_request = json!({
+        "vessel_id": "e0b1c0de-0000-4000-8000-000000000001",
+        "fuel_mix": {"VLSFO": "0.5", "Methanol": "0.5"},
+        "year": 2026
+    });
+    let dashboard_mix = fuel_mix_from_json(&dashboard_request["fuel_mix"])
+        .expect("both dashboard clients send decimal strings");
+    assert_eq!(dashboard_mix.fraction("Methanol"), Some(decimal("0.5")));
     assert_eq!(
-        fuel_mix_from_json(&json!({"VLSFO": "0.5"}))
-            .unwrap_err()
-            .kind,
-        MixErrorKind::InvalidCoefficient
+        weighted_intensity(&dashboard_mix).round_dp(2),
+        decimal("61.08")
     );
     assert_eq!(
         fuel_mix_from_json(&json!([])).unwrap_err().kind,
@@ -164,6 +170,63 @@ fn unnamed_entries(count: usize) -> Vec<RawMixEntry> {
     (0..count)
         .map(|index| RawMixEntry::new(format!("future-{index}"), "0.5"))
         .collect()
+}
+
+#[test]
+fn compliance_mix_json_cases() {
+    for (token, expected) in [("0.5", "0.5"), (".5", "0.5"), ("1e-1", "0.1")] {
+        let other = (Decimal::ONE - decimal(expected)).to_string();
+        let parsed = fuel_mix_from_json(&json!({"VLSFO": token, "Methanol": other}))
+            .expect("decimal string shares are accepted");
+        assert_eq!(parsed.fraction("VLSFO"), Some(decimal(expected)));
+    }
+    for (token, kind) in [
+        ("NaN", MixErrorKind::InvalidCoefficient),
+        ("Infinity", MixErrorKind::InvalidCoefficient),
+        ("", MixErrorKind::InvalidCoefficient),
+        ("abc", MixErrorKind::InvalidCoefficient),
+        ("1e1", MixErrorKind::ExponentOutOfRange),
+        ("0.0000000000001", MixErrorKind::ExponentOutOfRange),
+        ("1234567890123456789", MixErrorKind::CoefficientTooLong),
+        ("-0.1", MixErrorKind::FractionOutOfRange),
+    ] {
+        assert_eq!(
+            fuel_mix_from_json(&json!({"VLSFO": token}))
+                .unwrap_err()
+                .kind,
+            kind,
+            "string {token}"
+        );
+        assert_eq!(rejected(&[("VLSFO", token)]), kind, "literal {token}");
+    }
+    for value in [json!(true), json!(null), json!([]), json!({})] {
+        assert_eq!(
+            fuel_mix_from_json(&json!({"VLSFO": value}))
+                .unwrap_err()
+                .kind,
+            MixErrorKind::InvalidCoefficient
+        );
+    }
+    let mixed = fuel_mix_from_json(&json!({"VLSFO": 0.5, "Methanol": "0.5"}))
+        .expect("numbers and strings use the same exact parser");
+    assert_eq!(mixed.fraction("VLSFO"), Some(decimal("0.5")));
+}
+
+#[test]
+fn compliance_mix_json_key_cases() {
+    for (key, kind) in [
+        (
+            "f".repeat(MAX_FUEL_KEY_BYTES + 1),
+            MixErrorKind::FuelKeyTooLong,
+        ),
+        ("SomeFutureFuel".to_owned(), MixErrorKind::UnknownFuel),
+    ] {
+        let error = fuel_mix_from_json(&json!({key.clone(): null})).unwrap_err();
+        assert_eq!(error.kind, kind);
+        if kind == MixErrorKind::FuelKeyTooLong {
+            assert!(!error.message.contains(&key));
+        }
+    }
 }
 
 #[test]
@@ -273,6 +336,38 @@ fn compliance_mix_limits() {
     assert_eq!(ReportingYear::new(9999).unwrap().get(), 9999);
     assert_eq!(ReportingYear::default().get(), 2026);
     assert_eq!(reporting_year(9999).target(), decimal("18.2320"));
+}
+
+#[test]
+fn compliance_reporting_year_cases() {
+    use verdaxis_read::compliance::scoring::fueleu_result;
+    let fuel_mix = FuelMix::default_vlsfo();
+    for (year, expected) in [
+        (2025, "89.3368"),
+        (2029, "89.3368"),
+        (2030, "85.6904"),
+        (2034, "85.6904"),
+        (2035, "77.9418"),
+        (2039, "77.9418"),
+        (2040, "62.9004"),
+        (2044, "62.9004"),
+        (2045, "34.6408"),
+        (2049, "34.6408"),
+        (2050, "18.232"),
+        (2051, "18.232"),
+        (9999, "18.232"),
+    ] {
+        let year = reporting_year(year);
+        assert_eq!(year.target(), decimal(expected), "year {}", year.get());
+        assert_eq!(
+            fueleu_result(&fuel_mix, year, None)
+                .unwrap()
+                .target_intensity_gco2_mj,
+            decimal(expected),
+            "year {}",
+            year.get()
+        );
+    }
 }
 
 #[test]
@@ -421,17 +516,33 @@ fn compliance_score_cases() {
     assert_eq!(poor.status, ComplianceStatus::Critical);
     assert_eq!(poor.traffic_light, TrafficLight::Red);
     assert!(poor.recommendations.len() >= 3);
-    assert!(
-        poor.recommendations
-            .iter()
-            .any(|hint| hint.contains("FuelEU"))
-    );
+    for prefix in [
+        "Consider increasing",
+        "High ETS exposure",
+        "CII rating declining",
+    ] {
+        assert!(
+            poor.recommendations
+                .iter()
+                .any(|hint| hint.starts_with(prefix)),
+            "{prefix}"
+        );
+    }
+    let penalty = poor
+        .recommendations
+        .iter()
+        .find_map(|hint| hint.split_once("EUR ").map(|(_, amount)| amount))
+        .expect("the dashboard extracts the EUR amount");
+    assert!(penalty.starts_with(|ch: char| ch.is_ascii_digit()));
+    assert!(poor
+        .recommendations
+        .iter()
+        .any(|hint| hint.contains("FuelEU")));
     assert!(poor.recommendations.iter().any(|hint| hint.contains("CII")));
-    assert!(
-        poor.recommendations
-            .iter()
-            .any(|hint| hint.to_lowercase().contains("penalty"))
-    );
+    assert!(poor
+        .recommendations
+        .iter()
+        .any(|hint| hint.to_lowercase().contains("penalty")));
 
     // Half-even rounding of the weighted total keeps .5 values on the even side.
     assert_eq!(
@@ -506,7 +617,7 @@ fn compliance_score_cases() {
 
 #[test]
 fn compliance_score_input_cases() {
-    use verdaxis_read::compliance::scoring::{ScoreError, fueleu_result};
+    use verdaxis_read::compliance::scoring::{fueleu_result, ScoreError};
     let fuel_mix = mix(&[("VLSFO", "1")]);
     assert!(matches!(
         fueleu_result(&fuel_mix, reporting_year(2026), Some(Decimal::MAX)),
