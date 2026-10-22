@@ -625,6 +625,7 @@ async def test_fee_downgrade_fails_fast_during_idempotent_trade_read(
             assert refused.returncode != 0
             output = f"{refused.stdout}\n{refused.stderr}"
             assert "could not obtain lock on relation" in output
+            assert "LOCK TABLE subscriptions, trades IN ACCESS EXCLUSIVE MODE NOWAIT" in output
             assert "canceling statement due to lock timeout" not in output
 
             # The runtime transaction can continue through subscription
