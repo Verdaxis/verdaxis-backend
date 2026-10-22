@@ -3,7 +3,7 @@ pub use verdaxis_read::market;
 #[path = "../src/compliance/pricing.rs"]
 mod pricing;
 
-use pricing::{LifecycleOverlayCore, PricingError};
+use pricing::{AlcoholFamily, LifecycleOverlayCore, PricingError};
 use rust_decimal::Decimal;
 use serde_json::json;
 use std::str::FromStr;
@@ -43,10 +43,8 @@ fn compliance_pricing_cases() {
 #[test]
 fn compliance_pricing_lcv_cases() {
     for (product, expected) in [
-        ("BIO_METHANOL", "19.9"),
-        ("E_METHANOL", "19.9"),
-        ("BIO_ETHANOL", "26.8"),
-        ("SYNTHETIC_ETHANOL", "26.8"),
+        (AlcoholFamily::Methanol, "19.9"),
+        (AlcoholFamily::Ethanol, "26.8"),
     ] {
         let overlay = LifecycleOverlayCore::compute(Some(product), Some(decimal("31")), None)
             .unwrap()
@@ -65,38 +63,37 @@ fn compliance_pricing_lcv_cases() {
             "LISTING"
         );
         for invalid_lcv in [Decimal::ZERO, -Decimal::ONE] {
-            assert!(LifecycleOverlayCore::compute(
-                Some(product),
-                Some(decimal("31")),
-                Some(invalid_lcv),
-            )
-            .unwrap()
-            .is_none());
+            assert!(
+                LifecycleOverlayCore::compute(
+                    Some(product),
+                    Some(decimal("31")),
+                    Some(invalid_lcv),
+                )
+                .unwrap()
+                .is_none()
+            );
         }
     }
 }
 
 #[test]
 fn compliance_pricing_optional_cases() {
-    for product in [
+    for family in [
         None,
-        Some("BIO_METHANOL"),
-        Some("UCOME_B100"),
-        Some("OTHER"),
+        Some(AlcoholFamily::Methanol),
+        Some(AlcoholFamily::Ethanol),
     ] {
         assert!(
-            LifecycleOverlayCore::compute(product, None, Some(decimal("37")))
+            LifecycleOverlayCore::compute(family, None, Some(decimal("37")))
                 .unwrap()
                 .is_none()
         );
     }
-    for product in [None, Some("UCOME_B100"), Some("OTHER")] {
-        assert!(
-            LifecycleOverlayCore::compute(product, Some(decimal("31")), None)
-                .unwrap()
-                .is_none()
-        );
-    }
+    assert!(
+        LifecycleOverlayCore::compute(None, Some(decimal("31")), None)
+            .unwrap()
+            .is_none()
+    );
     for non_decimal in ["NaN", "Infinity", "-Infinity"] {
         assert!(Decimal::from_str(non_decimal).is_err());
     }

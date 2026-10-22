@@ -1,10 +1,17 @@
 //! Pure declared-lifecycle comparison and response assumptions.
-use crate::market::fueleu::{fueleu_target, YearError, FUELEU_REFERENCE_GHG};
+use crate::market::fueleu::{FUELEU_REFERENCE_GHG, YearError, fueleu_target};
 use rust_decimal::{Decimal, RoundingStrategy};
 use serde::Serialize;
 use std::fmt;
 
 pub struct LifecycleOverlayCore;
+
+/// The route selects this physical family from catalog policy, not user text.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AlcoholFamily {
+    Methanol,
+    Ethanol,
+}
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct ListingOverlay {
@@ -75,7 +82,7 @@ impl LifecycleOverlayCore {
     /// Decimal inputs are finite by construction. Missing CI is never inferred
     /// from a product label; a supplied nonpositive LCV does not use a default.
     pub fn compute(
-        market_product: Option<&str>,
+        alcohol_family: Option<AlcoholFamily>,
         listing_ci_gco2_mj: Option<Decimal>,
         listing_lcv_mj_kg: Option<Decimal>,
     ) -> Result<Option<ListingOverlay>, PricingError> {
@@ -84,13 +91,9 @@ impl LifecycleOverlayCore {
         };
         let (lcv, lcv_basis) = match listing_lcv_mj_kg {
             Some(lcv) => (lcv, ValueBasis::Listing),
-            None => match market_product {
-                Some("BIO_METHANOL" | "E_METHANOL") => {
-                    (Decimal::new(199, 1), ValueBasis::ProductDefault)
-                }
-                Some("BIO_ETHANOL" | "SYNTHETIC_ETHANOL") => {
-                    (Decimal::new(268, 1), ValueBasis::ProductDefault)
-                }
+            None => match alcohol_family {
+                Some(AlcoholFamily::Methanol) => (Decimal::new(199, 1), ValueBasis::ProductDefault),
+                Some(AlcoholFamily::Ethanol) => (Decimal::new(268, 1), ValueBasis::ProductDefault),
                 _ => return Ok(None),
             },
         };
