@@ -882,7 +882,7 @@ def test_evidence_journey_wrong_path_refused(world):
 def test_evidence_unrelated_compile_error_refused(world, diagnostic):
     world.edit("backend-red-m1.log",
                "error[E0432]: unresolved import `verdaxis_read::streams::bus`", diagnostic)
-    refused(world, "RED missing interface diagnostic required: E032")
+    refused(world, "RED missing interface diagnostic required: T01")
 
 
 def test_evidence_nonassertion_exception_refused(world):
