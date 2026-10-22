@@ -1,9 +1,10 @@
 //! Phase 5 Task 2a: the public market read boundary.
 //!
-//! These tests exercise the structured read failures through the real
-//! middleware composition, so they assert what a browser client receives:
-//! status, CORS and correlation headers, and a typed error envelope that holds
-//! no partial data and no internal text.
+//! These constructor tests exercise structured read failures through the HTTP
+//! middleware (without database admission): status, CORS and correlation headers,
+//! and a typed error envelope with no partial data or internal text.
+//! Demand query-limit validation belongs to the demand route tests, not these
+//! constructor tests.
 //!
 //! `routes::market_data_error` enters the library through the integration
 //! owner's `routes/mod.rs` registration, a file this lane may not edit. The
@@ -20,7 +21,7 @@ mod market_data_error;
 mod public_fixture;
 
 use axum::{Router, http::StatusCode, response::IntoResponse, routing::get};
-use public_fixture::{LogCapture, ORIGIN, REQUEST_ID, json_body, request};
+use public_fixture::{DatabaseFailure, LogCapture, ORIGIN, REQUEST_ID, json_body, request};
 
 fn read_router(path: &'static str, error: fn() -> ApiError) -> Router {
     Router::new().route(path, get(move || async move { error().into_response() }))
@@ -112,7 +113,8 @@ async fn phase5_public_boundary_result_cap() {
 }
 
 #[tokio::test]
-async fn phase5_public_boundary_invalid_input() {
+async fn phase5_invalid_input_constructor() {
+    // The handler constructs an error; it does not parse or validate the query.
     let response = request(
         runtime::http::middleware(read_router("/api/demand", || {
             market_data_error::invalid_input("limit must be between 1 and 512")
@@ -150,7 +152,41 @@ async fn phase5_public_boundary_keeps_phase1_envelopes() {
 }
 
 #[tokio::test]
-async fn phase5_diagnostic_fields() {
+async fn phase5_database_failure_cases() {
+    for (source, sqlstate, error_class, retryable) in [
+        (sqlx::Error::PoolTimedOut, "", "pool_timeout", true),
+        (sqlx::Error::PoolClosed, "", "pool_closed", true),
+        (sqlx::Error::RowNotFound, "", "row_not_found", false),
+    ]
+    .into_iter()
+    .chain(
+        [
+            ("55P03", true),
+            ("40P01", true),
+            ("40001", true),
+            ("57014", true),
+            ("23505", false),
+        ]
+        .into_iter()
+        .map(|(code, retryable)| {
+            (
+                sqlx::Error::Database(Box::new(DatabaseFailure(code))),
+                code,
+                "database",
+                retryable,
+            )
+        }),
+    ) {
+        assert_database_failure(source, sqlstate, error_class, retryable).await;
+    }
+}
+
+async fn assert_database_failure(
+    source: sqlx::Error,
+    sqlstate: &str,
+    error_class: &str,
+    retryable: bool,
+) {
     let capture = LogCapture::default();
     let writer = capture.clone();
     let subscriber = tracing_subscriber::fmt()
@@ -158,37 +194,70 @@ async fn phase5_diagnostic_fields() {
         .without_time()
         .with_writer(move || writer.clone())
         .finish();
-
     let error = tracing::subscriber::with_default(subscriber, || {
-        market_data_error::database_failure("availability", &sqlx::Error::PoolTimedOut)
+        market_data_error::database_failure("availability", &source)
     });
+    assert_eq!(error.kind, ApiErrorKind::Database, "{source:?}");
+
     let response = error.into_response();
-    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-    let body = json_body(response).await;
-    assert_eq!(body["detail"]["code"], "READ_UNAVAILABLE");
-    let exposed = body.to_string();
-    assert!(
-        !exposed.contains("availability"),
-        "no stage in body: {exposed}"
+    let (status, code, message) = if retryable {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "READ_UNAVAILABLE",
+            "Market data is temporarily unavailable; retry shortly.",
+        )
+    } else {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "READ_FAILED",
+            "Market data could not be read.",
+        )
+    };
+    assert_eq!(response.status(), status, "{source:?}");
+    assert_eq!(
+        response
+            .headers()
+            .get("retry-after")
+            .map(|value| value.to_str().unwrap()),
+        retryable.then_some("1"),
+        "{source:?}"
     );
-    assert!(!exposed.contains("pool"), "no class in body: {exposed}");
+    assert_eq!(
+        json_body(response).await,
+        serde_json::json!({"detail": {"code": code, "message": message}}),
+        "{source:?}"
+    );
 
     let events = capture.events();
-    assert_eq!(events.len(), 1, "one event per failure: {events:?}");
+    assert_eq!(events.len(), 1, "one event per failure: {source:?}");
     let fields = events[0]["fields"].as_object().unwrap();
     let mut keys: Vec<_> = fields.keys().map(String::as_str).collect();
     keys.sort_unstable();
     assert_eq!(keys, ["error_class", "message", "sqlstate", "stage"]);
     assert_eq!(fields["stage"], "availability");
-    assert_eq!(fields["error_class"], "pool_timeout");
-    assert_eq!(fields["sqlstate"], "");
+    assert_eq!(fields["error_class"], error_class);
     assert_eq!(fields["message"], "admitted_database_failure");
+    assert_eq!(fields["sqlstate"], sqlstate);
+    let code = fields["sqlstate"].as_str().unwrap();
+    assert!(
+        code.is_empty()
+            || (code.len() == 5
+                && code
+                    .bytes()
+                    .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit()))
+    );
+}
 
-    // An unexpected database result still uses the scoped structured envelope.
-    let error = market_data_error::database_failure("availability", &sqlx::Error::RowNotFound);
-    let response = error.into_response();
-    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
-    let body = json_body(response).await;
-    assert_eq!(body["detail"]["code"], "READ_FAILED");
-    assert!(!body["detail"]["message"].as_str().unwrap().is_empty());
+#[tokio::test]
+async fn phase5_diagnostic_fields() {
+    // SQLSTATE metadata is either five uppercase ASCII letters/digits or empty.
+    for code in ["", "2350", "235050", "abcde", "23é5", "23 05"] {
+        assert_database_failure(
+            sqlx::Error::Database(Box::new(DatabaseFailure(code))),
+            "",
+            "database",
+            false,
+        )
+        .await;
+    }
 }
