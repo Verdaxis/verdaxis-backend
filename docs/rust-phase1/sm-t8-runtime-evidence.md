@@ -120,6 +120,49 @@ Limits of this evidence:
 | Full Rust disposable PostgreSQL runner, 280 passed | staging | 0 |
 | `cd rs && cargo audit` | staging | 0 |
 
+## Review round 3 — 22 October 2026
+
+The tests-only commit `51c0888cc5cc068690e80664d266be42f362f50b`
+adds a public-helper schedule for order expiry and tape departure. Request A
+captures the earlier clock and waits after snapshot admission. B advances past
+the row's departure and stores an empty result, then releases A. No writer
+changes the generation. RED returned zero for A in both cases with one load,
+instead of one with two loads (PostgreSQL driver exit 1; fourteen cases passed,
+one failed). GREEN on `d35db8cebe179575f11ad5028272cb12346c1a25`
+returns A's earlier row and preserves B's empty entry for the next request.
+
+`dead0672` stores each entry's evaluation clock, checks the request against its
+lower bound and upper boundary, and orders equal-generation replacement by
+evaluation time. Authority, current-time expiry, lease and fence checks remain.
+The extra unit case for same-generation replacement was added with the fix and
+has GREEN coverage, not separate RED evidence. `d35db8ce` applies remote rustfmt.
+
+| Gate on `d35db8cebe179575f11ad5028272cb12346c1a25` | Host | Exit |
+| --- | --- | ---: |
+| Focused PostgreSQL GREEN | staging | 0 |
+| Formatting | remote M1 | 0 |
+| Workspace/all-target clippy, warnings denied | remote M1 | 0 |
+| Offline workspace tests | remote M1 | 0 |
+| Full Python cache-event suite, 31 passed | staging | 0 |
+| Seeded market contract, six passed | staging | 0 |
+| Full Rust PostgreSQL runner | staging | 0 |
+| `cd rs && cargo audit` | remote M1 | 0 |
+| Full Python unit suite, 2534 passed | staging | 0 |
+
+The round-2 Python release interruption failure is inherited and timing-sensitive;
+its test-hygiene fix belongs to a separate lane. It did not fail in this run.
+Python emitted existing warnings, including an aiosqlite thread warning.
+
+Host exception: the M1 returned between calls, so `verdaxis-m1-test` routed the
+first batch to the remote M1, not staging. Its Linux-only gates could not run,
+and the full Python suite had the documented macOS Bash failures. Those results
+are not Linux gate evidence. The Linux gates were then run on staging. A network
+interruption hid the original staging run, which later terminated with exit 143;
+a queued retry completed every Linux gate with batch and wrapper exit 0. The
+successful staging batch records RED at 22:18:15Z and final completion at
+23:03:43Z on 22 October. Raw logs and exact commands remain in ignored `work/`.
+No build or test ran on the operator Mac; no measurements were run.
+
 ## Resume point and limits
 
 Trading caching remains inactive in serving routes. The prepared-budget listener
