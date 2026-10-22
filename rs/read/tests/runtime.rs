@@ -18,6 +18,7 @@ fn staging() -> Config {
         python_budget: 52,
         configured_max_connections: 100,
         prepared_budget: None,
+        compliance_eur_usd_rate: None,
     }
 }
 
@@ -481,6 +482,53 @@ fn deployed_environment_refuses_an_incomplete_or_foreign_contract() {
         config_from_deployed_environment(&ambiguous, bind, &budget_document(compiled_sha()))
             .is_err()
     );
+}
+
+#[test]
+fn compliance_exchange_rate_is_an_optional_positive_decimal() {
+    use verdaxis_read::runtime::config::config_from_deployed_environment;
+    let rate = |text: &str| text.parse::<rust_decimal::Decimal>().unwrap();
+
+    // The contract harness document: an absent key leaves the published
+    // default rate to the pricing core.
+    let mut input = serde_json::json!({
+        "environment": "test", "release_sha": compiled_sha(),
+        "migration_revision": "kycg_20261014_staging",
+        "database_url": "postgres://rust_app:pw@127.0.0.1:12345/verdaxis_test",
+        "bind": "127.0.0.1:0", "pool_max": 17, "python_budget": 52,
+        "configured_max_connections": 100, "db_session_time_zone": "UTC"
+    });
+    let config: Config = serde_json::from_value(input.clone()).unwrap();
+    assert_eq!(config.compliance_eur_usd_rate, None);
+    assert!(validate_config(&config).is_ok());
+    input["COMPLIANCE_EUR_USD_RATE"] = serde_json::json!("1.10");
+    let config: Config = serde_json::from_value(input.clone()).unwrap();
+    assert_eq!(config.compliance_eur_usd_rate, Some(rate("1.10")));
+    assert!(validate_config(&config).is_ok());
+    for refused in ["0", "-1.08"] {
+        input["COMPLIANCE_EUR_USD_RATE"] = serde_json::json!(refused);
+        let config: Config = serde_json::from_value(input.clone()).unwrap();
+        assert!(validate_config(&config).is_err(), "accepted rate {refused}");
+    }
+    input["COMPLIANCE_EUR_USD_RATE"] = serde_json::json!("one");
+    assert!(serde_json::from_value::<Config>(input).is_err());
+
+    // The deployed environment carries the same key.
+    let bind: std::net::SocketAddr = "127.0.0.1:8011".parse().unwrap();
+    let budget = budget_document(compiled_sha());
+    let mut environment = deployed_environment();
+    let config = config_from_deployed_environment(&environment, bind, &budget).unwrap();
+    assert_eq!(config.compliance_eur_usd_rate, None);
+    environment.insert("COMPLIANCE_EUR_USD_RATE".into(), " 1.10 ".into());
+    let config = config_from_deployed_environment(&environment, bind, &budget).unwrap();
+    assert_eq!(config.compliance_eur_usd_rate, Some(rate("1.10")));
+    assert!(validate_config(&config).is_ok());
+    for refused in ["", "one", "1,10", "0", "-1.08"] {
+        environment.insert("COMPLIANCE_EUR_USD_RATE".into(), refused.into());
+        let accepted = config_from_deployed_environment(&environment, bind, &budget)
+            .is_ok_and(|config| validate_config(&config).is_ok());
+        assert!(!accepted, "accepted rate {refused:?}");
+    }
 }
 
 #[test]
