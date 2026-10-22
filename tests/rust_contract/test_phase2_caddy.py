@@ -3,8 +3,9 @@
 The authority is one Rust process that counts every ``/api/admin/*`` request
 before Caddy chooses an owner. These tests run the real routing snippet against
 small local upstreams: a counting authority, one Python owner and one Rust
-owner. They need the system Caddy package on the staging test host and skip
-elsewhere.
+owner. One case replaces the counting stub with the real Rust quota middleware.
+They need a real Caddy 2.11 binary on the path and fail without one, so a gate
+run can never pass by skipping them.
 """
 from __future__ import annotations
 
@@ -187,7 +188,7 @@ def unused_port(exclude: set[int] = frozenset()) -> int:
 def harness(tmp_path, *, feedback_owner: str = "rust", authority_down: bool = False,
            feedback_crash: bool = False, trusted_proxy: bool = False,
            all_python: bool = False, shared_authority: bool = False,
-           authority_mark: bool = True):
+           authority_mark: bool = True, real_authority: str | None = None):
     """Run the real CRUD snippet with one counting authority and two owners."""
     caddy = shutil.which("caddy")
     if not caddy:
@@ -227,6 +228,9 @@ def harness(tmp_path, *, feedback_owner: str = "rust", authority_down: bool = Fa
         "PREAUTH_UPSTREAM": f"127.0.0.1:{authority.port}",
         "PYTHON_UPSTREAM": f"127.0.0.1:{python.port}",
     }
+    if real_authority:
+        env["PREAUTH_UPSTREAM"] = real_authority
+        env["FEEDBACK_UPSTREAM"] = real_authority
     if all_python:
         for group in ("NOTIFICATIONS", "PREFERENCES", "FEEDBACK", "WATCHLISTS", "ALERTS", "REFERRALS"):
             env[f"{group}_UPSTREAM"] = env["PYTHON_UPSTREAM"]
@@ -280,6 +284,52 @@ def test_trusted_proxy_preserves_client_for_gate_and_owner(tmp_path, feedback_ow
         owner = rust if feedback_owner == "rust" else python
         assert authority.requested()[0]["headers"]["x-forwarded-for"] == "198.51.100.24"
         assert owner.requested("/api/admin/feedback")[0]["headers"]["x-forwarded-for"] == "198.51.100.24"
+
+
+def test_real_rust_authority_stops_mixed_caddy_at_301(tmp_path):
+    environment = {**os.environ, "RELEASE_SHA": subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(), "SQLX_OFFLINE": "true"}
+    subprocess.run([
+        "cargo", "build", "--manifest-path", "rs/Cargo.toml", "--locked",
+        "-p", "verdaxis-read", "--features", "contract-tests", "--example", "preauth_server",
+    ], cwd=ROOT, env=environment, check=True, timeout=600)
+    port = unused_port()
+    log = (tmp_path / "rust-authority.log").open("w")
+    process = subprocess.Popen(
+        [str(ROOT / "rs/target/debug/examples/preauth_server")], cwd=ROOT,
+        env={**environment, "ENVIRONMENT": "test", "PHASE2_BIND": f"127.0.0.1:{port}"},
+        stdout=log, stderr=log)
+    try:
+        with httpx.Client(trust_env=False) as probe:
+            for _ in range(200):
+                assert process.poll() is None, "Rust quota adapter stopped"
+                try:
+                    if probe.get(f"http://127.0.0.1:{port}/health/live").status_code == 200:
+                        break
+                except httpx.HTTPError:
+                    pass
+                time.sleep(0.05)
+            else:
+                pytest.fail("Rust quota adapter did not start")
+        with harness(tmp_path, real_authority=f"127.0.0.1:{port}") as (
+                client, _authority, _rust, python, _crash):
+            for index in range(LIMIT):
+                path = "/api/admin/feedback" if index % 2 else "/api/admin/analytics"
+                response = client.get(path)
+                assert response.status_code == 200, (index, response.text)
+            refused = client.get("/api/admin/feedback")
+            assert refused.status_code == 429
+            assert refused.headers["Retry-After"] == "60"
+            assert refused.json()["detail"]["code"] == "RATE_LIMITED"
+            assert len(python.requested("/api/admin/analytics")) == LIMIT // 2
+    finally:
+        process.terminate()
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+        log.close()
 
 
 def test_unmarked_authority_response_does_not_admit_an_owner(tmp_path):

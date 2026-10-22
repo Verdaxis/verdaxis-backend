@@ -28,6 +28,10 @@ required-features = ["contract-tests"]
 name = "watchlist_server"
 required-features = ["contract-tests"]
 
+[[example]]
+name = "preauth_server"
+required-features = ["contract-tests"]
+
 [features]
 contract-tests = []
 
