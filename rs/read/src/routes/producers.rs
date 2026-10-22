@@ -59,7 +59,9 @@ impl ProducerQuery {
                         "UNDER_CONSTRUCTION" => ProjectStatus::UnderConstruction,
                         "OPERATIONAL" => ProjectStatus::Operational,
                         "CANCELLED" => ProjectStatus::Cancelled,
-                        _ => return Err(market_data_error::invalid_input("Unknown project status.")),
+                        _ => {
+                            return Err(market_data_error::invalid_input("Unknown project status."));
+                        }
                     });
                 }
                 "cod_year_min" => query.cod_year_min = Some(parse_year(&value)?),
@@ -79,9 +81,9 @@ impl ProducerQuery {
 }
 
 fn parse_year(value: &str) -> Result<i32, ApiError> {
-    value.parse().map_err(|_| {
-        market_data_error::invalid_input("COD bounds must be 32-bit integers.")
-    })
+    value
+        .parse()
+        .map_err(|_| market_data_error::invalid_input("COD bounds must be 32-bit integers."))
 }
 
 /// Client fields only. NUMERIC values stay exact decimal strings; geography is
