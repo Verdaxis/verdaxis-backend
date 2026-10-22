@@ -104,6 +104,18 @@ fn cache_checkpoint_is_accepted_and_earlier_checkpoints_stay_accepted() {
 }
 
 #[test]
+fn read_index_checkpoint_is_accepted_and_the_cache_checkpoint_stays_accepted() {
+    let mut config = staging();
+    // The cache checkpoint stays accepted so one change can roll the route back.
+    for revision in ["prc_20261018_cache", "p5_20261020_read_indexes"] {
+        config.migration_revision = revision.into();
+        assert!(validate_config(&config).is_ok(), "{revision}");
+    }
+    config.migration_revision = "p5_20261020_other".into();
+    assert!(validate_config(&config).is_err());
+}
+
+#[test]
 fn production_requires_its_exact_database_and_union_checkpoint() {
     let mut base = staging();
     base.environment = "production".into();
