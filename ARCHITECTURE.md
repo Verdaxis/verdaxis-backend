@@ -18,13 +18,36 @@ source documentation. The shared-host marker is
 
 ## Shared FuelEU reference values
 
-`rs/read/src/market/fueleu.rs` owns the lifecycle GHG reference and the
-regulation's reduction steps; every reporting-year limit is derived from both.
-Voyage calculations use its exact-decimal adapter; order-book CI projections use
-the same reference for arithmetic and response fields. The shared schedule
-accepts 2025–9999; the MCP request retains its 2025–2050 reporting-year range.
+`rs/read/src/market/fueleu.rs` owns the lifecycle GHG reference, the
+regulation's reduction steps and the deficit penalty per tonne; every
+reporting-year limit is derived from the reference and the steps. Voyage
+calculations use its exact-decimal adapters; order-book CI projections use the
+same reference for arithmetic and response fields. The shared schedule accepts
+2025–9999; the MCP request retains its 2025–2050 reporting-year range.
 `rs/read/tests/phase5_fueleu.rs` checks the boundaries, adapters and consumer
 sources.
+
+`rs/read/src/compliance/pricing.rs` provides the pure declared-lifecycle
+comparison and overlay assumptions. It uses the shared reference, penalty and
+reporting-year limit; missing declarations remain null, physical differences
+round to 0.001 tonnes CO2e/MT, and financial benefits remain unpriced. The
+optional `COMPLIANCE_EUR_USD_RATE` setting (`Config::compliance_eur_usd_rate`)
+replaces the default exchange rate; startup refuses a value that is not
+positive. `rs/read/tests/phase5_compliance_pricing_core.rs` covers the core and
+its serialized client fields.
+
+## Phase 5 public market reads
+
+`runtime::admission::run_market_read` runs the work of one public market read
+in the shared admitted owner task: one READ ONLY transaction with a
+transaction-local five-second statement limit, committed by the owner, with the
+permit and connection held through cleanup. `routes::market_data_error`
+supplies the typed `{"detail": {"code", "message"}}` errors and the result-cap
+helpers. Saturated admission, pool, transaction and owner failures of
+`/api/availability`, `/api/benchmarks`, `/api/demand` and `/api/producers` use
+that envelope; every other admitted read keeps its string detail.
+`rs/read/tests/phase5_public_boundary.rs`, `rs/read/tests/http_contract.rs` and
+`rs/read/tests/admission_postgres.rs` check the boundary.
 
 ## Phase 5 read lookup indexes
 
