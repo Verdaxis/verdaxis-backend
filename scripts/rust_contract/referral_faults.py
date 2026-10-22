@@ -39,6 +39,7 @@ def retained(before,after,response,mail):
     rows=expected['users']['rows']
     for row in rows.values():
         if row['id']==AFTER: row['referral_code']='VDX-AFTER1'
+    expect_cache_invalidations(expected, 1)
     assert expected==after
     assert not mail
 

@@ -43,9 +43,12 @@ def rejected(before, after, response, mail):
 
 def code_only(before, after):
     expected = copy.deepcopy(before)
+    allocated = False
     for row in expected['users']['rows'].values():
         if row['id'] == SENDER and not row['referral_code']:
             row['referral_code'] = CODE
+            allocated = True
+    expect_cache_invalidations(expected, int(allocated))
     assert expected == after, 'an invite changed more than the sender code'
 
 
