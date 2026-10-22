@@ -681,7 +681,19 @@
       "owner": "I"
     },
     {
+      "path": "tests/postgres/test_public_read_cache_events.py",
+      "owner": "I"
+    },
+    {
       "path": "tests/rust_contract/Caddyfile",
+      "owner": "I"
+    },
+    {
+      "path": "tests/rust_contract/phase2/evidence-manifest.json",
+      "owner": "I"
+    },
+    {
+      "path": "tests/rust_contract/phase2/routes.json",
       "owner": "I"
     },
     {
@@ -706,6 +718,10 @@
     },
     {
       "path": "tests/rust_contract/phase5/routes.json",
+      "owner": "I"
+    },
+    {
+      "path": "tests/rust_contract/test_phase2_auth_vectors.py",
       "owner": "I"
     },
     {
