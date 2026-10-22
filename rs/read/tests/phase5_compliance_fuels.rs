@@ -30,7 +30,41 @@ fn compliance_fuels_cases() {
 
 #[tokio::test]
 async fn compliance_fuels_cases_are_public() {
-    let app = verdaxis_read::runtime::http::middleware(routes());
+    let config = verdaxis_read::Config {
+        kyc_execution_gate_enabled: true,
+        db_session_time_zone: "UTC".into(),
+        environment: "test".into(),
+        release_sha: verdaxis_read::compiled_sha().into(),
+        migration_revision: "kycg_20261014_staging".into(),
+        database_url: "postgres://fixture:fixture_pw@127.0.0.1:1/fixture_test".into(),
+        bind: "127.0.0.1:0".parse().unwrap(),
+        read_admission_slots: 16,
+        pool_max: 17,
+        python_budget: 52,
+        configured_max_connections: 100,
+        prepared_budget: None,
+    };
+    let pools = verdaxis_read::runtime::db::Pools {
+        read: sqlx::postgres::PgPoolOptions::new()
+            .max_connections(config.read_admission_slots)
+            .connect_lazy(&config.database_url)
+            .unwrap(),
+        health: sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect_lazy(&config.database_url)
+            .unwrap(),
+    };
+    let state = verdaxis_read::AppState::new(
+        config,
+        pools,
+        verdaxis_read::MarketPolicy {
+            source_sha: verdaxis_read::compiled_sha().into(),
+            products: vec![],
+            points: vec![],
+        },
+    )
+    .unwrap();
+    let app = verdaxis_read::runtime::http::middleware(routes().with_state(state));
     for (uri, bearer) in [
         (PATH.to_owned(), false),
         (format!("{PATH}?window=SPOT&unknown=1"), false),
