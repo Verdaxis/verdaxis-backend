@@ -885,6 +885,32 @@ def test_evidence_unrelated_compile_error_refused(world, diagnostic):
     refused(world, "RED missing interface diagnostic required: T01")
 
 
+@pytest.mark.parametrize("additional_error", [
+    "error: fixture configuration unavailable",
+    "error: failed to run custom build command for `fixture v0.1.0`",
+    "error: failed to download `fixture v0.1.0`",
+    "  process didn't exit successfully: `build-script-build` (exit status: 1)",
+    "error[E12345]: unclassified diagnostic",
+    "error: could not compile `fixture` due to an unknown cause",
+    "\x1b[1;31merror\x1b[0m: fixture configuration unavailable",
+])
+def test_evidence_mixed_compile_error_refused(world, additional_error):
+    expected = "error[E0432]: unresolved import `verdaxis_read::streams::bus`"
+    world.edit("backend-red-m1.log", expected, f"{expected}\n{additional_error}")
+    refused(world, "RED missing interface diagnostic required: T01")
+
+
+@pytest.mark.parametrize("summary", [
+    "error: aborting due to 1 previous error",
+    "error: aborting due to 2 previous errors; 1 warning emitted",
+    "error: could not compile `verdaxis-read` (lib test) due to 2 previous errors; 2 warnings emitted",
+])
+def test_evidence_compile_terminal_summary_allowed(world, summary):
+    world.edit("backend-red-m1.log",
+               "error: could not compile `verdaxis-read` due to 1 previous error", summary)
+    assert passes(world)["source_sha"] == world.sha["impl"]
+
+
 def test_evidence_nonassertion_exception_refused(world):
     case = world.case("E186")
     world.edit("backend-red-m1.log", outcome_line(case, "failed"),
