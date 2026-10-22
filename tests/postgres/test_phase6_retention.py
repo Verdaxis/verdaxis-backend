@@ -193,6 +193,88 @@ def _run_store_test(database_url: str, name: str) -> None:
     assert completed.returncode == 0, completed.stdout + completed.stderr
 
 
+def _role_policy(database_url: str, script: str) -> subprocess.CompletedProcess[str]:
+    url = make_url(database_url)
+    admin = make_url(_require("POSTGRES_ADMIN_TEST_DATABASE_URL"))
+    command = [
+        "psql", "-X", "-v", "ON_ERROR_STOP=1",
+        "-h", admin.host, "-p", str(admin.port), "-U", admin.username,
+        "-d", url.database,
+        "-v", f"database_name={url.database}",
+        "-v", f"migrator_role={url.username}",
+        "-v", f"app_role={_require('RUNTIME_TEST_APP_ROLE')}",
+        "-v", f"backup_role={_require('RUNTIME_TEST_BACKUP_ROLE')}",
+        "-f", str(ROOT / "deploy/postgres" / script),
+    ]
+    return subprocess.run(
+        command, env={**os.environ, "PGPASSWORD": admin.password},
+        text=True, capture_output=True, check=False, timeout=60,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("revision", [PARENT_REVISION, REVISION])
+async def test_retention_role_policy_at_checkpoint(retention_urls, revision):
+    name, database_url = await _create_disposable_database(
+        retention_urls["admin"], retention_urls["migrator"]
+    )
+    try:
+        upgraded = _alembic(database_url, "upgrade", revision)
+        assert upgraded.returncode == 0, upgraded.stderr
+        converged = _role_policy(database_url, "bootstrap_roles.sql")
+        assert converged.returncode == 0, converged.stderr
+        validated = _role_policy(database_url, "validate_roles.sql")
+        assert validated.returncode == 0, validated.stderr
+    finally:
+        await _drop_disposable_database(retention_urls["admin"], name)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("statement", [
+    "DROP TRIGGER trg_market_event_outbox_replay_floor ON public.market_event_outbox; "
+    "CREATE TRIGGER trg_market_event_outbox_replay_floor AFTER DELETE "
+    "ON public.market_event_outbox FOR EACH ROW "
+    "EXECUTE FUNCTION public.market_event_outbox_advance_replay_floor(); "
+    "ALTER TABLE public.market_event_outbox ENABLE ALWAYS TRIGGER "
+    "trg_market_event_outbox_replay_floor",
+    "DROP TRIGGER trg_market_event_outbox_refuse_truncate ON public.market_event_outbox; "
+    "CREATE TRIGGER trg_market_event_outbox_refuse_truncate BEFORE TRUNCATE "
+    "ON public.market_event_outbox FOR EACH STATEMENT "
+    "EXECUTE FUNCTION public.market_event_outbox_advance_replay_floor(); "
+    "ALTER TABLE public.market_event_outbox ENABLE ALWAYS TRIGGER "
+    "trg_market_event_outbox_refuse_truncate",
+    "ALTER FUNCTION public.market_event_outbox_refuse_truncate() OWNER TO postgres",
+])
+async def test_retention_role_policy_requires_exact_objects(retention_urls, statement):
+    # Isolate committed catalog mutations from the shared suite database.
+    name, database_url = await _create_disposable_database(
+        retention_urls["admin"], retention_urls["migrator"]
+    )
+    try:
+        upgraded = _alembic(database_url, "upgrade", REVISION)
+        assert upgraded.returncode == 0, upgraded.stderr
+        converged = _role_policy(database_url, "bootstrap_roles.sql")
+        assert converged.returncode == 0, converged.stderr
+        admin_url = make_url(retention_urls["admin"]).set(database=name)
+        engine = create_async_engine(admin_url)
+        try:
+            async with engine.begin() as connection:
+                for command in statement.split("; "):
+                    await connection.execute(text(command))
+        finally:
+            await engine.dispose()
+        validated = _role_policy(database_url, "validate_roles.sql")
+        assert validated.returncode != 0, "modified retention objects were accepted"
+        assert "replay" in validated.stderr or "retention" in validated.stderr
+    finally:
+        await _drop_disposable_database(retention_urls["admin"], name)
+
+
+def test_store_driver_requires_a_selected_test(retention_urls):
+    with pytest.raises(AssertionError):
+        _run_store_test(retention_urls["app"], "postgres_no_such_store_case")
+
+
 @pytest.fixture(scope="module")
 def retention_urls(analytics_pg_url):
     urls = {
