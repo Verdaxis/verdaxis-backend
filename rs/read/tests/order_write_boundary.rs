@@ -331,6 +331,9 @@ fn scan_repository() -> Vec<String> {
     // the price-alert cap serializes organization creators in its own namespace.
     // It does not touch order-book rows, so the boundary rule names it exactly.
     let price_alert_cap = [root.join("rs/read/src/crud/alerts.rs")];
+    // The outbox sequencer shares Python's session lock, not an order-book key.
+    // Only the test probe uses a blocking advisory-lock call.
+    let stream_sequencer_lock = [root.join("rs/read/tests/streams_election.rs")];
     let mut violations = Vec::new();
 
     let mut rust_files = Vec::new();
@@ -365,7 +368,11 @@ fn scan_repository() -> Vec<String> {
             let test_only = gated
                 .iter()
                 .any(|(open, close)| start >= *open && start <= *close);
-            if takes_advisory_lock && !test_only && !price_alert_cap.contains(path) {
+            if takes_advisory_lock
+                && !test_only
+                && !price_alert_cap.contains(path)
+                && !stream_sequencer_lock.contains(path)
+            {
                 violations.push(format!(
                     "{}: advisory lock outside order_write",
                     path.display()
