@@ -88,9 +88,16 @@ fn fueleu_reference_cases() {
             "compliance/pricing.rs",
             include_str!("../src/compliance/pricing.rs"),
         ),
+        (
+            "compliance/scoring.rs",
+            include_str!("../src/compliance/scoring.rs"),
+        ),
     ];
+    // Rust accepts `2_400` as well as `2400`, so both spellings of the penalty
+    // are checked.
     let regulatory_literals = [
         "9116", "91.16", "89.3368", "85.6904", "77.9418", "62.9004", "34.6408", "18.232", "2400",
+        "2_400",
     ];
     for (path, source) in consumers {
         for literal in regulatory_literals {
