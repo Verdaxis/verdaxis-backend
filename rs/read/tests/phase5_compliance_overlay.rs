@@ -13,9 +13,15 @@ use pricing::AlcoholFamily;
 use serde_json::json;
 use uuid::Uuid;
 
+fn fixture_policy() -> verdaxis_read::MarketPolicy {
+    let bytes = include_bytes!("../../../deploy/rust/market-policy.json");
+    let document: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+    market::policy::load_policy(bytes, document["source_sha"].as_str().unwrap()).unwrap()
+}
+
 #[test]
 fn compliance_overlay_catalog_cases() {
-    let policy = market::policy::load_policy().unwrap();
+    let policy = fixture_policy();
     for product in &policy.products {
         let expected = match product.fuel_type.as_str() {
             "Methanol" => Some(AlcoholFamily::Methanol),
@@ -131,12 +137,17 @@ async fn compliance_overlay_postgres_cases() {
     let url = std::env::var("RUST_MARKET_TEST_DATABASE_URL").expect("disposable market fixture URL");
     let mut connection = sqlx::PgConnection::connect(&url).await.unwrap();
     use sqlx::Connection;
-    let policy = market::policy::load_policy().unwrap();
-    let config: Config = serde_json::from_value(json!({
-        "environment": "test", "release_sha": std::env::var("RELEASE_SHA").unwrap(),
-        "database_url": url,
-    })).unwrap();
-    let clock = market::visibility::VisibilityClock::new(Utc::now());
+    let policy = fixture_policy();
+    let config = Config {
+        environment: "test".into(), release_sha: std::env::var("RELEASE_SHA").unwrap(),
+        database_url: url, kyc_execution_gate_enabled: true,
+        db_session_time_zone: "Asia/Singapore".into(),
+        migration_revision: "kycg_20261014_staging".into(),
+        bind: "127.0.0.1:0".parse().unwrap(), read_admission_slots: 16,
+        pool_max: 17, python_budget: 52, configured_max_connections: 100, prepared_budget: None,
+    };
+    verdaxis_read::validate_config(&config).unwrap();
+    let clock = market::visibility::VisibilityClock::at(Utc::now());
     let id: Uuid = sqlx::query("SELECT id FROM orderbook_orders WHERE side::text='ASK' LIMIT 1")
         .fetch_one(&mut connection).await.unwrap().get("id");
     let absent = Uuid::new_v4();
