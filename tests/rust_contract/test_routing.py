@@ -108,6 +108,12 @@ PYTHON_OWNED = [
 def upstream(owner):
     class Handler(http.server.BaseHTTPRequestHandler):
         def respond(self):
+            if self.path == "/internal/admin-preauth":
+                self.send_response(204)
+                self.send_header("X-Verdaxis-Preauth-Counted", "1")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
             self.send_response(200)
             self.send_header("X-Route-Owner", owner)
             self.send_header("X-Seen-Host", self.headers["Host"])
