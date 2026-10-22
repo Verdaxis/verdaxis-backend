@@ -52,6 +52,14 @@ on that commit and then on the implementation commit.
 | Overlapping snapshots both answer; the older fill does not replace the newer entry (`overlapping_snapshots_publish_without_replacing_the_newer_entry`) | `c0ca1bef` | 1 | `c2a27b0e` | 0 |
 | Controlled-clock expiry, grace, rolling departure, Singapore day and late fill; barriers before insertion and publication with equal and reduced generations; distinct rows from two incarnations at one generation; two readers on each incarnation | `e2261248` | 1 | `16e1c1af` | 0 |
 
+Correction (review round 2): only the late-fill case of that row failed because
+of the runtime. The other clock cases and the rotation barriers passed on the
+earlier runtime too, so they are coverage. The two rotation variants ran the same
+revocation path: the successor's activation reached the process only when a
+refresh happened to be due, and no successor read set the high-water mark, so
+"equal and reduced generations" did not change what the paused fill met. The Singapore
+case set its boundary by hand. Round 2 below replaces both tests.
+
 `an_older_fill_never_replaces_a_newer_entry` (`ac06b4a6`) is an offline unit
 test of the cache's own ordering check from `c2a27b0e`. It fails with only that
 check removed (exit 101) and passes on the final source. `4c9a7f97` and
@@ -69,6 +77,49 @@ clippy and offline tests; staging for PostgreSQL suites):
 | Seeded market-contract PostgreSQL suite, six cases | staging | 0 |
 | Full Rust disposable PostgreSQL runner, 275 passed | staging | 0 |
 
+## Review round 2 — 22 October 2026
+
+Batched as decision 126 requires: the tests-only commit `95e99638` ran RED, and
+the final commit `37fdd763` ran GREEN and every gate. The fix commits were not
+run alone.
+
+| Required behavior | Test | RED on `95e99638` | Implementation | GREEN on `37fdd763` |
+| --- | --- | --- | --- | --- |
+| The tape's seven-day lookback ends an entry when a trade ages out, with no write | `a_trade_ages_out_of_the_tape_window_without_a_write` | failed (served the aged trade) | `8239e887` | ok |
+| A moving-window family stores nothing for "no window" or an unknown departure | `moving_windows_without_a_derived_departure_bypass_storage`; unit `moving_windows_need_a_derived_departure`, `unknown_dependency_bypasses_instead_of_guessing` | failed (prices: no window; tape: both) | `8239e887` | ok |
+| Each family requires the predicates its query binds (curves read resting orders) | unit `every_family_requires_the_time_predicates_its_query_binds` | failed | `8239e887` | ok |
+| An expiry between the route's clock and the end of the read is answered, not stored; a change reported at or before the clock fails closed | `an_expiry_between_the_route_clock_and_the_read_is_not_stored`; unit `a_reported_change_at_or_before_the_clock_fails_closed` | failed (stored) | `a89c1845` | ok |
+
+RED exits: offline unit tests 101 (four failed, six passed) on the M1; the
+disposable PostgreSQL driver 1 (three failed, eleven passed) on staging.
+
+Limits of this evidence:
+
+- The tests-only commit calls the earlier interface. `a89c1845` adds the clock
+  parameter, so it changes those call sites; the assertions stay the same. It
+  also adds the case of a loader that ignores its clock, which has no separate
+  RED run.
+- Coverage only (passed before and after): the clock cases, which now derive
+  each fact from the rows their own predicate kept (the Singapore case through
+  `certificate_boundary`), and the rotation barriers. In each rotation variant a
+  successor read sets the high-water mark equal to the paused fill's generation
+  or one below it before the release. All four variants stop at the same fence
+  check; they differ in state, not in code path. With equal generations, a check
+  on generation numbers alone would accept the fill.
+- The late-fill case uses the observer seam. In serving, `Instant::now()` and
+  the observer agree; the case proves that insertion checks the current time.
+- `calendar_boundary` is proved only by unit tests.
+
+| Gate on `37fdd76320fd07eec65ea7518fcf9a28a93c99de` | Host | Exit |
+| --- | --- | ---: |
+| Formatting | M1 | 0 |
+| Workspace/all-target clippy, warnings denied | M1 | 0 |
+| Offline workspace tests, 270 passed | M1 | 0 |
+| Entire `test_public_read_cache_events.py`, 31 passed | staging | 0 |
+| Seeded market-contract PostgreSQL suite, six cases | staging | 0 |
+| Full Rust disposable PostgreSQL runner, 280 passed | staging | 0 |
+| `cd rs && cargo audit` | staging | 0 |
+
 ## Resume point and limits
 
 Trading caching remains inactive in serving routes. The prepared-budget listener
@@ -78,6 +129,22 @@ Do not edit the Task 9/10 route or SQL files until the PM accepts their uncached
 handoff and it is merged here. Then derive the actual route boundaries in the
 same snapshot, add wrappers and prove middleware behavior on hits. No activation,
 live DDL, deployment or measurement is authorized by this checkpoint.
+
+Open items for the route-wrapper step:
+
+- Capture one `TradingClock` before admission (the instant the route also uses
+  for validation), pass it to `run_trading_read` and bind only that clock.
+- Payloads carry request-time fields (`generated_at` in prices, curves and the
+  orderbook snapshot). Rebuild them per request or keep them out of the cached
+  payload.
+- Curves also use UTC dates (the board's months ahead and the spot window start
+  use the UTC date). `calendar_boundary` covers only the Singapore midnight, so a
+  curves wrapper must report the earlier of the two midnights.
+- `rolling_window_departure` takes whole days; the price summary's lookback is in
+  hours (1 to 168).
+- With the switch on, an unadmitted process fails trading reads. Report it not
+  ready, or keep it out of routing, until its listener attaches (see
+  `cache-dependencies.md`, "Availability while unadmitted").
 
 The CI-only draft is PR #114, base `staging`, head
 `feat/rust-same-meaning-t8`. Its previous head `7c77a820` failed the dependency
