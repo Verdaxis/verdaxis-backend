@@ -1,4 +1,4 @@
-pub use verdaxis_read::{Config, auth, market};
+pub use verdaxis_read::{Config, MarketPolicy, auth, market};
 
 #[path = "../src/compliance/pricing.rs"]
 pub mod pricing;
@@ -61,6 +61,7 @@ fn compliance_overlay_limits() {
 
 #[test]
 fn compliance_overlay_cases() {
+    let _ = overlay::select_overlay;
     use overlay::{OverlayRow, project};
     use rust_decimal::Decimal;
     let first = Uuid::new_v4();
@@ -91,12 +92,23 @@ fn compliance_overlay_cases() {
     let comparison = response.overlays[&first].as_ref().unwrap();
     assert_eq!(comparison.lcv_basis, pricing::ValueBasis::ProductDefault);
     assert_eq!(comparison.penalty_avoided_usd_per_mt, Decimal::ZERO);
-    assert_eq!(comparison.financial_benefit_status, pricing::FinancialBenefitStatus::Unpriced);
+    assert_eq!(
+        comparison.financial_benefit_status,
+        pricing::FinancialBenefitStatus::Unpriced
+    );
     assert_eq!(response.assumptions.fleet_vessel_count, 7);
     let empty = OverlayRequest::validate(json!({"order_ids": []})).unwrap();
-    let response = project(&empty, vec![OverlayRow {
-        requested_id: None, fuel_type: None, ci: None, lcv: None, fleet_vessel_count: 7,
-    }]).unwrap();
+    let response = project(
+        &empty,
+        vec![OverlayRow {
+            requested_id: None,
+            fuel_type: None,
+            ci: None,
+            lcv: None,
+            fleet_vessel_count: 7,
+        }],
+    )
+    .unwrap();
     assert!(response.overlays.is_empty());
     assert_eq!(response.assumptions.fleet_vessel_count, 7);
 }
@@ -131,44 +143,134 @@ fn compliance_overlay_client_cases() {
 #[cfg(feature = "contract-tests")]
 #[tokio::test]
 async fn compliance_overlay_postgres_cases() {
-    use auth::actor::CurrentActor;
+    use auth::CurrentActor;
     use chrono::Utc;
     use sqlx::Row;
-    let url = std::env::var("RUST_MARKET_TEST_DATABASE_URL").expect("disposable market fixture URL");
+    let url =
+        std::env::var("RUST_MARKET_TEST_DATABASE_URL").expect("disposable market fixture URL");
     let mut connection = sqlx::PgConnection::connect(&url).await.unwrap();
     use sqlx::Connection;
     let policy = fixture_policy();
     let config = Config {
-        environment: "test".into(), release_sha: std::env::var("RELEASE_SHA").unwrap(),
-        database_url: url, kyc_execution_gate_enabled: true,
+        environment: "test".into(),
+        release_sha: std::env::var("RELEASE_SHA").unwrap(),
+        database_url: url,
+        kyc_execution_gate_enabled: true,
         db_session_time_zone: "Asia/Singapore".into(),
         migration_revision: "kycg_20261014_staging".into(),
-        bind: "127.0.0.1:0".parse().unwrap(), read_admission_slots: 16,
-        pool_max: 17, python_budget: 52, configured_max_connections: 100, prepared_budget: None,
+        bind: "127.0.0.1:0".parse().unwrap(),
+        read_admission_slots: 16,
+        pool_max: 17,
+        python_budget: 52,
+        configured_max_connections: 100,
+        prepared_budget: None,
     };
     verdaxis_read::validate_config(&config).unwrap();
-    let clock = market::visibility::VisibilityClock::at(Utc::now());
+    let clock = market::visibility::VisibilityClock::at(
+        std::env::var("RUST_MARKET_TEST_CLOCK")
+            .ok()
+            .map(|value| value.parse().unwrap())
+            .unwrap_or_else(Utc::now),
+    );
+    let visible = market::visibility::select_public_order_ids(
+        &mut connection,
+        &policy,
+        &clock,
+        &config,
+        &market::visibility::PublicOrderFilters {
+            side: Some("ASK"),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert!(!visible.is_empty(), "fixture must contain public ASKs");
+    let request =
+        OverlayRequest::validate(json!({"order_ids": &visible[..visible.len().min(100)]})).unwrap();
+    let actor = CurrentActor {
+        id: Uuid::new_v4(),
+        organization_id: None,
+        role: Some("BUYER".into()),
+        email_verified: true,
+    };
+    let response =
+        overlay::select_overlay(&mut connection, &policy, &clock, &config, &actor, &request)
+            .await
+            .unwrap();
+    assert!(
+        response.overlays.values().any(Option::is_some),
+        "fixture must exercise priced lifecycle values"
+    );
+    for id in request.order_ids() {
+        let row = sqlx::query("SELECT p.fuel_type, o.carbon_intensity_gco2_mj AS ci, o.energy_density_mj_kg AS lcv FROM orderbook_orders o JOIN products p ON p.id=o.product_id WHERE o.id=$1").bind(id).fetch_one(&mut connection).await.unwrap();
+        let fuel: String = row.get("fuel_type");
+        let expected = pricing::LifecycleOverlayCore::compute(
+            alcohol_family(&fuel),
+            row.get("ci"),
+            row.get("lcv"),
+        )
+        .unwrap();
+        assert_eq!(response.overlays[id], expected);
+    }
     let id: Uuid = sqlx::query("SELECT id FROM orderbook_orders WHERE side::text='ASK' LIMIT 1")
-        .fetch_one(&mut connection).await.unwrap().get("id");
+        .fetch_one(&mut connection)
+        .await
+        .unwrap()
+        .get("id");
     let absent = Uuid::new_v4();
-    let actor = CurrentActor { id: Uuid::new_v4(), organization_id: None, role: Some("BUYER".into()), email_verified: true };
+    let actor = CurrentActor {
+        id: Uuid::new_v4(),
+        organization_id: None,
+        role: Some("BUYER".into()),
+        email_verified: true,
+    };
     for ids in [vec![], vec![id, absent], vec![id; 100]] {
         let request = OverlayRequest::validate(json!({"order_ids": ids})).unwrap();
-        let response = overlay::select_overlay(&mut connection, &policy, &clock, &config, &actor, &request).await.unwrap();
+        let response =
+            overlay::select_overlay(&mut connection, &policy, &clock, &config, &actor, &request)
+                .await
+                .unwrap();
         assert_eq!(response.overlays.len(), request.order_ids().len());
         assert_eq!(response.assumptions.fleet_vessel_count, 0);
-        if response.overlays.contains_key(&absent) { assert!(response.overlays[&absent].is_none()); }
+        if response.overlays.contains_key(&absent) {
+            assert!(response.overlays[&absent].is_none());
+        }
     }
-    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM vessels").fetch_one(&mut connection).await.unwrap();
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM vessels")
+        .fetch_one(&mut connection)
+        .await
+        .unwrap();
     let request = OverlayRequest::validate(json!({"order_ids": []})).unwrap();
-    let admin = CurrentActor { role: Some("ADMIN".into()), ..actor.clone() };
-    let response = overlay::select_overlay(&mut connection, &policy, &clock, &config, &admin, &request).await.unwrap();
+    let admin = CurrentActor {
+        role: Some("ADMIN".into()),
+        ..actor.clone()
+    };
+    let response =
+        overlay::select_overlay(&mut connection, &policy, &clock, &config, &admin, &request)
+            .await
+            .unwrap();
     assert_eq!(response.assumptions.fleet_vessel_count, count as u64);
-    let org: Option<Uuid> = sqlx::query_scalar("SELECT organization_id FROM vessels WHERE organization_id IS NOT NULL LIMIT 1").fetch_optional(&mut connection).await.unwrap();
+    let org: Option<Uuid> = sqlx::query_scalar(
+        "SELECT organization_id FROM vessels WHERE organization_id IS NOT NULL LIMIT 1",
+    )
+    .fetch_optional(&mut connection)
+    .await
+    .unwrap();
     if let Some(org) = org {
-        let own_count: i64 = sqlx::query_scalar("SELECT count(*) FROM vessels WHERE organization_id=$1").bind(org).fetch_one(&mut connection).await.unwrap();
-        let owner = CurrentActor { organization_id: Some(org), ..actor };
-        let response = overlay::select_overlay(&mut connection, &policy, &clock, &config, &owner, &request).await.unwrap();
+        let own_count: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM vessels WHERE organization_id=$1")
+                .bind(org)
+                .fetch_one(&mut connection)
+                .await
+                .unwrap();
+        let owner = CurrentActor {
+            organization_id: Some(org),
+            ..actor
+        };
+        let response =
+            overlay::select_overlay(&mut connection, &policy, &clock, &config, &owner, &request)
+                .await
+                .unwrap();
         assert_eq!(response.assumptions.fleet_vessel_count, own_count as u64);
     }
 }
