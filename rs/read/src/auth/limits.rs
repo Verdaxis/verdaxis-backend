@@ -122,9 +122,23 @@ mod tests {
     fn distinct_clients_have_bounded_storage() {
         let mut limits = Phase2Limits::default();
         for client in 0..50_100 {
-            assert!(limits.preauth(&format!("client-{client}"), "/api/admin/users", 100));
+            let _ = limits.preauth(&format!("client-{client}"), "/api/admin/users", 100);
         }
         assert!(limits.buckets.len() <= 50_000);
+    }
+
+    #[test]
+    fn capacity_keeps_unexpired_quota_accounting() {
+        let mut limits = Phase2Limits::default();
+        for _ in 0..300 {
+            assert!(limits.preauth("limited", "/api/admin/users", 100));
+        }
+        for client in 0..50_000 {
+            let _ = limits.preauth(&format!("client-{client}"), "/api/admin/users", 100);
+        }
+        assert!(!limits.preauth("limited", "/api/admin/users", 100));
+        assert!(!limits.preauth("new-client", "/api/admin/users", 100));
+        assert!(limits.preauth("new-client", "/api/admin/users", 160));
     }
 
     #[test]
