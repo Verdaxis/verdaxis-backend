@@ -41,8 +41,10 @@ on the caller's transaction and never commits. `rs/read/src/auth/lock.rs` owns
 the device advisory key (the first eight bytes of the cookie's SHA-256 digest,
 big-endian, signed, the same key Python uses), the session lock order (device,
 user, then that user's session or reset rows), the organization-write order
-(organizations, users, join requests, each by ascending id) and the bounded
-retry: three attempts on 40001/40P01, then a 503 `ORGANIZATION_WRITE_BUSY`.
+(after the admission-held actor, organizations, other users, join requests,
+each by ascending id) and the bounded retry: three attempts on 40001/40P01,
+then a 503 `ORGANIZATION_WRITE_BUSY`. Reset issuance touches only its user's
+row; bounded expired-row cleanup executes separately through the pool.
 `alembic/versions/p3_20261020_auth_tokens.py` adds `password_reset_tokens`
 (one row per user, Rust-owned; `app/models/password_reset_token.py` only declares
 it for `alembic check`). Its runtime grants are table-level SELECT and DELETE and

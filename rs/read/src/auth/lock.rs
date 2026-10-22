@@ -100,11 +100,15 @@ pub enum OrgWriteAttemptError {
 }
 
 impl From<sqlx::Error> for OrgWriteAttemptError {
-    fn from(error: sqlx::Error) -> Self { Self::Database(error) }
+    fn from(error: sqlx::Error) -> Self {
+        Self::Database(error)
+    }
 }
 
 impl From<ApiError> for OrgWriteAttemptError {
-    fn from(error: ApiError) -> Self { Self::Application(error) }
+    fn from(error: ApiError) -> Self {
+        Self::Application(error)
+    }
 }
 
 impl WriteConflict for OrgWriteAttemptError {

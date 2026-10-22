@@ -29,7 +29,8 @@ use verdaxis_read::auth::{
     store::{
         NewRefreshRow, NewResetToken, consume_reset_token, insert_refresh, lock_device,
         lock_refresh_by_jti, lock_user, lock_user_by_email, reset_token_owner,
-        revoke_device_families, revoke_user_families, sweep_expired_reset_tokens, upsert_reset_token,
+        revoke_device_families, revoke_user_families, sweep_expired_reset_tokens,
+        upsert_reset_token,
     },
 };
 
@@ -41,11 +42,18 @@ async fn wait_until_blocked(observer: &mut PgConnection, pid: i32) {
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             let blocked: bool = sqlx::query_scalar("SELECT cardinality(pg_blocking_pids($1)) > 0")
-                .bind(pid).fetch_one(&mut *observer).await.unwrap();
-            if blocked { return; }
+                .bind(pid)
+                .fetch_one(&mut *observer)
+                .await
+                .unwrap();
+            if blocked {
+                return;
+            }
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
-    }).await.expect("writer must reach a database lock wait");
+    })
+    .await
+    .expect("writer must reach a database lock wait");
 }
 
 fn sha256_hex(value: &str) -> String {
@@ -161,10 +169,25 @@ async fn org_write_retries_twice_then_stops() {
     ));
     assert_eq!(attempts, 2);
 
-    let busy = verdaxis_read::ApiError::from(OrgWriteError::<verdaxis_read::auth::lock::OrgWriteAttemptError>::Busy);
+    let busy = verdaxis_read::ApiError::from(
+        OrgWriteError::<verdaxis_read::auth::lock::OrgWriteAttemptError>::Busy,
+    );
     assert_eq!(busy.status, 503);
     assert_eq!(busy.retry_after, Some(1));
     assert_eq!(busy.detail["code"], "ORGANIZATION_WRITE_BUSY");
+    use verdaxis_read::auth::lock::OrgWriteAttemptError;
+    let result = retry_org_write(|_| async {
+        Err::<(), _>(OrgWriteAttemptError::from(
+            verdaxis_read::ApiError::database(),
+        ))
+    })
+    .await;
+    assert!(matches!(
+        result,
+        Err(OrgWriteError::Failed(OrgWriteAttemptError::Application(_)))
+    ));
+    let answer = verdaxis_read::ApiError::from(result.unwrap_err());
+    assert_eq!(answer.status, 500);
 }
 
 #[test]
@@ -362,7 +385,10 @@ async fn auth_lock_order_serializes_device_user_refresh() {
     // A second writer in the same order waits at the device lock and then
     // completes once the first commits: no deadlock and no error.
     let mut connection = connect(&database.runtime).await;
-    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()").fetch_one(&mut connection).await.unwrap();
+    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut connection)
+        .await
+        .unwrap();
     let (second_device, second_jti) = (device_hash.clone(), refresh.jti_hash.clone());
     let mut second = tokio::spawn(async move {
         begin(&mut connection).await;
@@ -538,6 +564,20 @@ async fn reset_tokens_replace_and_consume_once() {
     };
 
     let mut connection = connect(&database.runtime).await;
+    for raw in ["raw-reset-token", "A".repeat(64).as_str()] {
+        assert!(matches!(
+            reset_token_owner(&mut connection, raw).await,
+            Err(sqlx::Error::InvalidArgument(_))
+        ));
+        assert!(matches!(
+            consume_reset_token(&mut connection, user, raw, now).await,
+            Err(sqlx::Error::InvalidArgument(_))
+        ));
+        assert!(matches!(
+            upsert_reset_token(&mut connection, &token(user, raw, now), now).await,
+            Err(sqlx::Error::InvalidArgument(_))
+        ));
+    }
     begin(&mut connection).await;
     lock_user(&mut connection, expired_user).await.unwrap();
     let past = now - TimeDelta::hours(2);
@@ -614,21 +654,35 @@ async fn expired_reset_cleanup_skips_locked_rows() {
             .bind(if index == 2 { now + TimeDelta::hours(1) } else { now - TimeDelta::hours(1) })
             .execute(&mut owner).await.unwrap();
     }
-    let pool = sqlx::postgres::PgPoolOptions::new().max_connections(1)
-        .connect(&database.runtime).await.unwrap();
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&database.runtime)
+        .await
+        .unwrap();
     let mut holder = connect(&database.runtime).await;
     begin(&mut holder).await;
     sqlx::query("SELECT user_id FROM password_reset_tokens WHERE user_id = $1 FOR UPDATE")
-        .bind(users[0]).execute(&mut holder).await.unwrap();
+        .bind(users[0])
+        .execute(&mut holder)
+        .await
+        .unwrap();
     sweep_expired_reset_tokens(&pool, now).await.unwrap();
-    let retained: Vec<Uuid> = sqlx::query_scalar("SELECT user_id FROM password_reset_tokens WHERE user_id = ANY($1)")
-        .bind(users.to_vec()).fetch_all(&mut owner).await.unwrap();
+    let retained: Vec<Uuid> =
+        sqlx::query_scalar("SELECT user_id FROM password_reset_tokens WHERE user_id = ANY($1)")
+            .bind(users.to_vec())
+            .fetch_all(&mut owner)
+            .await
+            .unwrap();
     assert!(retained.contains(&users[0]) && retained.contains(&users[2]));
     assert!(!retained.contains(&users[1]));
     rollback(&mut holder).await;
     sweep_expired_reset_tokens(&pool, now).await.unwrap();
-    let remaining: Vec<Uuid> = sqlx::query_scalar("SELECT user_id FROM password_reset_tokens WHERE user_id = ANY($1)")
-        .bind(users.to_vec()).fetch_all(&mut owner).await.unwrap();
+    let remaining: Vec<Uuid> =
+        sqlx::query_scalar("SELECT user_id FROM password_reset_tokens WHERE user_id = ANY($1)")
+            .bind(users.to_vec())
+            .fetch_all(&mut owner)
+            .await
+            .unwrap();
     assert_eq!(remaining, [users[2]]);
     pool.close().await;
     fixture.remove(&mut owner).await;
@@ -676,7 +730,9 @@ async fn reset_token_issuance_keeps_other_users_independent() {
             // of another user's row makes one writer wait on the other writer,
             // which is waiting at the completion barrier: a dependency cycle.
             let result = tokio::time::timeout(Duration::from_secs(5), async {
-                upsert_reset_token(&mut transaction, &token, now).await.unwrap();
+                upsert_reset_token(&mut transaction, &token, now)
+                    .await
+                    .unwrap();
                 issued.wait().await;
             })
             .await;
@@ -693,7 +749,10 @@ async fn reset_token_issuance_keeps_other_users_independent() {
         completed.push(task.await.unwrap());
     }
     fixture.remove(&mut owner).await;
-    assert!(completed.iter().all(Result::is_ok), "issuance must not wait on another user's reset row: {completed:?}");
+    assert!(
+        completed.iter().all(Result::is_ok),
+        "issuance must not wait on another user's reset row: {completed:?}"
+    );
 }
 
 #[tokio::test]
@@ -723,7 +782,10 @@ async fn organization_write_locks_follow_one_order() {
     let barrier = Arc::new(Barrier::new(2));
     let waiting = barrier.clone();
     let mut connection = connect(&database.runtime).await;
-    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()").fetch_one(&mut connection).await.unwrap();
+    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut connection)
+        .await
+        .unwrap();
     let mut second = tokio::spawn(async move {
         begin(&mut connection).await;
         waiting.wait().await;
