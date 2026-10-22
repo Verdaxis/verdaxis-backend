@@ -12,16 +12,13 @@
 //! * the FuelEU deficit penalty is illustrative for an assumed annual energy,
 //!   excludes banking, borrowing and pooling, and is not a measured liability.
 //!
-//! Reporting-year limits come from [`crate::market::fueleu`]; this module holds
-//! no second schedule and no second reference value.
+//! Reporting-year limits, the reference value and the deficit penalty come from
+//! [`crate::market::fueleu`]; this module holds no second copy of any of them.
 use crate::Json;
 use crate::compliance::validation::{FuelMix, ReportingYear};
-use crate::market::fueleu::FUELEU_REFERENCE_GHG;
+use crate::market::fueleu::{FUELEU_PENALTY_EUR_PER_TONNE, FUELEU_REFERENCE_GHG};
 use rust_decimal::{Decimal, RoundingStrategy, prelude::ToPrimitive};
 use serde_json::json;
-
-/// Annex IV Part B deficit penalty, EUR per tonne of VLSFO equivalent.
-pub const FUELEU_PENALTY_PER_TONNE: Decimal = Decimal::from_parts(2_400, 0, 0, false, 0);
 
 /// Illustrative annual energy for a vessel that declares no consumption.
 pub const DEFAULT_ANNUAL_ENERGY_MJ: Decimal = Decimal::from_parts(300_000_000, 0, 0, false, 0);
@@ -137,7 +134,7 @@ pub fn fueleu_result(
         // priced per tonne. A validated mix always has a positive intensity.
         rounded_2(
             (-balance)
-                .checked_mul(FUELEU_PENALTY_PER_TONNE)
+                .checked_mul(FUELEU_PENALTY_EUR_PER_TONNE)
                 .and_then(|deficit| deficit.checked_div(intensity * VLSFO_ENERGY_MJ_PER_TONNE))
                 .ok_or(ScoreError::ArithmeticOverflow)?,
         )
