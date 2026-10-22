@@ -5,16 +5,20 @@
 //! credential. `postgres_admission` needs the disposable PostgreSQL harness
 //! (`tests/postgres/test_phase6_authorization.py`) and is ignored otherwise.
 
+use std::time::{Duration as StdDuration, Instant};
+
 use chrono::{DateTime, Duration, Utc};
 use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
 use serde_json::{Value, json};
+use sqlx::postgres::PgPoolOptions;
 use sqlx::{Connection, PgConnection};
 use uuid::Uuid;
 use verdaxis_read::auth::{
     AccountState, AuthError, TokenIssuer, VerificationSettings, cutoff_refusal, verify_access,
 };
 use verdaxis_read::streams::auth::{
-    MAX_TOKEN_BYTES, StreamError, StreamPrincipal, admit_account, admit_organization, revalidate,
+    DB_ACQUIRE_DEADLINE, DB_LOCK_TIMEOUT, DB_STATEMENT_TIMEOUT, MAX_TOKEN_BYTES, StreamError,
+    StreamPrincipal, admit_account, admit_organization, revalidate, revalidate_from_pool,
     verify_stream,
 };
 
@@ -620,10 +624,24 @@ fn no_execution_gate() {
     assert_eq!(admit_account(&principal(), &approved()), Ok(()));
 }
 
+#[test]
+fn admission_database_bounds() {
+    // An admission read waits at most 2 s for a pooled connection, runs each
+    // statement at most 5 s and waits at most 500 ms for a lock.
+    // `postgres_admission` shows that the bounds apply to the read's own
+    // transaction only and that the acquisition and lock bounds end a wait.
+    assert_eq!(DB_ACQUIRE_DEADLINE, StdDuration::from_secs(2));
+    assert_eq!(DB_STATEMENT_TIMEOUT, StdDuration::from_secs(5));
+    assert_eq!(DB_LOCK_TIMEOUT, StdDuration::from_millis(500));
+}
+
 /// The rows that `tests/postgres/test_phase6_authorization.py` seeds. The
 /// harness passes their identifiers in the environment.
 struct Fixture {
+    /// The application role.
     url: String,
+    /// The fixture's migrator role, which may lock the account table.
+    lock_url: String,
     issued_at: DateTime<Utc>,
     approved_org: Uuid,
     other_org: Uuid,
@@ -636,6 +654,7 @@ impl Fixture {
         let issued_at_us: i64 = env_value("STREAM_AUTH_TEST_ISSUED_AT_US").parse().unwrap();
         Self {
             url: env_value("STREAM_AUTH_TEST_DATABASE_URL"),
+            lock_url: env_value("STREAM_AUTH_TEST_LOCK_DATABASE_URL"),
             issued_at: DateTime::from_timestamp_micros(issued_at_us).unwrap(),
             approved_org: env_id("STREAM_AUTH_TEST_APPROVED_ORG"),
             other_org: env_id("STREAM_AUTH_TEST_OTHER_ORG"),
@@ -671,13 +690,17 @@ fn env_id(name: &str) -> Uuid {
     Uuid::parse_str(&env_value(name)).unwrap()
 }
 
-/// Current account and organization state read from PostgreSQL.
+/// Current account and organization state read from PostgreSQL, and the
+/// database bounds of that read. One test runs both in turn: the bound checks
+/// lock the account table, which would stall concurrent admission checks.
 #[tokio::test]
 #[ignore = "requires the disposable PostgreSQL harness: tests/postgres/test_phase6_authorization.py"]
 async fn postgres_admission() {
     let fixture = Fixture::from_env();
     let checks = admission_checks(&fixture).await;
     println!("stream admission postgres coverage: {checks} checks");
+    let checks = read_bound_checks(&fixture).await;
+    println!("stream read bounds postgres coverage: {checks} checks");
 }
 
 /// Each seeded account and organization state, then a failed store read.
@@ -779,4 +802,102 @@ async fn admission_checks(fixture: &Fixture) -> usize {
     assert_eq!(outcome, Err(StreamError::AuthorizationUnavailable));
 
     admitted.len() + refused.len() + 1
+}
+
+/// The session's own statement and lock limits.
+async fn session_limits(connection: &mut PgConnection) -> (String, String) {
+    sqlx::query_as("SELECT current_setting('statement_timeout'), current_setting('lock_timeout')")
+        .fetch_one(connection)
+        .await
+        .unwrap()
+}
+
+/// The database bounds of an admission read. Returns the number of checks.
+async fn read_bound_checks(fixture: &Fixture) -> usize {
+    // Far below the test pool's own acquire timeout and far above the bounds.
+    let guard = StdDuration::from_secs(10);
+    let approved = fixture.principal("APPROVED", fixture.approved_org);
+    let mut checks = 0;
+
+    // Session limits far above the bounds: only the limits that an admission
+    // read sets for itself can end its waits in time.
+    let mut connection = fixture.connect().await;
+    sqlx::raw_sql("SET statement_timeout = '1min'; SET lock_timeout = '1min'")
+        .execute(&mut connection)
+        .await
+        .unwrap();
+    let session = session_limits(&mut connection).await;
+
+    // The bounds end with the read's own transaction.
+    assert_eq!(revalidate(&mut connection, &approved).await, Ok(()));
+    assert_eq!(session_limits(&mut connection).await, session);
+    checks += 1;
+
+    // A lock wait ends at the lock bound, before the statement bound.
+    let mut holder = PgConnection::connect(&fixture.lock_url).await.unwrap();
+    let mut lock = holder.begin().await.unwrap();
+    sqlx::query("SET LOCAL lock_timeout = '5s'")
+        .execute(&mut *lock)
+        .await
+        .unwrap();
+    sqlx::query("LOCK TABLE users IN ACCESS EXCLUSIVE MODE")
+        .execute(&mut *lock)
+        .await
+        .unwrap();
+    let started = Instant::now();
+    let outcome = tokio::time::timeout(
+        DB_STATEMENT_TIMEOUT - StdDuration::from_secs(1),
+        revalidate(&mut connection, &approved),
+    )
+    .await
+    .expect("the lock bound ends the wait before the statement bound");
+    let waited = started.elapsed();
+    lock.rollback().await.unwrap();
+    holder.close().await.unwrap();
+    assert_eq!(outcome, Err(StreamError::AuthorizationUnavailable));
+    assert!(
+        waited >= DB_LOCK_TIMEOUT,
+        "the read waited for the lock: {waited:?}"
+    );
+    checks += 1;
+
+    // The refused read leaves no transaction and no limit behind, and the
+    // connection stays usable.
+    assert_eq!(session_limits(&mut connection).await, session);
+    assert_eq!(revalidate(&mut connection, &approved).await, Ok(()));
+    checks += 1;
+
+    // Waiting for a pooled connection ends at the acquisition deadline.
+    let pool = PgPoolOptions::new()
+        .max_connections(1)
+        .acquire_timeout(StdDuration::from_secs(60))
+        .connect(&fixture.url)
+        .await
+        .unwrap();
+    let held = pool.acquire().await.unwrap();
+    let started = Instant::now();
+    let outcome = tokio::time::timeout(guard, revalidate_from_pool(&pool, &approved))
+        .await
+        .expect("the acquisition deadline ends the wait");
+    let waited = started.elapsed();
+    assert_eq!(outcome, Err(StreamError::AuthorizationUnavailable));
+    assert!(
+        waited >= DB_ACQUIRE_DEADLINE,
+        "the read waited for a connection: {waited:?}"
+    );
+    checks += 1;
+
+    // With the connection free, the pooled read admits and gives the
+    // connection back: a second read on the one-connection pool admits too.
+    drop(held);
+    for attempt in ["first", "second"] {
+        let outcome = tokio::time::timeout(guard, revalidate_from_pool(&pool, &approved))
+            .await
+            .expect("a free connection is acquired");
+        assert_eq!(outcome, Ok(()), "{attempt}");
+    }
+    pool.close().await;
+    checks += 1;
+
+    checks
 }

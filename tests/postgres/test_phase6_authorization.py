@@ -1,9 +1,11 @@
 """Run Rust stream admission against the disposable PostgreSQL fixture.
 
 The Python side seeds account and organization rows; the Rust admission code
-re-reads them with the deployed application role. The Rust test
-``postgres_admission`` is ignored in ordinary builds, so this suite runs it
-explicitly and fails unless it passed and reported its coverage line.
+re-reads them with the deployed application role. The Rust test also checks
+the database bounds of that read; it holds a table lock through the fixture's
+migrator role for that. The Rust test ``postgres_admission`` is ignored in
+ordinary builds, so this suite runs it explicitly and fails unless it passed
+and reported its coverage lines.
 """
 
 import os
@@ -29,15 +31,16 @@ def _timestamp(microseconds: int | None) -> str:
     return f"to_timestamp({seconds}) + interval '{micros} microseconds'"
 
 
-def _app_url() -> str:
-    url = os.environ["DATABASE_URL"]
-    assert url.startswith("postgresql+asyncpg://"), "the harness supplies the app role URL"
+def _sqlx_url(url: str) -> str:
+    assert url.startswith("postgresql+asyncpg://"), "the harness supplies asyncpg URLs"
     # SQLx takes the plain libpq scheme.
     return url.replace("postgresql+asyncpg://", "postgresql://", 1)
 
 
 @pytest.mark.asyncio
-async def test_stream_admission_reads_current_account_and_organization(pg_session):
+async def test_stream_admission_reads_current_account_and_organization(
+    pg_session, analytics_pg_url
+):
     _, session = pg_session
     approved_org, other_org, pending_org = uuid4(), uuid4(), uuid4()
     await session.execute(
@@ -81,7 +84,8 @@ async def test_stream_admission_reads_current_account_and_organization(pg_sessio
             ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
         ).strip(),
         "SQLX_OFFLINE": "true",
-        "STREAM_AUTH_TEST_DATABASE_URL": _app_url(),
+        "STREAM_AUTH_TEST_DATABASE_URL": _sqlx_url(os.environ["DATABASE_URL"]),
+        "STREAM_AUTH_TEST_LOCK_DATABASE_URL": _sqlx_url(analytics_pg_url),
         "STREAM_AUTH_TEST_ISSUED_AT_US": str(ISSUED_AT_US),
         "STREAM_AUTH_TEST_APPROVED_ORG": str(approved_org),
         "STREAM_AUTH_TEST_OTHER_ORG": str(other_org),
@@ -142,3 +146,6 @@ async def test_stream_admission_reads_current_account_and_organization(pg_sessio
     assert "test result: ok. 1 passed; 0 failed; 0 ignored" in result.stdout, output
     # Four admitted, nine refused and one unavailable store read.
     assert "stream admission postgres coverage: 14 checks" in result.stdout, output
+    # Transaction-local bounds, the lock bound, recovery after it, the
+    # acquisition deadline and two pooled reads that return their connection.
+    assert "stream read bounds postgres coverage: 5 checks" in result.stdout, output
