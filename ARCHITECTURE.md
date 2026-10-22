@@ -26,6 +26,19 @@ accepts 2025–9999; the MCP request retains its 2025–2050 reporting-year rang
 `rs/read/tests/phase5_fueleu.rs` checks the boundaries, adapters and consumer
 sources.
 
+## Phase 5 read lookup indexes
+
+`alembic/versions/p5_20261020_read_indexes.py` (parent `prc_20261018_cache`)
+adds three non-unique B-tree indexes for the Phase 5 reads:
+`vessels(organization_id, id)`, `producer_projects(cod_year, name, id)` and
+`producer_projects(status, cod_year, id)`. It takes SHARE locks on both tables
+with NOWAIT and builds all three in one transaction. The models declare the
+same indexes. `deploy/migration-checkpoints.tsv` adds the transition and its
+pause; the Rust allowlist accepts both `prc_20261018_cache` and the new
+revision. `tests/unit/test_phase5_indexes.py`,
+`tests/unit/test_phase5_checkpoints.py` and
+`tests/postgres/test_phase5_read_indexes.py` check it.
+
 ## Rust Phase 2 feedback
 
 `rs/read/src/crud/feedback.rs` provides the Task 10 feedback submission and
