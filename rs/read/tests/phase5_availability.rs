@@ -120,7 +120,7 @@ async fn insert_supplier(connection: &mut sqlx::PgConnection, org: &str, class: 
 }
 
 async fn stock(connection: &mut sqlx::PgConnection, org: &str, port: &str, amount: &str, price: &str) {
-    sqlx::query("INSERT INTO inventory_items (supplier_id, owner_user_id, port_id, product_name, current_stock_mt, price_per_mt_usd) VALUES ($1::uuid, $1::uuid, $2, 'Green Methanol', $3::text::numeric, $4::text::numeric)")
+    sqlx::query("INSERT INTO inventory_items (supplier_id, owner_user_id, port_id, product_name, current_stock_mt, price_per_mt_usd) VALUES ($1::uuid, $1::uuid, $2, 'Bio Methanol', $3::text::numeric, $4::text::numeric)")
         .bind(org).bind(port).bind(amount).bind(price).execute(connection).await.unwrap();
 }
 
@@ -205,7 +205,7 @@ async fn availability_postgres_cases() {
     let rows = read(connection, None).await.unwrap();
     assert_eq!(rows[0]["availability_level"], "NONE");
     assert!(rows[0]["avg_price_per_mt"].is_null());
-    execute(connection, "UPDATE products SET is_active = false WHERE name = 'Green Methanol'").await;
+    execute(connection, "UPDATE products SET is_active = false WHERE name = 'Bio Methanol'").await;
     assert_eq!(read(connection, None).await.unwrap(), json!([]));
     execute(connection, "UPDATE products SET is_active = true;
         UPDATE delivery_points SET is_active = false WHERE name = 'Rotterdam'").await;
@@ -214,9 +214,22 @@ async fn availability_postgres_cases() {
         UPDATE ports SET name = 'Unlisted'").await;
     assert_eq!(read(connection, None).await.unwrap(), json!([]));
     execute(connection, "UPDATE ports SET name = 'Rotterdam';
+        INSERT INTO inventory_items (supplier_id,owner_user_id,port_id,product_name,current_stock_mt,price_per_mt_usd)
+        VALUES ('00000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000001','NLRTM','B30',500,400)").await;
+    assert_eq!(read(connection, None).await.unwrap().as_array().unwrap().len(), 1);
+    execute(connection, "UPDATE inventory_items SET specification_standard = 'ISO 8217:2024 RF 380', carbon_intensity_method = 'declared', certification_declared = true, certification_scheme = 'ISCC EU', msds_available = true, carbon_intensity_gco2_mj = 30, feedstock = 'used cooking oil', origin = 'NL' WHERE product_name = 'B30'").await;
+    assert_eq!(read(connection, None).await.unwrap().as_array().unwrap().len(), 2);
+    execute(connection, "UPDATE inventory_items SET off_spec = true WHERE product_name = 'B30'").await;
+    assert_eq!(read(connection, None).await.unwrap().as_array().unwrap().len(), 1);
+    execute(connection, "INSERT INTO inventory_items (supplier_id,owner_user_id,port_id,product_name,current_stock_mt,price_per_mt_usd)
+        VALUES ('00000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000001','NLRTM','Bio-LNG',500,400)").await;
+    assert_eq!(read(connection, None).await.unwrap().as_array().unwrap().len(), 1);
+    execute(connection, "UPDATE ports SET name = 'Dalian'").await;
+    assert_eq!(read(connection, Some("Bio-LNG")).await.unwrap(), json!([]));
+    execute(connection, "UPDATE ports SET name = 'Rotterdam';
         INSERT INTO ports SELECT 'p' || n, 'Rotterdam', ST_SetSRID(ST_MakePoint(0,0),4326)::geography, true FROM generate_series(1,511) n;
         INSERT INTO inventory_items (supplier_id,owner_user_id,port_id,product_name,current_stock_mt,price_per_mt_usd)
-        SELECT '00000000-0000-4000-8000-000000000001'::uuid,'00000000-0000-4000-8000-000000000001'::uuid,id,'Green Methanol',1234567890123456789012345678901234567890.12,1 FROM ports WHERE id <> 'NLRTM'").await;
+        SELECT '00000000-0000-4000-8000-000000000001'::uuid,'00000000-0000-4000-8000-000000000001'::uuid,id,'Bio Methanol',1234567890123456789012345678901234567890.12,1 FROM ports WHERE id <> 'NLRTM'").await;
     let rows = read(connection, None).await.unwrap();
     assert_eq!(rows.as_array().unwrap().len(), 512);
     assert!(rows.as_array().unwrap().iter().any(|r| r["total_stock_mt"] == "1234567890123456789012345678901234567890.12"));
