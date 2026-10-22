@@ -279,9 +279,16 @@ on invalidation or a fence change. The explicit `AppState::start_trading_cache`
 hook starts its loop only with `cache_listener=1` in the prepared budget; otherwise
 no cache runtime or extra connection is created. `runtime/admission.rs::run_trading_read`
 checks identity and generation in one admitted read-only REPEATABLE READ snapshot
-and checks the fence again before publication. `market/cache_dependencies.rs`
-derives each reviewed family's time boundary; an unknown required fact bypasses
-storage. Serving routes are not wrapped yet: that step waits for the reviewed
+and checks the fence again before insertion and before publication. With the
+runtime on, a read on a connection that is not admitted returns the database
+error, also when it would not cache. Overlapping snapshots each answer at their
+own generation; an older fill never replaces a newer entry. Restore detection
+belongs to the external activation protocol. `AppState::trading_read_observer`
+supplies the read clock and lifecycle checkpoints: serving uses the real clock,
+and disposable schedules hold a read at an exact checkpoint.
+`market/cache_dependencies.rs` derives each reviewed family's time boundary;
+moving price summaries (`prices`) need rolling-window facts, explicit fixed
+ranges use `prices_fixed`, and an unknown required fact bypasses storage. Serving routes are not wrapped yet: that step waits for the reviewed
 Tasks 9/10 handoff, so trading caching remains inactive. See
 `docs/rust-phase1/cache-dependencies.md`.
 Exact `market/amount.rs` operations retain intermediate economic rounding while

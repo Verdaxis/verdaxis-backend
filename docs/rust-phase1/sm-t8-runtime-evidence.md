@@ -39,6 +39,36 @@ Every listed call has a final `CALL_EXIT=0` marker. The inherited
 `RELEASE_SHA=$(git rev-parse HEAD)` and `SQLX_OFFLINE=true` before running.
 A successful wrapper marker alone is not the result of an inner gate.
 
+## Review round — 22 October 2026
+
+Each test below was committed before its implementation and run through the
+same disposable driver (`test_rust_trading_cache_needs_every_authority_and_generation`)
+on that commit and then on the implementation commit.
+
+| Required behavior | Test commit | Before | Implementation | After |
+| --- | --- | ---: | --- | ---: |
+| With the runtime on, revoked, expired, mismatched, missing or rotated authority returns the database error (`unadmitted_connections_never_publish`) | `90ac6eb4` | 1 | `236e62f9` | 0 |
+| Moving price summaries need rolling-window facts (`prices_require_a_known_rolling_departure`) | `6482deb2` | 1 | `beb905cc` | 0 |
+| Overlapping snapshots both answer; the older fill does not replace the newer entry (`overlapping_snapshots_publish_without_replacing_the_newer_entry`) | `c0ca1bef` | 1 | `c2a27b0e` | 0 |
+| Controlled-clock expiry, grace, rolling departure, Singapore day and late fill; barriers before insertion and publication with equal and reduced generations; distinct rows from two incarnations at one generation; two readers on each incarnation | `e2261248` | 1 | `16e1c1af` | 0 |
+
+`an_older_fill_never_replaces_a_newer_entry` (`ac06b4a6`) is an offline unit
+test of the cache's own ordering check from `c2a27b0e`. It fails with only that
+check removed (exit 101) and passes on the final source. `4c9a7f97` and
+`4af84626` change structure and formatting only.
+
+Final gates on `4af84626a1ac687c1a57ce74e5e5a495fb997898` (M1 for formatting,
+clippy and offline tests; staging for PostgreSQL suites):
+
+| Gate | Host | Exit |
+| --- | --- | ---: |
+| Formatting | M1 | 0 |
+| Workspace/all-target clippy, warnings denied | M1 | 0 |
+| Offline workspace tests, 265 passed | M1 | 0 |
+| Entire `test_public_read_cache_events.py`, 31 passed | staging | 0 |
+| Seeded market-contract PostgreSQL suite, six cases | staging | 0 |
+| Full Rust disposable PostgreSQL runner, 275 passed | staging | 0 |
+
 ## Resume point and limits
 
 Trading caching remains inactive in serving routes. The prepared-budget listener
