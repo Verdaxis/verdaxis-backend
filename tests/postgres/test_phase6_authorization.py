@@ -39,14 +39,15 @@ def _app_url() -> str:
 @pytest.mark.asyncio
 async def test_stream_admission_reads_current_account_and_organization(pg_session):
     _, session = pg_session
-    approved_org, pending_org = uuid4(), uuid4()
+    approved_org, other_org, pending_org = uuid4(), uuid4(), uuid4()
     await session.execute(
         text(
             "INSERT INTO organizations (id,name,type,verification_status) VALUES "
             "(:approved,'Stream admission approved','FUEL_BUYER','APPROVED'),"
+            "(:other,'Stream admission second approved','FUEL_BUYER','APPROVED'),"
             "(:pending,'Stream admission pending','FUEL_BUYER','PENDING')"
         ),
-        {"approved": approved_org, "pending": pending_org},
+        {"approved": approved_org, "other": other_org, "pending": pending_org},
     )
     # name: (organization, status, must change password, KYC status,
     #        password changed at, authentication revoked at)
@@ -56,7 +57,11 @@ async def test_stream_admission_reads_current_account_and_organization(pg_sessio
         "REJECTED": (approved_org, "REJECTED", False, "PENDING", None, None),
         "PENDING": (approved_org, "PENDING", False, "PENDING", None, None),
         "MUST_CHANGE": (approved_org, "APPROVED", True, "PENDING", None, None),
-        "MOVED": (pending_org, "APPROVED", False, "PENDING", None, None),
+        # Members of a second approved organization. The Rust test admits
+        # OTHER_ORG with a token for that organization and refuses MOVED with
+        # a token for approved_org, so only the membership rule refuses MOVED.
+        "OTHER_ORG": (other_org, "APPROVED", False, "PENDING", None, None),
+        "MOVED": (other_org, "APPROVED", False, "PENDING", None, None),
         "NO_ORGANIZATION": (None, "APPROVED", False, "PENDING", None, None),
         "CUTOFF_EQUAL": (approved_org, "APPROVED", False, "PENDING", ISSUED_AT_US, None),
         "CUTOFF_BEFORE": (
@@ -79,6 +84,7 @@ async def test_stream_admission_reads_current_account_and_organization(pg_sessio
         "STREAM_AUTH_TEST_DATABASE_URL": _app_url(),
         "STREAM_AUTH_TEST_ISSUED_AT_US": str(ISSUED_AT_US),
         "STREAM_AUTH_TEST_APPROVED_ORG": str(approved_org),
+        "STREAM_AUTH_TEST_OTHER_ORG": str(other_org),
         "STREAM_AUTH_TEST_PENDING_ORG": str(pending_org),
         "STREAM_AUTH_TEST_MISSING_USER": str(uuid4()),
     }
@@ -134,5 +140,5 @@ async def test_stream_admission_reads_current_account_and_organization(pg_sessio
     assert result.returncode == 0, output
     assert f"test {TEST} ... ok" in result.stdout, output
     assert "test result: ok. 1 passed; 0 failed; 0 ignored" in result.stdout, output
-    # Three admitted, nine refused and one unavailable store read.
-    assert "stream admission postgres coverage: 13 checks" in result.stdout, output
+    # Four admitted, nine refused and one unavailable store read.
+    assert "stream admission postgres coverage: 14 checks" in result.stdout, output

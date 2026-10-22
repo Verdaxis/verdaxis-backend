@@ -8,6 +8,7 @@
 use chrono::{DateTime, Duration, Utc};
 use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
 use serde_json::{Value, json};
+use sqlx::{Connection, PgConnection};
 use uuid::Uuid;
 use verdaxis_read::auth::{
     AccountState, AuthError, TokenIssuer, VerificationSettings, cutoff_refusal, verify_access,
@@ -585,105 +586,141 @@ fn no_execution_gate() {
     assert_eq!(admit_account(&principal(), &approved()), Ok(()));
 }
 
-/// Current account and organization state read from PostgreSQL. The harness
-/// seeds the rows and passes their identifiers in the environment.
+/// The rows that `tests/postgres/test_phase6_authorization.py` seeds. The
+/// harness passes their identifiers in the environment.
+struct Fixture {
+    url: String,
+    issued_at: DateTime<Utc>,
+    approved_org: Uuid,
+    other_org: Uuid,
+    pending_org: Uuid,
+    issuer: TokenIssuer,
+}
+
+impl Fixture {
+    fn from_env() -> Self {
+        let issued_at_us: i64 = env_value("STREAM_AUTH_TEST_ISSUED_AT_US").parse().unwrap();
+        Self {
+            url: env_value("STREAM_AUTH_TEST_DATABASE_URL"),
+            issued_at: DateTime::from_timestamp_micros(issued_at_us).unwrap(),
+            approved_org: env_id("STREAM_AUTH_TEST_APPROVED_ORG"),
+            other_org: env_id("STREAM_AUTH_TEST_OTHER_ORG"),
+            pending_org: env_id("STREAM_AUTH_TEST_PENDING_ORG"),
+            issuer: TokenIssuer::new(SECRET, ISSUER, AUDIENCE),
+        }
+    }
+
+    /// The principal of the seeded user `name` with a token for
+    /// `organization`. The real issuer writes the token, so issuance and
+    /// verification agree.
+    fn principal(&self, name: &str, organization: Uuid) -> StreamPrincipal {
+        let user = env_id(&format!("STREAM_AUTH_TEST_{name}_USER"));
+        let token = self
+            .issuer
+            .stream(user, organization, ENVIRONMENT, self.issued_at);
+        verify_stream(&token, &current_only(), ENVIRONMENT, self.issued_at)
+            .expect("an issued stream token verifies")
+    }
+
+    async fn connect(&self) -> PgConnection {
+        PgConnection::connect(&self.url).await.unwrap()
+    }
+}
+
+fn env_value(name: &str) -> String {
+    std::env::var(name).unwrap_or_else(|_| {
+        panic!("{name} is required: run through tests/postgres/test_phase6_authorization.py")
+    })
+}
+
+fn env_id(name: &str) -> Uuid {
+    Uuid::parse_str(&env_value(name)).unwrap()
+}
+
+/// Current account and organization state read from PostgreSQL.
 #[tokio::test]
 #[ignore = "requires the disposable PostgreSQL harness: tests/postgres/test_phase6_authorization.py"]
 async fn postgres_admission() {
-    use sqlx::Connection;
+    let fixture = Fixture::from_env();
+    let checks = admission_checks(&fixture).await;
+    println!("stream admission postgres coverage: {checks} checks");
+}
 
-    let url = std::env::var("STREAM_AUTH_TEST_DATABASE_URL")
-        .expect("run through tests/postgres/test_phase6_authorization.py");
-    let fixture = |name: &str| {
-        let value = std::env::var(name).unwrap_or_else(|_| panic!("{name} is required"));
-        Uuid::parse_str(&value).unwrap()
-    };
-    let issued_at_us: i64 = std::env::var("STREAM_AUTH_TEST_ISSUED_AT_US")
-        .expect("STREAM_AUTH_TEST_ISSUED_AT_US is required")
-        .parse()
-        .unwrap();
-    let issued_at = DateTime::from_timestamp_micros(issued_at_us).unwrap();
-    let approved_org = fixture("STREAM_AUTH_TEST_APPROVED_ORG");
-    let pending_org = fixture("STREAM_AUTH_TEST_PENDING_ORG");
-    // Tokens come from the real issuer, so issuance and verification agree.
-    let issuer = TokenIssuer::new(SECRET, ISSUER, AUDIENCE);
-    let principal = |user: &str, organization: Uuid| {
-        let token = issuer.stream(fixture(user), organization, ENVIRONMENT, issued_at);
-        verify_stream(&token, &current_only(), ENVIRONMENT, issued_at)
-            .expect("an issued stream token verifies")
-    };
-
+/// Each seeded account and organization state, then a failed store read.
+/// Returns the number of checks.
+async fn admission_checks(fixture: &Fixture) -> usize {
+    let approved_org = fixture.approved_org;
     let admitted = [
-        (
-            "approved",
-            principal("STREAM_AUTH_TEST_APPROVED_USER", approved_org),
-        ),
+        ("approved", fixture.principal("APPROVED", approved_org)),
         (
             "password change before issuance",
-            principal("STREAM_AUTH_TEST_CUTOFF_BEFORE_USER", approved_org),
+            fixture.principal("CUTOFF_BEFORE", approved_org),
         ),
         (
             "rejected KYC",
-            principal("STREAM_AUTH_TEST_KYC_REJECTED_USER", approved_org),
+            fixture.principal("KYC_REJECTED", approved_org),
+        ),
+        // The second organization admits its own members, so the refusals of
+        // the moved user and the user without an organization below come
+        // from the membership rule alone.
+        (
+            "member of the second organization",
+            fixture.principal("OTHER_ORG", fixture.other_org),
         ),
     ];
     let refused = [
-        (
-            "missing user",
-            principal("STREAM_AUTH_TEST_MISSING_USER", approved_org),
-        ),
-        (
-            "rejected user",
-            principal("STREAM_AUTH_TEST_REJECTED_USER", approved_org),
-        ),
-        (
-            "pending user",
-            principal("STREAM_AUTH_TEST_PENDING_USER", approved_org),
-        ),
+        ("missing user", fixture.principal("MISSING", approved_org)),
+        ("rejected user", fixture.principal("REJECTED", approved_org)),
+        ("pending user", fixture.principal("PENDING", approved_org)),
         (
             "password change required",
-            principal("STREAM_AUTH_TEST_MUST_CHANGE_USER", approved_org),
+            fixture.principal("MUST_CHANGE", approved_org),
         ),
         (
             "moved to another organization",
-            principal("STREAM_AUTH_TEST_MOVED_USER", approved_org),
+            fixture.principal("MOVED", approved_org),
         ),
         (
             "no organization",
-            principal("STREAM_AUTH_TEST_NO_ORGANIZATION_USER", approved_org),
+            fixture.principal("NO_ORGANIZATION", approved_org),
         ),
         (
             "password change at issuance",
-            principal("STREAM_AUTH_TEST_CUTOFF_EQUAL_USER", approved_org),
+            fixture.principal("CUTOFF_EQUAL", approved_org),
         ),
         (
             "revoked at issuance",
-            principal("STREAM_AUTH_TEST_REVOKED_USER", approved_org),
+            fixture.principal("REVOKED", approved_org),
         ),
         (
             "organization not approved",
-            principal("STREAM_AUTH_TEST_UNAPPROVED_ORG_USER", pending_org),
+            fixture.principal("UNAPPROVED_ORG", fixture.pending_org),
         ),
     ];
 
-    let mut connection = sqlx::PgConnection::connect(&url).await.unwrap();
+    // Every case runs before the assertion, so a failure names all cases
+    // that went wrong.
+    let mut connection = fixture.connect().await;
+    let mut unexpected = Vec::new();
     for (name, principal) in &admitted {
-        assert_eq!(
-            revalidate(&mut connection, principal).await,
-            Ok(()),
-            "{name}"
-        );
+        let outcome = revalidate(&mut connection, principal).await;
+        if outcome != Ok(()) {
+            unexpected.push(format!("{name}: {outcome:?}"));
+        }
     }
     for (name, principal) in &refused {
-        assert_eq!(
-            revalidate(&mut connection, principal).await,
-            Err(StreamError::TokenInvalid),
-            "{name}"
-        );
+        let outcome = revalidate(&mut connection, principal).await;
+        if outcome != Err(StreamError::TokenInvalid) {
+            unexpected.push(format!("{name}: {outcome:?}"));
+        }
     }
+    assert!(
+        unexpected.is_empty(),
+        "unexpected outcomes: {unexpected:#?}"
+    );
 
     // A read on a terminated session is the bounded unavailable class.
-    let mut control = sqlx::PgConnection::connect(&url).await.unwrap();
+    let mut control = fixture.connect().await;
     let backend: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
         .fetch_one(&mut connection)
         .await
@@ -707,6 +744,5 @@ async fn postgres_admission() {
     }
     assert_eq!(outcome, Err(StreamError::AuthorizationUnavailable));
 
-    let checks = admitted.len() + refused.len() + 1;
-    println!("stream admission postgres coverage: {checks} checks");
+    admitted.len() + refused.len() + 1
 }
