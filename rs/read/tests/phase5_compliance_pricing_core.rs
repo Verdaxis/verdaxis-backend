@@ -59,15 +59,13 @@ fn compliance_pricing_lcv_cases() {
             "LISTING"
         );
         for invalid_lcv in [Decimal::ZERO, -Decimal::ONE] {
-            assert!(
-                LifecycleOverlayCore::compute(
-                    Some(product),
-                    Some(decimal("31")),
-                    Some(invalid_lcv),
-                )
-                .unwrap()
-                .is_none()
-            );
+            assert!(LifecycleOverlayCore::compute(
+                Some(product),
+                Some(decimal("31")),
+                Some(invalid_lcv),
+            )
+            .unwrap()
+            .is_none());
         }
     }
 }
@@ -129,7 +127,27 @@ fn compliance_pricing_assumption_cases() {
                     "EXTRA_EU_VOYAGE_SCOPE",
                 ])
             );
-            assert_eq!(value.as_object().unwrap().len(), 9);
+            assert_eq!(
+                value
+                    .as_object()
+                    .unwrap()
+                    .keys()
+                    .map(String::as_str)
+                    .collect::<std::collections::BTreeSet<_>>(),
+                [
+                    "eur_usd_rate",
+                    "vlsfo_baseline_gco2_mj",
+                    "ghgie_actual_gco2_mj",
+                    "fleet_intensity_basis",
+                    "fleet_vessel_count",
+                    "penalty_eur_per_tonne",
+                    "year",
+                    "year_target",
+                    "excluded_factors"
+                ]
+                .into_iter()
+                .collect(),
+            );
             for key in [
                 "eur_usd_rate",
                 "vlsfo_baseline_gco2_mj",
@@ -183,7 +201,26 @@ fn compliance_pricing_projection_cases() {
         .unwrap()
         .unwrap();
     let value = serde_json::to_value(overlay).unwrap();
-    assert_eq!(value.as_object().unwrap().len(), 8);
+    assert_eq!(
+        value
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect::<std::collections::BTreeSet<_>>(),
+        [
+            "financial_benefit_status",
+            "penalty_avoided_eur_per_mt",
+            "penalty_avoided_usd_per_mt",
+            "tco2e_avoided_per_mt",
+            "ci_gco2_mj",
+            "ci_basis",
+            "lcv_mj_kg",
+            "lcv_basis"
+        ]
+        .into_iter()
+        .collect(),
+    );
     for key in [
         "penalty_avoided_eur_per_mt",
         "penalty_avoided_usd_per_mt",
