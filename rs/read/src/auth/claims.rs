@@ -12,8 +12,9 @@ pub struct VerifiedAccess {
 
 /// A token's issuance time, read from `iat_us` (preferred) or `iat`.
 ///
-/// `out_of_range` marks a value that cannot be represented as a time. It is a
-/// refusal under an active cutoff, never a panic or a 500 (PD7).
+/// `out_of_range` marks a value that cannot be represented as a time. Under an
+/// active cutoff such a value is refused; without one the token has no usable
+/// issuance time.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct TokenIssuance {
     pub issued_at: Option<DateTime<Utc>>,
@@ -72,8 +73,8 @@ pub fn read_issuance(claims: &Value) -> TokenIssuance {
     TokenIssuance::from_microseconds(microseconds as i64)
 }
 
-/// The `sub` claim as a UUID. Only a JSON string is a credential: a number,
-/// array, object, `null` or boolean is a 401 with no database read (D1).
+/// The `sub` claim as a UUID. Only a JSON string is a subject; a number,
+/// array, object, `null` or boolean is refused as invalid credentials.
 pub fn read_subject(claims: &Value) -> Result<Uuid, AuthError> {
     let subject = claims
         .get("sub")
@@ -158,8 +159,8 @@ pub fn validate_account(access: &VerifiedAccess, user: &AccountState) -> Result<
     if !user.exists {
         return Err(AuthError::Credentials);
     }
-    // PD7 / decision 94: an unusable issuance time fails the active cutoff,
-    // with password cutoff precedence, never an HTTP 500.
+    // An unusable issuance time fails an active cutoff. The password cutoff is
+    // checked before the revocation cutoff.
     if let Some(error) = cutoff_refusal(
         TokenIssuance {
             issued_at: access.issued_at,

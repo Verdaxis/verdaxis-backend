@@ -1,4 +1,4 @@
-//! Task 3: token issuance, claim reading (PD7, D1) and cross-stack tokens.
+//! Task 3: token issuance, claim reading and cross-stack tokens.
 //!
 //! Every secret and key in this file is a fixed test value, never a runtime
 //! credential. The Python side runs the project interpreter in `venv/`, which
