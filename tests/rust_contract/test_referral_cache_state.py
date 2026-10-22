@@ -11,9 +11,13 @@ from scripts.rust_contract import (
     referral_invite,
 )
 
+# Register scenarios before importing their modules: registration loads them
+# through phase2_scenarios, which is also their shared interface module.
+
 
 @pytest.fixture(params=["allocation", "retained", "invite", "address"])
 def allocation_state(request):
+    assert "referral-allocation" in REGISTRY
     if request.param == "allocation":
         actor, code = referral_allocation.IDS[1], "VDX-FREE01"
         check = lambda old, new: referral_allocation.only_code(old, new, None, [])
