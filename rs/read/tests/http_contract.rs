@@ -817,3 +817,115 @@ async fn cors_wraps_saturated_admission() {
     drop(released);
     assert_eq!(state.reads.available_permits(), 1);
 }
+
+/// The four public market reads that answer with the typed market-data envelope.
+const MARKET_DATA_READS: [&str; 4] = [
+    "/api/availability",
+    "/api/benchmarks",
+    "/api/demand",
+    "/api/producers",
+];
+
+/// Application state on a lazy pool whose database never answers, so a test
+/// reaches admission and pool acquisition without a server. The returned pool
+/// is the state's read pool.
+fn unreachable_database_state(
+    slots: u32,
+    acquire_timeout: std::time::Duration,
+) -> (verdaxis_read::AppState, sqlx::PgPool) {
+    let config = verdaxis_read::Config {
+        kyc_execution_gate_enabled: true,
+        db_session_time_zone: "UTC".into(),
+        environment: "test".into(),
+        release_sha: verdaxis_read::compiled_sha().into(),
+        migration_revision: "kycg_20261014_staging".into(),
+        database_url: "postgres://fixture:fixture_pw@127.0.0.1:1/fixture_test".into(),
+        bind: "127.0.0.1:0".parse().unwrap(),
+        read_admission_slots: slots,
+        pool_max: slots + 1,
+        python_budget: 52,
+        configured_max_connections: 100,
+        prepared_budget: None,
+        compliance_eur_usd_rate: None,
+    };
+    let read = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(slots)
+        .acquire_timeout(acquire_timeout)
+        .connect_lazy(&config.database_url)
+        .unwrap();
+    let pools = verdaxis_read::runtime::db::Pools {
+        read: read.clone(),
+        health: sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect_lazy(&config.database_url)
+            .unwrap(),
+    };
+    let state = verdaxis_read::AppState::new(
+        config,
+        pools,
+        verdaxis_read::MarketPolicy {
+            source_sha: verdaxis_read::compiled_sha().into(),
+            products: vec![],
+            points: vec![],
+        },
+    )
+    .unwrap();
+    (state, read)
+}
+
+#[tokio::test]
+async fn market_data_reads_answer_saturated_admission_with_the_typed_envelope() {
+    use verdaxis_read::runtime::http::middleware_with_state;
+    let (state, _read) = unreachable_database_state(1, std::time::Duration::from_secs(30));
+    let existing_reads = ["/api/ports", "/api/listings"];
+    let mut routes = Router::new();
+    for path in MARKET_DATA_READS.into_iter().chain(existing_reads) {
+        routes = routes.route(path, get(|| async { "admitted" }));
+    }
+    let app = middleware_with_state(routes, state.clone());
+    let send = |path: &'static str| {
+        app.clone().oneshot(
+            Request::builder()
+                .uri(path)
+                .header("origin", "https://staging.verdaxis.exchange")
+                .body(Body::empty())
+                .unwrap(),
+        )
+    };
+
+    let held = state.reads.clone().try_acquire_owned().unwrap();
+    for path in MARKET_DATA_READS {
+        let response = send(path).await.unwrap();
+        assert_eq!(response.status(), 503, "{path}");
+        assert_eq!(response.headers()["retry-after"], "1", "{path}");
+        assert_eq!(
+            response.headers()["access-control-allow-origin"],
+            "https://staging.verdaxis.exchange"
+        );
+        let body = to_bytes(response.into_body(), 1024).await.unwrap();
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
+            serde_json::json!({"detail": {
+                "code": "READ_UNAVAILABLE",
+                "message": "Market data is temporarily unavailable; retry shortly."
+            }}),
+            "{path}"
+        );
+    }
+    // The existing public reads keep their string detail.
+    for path in existing_reads {
+        let response = send(path).await.unwrap();
+        assert_eq!(response.status(), 503, "{path}");
+        assert_eq!(
+            to_bytes(response.into_body(), 1024).await.unwrap(),
+            r#"{"detail":"Public market data is temporarily busy; retry shortly."}"#
+        );
+    }
+    // Released capacity admits every read again.
+    drop(held);
+    for path in MARKET_DATA_READS.into_iter().chain(existing_reads) {
+        let response = send(path).await.unwrap();
+        assert_eq!(response.status(), 200, "{path}");
+    }
+    assert_eq!(state.reads.available_permits(), 1);
+}
