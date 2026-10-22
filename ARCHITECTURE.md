@@ -36,6 +36,16 @@ replaces the default exchange rate; startup refuses a value that is not
 positive. `rs/read/tests/phase5_compliance_pricing_core.rs` covers the core and
 its serialized client fields.
 
+`rs/read/src/compliance/validation.rs` holds the pure fuel-mix and
+reporting-year rules, and `rs/read/src/compliance/scoring.rs` the pure checked
+score calculation; both use `market::fueleu` for the reference, the penalty and
+the reporting-year limits. `rs/read/src/routes/compliance_fuels.rs` serves the
+constant illustrative fuel-intensity table at `GET /api/compliance/fuels`, with
+no database read or authentication. The other compliance routes reach the pure
+cores through their authenticated adapters.
+`rs/read/tests/phase5_compliance_scores_core.rs` and
+`rs/read/tests/phase5_compliance_fuels.rs` cover them.
+
 ## Phase 5 public market reads
 
 `runtime::admission::run_market_read` runs the work of one public market read
