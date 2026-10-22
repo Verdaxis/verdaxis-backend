@@ -527,6 +527,69 @@ async fn unadmitted_connections_never_publish() {
     assert!(published.is_empty(), "unadmitted responses published: {published:?}");
 }
 
+struct ReadBarrier {
+    stage: verdaxis_read::runtime::admission::TradingReadStage,
+    entered: tokio::sync::Notify,
+    release: tokio::sync::Notify,
+}
+
+impl verdaxis_read::runtime::admission::TradingReadObserver for ReadBarrier {
+    fn checkpoint(&self, stage: verdaxis_read::runtime::admission::TradingReadStage) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
+        Box::pin(async move {
+            if stage == self.stage {
+                self.entered.notify_one();
+                self.release.notified().await;
+            }
+        })
+    }
+}
+
+#[tokio::test]
+async fn overlapping_snapshots_publish_without_replacing_the_newer_entry() {
+    use verdaxis_read::runtime::admission::TradingReadStage;
+    let _serial = SERIAL.lock().await;
+    let Some((url, mut writer)) = writer().await else { return; };
+    let record = Record::new();
+    let identity = authority(1);
+    bind(&mut writer, &identity, true).await;
+    record.activate(&identity);
+    let pools = connect(&state_config(&url)).await.unwrap();
+    let state = AppState::new(state_config(&url), pools, policy()).unwrap();
+    let runtime = state.trading_cache.as_ref().unwrap();
+    publish_record(runtime, &record);
+    runtime.tick(Instant::now()).await;
+    let cache = Arc::new(TradingCache::new(4, 1024));
+    let before = generation(&mut writer).await;
+    let gate = Arc::new(ReadBarrier {
+        stage: TradingReadStage::SnapshotEstablished,
+        entered: tokio::sync::Notify::new(),
+        release: tokio::sync::Notify::new(),
+    });
+    let mut older = state.clone();
+    older.trading_read_observer = gate.clone();
+    let old_cache = cache.clone();
+    let old = tokio::spawn(async move {
+        run_trading_read(&older, &old_cache, "overlap", "prices_fixed", |connection| Box::pin(async move {
+            let value = sqlx::query_scalar::<_, i64>("SELECT generation FROM public_read_cache_generations WHERE domain='trading'")
+                .fetch_one(connection).await.map_err(|_| ApiError::database())?;
+            Ok(TradingFill { value, facts: TemporalFacts::proven_written_only() })
+        })).await
+    });
+    tokio::time::timeout(Duration::from_secs(30), gate.entered.notified()).await.unwrap();
+    sqlx::query("UPDATE products SET is_active = is_active").execute(&mut writer).await.unwrap();
+    let newer = generation(&mut writer).await;
+    let runs = Arc::new(AtomicUsize::new(0));
+    assert_eq!(read_family(&state, &cache, "overlap", "prices_fixed", TemporalFacts::proven_written_only(), runs.clone()).await, newer);
+    gate.release.notify_one();
+    let old_result = old.await.unwrap();
+    assert!(old_result.is_ok(), "an overlapping old snapshot is not a restore");
+    assert_eq!(old_result.unwrap(), before);
+    assert_eq!(read_family(&state, &cache, "overlap", "prices_fixed", TemporalFacts::proven_written_only(), runs.clone()).await, newer);
+    assert_eq!(runs.load(Ordering::SeqCst), 1, "the older fill must not replace the newer entry");
+    reset(&mut writer).await;
+    writer.close().await.unwrap();
+}
+
 fn signal(directory: &Path, reader: &str, step: &str) {
     std::fs::write(barrier(directory, reader, step), b"1").unwrap();
 }

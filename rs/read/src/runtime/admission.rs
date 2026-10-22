@@ -111,6 +111,29 @@ pub async fn run_admitted<T: Send + 'static>(
     .map_err(|_| ApiError::internal())?
 }
 
+/// Observable boundaries of one trading read. Observers do not decide admission.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TradingReadStage {
+    SnapshotEstablished,
+    BeforeInsert,
+    BeforePublish,
+}
+
+/// Per-runtime clock and scheduler seam. Serving uses the real clock and no
+/// waits; disposable schedules can hold a read at an exact lifecycle boundary.
+pub trait TradingReadObserver: Send + Sync {
+    fn now(&self) -> TradingClock {
+        TradingClock::now()
+    }
+
+    fn checkpoint(&self, _stage: TradingReadStage) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
+        Box::pin(std::future::ready(()))
+    }
+}
+
+pub struct RealtimeTradingRead;
+impl TradingReadObserver for RealtimeTradingRead {}
+
 /// What a route returns from its uncached query: the public value and every
 /// time dependency the same snapshot read.
 pub struct TradingFill<T> {
@@ -151,6 +174,7 @@ where
         })
         .await;
     };
+    let observer = state.trading_read_observer.clone();
     let authority = runtime.authority().clone();
     let policy = state.policy_identity.clone();
     // The work closure is spawned and may outlive this call, so it owns its
@@ -158,7 +182,7 @@ where
     let cache = cache.clone();
     run_admitted(state, move |connection| {
         Box::pin(async move {
-            let clock = TradingClock::now();
+            let clock = observer.now();
             let mut transaction = connection.begin().await.map_err(|_| ApiError::database())?;
             sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
                 .execute(&mut *transaction)
@@ -172,6 +196,7 @@ where
             if admitted.is_none() {
                 return Err(ApiError::database());
             }
+            observer.checkpoint(TradingReadStage::SnapshotEstablished).await;
             let mut ticket = None;
             if let Some((token, generation)) = &admitted {
                 // A generation that moves backwards inside one authority means
@@ -200,6 +225,7 @@ where
                                 .rollback()
                                 .await
                                 .map_err(|_| ApiError::database())?;
+                            observer.checkpoint(TradingReadStage::BeforePublish).await;
                             if !authority.accepts(token, Instant::now()) {
                                 return Err(ApiError::database());
                             }
@@ -222,6 +248,7 @@ where
                 .await
                 .map_err(|_| ApiError::database())?;
             if let Some(ticket) = &ticket {
+                observer.checkpoint(TradingReadStage::BeforeInsert).await;
                 // Stale-fill barriers. A fill started under one authority and
                 // fence may neither be stored nor answered after either moved.
                 if !authority.accepts(ticket.token(), Instant::now()) {
@@ -245,6 +272,7 @@ where
                         Instant::now(),
                     );
                 }
+                observer.checkpoint(TradingReadStage::BeforePublish).await;
                 // Publishing the response repeats the fence check, so a change
                 // after the insertion cannot let an old authority answer.
                 if !authority.accepts(ticket.token(), Instant::now()) {
