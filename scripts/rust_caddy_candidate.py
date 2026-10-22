@@ -412,8 +412,18 @@ def rollback(original: str, environment: str, group: str) -> str:
         if existing is None:
             raise ValueError("no generated CRUD block to remove")
         start, end, region = existing
-        if region != production_crud_block():
-            raise ValueError("roll every CRUD group back before removing the gate")
+        nodes = blocks(region)
+        for group, count in CRUD_HANDLE_COUNTS.items():
+            handles = [node for node in nodes
+                       if node["header"].startswith(f"handle @rust_crud_{group}_")]
+            if len(handles) != count:
+                raise ValueError(f"unexpected {group} handle count")
+            for node in handles:
+                body = region[node["start"]:node["end"]]
+                matches = list(PROXY.finditer(body))
+                if (len(matches) != 1 or matches[0]["upstreams"].split()
+                        != ["127.0.0.1:8000", "127.0.0.1:8000"]):
+                    raise ValueError("roll every CRUD group back before removing the gate")
         return original[:start] + original[end:]
     block = production_group(group)
     if original.count(block) != 1:
