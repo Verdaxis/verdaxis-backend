@@ -5,8 +5,8 @@ pub use verdaxis_read::*;
 mod demand;
 
 use axum::{body::{Body, to_bytes}, http::Request};
-use chrono::{NaiveDate, Utc};
-use serde_json::{Value, json};
+use chrono::NaiveDate;
+use serde_json::Value;
 use tower::ServiceExt;
 
 fn state() -> AppState {
@@ -76,6 +76,7 @@ fn demand_urgency_cases() {
 #[cfg(feature = "contract-tests")]
 mod postgres {
     use super::*;
+    use serde_json::json;
     use sqlx::{Connection, PgConnection};
     use uuid::Uuid;
 
@@ -127,7 +128,7 @@ mod postgres {
     fn lane(state: &AppState) -> (Uuid, Uuid) {
         let policy = serde_json::to_value(state.policy.as_ref()).unwrap();
         let product = policy["products"].as_array().unwrap().iter()
-            .find(|p| p["qualification_profile"].is_null() && p["execution_mode"] == "ORDERBOOK")
+            .find(|p| p["qualification_profile"] == "scalar" && p["execution_mode"] == "ORDERBOOK")
             .unwrap();
         (product["id"].as_str().unwrap().parse().unwrap(),
          product["lanes"][0].as_str().unwrap().parse().unwrap())
