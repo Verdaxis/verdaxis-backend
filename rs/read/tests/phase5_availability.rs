@@ -17,7 +17,7 @@ fn row() -> AvailabilityRow {
     AvailabilityRow {
         port_id: "NLRTM".into(),
         port_name: "Rotterdam".into(),
-        market_product: "GREEN_METHANOL".into(),
+        market_product: "BIO_METHANOL".into(),
         lat: Some(0.0),
         lng: Some(0.0),
         total_stock_mt: Some("1000.00".into()),
@@ -37,7 +37,7 @@ fn availability_evidence_cases() {
         response[0],
         json!({
             "port_id": "NLRTM", "port_name": "Rotterdam", "lat": 0.0, "lng": 0.0,
-            "fuel_type": "GREEN_METHANOL", "market_product_code": "GREEN_METHANOL",
+            "fuel_type": "BIO_METHANOL", "market_product_code": "BIO_METHANOL",
             "total_stock_mt": "1000.00", "supplier_count": 2,
             "availability_level": "LIMITED", "avg_price_per_mt": "123.46",
             "source_kind": "LIVE_INVENTORY", "scope": "DELIVERY_POINT",
@@ -101,13 +101,18 @@ fn config(url: &str) -> verdaxis_read::Config {
 async fn availability_public_boundary_cases() {
     let config = config("postgres://fixture:fixture_pw@127.0.0.1:1/availability_test");
     let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(16)
+        .connect_lazy(&config.database_url)
+        .unwrap();
+    let health = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
         .connect_lazy(&config.database_url)
         .unwrap();
     let state = AppState::new(
         config,
         runtime::db::Pools {
-            read: pool.clone(),
-            health: pool,
+            read: pool,
+            health,
         },
         policy(),
     )
