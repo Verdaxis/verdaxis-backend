@@ -1036,6 +1036,132 @@ async fn overlapping_snapshots_publish_without_replacing_the_newer_entry() {
     writer.close().await.unwrap();
 }
 
+/// Hold only the delayed request; other requests share its advancing clock.
+struct ClockBarrier {
+    clock: Arc<ControlledClock>,
+    gate: ReadBarrier,
+}
+
+impl TradingReadObserver for ClockBarrier {
+    fn now(&self) -> TradingClock {
+        self.clock.now()
+    }
+
+    fn checkpoint(
+        &self,
+        stage: TradingReadStage,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
+        self.gate.checkpoint(stage)
+    }
+}
+
+#[tokio::test]
+async fn delayed_requests_load_at_their_own_clock_without_replacing_later_entries() {
+    let _serial = SERIAL.lock().await;
+    let Some((url, mut writer)) = writer().await else {
+        return;
+    };
+    let (mut state, runtime, _record) = admitted_state(&url, &mut writer).await;
+    let initial_generation = generation(&mut writer).await;
+    let mut results = Vec::new();
+    for (kind, family) in [("expiry", "orderbook"), ("rolling", "trade_tape")] {
+        let start = instant_at("2026-10-22T08:00:00Z");
+        let clock = Arc::new(ControlledClock(std::sync::Mutex::new(TradingClock::new(
+            Instant::now(),
+            start,
+        ))));
+        state.trading_read_observer = clock.clone();
+        let gate = Arc::new(ClockBarrier {
+            clock: clock.clone(),
+            gate: ReadBarrier {
+                stage: TradingReadStage::SnapshotEstablished,
+                entered: tokio::sync::Notify::new(),
+                release: tokio::sync::Notify::new(),
+            },
+        });
+        let cache = Arc::new(TradingCache::new(4, 1024));
+        let runs = Arc::new(AtomicUsize::new(0));
+        let mut earlier = state.clone();
+        earlier.trading_read_observer = gate.clone();
+        let early_cache = cache.clone();
+        let loads = runs.clone();
+        let captured = clock.now();
+        let delayed = tokio::spawn(async move {
+            run_trading_read(
+                &earlier,
+                &early_cache,
+                kind,
+                family,
+                captured,
+                move |connection, clock| {
+                    Box::pin(async move {
+                        loads.fetch_add(1, Ordering::SeqCst);
+                        clock_case(connection, kind, start, &clock).await
+                    })
+                },
+            )
+            .await
+        });
+        tokio::time::timeout(Duration::from_secs(30), gate.gate.entered.notified())
+            .await
+            .unwrap();
+        // B overtakes A after the row disappears, without any database write.
+        clock.advance(Duration::from_secs(2));
+        runtime
+            .authority()
+            .refresh(runtime.record_path(), clock.now().monotonic);
+        let loads = runs.clone();
+        let later = run_trading_read(
+            &state,
+            &cache,
+            kind,
+            family,
+            clock.now(),
+            move |connection, clock| {
+                Box::pin(async move {
+                    loads.fetch_add(1, Ordering::SeqCst);
+                    clock_case(connection, kind, start, &clock).await
+                })
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(later, 0);
+        assert_eq!(cache.len(), 1, "B stores its empty result");
+        gate.gate.release.notify_one();
+        let early = tokio::time::timeout(Duration::from_secs(30), delayed)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        let loads = runs.clone();
+        let retained = run_trading_read(
+            &state,
+            &cache,
+            kind,
+            family,
+            clock.now(),
+            move |connection, clock| {
+                Box::pin(async move {
+                    loads.fetch_add(1, Ordering::SeqCst);
+                    clock_case(connection, kind, start, &clock).await
+                })
+            },
+        )
+        .await
+        .unwrap();
+        results.push((kind, early, retained, runs.load(Ordering::SeqCst)));
+    }
+    assert_eq!(generation(&mut writer).await, initial_generation);
+    reset(&mut writer).await;
+    writer.close().await.unwrap();
+    assert_eq!(
+        results,
+        [("expiry", 1, 0, 2), ("rolling", 1, 0, 2)],
+        "A must load its earlier row; the next request must still hit B's empty entry"
+    );
+}
+
 struct ControlledClock(std::sync::Mutex<TradingClock>);
 impl TradingReadObserver for ControlledClock {
     fn now(&self) -> TradingClock {
