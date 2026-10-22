@@ -189,6 +189,7 @@ async fn mounted_watchlist_reads_refuse_missing_bearer_before_bad_uuid() {
         db_session_time_zone: "UTC".into(),
         prepared_budget: None,
         compliance_eur_usd_rate: None,
+        fleet_artifact_path: "data/fleet_demand.json".into(),
         bind: "127.0.0.1:0".parse().unwrap(),
         read_admission_slots: 16,
         pool_max: 17,

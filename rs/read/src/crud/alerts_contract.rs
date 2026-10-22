@@ -103,6 +103,7 @@ pub async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         db_session_time_zone: "UTC".into(),
         prepared_budget: None,
         compliance_eur_usd_rate: None,
+        fleet_artifact_path: "data/fleet_demand.json".into(),
         bind,
         read_admission_slots: 16,
         pool_max: 17,

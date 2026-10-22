@@ -159,6 +159,7 @@ async fn router_health_methods_and_empty_routes() {
         configured_max_connections: 100,
         prepared_budget: None,
         compliance_eur_usd_rate: None,
+        fleet_artifact_path: "data/fleet_demand.json".into(),
     };
     let pools = verdaxis_read::runtime::db::Pools {
         read: sqlx::postgres::PgPoolOptions::new()
@@ -322,6 +323,7 @@ async fn post_orderbook_answers_python_auth_boundary() {
         configured_max_connections: 100,
         prepared_budget: None,
         compliance_eur_usd_rate: None,
+        fleet_artifact_path: "data/fleet_demand.json".into(),
     };
     let pools = verdaxis_read::runtime::db::Pools {
         read: sqlx::postgres::PgPoolOptions::new()
@@ -762,6 +764,7 @@ async fn cors_wraps_saturated_admission() {
         configured_max_connections: 100,
         prepared_budget: None,
         compliance_eur_usd_rate: None,
+        fleet_artifact_path: "data/fleet_demand.json".into(),
     };
     let pools = verdaxis_read::runtime::db::Pools {
         read: sqlx::postgres::PgPoolOptions::new()
@@ -847,6 +850,7 @@ fn unreachable_database_state(
         configured_max_connections: 100,
         prepared_budget: None,
         compliance_eur_usd_rate: None,
+        fleet_artifact_path: "data/fleet_demand.json".into(),
     };
     let read = sqlx::postgres::PgPoolOptions::new()
         .max_connections(slots)

@@ -80,6 +80,7 @@ async fn state_with_slots(slots: u32) -> (Arc<AppState>, sqlx::PgPool, sqlx::PgP
         configured_max_connections: 100,
         prepared_budget: None,
         compliance_eur_usd_rate: None,
+        fleet_artifact_path: "data/fleet_demand.json".into(),
     };
     verdaxis_read::validate_config(&config).expect("valid disposable configuration");
     let pools = connect(&config).await.expect("connect");

@@ -144,6 +144,13 @@ pub struct Config {
     /// core's published default; startup refuses a value that is not positive.
     #[serde(default, alias = "COMPLIANCE_EUR_USD_RATE")]
     pub compliance_eur_usd_rate: Option<rust_decimal::Decimal>,
+    /// Operator configuration only; relative paths use the unit WorkingDirectory.
+    #[serde(default = "fleet_artifact_default", alias = "FLEET_ARTIFACT_PATH")]
+    pub fleet_artifact_path: std::path::PathBuf,
+}
+
+fn fleet_artifact_default() -> std::path::PathBuf {
+    "data/fleet_demand.json".into()
 }
 
 fn read_admission_default() -> u32 {

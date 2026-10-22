@@ -48,6 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         db_session_time_zone: "Asia/Singapore".into(),
         prepared_budget: None,
         compliance_eur_usd_rate: None,
+        fleet_artifact_path: "data/fleet_demand.json".into(),
         bind: std::env::var("PHASE2_BIND")?.parse()?,
         read_admission_slots: 16,
         pool_max: 17,

@@ -1,4 +1,4 @@
-use crate::{Config, DEFAULT_READ_ADMISSION_SLOTS, verify_release};
+use crate::{verify_release, Config, DEFAULT_READ_ADMISSION_SLOTS};
 use percent_encoding::percent_decode_str;
 use std::net::IpAddr;
 
@@ -156,6 +156,10 @@ pub fn config_from_deployed_environment(
         pool_max: rust_pool,
         python_budget: budget.python_budget,
         configured_max_connections: budget.configured_max_connections,
+        fleet_artifact_path: environment
+            .get("FLEET_ARTIFACT_PATH")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(crate::fleet_artifact_default),
         compliance_eur_usd_rate: environment
             .get("COMPLIANCE_EUR_USD_RATE")
             .map(|value| value.trim().parse::<rust_decimal::Decimal>())
@@ -297,7 +301,108 @@ pub(crate) fn database_target(config: &Config) -> Result<DatabaseTarget, String>
     Ok(target)
 }
 
+/// Resolve operator configuration beneath the trusted data directory. An explicit
+/// absolute path selects its parent as the operator-reviewed data root.
+/// Missing optional files are valid; existing symlinks must stay within that root.
+pub fn resolve_fleet_artifact_path(
+    configured: &std::path::Path,
+    working_directory: &std::path::Path,
+) -> Result<std::path::PathBuf, String> {
+    use std::path::Component;
+    let invalid = || "invalid FLEET_ARTIFACT_PATH".to_owned();
+    if configured.as_os_str().is_empty()
+        || configured.to_str().is_none_or(|text| text.trim().is_empty() || text.contains('\0'))
+        || configured.components().any(|part| matches!(part, Component::ParentDir))
+        || configured.file_name().is_none()
+        || !working_directory.is_absolute()
+    {
+        return Err(invalid());
+    }
+    let path = if configured.is_absolute() {
+        configured.to_owned()
+    } else {
+        working_directory.join(configured)
+    };
+    let root = if configured.is_absolute() {
+        path.parent().ok_or_else(invalid)?.to_owned()
+    } else {
+        working_directory.join("data")
+    };
+    if !path.starts_with(&root) || path == root {
+        return Err(invalid());
+    }
+    let canonical_root = if configured.is_absolute() {
+        // The absolute parent is explicit operator authority, not request input.
+        std::fs::canonicalize(&root).unwrap_or_else(|_| root.clone())
+    } else {
+        let expected = std::fs::canonicalize(working_directory)
+            .map_err(|_| invalid())?
+            .join("data");
+        if let Ok(actual) = std::fs::canonicalize(&root) {
+            if actual != expected {
+                return Err(invalid());
+            }
+        } else if std::fs::symlink_metadata(&root).is_ok_and(|m| m.file_type().is_symlink()) {
+            return Err(invalid());
+        }
+        expected
+    };
+    // Check each existing prefix, including dangling links. A missing suffix is
+    // optional data, not an invalid configuration. Never include OS errors/paths.
+    for prefix in path.ancestors() {
+        match std::fs::symlink_metadata(prefix) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                let target = std::fs::canonicalize(prefix).map_err(|_| invalid())?;
+                if !target.starts_with(&canonical_root) {
+                    return Err(invalid());
+                }
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => return Err(invalid()),
+        }
+        if prefix == working_directory || prefix == root {
+            break;
+        }
+    }
+    Ok(path)
+}
+
+/// One optional startup observation, not a readiness dependency. Full fleet
+/// document semantics belong to the fleet reader; this probe checks bounded JSON.
+pub async fn fleet_startup_probe(path: &std::path::Path) -> bool {
+    use tokio::io::AsyncReadExt;
+    const MAX_BYTES: u64 = 262_144;
+    let read = async {
+        let metadata = tokio::fs::metadata(path).await.ok()?;
+        if !metadata.is_file() || metadata.len() > MAX_BYTES {
+            return None;
+        }
+        let file = tokio::fs::File::open(path).await.ok()?;
+        let mut bytes = Vec::new();
+        file.take(MAX_BYTES + 1).read_to_end(&mut bytes).await.ok()?;
+        if bytes.len() > MAX_BYTES as usize {
+            return None;
+        }
+        let document: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+        (document.get("entries")?.is_array()
+            && document.get("last_updated")?.is_string()
+            && document.get("sources")?.is_array())
+        .then_some(())
+    };
+    let available = matches!(
+        tokio::time::timeout(std::time::Duration::from_secs(2), read).await,
+        Ok(Some(()))
+    );
+    let availability = if available { "available" } else { "unavailable" };
+    tracing::info!(availability, "optional fleet artifact startup probe");
+    available
+}
+
 pub fn validate_config(config: &Config) -> Result<(), String> {
+    let working_directory = std::env::current_dir()
+        .map_err(|_| "cannot resolve fleet working directory".to_owned())?;
+    resolve_fleet_artifact_path(&config.fleet_artifact_path, &working_directory)?;
     if !matches!(
         config.environment.as_str(),
         "development" | "test" | "staging" | "production"

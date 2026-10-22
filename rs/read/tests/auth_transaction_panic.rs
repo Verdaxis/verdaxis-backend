@@ -71,6 +71,7 @@ async fn fixture() -> Option<Fixture> {
         db_session_time_zone: "UTC".into(),
         prepared_budget: None,
         compliance_eur_usd_rate: None,
+        fleet_artifact_path: "data/fleet_demand.json".into(),
         bind: "127.0.0.1:0".parse().unwrap(),
         // One admission slot means a one-connection read pool. The panicking
         // request must give that one connection back in a clean state.

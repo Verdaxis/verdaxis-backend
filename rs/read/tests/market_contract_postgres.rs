@@ -39,6 +39,7 @@ fn config(variable: &str) -> Config {
         configured_max_connections: 100,
         prepared_budget: None,
         compliance_eur_usd_rate: None,
+        fleet_artifact_path: "data/fleet_demand.json".into(),
     };
     verdaxis_read::validate_config(&config).expect("numeric-loopback _test database required");
     config

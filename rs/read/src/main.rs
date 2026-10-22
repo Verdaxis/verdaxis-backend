@@ -25,7 +25,15 @@ async fn main() {
 }
 
 async fn serve() -> Result<(), ()> {
-    let config = load_config().map_err(|_| ())?;
+    let mut config = load_config().map_err(|_| ())?;
+    verdaxis_read::validate_config(&config).map_err(|_| ())?;
+    let working_directory = std::env::current_dir().map_err(|_| ())?;
+    config.fleet_artifact_path = verdaxis_read::runtime::config::resolve_fleet_artifact_path(
+        &config.fleet_artifact_path,
+        &working_directory,
+    )
+    .map_err(|_| ())?;
+    verdaxis_read::runtime::config::fleet_startup_probe(&config.fleet_artifact_path).await;
     let pools = connect(&config).await.map_err(|_| ())?;
     let bind = config.bind;
     let policy = committed_policy().map_err(|_| ())?;

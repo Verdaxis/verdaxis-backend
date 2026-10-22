@@ -59,6 +59,19 @@ that envelope; every other admitted read keeps its string detail.
 `rs/read/tests/phase5_public_boundary.rs`, `rs/read/tests/http_contract.rs` and
 `rs/read/tests/admission_postgres.rs` check the boundary.
 
+## Optional fleet artifact configuration
+
+`Config.fleet_artifact_path` accepts `FLEET_ARTIFACT_PATH` and defaults to
+`data/fleet_demand.json`. Relative paths resolve under the backend unit's
+WorkingDirectory and stay within its trusted `data` directory; an explicit
+absolute path selects an operator-reviewed parent directory. Startup refuses
+empty paths, traversal and symlink escapes. `runtime::config` provides the
+resolver and one bounded two-second, 256 KiB JSON startup probe. The binary logs
+only available/unavailable; missing or invalid optional data does not affect
+process startup or the unchanged four-field database readiness response.
+Full document validation and the fleet route remain the fleet reader's concern.
+`rs/read/tests/runtime.rs` and `runtime_postgres.rs` cover this boundary.
+
 ## Phase 5 read lookup indexes
 
 `alembic/versions/p5_20261020_read_indexes.py` (parent `prc_20261018_cache`)
