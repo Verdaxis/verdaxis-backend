@@ -63,7 +63,8 @@ fn policy() -> MarketPolicy {
 }
 
 fn clock() -> VisibilityClock {
-    let text = std::env::var("RUST_MARKET_TEST_CLOCK").expect("the pinned corpus clock is required");
+    let text =
+        std::env::var("RUST_MARKET_TEST_CLOCK").expect("the pinned corpus clock is required");
     VisibilityClock::at(text.parse().expect("RFC 3339 corpus clock"))
 }
 
@@ -439,8 +440,7 @@ async fn keyed_join_would_duplicate_rows() {
                    delivery_point_id uuid, availability_window text) \
                    ON s.product_id = o.product_id AND s.delivery_point_id = o.delivery_point_id \
                    AND s.availability_window = o.availability_window";
-        sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(sql.to_owned()))
-            .bind(payload.to_owned())
+        sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(sql.to_owned())).bind(payload.to_owned())
     };
     let exists = |payload: &str| {
         let sql = "SELECT count(*) FROM orderbook_orders AS o WHERE EXISTS ( \
@@ -448,13 +448,15 @@ async fn keyed_join_would_duplicate_rows() {
                    delivery_point_id uuid, availability_window text) \
                    WHERE s.product_id = o.product_id AND s.delivery_point_id = o.delivery_point_id \
                    AND s.availability_window = o.availability_window)";
-        sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(sql.to_owned()))
-            .bind(payload.to_owned())
+        sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(sql.to_owned())).bind(payload.to_owned())
     };
     let joined_one = join(&single).fetch_one(&mut *connection).await.unwrap();
     let joined_two = join(&duplicated).fetch_one(&mut *connection).await.unwrap();
     let exists_one = exists(&single).fetch_one(&mut *connection).await.unwrap();
-    let exists_two = exists(&duplicated).fetch_one(&mut *connection).await.unwrap();
+    let exists_two = exists(&duplicated)
+        .fetch_one(&mut *connection)
+        .await
+        .unwrap();
     assert!(joined_one > 0, "the chosen key must select a row");
     assert_eq!(
         joined_two,

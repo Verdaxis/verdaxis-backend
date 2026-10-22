@@ -7,8 +7,10 @@ use sqlx::{PgConnection, Row};
 /// example so diagnostic `EXPLAIN` runs exactly the production bytes.
 pub fn statement_sql() -> String {
     crate::market::visibility::expand_shared_markers(
-        &include_str!("../../sql/curve_unknown_metadata.sql")
-            .replace("/* current_order_rule */", include_str!("../../sql/current_order_rule.sql")),
+        &include_str!("../../sql/curve_unknown_metadata.sql").replace(
+            "/* current_order_rule */",
+            include_str!("../../sql/current_order_rule.sql"),
+        ),
         "$5",
     )
 }

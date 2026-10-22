@@ -17,8 +17,8 @@ use uuid::Uuid;
 
 use verdaxis_read::market::policy::load_policy;
 use verdaxis_read::market::visibility::{
-    MAP_PROJECTION, PublicOrderFilters, VisibilityClock, bind_order_sql,
-    order_query_sql, order_query_sql_projected,
+    MAP_PROJECTION, PublicOrderFilters, VisibilityClock, bind_order_sql, order_query_sql,
+    order_query_sql_projected,
 };
 use verdaxis_read::{Config, MarketPolicy, compiled_sha, connect};
 

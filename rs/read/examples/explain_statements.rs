@@ -11,10 +11,10 @@
 //!
 //! Diagnostic only; no gate.
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use verdaxis_read::market::visibility::{
-    order_query_sql, order_query_sql_projected,
-    COUNT_PROJECTION, DISTINCT_PROJECTION, MAP_PROJECTION,
+    COUNT_PROJECTION, DISTINCT_PROJECTION, MAP_PROJECTION, order_query_sql,
+    order_query_sql_projected,
 };
 use verdaxis_read::routes::curves_canonical::curve_unknown_metadata;
 
@@ -74,10 +74,26 @@ fn main() {
             }),
         );
     }
-    add("MCP.resolve.before", "mcp_resolve", order_query_sql(MCP_RESOLVE_BEFORE).sql().to_owned());
-    add("MCP.resolve.after", "mcp_resolve", curve_candidate_sql(MCP_TAIL));
-    add("MCP.slice.before", "mcp_slice_before", order_query_sql(MCP_SLICE).sql().to_owned());
-    add("MCP.slice.after", "mcp_slice", curve_candidate_sql(MCP_SLICE));
+    add(
+        "MCP.resolve.before",
+        "mcp_resolve",
+        order_query_sql(MCP_RESOLVE_BEFORE).sql().to_owned(),
+    );
+    add(
+        "MCP.resolve.after",
+        "mcp_resolve",
+        curve_candidate_sql(MCP_TAIL),
+    );
+    add(
+        "MCP.slice.before",
+        "mcp_slice_before",
+        order_query_sql(MCP_SLICE).sql().to_owned(),
+    );
+    add(
+        "MCP.slice.after",
+        "mcp_slice",
+        curve_candidate_sql(MCP_SLICE),
+    );
     // The slice's depth read keeps the scalar binds; it is not keyed by $14.
     add(
         "R10.depth",
