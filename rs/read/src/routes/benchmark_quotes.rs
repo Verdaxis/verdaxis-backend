@@ -88,12 +88,12 @@ pub fn parse_query(
             ));
         }
     }
-    if let Some(code) = &product {
-        if !policy.products.iter().any(|p| p.code == *code) {
-            return Err(market_data_error::invalid_input(
-                "market_product must name a catalog product.",
-            ));
-        }
+    if let Some(code) = &product
+        && !policy.products.iter().any(|p| p.code == *code)
+    {
+        return Err(market_data_error::invalid_input(
+            "market_product must name a catalog product.",
+        ));
     }
     let point = point
         .map(|value| {
