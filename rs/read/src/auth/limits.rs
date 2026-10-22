@@ -117,6 +117,13 @@ pub fn endpoint_policy(path: &str) -> Option<(&'static str, u32, u64)> {
     }
 }
 
+/// Decision 96 rate-limited correctness/evidence floor, with seconds as window.
+pub fn sample_floor(limit_per_minute: f64, window_seconds: f64) -> u64 {
+    (0.95 * limit_per_minute * window_seconds / 60.0)
+        .floor()
+        .clamp(0.0, 1000.0) as u64
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -134,9 +141,11 @@ mod tests {
     fn endpoint_refusal_has_a_machine_readable_code_and_retry() {
         let limits = SharedLimits::default();
         for _ in 0..5 {
-            assert!(limits
-                .check_endpoint("client", "/api/feedback", 100)
-                .is_ok());
+            assert!(
+                limits
+                    .check_endpoint("client", "/api/feedback", 100)
+                    .is_ok()
+            );
         }
         let error = limits
             .check_endpoint("client", "/api/feedback", 100)
@@ -166,18 +175,15 @@ mod tests {
         assert!(limits.preauth("admin", "/api/admin/users", 100));
         assert!(limits.endpoint("inviter", "/api/referrals/invite", 100));
         assert!(limits.preauth("next", "/api/admin/users", 160));
-        assert!(!limits
-            .buckets
-            .contains_key(&("admin".into(), "/api/admin/".into())));
-        assert!(limits
-            .buckets
-            .contains_key(&("inviter".into(), "invite".into())));
+        assert!(
+            !limits
+                .buckets
+                .contains_key(&("admin".into(), "/api/admin/".into()))
+        );
+        assert!(
+            limits
+                .buckets
+                .contains_key(&("inviter".into(), "invite".into()))
+        );
     }
-}
-
-/// Decision 96 rate-limited correctness/evidence floor, with seconds as window.
-pub fn sample_floor(limit_per_minute: f64, window_seconds: f64) -> u64 {
-    (0.95 * limit_per_minute * window_seconds / 60.0)
-        .floor()
-        .clamp(0.0, 1000.0) as u64
 }

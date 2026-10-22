@@ -7,9 +7,9 @@
 //! service that would answer with the wrong token authority or sender.
 use std::fmt;
 
+use crate::Phase2Options;
 use crate::auth::VerificationSettings;
 use crate::crud::referrals::invite::MailClient;
-use crate::Phase2Options;
 
 /// The verification and invite authority shared by the Phase 2 route groups.
 #[derive(Clone)]
@@ -128,9 +128,11 @@ mod tests {
 
     #[test]
     fn absent_options_mount_no_phase2_group() {
-        assert!(Phase2Settings::from_options(&Phase2Options::default())
-            .unwrap()
-            .is_none());
+        assert!(
+            Phase2Settings::from_options(&Phase2Options::default())
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]
@@ -156,7 +158,7 @@ mod tests {
     #[test]
     fn verification_keeps_the_deployed_key_and_claim_bytes() {
         use chrono::Utc;
-        use jsonwebtoken::{encode, EncodingKey, Header};
+        use jsonwebtoken::{EncodingKey, Header, encode};
         use serde_json::json;
 
         let mut options = complete();
