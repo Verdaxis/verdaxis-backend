@@ -264,34 +264,11 @@ impl CacheAuthority {
             .is_some_and(|state| state.fence == token.fence && state.admits(&token.authority, now))
     }
 
-    /// Generations only move forward inside one authority. A smaller one means
-    /// the database went backwards (an unrotated restore): revoke everything.
-    pub fn observe_generation(&self, token: &FenceToken, generation: i64, now: Instant) -> bool {
-        let Some(mut state) = self.lock() else {
-            return false;
-        };
-        if state.fence != token.fence || !state.admits(&token.authority, now) {
-            return false;
-        }
-        match state.highest_generation {
-            Some(highest) if generation < highest => {
-                state.clear();
-                false
-            }
-            _ if generation < 0 => {
-                state.clear();
-                false
-            }
-            highest => {
-                state.highest_generation = Some(highest.map_or(generation, |h| h.max(generation)));
-                true
-            }
-        }
-    }
-
     /// Independent REPEATABLE READ snapshots can finish out of order. Their
-    /// observations raise storage's high-water mark but cannot prove a restore.
-    /// Restore admission is owned by the external activation protocol.
+    /// observations raise storage's high-water mark but cannot prove a restore,
+    /// so a smaller generation never revokes anything in process. An unrotated
+    /// restore is excluded by the external activation protocol, which rotates
+    /// the authority before a restored database can serve.
     pub fn observe_snapshot(&self, token: &FenceToken, generation: i64, now: Instant) -> bool {
         let Some(mut state) = self.lock() else {
             return false;
