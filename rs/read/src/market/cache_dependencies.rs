@@ -485,7 +485,7 @@ mod tests {
             kyc_grace: kyc_grace_boundary(Some(later), &clock),
             ..TemporalFacts::proven_written_only()
         };
-        let Boundary::At(boundary) = facts.boundary(&clock) else {
+        let Boundary::At(boundary) = facts.boundary_for("orderbook", &clock) else {
             panic!("a future dependency must produce a boundary");
         };
         assert_eq!(boundary, clock.monotonic_at(soon));
@@ -497,15 +497,21 @@ mod tests {
     fn unknown_dependency_bypasses_instead_of_guessing() {
         let clock = clock("2026-10-20T08:00:00Z");
         let facts = TemporalFacts::default();
-        assert_eq!(facts.boundary(&clock), Boundary::Unknown);
+        assert_eq!(facts.boundary_for("orderbook", &clock), Boundary::Unknown);
         assert!(!cacheable("orderbook", &facts, &clock));
         // The shortcut is sound only for a family whose query has no time
-        // predicate; an orderbook route must derive its own facts.
+        // predicate. A moving window or an orderbook rule must be derived.
         assert!(cacheable(
-            "prices",
+            "prices_fixed",
             &TemporalFacts::proven_written_only(),
             &clock
         ));
+        for moving in ["prices", "trade_tape"] {
+            assert!(
+                !cacheable(moving, &TemporalFacts::proven_written_only(), &clock),
+                "{moving}"
+            );
+        }
         assert!(!cacheable(
             "not-a-reviewed-route",
             &TemporalFacts::proven_written_only(),
@@ -525,7 +531,7 @@ mod tests {
             rolling_windows: RollingWindows::Unknown,
             ..TemporalFacts::proven_written_only()
         };
-        assert_eq!(missing_window.boundary(&clock), Boundary::Unknown);
+        assert_eq!(missing_window.boundary_for("curves", &clock), Boundary::Unknown);
         assert!(!missing_window.complete_for("curves"));
         assert!(missing_window.complete_for("orderbook"));
         assert!(cacheable("orderbook", &missing_window, &clock));
@@ -533,7 +539,114 @@ mod tests {
             rolling_windows: RollingWindows::Derived(vec![]),
             ..TemporalFacts::proven_written_only()
         };
-        assert_eq!(window.boundary(&clock), Boundary::Never);
+        assert_eq!(window.boundary_for("prices", &clock), Boundary::Never);
+    }
+
+    #[test]
+    fn every_family_requires_the_time_predicates_its_query_binds() {
+        // The shared order rule binds `expires_at > $2`, the KYC grace cutoff
+        // and the certificate date. Curves read resting orders through it too.
+        let order_rule = [
+            TemporalFact::OrderExpiry,
+            TemporalFact::KycGrace,
+            TemporalFact::DeclarationDate,
+        ];
+        for family in ["orderbook", "benchmarks", "curves"] {
+            let required = required_facts(family).unwrap();
+            for fact in order_rule {
+                assert!(required.contains(&fact), "{family}: {fact:?}");
+            }
+        }
+        // Moving trade and signal lookbacks: the tape's seven days, the price
+        // summary's hours and the curves' 7/30/90-day evidence windows.
+        for family in ["curves", "prices", "trade_tape"] {
+            assert!(
+                required_facts(family)
+                    .unwrap()
+                    .contains(&TemporalFact::RollingWindows),
+                "{family}"
+            );
+        }
+        // Explicit request dates only.
+        assert_eq!(required_facts("prices_fixed"), Some(&[][..]));
+    }
+
+    #[test]
+    fn moving_windows_need_a_derived_departure() {
+        let clock = clock("2026-10-20T08:00:00Z");
+        // Confirmed six days and 23 hours ago: it leaves a seven-day tape in
+        // one hour, with no write.
+        let confirmed = wall("2026-10-13T09:00:00Z");
+        let leaves = wall("2026-10-20T09:00:00Z");
+        assert_eq!(
+            rolling_window_departure(Some(confirmed), 7, &clock),
+            Deadline::At(leaves)
+        );
+        for family in ["prices", "trade_tape"] {
+            // "No window" and "not derived" both leave the departure unproved.
+            for unproved in [RollingWindows::None, RollingWindows::Unknown] {
+                let facts = TemporalFacts {
+                    rolling_windows: unproved.clone(),
+                    ..TemporalFacts::proven_written_only()
+                };
+                assert_eq!(
+                    facts.boundary_for(family, &clock),
+                    Boundary::Unknown,
+                    "{family}: {unproved:?}"
+                );
+                assert!(!cacheable(family, &facts, &clock), "{family}: {unproved:?}");
+            }
+            let leaving = TemporalFacts {
+                rolling_windows: RollingWindows::Derived(vec![leaves]),
+                ..TemporalFacts::proven_written_only()
+            };
+            assert_eq!(
+                leaving.boundary_for(family, &clock),
+                Boundary::At(clock.monotonic_at(leaves)),
+                "{family}"
+            );
+            // A derived empty list proves that no included row can leave.
+            let staying = TemporalFacts {
+                rolling_windows: RollingWindows::Derived(vec![]),
+                ..TemporalFacts::proven_written_only()
+            };
+            assert_eq!(staying.boundary_for(family, &clock), Boundary::Never);
+        }
+    }
+
+    #[test]
+    fn a_reported_change_at_or_before_the_clock_fails_closed() {
+        // Every helper maps an instant that has passed to `Deadline::None`. A
+        // reported change at or before the clock therefore means the loader
+        // bound an earlier clock, and its rows may already be stale.
+        let clock = clock("2026-10-20T08:00:00Z");
+        for reported in ["2026-10-20T07:59:59Z", "2026-10-20T08:00:00Z"] {
+            let expiry = TemporalFacts {
+                order_expiry: at(reported),
+                ..TemporalFacts::proven_written_only()
+            };
+            assert_eq!(
+                expiry.boundary_for("orderbook", &clock),
+                Boundary::Unknown,
+                "{reported}"
+            );
+            assert!(!cacheable("orderbook", &expiry, &clock), "{reported}");
+            let departure = TemporalFacts {
+                rolling_windows: RollingWindows::Derived(vec![wall(reported)]),
+                ..TemporalFacts::proven_written_only()
+            };
+            assert_eq!(
+                departure.boundary_for("prices", &clock),
+                Boundary::Unknown,
+                "{reported}"
+            );
+        }
+        // `confirmed_at >= now - 7 days` still includes a row on the edge, and
+        // that row leaves at once: there is no instant to store against.
+        assert_eq!(
+            rolling_window_departure(Some(wall("2026-10-13T08:00:00Z")), 7, &clock),
+            Deadline::Unknown
+        );
     }
 
     #[test]
@@ -545,7 +658,7 @@ mod tests {
             ..TemporalFacts::proven_written_only()
         };
         assert_eq!(
-            facts.boundary(&clock),
+            facts.boundary_for("orderbook", &clock),
             Boundary::At(clock.monotonic_at(cutoff))
         );
     }
@@ -566,7 +679,7 @@ mod tests {
             ..TemporalFacts::proven_written_only()
         };
         assert_eq!(
-            facts.boundary(&clock),
+            facts.boundary_for("prices", &clock),
             Boundary::At(clock.monotonic_at(wall("2026-10-21T08:00:00Z")))
         );
     }

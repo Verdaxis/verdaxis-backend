@@ -20,10 +20,18 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 use verdaxis_read::{
-    ApiError, AppState, Boundary, Config, Deadline, MarketPolicy, TemporalFacts, TradingCache,
-    TradingCacheRuntime, TradingEntry, TradingFill, compiled_sha, connect, run_trading_read,
+    ApiError, AppState, Boundary, Config, Deadline, MarketPolicy, RollingWindows, TemporalFacts,
+    TradingCache, TradingCacheRuntime, TradingClock, TradingEntry, TradingFill, compiled_sha,
+    connect,
+    market::cache_dependencies::{
+        certificate_boundary, kyc_grace_boundary, order_expiry_boundary, rolling_window_departure,
+    },
+    run_trading_read,
     runtime::{
-        cache_authority::{AUTHORITY_LEASE, CacheAuthority, FillTicket, admit_connection},
+        admission::{TradingReadObserver, TradingReadStage},
+        cache_authority::{
+            AUTHORITY_LEASE, Authority, CacheAuthority, FillTicket, admit_connection,
+        },
         cache_events::{CacheEvents, ListenerBudget},
     },
 };
@@ -89,16 +97,149 @@ async fn read_generation(
     cache: &Arc<TradingCache<&'static str>>,
     runs: Arc<AtomicUsize>,
 ) -> i64 {
-    // The generation row changes only through a write.
+    // The generation row changes only through a write, like a price reference
+    // over explicit dates. A moving price summary must derive its window.
     read_family(
         state,
         cache,
         "generation",
-        "prices",
+        "prices_fixed",
         TemporalFacts::proven_written_only(),
         runs,
     )
     .await
+}
+
+/// A runtime-enabled state whose authority is active and whose listener is
+/// attached. The returned record keeps the owner's file alive.
+async fn admitted_state(
+    url: &str,
+    writer: &mut PgConnection,
+) -> (AppState, Arc<TradingCacheRuntime>, Record) {
+    let record = Record::new();
+    let identity = authority(1);
+    bind(writer, &identity, true).await;
+    record.activate(&identity);
+    let pools = connect(&state_config(url)).await.unwrap();
+    let state = AppState::new(state_config(url), pools, policy()).unwrap();
+    let runtime = state.trading_cache.as_ref().unwrap().clone();
+    publish_record(&runtime, &record);
+    runtime.tick(Instant::now()).await;
+    (state, runtime, record)
+}
+
+fn utc(value: SystemTime) -> chrono::DateTime<chrono::Utc> {
+    value.into()
+}
+
+fn instant_at(text: &str) -> SystemTime {
+    chrono::DateTime::parse_from_rfc3339(text)
+        .unwrap()
+        .with_timezone(&chrono::Utc)
+        .into()
+}
+
+/// One resting order under the shared order rule's currency predicate
+/// (`expires_at > $2`), with the expiry fact derived from the rows it kept.
+async fn resting_order(
+    connection: &mut PgConnection,
+    expires_at: SystemTime,
+    clock: &TradingClock,
+) -> Result<TradingFill<i64>, ApiError> {
+    let (count, earliest): (i64, Option<chrono::DateTime<chrono::Utc>>) = sqlx::query_as(
+        "SELECT count(*), min(expires_at) FROM (VALUES ($1::timestamptz)) AS orders(expires_at) \
+         WHERE expires_at > $2::timestamptz",
+    )
+    .bind(utc(expires_at))
+    .bind(utc(clock.wall))
+    .fetch_one(connection)
+    .await
+    .map_err(|_| ApiError::database())?;
+    let expiry = order_expiry_boundary(earliest.map(SystemTime::from), clock);
+    Ok(TradingFill {
+        value: count,
+        facts: orderbook_facts(expiry, Deadline::None),
+    })
+}
+
+/// A KYC grace row under the owner-admission predicate (`expires_at > $2`).
+async fn grace_owner(
+    connection: &mut PgConnection,
+    expires_at: SystemTime,
+    clock: &TradingClock,
+) -> Result<TradingFill<i64>, ApiError> {
+    let (count, earliest): (i64, Option<chrono::DateTime<chrono::Utc>>) = sqlx::query_as(
+        "SELECT count(*), min(expires_at) FROM (VALUES ($1::timestamptz)) AS grace(expires_at) \
+         WHERE expires_at > $2::timestamptz",
+    )
+    .bind(utc(expires_at))
+    .bind(utc(clock.wall))
+    .fetch_one(connection)
+    .await
+    .map_err(|_| ApiError::database())?;
+    let grace = kyc_grace_boundary(earliest.map(SystemTime::from), clock);
+    Ok(TradingFill {
+        value: count,
+        facts: orderbook_facts(Deadline::None, grace),
+    })
+}
+
+/// A FAME certificate under the declaration predicate
+/// (`certificate_valid_until >= $3`, the Singapore business date).
+async fn certified_ask(
+    connection: &mut PgConnection,
+    valid_until: chrono::NaiveDate,
+    clock: &TradingClock,
+) -> Result<TradingFill<i64>, ApiError> {
+    let (count, earliest): (i64, Option<String>) = sqlx::query_as(
+        "SELECT count(*), min(valid_until) FROM (VALUES ($1::text)) AS certificate(valid_until) \
+         WHERE valid_until >= $2::text",
+    )
+    .bind(valid_until.format("%Y-%m-%d").to_string())
+    .bind(clock.singapore_date().format("%Y-%m-%d").to_string())
+    .fetch_one(connection)
+    .await
+    .map_err(|_| ApiError::database())?;
+    let earliest = earliest
+        .map(|text| chrono::NaiveDate::parse_from_str(&text, "%Y-%m-%d"))
+        .transpose()
+        .map_err(|_| ApiError::internal())?;
+    let mut facts = orderbook_facts(Deadline::None, Deadline::None);
+    facts.declaration_date = certificate_boundary(earliest, clock);
+    Ok(TradingFill {
+        value: count,
+        facts,
+    })
+}
+
+/// One trade under a seven-day lookback (`confirmed_at >= $2 - 7 days`, the
+/// tape's own predicate), with the departure derived from the rows it kept.
+async fn trade_in_window(
+    connection: &mut PgConnection,
+    confirmed_at: SystemTime,
+    clock: &TradingClock,
+) -> Result<TradingFill<i64>, ApiError> {
+    let (count, oldest): (i64, Option<chrono::DateTime<chrono::Utc>>) = sqlx::query_as(
+        "SELECT count(*), min(confirmed_at) FROM (VALUES ($1::timestamptz)) AS trades(confirmed_at) \
+         WHERE confirmed_at >= $2::timestamptz - interval '7 days'",
+    )
+    .bind(utc(confirmed_at))
+    .bind(utc(clock.wall))
+    .fetch_one(connection)
+    .await
+    .map_err(|_| ApiError::database())?;
+    let rolling_windows = match rolling_window_departure(oldest.map(SystemTime::from), 7, clock) {
+        Deadline::At(departure) => RollingWindows::Derived(vec![departure]),
+        Deadline::None => RollingWindows::Derived(vec![]),
+        Deadline::Unknown => RollingWindows::Unknown,
+    };
+    Ok(TradingFill {
+        value: count,
+        facts: TemporalFacts {
+            rolling_windows,
+            ..TemporalFacts::default()
+        },
+    })
 }
 
 /// Load the generation row as one route family that reports `facts`. `runs`
@@ -330,6 +471,163 @@ async fn prices_require_a_known_rolling_departure() {
     assert!(cache.is_empty());
 }
 
+/// "No window" is not a derivation for a family whose query always reads a
+/// moving window, so neither it nor an unknown departure may be stored.
+#[tokio::test]
+async fn moving_windows_without_a_derived_departure_bypass_storage() {
+    let _serial = SERIAL.lock().await;
+    let Some((url, mut writer)) = writer().await else {
+        return;
+    };
+    let (state, runtime, _record) = admitted_state(&url, &mut writer).await;
+    let mut stored = Vec::new();
+    for family in ["prices", "trade_tape"] {
+        for (name, rolling_windows) in [
+            ("no window", RollingWindows::None),
+            ("unknown", RollingWindows::Unknown),
+        ] {
+            let cache = Arc::new(TradingCache::new(4, 1024));
+            let runs = Arc::new(AtomicUsize::new(0));
+            let facts = TemporalFacts {
+                rolling_windows,
+                ..TemporalFacts::proven_written_only()
+            };
+            for _ in 0..2 {
+                runtime
+                    .authority()
+                    .refresh(runtime.record_path(), Instant::now());
+                read_family(&state, &cache, "moving", family, facts.clone(), runs.clone()).await;
+            }
+            if runs.load(Ordering::SeqCst) != 2 || !cache.is_empty() {
+                stored.push(format!("{family}: {name}"));
+            }
+        }
+    }
+    reset(&mut writer).await;
+    writer.close().await.unwrap();
+    assert!(
+        stored.is_empty(),
+        "moving windows stored without a departure: {stored:?}"
+    );
+}
+
+/// The tape reads `confirmed_at >= now - 7 days`. A trade leaves the tape, and
+/// its `total`, when it turns seven days old, with no write. The entry must
+/// end there.
+#[tokio::test]
+async fn a_trade_ages_out_of_the_tape_window_without_a_write() {
+    let _serial = SERIAL.lock().await;
+    let Some((url, mut writer)) = writer().await else {
+        return;
+    };
+    let (mut state, runtime, _record) = admitted_state(&url, &mut writer).await;
+    let start = instant_at("2026-10-22T08:00:00Z");
+    let clock = Arc::new(ControlledClock(std::sync::Mutex::new(TradingClock::new(
+        Instant::now(),
+        start,
+    ))));
+    state.trading_read_observer = clock.clone();
+    // Half a second short of seven days old at the first read.
+    let confirmed_at = start - Duration::from_secs(7 * 86_400) + Duration::from_millis(500);
+    let initial_generation = generation(&mut writer).await;
+    let cache = Arc::new(TradingCache::new(4, 1024));
+    let runs = Arc::new(AtomicUsize::new(0));
+    let mut totals = Vec::new();
+    for read in 0..3 {
+        runtime
+            .authority()
+            .refresh(runtime.record_path(), clock.now().monotonic);
+        let loader_clock = clock.clone();
+        let loads = runs.clone();
+        let total = run_trading_read(&state, &cache, "tape", "trade_tape", move |connection| {
+            Box::pin(async move {
+                loads.fetch_add(1, Ordering::SeqCst);
+                trade_in_window(connection, confirmed_at, &loader_clock.now()).await
+            })
+        })
+        .await
+        .unwrap();
+        totals.push(total);
+        if read == 1 {
+            clock.advance(Duration::from_secs(1));
+        }
+    }
+    assert_eq!(
+        totals,
+        [1, 1, 0],
+        "the trade must leave the tape at seven days without a writer"
+    );
+    assert_eq!(
+        runs.load(Ordering::SeqCst),
+        2,
+        "one hit, then one window-departure miss"
+    );
+    assert_eq!(generation(&mut writer).await, initial_generation);
+    reset(&mut writer).await;
+    writer.close().await.unwrap();
+}
+
+/// The route captures its clock before admission and binds it into SQL. When
+/// admission takes longer than the time left to an included order's expiry,
+/// the payload is already stale when the read finishes. It may answer this
+/// request (it is current at the route's clock) but must never be stored.
+#[tokio::test]
+async fn an_expiry_between_the_route_clock_and_the_read_is_not_stored() {
+    let _serial = SERIAL.lock().await;
+    let Some((url, mut writer)) = writer().await else {
+        return;
+    };
+    let (mut state, runtime, _record) = admitted_state(&url, &mut writer).await;
+    let clock = Arc::new(ControlledClock(std::sync::Mutex::new(TradingClock::new(
+        Instant::now(),
+        instant_at("2026-10-22T08:00:00Z"),
+    ))));
+    state.trading_read_observer = clock.clone();
+    let cache = Arc::new(TradingCache::new(4, 1024));
+    let runs = Arc::new(AtomicUsize::new(0));
+
+    let route_clock = clock.now();
+    let expires_at = route_clock.wall + Duration::from_secs(1);
+    // Admission and the pool wait take two seconds.
+    clock.advance(Duration::from_secs(2));
+    runtime
+        .authority()
+        .refresh(runtime.record_path(), clock.now().monotonic);
+    let loads = runs.clone();
+    let first = run_trading_read(&state, &cache, "book", "orderbook", move |connection| {
+        Box::pin(async move {
+            loads.fetch_add(1, Ordering::SeqCst);
+            resting_order(connection, expires_at, &route_clock).await
+        })
+    })
+    .await
+    .unwrap();
+    assert_eq!(first, 1, "the route's own clock still includes the order");
+    assert!(
+        cache.is_empty(),
+        "an expiry that passed before the read finished must not be stored"
+    );
+
+    // The next request captures its clock after the expiry.
+    runtime
+        .authority()
+        .refresh(runtime.record_path(), clock.now().monotonic);
+    let loads = runs.clone();
+    let loader_clock = clock.clone();
+    let second = run_trading_read(&state, &cache, "book", "orderbook", move |connection| {
+        Box::pin(async move {
+            loads.fetch_add(1, Ordering::SeqCst);
+            resting_order(connection, expires_at, &loader_clock.now()).await
+        })
+    })
+    .await
+    .unwrap();
+    assert_eq!(second, 0, "the expired order must not be served again");
+    assert_eq!(runs.load(Ordering::SeqCst), 2);
+    reset(&mut writer).await;
+    writer.close().await.unwrap();
+}
+
 #[tokio::test]
 async fn an_entry_from_the_prior_incarnation_is_never_a_hit() {
     let _serial = SERIAL.lock().await;
@@ -555,15 +853,15 @@ async fn unadmitted_connections_never_publish() {
 }
 
 struct ReadBarrier {
-    stage: verdaxis_read::runtime::admission::TradingReadStage,
+    stage: TradingReadStage,
     entered: tokio::sync::Notify,
     release: tokio::sync::Notify,
 }
 
-impl verdaxis_read::runtime::admission::TradingReadObserver for ReadBarrier {
+impl TradingReadObserver for ReadBarrier {
     fn checkpoint(
         &self,
-        stage: verdaxis_read::runtime::admission::TradingReadStage,
+        stage: TradingReadStage,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
         Box::pin(async move {
             if stage == self.stage {
@@ -576,7 +874,6 @@ impl verdaxis_read::runtime::admission::TradingReadObserver for ReadBarrier {
 
 #[tokio::test]
 async fn overlapping_snapshots_publish_without_replacing_the_newer_entry() {
-    use verdaxis_read::runtime::admission::TradingReadStage;
     let _serial = SERIAL.lock().await;
     let Some((url, mut writer)) = writer().await else {
         return;
@@ -656,9 +953,9 @@ async fn overlapping_snapshots_publish_without_replacing_the_newer_entry() {
     writer.close().await.unwrap();
 }
 
-struct ControlledClock(std::sync::Mutex<verdaxis_read::TradingClock>);
-impl verdaxis_read::runtime::admission::TradingReadObserver for ControlledClock {
-    fn now(&self) -> verdaxis_read::TradingClock {
+struct ControlledClock(std::sync::Mutex<TradingClock>);
+impl TradingReadObserver for ControlledClock {
+    fn now(&self) -> TradingClock {
         *self.0.lock().unwrap()
     }
 }
@@ -670,27 +967,45 @@ impl ControlledClock {
     }
 }
 
+/// One row that the clock removes one second after `start`, read through its
+/// own predicate with the loader's clock. The fact comes from the rows kept.
+async fn clock_case(
+    connection: &mut PgConnection,
+    kind: &str,
+    start: SystemTime,
+    clock: &TradingClock,
+) -> Result<TradingFill<i64>, ApiError> {
+    let edge = start + Duration::from_secs(1);
+    match kind {
+        "expiry" | "late-fill" => resting_order(connection, edge, clock).await,
+        "grace" => grace_owner(connection, edge, clock).await,
+        // A seven-day lookback (a price summary over 168 hours) keeps a row on
+        // its edge, so this trade leaves half a second before `edge`.
+        "rolling" => {
+            let confirmed_at =
+                edge - Duration::from_secs(7 * 86_400) - Duration::from_millis(500);
+            trade_in_window(connection, confirmed_at, clock).await
+        }
+        // Valid through 22 October, the Singapore date of `start`.
+        "singapore" => {
+            let valid_until = chrono::NaiveDate::from_ymd_opt(2026, 10, 22).unwrap();
+            certified_ask(connection, valid_until, clock).await
+        }
+        _ => unreachable!(),
+    }
+}
+
+/// No case writes: each payload changes because the clock passes the
+/// boundary that its own rows derived.
 #[tokio::test]
 async fn clock_boundaries_change_payloads_without_writes() {
-    use verdaxis_read::runtime::admission::TradingReadObserver;
-    use verdaxis_read::{RollingWindows, TradingClock};
     let _serial = SERIAL.lock().await;
     let Some((url, mut writer)) = writer().await else {
         return;
     };
-    let record = Record::new();
-    let identity = authority(1);
-    bind(&mut writer, &identity, true).await;
-    record.activate(&identity);
-    let pools = connect(&state_config(&url)).await.unwrap();
-    let mut state = AppState::new(state_config(&url), pools, policy()).unwrap();
-    let runtime = state.trading_cache.as_ref().unwrap().clone();
-    publish_record(&runtime, &record);
-    runtime.tick(Instant::now()).await;
-    let start: SystemTime = chrono::DateTime::parse_from_rfc3339("2026-10-22T15:59:59Z")
-        .unwrap()
-        .with_timezone(&chrono::Utc)
-        .into();
+    let (mut state, runtime, _record) = admitted_state(&url, &mut writer).await;
+    // One second before midnight in Singapore (16:00 UTC).
+    let start = instant_at("2026-10-22T15:59:59Z");
     let clock = Arc::new(ControlledClock(std::sync::Mutex::new(TradingClock::new(
         Instant::now(),
         start,
@@ -701,7 +1016,6 @@ async fn clock_boundaries_change_payloads_without_writes() {
         *clock.0.lock().unwrap() = TradingClock::new(Instant::now(), start);
         let cache = Arc::new(TradingCache::new(4, 1024));
         let runs = Arc::new(AtomicUsize::new(0));
-        let edge = clock.now().wall + Duration::from_secs(1);
         let family = if kind == "rolling" {
             "prices"
         } else {
@@ -713,25 +1027,19 @@ async fn clock_boundaries_change_payloads_without_writes() {
                 .refresh(runtime.record_path(), clock.now().monotonic);
             let loader_clock = clock.clone();
             let loads = runs.clone();
-            let value = run_trading_read(&state, &cache, kind, family, move |connection| Box::pin(async move {
-                loads.fetch_add(1, Ordering::SeqCst);
-                let now = loader_clock.now();
-                // The loader uses its captured clock as a bind, as serving SQL does.
-                let value: i64 = sqlx::query_scalar("SELECT count(*) FROM (VALUES ($1::timestamptz)) AS included(expires_at) WHERE expires_at > $2")
-                    .bind(chrono::DateTime::<chrono::Utc>::from(edge))
-                    .bind(chrono::DateTime::<chrono::Utc>::from(now.wall))
-                    .fetch_one(connection).await.map_err(|_| ApiError::database())?;
-                let mut facts = orderbook_facts(Deadline::None, Deadline::None);
-                match kind {
-                    "expiry" | "late-fill" => facts.order_expiry = Deadline::At(edge),
-                    "grace" => facts.kyc_grace = Deadline::At(edge),
-                    "rolling" => facts.rolling_windows = RollingWindows::Derived(vec![edge]),
-                    "singapore" => facts.declaration_date = Deadline::At(edge),
-                    _ => unreachable!(),
-                }
-                if kind == "late-fill" && read == 0 { loader_clock.advance(Duration::from_secs(1)); }
-                Ok(TradingFill { value, facts })
-            })).await.unwrap();
+            let value = run_trading_read(&state, &cache, kind, family, move |connection| {
+                Box::pin(async move {
+                    loads.fetch_add(1, Ordering::SeqCst);
+                    let fill = clock_case(connection, kind, start, &loader_clock.now()).await;
+                    if kind == "late-fill" && read == 0 {
+                        // The read itself outlasts the order.
+                        loader_clock.advance(Duration::from_secs(1));
+                    }
+                    fill
+                })
+            })
+            .await
+            .unwrap();
             if kind == "late-fill" && read == 0 {
                 assert!(
                     cache.is_empty(),
@@ -757,9 +1065,63 @@ async fn clock_boundaries_change_payloads_without_writes() {
     writer.close().await.unwrap();
 }
 
+async fn incarnation_epoch(connection: &mut PgConnection) -> Result<String, ApiError> {
+    sqlx::query_scalar(
+        "SELECT database_epoch FROM public.public_read_cache_incarnation WHERE singleton",
+    )
+    .fetch_one(connection)
+    .await
+    .map_err(|_| ApiError::database())
+}
+
+/// Load the incarnation's own epoch as an explicit-range family, so each
+/// authority's payload is visibly its own.
+async fn read_epoch(
+    state: &AppState,
+    cache: &Arc<TradingCache<&'static str>>,
+    runs: Arc<AtomicUsize>,
+) -> String {
+    run_trading_read(state, cache, "rotation", "prices_fixed", move |connection| {
+        Box::pin(async move {
+            runs.fetch_add(1, Ordering::SeqCst);
+            Ok(TradingFill {
+                value: incarnation_epoch(connection).await?,
+                facts: TemporalFacts::proven_written_only(),
+            })
+        })
+    })
+    .await
+    .unwrap()
+}
+
+/// Drive the service loop until the successor's listener is attached and its
+/// token is issued, as the loop does after an activation.
+async fn until_serving(runtime: &TradingCacheRuntime, successor: &Authority) {
+    tokio::time::timeout(Duration::from_secs(30), async {
+        loop {
+            runtime.tick(Instant::now()).await;
+            if runtime
+                .authority()
+                .token(successor, Instant::now())
+                .is_some()
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("the successor listener attaches");
+}
+
+/// A fill pauses before insertion or before publication while the owner
+/// revokes this authority and activates a successor. Before the release, a
+/// successor read leaves this process's high-water mark equal to the paused
+/// fill's generation (a promotion that reuses the number) or one below it (a
+/// restore). Generation numbers alone accept the paused fill in the first case
+/// and are lower in the second; the fence must reject it in both.
 #[tokio::test]
 async fn authority_rotation_at_each_publication_barrier_rejects_old_fills() {
-    use verdaxis_read::runtime::admission::TradingReadStage;
     let _serial = SERIAL.lock().await;
     let Some((url, mut writer)) = writer().await else {
         return;
@@ -768,36 +1130,35 @@ async fn authority_rotation_at_each_publication_barrier_rejects_old_fills() {
         TradingReadStage::BeforeInsert,
         TradingReadStage::BeforePublish,
     ] {
-        for rollback in [false, true] {
-            let record = Record::new();
-            let identity = authority(1);
-            bind(&mut writer, &identity, true).await;
-            record.activate(&identity);
-            let pools = connect(&state_config(&url)).await.unwrap();
-            let mut state = AppState::new(state_config(&url), pools, policy()).unwrap();
-            let runtime = state.trading_cache.as_ref().unwrap().clone();
-            publish_record(&runtime, &record);
-            runtime.tick(Instant::now()).await;
+        for (variant, offset) in [("equal", 0), ("lower", -1)] {
+            let (state, runtime, record) = admitted_state(&url, &mut writer).await;
+            let cache = Arc::new(TradingCache::new(4, 1024));
+            state.trading_caches.register(&cache);
             let gate = Arc::new(ReadBarrier {
                 stage,
                 entered: tokio::sync::Notify::new(),
                 release: tokio::sync::Notify::new(),
             });
-            state.trading_read_observer = gate.clone();
-            let cache = Arc::new(TradingCache::new(4, 1024));
-            state.trading_caches.register(&cache);
-            let old_cache = cache.clone();
+            let mut paused = state.clone();
+            paused.trading_read_observer = gate.clone();
+            let paused_cache = cache.clone();
             let old = tokio::spawn(async move {
-                run_trading_read(&state, &old_cache, "old", "prices_fixed", |connection| Box::pin(async move {
-                    let value: i64 = sqlx::query_scalar("SELECT generation FROM public_read_cache_generations WHERE domain='trading'")
-                        .fetch_one(connection).await.map_err(|_| ApiError::database())?;
-                    Ok(TradingFill { value, facts: TemporalFacts::proven_written_only() })
-                })).await
+                run_trading_read(&paused, &paused_cache, "rotation", "prices_fixed", |connection| {
+                    Box::pin(async move {
+                        Ok(TradingFill {
+                            value: incarnation_epoch(connection).await?,
+                            facts: TemporalFacts::proven_written_only(),
+                        })
+                    })
+                })
+                .await
             });
             tokio::time::timeout(Duration::from_secs(30), gate.entered.notified())
                 .await
                 .unwrap();
-            let current = generation(&mut writer).await;
+            let paused_generation = generation(&mut writer).await;
+
+            // Revoke, then bind and activate the successor.
             record.revoke(2);
             publish_record(&runtime, &record);
             runtime
@@ -806,20 +1167,51 @@ async fn authority_rotation_at_each_publication_barrier_rejects_old_fills() {
             runtime.tick(Instant::now()).await;
             let successor = authority(3);
             bind(&mut writer, &successor, true).await;
-            if rollback {
-                set_generation(&mut writer, current - 1).await;
-            }
+            set_generation(&mut writer, paused_generation + offset).await;
             record.activate(&successor);
             publish_record(&runtime, &record);
-            runtime.tick(Instant::now()).await;
+            runtime
+                .authority()
+                .refresh(runtime.record_path(), Instant::now());
+            until_serving(&runtime, &successor).await;
+
+            // The successor's first read sets the high-water mark.
+            let runs = Arc::new(AtomicUsize::new(0));
+            assert_eq!(
+                read_epoch(&state, &cache, runs.clone()).await,
+                successor.database_epoch
+            );
+            assert_eq!(
+                runtime.authority().highest_generation(),
+                Some(paused_generation + offset),
+                "{stage:?}, {variant}"
+            );
+
             gate.release.notify_one();
             assert!(
                 old.await.unwrap().is_err(),
-                "{stage:?}, rollback={rollback}: obsolete response"
+                "{stage:?}, {variant}: obsolete response"
             );
-            assert!(cache.is_empty(), "{stage:?}: obsolete cache insertion");
+            // Only the successor's entry remains, and it still answers.
+            assert_eq!(
+                cache.len(),
+                1,
+                "{stage:?}, {variant}: obsolete cache insertion"
+            );
+            runtime
+                .authority()
+                .refresh(runtime.record_path(), Instant::now());
+            assert_eq!(
+                read_epoch(&state, &cache, runs.clone()).await,
+                successor.database_epoch
+            );
+            assert_eq!(
+                runs.load(Ordering::SeqCst),
+                1,
+                "{stage:?}, {variant}: the successor entry must still answer"
+            );
             // Restore a generation above retained event keys for later writers.
-            set_generation(&mut writer, current + 100).await;
+            set_generation(&mut writer, paused_generation + 100).await;
             reset(&mut writer).await;
         }
     }
