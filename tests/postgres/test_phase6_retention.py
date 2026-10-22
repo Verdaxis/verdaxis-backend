@@ -190,7 +190,11 @@ def _run_store_test(database_url: str, name: str) -> None:
         check=False,
         timeout=900,
     )
-    assert completed.returncode == 0, completed.stdout + completed.stderr
+    output = completed.stdout + completed.stderr
+    assert completed.returncode == 0, output
+    # A renamed or missing store case selects zero tests and still exits 0.
+    assert "running 1 test\n" in completed.stdout, output
+    assert "test result: ok. 1 passed;" in completed.stdout, output
 
 
 def _role_policy(database_url: str, script: str) -> subprocess.CompletedProcess[str]:
