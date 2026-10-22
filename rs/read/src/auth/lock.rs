@@ -34,6 +34,15 @@ const DIGEST_HEX_LENGTH: usize = 64;
 /// The advisory key uses the first eight digest bytes (sixteen hex digits).
 const LOCK_KEY_BYTES: usize = 8;
 
+/// True when `value` is a lowercase SHA-256 hex digest, the only form in which
+/// token and device values reach the database.
+pub(crate) fn is_sha256_hex(value: &str) -> bool {
+    value.len() == DIGEST_HEX_LENGTH
+        && value
+            .bytes()
+            .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+}
+
 /// The PostgreSQL advisory-lock key for one browser device.
 ///
 /// The key is the first eight bytes of the device cookie's SHA-256 digest,
@@ -42,11 +51,7 @@ const LOCK_KEY_BYTES: usize = 8;
 /// lowercase hex digest stored in `refresh_sessions.device_id_hash`; anything
 /// else has no key.
 pub fn device_lock_key(device_hash: &str) -> Option<i64> {
-    let is_digest = device_hash.len() == DIGEST_HEX_LENGTH
-        && device_hash
-            .bytes()
-            .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'));
-    if !is_digest {
+    if !is_sha256_hex(device_hash) {
         return None;
     }
     let mut prefix = [0u8; LOCK_KEY_BYTES];
@@ -92,10 +97,13 @@ pub enum OrgWriteError<E> {
     Failed(E),
 }
 
-/// An attempt can fail at the database boundary or with an application refusal.
+/// The error one attempt of [`retry_org_write`] returns. Only a database
+/// write conflict makes the helper run the attempt again.
 #[derive(Debug)]
 pub enum OrgWriteAttemptError {
+    /// A database failure; 40001 and 40P01 are write conflicts.
     Database(sqlx::Error),
+    /// A refusal the route decided on; it is never retried.
     Application(ApiError),
 }
 

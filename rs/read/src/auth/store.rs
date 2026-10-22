@@ -19,12 +19,16 @@ use chrono::{DateTime, Utc};
 use sqlx::PgConnection;
 use uuid::Uuid;
 
-use super::lock::device_lock_key;
+use super::lock::{device_lock_key, is_sha256_hex};
 
+/// Refuse a value that is not a digest before it reaches a statement, so a
+/// raw token can never be stored or used as a lookup key by mistake.
 fn validate_digest(digest: &str) -> Result<(), sqlx::Error> {
-    device_lock_key(digest).map(|_| ()).ok_or_else(|| {
-        sqlx::Error::InvalidArgument("expected a lowercase SHA-256 hex digest".into())
-    })
+    if is_sha256_hex(digest) {
+        return Ok(());
+    }
+    let message = "expected a lowercase SHA-256 hex digest";
+    Err(sqlx::Error::InvalidArgument(message.into()))
 }
 
 /// Maximum expired rows removed by one independent cleanup transaction.
