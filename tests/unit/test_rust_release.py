@@ -1221,6 +1221,33 @@ def test_phase2_projection_refuses_a_partial_or_unusable_value():
         module.phase2_settings({**values, "JWT_SECRET": "short"})
 
 
+def test_runtime_environment_never_projects_the_watchlist_activation(tmp_path):
+    """PD5: only the release metadata records the watchlist producer activation.
+
+    A value in the deployed `.env` is not release metadata, so the private
+    runtime file never carries it and Rust cannot read it from there.
+    """
+    module = _load_preparer()
+    release_sha = "a" * 40
+    environment_file = tmp_path / ".env"
+    environment_file.write_text(
+        f"ENVIRONMENT=staging\nRELEASE_SHA={release_sha}\n"
+        "DATABASE_URL=postgresql+asyncpg://verdaxis_app_staging:fixture-secret"
+        "@127.0.0.1:5432/verdaxis_staging\n"
+        "JWT_SECRET=" + "k" * 40 + "\n"
+        "JWT_ISSUER=verdaxis-staging-api\n"
+        "JWT_AUDIENCE=verdaxis-staging-web\n"
+        "FRONTEND_URL=https://staging.verdaxis.exchange\n"
+        "EMAIL_FROM=Verdaxis <noreply@verdaxis.exchange>\n"
+        "RESEND_API_KEY=re_fixture_key\n"
+        "WATCHLIST_PRODUCER_ACTIVATED_AT=2026-11-01T00:00:00+00:00\n"
+    )
+    result = module.prepare(
+        environment_file, release_sha, tmp_path / "runtime", ROOT, MIGRATION_TARGET
+    )
+    assert "WATCHLIST_PRODUCER_ACTIVATED_AT" not in result["runtime_env"].read_text()
+
+
 def test_runtime_environment_preserves_quoted_secret_bytes(tmp_path):
     module = _load_preparer()
     values = {

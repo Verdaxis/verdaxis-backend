@@ -424,6 +424,36 @@ fn deployed_environment_refuses_a_missing_phase2_key() {
 }
 
 #[test]
+fn deployed_start_refuses_an_unreadable_watchlist_activation() {
+    use verdaxis_read::runtime::config::config_from_deployed_environment;
+    use verdaxis_read::runtime::phase2::Phase2Settings;
+    let bind: std::net::SocketAddr = "127.0.0.1:8011".parse().unwrap();
+    // The release metadata records an explicit instant with its offset. Any
+    // other spelling stops the start instead of becoming some other instant.
+    for recorded in [
+        "",
+        "  ",
+        "now",
+        "2026-11-01",
+        "2026-11-01T00:00:00",
+        "1793491200",
+    ] {
+        let mut environment = deployed_environment();
+        environment.insert("WATCHLIST_PRODUCER_ACTIVATED_AT".into(), recorded.into());
+        let refused =
+            config_from_deployed_environment(&environment, bind, &budget_document(compiled_sha()))
+                .and_then(|config| Phase2Settings::from_options(&config.phase2).map(|_| ()));
+        let error = refused
+            .err()
+            .unwrap_or_else(|| panic!("accepted the recorded activation {recorded:?}"));
+        assert!(
+            error.contains("WATCHLIST_PRODUCER_ACTIVATED_AT"),
+            "{recorded:?}: {error}"
+        );
+    }
+}
+
+#[test]
 fn deployed_environment_builds_the_runtime_configuration() {
     use verdaxis_read::runtime::config::config_from_deployed_environment;
     let bind: std::net::SocketAddr = "127.0.0.1:8011".parse().unwrap();
