@@ -65,7 +65,7 @@ Existing board, price, news, MCP and voyage suites remain regressions, not new p
 | P5-056 | tests/unit/test_compliance_pricing.py:495 | Overlay projection, nullable values and calculation assumptions | compliance_overlay_cases | check |
 | P5-057 | tests/unit/test_compliance_pricing.py:538 | Overlay projection, nullable values and calculation assumptions | compliance_overlay_cases | check |
 | P5-058 | tests/unit/test_compliance_pricing.py:548 | Overlay projection, nullable values and calculation assumptions | compliance_overlay_cases | check |
-| P5-059 | tests/unit/test_compliance_pricing.py:561 | Overlay projection, nullable values and calculation assumptions | compliance_pricing_cases | check |
+| P5-059 | tests/unit/test_compliance_pricing.py:561 | Score-response rule: absent in-scope emissions keep total_co2_tonnes and estimated_cost_eur null, with CalculationStatus::Unpriced | compliance_score_cases | check |
 | P5-060 | tests/unit/test_availability_schemas.py:9 | Response fields, optional values and source types | availability_evidence_cases | check |
 | P5-061 | tests/unit/test_availability_schemas.py:24 | Response fields, optional values and source types | availability_evidence_cases | check |
 | P5-062 | tests/unit/test_demand_schemas.py:10 | Response fields, optional values and source types | demand_evidence_cases | check |
