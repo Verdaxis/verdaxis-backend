@@ -1,8 +1,12 @@
-//! Token verification, token issuance and password primitives.
+//! Token verification and issuance, password primitives and the auth HTTP
+//! boundary (cookies, origin rule, errors and body limit).
 mod actor;
 mod claims;
+pub mod cookies;
+pub mod error;
 pub mod issue;
 pub mod limits;
+pub mod origin;
 pub mod password;
 pub mod request;
 pub mod scope;
