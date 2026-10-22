@@ -28,6 +28,43 @@ required-features = ["contract-tests"]
 name = "watchlist_server"
 required-features = ["contract-tests"]
 
+# Reserved stream component targets; populated evidence is required separately.
+[[test]]
+name = "streams_store"
+required-features = ["contract-tests"]
+
+[[test]]
+name = "streams_bus"
+required-features = ["contract-tests"]
+
+[[test]]
+name = "streams_auth"
+required-features = ["contract-tests"]
+
+[[test]]
+name = "streams_election"
+required-features = ["contract-tests"]
+
+[[test]]
+name = "streams_dispatch"
+required-features = ["contract-tests"]
+
+[[test]]
+name = "streams_replay"
+required-features = ["contract-tests"]
+
+[[test]]
+name = "streams_http"
+required-features = ["contract-tests"]
+
+[[test]]
+name = "streams_runtime"
+required-features = ["contract-tests"]
+
+[[test]]
+name = "streams_watchlist_guard"
+required-features = ["contract-tests"]
+
 [features]
 contract-tests = []
 

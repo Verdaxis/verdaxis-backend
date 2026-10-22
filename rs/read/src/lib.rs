@@ -4,6 +4,7 @@ pub mod market;
 pub mod mcp;
 pub mod routes;
 pub mod runtime;
+pub mod streams;
 
 // ---------------------------------------------------------------------------
 // Phase 2 Task 20 registration block.
