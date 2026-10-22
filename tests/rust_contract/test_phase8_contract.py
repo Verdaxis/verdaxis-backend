@@ -6,6 +6,7 @@ import json
 import os
 import re
 import subprocess
+import textwrap
 from pathlib import Path
 
 import pytest
@@ -15,25 +16,70 @@ LEDGER = ROOT / "tests/rust_contract/phase8/required-scenarios.json"
 BASE = "274bd3ab737621339d158ab4795578009de5bf4f"
 ROUTE_IDS = ["O3", "O4", "O5", "O6", "I1", "I2", "I3", "I4", "I7", "S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "S9", "S10", "S11", "S12", "S13", "S14", "S15", "S16", "C1", "C2", "C3"]
 # Requirements are independent of test discovery and of the ledger being checked.
+# The W prefix keeps these requirement IDs distinct from the plan's R1-R28 race IDs.
 REQUIRED = {
-    route: {f"R{index:02d}-success", f"R{index:02d}-admission"}
+    route: {f"W{index:02d}-success", f"W{index:02d}-admission"}
     for index, route in enumerate(ROUTE_IDS, 1)
 }
 REQUIRED.update({
-    "C1": REQUIRED["C1"] | {"R26-empty", "R26-1001", "R26-legacy-only"},
-    "O3": REQUIRED["O3"] | {"R01-replay", "R01-etag", "R01-reservation"},
-    "O4": REQUIRED["O4"] | {"R02-reason", "R02-shared-cancel"},
-    "S6": REQUIRED["S6"] | {"R15-reuse", "R15-replacement", "R15-expiry"},
+    "C1": REQUIRED["C1"] | {"W26-empty", "W26-1001", "W26-legacy-only"},
+    "O3": REQUIRED["O3"] | {"W01-replay", "W01-etag", "W01-reservation", "W01-context-scope", "W01-admin-without-context"},
+    "O4": REQUIRED["O4"] | {"W02-reason", "W02-shared-cancel", "W02-context-invalid", "W02-admin-without-context"},
+    "O5": REQUIRED["O5"] | {"W03-context-invalid"},
+    "O6": REQUIRED["O6"] | {"W04-context-invalid"},
+    "I7": REQUIRED["I7"] | {"W09-no-organization"},
+    "S6": REQUIRED["S6"] | {"W15-reuse", "W15-replacement", "W15-expiry"},
+    "S7": REQUIRED["S7"] | {"W16-stale-expiry"},
+    "S8": REQUIRED["S8"] | {"W17-stale-expiry"},
 })
 DEFERRED_REQUIREMENTS = {
-    f"R{index:02d}": {f"R{index:02d}-invariant"} for index in range(29, 41)
+    f"W{index:02d}": {f"W{index:02d}-invariant"} for index in range(29, 41)
 }
+# Source anchors the support-context refusal contract depends on (M2 fix round).
+REQUIRED_GUARDS = {
+    "O3": {"_reject_admin_legacy_workspace_mutation", "MARKET_SUPPORT_CONTEXT_HEADER", "resolve_request_party"},
+    "O4": {"_reject_admin_legacy_workspace_mutation", "MARKET_SUPPORT_CONTEXT_HEADER", "resolve_request_party"},
+    "O5": {"MARKET_SUPPORT_CONTEXT_HEADER", "resolve_request_party"},
+    "O6": {"MARKET_SUPPORT_CONTEXT_HEADER", "resolve_request_party"},
+}
+# Coded refusals the pinned client contract reads by exact code (M1 fix round).
+REQUIRED_REFUSAL_CODES = {
+    "S6": {"MARKET_SUPPORT_CONTEXT_REPLACEMENT_REQUIRED", "ORGANIZATION_NOT_APPROVED", "ORGANIZATION_NOT_REAL"},
+    "O3": {"MARKET_SUPPORT_MUTATION_NOT_ALLOWED"},
+    "O4": {"MARKET_SUPPORT_CONTEXT_INVALID", "MARKET_SUPPORT_LEGACY_MUTATION_RETIRED"},
+    "O5": {"MARKET_SUPPORT_CONTEXT_INVALID"},
+    "O6": {"MARKET_SUPPORT_CONTEXT_INVALID"},
+}
+CONTEXT_CLEARING_HEADERS = ["X-Verdaxis-Market-Support-Context-Invalid", "X-Verdaxis-Market-Support-Context-Code"]
 
 
 def load_ledger():
     if not LEDGER.exists():
         return {"routes": [], "invariants": []}
     return json.loads(LEDGER.read_text())
+
+
+def validate_refusals(ledger):
+    for row in ledger["routes"]:
+        seen = set()
+        for refusal in row["refusals"]:
+            key = (refusal["status"], refusal["code"], refusal["condition"])
+            assert key not in seen, f"{row['route_id']}: duplicate refusal {key}"
+            seen.add(key)
+            code = refusal["code"]
+            if code is not None:
+                assert re.fullmatch(r"[A-Z][A-Z0-9_]*", code), f"{row['route_id']}: malformed code {code!r}"
+            if code is not None and code.startswith("MARKET_SUPPORT_CONTEXT_"):
+                # app/main.py: every MARKET_SUPPORT_CONTEXT_* code carries both headers.
+                assert refusal.get("clearing_headers") == CONTEXT_CLEARING_HEADERS, (
+                    f"{row['route_id']}: {code} must carry both clearing headers"
+                )
+            else:
+                assert "clearing_headers" not in refusal, f"{row['route_id']}: unexpected clearing headers"
+        required_codes = REQUIRED_REFUSAL_CODES.get(row["route_id"], set())
+        assert required_codes <= {refusal["code"] for refusal in row["refusals"] if refusal["code"]}, (
+            f"{row['route_id']}: missing refusal codes {sorted(required_codes)}"
+        )
 
 
 def validate_scenarios(ledger):
@@ -51,6 +97,7 @@ def validate_scenarios(ledger):
     for row in invariants:
         assert set(row["required_scenarios"]) == DEFERRED_REQUIREMENTS[row["scenario_id"]]
         assert row["owning_tasks"] and row["description"]
+    validate_refusals(ledger)
 
 
 def test_phase8_scenario_ledger_covers_every_route():
@@ -59,8 +106,17 @@ def test_phase8_scenario_ledger_covers_every_route():
 
 def test_phase8_ledger_detects_a_removed_requirement():
     ledger = copy.deepcopy(load_ledger())
-    ledger["routes"][0]["required_scenarios"].remove("R01-reservation")
-    with pytest.raises(AssertionError, match="R01-reservation"):
+    ledger["routes"][0]["required_scenarios"].remove("W01-reservation")
+    with pytest.raises(AssertionError, match="W01-reservation"):
+        validate_scenarios(ledger)
+
+
+def test_phase8_ledger_detects_a_dropped_clearing_header():
+    ledger = copy.deepcopy(load_ledger())
+    row = next(item for item in ledger["routes"] if item["route_id"] == "O4")
+    refusal = next(item for item in row["refusals"] if item["code"] == "MARKET_SUPPORT_CONTEXT_INVALID")
+    del refusal["clearing_headers"]
+    with pytest.raises(AssertionError, match="clearing headers"):
         validate_scenarios(ledger)
 
 
@@ -113,6 +169,9 @@ def test_phase8_route_inventory_matches_source():
         assert row["auth_dependency"] in dependencies
         for guard in row["source_guards"]:
             assert guard in ast.unparse(node)
+        assert REQUIRED_GUARDS.get(row["route_id"], set()) <= set(row["source_guards"]), (
+            f"{row['route_id']}: missing required source anchors {sorted(REQUIRED_GUARDS.get(row['route_id'], set()) - set(row['source_guards']))}"
+        )
         for field in ("auth_class", "request_schema", "response_schema", "refusals", "required_scenarios"):
             assert row[field], f"{row['route_id']}: empty {field}"
         response = next((ast.unparse(k.value) for k in decorator.keywords if k.arg == "response_model"), None)
@@ -149,6 +208,13 @@ def test_phase8_expected_schema_manifest():
     assert set(manifest["tables"]) == {"watchlist_producer_state"}
     assert set(manifest["constraints"]) == {"ck_watchlist_events_producer_identity"}
     assert set(manifest["indexes"]) == {"uq_watchlist_events_producer_source_target_derived"}
+    permitted = manifest["permitted_migration_operations"]
+    # Non-DDL calls are reviewed one by one: only the head check and the Task 5a
+    # backfill statement are allowed, never op.execute in general.
+    assert permitted["ddl"] == ["add_column", "create_table", "create_check_constraint", "create_index"]
+    assert set(permitted["reviewed_calls"]) == {"op.get_bind", "op.get_context"}
+    assert permitted["reviewed_statements"] == ["UPDATE watchlist_events SET producer = 'legacy-python'"]
+    assert set(permitted["inline_checks"]) == {"watchlist_events.producer"}
 
 
 def registered_rust_pairs(text):
@@ -185,24 +251,134 @@ def test_phase8_router_exposes_exact_pairs():
     assert actual == expected, f"missing: {expected - actual}; extra: {actual - expected}"
 
 
+def normalize_statement(statement):
+    return re.sub(r"\s+", " ", statement).strip().rstrip(";").strip()
+
+
+def executed_statement_text(call):
+    """Literal SQL text of an op.execute argument, or None when not a literal."""
+    argument = call.args[0] if call.args else None
+    while (
+        isinstance(argument, ast.Call)
+        and getattr(argument.func, "attr", getattr(argument.func, "id", "")) in {"sa.text", "text"}
+        and argument.args
+    ):
+        argument = argument.args[0]
+    if isinstance(argument, ast.Constant) and isinstance(argument.value, str):
+        return normalize_statement(argument.value)
+    return None
+
+
+def review_migration_operations(upgrade, manifest):
+    """Refuse every op.* call the reviewed change set does not name exactly."""
+    permitted = manifest["permitted_migration_operations"]
+    reviewed_calls = {name.split(".", 1)[-1] for name in permitted["reviewed_calls"]}
+    reviewed_statements = {normalize_statement(statement) for statement in permitted["reviewed_statements"]}
+    violations = []
+    for node in ast.walk(upgrade):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and ast.unparse(node.func.value) == "op"):
+            continue
+        operation = node.func.attr
+        if operation in permitted["ddl"] or operation in reviewed_calls:
+            continue
+        if operation == "execute":
+            statement = executed_statement_text(node)
+            if statement not in reviewed_statements:
+                violations.append(f"unreviewed op.execute: {statement!r}")
+            continue
+        violations.append(f"unreviewed migration operation: op.{operation}")
+    return violations
+
+
+def test_phase8_migration_reviewer_refuses_unreviewed_operations():
+    manifest = load_ledger()["schema_change_set"]
+
+    def upgrade_of(source):
+        return next(
+            node for node in ast.parse(textwrap.dedent(source)).body
+            if isinstance(node, ast.FunctionDef) and node.name == "upgrade"
+        )
+
+    reviewed = '''\
+        def upgrade():
+            op.execute("UPDATE watchlist_events SET producer = 'legacy-python'")
+        '''
+    assert review_migration_operations(upgrade_of(reviewed), manifest) == []
+    wrapped = '''\
+        def upgrade():
+            op.execute(sa.text("UPDATE watchlist_events SET producer = 'legacy-python'"))
+        '''
+    assert review_migration_operations(upgrade_of(wrapped), manifest) == []
+    padded = '''\
+        def upgrade():
+            op.execute("UPDATE   watchlist_events SET producer = 'legacy-python' ;")
+        '''
+    assert review_migration_operations(upgrade_of(padded), manifest) == []
+    reads = '''\
+        def upgrade():
+            bind = op.get_bind()
+            op.get_context()
+        '''
+    assert review_migration_operations(upgrade_of(reads), manifest) == []
+    foreign_delete = '''\
+        def upgrade():
+            op.execute(sa.text("DELETE FROM watchlist_events"))
+        '''
+    assert review_migration_operations(upgrade_of(foreign_delete), manifest) == ["unreviewed op.execute: 'DELETE FROM watchlist_events'"]
+    foreign_update = '''\
+        def upgrade():
+            op.execute("UPDATE watchlist_events SET producer = 'attacker'")
+        '''
+    assert review_migration_operations(upgrade_of(foreign_update), manifest)
+    not_literal = '''\
+        def upgrade():
+            op.execute(statement)
+        '''
+    assert review_migration_operations(upgrade_of(not_literal), manifest) == ["unreviewed op.execute: None"]
+    destructive = '''\
+        def upgrade():
+            op.drop_column("watchlist_events", "producer")
+        '''
+    assert review_migration_operations(upgrade_of(destructive), manifest) == ["unreviewed migration operation: op.drop_column"]
+
+
 @pytest.mark.skipif(os.environ.get("PHASE8_COMPLETENESS") != "1", reason="Task 14 gate: requires the integrated Task 5a revision")
 def test_phase8_change_set_is_one_additive_revision():
     manifest = load_ledger()["schema_change_set"]
     schema_base = os.environ.get("PHASE8_SCHEMA_BASE", "")
     assert re.fullmatch(r"[0-9a-f]{40}", schema_base), "Task 5a must record the integrated predecessor SHA in PHASE8_SCHEMA_BASE"
-    changes = subprocess.check_output(["git", "diff", "--name-status", schema_base, "HEAD", "--", "alembic/versions"], cwd=ROOT, text=True)
-    assert changes.splitlines() == ["A\t" + manifest["added_migrations"][0]]
+    status_lines = subprocess.check_output(["git", "diff", "--name-status", schema_base, "HEAD", "--", "alembic/versions"], cwd=ROOT, text=True).splitlines()
+    added = [line.split("\t")[-1] for line in status_lines if line.startswith("A")]
+    # Other phases may add their own revisions after the recorded base; this gate
+    # owns only the Phase 8 revision and refuses touching pre-existing files.
+    assert added.count(manifest["added_migrations"][0]) == 1, "the Phase 8 revision must be added exactly once"
+    assert not [line for line in status_lines if not line.startswith("A")], "pre-existing migrations must not be modified or removed"
     changed = set(subprocess.check_output(["git", "diff", "--name-only", BASE, "HEAD"], cwd=ROOT, text=True).splitlines())
     assert set(manifest["expected_modified_paths"]) <= changed
     tree = ast.parse((ROOT / manifest["added_migrations"][0]).read_text())
     upgrade = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "upgrade")
+    assert review_migration_operations(upgrade, manifest) == []
     calls = [n for n in ast.walk(upgrade) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and ast.unparse(n.func.value) == "op"]
     assert calls, "no additive operations found"
-    assert {call.func.attr for call in calls} <= {"add_column", "create_table", "create_check_constraint", "create_index"}, "unreviewed migration operation"
     columns = {ast.literal_eval(call.args[0]) + "." + ast.literal_eval(call.args[1].args[0]) for call in calls if call.func.attr == "add_column"}
     assert columns == set(manifest["columns"])
     for operation, field in (("create_table", "tables"), ("create_check_constraint", "constraints"), ("create_index", "indexes")):
         assert {ast.literal_eval(call.args[0]) for call in calls if call.func.attr == operation} == set(manifest[field])
+    # The producer column carries its reviewed inline value check.
+    producer_calls = [
+        call for call in calls
+        if call.func.attr == "add_column"
+        and ast.literal_eval(call.args[0]) == "watchlist_events"
+        and ast.literal_eval(call.args[1].args[0]) == "producer"
+    ]
+    assert len(producer_calls) == 1, "exactly one producer column addition"
+    checks = [
+        node for node in ast.walk(producer_calls[0])
+        if isinstance(node, ast.Call) and getattr(node.func, "attr", getattr(node.func, "id", "")) == "CheckConstraint"
+    ]
+    assert checks, "the producer column must carry an inline value check"
+    check_text = " ".join(ast.unparse(node) for node in checks)
+    assert "legacy-python" in check_text and "rust-market-v1" in check_text, "the inline check must name both reviewed producer values"
 
 
 @pytest.mark.asyncio
