@@ -1,16 +1,12 @@
-"""Declarations only for the reset-token table the Rust credential service owns.
-
-No Python route or service reads or writes this table. The declaration keeps
-`alembic check` comparing the table's columns, keys and index with the
-migration that creates it.
-"""
+"""Declare the password reset token table for migration metadata."""
 import uuid
 from datetime import datetime
 
-from app.model_base import Base
 from sqlalchemy import DateTime, ForeignKey, Index, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
+
+from app.model_base import Base
 
 
 class PasswordResetToken(Base):

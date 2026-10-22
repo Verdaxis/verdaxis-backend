@@ -343,7 +343,7 @@ def rust_store_run(analytics_pg_url):
     return subprocess.run(
         [
             "cargo", "test", "--manifest-path", "rs/Cargo.toml", "--locked",
-            "-p", "verdaxis-read", "--test", "auth_store_postgres",
+            "-p", "verdaxis-read", "--test", "auth_store_postgres", "--", "--include-ignored",
         ],
         cwd=ROOT,
         env=environment,

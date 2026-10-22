@@ -11,9 +11,10 @@
 //! Python writer for one browser device wait for each other instead of
 //! deadlocking. The statements live in [`super::store`].
 //!
-//! **Organization writes** take every affected organization row, then every
-//! affected user row (the actor included), then every affected join request,
-//! each in ascending id, and only then any market invalidation
+//! **Organization writes** enter through authenticated admission, which locks
+//! the actor first. Then take every affected organization row, every other
+//! affected user row, and every affected join request, each in ascending id,
+//! and only then any market invalidation
 //! ([`lock_organization_write`]). A whole organization write runs at most
 //! [`ORG_WRITE_ATTEMPTS`] times when PostgreSQL reports a serialization
 //! failure or a deadlock ([`retry_org_write`]).
@@ -91,11 +92,36 @@ pub enum OrgWriteError<E> {
     Failed(E),
 }
 
-impl From<OrgWriteError<ApiError>> for ApiError {
-    fn from(error: OrgWriteError<ApiError>) -> Self {
+/// An attempt can fail at the database boundary or with an application refusal.
+#[derive(Debug)]
+pub enum OrgWriteAttemptError {
+    Database(sqlx::Error),
+    Application(ApiError),
+}
+
+impl From<sqlx::Error> for OrgWriteAttemptError {
+    fn from(error: sqlx::Error) -> Self { Self::Database(error) }
+}
+
+impl From<ApiError> for OrgWriteAttemptError {
+    fn from(error: ApiError) -> Self { Self::Application(error) }
+}
+
+impl WriteConflict for OrgWriteAttemptError {
+    fn is_write_conflict(&self) -> bool {
+        match self {
+            Self::Database(error) => error.is_write_conflict(),
+            Self::Application(_) => false,
+        }
+    }
+}
+
+impl From<OrgWriteError<OrgWriteAttemptError>> for ApiError {
+    fn from(error: OrgWriteError<OrgWriteAttemptError>) -> Self {
         match error {
             OrgWriteError::Busy => org_write_busy(),
-            OrgWriteError::Failed(error) => error,
+            OrgWriteError::Failed(OrgWriteAttemptError::Application(error)) => error,
+            OrgWriteError::Failed(OrgWriteAttemptError::Database(_)) => ApiError::database(),
         }
     }
 }
@@ -155,8 +181,9 @@ pub struct OrganizationWriteScope {
 }
 
 impl OrganizationWriteScope {
-    /// `users` must include the acting user, so the actor row is locked in the
-    /// same ascending pass as every other user row.
+    /// Authenticated admission already holds the actor row. Exclude that actor
+    /// from `users`; this scope contains only the remaining affected users.
+    /// Phase 4 route races must cover this actor-first exception.
     pub fn new(
         organizations: impl IntoIterator<Item = Uuid>,
         users: impl IntoIterator<Item = Uuid>,

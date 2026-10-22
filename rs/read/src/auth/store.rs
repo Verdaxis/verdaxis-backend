@@ -21,6 +21,12 @@ use uuid::Uuid;
 
 use super::lock::device_lock_key;
 
+fn validate_digest(digest: &str) -> Result<(), sqlx::Error> {
+    device_lock_key(digest).map(|_| ()).ok_or_else(|| {
+        sqlx::Error::InvalidArgument("expected a lowercase SHA-256 hex digest".into())
+    })
+}
+
 /// Maximum expired rows removed by one independent cleanup transaction.
 pub const EXPIRED_RESET_SWEEP_LIMIT: i64 = 1000;
 
@@ -165,6 +171,7 @@ pub async fn lock_refresh_by_jti(
     connection: &mut PgConnection,
     jti_hash: &str,
 ) -> Result<Option<RefreshRow>, sqlx::Error> {
+    validate_digest(jti_hash)?;
     sqlx::query_as(
         "SELECT id, user_id, family_id, jti_hash, device_id_hash, replaced_by_jti_hash, \
          rotation_grace_until, revoked, expires_at \
@@ -185,6 +192,7 @@ pub async fn revoke_device_families(
     device_hash: &str,
     presented_family: Option<Uuid>,
 ) -> Result<u64, sqlx::Error> {
+    validate_digest(device_hash)?;
     let revoked = sqlx::query(
         "UPDATE refresh_sessions SET revoked = true \
          WHERE NOT revoked AND (device_id_hash = $1 OR family_id = $2)",
@@ -216,6 +224,8 @@ pub async fn insert_refresh(
     connection: &mut PgConnection,
     row: &NewRefreshRow,
 ) -> Result<(), sqlx::Error> {
+    validate_digest(&row.jti_hash)?;
+    validate_digest(&row.device_id_hash)?;
     sqlx::query(
         "INSERT INTO refresh_sessions \
          (id, user_id, family_id, jti_hash, device_id_hash, expires_at) \
@@ -242,6 +252,7 @@ pub async fn upsert_reset_token(
     token: &NewResetToken,
     now: DateTime<Utc>,
 ) -> Result<(), sqlx::Error> {
+    validate_digest(&token.token_hash)?;
     sqlx::query(
         "INSERT INTO password_reset_tokens (user_id, token_hash, expires_at, created_at, used_at) \
          VALUES ($1, $2, $3, $4, NULL) \
@@ -284,6 +295,7 @@ pub async fn reset_token_owner(
     connection: &mut PgConnection,
     token_hash: &str,
 ) -> Result<Option<Uuid>, sqlx::Error> {
+    validate_digest(token_hash)?;
     sqlx::query_scalar("SELECT user_id FROM password_reset_tokens WHERE token_hash = $1")
         .bind(token_hash)
         .fetch_optional(&mut *connection)
@@ -299,6 +311,7 @@ pub async fn consume_reset_token(
     token_hash: &str,
     now: DateTime<Utc>,
 ) -> Result<bool, sqlx::Error> {
+    validate_digest(token_hash)?;
     let consumed = sqlx::query(
         "UPDATE password_reset_tokens SET used_at = $3 \
          WHERE user_id = $1 AND token_hash = $2 AND used_at IS NULL AND expires_at > $3",

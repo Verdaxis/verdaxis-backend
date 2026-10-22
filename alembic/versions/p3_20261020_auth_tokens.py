@@ -5,8 +5,9 @@ or write this table; the shared users.password_reset_token_hash column stays
 with the invitation flow. Downgrade drops both objects.
 """
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision = "p3_20261020_auth_tokens"
 down_revision = "prc_20261018_cache"
@@ -45,5 +46,7 @@ def upgrade():
 
 
 def downgrade():
+    # Removing the foreign key also locks users; refuse instead of queueing.
+    op.execute("LOCK TABLE public.users, public.password_reset_tokens IN ACCESS EXCLUSIVE MODE NOWAIT")
     op.drop_index("ix_password_reset_tokens_expires_at", table_name="password_reset_tokens")
     op.drop_table("password_reset_tokens")

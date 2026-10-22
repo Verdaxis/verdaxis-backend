@@ -36,8 +36,17 @@ use verdaxis_read::auth::{
 const DEVICE_LOCK_VECTORS: &str =
     include_str!("../../../tests/rust_contract/phase3/device-lock-keys.json");
 
-/// How long a blocked lock request is watched before the holder releases it.
-const BLOCKED_FOR: Duration = Duration::from_millis(300);
+/// Observe the database wait, rather than treating a slow connection as a lock.
+async fn wait_until_blocked(observer: &mut PgConnection, pid: i32) {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let blocked: bool = sqlx::query_scalar("SELECT cardinality(pg_blocking_pids($1)) > 0")
+                .bind(pid).fetch_one(&mut *observer).await.unwrap();
+            if blocked { return; }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }).await.expect("writer must reach a database lock wait");
+}
 
 fn sha256_hex(value: &str) -> String {
     Sha256::digest(value.as_bytes())
@@ -152,7 +161,7 @@ async fn org_write_retries_twice_then_stops() {
     ));
     assert_eq!(attempts, 2);
 
-    let busy = verdaxis_read::ApiError::from(OrgWriteError::<verdaxis_read::ApiError>::Busy);
+    let busy = verdaxis_read::ApiError::from(OrgWriteError::<verdaxis_read::auth::lock::OrgWriteAttemptError>::Busy);
     assert_eq!(busy.status, 503);
     assert_eq!(busy.retry_after, Some(1));
     assert_eq!(busy.detail["code"], "ORGANIZATION_WRITE_BUSY");
@@ -176,18 +185,11 @@ struct Database {
     owner: String,
 }
 
-/// The two database URLs, or `None` outside the Python harness. The harness
-/// sets `REQUIRE_AUTH_STORE_TEST`, so a missing URL there fails.
-fn database() -> Option<Database> {
-    let Ok(runtime) = std::env::var("AUTH_STORE_TEST_DATABASE_URL") else {
-        assert!(
-            std::env::var("REQUIRE_AUTH_STORE_TEST").is_err(),
-            "AUTH_STORE_TEST_DATABASE_URL is required"
-        );
-        return None;
-    };
+/// Explicitly ignored database tests must fail if invoked without their URLs.
+fn database() -> Database {
+    let runtime = std::env::var("AUTH_STORE_TEST_DATABASE_URL").expect("runtime URL");
     let owner = std::env::var("AUTH_STORE_TEST_OWNER_URL").expect("owner URL");
-    Some(Database { runtime, owner })
+    Database { runtime, owner }
 }
 
 async fn connect(url: &str) -> PgConnection {
@@ -313,8 +315,9 @@ async fn finished_within<T>(task: &mut tokio::task::JoinHandle<T>, wait: Duratio
 }
 
 #[tokio::test]
+#[ignore = "requires the migrated disposable PostgreSQL harness"]
 async fn auth_lock_order_serializes_device_user_refresh() {
-    let Some(database) = database() else { return };
+    let database = database();
     let mut owner = connect(&database.owner).await;
     let mut fixture = Fixture::default();
     let user = fixture.user(&mut owner, None).await;
@@ -358,10 +361,10 @@ async fn auth_lock_order_serializes_device_user_refresh() {
 
     // A second writer in the same order waits at the device lock and then
     // completes once the first commits: no deadlock and no error.
-    let runtime = database.runtime.clone();
+    let mut connection = connect(&database.runtime).await;
+    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()").fetch_one(&mut connection).await.unwrap();
     let (second_device, second_jti) = (device_hash.clone(), refresh.jti_hash.clone());
     let mut second = tokio::spawn(async move {
-        let mut connection = connect(&runtime).await;
         begin(&mut connection).await;
         lock_device(&mut connection, &second_device).await?;
         let user = lock_user(&mut connection, user).await?;
@@ -369,7 +372,7 @@ async fn auth_lock_order_serializes_device_user_refresh() {
         commit(&mut connection).await;
         Ok::<_, sqlx::Error>((user.is_some(), row.is_some()))
     });
-    assert!(finished_within(&mut second, BLOCKED_FOR).await.is_none());
+    wait_until_blocked(&mut owner, pid).await;
     commit(&mut first).await;
     let completed = finished_within(&mut second, Duration::from_secs(10)).await;
     assert_eq!(
@@ -381,8 +384,9 @@ async fn auth_lock_order_serializes_device_user_refresh() {
 }
 
 #[tokio::test]
+#[ignore = "requires the migrated disposable PostgreSQL harness"]
 async fn user_rows_lock_by_id_and_by_normalized_email() {
-    let Some(database) = database() else { return };
+    let database = database();
     let mut owner = connect(&database.owner).await;
     let mut fixture = Fixture::default();
     let organization = fixture.organization(&mut owner).await;
@@ -419,8 +423,9 @@ async fn user_rows_lock_by_id_and_by_normalized_email() {
 }
 
 #[tokio::test]
+#[ignore = "requires the migrated disposable PostgreSQL harness"]
 async fn refresh_rows_insert_lock_and_revoke() {
-    let Some(database) = database() else { return };
+    let database = database();
     let mut owner = connect(&database.owner).await;
     let mut fixture = Fixture::default();
     let user = fixture.user(&mut owner, None).await;
@@ -515,8 +520,9 @@ async fn refresh_rows_insert_lock_and_revoke() {
 }
 
 #[tokio::test]
+#[ignore = "requires the migrated disposable PostgreSQL harness"]
 async fn reset_tokens_replace_and_consume_once() {
-    let Some(database) = database() else { return };
+    let database = database();
     let mut owner = connect(&database.owner).await;
     let mut fixture = Fixture::default();
     let user = fixture.user(&mut owner, None).await;
@@ -590,8 +596,9 @@ async fn reset_tokens_replace_and_consume_once() {
 }
 
 #[tokio::test]
+#[ignore = "requires the migrated disposable PostgreSQL harness"]
 async fn expired_reset_cleanup_skips_locked_rows() {
-    let Some(database) = database() else { return };
+    let database = database();
     let mut owner = connect(&database.owner).await;
     let mut fixture = Fixture::default();
     let users = [
@@ -628,8 +635,9 @@ async fn expired_reset_cleanup_skips_locked_rows() {
 }
 
 #[tokio::test]
+#[ignore = "requires the migrated disposable PostgreSQL harness"]
 async fn reset_token_issuance_keeps_other_users_independent() {
-    let Some(database) = database() else { return };
+    let database = database();
     let mut owner = connect(&database.owner).await;
     let mut fixture = Fixture::default();
     let users = [
@@ -689,8 +697,9 @@ async fn reset_token_issuance_keeps_other_users_independent() {
 }
 
 #[tokio::test]
+#[ignore = "requires the migrated disposable PostgreSQL harness"]
 async fn organization_write_locks_follow_one_order() {
-    let Some(database) = database() else { return };
+    let database = database();
     let mut owner = connect(&database.owner).await;
     let mut fixture = Fixture::default();
     let org_a = fixture.organization(&mut owner).await;
@@ -712,9 +721,10 @@ async fn organization_write_locks_follow_one_order() {
     assert_eq!(locked.join_requests, [join]);
 
     let barrier = Arc::new(Barrier::new(2));
-    let (runtime, waiting) = (database.runtime.clone(), barrier.clone());
+    let waiting = barrier.clone();
+    let mut connection = connect(&database.runtime).await;
+    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()").fetch_one(&mut connection).await.unwrap();
     let mut second = tokio::spawn(async move {
-        let mut connection = connect(&runtime).await;
         begin(&mut connection).await;
         waiting.wait().await;
         let locked = lock_organization_write(&mut connection, &backward).await?;
@@ -722,7 +732,7 @@ async fn organization_write_locks_follow_one_order() {
         Ok::<_, sqlx::Error>(locked)
     });
     barrier.wait().await;
-    assert!(finished_within(&mut second, BLOCKED_FOR).await.is_none());
+    wait_until_blocked(&mut owner, pid).await;
     commit(&mut first).await;
     let completed = finished_within(&mut second, Duration::from_secs(10)).await;
     let locked = completed.expect("second writer completes").unwrap();
@@ -766,8 +776,9 @@ async fn raising_attempt(url: String, sqlstate: Option<&'static str>) -> Result<
 }
 
 #[tokio::test]
+#[ignore = "requires the migrated disposable PostgreSQL harness"]
 async fn org_write_retry_classifies_postgres_conflicts() {
-    let Some(database) = database() else { return };
+    let database = database();
 
     let calls = AtomicUsize::new(0);
     let schedule = [Some("40P01"), Some("40001"), None];

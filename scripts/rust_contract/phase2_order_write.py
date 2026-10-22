@@ -23,8 +23,19 @@ def order_write_scenario():
             receipts = [r for r in after["market_command_results"]["rows"].values() if r["id"]==identifier]
             expected = 0 if mode in {"rollback", "timeout", "retry-40P01-bound"} else 1
             assert len(outbox) == len(receipts) == expected
+            changed = int(expected == 1 and not replayed)
+            old_generations = before["public_read_cache_generations"]["rows"]
+            new_generations = after["public_read_cache_generations"]["rows"]
+            assert old_generations.keys() == new_generations.keys()
+            for key, old in old_generations.items():
+                assert new_generations[key] == {**old, "generation": old["generation"] + changed}
+            old_events = before["public_read_cache_events"]["rows"]
+            new_events = after["public_read_cache_events"]["rows"]
+            assert all(new_events.get(key) == row for key, row in old_events.items())
+            assert len(new_events) == len(old_events) + changed
             for table in before:
-                if table not in {"market_event_outbox", "market_command_results"}:
+                if table not in {"market_event_outbox", "market_command_results",
+                                 "public_read_cache_events", "public_read_cache_generations"}:
                     assert before[table] == after[table], table
         return Action(name, "N02", "POST", "/__contract__/order-write", 200,
             body={"id":identifier,"mode":mode}, outcome="rolled-back" if mode in {"rollback","timeout","retry-40P01-bound"} else "ambiguous" if mode=="lost-response" else "committed",
