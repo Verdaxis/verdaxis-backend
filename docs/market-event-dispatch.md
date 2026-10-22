@@ -100,6 +100,14 @@ for it exists or is installed.
   release SHA, selector digest, completed drain and increasing ownership epoch.
   The deployment owner supplies the reviewed ownership-transition procedure;
   this migration does not authorize activation.
+- Applying `sse_20261021_replay_floor`: the migration holds `SHARE ROW
+  EXCLUSIVE` on the outbox until it commits, including the participant index
+  build. `NOWAIT` only stops the migration from waiting for live writers;
+  producer inserts and sequencer updates that arrive later wait behind it and
+  fail after the app role's 3-second lock timeout. Apply it in a quiet window
+  and record the outbox row count as a release input. `validate_roles.sql`
+  expects the retention tables, triggers and functions only from this
+  checkpoint on.
 - Before rollback or a selector change to Python, commit `blocked` under
   `FOR UPDATE` on the ownership row. This waits for any authorized in-flight
   prune, which holds `FOR SHARE`. Record the current floor and drain evidence
