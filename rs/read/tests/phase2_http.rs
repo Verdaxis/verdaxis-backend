@@ -121,7 +121,7 @@ async fn admin_authority_charges_once_and_marks_the_admitted_request() {
     let body = to_bytes(refused.into_body(), 4096).await.unwrap();
     assert_eq!(
         serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
-        serde_json::json!({"detail": "Rate limit exceeded"})
+        serde_json::json!({"detail": {"code": "RATE_LIMITED", "message": "Rate limit exceeded"}})
     );
     // The owning route trusts the mark: charging again would halve the limit.
     let marked = app

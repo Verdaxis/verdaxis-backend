@@ -128,6 +128,22 @@ mod tests {
     }
 
     #[test]
+    fn endpoint_refusal_has_a_machine_readable_code_and_retry() {
+        let limits = SharedLimits::default();
+        for _ in 0..5 {
+            assert!(limits
+                .check_endpoint("client", "/api/feedback", 100)
+                .is_ok());
+        }
+        let error = limits
+            .check_endpoint("client", "/api/feedback", 100)
+            .unwrap_err();
+        assert_eq!(error.detail["code"], "RATE_LIMITED");
+        assert!(error.detail["message"].is_string());
+        assert_eq!(error.retry_after, Some(60));
+    }
+
+    #[test]
     fn capacity_keeps_unexpired_quota_accounting() {
         let mut limits = Phase2Limits::default();
         for _ in 0..300 {
