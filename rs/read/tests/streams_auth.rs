@@ -404,6 +404,40 @@ fn oversized_token_is_refused_before_parsing() {
     );
 }
 
+/// A stream token over the issued claims plus a padding claim, grown until it
+/// is exactly `length` bytes long.
+fn signed_token_of_length(length: usize) -> String {
+    let padded = |padding: usize| sign(&stream_with("padding", json!("p".repeat(padding))));
+    // Base64url writes 4 bytes for every 3 claim bytes: start a little below
+    // that estimate and grow the claim one byte at a time.
+    let mut padding = (length - padded(0).len()) * 3 / 4 - 3;
+    loop {
+        let token = padded(padding);
+        if token.len() >= length {
+            assert_eq!(
+                token.len(),
+                length,
+                "no padding gives exactly {length} bytes"
+            );
+            return token;
+        }
+        padding += 1;
+    }
+}
+
+#[test]
+fn token_size_bound_is_inclusive() {
+    // Both tokens carry valid claims and signatures, so only the size bound
+    // decides.
+    let at_bound = signed_token_of_length(MAX_TOKEN_BYTES);
+    assert!(
+        verify(&at_bound).is_ok(),
+        "a token of exactly the bound is parsed"
+    );
+    let over_bound = signed_token_of_length(MAX_TOKEN_BYTES + 1);
+    assert_eq!(verify(&over_bound).unwrap_err(), StreamError::TokenInvalid);
+}
+
 #[test]
 fn principal_debug_names_no_identifier() {
     let debug = format!("{:?}", principal());
