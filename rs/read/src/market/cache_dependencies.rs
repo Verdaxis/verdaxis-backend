@@ -7,6 +7,10 @@
 //! a certificate date, a rolling-window departure, a benchmark expiry or a
 //! calendar-dependent rule.
 //!
+//! Every instant is derived from the one [`TradingClock`] the route captured
+//! before admission and bound into its SQL. A change reported at or before
+//! that clock cannot come from it, so the boundary fails closed.
+//!
 //! A route that cannot derive one of the dependencies it reads reports
 //! [`Deadline::Unknown`]. The cache then bypasses instead of guessing a TTL.
 //! [`Deadline::None`] is a positive claim: time alone cannot change the result,
@@ -223,14 +227,15 @@ impl TemporalFacts {
                 return Boundary::Unknown;
             };
             for wall in changes {
-                // A change at or before the snapshot has already shaped the
-                // result. Only future changes need a new boundary.
-                let Ok(ahead) = wall.duration_since(clock.wall) else {
-                    continue;
+                // Every helper maps an instant that has passed to
+                // `Deadline::None`, and a row that a window still includes
+                // departs after the clock. A change reported at or before
+                // `clock` therefore means the loader bound another, earlier
+                // clock: its rows may already be stale, so fail closed.
+                let ahead = match wall.duration_since(clock.wall) {
+                    Ok(ahead) if !ahead.is_zero() => ahead,
+                    _ => return Boundary::Unknown,
                 };
-                if ahead.is_zero() {
-                    continue;
-                }
                 // No process outlives an instant its monotonic clock cannot
                 // represent, so such a change never ends the entry.
                 if let Some(at) = clock.monotonic.checked_add(ahead) {

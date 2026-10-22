@@ -252,7 +252,8 @@ async fn read_family(
     facts: TemporalFacts,
     runs: Arc<AtomicUsize>,
 ) -> i64 {
-    run_trading_read(state, cache, key, family, move |connection| {
+    let clock = state.trading_read_observer.now();
+    run_trading_read(state, cache, key, family, clock, move |connection, _clock| {
         Box::pin(async move {
             runs.fetch_add(1, Ordering::SeqCst);
             let value: i64 = sqlx::query_scalar(
@@ -537,14 +538,20 @@ async fn a_trade_ages_out_of_the_tape_window_without_a_write() {
         runtime
             .authority()
             .refresh(runtime.record_path(), clock.now().monotonic);
-        let loader_clock = clock.clone();
         let loads = runs.clone();
-        let total = run_trading_read(&state, &cache, "tape", "trade_tape", move |connection| {
-            Box::pin(async move {
-                loads.fetch_add(1, Ordering::SeqCst);
-                trade_in_window(connection, confirmed_at, &loader_clock.now()).await
-            })
-        })
+        let total = run_trading_read(
+            &state,
+            &cache,
+            "tape",
+            "trade_tape",
+            clock.now(),
+            move |connection, clock| {
+                Box::pin(async move {
+                    loads.fetch_add(1, Ordering::SeqCst);
+                    trade_in_window(connection, confirmed_at, &clock).await
+                })
+            },
+        )
         .await
         .unwrap();
         totals.push(total);
@@ -594,12 +601,19 @@ async fn an_expiry_between_the_route_clock_and_the_read_is_not_stored() {
         .authority()
         .refresh(runtime.record_path(), clock.now().monotonic);
     let loads = runs.clone();
-    let first = run_trading_read(&state, &cache, "book", "orderbook", move |connection| {
-        Box::pin(async move {
-            loads.fetch_add(1, Ordering::SeqCst);
-            resting_order(connection, expires_at, &route_clock).await
-        })
-    })
+    let first = run_trading_read(
+        &state,
+        &cache,
+        "book",
+        "orderbook",
+        route_clock,
+        move |connection, clock| {
+            Box::pin(async move {
+                loads.fetch_add(1, Ordering::SeqCst);
+                resting_order(connection, expires_at, &clock).await
+            })
+        },
+    )
     .await
     .unwrap();
     assert_eq!(first, 1, "the route's own clock still includes the order");
@@ -613,17 +627,54 @@ async fn an_expiry_between_the_route_clock_and_the_read_is_not_stored() {
         .authority()
         .refresh(runtime.record_path(), clock.now().monotonic);
     let loads = runs.clone();
-    let loader_clock = clock.clone();
-    let second = run_trading_read(&state, &cache, "book", "orderbook", move |connection| {
-        Box::pin(async move {
-            loads.fetch_add(1, Ordering::SeqCst);
-            resting_order(connection, expires_at, &loader_clock.now()).await
-        })
-    })
+    let second = run_trading_read(
+        &state,
+        &cache,
+        "book",
+        "orderbook",
+        clock.now(),
+        move |connection, clock| {
+            Box::pin(async move {
+                loads.fetch_add(1, Ordering::SeqCst);
+                resting_order(connection, expires_at, &clock).await
+            })
+        },
+    )
     .await
     .unwrap();
     assert_eq!(second, 0, "the expired order must not be served again");
     assert_eq!(runs.load(Ordering::SeqCst), 2);
+
+    // A loader that ignores the clock it is given and binds the route's
+    // earlier one reports an expiry that has already passed at the runtime's
+    // clock. The boundary fails closed: nothing is stored, the next read loads.
+    let mismatched = Arc::new(TradingCache::new(4, 1024));
+    for _ in 0..2 {
+        runtime
+            .authority()
+            .refresh(runtime.record_path(), clock.now().monotonic);
+        let loads = runs.clone();
+        run_trading_read(
+            &state,
+            &mismatched,
+            "book",
+            "orderbook",
+            clock.now(),
+            move |connection, _ignored| {
+                Box::pin(async move {
+                    loads.fetch_add(1, Ordering::SeqCst);
+                    resting_order(connection, expires_at, &route_clock).await
+                })
+            },
+        )
+        .await
+        .unwrap();
+        assert!(
+            mismatched.is_empty(),
+            "a fill from an earlier clock must not be stored"
+        );
+    }
+    assert_eq!(runs.load(Ordering::SeqCst), 4);
     reset(&mut writer).await;
     writer.close().await.unwrap();
 }
@@ -751,7 +802,8 @@ async fn a_fill_that_loses_its_authority_is_not_stored_or_answered() {
     state.trading_caches.register(&cache);
     let authority = runtime.authority().clone();
 
-    let result = run_trading_read(&state, &cache, "stale", "prices", move |connection| {
+    let clock = state.trading_read_observer.now();
+    let result = run_trading_read(&state, &cache, "stale", "prices_fixed", clock, move |connection, _clock| {
         Box::pin(async move {
             let value: i64 = sqlx::query_scalar(
                 "SELECT generation FROM public.public_read_cache_generations \
@@ -818,7 +870,8 @@ async fn unadmitted_connections_never_publish() {
             _ => unreachable!(),
         }
         let cache = Arc::new(TradingCache::new(4, 1024));
-        let result = run_trading_read(&state, &cache, reason, "prices", move |connection| {
+        let clock = state.trading_read_observer.now();
+        let result = run_trading_read(&state, &cache, reason, "prices_fixed", clock, move |connection, _clock| {
             Box::pin(async move {
                 let value: i64 = sqlx::query_scalar("SELECT 42::bigint")
                     .fetch_one(connection)
@@ -898,7 +951,8 @@ async fn overlapping_snapshots_publish_without_replacing_the_newer_entry() {
     older.trading_read_observer = gate.clone();
     let old_cache = cache.clone();
     let old = tokio::spawn(async move {
-        run_trading_read(&older, &old_cache, "overlap", "prices_fixed", |connection| Box::pin(async move {
+        let clock = older.trading_read_observer.now();
+        run_trading_read(&older, &old_cache, "overlap", "prices_fixed", clock, |connection, _clock| Box::pin(async move {
             let value = sqlx::query_scalar::<_, i64>("SELECT generation FROM public_read_cache_generations WHERE domain='trading'")
                 .fetch_one(connection).await.map_err(|_| ApiError::database())?;
             Ok(TradingFill { value, facts: TemporalFacts::proven_written_only() })
@@ -1027,10 +1081,16 @@ async fn clock_boundaries_change_payloads_without_writes() {
                 .refresh(runtime.record_path(), clock.now().monotonic);
             let loader_clock = clock.clone();
             let loads = runs.clone();
-            let value = run_trading_read(&state, &cache, kind, family, move |connection| {
+            let value = run_trading_read(
+                &state,
+                &cache,
+                kind,
+                family,
+                clock.now(),
+                move |connection, now| {
                 Box::pin(async move {
                     loads.fetch_add(1, Ordering::SeqCst);
-                    let fill = clock_case(connection, kind, start, &loader_clock.now()).await;
+                    let fill = clock_case(connection, kind, start, &now).await;
                     if kind == "late-fill" && read == 0 {
                         // The read itself outlasts the order.
                         loader_clock.advance(Duration::from_secs(1));
@@ -1081,7 +1141,8 @@ async fn read_epoch(
     cache: &Arc<TradingCache<&'static str>>,
     runs: Arc<AtomicUsize>,
 ) -> String {
-    run_trading_read(state, cache, "rotation", "prices_fixed", move |connection| {
+    let clock = state.trading_read_observer.now();
+    run_trading_read(state, cache, "rotation", "prices_fixed", clock, move |connection, _clock| {
         Box::pin(async move {
             runs.fetch_add(1, Ordering::SeqCst);
             Ok(TradingFill {
@@ -1143,7 +1204,8 @@ async fn authority_rotation_at_each_publication_barrier_rejects_old_fills() {
             paused.trading_read_observer = gate.clone();
             let paused_cache = cache.clone();
             let old = tokio::spawn(async move {
-                run_trading_read(&paused, &paused_cache, "rotation", "prices_fixed", |connection| {
+                let clock = paused.trading_read_observer.now();
+                run_trading_read(&paused, &paused_cache, "rotation", "prices_fixed", clock, |connection, _clock| {
                     Box::pin(async move {
                         Ok(TradingFill {
                             value: incarnation_epoch(connection).await?,
@@ -1250,7 +1312,8 @@ async fn two_incarnations_read_distinct_rows_at_a_reused_generation() {
             &cache,
             "incarnation",
             "prices_fixed",
-            move |connection| {
+            state.trading_read_observer.now(),
+            move |connection, _clock| {
                 Box::pin(async move {
                     loads.fetch_add(1, Ordering::SeqCst);
                     // This is an actual protected row, not an invented payload label.

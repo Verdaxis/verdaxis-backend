@@ -145,22 +145,31 @@ pub struct TradingFill<T> {
 
 /// One admitted trading read with a commit-safe cache.
 ///
+/// `clock` is the one instant the route captured before admission, the same
+/// one it used to validate the request. The loader receives it and must use it
+/// for every time bind and every fact it derives; the boundaries are computed
+/// against it. A change that falls between this instant and the end of the
+/// read has therefore passed when the fill is ready, and the fill is answered
+/// but not stored. Authority, lease and liveness checks use the current time.
+///
 /// The permit and the pooled connection stay owned by `run_admitted` for the
 /// whole query, so a cancelled caller cannot free a slot early. Caching off
 /// runs exactly the loader: no generation, incarnation or cache query is sent,
 /// so the response and its SQL are identical to the uncached service. Caching
-/// on captures one clock, opens one read-only REPEATABLE READ snapshot, reads
-/// the generation in that snapshot, and serves a cached payload only when the
-/// authority token, fence, generation, policy identity and time boundary all
-/// still match. An unknown authority returns the existing database error.
-/// An underivable boundary bypasses storage, but never the publication fence.
+/// on opens one read-only REPEATABLE READ snapshot, reads the generation in
+/// that snapshot, and serves a cached payload only when the authority token,
+/// fence, generation, policy identity and time boundary all still match. An
+/// unknown authority returns the existing database error. An underivable
+/// boundary bypasses storage, but never the publication fence.
 pub async fn run_trading_read<K, T>(
     state: &AppState,
     cache: &Arc<TradingCache<K>>,
     key: K,
     family: &'static str,
+    clock: TradingClock,
     load: impl for<'c> FnOnce(
         &'c mut sqlx::PgConnection,
+        TradingClock,
     ) -> std::pin::Pin<
         Box<dyn std::future::Future<Output = Result<TradingFill<T>, ApiError>> + Send + 'c>,
     > + Send
@@ -172,7 +181,7 @@ where
 {
     let Some(runtime) = state.trading_cache.clone() else {
         return run_admitted(state, move |connection| {
-            Box::pin(async move { Ok(load(connection).await?.value) })
+            Box::pin(async move { Ok(load(connection, clock).await?.value) })
         })
         .await;
     };
@@ -184,15 +193,15 @@ where
     let cache = cache.clone();
     run_admitted(state, move |connection| {
         Box::pin(async move {
-            let clock = observer.now();
             let mut transaction = connection.begin().await.map_err(|_| ApiError::database())?;
             sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
                 .execute(&mut *transaction)
                 .await
                 .map_err(|_| ApiError::database())?;
-            let admitted = admit_connection(&authority, &mut transaction, clock.monotonic)
-                .await
-                .map_err(|_| ApiError::database())?;
+            let admitted =
+                admit_connection(&authority, &mut transaction, observer.now().monotonic)
+                    .await
+                    .map_err(|_| ApiError::database())?;
             // Even an uncached answer needs an authoritative connection: without
             // a token there is no fence to check before publication.
             let Some((token, generation)) = admitted else {
@@ -203,7 +212,7 @@ where
                 .await;
             // Independent snapshots can finish out of order. Retain the
             // high-water mark for storage without revoking an older read.
-            if !authority.observe_snapshot(&token, generation, clock.monotonic) {
+            if !authority.observe_snapshot(&token, generation, observer.now().monotonic) {
                 transaction
                     .rollback()
                     .await
@@ -211,15 +220,15 @@ where
                 return Err(ApiError::database());
             }
             let ticket = FillTicket::new(token, generation);
+            // `hit` keeps only entries whose boundary is still ahead of now.
             if let Some(entry) = cache.hit(
                 &authority,
                 &key,
                 &ticket,
                 generation,
                 &policy,
-                clock.monotonic,
-            ) && entry.valid_until.is_live(observer.now().monotonic)
-            {
+                observer.now().monotonic,
+            ) {
                 match serde_json::from_slice(&entry.payload) {
                     Ok(value) => {
                         transaction
@@ -237,9 +246,10 @@ where
                     Err(_) => cache.remove(&key),
                 }
             }
-            let fill = load(&mut transaction).await?;
+            let fill = load(&mut transaction, clock).await?;
             // Only the facts this family's query reads can end the entry; a
             // fact it does not read stays `Unknown` and must not block storage.
+            // The boundary is measured from the clock the loader bound.
             let boundary = fill.facts.boundary_for(family, &clock);
             let payload = serde_json::to_vec(&fill.value).ok();
             transaction
@@ -262,8 +272,9 @@ where
             if latest == ticket.generation()
                 && let (Some(payload), true) = (payload, cacheable(family, &fill.facts, &clock))
             {
-                // The boundary is a monotonic instant, so insertion checks
-                // it against elapsed time, not the pre-query capture.
+                // The boundary is a monotonic instant, so insertion checks it
+                // against the current time, not the route's capture: a change
+                // that fell during admission or the query is refused here.
                 cache.insert(
                     key,
                     TradingEntry::new(&ticket, payload, boundary, policy),
