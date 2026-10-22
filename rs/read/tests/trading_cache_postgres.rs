@@ -629,11 +629,11 @@ async fn clock_boundaries_change_payloads_without_writes() {
         let family = if kind == "rolling" { "prices" } else { "orderbook" };
         for read in 0..3 {
             runtime.authority().refresh(runtime.record_path(), clock.now().monotonic);
-            let clock = clock.clone();
+            let loader_clock = clock.clone();
             let loads = runs.clone();
             let value = run_trading_read(&state, &cache, kind, family, move |connection| Box::pin(async move {
                 loads.fetch_add(1, Ordering::SeqCst);
-                let now = clock.now();
+                let now = loader_clock.now();
                 // The loader uses its captured clock as a bind, as serving SQL does.
                 let value: i64 = sqlx::query_scalar("SELECT count(*) FROM (VALUES ($1::timestamptz)) AS included(expires_at) WHERE expires_at > $2")
                     .bind(chrono::DateTime::<chrono::Utc>::from(edge))
@@ -647,7 +647,7 @@ async fn clock_boundaries_change_payloads_without_writes() {
                     "singapore" => facts.declaration_date = Deadline::At(edge),
                     _ => unreachable!(),
                 }
-                if kind == "late-fill" && read == 0 { clock.advance(Duration::from_secs(1)); }
+                if kind == "late-fill" && read == 0 { loader_clock.advance(Duration::from_secs(1)); }
                 Ok(TradingFill { value, facts })
             })).await.unwrap();
             if kind == "late-fill" && read == 0 {
@@ -714,6 +714,48 @@ async fn authority_rotation_at_each_publication_barrier_rejects_old_fills() {
         }
     }
     writer.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn two_incarnations_read_distinct_rows_at_a_reused_generation() {
+    let _serial = SERIAL.lock().await;
+    let (Ok(first), Ok(second)) = (std::env::var("PUBLIC_CACHE_TEST_DATABASE_URL"), std::env::var("PUBLIC_CACHE_TEST_SECOND_DATABASE_URL")) else { return; };
+    let mut a = PgConnection::connect_with(&options(&first)).await.unwrap();
+    let mut b = PgConnection::connect_with(&options(&second)).await.unwrap();
+    let shared = generation(&mut a).await.max(generation(&mut b).await) + 1000;
+    let cache = Arc::new(TradingCache::new(4, 4096));
+    let runs = Arc::new(AtomicUsize::new(0));
+    let mut payloads = Vec::new();
+    for (url, writer, revision) in [(&first, &mut a, 1), (&second, &mut b, 3)] {
+        set_generation(writer, shared).await;
+        let identity = authority(revision);
+        bind(writer, &identity, true).await;
+        let record = Record::new();
+        record.activate(&identity);
+        let pools = connect(&state_config(url)).await.unwrap();
+        let state = AppState::new(state_config(url), pools, policy()).unwrap();
+        let runtime = state.trading_cache.as_ref().unwrap();
+        publish_record(runtime, &record);
+        runtime.tick(Instant::now()).await;
+        let loads = runs.clone();
+        let value: String = run_trading_read(&state, &cache, "incarnation", "prices_fixed", move |connection| Box::pin(async move {
+            loads.fetch_add(1, Ordering::SeqCst);
+            // This is an actual protected row, not an invented payload label.
+            let value: String = sqlx::query_scalar("SELECT database_epoch FROM public_read_cache_incarnation WHERE singleton")
+                .fetch_one(connection).await.map_err(|_| ApiError::database())?;
+            Ok(TradingFill { value, facts: TemporalFacts::proven_written_only() })
+        })).await.unwrap();
+        assert_eq!(value, identity.database_epoch);
+        assert_eq!(generation(writer).await, shared);
+        payloads.push(value);
+        runtime.authority().revoke();
+    }
+    assert_ne!(payloads[0], payloads[1]);
+    assert_eq!(runs.load(Ordering::SeqCst), 2);
+    reset(&mut a).await;
+    reset(&mut b).await;
+    a.close().await.unwrap();
+    b.close().await.unwrap();
 }
 
 fn signal(directory: &Path, reader: &str, step: &str) {

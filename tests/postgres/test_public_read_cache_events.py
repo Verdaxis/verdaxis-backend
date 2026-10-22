@@ -462,14 +462,15 @@ async def _wait_for_file(path: Path, timeout: float = 180.0) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("incarnation", ["market", "analytics"])
 async def test_two_rust_readers_never_serve_the_prior_generation(
-    route_market, market_pg_url, analytics_pg_url, tmp_path
+    route_market, market_pg_url, analytics_pg_url, tmp_path, incarnation
 ):
     """Mixed Python-writer/Rust-reader schedule on two database incarnations.
 
-    Two independent Rust processes, one per disposable incarnation, warm a
-    trading entry at generation G. Python then commits a real order through the
-    market API and a real write on the analytics database. Neither Rust process
+    Two independent Rust processes on the same disposable incarnation warm a
+    trading entry at generation G. Python then commits one real dependency write.
+    Repeat the schedule on the other incarnation. Neither Rust process
     consumes the invalidation wake before its next read, so each must derive
     G+1 from the generation check in its own snapshot. Only then is the wake
     delivered and the entry cleared. This is a correctness schedule; it
@@ -481,10 +482,10 @@ async def test_two_rust_readers_never_serve_the_prior_generation(
     analytics_engine = create_async_engine(analytics_pg_url)
     epoch = secrets.token_hex(32)
     primary = secrets.token_hex(32)
-    readers = {
-        "a": analytics,
-        "b": market_pg_url.replace("postgresql+asyncpg://", "postgres://", 1),
-    }
+    target = analytics if incarnation == "analytics" else market_pg_url.replace(
+        "postgresql+asyncpg://", "postgres://", 1
+    )
+    readers = {"a": target, "b": target}
     # Each reader asserts its own database name, so the two incarnations are
     # proved rather than assumed.
     names = {reader: url.rsplit("/", 1)[-1].split("?", 1)[0] for reader, url in readers.items()}
@@ -589,10 +590,9 @@ async def test_two_rust_readers_never_serve_the_prior_generation(
             headers=_headers(seeded["buyer_id"], "cache-race-writer"),
         )
         assert created.status_code == 201, created.text
-        # The second incarnation needs its own committed change: reader a reads
-        # the analytics database, where no market order was posted.
-        async with analytics_engine.begin() as connection:
-            await connection.execute(text("UPDATE products SET is_active = is_active"))
+        if incarnation == "analytics":
+            async with analytics_engine.begin() as connection:
+                await connection.execute(text("UPDATE products SET is_active = is_active"))
         for reader in processes:
             (tmp_path / f"{reader}.warm.python").write_text("1")
 
