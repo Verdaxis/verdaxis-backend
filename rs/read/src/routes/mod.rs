@@ -5,6 +5,7 @@ pub use crate::crud::feedback::routes as feedback_routes;
 pub mod curves_canonical;
 pub mod curves_legacy;
 pub mod listings;
+pub mod market_data_error;
 pub mod news;
 pub mod orderbook_lists;
 pub mod orderbook_map;
