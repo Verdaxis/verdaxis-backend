@@ -43,6 +43,19 @@ async fn explicit_timezone_applies_to_every_connection_and_checks_database_defau
         config.db_session_time_zone = zone.into();
         let pools = connect(&config).await.unwrap();
         reference_boundaries(&mut owner, &config, &pools, zone).await;
+        // Optional fleet data never participates in database readiness.
+        let missing = std::env::temp_dir()
+            .join(format!("fleet-missing-{}", uuid::Uuid::new_v4()))
+            .join("fleet.json");
+        assert!(!verdaxis_read::runtime::config::fleet_startup_probe(&missing).await);
+        let (status, body) = verdaxis_read::runtime::health::probe(
+            &pools.health, &config.environment, &config.release_sha,
+        ).await;
+        assert_eq!(status, axum::http::StatusCode::OK);
+        assert_eq!(body, serde_json::json!({
+            "status": "ok", "db": "ok", "environment": config.environment,
+            "release_sha": config.release_sha,
+        }));
         let mut held = Vec::new();
         for _ in 0..config.read_admission_slots {
             let mut connection = pools.read.acquire().await.unwrap();
