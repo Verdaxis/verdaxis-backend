@@ -108,15 +108,7 @@ async fn availability_public_boundary_cases() {
         .max_connections(1)
         .connect_lazy(&config.database_url)
         .unwrap();
-    let state = AppState::new(
-        config,
-        runtime::db::Pools {
-            read: pool,
-            health,
-        },
-        policy(),
-    )
-    .unwrap();
+    let state = AppState::new(config, runtime::db::Pools { read: pool, health }, policy()).unwrap();
     let _permit = state.reads.clone().acquire_many_owned(16).await.unwrap();
     let app = runtime::http::middleware(availability::routes().with_state(state));
     let response = public_fixture::request(app, "/api/availability").await;
