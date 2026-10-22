@@ -490,7 +490,7 @@ async fn unadmitted_connections_never_publish() {
             published.push(reason);
         }
         assert!(cache.is_empty());
-        state.pools.read.close().await;
+        drop(state);
     }
     reset(&mut writer).await;
     writer.close().await.unwrap();
