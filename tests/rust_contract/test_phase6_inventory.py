@@ -123,6 +123,23 @@ def test_scenario_inventory_complete():
     assert client["heartbeat_max_seconds"] == 30
 
 
+def test_retention_scenarios_select_real_tests():
+    import ast
+
+    target = "tests/postgres/test_phase6_retention.py"
+    source = ast.parse((ROOT / target).read_text())
+    names = {
+        node.name for node in source.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    cases = [case for case in load("required-scenarios.json")["scenarios"] if case["task"] == "2"]
+    assert len(cases) == 25
+    for case in cases:
+        assert case["target"] == target
+        assert case["test"] in names
+        assert case["test"].startswith("test_")
+
+
 def test_required_scenarios_are_not_optional():
     document = load("required-scenarios.json")
     validate_required(document)
