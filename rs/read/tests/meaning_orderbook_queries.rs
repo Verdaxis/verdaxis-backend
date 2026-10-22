@@ -11,14 +11,14 @@
 //! Runs against the seeded disposable market-contract database only; see
 //! `rs/read/tests/run_market_contract.sh`.
 
-use serde_json::{Value, json};
+use serde_json::Value;
 use sqlx::{PgConnection, Row};
 use uuid::Uuid;
 
 use verdaxis_read::market::policy::load_policy;
 use verdaxis_read::market::visibility::{
-    AGGREGATE_PROJECTION, MAP_PROJECTION, OrderQuery, PublicOrderFilters, VisibilityClock,
-    bind_order_sql, order_query_sql, order_query_sql_projected,
+    AGGREGATE_PROJECTION, MAP_PROJECTION, PublicOrderFilters, VisibilityClock, bind_order_sql,
+    order_query_sql, order_query_sql_projected,
 };
 use verdaxis_read::{Config, MarketPolicy, compiled_sha, connect};
 
@@ -102,7 +102,8 @@ fn policy() -> MarketPolicy {
 }
 
 fn clock() -> VisibilityClock {
-    let text = std::env::var("RUST_MARKET_TEST_CLOCK").expect("the pinned corpus clock is required");
+    let text =
+        std::env::var("RUST_MARKET_TEST_CLOCK").expect("the pinned corpus clock is required");
     VisibilityClock::at(text.parse().expect("RFC 3339 corpus clock"))
 }
 
@@ -242,9 +243,7 @@ async fn orderbook_aggregate_narrow_projection_keeps_every_group() {
         .iter()
         .map(|row| {
             let value: Value = serde_json::from_str(row).unwrap();
-            if value["product_id"] == product.to_string()
-                && value["provenance"] == provenance
-            {
+            if value["product_id"] == product.to_string() && value["provenance"] == provenance {
                 value["order_count"].as_i64().unwrap()
             } else {
                 0
@@ -426,8 +425,10 @@ async fn orderbook_listings_pages_match_the_full_ranking() {
         include_off_spec: true,
         ..PublicOrderFilters::default()
     };
-    for (skip, limit) in [(0_i64, 50_i64), (0, 50), (1, 50), (25, 50), (0, 1), (0, 100)] {
-        let old = rows(
+    for gate in [true, false] {
+        let mut config = config.clone();
+        config.kyc_execution_gate_enabled = gate;
+        let full = rows(
             &mut connection,
             &wrap(
                 order_query_sql(OLD_LISTINGS).sql(),
@@ -437,29 +438,66 @@ async fn orderbook_listings_pages_match_the_full_ranking() {
             &clock,
             &config,
             &filters,
-            &[Extra::Int(skip), Extra::Int(limit)],
+            &[Extra::Int(0), Extra::Int(i64::MAX)],
         )
         .await;
-        let new = rows(
-            &mut connection,
-            &wrap(
-                order_query_sql(listings).sql(),
-                "ORDER BY x.created_at DESC, x.id",
-            ),
-            &policy,
-            &clock,
-            &config,
-            &filters,
-            &[Extra::Int(skip), Extra::Int(limit)],
-        )
-        .await;
-        assert!(!old.is_empty(), "the corpus must fill a listings page");
-        assert_same(
-            &old,
-            &new,
-            true,
-            &format!("listings skip={skip} limit={limit}"),
-        );
+        assert!(!full.is_empty(), "the corpus must expose eligible listings");
+        for (skip, limit) in [
+            (0_i64, 50_i64),
+            (0, 50),
+            (1, 50),
+            (25, 50),
+            (0, 1),
+            (0, 100),
+            (0, 0),
+            (full.len() as i64, 50),
+            (full.len() as i64 + 1, 50),
+        ] {
+            let old = rows(
+                &mut connection,
+                &wrap(
+                    order_query_sql(OLD_LISTINGS).sql(),
+                    "ORDER BY x.created_at DESC, x.id",
+                ),
+                &policy,
+                &clock,
+                &config,
+                &filters,
+                &[Extra::Int(skip), Extra::Int(limit)],
+            )
+            .await;
+            let new = rows(
+                &mut connection,
+                &wrap(
+                    order_query_sql(listings).sql(),
+                    "ORDER BY x.created_at DESC, x.id",
+                ),
+                &policy,
+                &clock,
+                &config,
+                &filters,
+                &[Extra::Int(skip), Extra::Int(limit)],
+            )
+            .await;
+            let expected = full
+                .iter()
+                .skip(skip as usize)
+                .take(limit as usize)
+                .cloned()
+                .collect::<Vec<_>>();
+            assert_same(
+                &expected,
+                &old,
+                true,
+                &format!("full ranking gate={gate} skip={skip} limit={limit}"),
+            );
+            assert_same(
+                &old,
+                &new,
+                true,
+                &format!("listings gate={gate} skip={skip} limit={limit}"),
+            );
+        }
     }
     drop(connection);
     pools.read.close().await;
@@ -540,10 +578,11 @@ SELECT *, total_quantity::text AS total_quantity_text FROM grouped
         .expect("the synthetic aggregate must run");
     assert_eq!(rows.len(), 1, "NULL regions must form one group");
     let row = &rows[0];
-    assert!(row
-        .try_get::<Option<String>, _>("delivery_point_region")
-        .unwrap()
-        .is_none());
+    assert!(
+        row.try_get::<Option<String>, _>("delivery_point_region")
+            .unwrap()
+            .is_none()
+    );
     assert_eq!(row.get::<i64, _>("order_count"), 2);
     assert_eq!(row.get::<String, _>("total_quantity_text"), "15.000");
     drop(connection);
