@@ -31,7 +31,7 @@ from __future__ import annotations
 from alembic import op
 
 revision = "sse_20261021_replay_floor"
-down_revision = "p0_20261016_union"
+down_revision = "prc_20261018_cache"
 branch_labels = None
 depends_on = None
 

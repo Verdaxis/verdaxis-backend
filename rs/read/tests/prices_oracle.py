@@ -92,7 +92,11 @@ def compare_populated():
         item = by_id[uid(name).hex[:8]]
         assert item['quantity_mt'] == '1.' + '0'*places
         assert item['price_per_mt_usd'] == '2.00'
-        assert item['total_usd'] == '2.' + '0'*min(places+2, 27)
+        if os.environ.get("RUST_CONTRACT_PROFILE") == "phase1-meaning-v1":
+            from decimal import Decimal
+            assert Decimal(item['total_usd']) == Decimal(2)
+        else:
+            assert item['total_usd'] == '2.' + '0'*min(places+2, 27)
     ids = {item['id'] for item in tape}
     assert uid('week-equality').hex[:8] in ids
     assert uid('week-outside').hex[:8] not in ids

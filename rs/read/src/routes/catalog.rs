@@ -51,20 +51,30 @@ pub fn routes() -> Router<AppState> {
 }
 
 async fn list_products(State(state): State<AppState>) -> Result<Response, ApiError> {
+    let key = crate::runtime::cache::ReferenceKey::Products;
+    if let Some(payload) = crate::runtime::cache::cached_payload(&state, &key) {
+        return Ok(axum::Json(payload).into_response());
+    }
     let policy = state.policy.clone();
     let catalog = run_admitted(&state, move |connection| {
         Box::pin(async move { select_products(connection, &policy).await })
     })
     .await?;
+    crate::runtime::cache::store_payload(&state, key, &catalog);
     Ok(axum::Json(catalog).into_response())
 }
 
 async fn list_delivery_points(State(state): State<AppState>) -> Result<Response, ApiError> {
+    let key = crate::runtime::cache::ReferenceKey::DeliveryPoints;
+    if let Some(payload) = crate::runtime::cache::cached_payload(&state, &key) {
+        return Ok(axum::Json(payload).into_response());
+    }
     let policy = state.policy.clone();
     let catalog = run_admitted(&state, move |connection| {
         Box::pin(async move { select_points(connection, &policy).await })
     })
     .await?;
+    crate::runtime::cache::store_payload(&state, key, &catalog);
     Ok(axum::Json(catalog).into_response())
 }
 
