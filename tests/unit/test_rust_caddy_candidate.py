@@ -437,6 +437,14 @@ def test_production_crud_gate_then_one_group_and_exact_rollback():
         module.rollback(prepared, "production", "mcp")
 
 
+def test_gate_rollback_accepts_older_rendering_with_python_owners():
+    module = generator()
+    logged = module.candidate(production_fixture(), "production", "access-log")
+    prepared = module.candidate(logged, "production", "preauth")
+    older = prepared.replace("lb_try_duration 10s", "lb_try_duration 9s")
+    assert module.rollback(older, "production", "preauth") == logged
+
+
 @pytest.mark.parametrize("environment", ["staging", "production"])
 def test_real_caddy_adapts_crud_candidates(tmp_path, environment):
     import json
