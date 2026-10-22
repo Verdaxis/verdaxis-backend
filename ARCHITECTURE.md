@@ -324,6 +324,25 @@ SHA-256-pinned `normalization.json` ledger. It uses exact tagged JSON values,
 schema-local decimal/timestamp rules and complete-item multisets inside approved
 ties only. The Phase 1 default and existing recording comparator stay unchanged.
 
+## Rust Phase 10 command shell
+
+Phase 10 removes the Python application; `verdaxis-read` becomes the one
+binary. Task 1 pins the removal inventory under
+`tests/rust_contract/phase10/` (`removal-ledger`, `routes`, `units`,
+`scripts`, `evidence-manifest`) and `tests/rust_contract/test_phase10_inventory.py`,
+a standalone harness that parses source as data (never imports the
+application) and keeps the 188-route/41-unit/40-script/14-helper snapshot with
+per-artifact end states. Task 2 adds `rs/read/src/cli/`: `mod.rs` owns the
+clap-derived `Command` tree (`serve`, `migrate`, `acl`, `job`, `monitor`,
+`recover`, `ops`, `guard`, `canary`), the `Exit` codes (0/2/3/4/5), the legacy
+`--bind`/`--budget-file` form that keeps both installed unit files valid, and
+the first-check `--version-json` path; `context.rs` owns `RunContext` and
+reuses the existing deployed-environment `Config` construction for `serve`.
+Commands registered by later Phase 10 tasks parse but fail closed with exit 3
+until their owning task supplies the gates; parsing never grants execution
+authority. `rs/read/tests/phase10_cli.rs` pins dispatch, help, redaction and
+non-UTF-8 argument behaviour.
+
 ## File Map
 
 ```
