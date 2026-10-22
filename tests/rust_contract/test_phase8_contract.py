@@ -252,7 +252,7 @@ async def test_phase8_commission_array_is_unbounded(row_count, backend):
         now = datetime(2026, 10, 22, tzinfo=timezone.utc)
         async with sessions() as session:
             session.add_all([
-                Commission(id=UUID(int=index + 1), match_id=UUID(int=index + 2001), amount_usd=Decimal("1.25"), created_at=now)
+                Commission(id=UUID(int=index + 1), match_id=UUID(int=index + 2001), amount_usd=Decimal("1.25"), created_at=now, updated_at=now)
                 for index in range(row_count)
             ])
             await session.commit()
@@ -270,7 +270,8 @@ async def test_phase8_commission_array_is_unbounded(row_count, backend):
         assert isinstance(body, list)
         assert len(body) == row_count
         assert len({row["id"] for row in body}) == row_count
-        assert all(row["trade_id"] is None for row in body)
+        assert {row["match_id"] for row in body} == {str(UUID(int=index + 2001)) for index in range(row_count)}
+        assert all("trade_id" not in row for row in body)
     finally:
         if schema:
             async with engine.begin() as connection:

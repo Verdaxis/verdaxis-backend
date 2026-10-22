@@ -532,7 +532,7 @@
       "source_response_model": "list[MarketSupportCapability]",
       "source_module": "market_support",
       "source_guards": [
-        "MarketSupportCapability.MARKET_SUPPORT_LISTINGS"
+        "_active_capabilities(db, current_user.id)"
       ],
       "source": {
         "path": "app/routers/market_support.py",
