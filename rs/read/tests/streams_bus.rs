@@ -465,13 +465,7 @@ fn terminal_retention_contract() {
 
 #[test]
 fn terminal_cursor_ahead_contract() {
-    assert_terminal_contract((
-        Terminal::CursorAhead,
-        "reset",
-        "cursor_ahead",
-        true,
-        false,
-    ));
+    assert_terminal_contract((Terminal::CursorAhead, "reset", "cursor_ahead", true, false));
 }
 
 #[test]
