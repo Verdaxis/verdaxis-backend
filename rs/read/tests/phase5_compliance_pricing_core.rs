@@ -1,12 +1,8 @@
-pub use verdaxis_read::market;
-
-#[path = "../src/compliance/pricing.rs"]
-mod pricing;
-
-use pricing::{AlcoholFamily, LifecycleOverlayCore, PricingError};
 use rust_decimal::Decimal;
 use serde_json::json;
 use std::str::FromStr;
+use verdaxis_read::compliance::pricing::{AlcoholFamily, LifecycleOverlayCore, PricingError};
+use verdaxis_read::market;
 
 fn decimal(value: &str) -> Decimal {
     Decimal::from_str(value).unwrap()

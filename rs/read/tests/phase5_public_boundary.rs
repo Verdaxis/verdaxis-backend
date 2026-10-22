@@ -1,21 +1,14 @@
 //! Phase 5 Task 2a: the public market read boundary.
 //!
-//! These constructor tests exercise structured read failures through the HTTP
-//! middleware (without database admission): status, CORS and correlation headers,
-//! and a typed error envelope with no partial data or internal text.
-//! Demand query-limit validation belongs to the demand route tests, not these
-//! constructor tests.
-//!
-//! `routes::market_data_error` enters the library through the integration
-//! owner's `routes/mod.rs` registration, a file this lane may not edit. The
-//! test compiles that same source file and supplies the crate-root names the
-//! module resolves against the library, so the one file is exercised here until
-//! the registration lands.
+//! These constructor tests check structured read failures: status, CORS and
+//! correlation headers where a test sends the error through the HTTP middleware
+//! (without database admission), and a typed error envelope with no partial
+//! data or internal text. Demand query-limit validation belongs to the demand
+//! route tests, not these constructor tests. The admitted transaction helper
+//! has its own tests in `http_contract.rs` and `admission_postgres.rs`.
 
-pub use verdaxis_read::{ApiError, ApiErrorKind, Json, runtime};
-
-#[path = "../src/routes/market_data_error.rs"]
-mod market_data_error;
+use verdaxis_read::routes::market_data_error;
+use verdaxis_read::{ApiError, ApiErrorKind, runtime};
 
 #[path = "support/phase5/public_fixture.rs"]
 mod public_fixture;
