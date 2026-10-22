@@ -82,6 +82,71 @@ async fn postgres_authentication_ownership_and_revocation() {
         .execute(&admin)
         .await
         .unwrap();
+    // Compliance limits are transaction-local and do not change other reads.
+    for (method, path, expected_lock, expected_statement) in [
+        ("GET", "/api/compliance/fleet", "500ms", "5s"),
+        (
+            "GET",
+            "/api/compliance/vessels/{vessel_id}/score",
+            "500ms",
+            "5s",
+        ),
+        ("POST", "/api/compliance/scenario", "500ms", "5s"),
+        ("POST", "/api/compliance/pricing-overlay", "500ms", "5s"),
+        ("GET", "/api/notifications", "3s", "30s"),
+        ("GET", "/api/compliance/scenario", "3s", "30s"),
+        ("POST", "/api/compliance/scenario/extra", "3s", "30s"),
+    ] {
+        run_authenticated(
+            &state,
+            access(),
+            AuthenticatedRequest::new(method, path, false),
+            move |tx| {
+                Box::pin(async move {
+                    let lock: String = sqlx::query_scalar("SHOW lock_timeout")
+                        .fetch_one(tx.connection())
+                        .await
+                        .unwrap();
+                    let statement: String = sqlx::query_scalar("SHOW statement_timeout")
+                        .fetch_one(tx.connection())
+                        .await
+                        .unwrap();
+                    assert_eq!(lock, expected_lock, "{method} {path}");
+                    assert_eq!(statement, expected_statement, "{method} {path}");
+                    Ok(())
+                })
+            },
+        )
+        .await
+        .unwrap();
+    }
+    // A held actor row must expire before the ordinary three-second lock
+    // deadline. The callback must not run before current-account admission.
+    let mut actor_lock = admin.begin().await.unwrap();
+    sqlx::query("SELECT id FROM users WHERE id=$1 FOR UPDATE")
+        .bind(subject)
+        .execute(&mut *actor_lock)
+        .await
+        .unwrap();
+    let refused = tokio::time::timeout(
+        Duration::from_secs(2),
+        run_authenticated(
+            &state,
+            access(),
+            AuthenticatedRequest::new("GET", "/api/compliance/fleet", false),
+            |_| {
+                Box::pin(async {
+                    panic!("locked actor reached compliance work");
+                    #[allow(unreachable_code)]
+                    Ok(())
+                })
+            },
+        ),
+    )
+    .await
+    .expect("compliance lock deadline was not set before actor lookup");
+    assert!(matches!(refused, Err(AuthenticatedError::Database(_))));
+    actor_lock.rollback().await.unwrap();
     // Two Rust shared reads enter together. PostgreSQL confirms an independent
     // account UPDATE is blocked until both authenticated owners finish.
     let barrier = Arc::new(Barrier::new(3));
@@ -269,6 +334,29 @@ async fn postgres_authentication_ownership_and_revocation() {
     read_pool.close().await;
     health.close().await;
     admin.close().await;
+}
+
+#[test]
+fn compliance_timeouts_select_only_exact_method_and_template_pairs() {
+    for (method, path) in [
+        ("GET", "/api/compliance/fleet"),
+        ("GET", "/api/compliance/vessels/{vessel_id}/score"),
+        ("POST", "/api/compliance/scenario"),
+        ("POST", "/api/compliance/pricing-overlay"),
+    ] {
+        for support in [false, true] {
+            let request = AuthenticatedRequest::new(method, path, support);
+            assert!(request.scoped_read_timeouts(), "{method} {path}");
+            assert_eq!(request.lock_mode(), UserLockMode::Update);
+        }
+        let other_method = if method == "GET" { "POST" } else { "GET" };
+        assert!(!AuthenticatedRequest::new(other_method, path, false).scoped_read_timeouts());
+        assert!(
+            !AuthenticatedRequest::new(method, &format!("{path}/extra"), false)
+                .scoped_read_timeouts()
+        );
+    }
+    assert!(!AuthenticatedRequest::new("GET", "/api/notifications", false).scoped_read_timeouts());
 }
 
 #[test]
