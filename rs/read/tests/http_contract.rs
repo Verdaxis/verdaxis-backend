@@ -792,7 +792,7 @@ async fn cors_wraps_saturated_admission() {
         .oneshot(
             Request::builder()
                 .uri("/api/ports")
-                .header("origin", "https://staging.verdaxis.exchange")
+                .header("origin", "https://test")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -802,7 +802,7 @@ async fn cors_wraps_saturated_admission() {
     assert_eq!(response.headers()["retry-after"], "1");
     assert_eq!(
         response.headers()["access-control-allow-origin"],
-        "https://staging.verdaxis.exchange"
+        "https://test"
     );
     assert_eq!(
         to_bytes(response.into_body(), 1024).await.unwrap(),

@@ -1,3 +1,4 @@
+use crate::auth::{limits::Refusal, origin::trusted_origins};
 use crate::{ApiError, request_id};
 use axum::{
     Router,
@@ -13,18 +14,9 @@ use std::{
     time::Instant,
 };
 
-/// Mirror the deployed Python credentialed-origin boundary, without sharing
-/// production browser authority with staging. Test harnesses retain their oracle.
+/// Use the same closed environment policy as the cookie origin guard.
 pub fn allowed_browser_origin(environment: &str, origin: &str) -> bool {
-    match environment {
-        "production" => matches!(
-            origin,
-            "https://app.verdaxis.exchange"
-                | "https://verdaxis.exchange"
-                | "https://canary.verdaxis.exchange"
-        ),
-        _ => origin == "https://staging.verdaxis.exchange",
-    }
+    trusted_origins(environment).contains(&origin)
 }
 
 pub fn client_ip(peer: Option<IpAddr>, forwarded: Option<&str>) -> String {
@@ -277,6 +269,20 @@ fn public_get_path(path: &str) -> bool {
             .is_some_and(|id| !id.is_empty() && !id.contains('/'))
 }
 
+/// The pre-auth 429. An auth route gets the auth envelope and the seconds until
+/// its window resets; the Phase 2 admin prefix keeps its existing response.
+fn preauth_refusal(path: &str, refusal: Refusal) -> Response {
+    if path.starts_with("/api/auth/") {
+        return refusal.auth_failure().into_response();
+    }
+    (
+        StatusCode::TOO_MANY_REQUESTS,
+        [("retry-after", "60")],
+        axum::Json(serde_json::json!({"detail":"Rate limit exceeded"})),
+    )
+        .into_response()
+}
+
 /// Apply the two rules that sit just outside route dispatch: the Market Support
 /// context boundary and the fixed-window price limits (AD-01). Admission and
 /// CORS are separate outer layers.
@@ -297,16 +303,12 @@ async fn dispatch_boundary(
             .get("x-forwarded-for")
             .and_then(|value| value.to_str().ok()),
     );
-    if !state
-        .phase2_limits
-        .preauth(&client, path, state.started.elapsed().as_secs())
+    if let Err(refusal) =
+        state
+            .phase2_limits
+            .preauth_check(&client, path, state.started.elapsed().as_secs())
     {
-        return (
-            StatusCode::TOO_MANY_REQUESTS,
-            [("retry-after", "60")],
-            axum::Json(serde_json::json!({"detail":"Rate limit exceeded"})),
-        )
-            .into_response();
+        return preauth_refusal(path, refusal);
     }
     if let Some(response) = crate::auth::scope::known_get_refusal(request.method().as_str(), path) {
         return response;
