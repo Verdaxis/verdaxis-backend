@@ -50,7 +50,8 @@ def owner_fields(case):
     if target.startswith("streams_"):
         fields = {"repository": "backend", "runner": "cargo",
                   "test_path": f"rs/read/tests/{target}.rs", "test_name": case["test"],
-                  "red": ["assertion", "missing_interface"]}
+                  "red": ["assertion", "missing_interface"],
+                  "missing_interface": {"code": "E0432", "symbol": "verdaxis_read::streams::bus"}}
         if target in RUST_SUITES:
             fields["suite"] = RUST_SUITES[target]
         if target == "streams_store":
@@ -141,7 +142,9 @@ def outcome_line(case, outcome):
     if runner == "cargo":
         marker = {"passed": "ok", "failed": "FAILED",
                   "skipped": "ignored, requires the disposable PostgreSQL harness"}[outcome]
-        return f"test {name} ... {marker}"
+        context = f"CARGO_PACKAGE_ROOT=rs/read\n     Running tests/{Path(path).name} (target/debug/deps/fixture-0)"
+        diagnostic = f"\n---- {name} stdout ----\nthread '{name}' panicked at {path}:1:1:\nassertion `left == right` failed" if outcome == "failed" else ""
+        return f"{context}\ntest {name} ... {marker}{diagnostic}"
     if runner == "pytest":
         if outcome == "skipped":
             return f"{path}::{name} SKIPPED (synthetic)"
@@ -150,8 +153,9 @@ def outcome_line(case, outcome):
         return f"{marker} {path}::{name}{suffix}"
     if runner == "vitest":
         marker = {"passed": "✓", "failed": "×", "skipped": "↓"}[outcome]
-        return f" {marker} {path} > {name} 3ms"
-    return f'  [{"PASS" if outcome == "passed" else "FAIL"}] {name} synthetic'
+        diagnostic = f"\n FAIL  {path} > {name}\nAssertionError: synthetic" if outcome == "failed" else ""
+        return f" {marker} {path} > {name} 3ms{diagnostic}"
+    return f'  [{"PASS" if outcome == "passed" else "FAIL"}] {path}::{name} {"AssertionError: synthetic" if outcome == "failed" else "synthetic"}'
 
 
 class Clock:
@@ -199,6 +203,17 @@ class World:
 
     def tree(self, repo, sha):
         return git(repo, "rev-parse", f"{sha}^{{tree}}")
+
+    def applied_digest(self):
+        index = self.root / "control-index"
+        env = dict(__import__("os").environ, GIT_INDEX_FILE=str(index))
+        def indexed(*args, data=None):
+            return subprocess.run(["git", "-C", str(self.backend), *args], input=data,
+                                  env=env, check=True, capture_output=True).stdout
+        indexed("read-tree", self.control_sha)
+        indexed("apply", "--cached", data=self.patch)
+        return digest(indexed("diff", "--cached", "--binary", "--full-index", "--no-ext-diff",
+                              "--no-textconv", self.control_sha))
 
     def source(self, repo, sha, *, diff=EMPTY_DIFF, control=None):
         lines = [f"SOURCE_SHA={sha}", f"SOURCE_TREE={self.tree(repo, sha)}",
@@ -287,7 +302,7 @@ class World:
         control = digest(self.patch)
         (self.artifacts / "control-t10.patch").write_bytes(self.patch)
         self.add_log("backend-control-staging.log", "staging", "backend", [
-            *self.source(self.backend, self.control_sha, diff=digest(self.patch),
+            *self.source(self.backend, self.control_sha, diff=self.applied_digest(),
                          control=control),
             *self.section("CONTROL_T10", 1, [outcome_line(case, "failed")
                                              for case in CASES if case["task"] == "10"],
@@ -298,7 +313,7 @@ class World:
             *self.section("GREEN_UNIT", 0, unit + [
                 "PASSED tests/rust_contract/test_extra.py::test_extra_helper",
                 "test helper_without_database ... ignored, requires the disposable harness"])])
-        suites = sorted({case["suite"] for case in CASES if "suite" in case})
+        suites = sorted(SUITES)
         database = [outcome_line(case, "passed") for case in backend if is_database(case)]
         components = [f"PASSED {suite}::test_rust_component" for suite in suites]
         self.add_log("backend-green-staging.log", "staging", "backend", [
@@ -376,9 +391,11 @@ class World:
     def edit(self, log, old, new=()):
         """Replace one whole line of a log with zero or more lines and re-pin its digest."""
         lines = self.lines(log)
-        assert lines.count(old) == 1, old
-        index = lines.index(old)
-        lines[index:index + 1] = [new] if isinstance(new, str) else list(new)
+        text = "\n".join(lines)
+        assert text.count(old) == 1, old
+        replacement = new if isinstance(new, str) else "\n".join(new)
+        text = text.replace(old, replacement, 1)
+        lines = text.split("\n")
         self.write_log(log, "\n".join(lines))
 
     def line_starting(self, log, prefix):
@@ -832,3 +849,97 @@ def test_evidence_cli_reports_pass(world, capsys):
                         "--frontend-repository", str(world.frontend)]) == 0
     output = json.loads(capsys.readouterr().out)
     assert output["status"] == "pass" and output["source_sha"] == world.sha["impl"]
+
+
+# Source context and diagnostic contracts.
+
+def test_evidence_cargo_wrong_target_refused(world):
+    case = world.case("E032")
+    log = "backend-green-m1.log"
+    old = outcome_line(case, "passed")
+    world.edit(log, old, old.replace("tests/streams_bus.rs", "tests/other.rs"))
+    refused(world, "candidate pass missing: E032")
+
+
+def test_evidence_cargo_missing_context_refused(world):
+    case = world.case("E032")
+    world.edit("backend-green-m1.log", outcome_line(case, "passed"),
+               f'CARGO_PACKAGE_ROOT=rs/read\ntest {case["test_name"]} ... ok')
+    refused(world, "cargo source context required")
+
+
+def test_evidence_journey_wrong_path_refused(world):
+    case = world.case("J61")
+    old = outcome_line(case, "passed")
+    world.edit("frontend-journeys-green.log", old, old.replace(case["test_path"], "other.py"))
+    refused(world, "candidate pass missing: J61")
+
+
+@pytest.mark.parametrize("diagnostic", [
+    "error[E0308]: mismatched types", "error[E0502]: cannot borrow `value`",
+    "error[E0432]: unresolved import `unrelated::thing`"])
+def test_evidence_unrelated_compile_error_refused(world, diagnostic):
+    world.edit("backend-red-m1.log",
+               "error[E0432]: unresolved import `verdaxis_read::streams::bus`", diagnostic)
+    refused(world, "RED missing interface diagnostic required: E032")
+
+
+def test_evidence_nonassertion_exception_refused(world):
+    case = world.case("E186")
+    world.edit("backend-red-m1.log", outcome_line(case, "failed"),
+               f'FAILED {case["test_path"]}::{case["test_name"]} - RuntimeError: setup')
+    refused(world, "RED assertion missing: E186")
+
+
+def test_evidence_cargo_nonassertion_panic_refused(world):
+    case = next(case for case in CASES if case["task"] == "4")
+    old = outcome_line(case, "failed")
+    world.edit("backend-red-staging.log", old,
+               old.replace("assertion `left == right` failed", "explicit panic"))
+    refused(world, f'RED assertion missing: {case["id"]}')
+
+
+def test_evidence_control_applied_diff_mismatch_refused(world):
+    log = "backend-control-staging.log"
+    world.edit(log, world.line_starting(log, "SOURCE_DIFF_SHA256="),
+               "SOURCE_DIFF_SHA256=" + "7" * 64)
+    refused(world, "control applied diff mismatch")
+
+
+def test_evidence_control_untracked_change_refused(world):
+    world.edit("backend-control-staging.log", "SOURCE_UNTRACKED=0", "SOURCE_UNTRACKED=1")
+    refused(world, "control untracked changes refused")
+
+
+def test_evidence_control_extra_change_refused(world):
+    world.patch += (b"diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n"
+                    b"@@ -1 +1 @@\n-synthetic\n+changed\n")
+    world.render()
+    refused(world, "one implementation control required")
+
+
+def test_evidence_control_test_mutation_refused(world):
+    path = world.case("E122")["test_path"]
+    world.patch = (f"diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n"
+                   f"@@ -1 +1 @@\n-synthetic test {path}\n+mutated\n").encode()
+    world.render()
+    refused(world, "control protected path refused")
+
+
+def test_evidence_listed_unmapped_suite_required(world):
+    # Coexistence has no direct scenario mapping in this fixture.
+    suite = "tests/postgres/test_phase6_coexistence.py"
+    world.edit("backend-green-staging.log", f"PASSED {suite}::test_rust_component")
+    refused(world, f"database suite not run: {suite}")
+
+
+def test_evidence_compile_red_database_required(world):
+    cases = [case for case in CASES if case["task"] == "4"]
+    world.add_log("compile-red.log", "m1", "backend", [
+        *world.source(world.backend, world.sha["red"]),
+        *world.section("COMPILE", 101, [
+            "error[E0432]: unresolved import `verdaxis_read::streams::bus`"] )])
+    world.task("4")["red"] = [{"run": "compile-red.log#COMPILE",
+                                "kind": "missing_interface",
+                                "cases": [case["id"] for case in cases]}]
+    refused(world, f'RED database run required: {cases[0]["id"]}')

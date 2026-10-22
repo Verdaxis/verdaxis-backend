@@ -49,6 +49,7 @@ def test_record_reads_gate_sections():
         "SOURCE_UNTRACKED=0",
         "GATE=UNIT UTC=2026-10-22T10:00:01Z",
         "COMMAND=cargo test --test streams_bus",
+        "CARGO_PACKAGE_ROOT=rs/read",
         "     Running tests/streams_bus.rs (rs/target/debug/deps/streams_bus-0)",
         "test bounded_queue ... ok",
         "test overflow_resets ... FAILED",
@@ -68,10 +69,10 @@ def test_record_reads_gate_sections():
         "2026-10-22T10:00:01Z", "2026-10-22T10:02:00Z", 101)
     assert unit.command == "cargo test --test streams_bus"
     assert (unit.source.sha, unit.source.tree, unit.source.clean) == (SOURCE, TREE, True)
-    assert unit.status("cargo", "bounded_queue") == "passed"
-    assert unit.status("cargo", "overflow_resets") == "failed"
-    assert unit.status("cargo", "needs_database") == "skipped"
-    assert unit.status("cargo", "absent") == "missing"
+    assert unit.status("cargo", "rs/read/tests/streams_bus.rs::bounded_queue") == "passed"
+    assert unit.status("cargo", "rs/read/tests/streams_bus.rs::overflow_resets") == "failed"
+    assert unit.status("cargo", "rs/read/tests/streams_bus.rs::needs_database") == "skipped"
+    assert unit.status("cargo", "rs/read/tests/streams_bus.rs::absent") == "missing"
     assert (unit.test_result_lines, unit.compile_errors, unit.database) == (1, 0, None)
     assert (database.position, database.finished_at, database.exit) == (
         2, "2026-10-22T10:05:00Z", 0)
@@ -112,8 +113,8 @@ def test_record_reads_runner_lines():
         " × src/tests/use-sse.test.tsx > stream > resets 3ms",
         " ↓ src/tests/use-sse.test.tsx > stream > later",
         " ✓ src/tests/use-sse.test.tsx (3 tests) 20ms",
-        "  [PASS] J61 public refresh",
-        "  [FAIL] J62 private refresh: timeout",
+        "  [PASS] scripts/journeys/phase6.py::J61 public refresh",
+        "  [FAIL] scripts/journeys/phase6.py::J62 private refresh: timeout",
         exit_code=1), "CALL_EXIT=1")
     assert run.status("pytest", "tests/a.py::test_case") == "passed"
     assert run.status("pytest", "tests/a.py::test_setup") == "error"
@@ -124,7 +125,8 @@ def test_record_reads_runner_lines():
         "src/tests/use-sse.test.tsx > stream > resets": ["failed"],
         "src/tests/use-sse.test.tsx > stream > later": ["skipped"],
     }
-    assert run.outcomes["journey"] == {"J61": ["passed"], "J62": ["failed"]}
+    assert run.outcomes["journey"] == {"scripts/journeys/phase6.py::J61": ["passed"],
+                                       "scripts/journeys/phase6.py::J62": ["failed"]}
     assert run.source.clean is None
 
 
@@ -222,14 +224,16 @@ def test_record_reads_marker_helper_output(tmp_path):
 def test_record_cli_prints_records(tmp_path, capsys):
     log = tmp_path / "run.log"
     log.write_text("\n".join([HEADER, f"SOURCE_SHA={SOURCE}",
-                              *section("TESTS", "test bounded_queue ... ok"),
+                              *section("TESTS", "CARGO_PACKAGE_ROOT=rs/read",
+                                       "     Running tests/streams_bus.rs (target/debug/deps/x-0)",
+                                       "test bounded_queue ... ok"),
                               "CALL_EXIT=0"]) + "\n")
     assert adapter().main([str(log)]) == 0
     (document,) = json.loads(capsys.readouterr().out)
     assert document["sha256"] == hashlib.sha256(log.read_bytes()).hexdigest()
     (run,) = document["runs"]
     assert (run["name"], run["exit"], run["source"]["clean"]) == ("TESTS", 0, None)
-    assert run["outcomes"] == {"cargo": {"bounded_queue": ["passed"]}}
+    assert run["outcomes"] == {"cargo": {"rs/read/tests/streams_bus.rs::bounded_queue": ["passed"]}}
 
 
 def test_record_cli_reports_refusal(tmp_path, capsys):
@@ -238,3 +242,19 @@ def test_record_cli_reports_refusal(tmp_path, capsys):
     assert adapter().main([str(log)]) == 1
     assert json.loads(capsys.readouterr().out) == {
         "status": "refused", "log": str(log), "reason": "terminal exit marker required"}
+
+
+def test_record_equal_cargo_names_in_distinct_targets():
+    (run,) = parse(HEADER, f"SOURCE_SHA={SOURCE}", *section(
+        "TESTS", "CARGO_PACKAGE_ROOT=rs/read",
+        "     Running tests/one.rs (target/debug/deps/one-0)",
+        "test same_name ... ok",
+        "     Running tests/two.rs (target/debug/deps/two-0)",
+        "test same_name ... FAILED"), "CALL_EXIT=0")
+    assert run.status("cargo", "rs/read/tests/one.rs::same_name") == "passed"
+    assert run.status("cargo", "rs/read/tests/two.rs::same_name") == "failed"
+
+
+def test_record_cargo_context_required():
+    refused("cargo source context required", HEADER, f"SOURCE_SHA={SOURCE}",
+            *section("TESTS", "test same_name ... ok"), "CALL_EXIT=0")
