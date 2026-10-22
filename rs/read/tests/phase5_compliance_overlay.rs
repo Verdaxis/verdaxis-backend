@@ -114,12 +114,18 @@ fn compliance_overlay_cases() {
 }
 
 #[test]
-fn compliance_overlay_snapshot_cases() {
+fn compliance_overlay_statement_shape() {
     let sql = include_str!("../sql/compliance_overlay.sql");
     assert!(sql.contains("requested_ids"));
     assert!(sql.contains("fleet_count"));
     assert!(sql.contains("LEFT JOIN eligible_orders"));
     assert_eq!(sql.matches(';').count(), 0);
+}
+
+#[test]
+#[ignore = "Task 10 integration: deterministic concurrent statement snapshot fixture"]
+fn compliance_overlay_snapshot_cases() {
+    panic!("A deterministic writer barrier must prove the domain statement snapshot");
 }
 
 #[test]
@@ -212,65 +218,122 @@ async fn compliance_overlay_postgres_cases() {
         .unwrap();
         assert_eq!(response.overlays[id], expected);
     }
-    let id: Uuid = sqlx::query("SELECT id FROM orderbook_orders WHERE side::text='ASK' LIMIT 1")
+    let fixture: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(
+            std::env::var("RUST_OVERLAY_TEST_CASES").expect("overlay fixture manifest path"),
+        )
+        .expect("overlay fixture manifest must exist"),
+    )
+    .expect("valid overlay fixture manifest");
+    let ids = |key: &str| -> Vec<Uuid> {
+        fixture[key]
+            .as_array()
+            .expect("required fixture ID list")
+            .iter()
+            .map(|value| value.as_str().unwrap().parse().unwrap())
+            .collect()
+    };
+    let qualified = ids("visible_ids");
+    let hidden = ids("hidden_ids");
+    assert!(qualified.len() >= 2, "two qualified fixture orders required");
+    assert!(hidden.len() >= 2, "hidden ASK and BID fixtures required");
+    let mut hidden_ask = false;
+    let mut hidden_bid = false;
+    for id in &hidden {
+        let row = sqlx::query(
+            "SELECT o.side::text AS side, p.fuel_type, o.carbon_intensity_gco2_mj AS ci, \
+             o.energy_density_mj_kg AS lcv FROM orderbook_orders o \
+             JOIN products p ON p.id=o.product_id WHERE o.id=$1",
+        )
+        .bind(id)
         .fetch_one(&mut connection)
         .await
-        .unwrap()
-        .get("id");
-    let absent = Uuid::new_v4();
-    let actor = CurrentActor {
-        id: Uuid::new_v4(),
-        organization_id: None,
-        role: Some("BUYER".into()),
-        email_verified: true,
-    };
-    for ids in [vec![], vec![id, absent], vec![id; 100]] {
-        let request = OverlayRequest::validate(json!({"order_ids": ids})).unwrap();
-        let response =
-            overlay::select_overlay(&mut connection, &policy, &clock, &config, &actor, &request)
-                .await
-                .unwrap();
-        assert_eq!(response.overlays.len(), request.order_ids().len());
-        assert_eq!(response.assumptions.fleet_vessel_count, 0);
-        if response.overlays.contains_key(&absent) {
-            assert!(response.overlays[&absent].is_none());
-        }
+        .expect("known hidden fixture order must exist");
+        let side: String = row.get("side");
+        hidden_ask |= side == "ASK";
+        hidden_bid |= side == "BID";
+        let fuel: String = row.get("fuel_type");
+        assert!(
+            pricing::LifecycleOverlayCore::compute(
+                alcohol_family(&fuel),
+                row.get("ci"),
+                row.get("lcv"),
+            )
+            .unwrap()
+            .is_some(),
+            "hidden fixture must have computable values"
+        );
     }
-    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM vessels")
-        .fetch_one(&mut connection)
-        .await
-        .unwrap();
-    let request = OverlayRequest::validate(json!({"order_ids": []})).unwrap();
-    let admin = CurrentActor {
-        role: Some("ADMIN".into()),
-        ..actor.clone()
-    };
+    assert!(hidden_ask && hidden_bid, "known ASK and BID required");
+    let absent = Uuid::new_v4();
+    let mixed: Vec<Uuid> = qualified
+        .iter()
+        .chain(&hidden)
+        .copied()
+        .chain([absent])
+        .collect();
+    let request = OverlayRequest::validate(json!({"order_ids": mixed})).unwrap();
     let response =
-        overlay::select_overlay(&mut connection, &policy, &clock, &config, &admin, &request)
+        overlay::select_overlay(&mut connection, &policy, &clock, &config, &actor, &request)
             .await
             .unwrap();
-    assert_eq!(response.assumptions.fleet_vessel_count, count as u64);
-    let org: Option<Uuid> = sqlx::query_scalar(
-        "SELECT organization_id FROM vessels WHERE organization_id IS NOT NULL LIMIT 1",
-    )
-    .fetch_optional(&mut connection)
-    .await
-    .unwrap();
-    if let Some(org) = org {
-        let own_count: i64 =
-            sqlx::query_scalar("SELECT count(*) FROM vessels WHERE organization_id=$1")
-                .bind(org)
-                .fetch_one(&mut connection)
-                .await
-                .unwrap();
-        let owner = CurrentActor {
-            organization_id: Some(org),
-            ..actor
+    assert_eq!(response.overlays.len(), request.order_ids().len());
+    for id in hidden.iter().chain([&absent]) {
+        assert_eq!(response.overlays[id], None, "null overlay for {id}");
+    }
+    for id in &qualified {
+        assert!(visible.contains(id), "qualified fixture must be public");
+        assert!(response.overlays[id].is_some(), "qualified overlay for {id}");
+    }
+    assert_ne!(
+        response.overlays[&qualified[0]], response.overlays[&qualified[1]],
+        "qualified fixtures must have distinct lifecycle values"
+    );
+    let scopes = fixture["scopes"].as_array().expect("required actor scopes");
+    assert_eq!(scopes.len(), 5, "all actor scopes are required");
+    for (scope, (name, role, count)) in scopes.iter().zip([
+        ("administrator", "ADMIN", 6),
+        ("member", "BUYER", 2),
+        ("other_member", "BUYER", 3),
+        ("empty_member", "BUYER", 0),
+        ("no_organization", "BUYER", 0),
+    ]) {
+        assert_eq!(scope["name"], name);
+        assert_eq!(scope["role"], role);
+        assert_eq!(scope["count"], count);
+        let organization_id = scope["organization_id"]
+            .as_str()
+            .map(|value| value.parse().unwrap());
+        if matches!(name, "member" | "other_member" | "empty_member") {
+            assert!(organization_id.is_some(), "member organization is required");
+        } else {
+            assert!(organization_id.is_none());
+        }
+        let scoped_actor = CurrentActor {
+            organization_id,
+            role: Some(scope["role"].as_str().unwrap().into()),
+            ..actor.clone()
         };
-        let response =
-            overlay::select_overlay(&mut connection, &policy, &clock, &config, &owner, &request)
-                .await
-                .unwrap();
-        assert_eq!(response.assumptions.fleet_vessel_count, own_count as u64);
+        let expected_count = scope["count"].as_u64().expect("exact fixture count");
+        for ids in [vec![], mixed.clone(), vec![qualified[0]; 100]] {
+            let request = OverlayRequest::validate(json!({"order_ids": ids})).unwrap();
+            let response = overlay::select_overlay(
+                &mut connection,
+                &policy,
+                &clock,
+                &config,
+                &scoped_actor,
+                &request,
+            )
+            .await
+            .unwrap();
+            assert_eq!(response.overlays.len(), request.order_ids().len());
+            assert_eq!(
+                response.assumptions.fleet_vessel_count, expected_count,
+                "fleet scope {} with {} requested IDs",
+                scope["name"],
+                request.order_ids().len()
+            );
+        }
     }
 }
