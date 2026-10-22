@@ -2,7 +2,11 @@
 //!
 //! Requires a disposable database and roles; never targets deployed databases.
 use std::{sync::Arc, time::Duration};
-use verdaxis_read::{AppState, Config, MarketPolicy, compiled_sha, connect, run_admitted};
+use verdaxis_read::routes::market_data_error::database_failure;
+use verdaxis_read::{
+    ApiErrorKind, AppState, Config, MarketPolicy, compiled_sha, connect, run_admitted,
+    run_market_read,
+};
 
 const SLOW: &str = "SELECT pg_sleep(5)";
 
@@ -56,6 +60,12 @@ async fn admitted_unexpected_and_database_failures_keep_distinct_types() {
 /// Build the admitted state and keep the readiness pool as an out-of-band
 /// observer that never consumes an admission slot.
 async fn state() -> (Arc<AppState>, sqlx::PgPool, sqlx::PgPool) {
+    state_with_slots(16).await
+}
+
+/// The same state with an exact number of admission slots and pooled
+/// connections.
+async fn state_with_slots(slots: u32) -> (Arc<AppState>, sqlx::PgPool, sqlx::PgPool) {
     let config = Config {
         kyc_execution_gate_enabled: true,
         db_session_time_zone: "UTC".into(),
@@ -64,8 +74,8 @@ async fn state() -> (Arc<AppState>, sqlx::PgPool, sqlx::PgPool) {
         migration_revision: "kycg_20261014_staging".into(),
         database_url: std::env::var("RUST_TEST_DATABASE_URL").expect("disposable URL required"),
         bind: "127.0.0.1:0".parse().unwrap(),
-        read_admission_slots: 16,
-        pool_max: 17,
+        read_admission_slots: slots,
+        pool_max: slots + 1,
         python_budget: 52,
         configured_max_connections: 100,
         prepared_budget: None,
@@ -445,4 +455,285 @@ async fn news_and_market_reads_share_capacity_in_both_directions() {
         read.close().await;
         observer.close().await;
     }
+}
+
+/// Check one typed market-data failure: status, code, retry hint and class.
+fn assert_market_read_error(
+    error: &verdaxis_read::ApiError,
+    status: u16,
+    code: &str,
+    kind: ApiErrorKind,
+) {
+    assert_eq!(error.status, status);
+    assert_eq!(error.detail["code"], code);
+    assert_eq!(error.retry_after, (status == 503).then_some(1));
+    assert_eq!(error.kind, kind);
+}
+
+/// The backend process of the next market read.
+async fn market_read_backend(state: &AppState) -> i32 {
+    run_market_read(state, |connection| {
+        Box::pin(async move {
+            sqlx::query_scalar("SELECT pg_backend_pid()")
+                .fetch_one(connection)
+                .await
+                .map_err(|error| database_failure("probe", &error))
+        })
+    })
+    .await
+    .expect("market read")
+}
+
+#[tokio::test]
+async fn market_read_uses_one_read_only_transaction_with_a_statement_limit() {
+    let (state, observer, read) = state_with_slots(1).await;
+    let (backend, read_only, statement_timeout, isolation): (i32, String, String, String) =
+        run_market_read(&state, |connection| {
+            Box::pin(async move {
+                sqlx::query_as(
+                    "SELECT pg_backend_pid(), current_setting('transaction_read_only'), \
+                     current_setting('statement_timeout'), current_setting('transaction_isolation')",
+                )
+                .fetch_one(connection)
+                .await
+                .map_err(|error| database_failure("probe", &error))
+            })
+        })
+        .await
+        .unwrap();
+    assert_eq!(read_only, "on");
+    assert_eq!(statement_timeout, "5s");
+    assert_eq!(isolation, "read committed");
+
+    // The limit belongs to the transaction: the one pooled connection is back
+    // with its session default for the next admitted read.
+    let (next_backend, next_timeout): (i32, String) = run_admitted(&state, |connection| {
+        Box::pin(async move {
+            sqlx::query_as("SELECT pg_backend_pid(), current_setting('statement_timeout')")
+                .fetch_one(connection)
+                .await
+                .map_err(|_| verdaxis_read::ApiError::database())
+        })
+    })
+    .await
+    .unwrap();
+    assert_eq!(next_backend, backend);
+    assert_eq!(next_timeout, "30s");
+
+    // Domain SQL past the limit stops with the typed transient error.
+    let started = std::time::Instant::now();
+    let error = run_market_read::<()>(&state, |connection| {
+        Box::pin(async move {
+            sqlx::query("SELECT pg_sleep(10)")
+                .execute(connection)
+                .await
+                .map_err(|error| database_failure("probe", &error))?;
+            Ok(())
+        })
+    })
+    .await
+    .unwrap_err();
+    assert!(started.elapsed() < Duration::from_secs(9));
+    assert_market_read_error(&error, 503, "READ_UNAVAILABLE", ApiErrorKind::Database);
+    assert_eq!(state.reads.available_permits(), 1);
+    read.close().await;
+    observer.close().await;
+}
+
+#[tokio::test]
+async fn market_read_failures_are_typed_and_release_the_owner() {
+    let (state, observer, read) = state_with_slots(1).await;
+    let first = market_read_backend(&state).await;
+
+    // Failed work closes its connection; the next read gets a new one.
+    let error = run_market_read::<()>(&state, |connection| {
+        Box::pin(async move {
+            sqlx::query("SELECT 1 / 0")
+                .execute(connection)
+                .await
+                .map_err(|error| database_failure("probe", &error))?;
+            Ok(())
+        })
+    })
+    .await
+    .unwrap_err();
+    assert_market_read_error(&error, 500, "READ_FAILED", ApiErrorKind::Database);
+    assert_eq!(state.reads.available_permits(), 1);
+    let second = market_read_backend(&state).await;
+    assert_ne!(second, first);
+
+    // A connection lost after the work cannot commit; it is not reused.
+    let terminator = observer.clone();
+    let error = run_market_read::<()>(&state, move |connection| {
+        Box::pin(async move {
+            let backend: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+                .fetch_one(&mut *connection)
+                .await
+                .map_err(|error| database_failure("probe", &error))?;
+            let terminated: bool = sqlx::query_scalar("SELECT pg_terminate_backend($1)")
+                .bind(backend)
+                .fetch_one(&terminator)
+                .await
+                .unwrap();
+            assert!(terminated);
+            let observer = terminator.clone();
+            wait_for("the backend to end", move || {
+                let observer = observer.clone();
+                Box::pin(async move {
+                    sqlx::query_scalar::<_, i64>(
+                        "SELECT count(*) FROM pg_stat_activity WHERE pid = $1",
+                    )
+                    .bind(backend)
+                    .fetch_one(&observer)
+                    .await
+                    .unwrap()
+                        == 0
+                })
+            })
+            .await;
+            Ok(())
+        })
+    })
+    .await
+    .unwrap_err();
+    assert_market_read_error(&error, 500, "READ_FAILED", ApiErrorKind::Database);
+    assert_eq!(state.reads.available_permits(), 1);
+    let third = market_read_backend(&state).await;
+    assert_ne!(third, second);
+
+    // A panic ends the owner task without a result. The existing helper keeps
+    // its string detail for the same failure.
+    let error = run_market_read::<()>(&state, |_| {
+        Box::pin(async {
+            panic!("market read work stopped");
+            #[allow(unreachable_code)]
+            Ok(())
+        })
+    })
+    .await
+    .unwrap_err();
+    assert_market_read_error(&error, 500, "READ_FAILED", ApiErrorKind::Unexpected);
+    let existing = run_admitted::<()>(&state, |_| {
+        Box::pin(async {
+            panic!("admitted work stopped");
+            #[allow(unreachable_code)]
+            Ok(())
+        })
+    })
+    .await
+    .unwrap_err();
+    assert_eq!(existing.status, 500);
+    assert_eq!(existing.detail, "Database operation failed.");
+    let ready = state.clone();
+    wait_for("the stopped owners to release admission", move || {
+        let ready = ready.clone();
+        Box::pin(async move { ready.reads.available_permits() == 1 })
+    })
+    .await;
+    market_read_backend(&state).await;
+    read.close().await;
+    observer.close().await;
+}
+
+#[tokio::test]
+async fn market_read_cancellation_keeps_the_owner_until_the_transaction_ends() {
+    let (state, observer, read) = state_with_slots(1).await;
+    let release = Arc::new(tokio::sync::Notify::new());
+    let (started_tx, mut started_rx) = tokio::sync::mpsc::channel(1);
+    let caller = {
+        let state = state.clone();
+        let release = release.clone();
+        tokio::spawn(async move {
+            run_market_read(&state, move |connection| {
+                Box::pin(async move {
+                    let backend: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+                        .fetch_one(&mut *connection)
+                        .await
+                        .map_err(|error| database_failure("probe", &error))?;
+                    started_tx.send(backend).await.unwrap();
+                    release.notified().await;
+                    Ok(backend)
+                })
+            })
+            .await
+        })
+    };
+    let backend = started_rx.recv().await.unwrap();
+    caller.abort();
+    assert!(caller.await.unwrap_err().is_cancelled());
+
+    // The detached owner keeps the slot and its open read transaction.
+    assert_eq!(state.reads.available_permits(), 0);
+    let activity: String = sqlx::query_scalar("SELECT state FROM pg_stat_activity WHERE pid = $1")
+        .bind(backend)
+        .fetch_one(&observer)
+        .await
+        .unwrap();
+    assert_eq!(activity, "idle in transaction");
+    let refused = run_market_read(&state, |_| Box::pin(async { Ok(()) }))
+        .await
+        .unwrap_err();
+    assert_market_read_error(&refused, 503, "READ_UNAVAILABLE", ApiErrorKind::Expected);
+
+    // The owner ends the transaction, returns the connection and only then
+    // releases the slot.
+    release.notify_one();
+    let ready = state.clone();
+    wait_for("the owner to release admission", move || {
+        let ready = ready.clone();
+        Box::pin(async move { ready.reads.available_permits() == 1 })
+    })
+    .await;
+    assert_eq!(market_read_backend(&state).await, backend);
+    read.close().await;
+    observer.close().await;
+}
+
+#[tokio::test]
+async fn mounted_market_read_uses_the_request_admission_slot() {
+    use axum::body::{Body, to_bytes};
+    use tower::ServiceExt;
+    let (state, observer, read) = state_with_slots(1).await;
+    let handler_state = state.clone();
+    let app = verdaxis_read::runtime::http::middleware_with_state(
+        axum::Router::new().route(
+            "/api/availability",
+            axum::routing::get(move || {
+                let state = handler_state.clone();
+                async move {
+                    run_market_read(&state, |connection| {
+                        Box::pin(async move {
+                            sqlx::query_scalar::<_, String>(
+                                "SELECT current_setting('statement_timeout')",
+                            )
+                            .fetch_one(connection)
+                            .await
+                            .map_err(|error| database_failure("probe", &error))
+                        })
+                    })
+                    .await
+                    .map(axum::Json)
+                }
+            }),
+        ),
+        (*state).clone(),
+    );
+    // One slot: the read succeeds only by reusing the request's permit.
+    let response = app
+        .oneshot(
+            axum::http::Request::builder()
+                .uri("/api/availability")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        to_bytes(response.into_body(), 1024).await.unwrap(),
+        r#""5s""#
+    );
+    assert_eq!(state.reads.available_permits(), 1);
+    read.close().await;
+    observer.close().await;
 }

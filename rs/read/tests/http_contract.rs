@@ -929,3 +929,127 @@ async fn market_data_reads_answer_saturated_admission_with_the_typed_envelope() 
     }
     assert_eq!(state.reads.available_permits(), 1);
 }
+
+#[test]
+fn market_data_reads_are_exact_get_paths() {
+    use verdaxis_read::runtime::admission::market_data_read;
+    for path in MARKET_DATA_READS {
+        assert!(market_data_read("GET", path), "{path}");
+        assert!(selected_read("GET", path), "{path} must be admitted");
+        for method in ["POST", "HEAD", "OPTIONS"] {
+            assert!(!market_data_read(method, path), "{method} {path}");
+        }
+        assert!(!market_data_read("GET", &format!("{path}/")), "{path}/");
+        assert!(!market_data_read("GET", &format!("{path}/extra")));
+    }
+    for path in [
+        "/api/ports",
+        "/api/prices",
+        "/api/fleet-intelligence",
+        "/api/compliance/fuels",
+        "/availability",
+    ] {
+        assert!(!market_data_read("GET", path), "{path}");
+    }
+}
+
+/// Check one typed market-data failure: status, code, retry hint and class.
+fn assert_market_read_error(
+    error: &verdaxis_read::ApiError,
+    status: u16,
+    code: &str,
+    kind: verdaxis_read::ApiErrorKind,
+) {
+    assert_eq!(error.status, status);
+    assert_eq!(error.detail["code"], code);
+    assert!(
+        error.detail["message"]
+            .as_str()
+            .is_some_and(|message| !message.is_empty())
+    );
+    assert_eq!(error.retry_after, (status == 503).then_some(1));
+    assert_eq!(error.kind, kind);
+}
+
+#[derive(Clone, Default)]
+struct LogCapture(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+impl std::io::Write for LogCapture {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn market_read_refusal_and_acquisition_failures_are_typed() {
+    use verdaxis_read::{ApiErrorKind, run_admitted, run_market_read};
+    let capture = LogCapture::default();
+    let writer = capture.clone();
+    let subscriber = tracing_subscriber::fmt()
+        .json()
+        .without_time()
+        .with_writer(move || writer.clone())
+        .finish();
+    let _guard = tracing::subscriber::set_default(subscriber);
+    let (state, read) = unreachable_database_state(1, std::time::Duration::from_millis(200));
+
+    // Saturated admission refuses before any connection is requested.
+    let held = state.reads.clone().try_acquire_owned().unwrap();
+    let refused = run_market_read(&state, |_| Box::pin(async { Ok(()) }))
+        .await
+        .unwrap_err();
+    assert_market_read_error(&refused, 503, "READ_UNAVAILABLE", ApiErrorKind::Expected);
+    let existing = run_admitted(&state, |_| Box::pin(async { Ok(()) }))
+        .await
+        .unwrap_err();
+    assert_eq!(existing.detail, busy().detail);
+    drop(held);
+
+    // A database that does not answer within the pool wait is transient.
+    let timed_out = run_market_read(&state, |_| Box::pin(async { Ok(()) }))
+        .await
+        .unwrap_err();
+    assert_market_read_error(&timed_out, 503, "READ_UNAVAILABLE", ApiErrorKind::Database);
+    assert_eq!(state.reads.available_permits(), 1);
+
+    // A closed pool is transient too; the existing helper keeps its generic 500.
+    read.close().await;
+    let closed = run_market_read(&state, |_| Box::pin(async { Ok(()) }))
+        .await
+        .unwrap_err();
+    assert_market_read_error(&closed, 503, "READ_UNAVAILABLE", ApiErrorKind::Database);
+    let existing = run_admitted(&state, |_| Box::pin(async { Ok(()) }))
+        .await
+        .unwrap_err();
+    assert_eq!(existing.status, 500);
+    assert_eq!(existing.detail, "Database operation failed.");
+    assert_eq!(state.reads.available_permits(), 1);
+
+    // Each acquisition failure logged one bounded event and no error text.
+    let logs = String::from_utf8(capture.0.lock().unwrap().clone()).unwrap();
+    let failures: Vec<(String, String)> = logs
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .filter(|event| event["fields"]["message"] == "admitted_database_failure")
+        .map(|event| {
+            let fields = &event["fields"];
+            assert_eq!(fields["sqlstate"], "");
+            (
+                fields["stage"].as_str().unwrap().to_owned(),
+                fields["error_class"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        failures,
+        [
+            ("acquire".to_owned(), "pool_timeout".to_owned()),
+            ("acquire".to_owned(), "pool_closed".to_owned()),
+            ("acquire".to_owned(), "pool_closed".to_owned()),
+        ]
+    );
+}
