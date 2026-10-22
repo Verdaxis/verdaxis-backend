@@ -4,14 +4,15 @@
 //! The shared auth verifier checks the signature, issuer, audience, time claims
 //! and the `stream` token type. This module adds the profile's required claims
 //! (organization, environment and a bounded expiry) and re-reads the mutable
-//! account and organization state. It holds no signing configuration and
-//! accepts no other token type.
+//! account and organization state under the stream database bounds. It holds
+//! no signing configuration and accepts no other token type.
 
 use std::fmt;
+use std::time::Duration;
 
 use chrono::{DateTime, Datelike, Utc};
 use serde_json::Value;
-use sqlx::PgConnection;
+use sqlx::{Connection, PgConnection, PgPool};
 use uuid::Uuid;
 
 use crate::auth::{
@@ -26,6 +27,15 @@ pub const MAX_TOKEN_BYTES: usize = 16 * 1024;
 /// The account status and the organization verification status that admit a
 /// private stream.
 const APPROVED: &str = "APPROVED";
+
+/// The longest wait for a pooled connection for an admission read.
+pub const DB_ACQUIRE_DEADLINE: Duration = Duration::from_secs(2);
+
+/// The longest run of one statement in an admission read.
+pub const DB_STATEMENT_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// The longest wait for one lock in an admission read.
+pub const DB_LOCK_TIMEOUT: Duration = Duration::from_millis(500);
 
 /// A verified stream identity. Only [`verify_stream`] creates one, so a
 /// principal always comes from a stream token verified for this environment.
@@ -185,6 +195,12 @@ const ADMISSION_STATE: &str = "SELECT u.organization_id, u.status::text AS statu
      FROM users u LEFT JOIN organizations o ON o.id = $2 \
      WHERE u.id = $1";
 
+/// Sets the statement and lock bounds for the current transaction only:
+/// `set_config(.., true)` is `SET LOCAL`, so a pooled connection keeps its own
+/// session limits after the read.
+const SET_READ_BOUNDS: &str =
+    "SELECT set_config('statement_timeout', $1, true), set_config('lock_timeout', $2, true)";
+
 #[derive(sqlx::FromRow)]
 struct AdmissionState {
     organization_id: Option<Uuid>,
@@ -197,20 +213,19 @@ struct AdmissionState {
 
 /// Re-read the current account and organization for a principal.
 ///
-/// Used before response headers and again while a stream is open. It runs one
-/// read statement and takes no lock. The caller owns the connection and its
-/// deadlines and must not hold a transaction open while it waits for a client.
+/// Used before response headers and again while a stream is open. It reads in
+/// one short read-only transaction under [`DB_STATEMENT_TIMEOUT`] and
+/// [`DB_LOCK_TIMEOUT`] and takes no row or advisory lock. The connection must
+/// not be in a transaction, and the caller must not hold it while it waits
+/// for a client; [`revalidate_from_pool`] holds one for this read only.
 /// A user who moved to another organization is refused: a principal never
-/// follows the user into a new organization. A failed read, including a value
-/// that cannot be decoded, is `AuthorizationUnavailable`.
+/// follows the user into a new organization. A failed or timed-out read,
+/// including a value that cannot be decoded, is `AuthorizationUnavailable`.
 pub async fn revalidate(
     db: &mut PgConnection,
     principal: &StreamPrincipal,
 ) -> Result<(), StreamError> {
-    let state: Option<AdmissionState> = sqlx::query_as(ADMISSION_STATE)
-        .bind(principal.user_id)
-        .bind(principal.organization_id)
-        .fetch_optional(&mut *db)
+    let state = read_admission_state(db, principal)
         .await
         .map_err(|_| StreamError::AuthorizationUnavailable)?;
     let Some(state) = state else {
@@ -232,4 +247,44 @@ pub async fn revalidate(
         },
     )?;
     admit_organization(state.organization_status.as_deref())
+}
+
+/// [`revalidate`] on a connection from `pool` that is held for this read
+/// only. Waiting longer than [`DB_ACQUIRE_DEADLINE`] for the connection is
+/// `AuthorizationUnavailable`.
+pub async fn revalidate_from_pool(
+    pool: &PgPool,
+    principal: &StreamPrincipal,
+) -> Result<(), StreamError> {
+    let mut connection = tokio::time::timeout(DB_ACQUIRE_DEADLINE, pool.acquire())
+        .await
+        .map_err(|_| StreamError::AuthorizationUnavailable)?
+        .map_err(|_| StreamError::AuthorizationUnavailable)?;
+    revalidate(&mut connection, principal).await
+}
+
+/// One read-only transaction: set the bounds, read the admission state and
+/// commit. An error drops the transaction, which rolls it back.
+async fn read_admission_state(
+    db: &mut PgConnection,
+    principal: &StreamPrincipal,
+) -> Result<Option<AdmissionState>, sqlx::Error> {
+    let mut transaction = db.begin_with("BEGIN READ ONLY").await?;
+    sqlx::query(SET_READ_BOUNDS)
+        .bind(postgres_milliseconds(DB_STATEMENT_TIMEOUT))
+        .bind(postgres_milliseconds(DB_LOCK_TIMEOUT))
+        .execute(&mut *transaction)
+        .await?;
+    let state: Option<AdmissionState> = sqlx::query_as(ADMISSION_STATE)
+        .bind(principal.user_id)
+        .bind(principal.organization_id)
+        .fetch_optional(&mut *transaction)
+        .await?;
+    transaction.commit().await?;
+    Ok(state)
+}
+
+/// A duration as a PostgreSQL time setting, for example `500ms`.
+fn postgres_milliseconds(duration: Duration) -> String {
+    format!("{}ms", duration.as_millis())
 }
