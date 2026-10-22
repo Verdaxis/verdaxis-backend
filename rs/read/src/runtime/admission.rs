@@ -190,51 +190,49 @@ where
             let admitted = admit_connection(&authority, &mut transaction, clock.monotonic)
                 .await
                 .map_err(|_| ApiError::database())?;
-            // An uncached fallback still needs an authoritative connection.
-            // Without a token there is no safe publication fence.
-            if admitted.is_none() {
+            // Even an uncached answer needs an authoritative connection: without
+            // a token there is no fence to check before publication.
+            let Some((token, generation)) = admitted else {
+                return Err(ApiError::database());
+            };
+            observer
+                .checkpoint(TradingReadStage::SnapshotEstablished)
+                .await;
+            // Independent snapshots can finish out of order. Retain the
+            // high-water mark for storage without revoking an older read.
+            if !authority.observe_snapshot(&token, generation, clock.monotonic) {
+                transaction
+                    .rollback()
+                    .await
+                    .map_err(|_| ApiError::database())?;
                 return Err(ApiError::database());
             }
-            observer.checkpoint(TradingReadStage::SnapshotEstablished).await;
-            let mut ticket = None;
-            if let Some((token, generation)) = &admitted {
-                // Independent snapshots can finish out of order. Retain the
-                // high-water mark for storage without revoking an older read.
-                if !authority.observe_snapshot(token, *generation, clock.monotonic) {
-                    transaction
-                        .rollback()
-                        .await
-                        .map_err(|_| ApiError::database())?;
-                    return Err(ApiError::database());
-                }
-                let candidate = FillTicket::new(token.clone(), *generation);
-                if let Some(entry) = cache.hit(
-                    &authority,
-                    &key,
-                    &candidate,
-                    *generation,
-                    &policy,
-                    clock.monotonic,
-                ) && entry.valid_until.is_live(observer.now().monotonic)
-                {
-                    match serde_json::from_slice(&entry.payload) {
-                        Ok(value) => {
-                            transaction
-                                .rollback()
-                                .await
-                                .map_err(|_| ApiError::database())?;
-                            observer.checkpoint(TradingReadStage::BeforePublish).await;
-                            if !authority.accepts(token, observer.now().monotonic) {
-                                return Err(ApiError::database());
-                            }
-                            return Ok(value);
+            let ticket = FillTicket::new(token, generation);
+            if let Some(entry) = cache.hit(
+                &authority,
+                &key,
+                &ticket,
+                generation,
+                &policy,
+                clock.monotonic,
+            ) && entry.valid_until.is_live(observer.now().monotonic)
+            {
+                match serde_json::from_slice(&entry.payload) {
+                    Ok(value) => {
+                        transaction
+                            .rollback()
+                            .await
+                            .map_err(|_| ApiError::database())?;
+                        observer.checkpoint(TradingReadStage::BeforePublish).await;
+                        if !authority.accepts(ticket.token(), observer.now().monotonic) {
+                            return Err(ApiError::database());
                         }
-                        // A self-produced payload that cannot be read is a bug;
-                        // drop it and answer from the database instead.
-                        Err(_) => cache.remove(&key),
+                        return Ok(value);
                     }
+                    // A self-produced payload that cannot be read is a bug;
+                    // drop it and answer from the database instead.
+                    Err(_) => cache.remove(&key),
                 }
-                ticket = Some(candidate);
             }
             let fill = load(&mut transaction).await?;
             // Only the facts this family's query reads can end the entry; a
@@ -245,37 +243,35 @@ where
                 .rollback()
                 .await
                 .map_err(|_| ApiError::database())?;
-            if let Some(ticket) = &ticket {
-                observer.checkpoint(TradingReadStage::BeforeInsert).await;
-                // Stale-fill barriers. A fill started under one authority and
-                // fence may neither be stored nor answered after either moved.
-                if !authority.accepts(ticket.token(), observer.now().monotonic) {
-                    return Err(ApiError::database());
-                }
-                // A newer generation verified by this process since the fill
-                // started also retires it from the cache. The value itself is a
-                // valid snapshot answer, so it is still returned; only the
-                // insertion is refused.
-                let latest = authority
-                    .highest_generation()
-                    .unwrap_or(ticket.generation());
-                if latest == ticket.generation()
-                    && let (Some(payload), true) = (payload, cacheable(family, &fill.facts, &clock))
-                {
-                    // The boundary is a monotonic instant, so insertion checks
-                    // it against real elapsed time, not the pre-query capture.
-                    cache.insert(
-                        key,
-                        TradingEntry::new(ticket, payload, boundary, policy),
-                        observer.now().monotonic,
-                    );
-                }
-                observer.checkpoint(TradingReadStage::BeforePublish).await;
-                // Publishing the response repeats the fence check, so a change
-                // after the insertion cannot let an old authority answer.
-                if !authority.accepts(ticket.token(), observer.now().monotonic) {
-                    return Err(ApiError::database());
-                }
+            observer.checkpoint(TradingReadStage::BeforeInsert).await;
+            // Stale-fill barriers. A fill started under one authority and
+            // fence may neither be stored nor answered after either moved.
+            if !authority.accepts(ticket.token(), observer.now().monotonic) {
+                return Err(ApiError::database());
+            }
+            // A newer generation verified by this process since the fill
+            // started also retires it from the cache. The value itself is a
+            // valid snapshot answer, so it is still returned; only the
+            // insertion is refused.
+            let latest = authority
+                .highest_generation()
+                .unwrap_or(ticket.generation());
+            if latest == ticket.generation()
+                && let (Some(payload), true) = (payload, cacheable(family, &fill.facts, &clock))
+            {
+                // The boundary is a monotonic instant, so insertion checks
+                // it against elapsed time, not the pre-query capture.
+                cache.insert(
+                    key,
+                    TradingEntry::new(&ticket, payload, boundary, policy),
+                    observer.now().monotonic,
+                );
+            }
+            observer.checkpoint(TradingReadStage::BeforePublish).await;
+            // Publishing the response repeats the fence check, so a change
+            // after the insertion cannot let an old authority answer.
+            if !authority.accepts(ticket.token(), observer.now().monotonic) {
+                return Err(ApiError::database());
             }
             Ok(fill.value)
         })

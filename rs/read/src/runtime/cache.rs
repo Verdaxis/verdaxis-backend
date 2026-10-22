@@ -178,6 +178,12 @@ impl TradingEntry {
             && self.generation == latest_generation
             && self.policy_identity == policy_identity
     }
+
+    /// Order of production: a later authority revision, then a later fence,
+    /// then a later generation is newer. Tuples compare in that order.
+    fn recency(&self) -> (u64, u64, i64) {
+        (self.authority_revision, self.fence_counter, self.generation)
+    }
 }
 
 struct TradingStored<K> {
@@ -217,14 +223,10 @@ impl<K: Eq> TradingCache<K> {
             .unwrap_or_else(|error| error.into_inner());
         // The helper's high-water check and this mutex are separate. A newer
         // fill can arrive between them; never let an older fill replace it.
-        if entries.iter().any(|stored| {
-            stored.key == key
-                && (stored.entry.authority_revision > entry.authority_revision
-                    || (stored.entry.authority_revision == entry.authority_revision
-                        && (stored.entry.fence_counter > entry.fence_counter
-                            || (stored.entry.fence_counter == entry.fence_counter
-                                && stored.entry.generation > entry.generation))))
-        }) {
+        if entries
+            .iter()
+            .any(|stored| stored.key == key && stored.entry.recency() > entry.recency())
+        {
             return false;
         }
         entries.retain(|stored| stored.key != key && stored.entry.valid_until.is_live(now));
