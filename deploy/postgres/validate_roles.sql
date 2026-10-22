@@ -355,7 +355,8 @@ SELECT pg_temp.assert_role_policy(
                   'alembic_version', 'spatial_ref_sys', 'seed_runs',
                   'market_row_quarantines', 'organization_market_approvals',
                   'market_signal_ingestion_runs', 'market_indications',
-                  'fair_price_bands', 'physical_stems'
+                  'fair_price_bands', 'physical_stems',
+                  'market_event_replay_state', 'market_event_retention_control'
               )
               OR EXISTS (
                   SELECT 1 FROM pg_catalog.pg_depend AS dependency
@@ -391,6 +392,57 @@ SELECT pg_temp.assert_role_policy(
           )
     ),
     'audit and status history must remain append-only for app and read-only for backup'
+);
+
+SELECT pg_temp.assert_role_policy(
+    count(*) = 2
+    AND bool_and(trigger.tgenabled = 'A')
+    AND bool_and(NOT trigger.tgisinternal),
+    'replay floor triggers must exist on the outbox and be enabled ALWAYS'
+)
+FROM pg_catalog.pg_trigger AS trigger
+JOIN pg_catalog.pg_class AS relation ON relation.oid = trigger.tgrelid
+JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+WHERE namespace.nspname = 'public'
+  AND relation.relname = 'market_event_outbox'
+  AND trigger.tgname IN (
+      'trg_market_event_outbox_replay_floor',
+      'trg_market_event_outbox_refuse_truncate'
+  );
+
+SELECT pg_temp.assert_role_policy(
+    count(*) = 2
+    AND bool_and(procedure.prosecdef)
+    AND bool_and(
+        procedure.proconfig @> ARRAY['search_path=pg_catalog, public']
+    ),
+    'retention trigger functions must be fixed-search-path SECURITY DEFINER'
+)
+FROM pg_catalog.pg_proc AS procedure
+JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = procedure.pronamespace
+WHERE namespace.nspname = 'public'
+  AND procedure.proname IN (
+      'market_event_outbox_advance_replay_floor',
+      'market_event_outbox_refuse_truncate'
+  );
+
+SELECT pg_temp.assert_role_policy(
+    NOT EXISTS (
+        SELECT 1
+        FROM pg_catalog.pg_proc AS procedure
+        JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = procedure.pronamespace
+        WHERE namespace.nspname = 'public'
+          AND procedure.proname IN (
+              'market_event_outbox_advance_replay_floor',
+              'market_event_outbox_refuse_truncate'
+          )
+          AND (
+              has_function_privilege(:'app_role', procedure.oid, 'EXECUTE')
+              OR has_function_privilege(:'backup_role', procedure.oid, 'EXECUTE')
+          )
+    ),
+    'retention trigger functions must not be executable by app or backup roles'
 );
 
 WITH expected(

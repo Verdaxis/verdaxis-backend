@@ -39,6 +39,10 @@ INSERT INTO app_table_policy (table_name, privileges) VALUES
     ('live_slice_benchmarks', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('market_command_results', ARRAY['SELECT', 'INSERT']),
     ('market_event_outbox', ARRAY['SELECT', 'INSERT', 'UPDATE']),
+    -- Phase 6 replay state and retention ownership are migration-owned; the
+    -- application may read the barrier and the owner record, never change them.
+    ('market_event_replay_state', ARRAY['SELECT']),
+    ('market_event_retention_control', ARRAY['SELECT']),
     ('market_indications', ARRAY['SELECT']),
     ('market_row_quarantines', ARRAY['SELECT']),
     ('market_signal_ingestion_runs', ARRAY['SELECT']),

@@ -19,7 +19,7 @@ _BACKEND_ROOT = Path(__file__).resolve().parents[2]
 _PARENT = "miq_20260720_market_quarantine"
 # Later product migrations extend the linearized market chain. The mi-specific
 # refusal/quarantine semantics exercised below are unchanged.
-_HEAD = "p0_20261016_union"
+_HEAD = "sse_20261021_replay_floor"
 _HISTORICAL_HEAD = "kycd_20261015_staging"
 _SENTINEL = UUID("00000000-dead-beef-0000-aaa0e15eed01")
 _DEMO_ORG = UUID("4da7b285-34ee-5443-9406-f96b4ed1a251")
@@ -753,7 +753,11 @@ async def test_parent_shape_sentinel_requires_explicit_cli_quarantine_then_upgra
 
     downgrade = await asyncio.to_thread(_alembic, database_url, "downgrade", _PARENT)
     assert downgrade.returncode != 0
-    assert "Phase 0 union requires a forward correction; downgrade is refused" in f"{downgrade.stdout}\n{downgrade.stderr}"
+    refused_output = f"{downgrade.stdout}\n{downgrade.stderr}"
+    # Every revision between the union checkpoint and the current head refuses
+    # a destructive downgrade; the exact refusal depends on how far the chain
+    # has advanced.
+    assert "downgrade is unsupported" in refused_output
     current = await asyncio.to_thread(_alembic, database_url, "current")
     assert current.returncode == 0, current.stderr
     assert _HEAD in current.stdout

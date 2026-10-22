@@ -7,7 +7,14 @@ from alembic.script import ScriptDirectory
 
 def test_checkpoint_and_migration_chain():
     script = ScriptDirectory.from_config(Config("alembic.ini"))
-    assert script.get_current_head() == "p0_20261016_union"
+    head = script.get_current_head()
+    assert head is not None
+    # Later Phase revisions extend the same linear chain above the union
+    # checkpoint; the historical KYC edges stay direct and unchanged.
+    ancestry = {
+        revision.revision for revision in script.walk_revisions("base", head)
+    }
+    assert "p0_20261016_union" in ancestry
     assert script.get_revision("p0_20261016_union").down_revision == "kycd_20261015_staging"
     assert script.get_revision("kycd_20261015_staging").down_revision == "kycg_20261014_staging"
     rows = Path("deploy/migration-checkpoints.tsv").read_text().splitlines()
