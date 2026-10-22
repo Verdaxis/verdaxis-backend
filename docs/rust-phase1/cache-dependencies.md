@@ -125,15 +125,42 @@ hold (`CacheAuthority`):
    it equals the active record and every dependency trigger is intact.
 4. The request's fence token is still current. Any change of authority, listener,
    or revocation bumps a fence counter, so an entry or fill made earlier is
-   never accepted again, even with equal identity and generation. Generations may
-   only move forward inside one authority; a smaller one (an unrotated restore)
-   revokes everything.
+   never accepted again, even with equal identity and generation.
+
+Generation numbers are not compared for rollback in process. Independent
+REPEATABLE READ snapshots can finish out of order, so a smaller generation only
+keeps a fill out of storage (the high-water mark) and never proves a restore. An
+unrotated restore is excluded by the owner procedure below, which rotates the
+authority before a restored database can serve.
 
 An unreadable, missing, symlinked, oversized, malformed or revoked record means
 no hits. A process that cannot re-read the record (stopped, starved, cut off)
-loses its hits by itself when its lease lapses; **no routing change or
-acknowledgement is needed to stop it**. This replaces the plan's
-acknowledge-or-lose-route step: safety rests on the lease, not on a message.
+loses its hits by itself when its lease lapses, so safety needs no routing
+change or acknowledgement: it rests on the lease, not on a message. This
+replaces the plan's acknowledge-or-lose-route step for **safety only**.
+
+### Availability while unadmitted
+
+With the switch on, `run_trading_read` answers only from an admitted connection,
+cached or not (PM decision in the first Task 8 review). A trading read therefore
+returns the existing database error, not an uncached answer, in each of these
+states:
+
+- before the first runtime tick attaches the listener after start;
+- while the listener reattaches after a lost connection or an unknown wake
+  (retry every second);
+- during the owner's 10 s revocation drain and until the successor's listener
+  attaches;
+- while the record is revoked, missing, malformed, lapsed or names another
+  identity;
+- when the generation tables or the dependency triggers are absent.
+
+Plan section 7.6 says that absent generation infrastructure disables trading
+caching. With the switch on, it fails trading reads instead; with the switch off
+nothing changes. Handoff for the route-wrapper and activation step: report the
+process not ready, or remove it from routing, while it is unadmitted; keep
+traffic away from a started process until its first attach; turn the switch off
+to restore uncached serving.
 
 ### Owner procedure (promotion, restore, replacement)
 
@@ -155,8 +182,8 @@ primary identity and generation, and only the rotation above makes it servable.
 
 ### What is proved and where
 
-- `rs/read/tests/cache_authority.rs`: lease, fence, listener binding, generation
-  rollback, fill ticket and record vectors, with an explicit clock.
+- `rs/read/tests/cache_authority.rs`: lease, fence, listener binding, fill
+  ticket and record vectors, with an explicit clock.
 - `rs/read/tests/cache_events_postgres.rs`: notifications follow commit; a
   rolled-back change delivers nothing; a lost listener connection detaches, hits
   stop, and reconnect finds the commit made meanwhile; a listener refuses a
@@ -183,9 +210,12 @@ refuses an unbudgeted listener before it opens any connection.
 
 ## Not yet activated
 
-Nothing starts the listener or the refresh loop, and no deploy passes
-`--cache-listener 1`. Trading caching stays disabled. Remaining for Task 8: start
-the refresh loop and listener under an explicit switch with the budgeted slot,
-clear the reference cache when `current_fence()` changes, the commit-safe hit
-check in each route, and the time-boundary rules. This document is not a Task 8
-completion or a release verdict.
+The service starts the refresh loop and listener only when the prepared budget
+carries `cache_listener: 1`, and no deploy passes `--cache-listener 1`. No route
+calls `run_trading_read` yet, so trading caching serves nothing. The runtime
+clears the reference cache when `current_fence()` changes. Remaining for Task 8:
+the route wrappers, which must capture one `TradingClock` before admission, pass
+it to `run_trading_read`, bind it in every time predicate and derive every fact
+their family requires from the same snapshot (`docs/rust-phase1/sm-t8-runtime-evidence.md`
+lists the open wrapper items). This document is not a Task 8 completion or a
+release verdict.
