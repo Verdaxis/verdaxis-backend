@@ -18,9 +18,9 @@
 //! The coefficient text is a decimal string or the JSON number spelling.
 //! Callers pass the exact token, never a parsed float, so lexical bounds are
 //! checked before decimal conversion.
-use crate::compliance::scoring::known_fuel_intensity;
-use crate::market::fueleu::{fueleu_target, FIRST_REPORTING_YEAR, LAST_REPORTING_YEAR};
 use crate::Json;
+use crate::compliance::scoring::known_fuel_intensity;
+use crate::market::fueleu::{FIRST_REPORTING_YEAR, LAST_REPORTING_YEAR, fueleu_target};
 use rust_decimal::Decimal;
 use std::fmt;
 

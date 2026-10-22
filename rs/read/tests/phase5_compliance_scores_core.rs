@@ -6,13 +6,13 @@
 use rust_decimal::Decimal;
 use serde_json::json;
 use verdaxis_read::compliance::scoring::{
-    cii_result, compliance_score, ets_phase_in, ets_result, fueleu_band, known_fuel_intensity,
-    status_for, weighted_intensity, CalculationStatus, ComplianceStatus, ScoreInput, TrafficLight,
-    DEFAULT_ETS_PRICE_EUR, FUEL_INTENSITIES,
+    CalculationStatus, ComplianceStatus, DEFAULT_ETS_PRICE_EUR, FUEL_INTENSITIES, ScoreInput,
+    TrafficLight, cii_result, compliance_score, ets_phase_in, ets_result, fueleu_band,
+    known_fuel_intensity, status_for, weighted_intensity,
 };
 use verdaxis_read::compliance::validation::{
-    fuel_mix_from_json, validate_fuel_mix, FuelMix, MixErrorKind, RawMixEntry, ReportingYear,
-    MAX_FUEL_KEY_BYTES, MAX_MIX_ENTRIES,
+    FuelMix, MAX_FUEL_KEY_BYTES, MAX_MIX_ENTRIES, MixErrorKind, RawMixEntry, ReportingYear,
+    fuel_mix_from_json, validate_fuel_mix,
 };
 
 fn decimal(text: &str) -> Decimal {
@@ -533,15 +533,17 @@ fn compliance_score_cases() {
         .find_map(|hint| hint.split_once("EUR ").map(|(_, amount)| amount))
         .expect("the dashboard extracts the EUR amount");
     assert!(penalty.starts_with(|ch: char| ch.is_ascii_digit()));
-    assert!(poor
-        .recommendations
-        .iter()
-        .any(|hint| hint.contains("FuelEU")));
+    assert!(
+        poor.recommendations
+            .iter()
+            .any(|hint| hint.contains("FuelEU"))
+    );
     assert!(poor.recommendations.iter().any(|hint| hint.contains("CII")));
-    assert!(poor
-        .recommendations
-        .iter()
-        .any(|hint| hint.to_lowercase().contains("penalty")));
+    assert!(
+        poor.recommendations
+            .iter()
+            .any(|hint| hint.to_lowercase().contains("penalty"))
+    );
 
     // Half-even rounding of the weighted total keeps .5 values on the even side.
     assert_eq!(
@@ -616,7 +618,7 @@ fn compliance_score_cases() {
 
 #[test]
 fn compliance_score_input_cases() {
-    use verdaxis_read::compliance::scoring::{fueleu_result, ScoreError};
+    use verdaxis_read::compliance::scoring::{ScoreError, fueleu_result};
     let fuel_mix = mix(&[("VLSFO", "1")]);
     assert!(matches!(
         fueleu_result(&fuel_mix, reporting_year(2026), Some(Decimal::MAX)),

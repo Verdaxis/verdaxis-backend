@@ -14,10 +14,10 @@
 //!
 //! Reporting-year limits come from [`crate::market::fueleu`]; this module holds
 //! no second schedule and no second reference value.
+use crate::Json;
 use crate::compliance::validation::{FuelMix, ReportingYear};
 use crate::market::fueleu::FUELEU_REFERENCE_GHG;
-use crate::Json;
-use rust_decimal::{prelude::ToPrimitive, Decimal, RoundingStrategy};
+use rust_decimal::{Decimal, RoundingStrategy, prelude::ToPrimitive};
 use serde_json::json;
 
 /// Annex IV Part B deficit penalty, EUR per tonne of VLSFO equivalent.
