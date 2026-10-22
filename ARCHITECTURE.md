@@ -28,9 +28,14 @@ validation vectors and scenario definitions. `feedback_scenario.py` registers
 31 real-route twin-database actions with full committed-state, rollback,
 postcommit no-replay and empty-mail-ledger assertions. The feature-gated
 `feedback_contract` example and Python test adapter control IDs and clocks without
-changing deployed settings. These routers are
-not activated in the serving binary. Feedback stays on Python at cutover until
-Task 22 provides the shared Python–Rust quota counter across real processes.
+changing deployed settings. Runtime composition now mounts the 25 non-legacy
+Phase 2 operations when `runtime/phase2.rs` accepts the private verification and
+invite settings. W09/W10 remain Python-owned. `deploy/caddy/rust-crud.caddy`
+selects each of six groups independently and uses Python as its fallback.
+Before the admin route split, Caddy calls Rust's single pre-auth authority;
+external quota marks are removed and only CORS preflights bypass counting.
+Actual cutover remains unapproved pending the remaining Task 22/23 gates and
+the separate Task 24 operator window.
 
 
 ## Rust Phase 2 order-write boundary
