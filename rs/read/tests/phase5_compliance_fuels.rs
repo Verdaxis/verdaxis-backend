@@ -56,6 +56,7 @@ async fn compliance_fuels_cases_are_public() {
         python_budget: 52,
         configured_max_connections: 100,
         prepared_budget: None,
+        compliance_eur_usd_rate: None,
     };
     let pools = verdaxis_read::runtime::db::Pools {
         read: sqlx::postgres::PgPoolOptions::new()
