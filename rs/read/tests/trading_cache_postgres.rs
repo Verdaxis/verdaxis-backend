@@ -590,6 +590,132 @@ async fn overlapping_snapshots_publish_without_replacing_the_newer_entry() {
     writer.close().await.unwrap();
 }
 
+struct ControlledClock(std::sync::Mutex<verdaxis_read::TradingClock>);
+impl verdaxis_read::runtime::admission::TradingReadObserver for ControlledClock {
+    fn now(&self) -> verdaxis_read::TradingClock { *self.0.lock().unwrap() }
+}
+impl ControlledClock {
+    fn advance(&self, duration: Duration) {
+        let mut clock = self.0.lock().unwrap();
+        clock.monotonic += duration;
+        clock.wall += duration;
+    }
+}
+
+#[tokio::test]
+async fn clock_boundaries_change_payloads_without_writes() {
+    use verdaxis_read::{TradingClock, RollingWindows};
+    use verdaxis_read::runtime::admission::TradingReadObserver;
+    let _serial = SERIAL.lock().await;
+    let Some((url, mut writer)) = writer().await else { return; };
+    let record = Record::new();
+    let identity = authority(1);
+    bind(&mut writer, &identity, true).await;
+    record.activate(&identity);
+    let pools = connect(&state_config(&url)).await.unwrap();
+    let mut state = AppState::new(state_config(&url), pools, policy()).unwrap();
+    let runtime = state.trading_cache.as_ref().unwrap().clone();
+    publish_record(&runtime, &record);
+    runtime.tick(Instant::now()).await;
+    let start: SystemTime = chrono::DateTime::parse_from_rfc3339("2026-10-22T15:59:59Z").unwrap().with_timezone(&chrono::Utc).into();
+    let clock = Arc::new(ControlledClock(std::sync::Mutex::new(TradingClock::new(Instant::now(), start))));
+    state.trading_read_observer = clock.clone();
+    let initial_generation = generation(&mut writer).await;
+    for kind in ["expiry", "grace", "rolling", "singapore", "late-fill"] {
+        *clock.0.lock().unwrap() = TradingClock::new(Instant::now(), start);
+        let cache = Arc::new(TradingCache::new(4, 1024));
+        let runs = Arc::new(AtomicUsize::new(0));
+        let edge = clock.now().wall + Duration::from_secs(1);
+        let family = if kind == "rolling" { "prices" } else { "orderbook" };
+        for read in 0..3 {
+            runtime.authority().refresh(runtime.record_path(), clock.now().monotonic);
+            let clock = clock.clone();
+            let loads = runs.clone();
+            let value = run_trading_read(&state, &cache, kind, family, move |connection| Box::pin(async move {
+                loads.fetch_add(1, Ordering::SeqCst);
+                let now = clock.now();
+                // The loader uses its captured clock as a bind, as serving SQL does.
+                let value: i64 = sqlx::query_scalar("SELECT count(*) FROM (VALUES ($1::timestamptz)) AS included(expires_at) WHERE expires_at > $2")
+                    .bind(chrono::DateTime::<chrono::Utc>::from(edge))
+                    .bind(chrono::DateTime::<chrono::Utc>::from(now.wall))
+                    .fetch_one(connection).await.map_err(|_| ApiError::database())?;
+                let mut facts = orderbook_facts(Deadline::None, Deadline::None);
+                match kind {
+                    "expiry" | "late-fill" => facts.order_expiry = Deadline::At(edge),
+                    "grace" => facts.kyc_grace = Deadline::At(edge),
+                    "rolling" => facts.rolling_windows = RollingWindows::Derived(vec![edge]),
+                    "singapore" => facts.declaration_date = Deadline::At(edge),
+                    _ => unreachable!(),
+                }
+                if kind == "late-fill" && read == 0 { clock.advance(Duration::from_secs(1)); }
+                Ok(TradingFill { value, facts })
+            })).await.unwrap();
+            if kind == "late-fill" && read == 0 {
+                assert!(cache.is_empty(), "a fill past its controlled-clock boundary must not be stored");
+            } else if read < 2 && kind != "late-fill" {
+                assert_eq!(value, 1, "{kind}: live row");
+            } else {
+                assert_eq!(value, 0, "{kind}: row must leave without a writer");
+            }
+            if read == 1 { clock.advance(Duration::from_secs(1)); }
+        }
+        assert_eq!(runs.load(Ordering::SeqCst), 2, "{kind}: one hit, then one boundary miss");
+    }
+    assert_eq!(generation(&mut writer).await, initial_generation);
+    reset(&mut writer).await;
+    writer.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn authority_rotation_at_each_publication_barrier_rejects_old_fills() {
+    use verdaxis_read::runtime::admission::TradingReadStage;
+    let _serial = SERIAL.lock().await;
+    let Some((url, mut writer)) = writer().await else { return; };
+    for stage in [TradingReadStage::BeforeInsert, TradingReadStage::BeforePublish] {
+        for rollback in [false, true] {
+            let record = Record::new();
+            let identity = authority(1);
+            bind(&mut writer, &identity, true).await;
+            record.activate(&identity);
+            let pools = connect(&state_config(&url)).await.unwrap();
+            let mut state = AppState::new(state_config(&url), pools, policy()).unwrap();
+            let runtime = state.trading_cache.as_ref().unwrap().clone();
+            publish_record(&runtime, &record);
+            runtime.tick(Instant::now()).await;
+            let gate = Arc::new(ReadBarrier { stage, entered: tokio::sync::Notify::new(), release: tokio::sync::Notify::new() });
+            state.trading_read_observer = gate.clone();
+            let cache = Arc::new(TradingCache::new(4, 1024));
+            state.trading_caches.register(&cache);
+            let old_cache = cache.clone();
+            let old = tokio::spawn(async move {
+                run_trading_read(&state, &old_cache, "old", "prices_fixed", |connection| Box::pin(async move {
+                    let value: i64 = sqlx::query_scalar("SELECT generation FROM public_read_cache_generations WHERE domain='trading'")
+                        .fetch_one(connection).await.map_err(|_| ApiError::database())?;
+                    Ok(TradingFill { value, facts: TemporalFacts::proven_written_only() })
+                })).await
+            });
+            tokio::time::timeout(Duration::from_secs(30), gate.entered.notified()).await.unwrap();
+            let current = generation(&mut writer).await;
+            record.revoke(2);
+            publish_record(&runtime, &record);
+            runtime.tick(Instant::now()).await;
+            let successor = authority(3);
+            bind(&mut writer, &successor, true).await;
+            if rollback { set_generation(&mut writer, current - 1).await; }
+            record.activate(&successor);
+            publish_record(&runtime, &record);
+            runtime.tick(Instant::now()).await;
+            gate.release.notify_one();
+            assert!(old.await.unwrap().is_err(), "{stage:?}, rollback={rollback}: obsolete response");
+            assert!(cache.is_empty(), "{stage:?}: obsolete cache insertion");
+            // Restore a generation above retained event keys for later writers.
+            set_generation(&mut writer, current + 100).await;
+            reset(&mut writer).await;
+        }
+    }
+    writer.close().await.unwrap();
+}
+
 fn signal(directory: &Path, reader: &str, step: &str) {
     std::fs::write(barrier(directory, reader, step), b"1").unwrap();
 }
