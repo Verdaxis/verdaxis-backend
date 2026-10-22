@@ -35,14 +35,14 @@ REQUIRED.update({
 DEFERRED_REQUIREMENTS = {
     f"W{index:02d}": {f"W{index:02d}-invariant"} for index in range(29, 41)
 }
-# Source anchors the support-context refusal contract depends on (M2 fix round).
+# Source anchors the support-context refusal contract depends on.
 REQUIRED_GUARDS = {
     "O3": {"_reject_admin_legacy_workspace_mutation", "MARKET_SUPPORT_CONTEXT_HEADER", "resolve_request_party"},
     "O4": {"_reject_admin_legacy_workspace_mutation", "MARKET_SUPPORT_CONTEXT_HEADER", "resolve_request_party"},
     "O5": {"MARKET_SUPPORT_CONTEXT_HEADER", "resolve_request_party"},
     "O6": {"MARKET_SUPPORT_CONTEXT_HEADER", "resolve_request_party"},
 }
-# Coded refusals the pinned client contract reads by exact code (M1 fix round).
+# Coded refusals the pinned client contract reads by exact code.
 REQUIRED_REFUSAL_CODES = {
     "S6": {"MARKET_SUPPORT_CONTEXT_REPLACEMENT_REQUIRED", "ORGANIZATION_NOT_APPROVED", "ORGANIZATION_NOT_REAL"},
     "O3": {"MARKET_SUPPORT_MUTATION_NOT_ALLOWED"},
@@ -106,7 +106,9 @@ def test_phase8_scenario_ledger_covers_every_route():
 
 def test_phase8_ledger_detects_a_removed_requirement():
     ledger = copy.deepcopy(load_ledger())
-    ledger["routes"][0]["required_scenarios"].remove("W01-reservation")
+    scenarios = ledger["routes"][0]["required_scenarios"]
+    assert "W01-reservation" in scenarios, "reservation requirement missing from fixture"
+    scenarios.remove("W01-reservation")
     with pytest.raises(AssertionError, match="W01-reservation"):
         validate_scenarios(ledger)
 
@@ -114,10 +116,23 @@ def test_phase8_ledger_detects_a_removed_requirement():
 def test_phase8_ledger_detects_a_dropped_clearing_header():
     ledger = copy.deepcopy(load_ledger())
     row = next(item for item in ledger["routes"] if item["route_id"] == "O4")
-    refusal = next(item for item in row["refusals"] if item["code"] == "MARKET_SUPPORT_CONTEXT_INVALID")
-    del refusal["clearing_headers"]
+    refusals = [item for item in row["refusals"] if item["code"] == "MARKET_SUPPORT_CONTEXT_INVALID"]
+    assert refusals, "O4 context-invalid refusal missing from fixture"
+    assert "clearing_headers" in refusals[0], "clearing headers missing from fixture"
+    del refusals[0]["clearing_headers"]
     with pytest.raises(AssertionError, match="clearing headers"):
         validate_scenarios(ledger)
+
+
+def test_phase8_initial_capability_absence_is_status_only():
+    for row in load_ledger()["routes"]:
+        if row["route_id"] not in {"O4", "O5", "O6"}:
+            continue
+        refusals = [item for item in row["refusals"] if "capability absent" in item["condition"]]
+        assert len(refusals) == 1, f"{row['route_id']}: initial capability refusal missing"
+        assert refusals[0]["status"] == 404
+        assert refusals[0]["code"] is None
+        assert "clearing_headers" not in refusals[0]
 
 
 def source_routes(path):
@@ -208,11 +223,16 @@ def test_phase8_expected_schema_manifest():
     assert set(manifest["tables"]) == {"watchlist_producer_state"}
     assert set(manifest["constraints"]) == {"ck_watchlist_events_producer_identity"}
     assert set(manifest["indexes"]) == {"uq_watchlist_events_producer_source_target_derived"}
+    assert "permitted_migration_operations" in manifest, "reviewed migration operations missing from fixture"
     permitted = manifest["permitted_migration_operations"]
     # Non-DDL calls are reviewed one by one: only the head check and the Task 5a
-    # backfill statement are allowed, never op.execute in general.
+    # backfill statement are allowed, never connection access in general.
     assert permitted["ddl"] == ["add_column", "create_table", "create_check_constraint", "create_index"]
-    assert set(permitted["reviewed_calls"]) == {"op.get_bind", "op.get_context"}
+    assert permitted["reviewed_calls"] == []
+    assert permitted["head_check"] == {
+        "form": "op.get_bind().execute(sa.text(statement))",
+        "statement": "SELECT version_num FROM alembic_version",
+    }
     assert permitted["reviewed_statements"] == ["UPDATE watchlist_events SET producer = 'legacy-python'"]
     assert set(permitted["inline_checks"]) == {"watchlist_events.producer"}
 
@@ -292,6 +312,7 @@ def review_migration_operations(upgrade, manifest):
 
 def test_phase8_migration_reviewer_refuses_unreviewed_operations():
     manifest = load_ledger()["schema_change_set"]
+    assert "permitted_migration_operations" in manifest, "reviewed migration operations missing from fixture"
 
     def upgrade_of(source):
         return next(
@@ -314,12 +335,12 @@ def test_phase8_migration_reviewer_refuses_unreviewed_operations():
             op.execute("UPDATE   watchlist_events SET producer = 'legacy-python' ;")
         '''
     assert review_migration_operations(upgrade_of(padded), manifest) == []
-    reads = '''\
+    head_check = '''\
         def upgrade():
-            bind = op.get_bind()
-            op.get_context()
+            heads = op.get_bind().execute(sa.text("SELECT version_num FROM alembic_version")).scalars().all()
+            assert len(heads) == 1
         '''
-    assert review_migration_operations(upgrade_of(reads), manifest) == []
+    assert review_migration_operations(upgrade_of(head_check), manifest) == []
     foreign_delete = '''\
         def upgrade():
             op.execute(sa.text("DELETE FROM watchlist_events"))
@@ -327,7 +348,7 @@ def test_phase8_migration_reviewer_refuses_unreviewed_operations():
     assert review_migration_operations(upgrade_of(foreign_delete), manifest) == ["unreviewed op.execute: 'DELETE FROM watchlist_events'"]
     foreign_update = '''\
         def upgrade():
-            op.execute("UPDATE watchlist_events SET producer = 'attacker'")
+            op.execute("UPDATE watchlist_events SET producer = 'other-producer'")
         '''
     assert review_migration_operations(upgrade_of(foreign_update), manifest)
     not_literal = '''\
@@ -340,6 +361,34 @@ def test_phase8_migration_reviewer_refuses_unreviewed_operations():
             op.drop_column("watchlist_events", "producer")
         '''
     assert review_migration_operations(upgrade_of(destructive), manifest) == ["unreviewed migration operation: op.drop_column"]
+
+
+@pytest.mark.parametrize("statement", [
+    'sa.text("DELETE FROM watchlist_events")',
+    'sa.delete(watchlist_events)',
+    'sa.text("UPDATE watchlist_events SET producer = \'legacy-python\'")',
+    'statement',
+])
+@pytest.mark.parametrize("access", ["chained", "assigned"])
+def test_phase8_migration_reviewer_refuses_unreviewed_bind_execution(statement, access):
+    manifest = load_ledger()["schema_change_set"]
+    if access == "chained":
+        source = f"def upgrade():\n    op.get_bind().execute({statement})\n"
+    else:
+        source = f"def upgrade():\n    bind = op.get_bind()\n    bind.execute({statement})\n"
+    upgrade = ast.parse(source).body[0]
+    assert review_migration_operations(upgrade, manifest), f"unreviewed {access} bind execution accepted"
+
+
+@pytest.mark.parametrize("operation", [
+    "bind = op.get_bind()",
+    "consume(op.get_bind())",
+    "op.get_context()",
+    'op.get_bind().execute(sa.text("SELECT version_num FROM alembic_version"), parameters)',
+])
+def test_phase8_migration_reviewer_refuses_unreviewed_connection_access(operation):
+    upgrade = ast.parse(f"def upgrade():\n    {operation}\n").body[0]
+    assert review_migration_operations(upgrade, load_ledger()["schema_change_set"])
 
 
 @pytest.mark.skipif(os.environ.get("PHASE8_COMPLETENESS") != "1", reason="Task 14 gate: requires the integrated Task 5a revision")
