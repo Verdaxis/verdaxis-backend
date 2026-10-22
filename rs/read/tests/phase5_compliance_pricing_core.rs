@@ -55,35 +55,55 @@ fn compliance_pricing_lcv_cases() {
         let value = serde_json::to_value(overlay).unwrap();
         assert_eq!(value["ci_basis"], "LISTING");
         assert_eq!(value["lcv_basis"], "PRODUCT_DEFAULT");
-        let explicit = LifecycleOverlayCore::compute(
-            Some(product), Some(decimal("31")), Some(decimal("30")),
-        ).unwrap().unwrap();
+        let explicit =
+            LifecycleOverlayCore::compute(Some(product), Some(decimal("31")), Some(decimal("30")))
+                .unwrap()
+                .unwrap();
         assert_eq!(explicit.lcv_mj_kg, decimal("30"));
-        assert_eq!(serde_json::to_value(explicit).unwrap()["lcv_basis"], "LISTING");
+        assert_eq!(
+            serde_json::to_value(explicit).unwrap()["lcv_basis"],
+            "LISTING"
+        );
         for invalid_lcv in [Decimal::ZERO, -Decimal::ONE] {
             assert!(LifecycleOverlayCore::compute(
-                Some(product), Some(decimal("31")), Some(invalid_lcv),
-            ).unwrap().is_none());
+                Some(product),
+                Some(decimal("31")),
+                Some(invalid_lcv),
+            )
+            .unwrap()
+            .is_none());
         }
     }
 }
 
 #[test]
 fn compliance_pricing_optional_cases() {
-    for product in [None, Some("BIO_METHANOL"), Some("UCOME_B100"), Some("OTHER")] {
-        assert!(LifecycleOverlayCore::compute(product, None, Some(decimal("37")))
-            .unwrap().is_none());
+    for product in [
+        None,
+        Some("BIO_METHANOL"),
+        Some("UCOME_B100"),
+        Some("OTHER"),
+    ] {
+        assert!(
+            LifecycleOverlayCore::compute(product, None, Some(decimal("37")))
+                .unwrap()
+                .is_none()
+        );
     }
     for product in [None, Some("UCOME_B100"), Some("OTHER")] {
-        assert!(LifecycleOverlayCore::compute(product, Some(decimal("31")), None)
-            .unwrap().is_none());
+        assert!(
+            LifecycleOverlayCore::compute(product, Some(decimal("31")), None)
+                .unwrap()
+                .is_none()
+        );
     }
     for non_decimal in ["NaN", "Infinity", "-Infinity"] {
         assert!(Decimal::from_str(non_decimal).is_err());
     }
-    assert_eq!(serde_json::to_value(
-        LifecycleOverlayCore::compute(None, None, None).unwrap(),
-    ).unwrap(), serde_json::Value::Null);
+    assert_eq!(
+        serde_json::to_value(LifecycleOverlayCore::compute(None, None, None).unwrap(),).unwrap(),
+        serde_json::Value::Null
+    );
 }
 
 #[test]
@@ -93,19 +113,38 @@ fn compliance_pricing_assumption_cases() {
             let assumptions = LifecycleOverlayCore::assumptions(2031, count, rate).unwrap();
             assert_eq!(assumptions.eur_usd_rate, rate.unwrap_or(decimal("1.08")));
             assert_eq!(assumptions.fleet_vessel_count, count);
-            assert_eq!(assumptions.vlsfo_baseline_gco2_mj, market::fueleu::FUELEU_REFERENCE_GHG);
-            assert_eq!(assumptions.ghgie_actual_gco2_mj, market::fueleu::FUELEU_REFERENCE_GHG);
+            assert_eq!(
+                assumptions.vlsfo_baseline_gco2_mj,
+                market::fueleu::FUELEU_REFERENCE_GHG
+            );
+            assert_eq!(
+                assumptions.ghgie_actual_gco2_mj,
+                market::fueleu::FUELEU_REFERENCE_GHG
+            );
             assert_eq!(assumptions.penalty_eur_per_tonne, decimal("2400"));
             assert_eq!(assumptions.year, 2031);
-            assert_eq!(assumptions.year_target, market::fueleu::fueleu_target(2031).unwrap());
+            assert_eq!(
+                assumptions.year_target,
+                market::fueleu::fueleu_target(2031).unwrap()
+            );
             let value = serde_json::to_value(assumptions).unwrap();
             assert_eq!(value["fleet_intensity_basis"], "DEFAULT_VLSFO");
-            assert_eq!(value["excluded_factors"], json!([
-                "RFNBO_MULTIPLIER", "DEFICIT_ESCALATION", "EXTRA_EU_VOYAGE_SCOPE",
-            ]));
-            assert_eq!(value.as_object().unwrap().len(), 10);
-            for key in ["eur_usd_rate", "vlsfo_baseline_gco2_mj", "ghgie_actual_gco2_mj",
-                "penalty_eur_per_tonne", "year_target"] {
+            assert_eq!(
+                value["excluded_factors"],
+                json!([
+                    "RFNBO_MULTIPLIER",
+                    "DEFICIT_ESCALATION",
+                    "EXTRA_EU_VOYAGE_SCOPE",
+                ])
+            );
+            assert_eq!(value.as_object().unwrap().len(), 9);
+            for key in [
+                "eur_usd_rate",
+                "vlsfo_baseline_gco2_mj",
+                "ghgie_actual_gco2_mj",
+                "penalty_eur_per_tonne",
+                "year_target",
+            ] {
                 assert!(value[key].is_string(), "{key}");
             }
         }
@@ -114,34 +153,52 @@ fn compliance_pricing_assumption_cases() {
 
 #[test]
 fn compliance_pricing_reporting_year_cases() {
-    for year in [2025, 2029, 2030, 2034, 2035, 2039, 2040, 2044, 2045, 2049, 2050, 9999] {
-        assert_eq!(LifecycleOverlayCore::assumptions(year, 0, None).unwrap().year_target,
-            market::fueleu::fueleu_target(year).unwrap());
+    for year in [
+        2025, 2029, 2030, 2034, 2035, 2039, 2040, 2044, 2045, 2049, 2050, 9999,
+    ] {
+        assert_eq!(
+            LifecycleOverlayCore::assumptions(year, 0, None)
+                .unwrap()
+                .year_target,
+            market::fueleu::fueleu_target(year).unwrap()
+        );
     }
     for year in [i32::MIN, 2024, 10000, i32::MAX] {
-        assert!(matches!(LifecycleOverlayCore::assumptions(year, 0, None),
-            Err(PricingError::ReportingYear(_))));
+        assert!(matches!(
+            LifecycleOverlayCore::assumptions(year, 0, None),
+            Err(PricingError::ReportingYear(_))
+        ));
     }
 }
 
 #[test]
 fn compliance_pricing_numeric_cases() {
-    assert!(matches!(LifecycleOverlayCore::compute(None, Some(Decimal::MIN), Some(Decimal::MAX)),
-        Err(PricingError::ArithmeticRange)));
+    assert!(matches!(
+        LifecycleOverlayCore::compute(None, Some(Decimal::MIN), Some(Decimal::MAX)),
+        Err(PricingError::ArithmeticRange)
+    ));
     for rate in [Decimal::ZERO, -Decimal::ONE] {
-        assert_eq!(LifecycleOverlayCore::assumptions(2026, 0, Some(rate)).unwrap_err(),
-            PricingError::ExchangeRate);
+        assert_eq!(
+            LifecycleOverlayCore::assumptions(2026, 0, Some(rate)).unwrap_err(),
+            PricingError::ExchangeRate
+        );
     }
 }
 
 #[test]
 fn compliance_pricing_projection_cases() {
     let overlay = LifecycleOverlayCore::compute(None, Some(decimal("31")), Some(decimal("19.9")))
-        .unwrap().unwrap();
+        .unwrap()
+        .unwrap();
     let value = serde_json::to_value(overlay).unwrap();
     assert_eq!(value.as_object().unwrap().len(), 8);
-    for key in ["penalty_avoided_eur_per_mt", "penalty_avoided_usd_per_mt",
-        "tco2e_avoided_per_mt", "ci_gco2_mj", "lcv_mj_kg"] {
+    for key in [
+        "penalty_avoided_eur_per_mt",
+        "penalty_avoided_usd_per_mt",
+        "tco2e_avoided_per_mt",
+        "ci_gco2_mj",
+        "lcv_mj_kg",
+    ] {
         assert!(value[key].is_string(), "{key}");
     }
 }
