@@ -230,7 +230,7 @@ def test_phase8_expected_schema_manifest():
     assert permitted["ddl"] == ["add_column", "create_table", "create_check_constraint", "create_index"]
     assert permitted["reviewed_calls"] == []
     assert permitted["head_check"] == {
-        "form": "op.get_bind().execute(sa.text(statement))",
+        "form": "heads = op.get_bind().execute(sa.text(statement)).scalars().all()",
         "statement": "SELECT version_num FROM alembic_version",
     }
     assert permitted["reviewed_statements"] == ["UPDATE watchlist_events SET producer = 'legacy-python'"]
@@ -359,6 +359,15 @@ def test_phase8_migration_reviewer_refuses_unreviewed_operations():
             assert len(heads) == 1
         '''
     assert review_migration_operations(upgrade_of(head_check), manifest) == []
+    before_and_after = '''\
+        def upgrade():
+            heads = op.get_bind().execute(sa.text("SELECT version_num FROM alembic_version")).scalars().all()
+            assert len(heads) == 1
+            op.execute("UPDATE watchlist_events SET producer = 'legacy-python'")
+            heads = op.get_bind().execute(sa.text("SELECT version_num FROM alembic_version")).scalars().all()
+            assert len(heads) == 1
+        '''
+    assert review_migration_operations(upgrade_of(before_and_after), manifest) == []
     foreign_delete = '''\
         def upgrade():
             op.execute(sa.text("DELETE FROM watchlist_events"))
@@ -407,6 +416,28 @@ def test_phase8_migration_reviewer_refuses_unreviewed_bind_execution(statement, 
 def test_phase8_migration_reviewer_refuses_unreviewed_connection_access(operation):
     upgrade = ast.parse(f"def upgrade():\n    {operation}\n").body[0]
     assert review_migration_operations(upgrade, load_ledger()["schema_change_set"])
+
+
+@pytest.mark.parametrize("body", [
+    'op.get_bind().execute(sa.text("SELECT version_num FROM alembic_version")).connection.exec_driver_sql("DELETE FROM watchlist_events")',
+    'connection = op.get_bind().execute(sa.text("SELECT version_num FROM alembic_version")).connection\nconnection.exec_driver_sql("DELETE FROM watchlist_events")',
+    'result = op.get_bind().execute(sa.text("SELECT version_num FROM alembic_version"))\nconnection = result.connection\nconnection.exec_driver_sql("DELETE FROM watchlist_events")',
+    'result = op.get_bind().execute(sa.text("SELECT version_num FROM alembic_version"))\nresult.connection.execute(sa.text("DELETE FROM watchlist_events"))',
+    'bind = op.get_bind()\nalias = bind\nalias.exec_driver_sql("DELETE FROM watchlist_events")',
+    'connection = op.get_context().connection\nconnection.execute(sa.text("DELETE FROM watchlist_events"))',
+    'op.get_bind().exec_driver_sql("SELECT version_num FROM alembic_version")',
+    'op.get_bind().execute(text("DELETE FROM watchlist_events"))',
+    'heads = op.get_bind().execute(sa.text("SELECT version_num FROM alembic_version")).connection',
+    'consume(op.get_bind().execute(sa.text("SELECT version_num FROM alembic_version")))',
+    'result = op.get_bind().execute(sa.text("SELECT version_num FROM alembic_version"))',
+    'heads = op.get_bind().execute(sa.text("SELECT version_num FROM alembic_version")).scalars().all().connection',
+])
+def test_phase8_migration_reviewer_refuses_head_result_connection_access(body):
+    source = "def upgrade():\n" + textwrap.indent(body, "    ") + "\n"
+    upgrade = ast.parse(source).body[0]
+    assert review_migration_operations(upgrade, load_ledger()["schema_change_set"]), (
+        f"unreviewed head-result or connection access accepted: {body}"
+    )
 
 
 @pytest.mark.skipif(os.environ.get("PHASE8_COMPLETENESS") != "1", reason="Task 14 gate: requires the integrated Task 5a revision")
