@@ -41,8 +41,11 @@ impl SharedLimits {
         let unit = if window == 3600 { "hour" } else { "minute" };
         Err(crate::ApiError {
             status: axum::http::StatusCode::TOO_MANY_REQUESTS,
-            detail: serde_json::json!(format!("Rate limit exceeded: {limit} per 1 {unit}")),
-            retry_after: None,
+            detail: serde_json::json!({
+                "code": "RATE_LIMITED",
+                "message": format!("Rate limit exceeded: {limit} per 1 {unit}"),
+            }),
+            retry_after: Some(window as u32),
             kind: crate::ApiErrorKind::Expected,
         })
     }

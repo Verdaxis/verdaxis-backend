@@ -287,7 +287,10 @@ fn rate_limit_response() -> Response {
     (
         StatusCode::TOO_MANY_REQUESTS,
         [("retry-after", "60")],
-        axum::Json(serde_json::json!({"detail": "Rate limit exceeded"})),
+        axum::Json(serde_json::json!({"detail": {
+            "code": "RATE_LIMITED",
+            "message": "Rate limit exceeded",
+        }})),
     )
         .into_response()
 }
