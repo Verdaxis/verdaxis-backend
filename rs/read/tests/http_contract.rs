@@ -1053,3 +1053,35 @@ async fn market_read_refusal_and_acquisition_failures_are_typed() {
         ]
     );
 }
+
+#[tokio::test]
+async fn compliance_fuels_follows_the_public_get_method_rules() {
+    const PATH: &str = "/api/compliance/fuels";
+    let (state, _read) = unreachable_database_state(1, std::time::Duration::from_secs(1));
+    let assembled = verdaxis_read::router(state);
+    let send = |method: &str, uri: String| {
+        assembled.clone().oneshot(
+            Request::builder()
+                .method(method)
+                .uri(uri)
+                .header("host", "localhost")
+                .body(Body::empty())
+                .unwrap(),
+        )
+    };
+
+    let response = send("GET", PATH.to_owned()).await.unwrap();
+    assert_eq!(response.status(), 200);
+    for method in ["HEAD", "OPTIONS"] {
+        let response = send(method, PATH.to_owned()).await.unwrap();
+        assert_eq!(response.status(), 405, "{method}");
+        assert_eq!(response.headers()["allow"], "GET", "{method}");
+        assert_eq!(response.headers()["content-type"], "application/json");
+    }
+    let response = send("GET", format!("{PATH}/?probe=1")).await.unwrap();
+    assert_eq!(response.status(), 307);
+    assert_eq!(
+        response.headers()["location"],
+        format!("http://localhost{PATH}?probe=1")
+    );
+}
