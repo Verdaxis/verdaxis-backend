@@ -30,9 +30,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt -c constraints.txt
 
+      # The same pinned release and digest as the Rust read CI contract job.
       - name: Install Caddy for the required routing tests
         env:
-          CADDY_VERSION: "2.11.2"
+          CADDY_VERSION: "2.11.7"
           CADDY_SHA256: "727b91701a392de6ebc5027509f548bf39979e5216340d0faed8fa5e69c84f8b"
         run: |
           curl -fsSL -o caddy.tar.gz \
