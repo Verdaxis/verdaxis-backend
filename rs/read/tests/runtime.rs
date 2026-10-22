@@ -37,19 +37,31 @@ async fn fleet_config_cases() {
         "configured_max_connections": 100, "db_session_time_zone": "UTC"
     });
     let default: Config = serde_json::from_value(input.clone()).unwrap();
-    assert_eq!(default.fleet_artifact_path, Path::new("data/fleet_demand.json"));
+    assert_eq!(
+        default.fleet_artifact_path,
+        Path::new("data/fleet_demand.json")
+    );
     input["FLEET_ARTIFACT_PATH"] = serde_json::json!("data/other.json");
     let alias: Config = serde_json::from_value(input).unwrap();
     assert_eq!(alias.fleet_artifact_path, Path::new("data/other.json"));
     let mut environment = deployed_environment();
     let load = |environment: &std::collections::HashMap<String, String>| {
         config_from_deployed_environment(
-            environment, "127.0.0.1:0".parse().unwrap(), &budget_document(compiled_sha()),
-        ).unwrap()
+            environment,
+            "127.0.0.1:0".parse().unwrap(),
+            &budget_document(compiled_sha()),
+        )
+        .unwrap()
     };
-    assert_eq!(load(&environment).fleet_artifact_path, default.fleet_artifact_path);
+    assert_eq!(
+        load(&environment).fleet_artifact_path,
+        default.fleet_artifact_path
+    );
     environment.insert("FLEET_ARTIFACT_PATH".into(), "data/other.json".into());
-    assert_eq!(load(&environment).fleet_artifact_path, alias.fleet_artifact_path);
+    assert_eq!(
+        load(&environment).fleet_artifact_path,
+        alias.fleet_artifact_path
+    );
 
     let root = std::env::temp_dir().join(format!("fleet-config-{}", uuid::Uuid::new_v4()));
     let cwd = root.join("checkout");
@@ -57,7 +69,13 @@ async fn fleet_config_cases() {
     let resolved = resolve_fleet_artifact_path(&default.fleet_artifact_path, &cwd).unwrap();
     assert_eq!(resolved, cwd.join("data/fleet_demand.json"));
     assert!(!fleet_startup_probe(&resolved).await);
-    for invalid in ["", " ", "data/../other.json", "../data/fleet.json", "other/file.json"] {
+    for invalid in [
+        "",
+        " ",
+        "data/../other.json",
+        "../data/fleet.json",
+        "other/file.json",
+    ] {
         assert!(resolve_fleet_artifact_path(Path::new(invalid), &cwd).is_err());
     }
     let outside = root.join("outside");
@@ -66,13 +84,18 @@ async fn fleet_config_cases() {
     {
         std::os::unix::fs::symlink(&outside, cwd.join("data/escape")).unwrap();
         assert!(resolve_fleet_artifact_path(Path::new("data/escape/missing.json"), &cwd).is_err());
-        std::os::unix::fs::symlink(outside.join("missing.json"), cwd.join("data/dangling.json")).unwrap();
+        std::os::unix::fs::symlink(outside.join("missing.json"), cwd.join("data/dangling.json"))
+            .unwrap();
         assert!(resolve_fleet_artifact_path(Path::new("data/dangling.json"), &cwd).is_err());
     }
     assert!(resolve_fleet_artifact_path(&resolved, &cwd).is_ok());
     std::fs::write(&resolved, b"not JSON").unwrap();
     assert!(!fleet_startup_probe(&resolved).await);
-    std::fs::write(&resolved, br#"{"entries":[],"last_updated":"2026-04-03","sources":[]}"#).unwrap();
+    std::fs::write(
+        &resolved,
+        br#"{"entries":[],"last_updated":"2026-04-03","sources":[]}"#,
+    )
+    .unwrap();
     assert!(fleet_startup_probe(&resolved).await);
     std::fs::write(&resolved, vec![b' '; 262_145]).unwrap();
     assert!(!fleet_startup_probe(&resolved).await);
@@ -82,7 +105,12 @@ async fn fleet_config_cases() {
 #[test]
 fn fleet_config_syntax_is_checked_by_runtime_validation() {
     let mut config = staging();
-    for path in ["", "data/../fleet.json", "../fleet.json", "other/fleet.json"] {
+    for path in [
+        "",
+        "data/../fleet.json",
+        "../fleet.json",
+        "other/fleet.json",
+    ] {
         config.fleet_artifact_path = path.into();
         assert!(validate_config(&config).is_err());
     }

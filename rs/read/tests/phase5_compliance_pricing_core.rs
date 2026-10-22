@@ -59,13 +59,15 @@ fn compliance_pricing_lcv_cases() {
             "LISTING"
         );
         for invalid_lcv in [Decimal::ZERO, -Decimal::ONE] {
-            assert!(LifecycleOverlayCore::compute(
-                Some(product),
-                Some(decimal("31")),
-                Some(invalid_lcv),
-            )
-            .unwrap()
-            .is_none());
+            assert!(
+                LifecycleOverlayCore::compute(
+                    Some(product),
+                    Some(decimal("31")),
+                    Some(invalid_lcv),
+                )
+                .unwrap()
+                .is_none()
+            );
         }
     }
 }

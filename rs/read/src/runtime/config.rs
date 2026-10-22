@@ -1,4 +1,4 @@
-use crate::{verify_release, Config, DEFAULT_READ_ADMISSION_SLOTS};
+use crate::{Config, DEFAULT_READ_ADMISSION_SLOTS, verify_release};
 use percent_encoding::percent_decode_str;
 use std::net::IpAddr;
 
@@ -311,8 +311,12 @@ pub fn resolve_fleet_artifact_path(
     use std::path::Component;
     let invalid = || "invalid FLEET_ARTIFACT_PATH".to_owned();
     if configured.as_os_str().is_empty()
-        || configured.to_str().is_none_or(|text| text.trim().is_empty() || text.contains('\0'))
-        || configured.components().any(|part| matches!(part, Component::ParentDir))
+        || configured
+            .to_str()
+            .is_none_or(|text| text.trim().is_empty() || text.contains('\0'))
+        || configured
+            .components()
+            .any(|part| matches!(part, Component::ParentDir))
         || configured.file_name().is_none()
         || !working_directory.is_absolute()
     {
@@ -380,7 +384,10 @@ pub async fn fleet_startup_probe(path: &std::path::Path) -> bool {
         }
         let file = tokio::fs::File::open(path).await.ok()?;
         let mut bytes = Vec::new();
-        file.take(MAX_BYTES + 1).read_to_end(&mut bytes).await.ok()?;
+        file.take(MAX_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .await
+            .ok()?;
         if bytes.len() > MAX_BYTES as usize {
             return None;
         }
@@ -394,14 +401,18 @@ pub async fn fleet_startup_probe(path: &std::path::Path) -> bool {
         tokio::time::timeout(std::time::Duration::from_secs(2), read).await,
         Ok(Some(()))
     );
-    let availability = if available { "available" } else { "unavailable" };
+    let availability = if available {
+        "available"
+    } else {
+        "unavailable"
+    };
     tracing::info!(availability, "optional fleet artifact startup probe");
     available
 }
 
 pub fn validate_config(config: &Config) -> Result<(), String> {
-    let working_directory = std::env::current_dir()
-        .map_err(|_| "cannot resolve fleet working directory".to_owned())?;
+    let working_directory =
+        std::env::current_dir().map_err(|_| "cannot resolve fleet working directory".to_owned())?;
     resolve_fleet_artifact_path(&config.fleet_artifact_path, &working_directory)?;
     if !matches!(
         config.environment.as_str(),
