@@ -250,7 +250,10 @@ REQUIRED_SCENARIOS_BY_TASK = {
         "baseline_dump_has_no_owner_or_privilege_clauses",
         "baseline_fingerprint_matches_the_committed_artifact",
         "baseline_restores_into_an_empty_database",
-        "fingerprint_is_stable_and_changes_on_a_new_column",
+        "fingerprint_changes_when_a_column_is_added",
+        "fingerprint_excludes_extension_members",
+        "fingerprint_ignores_acls_and_owners",
+        "fingerprint_is_stable_across_two_reads",
     ],
     6: [
         "adoption_checksum_matches_sqlx",
@@ -596,6 +599,34 @@ REQUIRED_SCENARIOS_BY_TASK = {
 }
 REQUIRED_SCENARIOS = {name for names in REQUIRED_SCENARIOS_BY_TASK.values() for name in names}
 
+FINGERPRINT_REQUIREMENTS = {
+    "fingerprint_is_stable_across_two_reads": {
+        "owner_task": 5,
+        "plan_requirement": "§8.3, catalog fingerprint tests; Task 5",
+        "required_result": "Two reads of the unchanged disposable application catalog produce the same canonical SHA-256 fingerprint; each read uses one read-only REPEATABLE READ transaction.",
+    },
+    "fingerprint_changes_when_a_column_is_added": {
+        "owner_task": 5,
+        "plan_requirement": "§8.3, catalog fingerprint tests; Task 5",
+        "required_result": "Adding an application-table column in the disposable database changes the catalog fingerprint.",
+    },
+    "fingerprint_ignores_acls_and_owners": {
+        "owner_task": 5,
+        "plan_requirement": "§8.3, catalog fingerprint tests; Task 5",
+        "required_result": "Changing ACLs and excluded individual-column ownership metadata leaves the fingerprint unchanged. Schema owner names remain included in the projection, as §8.3 requires.",
+    },
+    "fingerprint_excludes_extension_members": {
+        "owner_task": 5,
+        "plan_requirement": "§8.3, catalog fingerprint tests; Task 5",
+        "required_result": "Changing definitions of extension-owned members identified by pg_depend.deptype = 'e' leaves the fingerprint unchanged; extension names and versions remain included.",
+    },
+    "baseline_fingerprint_matches_the_committed_artifact": {
+        "owner_task": 5,
+        "plan_requirement": "§8.3, catalog fingerprint tests; Task 5",
+        "required_result": "In CI, the disposable baseline database fingerprint equals the fingerprint in the committed baseline artifact.",
+    },
+}
+
 ROUND4_REQUIREMENTS = {
     "alert_recovery_after_final_name_rename_completes_fsync_and_bookkeeping": {
         "owner_task": 28,
@@ -662,8 +693,9 @@ def validate_inventory_contract(ledger, manifest):
     for cell in catalog:
         assert cell["id"] in REQUIRED_SCENARIOS_BY_TASK[cell["owner_task"]]
         assert cell["plan_requirement"].strip() and cell["required_result"].strip()
-    for name, requirement in ROUND4_REQUIREMENTS.items():
-        assert next(cell for cell in catalog if cell["id"] == name) == dict(id=name, **requirement)
+    for requirements in (ROUND4_REQUIREMENTS, FINGERPRINT_REQUIREMENTS):
+        for name, requirement in requirements.items():
+            assert next(cell for cell in catalog if cell["id"] == name) == dict(id=name, **requirement)
     rows = ledger["artifacts"]
     unique_rows(rows)
     identities = sorted((row["id"], row["source"], row["source_sha256"]) for row in rows)
@@ -687,8 +719,9 @@ def test_phase10_required_scenarios_match_the_reviewed_catalog():
         assert cell["id"] in REQUIRED_SCENARIOS_BY_TASK[cell["owner_task"]]
         assert cell["plan_requirement"].strip()
         assert cell["required_result"].strip()
-    for name, requirement in ROUND4_REQUIREMENTS.items():
-        assert next(cell for cell in catalog if cell["id"] == name) == dict(id=name, **requirement)
+    for requirements in (ROUND4_REQUIREMENTS, FINGERPRINT_REQUIREMENTS):
+        for name, requirement in requirements.items():
+            assert next(cell for cell in catalog if cell["id"] == name) == dict(id=name, **requirement)
     validate_inventory_contract(document("removal-ledger"), manifest)
 
 
@@ -711,13 +744,21 @@ def test_phase10_supplemental_membership_is_exact(phase, group, mutation):
 
 @pytest.mark.parametrize("scenario", sorted(REQUIRED_SCENARIOS))
 @pytest.mark.parametrize("mutation", ["delete", "rename"])
-def test_phase10_every_required_scenario_is_pinned(scenario, mutation):
+@pytest.mark.parametrize("target", ["required_scenarios", "scenario_catalog"])
+def test_phase10_every_required_scenario_is_pinned(scenario, mutation, target):
     manifest = copy.deepcopy(document("evidence-manifest"))
-    # RED uses the current manifest, which also has missing cells. Every mutation
-    # must be rejected, including unreferenced command and Path B retirement cells.
-    manifest["required_scenarios"] = [name for name in manifest["required_scenarios"] if name != scenario]
-    if mutation == "rename":
-        manifest["required_scenarios"].append(scenario + "_renamed")
+    if target == "required_scenarios":
+        assert scenario in manifest[target], "required scenario missing before mutation"
+        manifest[target].remove(scenario)
+        if mutation == "rename":
+            manifest[target].append(scenario + "_renamed")
+    else:
+        cells = [cell for cell in manifest[target] if cell["id"] == scenario]
+        assert len(cells) == 1, "required scenario missing before mutation"
+        if mutation == "delete":
+            manifest[target].remove(cells[0])
+        else:
+            cells[0]["id"] += "_renamed"
     with pytest.raises(AssertionError, match="required scenario membership"):
         validate_inventory_contract(document("removal-ledger"), manifest)
 
