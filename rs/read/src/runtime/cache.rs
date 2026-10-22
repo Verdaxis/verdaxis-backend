@@ -194,9 +194,20 @@ impl TradingEntry {
     }
 
     fn covers(&self, clock: TradingClock) -> bool {
+        // Recover the wall deadline with the same clock pair that converted
+        // it to a monotonic boundary. A later request may have a new offset.
+        let wall_is_live = match self.valid_until {
+            Boundary::Never => true,
+            Boundary::Unknown => false,
+            Boundary::At(at) => at
+                .checked_duration_since(self.evaluated_at.monotonic)
+                .and_then(|ahead| self.evaluated_at.wall.checked_add(ahead))
+                .is_some_and(|deadline| clock.wall < deadline),
+        };
         clock.monotonic >= self.evaluated_at.monotonic
             && clock.wall >= self.evaluated_at.wall
             && self.valid_until.is_live(clock.monotonic)
+            && wall_is_live
     }
 }
 

@@ -129,8 +129,11 @@ hold (`CacheAuthority`):
 
 Each entry stores the loader's evaluation clock as the lower bound of its
 validity interval. A request captured before that clock loads its own result,
-even when the generation is unchanged. Hits also require the request clock and
-current monotonic time to precede the upper boundary. For an equal authority,
+even when the generation is unchanged. Hits require both the request and current
+monotonic times to precede the monotonic upper boundary. The request's wall time
+must also be strictly before the wall deadline reconstructed from the entry's
+own evaluation pair and boundary, so an offset change cannot extend validity.
+There is no clock-equality requirement or tolerance. For an equal authority,
 fence and generation, an earlier-clock fill cannot replace a later-clock entry.
 
 Generation numbers are not compared for rollback in process. Independent
