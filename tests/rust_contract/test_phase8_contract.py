@@ -1081,6 +1081,33 @@ op.drop_column("watchlist_events", "producer")''').body
     return tree
 
 
+def test_phase8_producer_downgrade_lock_is_scoped_and_precedes_reads():
+    manifest = load_ledger()["schema_change_set"]
+    lock = ast.parse('op.execute("LOCK TABLE market_event_outbox, watchlist_events IN ACCESS EXCLUSIVE MODE")').body[0]
+    tree = task5a_fixture()
+    downgrade = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "downgrade")
+    downgrade.body.insert(0, lock)
+    assert review_migration_operations(tree, manifest) == [], "the exact downgrade lock must be reviewed"
+    for position in (1, 2, 3):
+        mutant = copy.deepcopy(tree)
+        function = next(node for node in mutant.body if isinstance(node, ast.FunctionDef) and node.name == "downgrade")
+        function.body.insert(position, function.body.pop(0))
+        assert review_migration_operations(mutant, manifest), "late locks must refuse"
+    mutant = copy.deepcopy(tree)
+    upgrade = next(node for node in mutant.body if isinstance(node, ast.FunctionDef) and node.name == "upgrade")
+    upgrade.body.insert(0, copy.deepcopy(lock))
+    assert review_migration_operations(mutant, manifest), "lock is downgrade-only"
+    for sql in (
+        "LOCK TABLE watchlist_events, market_event_outbox IN ACCESS EXCLUSIVE MODE",
+        "LOCK TABLE market_event_outbox, watchlist_events IN SHARE MODE",
+        "LOCK TABLE market_event_outbox IN ACCESS EXCLUSIVE MODE",
+    ):
+        mutant = copy.deepcopy(tree)
+        function = next(node for node in mutant.body if isinstance(node, ast.FunctionDef) and node.name == "downgrade")
+        function.body[0] = ast.parse(f"op.execute({sql!r})").body[0]
+        assert review_migration_operations(mutant, manifest), sql
+
+
 def test_phase8_task5a_exact_shapes_pass():
     assert review_migration_operations(task5a_fixture(), load_ledger()["schema_change_set"]) == []
 

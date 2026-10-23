@@ -153,6 +153,79 @@ def test_internal_evidence_column_is_additive_and_python_writes_default_null(sup
     assert json.loads(sql("SELECT payload FROM market_event_outbox")) == {"schema_version": 1}
 
 
+def test_producer_metadata_matches_migrated_head(supplier_scratch_database):
+    sql, migrate = supplier_scratch_database
+    migrate("upgrade", REVISION)
+    url = make_url(os.environ["MARKET_INTEGRITY_TEST_DATABASE_URL"]).set(
+        database=sql("SELECT current_database()")
+    ).render_as_string(hide_password=False)
+    result = subprocess.run(
+        [sys.executable, "-m", "alembic", "check"], cwd=ROOT,
+        env={**os.environ, "DATABASE_URL": url, "MIGRATOR_DATABASE_URL": url},
+        capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("relation", ["market_event_outbox", "watchlist_events"])
+def test_concurrent_trusted_writer_is_not_removed_by_downgrade(supplier_scratch_database, relation):
+    import asyncpg
+
+    sql, migrate = supplier_scratch_database
+    migrate("upgrade", REVISION)
+    seed_target(sql)
+    database = sql("SELECT current_database()")
+    admin = make_url(os.environ["POSTGRES_ADMIN_TEST_DATABASE_URL"])
+    url = admin.set(drivername="postgresql", database=database).render_as_string(hide_password=False)
+
+    async def race():
+        writer = await asyncpg.connect(url)
+        observer = await asyncpg.connect(url)
+        transaction = writer.transaction()
+        await transaction.start()
+        pool = ThreadPoolExecutor(max_workers=1)
+        future = None
+        try:
+            # A table reader blocks the first DDL but permits a trusted INSERT.
+            await writer.execute(f"LOCK TABLE {relation} IN ACCESS SHARE MODE")
+            future = pool.submit(migrate, "downgrade", PARENT, success=False)
+            deadline = asyncio.get_running_loop().time() + 10
+            while asyncio.get_running_loop().time() < deadline:
+                waiting = await observer.fetchval("""SELECT EXISTS (
+                    SELECT 1 FROM pg_locks WHERE relation=$1::regclass
+                    AND mode='AccessExclusiveLock' AND NOT granted)""", relation)
+                if waiting:
+                    break
+                await asyncio.sleep(0.01)
+            else:
+                pytest.fail("downgrade did not reach the table-lock barrier")
+            if relation == "market_event_outbox":
+                await writer.execute(f"""INSERT INTO market_event_outbox
+                    (id,event_type,aggregate_type,aggregate_id,payload,participant_org_ids,producer_evidence)
+                    VALUES ('{SOURCE}','order.updated','order','schema-fixture','{{}}',
+                    '[\"88888888-7777-0000-0000-000000000009\"]','{{\"version\":1}}')""")
+            else:
+                await writer.execute(insert_event(
+                    identity=",producer,source_event_id,source_stream_seq,scope_attested_at,derived_event_key",
+                    values=f",'rust-market-v1','{SOURCE}',1,now(),'PIN_PRICE_CHANGED|order|ASK|0'",
+                ))
+            await transaction.commit()
+            output = await asyncio.wrap_future(future)
+            assert "Retained producer evidence prevents downgrade" in output
+            assert sql("SELECT version_num FROM alembic_version") == REVISION
+            if relation == "market_event_outbox":
+                assert sql("SELECT producer_evidence->>'version' FROM market_event_outbox") == "1"
+            else:
+                assert sql("SELECT producer FROM watchlist_events") == "rust-market-v1"
+        finally:
+            if not writer.is_closed():
+                await writer.close()
+            await observer.close()
+            pool.shutdown(wait=True)
+
+    asyncio.run(race())
+
+
 def test_watermark_acl_denies_delete(supplier_scratch_database):
     sql, migrate = supplier_scratch_database
     migrate("upgrade", PARENT)
