@@ -197,7 +197,12 @@ async fn equal_or_earlier_time_advances_cutoff_by_one_microsecond() {
     let fixture = Fixture::new(Some(initial), 2).await;
     let mut connection = fixture.connect().await;
     let mut transaction = connection.begin().await.unwrap();
-    for (index, now) in [initial, initial - TimeDelta::days(1)].into_iter().enumerate() {
+    let times = [
+        initial,
+        initial - TimeDelta::days(1),
+        initial + TimeDelta::microseconds(2) + TimeDelta::nanoseconds(500),
+    ];
+    for (index, now) in times.into_iter().enumerate() {
         let expected = initial + TimeDelta::microseconds(index as i64 + 1);
         let result = revoke_user_authentication(&mut transaction, fixture.user, now)
             .await

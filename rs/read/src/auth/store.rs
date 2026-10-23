@@ -15,7 +15,7 @@
 
 use std::fmt;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, SubsecRound, TimeDelta, Utc};
 use sqlx::PgConnection;
 use uuid::Uuid;
 
@@ -221,6 +221,36 @@ pub async fn revoke_user_families(
     .execute(&mut *connection)
     .await?;
     Ok(revoked.rows_affected())
+}
+
+/// Advance the user's cutoff and revoke all their refresh families in the
+/// caller's transaction. Takes the user row lock before session rows; callers
+/// must not already hold later locks. An unknown user returns `RowNotFound`.
+/// The caller must commit or roll back the whole operation, including on error.
+pub async fn revoke_user_authentication(
+    conn: &mut PgConnection,
+    user_id: Uuid,
+    now: DateTime<Utc>,
+) -> Result<DateTime<Utc>, sqlx::Error> {
+    let user = lock_user(conn, user_id)
+        .await?
+        .ok_or(sqlx::Error::RowNotFound)?;
+    // PostgreSQL timestamps store microseconds. Compare at that precision so
+    // sub-microsecond input cannot return a cutoff that fails to advance in SQL.
+    let now = now.trunc_subsecs(6);
+    let cutoff = match user.authentication_revoked_at {
+        Some(stored) if now <= stored => stored
+            .checked_add_signed(TimeDelta::microseconds(1))
+            .ok_or_else(|| sqlx::Error::InvalidArgument("cutoff exceeds timestamp range".into()))?,
+        _ => now,
+    };
+    sqlx::query("UPDATE users SET authentication_revoked_at = $2 WHERE id = $1")
+        .bind(user_id)
+        .bind(cutoff)
+        .execute(&mut *conn)
+        .await?;
+    revoke_user_families(conn, user_id).await?;
+    Ok(cutoff)
 }
 
 /// Insert one live refresh session. `created_at` takes the column default.
