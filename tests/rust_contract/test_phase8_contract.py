@@ -229,7 +229,7 @@ def test_phase8_expected_schema_manifest():
     # backfill statement are allowed, never connection access in general.
     assert permitted["ddl"] == ["add_column", "create_table", "create_check_constraint", "create_index"]
     assert permitted["reviewed_calls"] == []
-    assert permitted.get("module_imports") == ["from alembic import op", "import sqlalchemy as sa"]
+    assert permitted.get("module_imports") == ["from alembic import op", "import sqlalchemy as sa", "from sqlalchemy.dialects import postgresql"]
     assert permitted.get("revision_names") == ["revision", "down_revision", "branch_labels", "depends_on"]
     assert permitted["head_check"] == {
         "form": "heads = op.get_bind().execute(sa.text(statement)).scalars().all()",
@@ -291,6 +291,18 @@ def executed_statement_text(call):
     return None
 
 
+def review_migration_digests(root, paths, reviewed):
+    """The acceptance boundary is PM-reviewed exact bytes, not the AST grammar."""
+    violations = []
+    for path in sorted(set(paths)):
+        target = root / path
+        actual = hashlib.sha256(target.read_bytes()).hexdigest() if target.is_file() and not target.is_symlink() else "<missing-or-symlink>"
+        expected = reviewed.get(path, "<unlisted>")
+        if not re.fullmatch(r"[0-9a-f]{64}", expected) or actual != expected:
+            violations.append(f"{path}: reviewed_sha256={expected} actual_sha256={actual}")
+    return violations
+
+
 def review_migration_operations(module, manifest):
     """Default deny the complete module; accept only the reviewed static grammar."""
     if not isinstance(module, ast.Module):
@@ -301,7 +313,7 @@ def review_migration_operations(module, manifest):
     constructors = {
         "Column", "Text", "String", "Integer", "BigInteger", "Boolean",
         "DateTime", "Numeric", "UUID", "JSON", "CheckConstraint",
-        "PrimaryKeyConstraint", "UniqueConstraint", "ForeignKey", "text",
+        "PrimaryKeyConstraint", "UniqueConstraint", "ForeignKey",
     }
     head_read = ast.parse(
         f'heads = op.get_bind().execute(sa.text({permitted["head_check"]["statement"]!r})).scalars().all()'
@@ -325,7 +337,11 @@ def review_migration_operations(module, manifest):
     def direct_attribute(node, receiver):
         return isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id == receiver
 
+    allowed_sql_nodes = set()
+
     def argument_reason(node):
+        if node in allowed_sql_nodes:
+            return None
         if literal(node):
             return None
         if not isinstance(node, ast.Call):
@@ -339,6 +355,60 @@ def review_migration_operations(module, manifest):
             reason = argument_reason(child)
             if reason:
                 return reason
+        return None
+
+    def sql_reason(call):
+        operation = call.func.attr
+        table = call.args[0].value if call.args and isinstance(call.args[0], ast.Constant) else None
+        sql_policy = permitted["sql_values"]
+
+        def exact_sql(value, expected):
+            if isinstance(value, ast.Call) and direct_attribute(value.func, "sa") and value.func.attr == "text" and len(value.args) == 1 and not value.keywords:
+                value = value.args[0]
+            return isinstance(value, ast.Constant) and value.value == expected
+
+        if operation == "create_check_constraint":
+            if len(call.args) != 3 or not all(isinstance(value, ast.Constant) for value in call.args[:2]):
+                return "unreviewed SQL value in CHECK"
+            name, relation = (value.value for value in call.args[:2])
+            if relation != "watchlist_events" or name not in manifest["constraints"] or not exact_sql(call.args[2], manifest["constraints"][name]):
+                return "unreviewed SQL value in CHECK"
+        if operation == "create_index":
+            for keyword in call.keywords:
+                if keyword.arg and keyword.arg.endswith("_where"):
+                    if table != "uq_watchlist_events_producer_source_target_derived" or keyword.arg != "postgresql_where" or not exact_sql(keyword.value, sql_policy["index_predicate"]):
+                        return "unreviewed SQL value in index predicate"
+        for column in [node for node in ast.walk(call) if isinstance(node, ast.Call) and direct_attribute(node.func, "sa") and node.func.attr == "Column"]:
+            name = column.args[0].value if column.args and isinstance(column.args[0], ast.Constant) else None
+            key = f"{table}.{name}"
+            policy = sql_policy["columns"].get(key, {})
+            for keyword in column.keywords:
+                if keyword.arg == "server_default":
+                    sql_value = (isinstance(keyword.value, ast.Constant) and type(keyword.value.value) in {str, type(None)}) or (isinstance(keyword.value, ast.Call) and direct_attribute(keyword.value.func, "sa") and keyword.value.func.attr == "text")
+                    if sql_value and not exact_sql(keyword.value, policy.get("server_default", object())):
+                        return f"unreviewed SQL value in {key} server_default"
+            for check in column.args:
+                if isinstance(check, ast.Call) and direct_attribute(check.func, "sa") and check.func.attr == "CheckConstraint":
+                    if not check.args or not exact_sql(check.args[0], policy.get("check", object())):
+                        return f"unreviewed SQL value in {key} CHECK"
+        # No free table-level CHECKs, SQL wrappers or dialect constructors.
+        approved = set()
+        for column in [node for node in ast.walk(call) if isinstance(node, ast.Call) and direct_attribute(node.func, "sa") and node.func.attr == "Column"]:
+            approved.update(node for node in column.args if isinstance(node, ast.Call) and direct_attribute(node.func, "sa") and node.func.attr == "CheckConstraint")
+            for keyword in column.keywords:
+                if keyword.arg == "server_default" and isinstance(keyword.value, ast.Call) and direct_attribute(keyword.value.func, "sa") and keyword.value.func.attr == "text":
+                    approved.add(keyword.value)
+            for value in column.args[1:]:
+                if isinstance(value, ast.Call) and direct_attribute(value.func, "postgresql") and value.func.attr == "JSONB":
+                    if table != "market_event_outbox" or column.args[0].value != "producer_evidence" or value.args or value.keywords:
+                        return "unreviewed SQL value or JSONB position"
+                    approved.add(value)
+        if operation == "create_index":
+            approved.update(keyword.value for keyword in call.keywords if keyword.arg == "postgresql_where")
+        for child in ast.walk(call):
+            if isinstance(child, ast.Call) and direct_attribute(child.func, "sa") and child.func.attr in {"text", "CheckConstraint"} and child not in approved:
+                return "unreviewed SQL value position"
+        allowed_sql_nodes.update(approved)
         return None
 
     def statement_reason(node):
@@ -368,6 +438,9 @@ def review_migration_operations(module, manifest):
             return f"unreviewed operation op.{operation}"
         if any(keyword.arg is None for keyword in call.keywords):
             return "expanded keyword arguments are not allowed"
+        reason = sql_reason(call)
+        if reason:
+            return reason
         for argument in call.args + [keyword.value for keyword in call.keywords]:
             reason = argument_reason(argument)
             if reason:
@@ -398,10 +471,39 @@ def review_migration_operations(module, manifest):
                 violations.append(f"module: duplicate function {node.name}")
             else:
                 seen_functions.add(node.name)
-                for statement in node.body:
-                    reason = statement_reason(statement)
-                    if reason:
-                        violations.append(f"{node.name}: {reason}")
+                head_guard = ast.parse('if len(heads) != 1:\n    raise RuntimeError("message")').body[0]
+                def literal_message_guard(statement, template):
+                    candidate = copy.deepcopy(statement)
+                    if not isinstance(candidate, ast.If) or len(candidate.body) != 1 or not isinstance(candidate.body[0], ast.Raise):
+                        return False
+                    error = candidate.body[0].exc
+                    if not isinstance(error, ast.Call) or len(error.args) != 1 or not isinstance(error.args[0], ast.Constant) or type(error.args[0].value) is not str:
+                        return False
+                    error.args[0].value = "message"
+                    return ast.dump(candidate) == ast.dump(template)
+
+                index = 0
+                downgrade_policy = permitted["downgrade"]
+                retained_reads = ast.parse(downgrade_policy["reads"]).body
+                retained_guard = ast.parse('if trusted_rows or producer_evidence:\n    raise RuntimeError("message")').body[0]
+                while index < len(node.body):
+                    statement = node.body[index]
+                    if ast.dump(statement) == ast.dump(head_read) and index + 1 < len(node.body) and literal_message_guard(node.body[index + 1], head_guard):
+                        index += 2
+                        continue
+                    if node.name == "downgrade" and index + 2 < len(node.body) and all(ast.dump(node.body[index + offset]) == ast.dump(read) for offset, read in enumerate(retained_reads)) and literal_message_guard(node.body[index + 2], retained_guard):
+                        index += 3
+                        continue
+                    drop = isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Call) and direct_attribute(statement.value.func, "op") and statement.value.func.attr in {"drop_index", "drop_table", "drop_column"}
+                    if drop:
+                        accepted_drops = {ast.dump(ast.parse(source).body[0]) for source in downgrade_policy["drops"]}
+                        if node.name != "downgrade" or ast.dump(statement) not in accepted_drops:
+                            violations.append(f"{node.name}: unreviewed drop operation")
+                    else:
+                        reason = statement_reason(statement)
+                        if reason:
+                            violations.append(f"{node.name}: {reason}")
+                    index += 1
         else:
             violations.append(f"module: module statement {type(node).__name__} is not allowed")
     if seen_revisions != revision_names:
@@ -716,6 +818,9 @@ def test_phase8_task5a_refuses_changed_sql_values(old, new):
                 if ast.dump(argument) == ast.dump(original):
                     node.args[index] = ast.parse(new, mode="eval").body
                     changed = True
+        if original is not None and isinstance(node, ast.keyword) and ast.dump(node.value) == ast.dump(original):
+            node.value = ast.parse(new, mode="eval").body
+            changed = True
         if old.startswith("server_default=") and isinstance(node, ast.keyword) and node.arg == "server_default" and isinstance(node.value, ast.Constant) and node.value.value == "legacy-python":
             node.value = ast.parse(new.split("=", 1)[1], mode="eval").body
             changed = True
@@ -725,13 +830,7 @@ def test_phase8_task5a_refuses_changed_sql_values(old, new):
 
 
 def test_phase8_module_reviewer_accepts_static_ddl_and_head_reads():
-    tree = migration_module('''heads = op.get_bind().execute(sa.text("SELECT version_num FROM alembic_version")).scalars().all()
-op.add_column("watchlist_events", sa.Column("producer", sa.Text(), nullable=False, server_default="legacy-python"))
-op.create_table("watchlist_producer_state", sa.Column("id", sa.Integer(), primary_key=True))
-op.create_check_constraint("ck_watchlist_events_producer_identity", "watchlist_events", "producer IS NOT NULL")
-op.create_index("uq_watchlist_events_producer_source_target_derived", "watchlist_events", ["producer"], unique=True, postgresql_where=sa.text("source_event_id IS NOT NULL"))
-op.execute(sa.text("UPDATE watchlist_events SET producer = 'legacy-python'"))''')
-    assert review_migration_operations(tree, load_ledger()["schema_change_set"]) == []
+    assert review_migration_operations(task5a_fixture(), load_ledger()["schema_change_set"]) == []
 
 
 @pytest.mark.skipif(os.environ.get("PHASE8_COMPLETENESS") != "1", reason="Task 14 gate: requires the integrated Task 5a revision")
@@ -747,6 +846,11 @@ def test_phase8_change_set_is_one_additive_revision():
     assert not [line for line in status_lines if not line.startswith("A")], "pre-existing migrations must not be modified or removed"
     changed = set(subprocess.check_output(["git", "diff", "--name-only", BASE, "HEAD"], cwd=ROOT, text=True).splitlines())
     assert set(manifest["expected_modified_paths"]) <= changed
+    reviewed = json.loads((ROOT / "tests/rust_contract/phase8/reviewed-migrations.json").read_text())
+    phase8_paths = set(manifest["added_migrations"]) | {
+        str(path.relative_to(ROOT)) for path in (ROOT / "alembic/versions").glob("p89_*.py")
+    }
+    assert review_migration_digests(ROOT, phase8_paths, reviewed) == []
     tree = ast.parse((ROOT / manifest["added_migrations"][0]).read_text())
     assert review_migration_operations(tree, manifest) == []
     upgrade = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "upgrade")

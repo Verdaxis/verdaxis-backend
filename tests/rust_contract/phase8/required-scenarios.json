@@ -2088,8 +2088,17 @@
         "create_index"
       ],
       "reviewed_calls": [],
-      "module_imports": ["from alembic import op", "import sqlalchemy as sa"],
-      "revision_names": ["revision", "down_revision", "branch_labels", "depends_on"],
+      "module_imports": [
+        "from alembic import op",
+        "import sqlalchemy as sa",
+        "from sqlalchemy.dialects import postgresql"
+      ],
+      "revision_names": [
+        "revision",
+        "down_revision",
+        "branch_labels",
+        "depends_on"
+      ],
       "head_check": {
         "form": "heads = op.get_bind().execute(sa.text(statement)).scalars().all()",
         "statement": "SELECT version_num FROM alembic_version"
@@ -2100,7 +2109,39 @@
       "inline_checks": [
         "watchlist_events.producer"
       ],
-      "other_phase_note": "the Task 14 diff scope check attributes only pre-existing-file edits to this phase; additions by other phases are permitted"
+      "other_phase_note": "the Task 14 diff scope check attributes only pre-existing-file edits to this phase; additions by other phases are permitted",
+      "sql_values": {
+        "index_predicate": "source_event_id IS NOT NULL",
+        "columns": {
+          "watchlist_events.producer": {
+            "server_default": "legacy-python",
+            "check": "producer IN ('legacy-python', 'rust-market-v1')"
+          },
+          "watchlist_producer_state.singleton": {
+            "check": "singleton"
+          },
+          "watchlist_producer_state.consumed_through_seq": {
+            "check": "consumed_through_seq >= 0",
+            "server_default": "0"
+          },
+          "watchlist_producer_state.updated_at": {
+            "server_default": "now()"
+          }
+        }
+      },
+      "downgrade": {
+        "reads": "trusted_rows = op.get_bind().execute(sa.text(\"SELECT EXISTS (SELECT 1 FROM watchlist_events WHERE producer = 'rust-market-v1')\")).scalar_one()\nproducer_evidence = op.get_bind().execute(sa.text(\"SELECT EXISTS (SELECT 1 FROM market_event_outbox WHERE producer_evidence IS NOT NULL)\")).scalar_one()",
+        "drops": [
+          "op.drop_index(\"uq_watchlist_events_producer_source_target_derived\", table_name=\"watchlist_events\")",
+          "op.drop_table(\"watchlist_producer_state\")",
+          "op.drop_column(\"market_event_outbox\", \"producer_evidence\")",
+          "op.drop_column(\"watchlist_events\", \"derived_event_key\")",
+          "op.drop_column(\"watchlist_events\", \"scope_attested_at\")",
+          "op.drop_column(\"watchlist_events\", \"source_stream_seq\")",
+          "op.drop_column(\"watchlist_events\", \"source_event_id\")",
+          "op.drop_column(\"watchlist_events\", \"producer\")"
+        ]
+      }
     }
   }
 }
