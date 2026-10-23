@@ -94,6 +94,10 @@ pub fn router(state: LoginState) -> Router {
         .with_state(state)
 }
 
+/// Installed by the shared ingress after its pre-auth admission.
+#[derive(Clone, Copy)]
+pub struct PreauthCharged(pub u64);
+
 #[derive(Deserialize)]
 struct Credentials {
     username: String,
@@ -130,11 +134,16 @@ async fn handle(
             .get("x-forwarded-for")
             .and_then(|v| v.to_str().ok()),
     );
-    let now = Utc::now().timestamp() as u64;
-    state
-        .limits
-        .preauth_check(&client, request.uri().path(), now)
-        .map_err(|r| ApiError::from(r.auth_failure()))?;
+    let now = if let Some(charged) = request.extensions().get::<PreauthCharged>() {
+        charged.0
+    } else {
+        let now = Utc::now().timestamp().max(0) as u64;
+        state
+            .limits
+            .preauth_check(&client, request.uri().path(), now)
+            .map_err(|r| ApiError::from(r.auth_failure()))?;
+        now
+    };
     state
         .limits
         .check_endpoint(&client, "/api/auth/login", now)?;
