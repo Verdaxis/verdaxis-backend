@@ -59,3 +59,4 @@ from app.models.watchlist import (
     WatchlistEvent,
     WatchlistTarget,
 )
+from app.models.watchlist_producer_state import WatchlistProducerState
