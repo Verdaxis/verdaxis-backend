@@ -143,7 +143,7 @@ fn signup(email: &str, referral: Option<&str>) -> Value {
 fn organization(token: &str) -> Value {
     json!({"registration_token":token,"organization":{"name":"Synthetic Company","type":"FUEL_BUYER","country_code":"SG"}})
 }
-async fn count(pool: &PgPool, sql: &str, email: &str) -> i64 {
+async fn count(pool: &PgPool, sql: &'static str, email: &str) -> i64 {
     sqlx::query_scalar(sql)
         .bind(email)
         .fetch_one(pool)
