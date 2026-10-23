@@ -10,17 +10,17 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
+
 
 _BACKEND_ROOT = Path(__file__).resolve().parents[2]
 _PARENT = "miq_20260720_market_quarantine"
 # Later product migrations extend the linearized market chain. The mi-specific
 # refusal/quarantine semantics exercised below are unchanged.
-from alembic.config import Config
-from alembic.script import ScriptDirectory
-
 _HEAD = ScriptDirectory.from_config(Config(str(_BACKEND_ROOT / "alembic.ini"))).get_current_head()
 _HISTORICAL_HEAD = "kycd_20261015_staging"
 _SENTINEL = UUID("00000000-dead-beef-0000-aaa0e15eed01")
@@ -1299,6 +1299,8 @@ async def test_cache_checkpoint_follows_production_revision(migration_database):
     assert "prc_20261018_cache" in {
         revision.revision for revision in script.walk_revisions()
     }
+    assert script.get_current_head() == "sse_20261021_replay_floor"
+    assert script.get_revision("sse_20261021_replay_floor").down_revision == "prc_20261018_cache"
     assert script.get_revision("prc_20261018_cache").down_revision == "p0_20261016_union"
     allowlist = json.loads(
         (_BACKEND_ROOT / "deploy/rust/allowed-revisions.json").read_text()
