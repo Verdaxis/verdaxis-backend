@@ -27,11 +27,11 @@ def order_write_scenario():
                 if table not in {"market_event_outbox", "market_command_results",
                                  "public_read_cache_events", "public_read_cache_generations"}:
                     assert before[table] == after[table], table
-            before_generation = next(iter(before["public_read_cache_generations"]["rows"].values()))["generation"]
-            after_generation = next(iter(after["public_read_cache_generations"]["rows"].values()))["generation"]
             changed = expected == 1 and not replayed
-            assert int(after_generation) == int(before_generation) + int(changed)
-            assert len(after["public_read_cache_events"]["rows"]) == len(before["public_read_cache_events"]["rows"]) + int(changed)
+            expected_state = copy.deepcopy(before)
+            expect_cache_invalidations(expected_state, int(changed))
+            for table in CACHE_INVALIDATION_TABLES:
+                assert expected_state[table] == after[table], table
         return Action(name, "N02", "POST", "/__contract__/order-write", 200,
             body={"id":identifier,"mode":mode}, outcome="rolled-back" if mode in {"rollback","timeout","retry-40P01-bound"} else "ambiguous" if mode=="lost-response" else "committed",
             assert_after=check)

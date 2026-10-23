@@ -151,7 +151,7 @@ def _leaderboard_pair(responses):
             if set(entry) != {"rank", "user_name", "organization_name", "referral_count"}:
                 raise ScenarioError("invalid leaderboard fields")
             count = entry["referral_count"]
-            if entry["rank"] != rank or type(count) is not int or count <= 0:
+            if type(entry["rank"]) is not int or entry["rank"] != rank or type(count) is not int or count <= 0:
                 raise ScenarioError("invalid leaderboard rank or count")
             if not isinstance(entry["user_name"], str) or not (
                     entry["organization_name"] is None or isinstance(entry["organization_name"], str)):
