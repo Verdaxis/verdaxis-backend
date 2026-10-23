@@ -123,7 +123,9 @@ impl Fixture {
             .after_connect(move |conn, _| {
                 let sql = search_path.clone();
                 Box::pin(async move {
-                    sqlx::raw_sql(sqlx::AssertSqlSafe(sql)).execute(conn).await?;
+                    sqlx::raw_sql(sqlx::AssertSqlSafe(sql))
+                        .execute(conn)
+                        .await?;
                     Ok(())
                 })
             })
@@ -141,10 +143,13 @@ impl Fixture {
 
     async fn finish(mut self) {
         self.pool.close().await;
-        sqlx::raw_sql(sqlx::AssertSqlSafe(format!("DROP SCHEMA {} CASCADE", self.schema)))
-            .execute(&mut self.admin)
-            .await
-            .unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "DROP SCHEMA {} CASCADE",
+            self.schema
+        )))
+        .execute(&mut self.admin)
+        .await
+        .unwrap();
     }
 }
 
@@ -374,7 +379,7 @@ async fn p4_t2_c03() {
     drop(conn);
     for table in ["audit_logs", "user_status_transitions"] {
         assert_eq!(
-            sqlx::query_scalar::<_, i64>(&format!("SELECT count(*) FROM {table}"))
+            sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {table}")))
                 .fetch_one(&fixture.pool)
                 .await
                 .unwrap(),
@@ -484,7 +489,7 @@ async fn p4_t2_c09() {
             "market_event_outbox",
         ] {
             assert_eq!(
-                sqlx::query_scalar::<_, i64>(&format!("SELECT count(*) FROM {table}"))
+                sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {table}")))
                     .fetch_one(&fixture.pool)
                     .await
                     .unwrap(),
@@ -587,7 +592,7 @@ async fn p4_t2_c10() {
         "market_event_outbox",
     ] {
         assert_eq!(
-            sqlx::query_scalar::<_, i64>(&format!("SELECT count(*) FROM {table}"))
+            sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {table}")))
                 .fetch_one(&fixture.pool)
                 .await
                 .unwrap(),
