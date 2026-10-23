@@ -5,6 +5,7 @@ use std::path::{Component, Path};
 
 /// Open an absolute resolved artifact from a held root descriptor. This also
 /// checks ancestors of the canonical data root without following replacements.
+/// Callers must supply only the startup-resolved in-root path; this API does not enforce a data root.
 pub fn open_regular_file(path: &Path) -> std::io::Result<std::fs::File> {
     let relative = path.strip_prefix("/").map_err(|_| invalid())?;
     let root = open_root(Path::new("/"))?;

@@ -106,6 +106,15 @@ checks. The startup probe uses only that opener before its bounded read.
 Full document validation and the fleet route remain the fleet reader's concern.
 `rs/read/tests/runtime.rs` and `runtime_postgres.rs` cover this boundary.
 
+`routes/fleet_intelligence.rs` serves `GET /api/fleet-intelligence` through its
+route-local `market/fleet_snapshot.rs`. The reader validates bounded UTF-8
+observations with descriptor-relative no-follow opens, before/after file metadata
+checks and a two-second deadline, retaining admission through cleanup. Unavailable
+data returns structured 503 without fallback; database readiness is unchanged.
+`tests/phase5_fleet.rs` covers the contract.
+The fleet document must be published only by atomic rename; same-size in-place
+rewrites inside timestamp resolution can escape the metadata stability check.
+
 ## Phase 5 read lookup indexes
 
 `alembic/versions/p5_20261020_read_indexes.py` (parent `prc_20261018_cache`)

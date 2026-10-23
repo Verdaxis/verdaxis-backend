@@ -150,42 +150,12 @@ fn same_observation(before: &std::fs::Metadata, after: &std::fs::Metadata) -> bo
 /// remains relative to the held directory even if that directory is renamed.
 #[cfg(unix)]
 fn open_regular_file(path: &Path) -> Result<std::fs::File, ApiError> {
-    use rustix::fs::{Mode, OFlags, openat};
-    use std::path::Component;
-    if !path.is_absolute() {
+    let file = crate::runtime::safe_fs::open_regular_file(path).map_err(|_| unavailable())?;
+    let metadata = file.metadata().map_err(|_| unavailable())?;
+    if !metadata.is_file() || metadata.len() > MAX_BYTES as u64 {
         return Err(unavailable());
     }
-    let mut parts = path.components().peekable();
-    if parts.next() != Some(Component::RootDir) {
-        return Err(unavailable());
-    }
-    let mut directory = std::fs::File::open("/").map_err(|_| unavailable())?;
-    while let Some(part) = parts.next() {
-        let Component::Normal(name) = part else {
-            return Err(unavailable());
-        };
-        let last = parts.peek().is_none();
-        let flags = OFlags::RDONLY
-            | OFlags::CLOEXEC
-            | OFlags::NOFOLLOW
-            | if last {
-                OFlags::NONBLOCK
-            } else {
-                OFlags::DIRECTORY
-            };
-        let descriptor =
-            openat(&directory, name, flags, Mode::empty()).map_err(|_| unavailable())?;
-        let file = std::fs::File::from(descriptor);
-        if last {
-            let metadata = file.metadata().map_err(|_| unavailable())?;
-            if !metadata.is_file() || metadata.len() > MAX_BYTES as u64 {
-                return Err(unavailable());
-            }
-            return Ok(file);
-        }
-        directory = file;
-    }
-    Err(unavailable())
+    Ok(file)
 }
 
 #[cfg(test)]
