@@ -52,6 +52,17 @@ def test_tie_rule_preserves_other_contract_checks(damage):
         compare(left, right)
 
 
+@pytest.mark.parametrize("rank", [True, 1.0, "1"], ids=["boolean", "float", "string"])
+def test_rank_requires_an_integer(rank):
+    left = response([("A", 3)])
+    right = copy.deepcopy(left)
+    entries = json.loads(right["body"])
+    entries[0]["rank"] = rank
+    right["body"] = json.dumps(entries).encode()
+    with pytest.raises((AssertionError, RuntimeError)):
+        compare(left, right)
+
+
 def test_other_routes_keep_ordered_comparison():
     with pytest.raises((AssertionError, RuntimeError)):
         compare(response([("A", 3), ("B", 2), ("C", 2)]),
