@@ -276,16 +276,16 @@
                 "$ref": "#/$defs/digest"
               },
               "imports": {
-                "$ref": "#/$defs/strings"
+                "$ref": "#/$defs/references"
               },
               "imports_complete": {
                 "type": "boolean"
               },
               "credential_references": {
-                "$ref": "#/$defs/paths"
+                "$ref": "#/$defs/references"
               },
               "executables": {
-                "$ref": "#/$defs/strings"
+                "$ref": "#/$defs/references"
               }
             }
           }
@@ -533,10 +533,12 @@
         ],
         "properties": {
           "source": {
-            "$ref": "#/$defs/text"
+            "type": "string",
+            "pattern": "^(?:/[A-Za-z0-9_./@+-]+|<unresolved>)$",
+            "maxLength": 4096
           },
           "reference": {
-            "$ref": "#/$defs/text"
+            "$ref": "#/$defs/reference"
           },
           "status": {
             "enum": [
@@ -551,6 +553,51 @@
             ]
           }
         }
+      }
+    },
+    "reference": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "path"
+          ],
+          "properties": {
+            "kind": {
+              "const": "resolved"
+            },
+            "path": {
+              "type": "string",
+              "pattern": "^/[A-Za-z0-9_./@+-]+$",
+              "maxLength": 4096
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "sha256"
+          ],
+          "properties": {
+            "kind": {
+              "const": "<unresolved>"
+            },
+            "sha256": {
+              "$ref": "#/$defs/digest"
+            }
+          }
+        }
+      ]
+    },
+    "references": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": {
+        "$ref": "#/$defs/reference"
       }
     }
   },

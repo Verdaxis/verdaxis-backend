@@ -16,7 +16,8 @@ class ReviewContract(unittest.TestCase):
     def test_review_examples_never_cross_transport(self):
         secrets = ['two words', 'password-short', 'pg-short', 'query-short',
                    'first-fragment', 'second-fragment', 'continued-secret', 'A' * 40 + '=',
-                   'a' * 40 + '=', '0123456789abcdef0123456789abcdeff']
+                   'a' * 40 + '=', '0123456789abcdef0123456789abcdef0']
+        self.assertEqual(len(secrets[-1]), 31)
         unit = '\n'.join([
             '[Service]', 'User=fixture', 'Group=fixture', 'WorkingDirectory=/srv/fixture',
             'After=network.target fixture.service',
@@ -99,9 +100,9 @@ class ReviewContract(unittest.TestCase):
             self.assertEqual({r['path'] for r in result['scripts']},
                              {str(entry), str(root / 'helper.py'), str(root / 'app/__init__.py'), str(root / 'app/hidden.py')})
             self.assertFalse(result['complete'])
-            self.assertTrue(any(r['reference'] == 'missing_dependency' and r['status'] == 'unresolved'
+            self.assertTrue(any(r['reference']['sha256'] == hashlib.sha256(b'missing_dependency').hexdigest() and r['status'] == 'unresolved'
                                 for r in result['blocking_dependencies']))
-            self.assertTrue(any(r['reference'] == 'app.hidden' for r in result['blocking_dependencies']))
+            self.assertTrue(any(r['reference']['sha256'] == hashlib.sha256(b'app.hidden').hexdigest() for r in result['blocking_dependencies']))
             transport = load(TRANSPORT)
             snapshot = self.reader.collect(lambda argv: ('', True), cron_files=[])
             snapshot.update(scripts=result['scripts'], blocking_dependencies=result['blocking_dependencies'])

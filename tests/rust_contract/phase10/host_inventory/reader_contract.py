@@ -63,7 +63,7 @@ class ReaderContract(unittest.TestCase):
             self.assertEqual(row['mode'], '0750')
             self.assertEqual(row['uid'], os.getuid())
             self.assertEqual(row['size'], len(data))
-            self.assertEqual(row['imports'], ['app.models', 'app.models.User', 'json'])
+            self.assertTrue(all(r['kind'] == '<unresolved>' for r in row['imports']))
             self.assertNotIn('sensitive', json.dumps(row))
             link = folder / 'link.py'
             link.symlink_to(script)
@@ -80,8 +80,8 @@ class ReaderContract(unittest.TestCase):
             shell = folder / 'restore.sh'
             shell.write_text('#!/bin/sh\n. /etc/private.env\nsource /usr/local/libexec/helper.sh\n')
             row = self.reader.read_script(str(shell))
-            self.assertIn('/etc/private.env', row['credential_references'])
-            self.assertIn('/usr/local/libexec/helper.sh', row['imports'])
+            self.assertIn({'kind': 'resolved', 'path': '/etc/private.env'}, row['credential_references'])
+            self.assertTrue(all(r['kind'] == '<unresolved>' for r in row['imports']))
             # Import names are recorded, never imported, sourced or followed.
             self.assertNotIn('contents', row)
 

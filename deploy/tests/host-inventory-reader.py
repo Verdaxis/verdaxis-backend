@@ -100,7 +100,7 @@ def read_file(path):
     return raw, before
 
 
-def read_script(path):
+def scan_script(path):
     raw, before = read_file(path)
     text = raw.decode('utf-8', errors='replace')
     imports = set()
@@ -127,32 +127,41 @@ def read_script(path):
         except (SyntaxError, RecursionError):
             imports_complete = False
     else:
-        for match in re.finditer(r'(?:^|[;\n])\s*(?:\.|source)\s+["\']?([^\s"\';]+)', text):
-            name = match[1]
-            if forbidden(name):
-                references.add(name)
-            else:
-                imports.add(name)
-        if '$' in text or '`' in text:
-            imports_complete = False  # static discovery cannot prove dynamic references
-    if not path.endswith('.py'):
-        for line in text.splitlines():
-            stripped = line.strip()
-            if not stripped or stripped.startswith('#') or re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*=.*', stripped):
-                continue
-            resolved = executable(stripped)
-            if resolved:
-                executables.add(resolved)
-            elif not re.match(r'(?:\.|source)\s+', stripped):
+        for statement in logical_statements(text):
+            try:
+                words = shlex.split(statement)
+            except ValueError:
+                imports.add(statement)
                 imports_complete = False
+                continue
+            if not words or words[0].startswith('#'):
+                continue
+            if words[0] in {'.', 'source'}:
+                if len(words) == 2 and safe_path(words[1]):
+                    if forbidden(words[1]):
+                        references.add(words[1])
+                    else:
+                        imports.add(words[1])
+                else:
+                    imports.add(statement)
+                    imports_complete = False
+            elif re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*=.*', statement.strip()):
+                continue
+            else:
+                operand, certain = script_operand(statement)
+                if operand:
+                    executables.add(operand)
+                if not certain:
+                    imports.add(statement)
+                    imports_complete = False
     if len(imports) + len(references) + len(executables) > MAX_ITEMS:
         raise ValueError('import count bound exceeded')
     # File contents are never returned. Only static imports and metadata survive.
     return {'path': path if safe_path(path) else '<unparsed>', 'uid': before.st_uid, 'gid': before.st_gid,
             'mode': format(stat.S_IMODE(before.st_mode), '04o'), 'size': len(raw),
-            'sha256': hashlib.sha256(raw).hexdigest(), 'imports': sorted(redact(name) for name in imports),
-            'imports_complete': imports_complete, 'credential_references': sorted(redact(name) for name in references),
-            'executables': sorted(redact(name) for name in executables)}
+            'sha256': hashlib.sha256(raw).hexdigest(), 'imports': sorted(imports),
+            'imports_complete': imports_complete, 'credential_references': sorted(references),
+            'executables': sorted(executables)}
 
 
 # Only these structural values may cross the host boundary (PD10-W1).
@@ -169,6 +178,69 @@ def sha(text):
 
 def safe_path(value):
     return PATH_VALUE.fullmatch(value) is not None and '..' not in PurePosixPath(value).parts
+
+
+def logical_statements(text):
+    pending = ''
+    for line in text.splitlines(keepends=True):
+        pending += line
+        if len(pending.encode()) > MAX_SCRIPT_BYTES:
+            raise ValueError('statement bound exceeded')
+        if line.rstrip('\r\n').endswith('\\'):
+            continue
+        try:
+            shlex.split(pending.replace('\\\n', ' '))
+        except ValueError:
+            continue
+        yield pending.replace('\\\n', ' ').strip()
+        pending = ''
+    if pending:
+        yield pending
+
+
+def script_operand(value):
+    """Resolve only reviewed interpreter/wrapper grammar; never return argv tail."""
+    try:
+        words = shlex.split(value)
+    except ValueError:
+        return None, False
+    if not words:
+        return None, True
+    first = words.pop(0).lstrip('-+!:@')
+    if first in {'/usr/bin/env', '/bin/env'}:
+        if not words:
+            return None, False
+        first = words.pop(0)
+    if first in {'python3', '/usr/bin/python3', '/usr/local/bin/python3', 'sh', '/bin/sh', 'bash', '/bin/bash', '/usr/bin/bash'}:
+        if words and safe_path(words[0]) and not forbidden(words[0]):
+            return words[0], True
+        return None, False
+    if safe_path(first):
+        if first.endswith(('.py', '.sh')) or first.startswith('/usr/local/'):
+            return first, not forbidden(first)
+        # Native argv[0] is structural, but its arguments are not interpreted as
+        # a proved dependency graph. Conservatively require operator inspection.
+        return None, False
+    return None, False
+
+
+def entry_operands(surface, text, system_cron=False):
+    for line in logical_statements(text):
+        invocation = None
+        if surface == 'dropins' and '=' in line:
+            key, value = line.split('=', 1)
+            if key.strip() in {'ExecStart', 'ExecStartPre', 'ExecStop'}:
+                invocation = value.strip()
+        elif surface == 'cron' and line and not line.startswith('#'):
+            parts = line.split(None, 6 if system_cron else 5)
+            count = 6 if system_cron else 5
+            if len(parts) == count + 1 and all(re.fullmatch(r'[0-9*/,-]+', item) for item in parts[:5]):
+                invocation = parts[count]
+            elif line.startswith('@'):
+                parts = line.split(None, 2 if system_cron else 1)
+                invocation = parts[-1] if len(parts) == (3 if system_cron else 2) else None
+        if invocation is not None:
+            yield invocation, script_operand(invocation)
 
 
 def executable(value):
@@ -261,14 +333,23 @@ def structural(surface, text, system_cron=False):
     return {'surface': surface, 'sha256': sha(text), 'fields': fields, 'unparsed': unparsed}
 
 
-def inspect_graph(paths, roots=APP_ROOTS, max_depth=16, script_reader=read_script):
+def unresolved(value):
+    return {'kind': '<unresolved>', 'sha256': sha(value)}
+
+
+def resolved(path):
+    return {'kind': 'resolved', 'path': path}
+
+
+def inspect_graph(paths, roots=APP_ROOTS, max_depth=16, script_reader=scan_script):
     scripts, blocking = [], []
     visited = set()
     queue = [(path, 0) for path in sorted(set(paths))]
     budget = 0
 
     def block(source, reference, status='unresolved'):
-        blocking.append({'source': redact(source), 'reference': redact(reference), 'status': status})
+        blocking.append({'source': source if safe_path(source) else '<unresolved>',
+                         'reference': unresolved(reference), 'status': status})
         if len(blocking) > MAX_ITEMS:
             raise ValueError('blocking dependency bound exceeded')
 
@@ -288,53 +369,67 @@ def inspect_graph(paths, roots=APP_ROOTS, max_depth=16, script_reader=read_scrip
         budget += len(json.dumps(record).encode())
         if budget > MAX_TOTAL_BYTES:
             raise ValueError('graph byte bound exceeded')
-        scripts.append(record)
+        public = dict(record, imports=[], executables=[], credential_references=[])
+        scripts.append(public)
         if not record['imports_complete']:
             block(path, '<dynamic-or-unparsed>')
-        for reference in record['imports'] + record.get('executables', []):
-            if reference.split('.')[0] in {'app', 'scripts', 'alembic'}:
-                block(path, reference, 'removed-package')
-            if reference in sys.stdlib_module_names:
-                continue  # system interpreter remains installed; no import execution
-            candidates = []
-            if reference.startswith('/'):
-                candidates = [reference]
-            elif reference.startswith('.') and re.fullmatch(r'\.+[A-Za-z_][A-Za-z0-9_.]*', reference):
-                level = len(reference) - len(reference.lstrip('.'))
-                parent = PurePosixPath(path).parent
-                for _ in range(level - 1):
-                    parent = parent.parent
-                module = reference.lstrip('.').replace('.', '/')
-                candidates.extend([str(parent) + '/' + module + '.py', str(parent) + '/' + module + '/__init__.py'])
-            elif re.fullmatch(r'[A-Za-z_][A-Za-z0-9_.]*', reference):
-                module = reference.replace('.', '/')
-                for root in (str(PurePosixPath(path).parent), *roots):
-                    candidates.extend([root + '/' + module + '.py', root + '/' + module + '/__init__.py'])
-            found = None
-            for candidate in candidates:
-                try:
-                    # Resolve using the same no-follow/deny/bounds policy, never
-                    # find_spec/importlib (which can execute package initializers).
-                    script_reader(candidate)
-                    found = candidate
-                    break
-                except (OSError, ValueError):
+        for credential in record['credential_references']:
+            if safe_path(credential) and forbidden(credential):
+                public['credential_references'].append(resolved(credential))
+            else:
+                public['credential_references'].append(unresolved(credential))
+                block(path, credential)
+        for field in ('imports', 'executables'):
+            for reference in record.get(field, []):
+                if reference.split('.')[0] in {'app', 'scripts', 'alembic'}:
+                    block(path, reference, 'removed-package')
+                candidates = []
+                module = None
+                if safe_path(reference) and not forbidden(reference):
+                    candidates = [reference]
+                elif re.fullmatch(r'\.*[A-Za-z_][A-Za-z0-9_.]*', reference):
+                    level = len(reference) - len(reference.lstrip('.'))
+                    parent = PurePosixPath(path).parent
+                    for _ in range(max(0, level - 1)):
+                        parent = parent.parent
+                    module = reference.lstrip('.').replace('.', '/')
+                    search = [str(parent)] if level else [str(parent), *roots]
+                    for root in search:
+                        candidates.extend([root + '/' + module + '.py', root + '/' + module + '/__init__.py'])
+                found = None
+                for candidate in candidates:
+                    try:
+                        script_reader(candidate)
+                        found = candidate
+                        break
+                    except (OSError, ValueError):
+                        continue
+                # Local candidates precede standard-library assumptions. Without
+                # attested interpreter sys.path/PYTHONPATH, even stdlib fallback
+                # is unresolved, not a false claim of installed completeness.
+                if found is None or depth >= max_depth:
+                    public[field].append(unresolved(reference))
+                    block(path, reference)
                     continue
-            if found is None:
-                block(path, reference)
-                continue
-            if depth >= max_depth:
-                block(path, reference)
-                continue
-            queue.append((found, depth + 1))
-            # Importing a package also runs every parent __init__.py.
-            if not reference.startswith('/'):
-                base = found[:-len(module + '.py')] if found.endswith(module + '.py') else found[:-len(module + '/__init__.py')]
-                for index in range(1, len(reference.split('.'))):
-                    queue.append((base + '/'.join(reference.split('.')[:index]) + '/__init__.py', depth + 1))
-            if len(queue) > MAX_ITEMS:
-                raise ValueError('import queue bound exceeded')
+                public[field].append(resolved(found))
+                queue.append((found, depth + 1))
+                if module:
+                    base = found[:-len(module + '.py')] if found.endswith(module + '.py') else found[:-len(module + '/__init__.py')]
+                    for index in range(1, len(reference.lstrip('.').split('.'))):
+                        queue.append((base + '/'.join(reference.lstrip('.').split('.')[:index]) + '/__init__.py', depth + 1))
+                if len(queue) > MAX_ITEMS:
+                    raise ValueError('import queue bound exceeded')
     return {'scripts': scripts, 'blocking_dependencies': blocking, 'complete': not blocking}
+
+
+def read_script(path):
+    # Public helper uses the same projection as the serialized remote graph.
+    graph = inspect_graph([path])
+    if not graph['scripts']:
+        # Preserve no-follow/denial errors for callers without disclosing text.
+        scan_script(path)
+        raise ValueError('script unresolved')
+    return graph['scripts'][0]
 
 
 def allowed(argv):
@@ -394,14 +489,22 @@ def run_command(argv):
         process.stderr.close()
 
 
-def collect(command=run_command, cron_files=None, script_reader=read_script):
+def collect(command=run_command, cron_files=None, script_reader=scan_script):
     observations = []
     coverage = {}
     paths = set()
+    entry_blocks = []
     budget = 0
 
     def retain(surface, text, complete, system_cron=False):
         nonlocal budget
+        for invocation, (operand, certain) in entry_operands(surface, text, system_cron):
+            if operand:
+                paths.add(operand)
+            if not certain:
+                entry_blocks.append({'source': '<unresolved>', 'reference': unresolved(invocation), 'status': 'unresolved'})
+            if len(entry_blocks) > MAX_ITEMS:
+                raise ValueError('entry bound exceeded')
         record = structural(surface, text, system_cron)
         record['complete'] = complete
         budget += len(json.dumps(record).encode())
@@ -451,7 +554,8 @@ def collect(command=run_command, cron_files=None, script_reader=read_script):
     except (OSError, ValueError):
         coverage['cron'] = False
     graph = inspect_graph(paths, script_reader=script_reader)
-    coverage['imports'] = graph['complete']
+    graph['blocking_dependencies'].extend(entry_blocks)
+    coverage['imports'] = graph['complete'] and not entry_blocks
     return {'coverage': coverage, 'observations': observations,
             'scripts': graph['scripts'], 'blocking_dependencies': graph['blocking_dependencies']}
 
