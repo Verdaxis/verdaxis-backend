@@ -16,7 +16,7 @@ use uuid::Uuid;
 
 use super::{
     ports::{pydantic_datetime, query_error},
-    prices::{captured_now, fields, uuid},
+    prices::{fields, uuid},
 };
 use crate::market::{
     live_benchmarks::{LiveBenchmark, LiveBenchmarkCache, LiveBenchmarkKey},
@@ -26,7 +26,7 @@ use crate::market::{
     },
     windows::normalize_window,
 };
-use crate::{ApiError, ApiResult, AppState, Json, run_admitted};
+use crate::{ApiError, ApiResult, AppState, Json};
 
 const PATH: &str = "/api/orderbook/snapshot";
 
@@ -101,20 +101,25 @@ pub fn snapshot_query(raw: &str, now: DateTime<Utc>) -> Result<SnapshotQuery, Ap
 }
 
 pub async fn snapshot(State(state): State<AppState>, RawQuery(raw): RawQuery) -> ApiResult {
-    let now = captured_now(&state)?;
-    let query = snapshot_query(raw.as_deref().unwrap_or_default(), now)?;
+    let clock = crate::runtime::trading_routes::capture(&state)?;
+    let now = clock.wall.into();
+    let raw = raw.unwrap_or_default();
+    let query = snapshot_query(&raw, now)?;
     let policy = state.policy.clone();
     let config = state.config.clone();
-    let response = run_admitted(&state, move |connection| {
+    let cache_enabled = state.trading_cache.is_some();
+    let mut response = crate::runtime::trading_routes::read(&state, PATH, raw, "orderbook", clock, None, move |connection| {
         Box::pin(async move {
             let mut tx = connection
                 .begin()
                 .await
                 .map_err(|error| query_error(PATH, &error))?;
-            sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
-                .execute(&mut *tx)
-                .await
-                .map_err(|error| query_error(PATH, &error))?;
+            if !cache_enabled {
+                sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|error| query_error(PATH, &error))?;
+            }
             let sql = order_query_sql(include_str!("../../sql/orderbook/snapshot.sql"));
             let filters = PublicOrderFilters {
                 surface: OrderSurface::Orderbook,
@@ -160,6 +165,7 @@ pub async fn snapshot(State(state): State<AppState>, RawQuery(raw): RawQuery) ->
         })
     })
     .await?;
+    crate::runtime::trading_routes::generated_at(&mut response, now, true);
     Ok(axum::Json(response).into_response())
 }
 

@@ -17,7 +17,7 @@ use uuid::Uuid;
 
 use super::{
     ports::{pydantic_datetime, query_error},
-    prices::{captured_now, fields, integer, uuid},
+    prices::{fields, integer, uuid},
 };
 use crate::market::{
     visibility::{
@@ -26,7 +26,7 @@ use crate::market::{
     },
     windows::{normalize_window, window_sort_key},
 };
-use crate::{ApiError, ApiResult, AppState, Json, run_admitted};
+use crate::{ApiError, ApiResult, AppState, Json};
 
 pub fn routes() -> Router<AppState> {
     Router::new()
@@ -295,10 +295,12 @@ async fn recent(
         .collect()
 }
 async fn aggregate(State(state): State<AppState>, RawQuery(raw): RawQuery) -> ApiResult {
-    let now = captured_now(&state)?;
-    let filters = Filters::parse(raw.as_deref().unwrap_or_default(), now, false)?;
+    let clock = crate::runtime::trading_routes::capture(&state)?;
+    let now = clock.wall.into();
+    let raw = raw.unwrap_or_default();
+    let filters = Filters::parse(&raw, now, false)?;
     let owned = state.clone();
-    let result = run_admitted(&state, move |connection| {
+    let result = crate::runtime::trading_routes::read(&state, "/api/orderbook/aggregated", raw, "orderbook", clock, None, move |connection| {
         Box::pin(async move {
             let path = "/api/orderbook/aggregated";
             let mut tx = map_transaction(connection, path).await?;
@@ -311,10 +313,12 @@ async fn aggregate(State(state): State<AppState>, RawQuery(raw): RawQuery) -> Ap
     Ok(axum::Json(result).into_response())
 }
 async fn counts(State(state): State<AppState>, RawQuery(raw): RawQuery) -> ApiResult {
-    let now = captured_now(&state)?;
-    let filters = Filters::parse(raw.as_deref().unwrap_or_default(), now, true)?;
+    let clock = crate::runtime::trading_routes::capture(&state)?;
+    let now = clock.wall.into();
+    let raw = raw.unwrap_or_default();
+    let filters = Filters::parse(&raw, now, true)?;
     let owned = state.clone();
-    let result = run_admitted(&state, move |connection| {
+    let result = crate::runtime::trading_routes::read(&state, "/api/orderbook/product-counts", raw, "orderbook", clock, None, move |connection| {
         Box::pin(async move {
             let path = "/api/orderbook/product-counts";
             let mut tx = map_transaction(connection, path).await?;
@@ -369,9 +373,10 @@ async fn compact(State(state): State<AppState>) -> ApiResult {
     map_response(state, true).await
 }
 async fn map_response(state: AppState, compact: bool) -> ApiResult {
-    let now = captured_now(&state)?;
+    let clock = crate::runtime::trading_routes::capture(&state)?;
+    let now = clock.wall.into();
     let owned = state.clone();
-    let result = run_admitted(&state, move |connection| {
+    let result = crate::runtime::trading_routes::read(&state, "/api/orderbook/map-summary", compact.to_string(), "orderbook", clock, None, move |connection| {
         Box::pin(async move {
             let path = "/api/orderbook/map-summary";
             let mut tx = map_transaction(connection, path).await?;
@@ -379,23 +384,22 @@ async fn map_response(state: AppState, compact: bool) -> ApiResult {
             let (markets, demo_groups) = if compact {
                 match compact_groups(&groups, now.date_naive()) {
                     Ok(groups) => groups,
-                    Err(_) => return Ok(crate::runtime::http::unhandled_server_error()),
+                    Err(_) => return Ok(None),
                 }
             } else {
                 (Vec::new(), Vec::new())
             };
             let asks = recent(&mut tx, &owned, now, path).await?;
             tx.commit().await.map_err(|e| query_error(path, &e))?;
-            Ok(axum::Json(if compact {
+            Ok(Some(if compact {
                 json!({"markets":markets,"demo_groups":demo_groups,"recent_asks":asks})
             } else {
                 json!({"groups":groups,"recent_asks":asks})
-            })
-            .into_response())
+            }))
         })
     })
     .await?;
-    Ok(result)
+    Ok(match result { Some(value) => axum::Json(value).into_response(), None => crate::runtime::http::unhandled_server_error() })
 }
 
 fn compare_amount(left: &Json, right: &Json) -> Result<std::cmp::Ordering, ApiError> {
@@ -551,9 +555,10 @@ async fn fuel_types(State(state): State<AppState>) -> ApiResult {
     distinct(state, "fuel-types").await
 }
 async fn distinct(state: AppState, field: &'static str) -> ApiResult {
-    let now = captured_now(&state)?;
+    let clock = crate::runtime::trading_routes::capture(&state)?;
+    let now = clock.wall.into();
     let owned = state.clone();
-    let result = run_admitted(&state, move |connection| {
+    let result = crate::runtime::trading_routes::read(&state, field, String::new(), "orderbook", clock, None, move |connection| {
         Box::pin(async move {
             let sql = order_query_sql_projected(
                 include_str!("../../sql/orderbook/distinct.sql"),

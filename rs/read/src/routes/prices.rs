@@ -10,7 +10,7 @@ use crate::market::visibility::{
 use crate::market::windows::normalize_window;
 use crate::routes::ports::{query_error, utc_rfc3339};
 use crate::runtime::http::{QueryFields, QueryKind, QueryValue};
-use crate::{ApiError, AppState, Json, run_admitted};
+use crate::{ApiError, AppState, Json};
 use axum::{
     Router,
     extract::{RawQuery, State},
@@ -251,12 +251,13 @@ async fn summary(
     RawQuery(raw): RawQuery,
 ) -> Result<Response, ApiError> {
     let raw = raw.unwrap_or_default();
-    let now = captured_now(&state)?;
+    let clock = crate::runtime::trading_routes::capture(&state)?;
+    let now: DateTime<Utc> = clock.wall.into();
     query::validate(&raw, query::Surface::Summary)?;
     let hours = integer(&raw, "hours", 1, 168, 24)?;
     let filters = PriceFilters::parse(&raw, &state, now)?;
     let policy = state.policy.clone();
-    let items = run_admitted(&state, move |connection| {
+    let items = crate::runtime::trading_routes::read(&state, "/api/prices", raw, "prices", clock, Some(hours), move |connection| {
         Box::pin(async move {
             let evidence = filters.evidence(Some(now - chrono::Duration::hours(hours)));
             let mut items = Vec::new();
@@ -373,7 +374,8 @@ async fn reference_response(
     raw: String,
     export: bool,
 ) -> Result<Response, ApiError> {
-    let now = captured_now(&state)?;
+    let clock = crate::runtime::trading_routes::capture(&state)?;
+    let now: DateTime<Utc> = clock.wall.into();
     query::validate(
         &raw,
         if export {
@@ -396,7 +398,8 @@ async fn reference_response(
         });
     }
     let policy = state.policy.clone();
-    run_admitted(&state, move |connection| {
+    let key = format!("{}:{visibility}", raw);
+    let items = crate::runtime::trading_routes::read(&state, if export { "/api/prices/reference/export" } else { "/api/prices/reference" }, key, "prices_fixed", clock, None, move |connection| {
         Box::pin(async move {
             // The reference aggregate over the full trade set crosses the JIT
             // cost threshold on the expanded corpus; the paged orderbook and
@@ -459,6 +462,9 @@ async fn reference_response(
                 item["is_reference"] = json!(true);
                 items.push(item);
             }
+            Ok(items)
+        })
+    }).await?;
             if export {
                 Ok((
                     [
@@ -477,9 +483,6 @@ async fn reference_response(
                         .into_response(),
                 )
             }
-        })
-    })
-    .await
 }
 
 /// Python csv.DictWriter's column order, minimal quoting and CRLF termination.
