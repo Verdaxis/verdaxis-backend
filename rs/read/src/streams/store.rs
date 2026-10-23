@@ -419,8 +419,11 @@ fn read_event(row: &PgRow, maximum_participants: usize) -> Result<StoredEvent, S
     let payload: Value = row
         .try_get("payload")
         .map_err(|_| StoreError::Unavailable)?;
-    let payload_bytes: i64 = row.try_get("payload_bytes").map_err(|_| StoreError::Unavailable)?;
-    let payload_bytes = usize::try_from(payload_bytes).map_err(|_| StoreError::InvalidEvent(seq))?;
+    let payload_bytes: i64 = row
+        .try_get("payload_bytes")
+        .map_err(|_| StoreError::Unavailable)?;
+    let payload_bytes =
+        usize::try_from(payload_bytes).map_err(|_| StoreError::InvalidEvent(seq))?;
     StoredEvent::from_persisted(
         seq,
         decode_participants(seq, &participants_raw, maximum_participants)?,

@@ -102,7 +102,9 @@ impl StoredEvent {
         event_type: &str,
         payload: Value,
     ) -> Result<Self, InvalidEvent> {
-        let payload_bytes = serde_json::to_vec(&payload).map_err(|_| InvalidEvent)?.len();
+        let payload_bytes = serde_json::to_vec(&payload)
+            .map_err(|_| InvalidEvent)?
+            .len();
         Self::from_persisted(seq, participants, event_type, payload, payload_bytes)
     }
 
