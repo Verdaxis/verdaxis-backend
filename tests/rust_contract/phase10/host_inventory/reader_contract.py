@@ -148,7 +148,7 @@ class ReaderContract(unittest.TestCase):
         calls = []
         def runner(argv, data):
             calls.append((argv, data))
-            return b'{"acquired":{},"dependency_coverage":"manual-review-required","observations":[],"scripts":[],"blocking_dependencies":[]}', True
+            return b'{"acquired":{},"dependency_coverage":"manual-review-required","observations":[],"scripts":[],"blocking_dependencies":[],"truncations":[]}', True
         for host, target in [('staging', '194.233.68.86'), ('production', 'verdaxis-prod-eu')]:
             transport.read_host(host, runner)
             argv, data = calls[-1]

@@ -41,6 +41,40 @@ SECRET_KEY = re.compile(r'(?i)(PASS|SECRET|TOKEN|KEY|DSN|DATABASE_URL|AUTH|CREDE
 ASSIGNMENT = re.compile(r'\b([A-Za-z_][A-Za-z0-9_]*)=(<redacted>|"(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'|[^\s;]+)')
 
 
+REFUSAL_CODES = {'output-bytes', 'os-error', 'value-error', 'recursion'}
+BOUND_CODES = {'unit-count', 'structural-items', 'blocking-rows', 'cron-count',
+               'entries', 'import-queue', 'statements', 'logical-lines',
+               'graph-bytes', 'references', 'command-bytes'}
+
+
+class SurfaceBound(ValueError):
+    def __init__(self, code):
+        self.code = code
+
+
+def refusal(error):
+    if isinstance(error, SurfaceBound) and error.code == 'output-bytes':
+        return {'refusal': 'output-bytes'}
+    if isinstance(error, RecursionError):
+        return {'refusal': 'recursion'}
+    if isinstance(error, OSError):
+        return {'refusal': 'os-error'}
+    return {'refusal': 'value-error'}
+
+
+def bound_row(surface):
+    return {'source': unresolved('<bound>'), 'reference': unresolved('<bound>'),
+            'status': 'bound-exceeded:' + surface}
+
+
+def encode_result(result):
+    encoder = json.JSONEncoder(ensure_ascii=True)
+    size = sum(len(chunk.encode()) for chunk in encoder.iterencode(result))
+    if size > MAX_TOTAL_BYTES:
+        return json.dumps({'refusal': 'output-bytes'}) + '\n'
+    return ''.join(encoder.iterencode(result)) + '\n'
+
+
 def redact(text):
     # Consume continued lines first: no second line of a secret may survive.
     text = re.sub(r'\\\r?\n', ' ', text)
@@ -168,14 +202,18 @@ def scan_script(path):
                     scan_parsed = False
     if not scan_parsed:
         imports.add('<dynamic-or-unparsed>')
+    truncated = []
     if len(imports) + len(references) + len(executables) > MAX_ITEMS:
-        raise ValueError('import count bound exceeded')
+        truncated.append('references')
+        imports = set(sorted(imports)[:MAX_ITEMS])
+        references = set(sorted(references)[:max(0, MAX_ITEMS - len(imports))])
+        executables = set(sorted(executables)[:max(0, MAX_ITEMS - len(imports) - len(references))])
     # File contents are never returned. Only static imports and metadata survive.
     return {'path': path if safe_path(path) else '<unparsed>', 'uid': before.st_uid, 'gid': before.st_gid,
             'mode': format(stat.S_IMODE(before.st_mode), '04o'), 'size': len(raw),
             'sha256': hashlib.sha256(raw).hexdigest(), 'imports': sorted(imports),
             'read_acquired': True, 'credential_references': sorted(references),
-            'executables': sorted(executables)}
+            'executables': sorted(executables), 'truncations': truncated}
 
 
 # Only these structural values may cross the host boundary (PD10-W1).
@@ -199,7 +237,7 @@ def logical_statements(text):
     for line in text.splitlines(keepends=True):
         pending += line
         if len(pending.encode()) > MAX_SCRIPT_BYTES:
-            raise ValueError('statement bound exceeded')
+            raise SurfaceBound('statements')
         if line.rstrip('\r\n').endswith('\\'):
             continue
         try:
@@ -271,11 +309,14 @@ def structural(surface, text, system_cron=False):
     unparsed = []
     # A physical multiline quoted value is uncertain: suppress the entire
     # continuation until its quote closes, rather than parsing suffixes as fields.
+    truncated = []
     pending = ''
     for physical in text.splitlines(keepends=True):
         pending += physical
         if len(pending.encode()) > MAX_OUTPUT_BYTES:
-            raise ValueError('logical line bound exceeded')
+            truncated.append('logical-lines')
+            pending = ''
+            break
         if physical.rstrip('\r\n').endswith('\\'):
             continue
         try:
@@ -337,10 +378,13 @@ def structural(surface, text, system_cron=False):
         if not parsed:
             unparsed.append({'value': '<unparsed>', 'sha256': sha(raw)})
         if len(fields) + len(unparsed) > MAX_ITEMS:
-            raise ValueError('structural item bound exceeded')
+            fields = fields[:MAX_ITEMS]
+            unparsed = unparsed[:max(0, MAX_ITEMS - len(fields))]
+            truncated.append('structural-items')
+            break
     if pending:
         unparsed.append({'value': '<unparsed>', 'sha256': sha(pending)})
-    return {'surface': surface, 'sha256': sha(text), 'fields': fields, 'unparsed': unparsed}
+    return {'surface': surface, 'sha256': sha(text), 'fields': fields, 'unparsed': unparsed, 'truncations': truncated}
 
 
 def unresolved(value):
@@ -357,31 +401,40 @@ def inspect_graph(paths, roots=APP_ROOTS, max_depth=16, script_reader=scan_scrip
     inspected = set()
     queue = [(path, 0) for path in sorted(set(paths))]
     budget = 0
+    truncated = set()
 
     def block(source, reference, status='unresolved'):
+        if len(blocking) >= MAX_ITEMS:
+            truncated.add('blocking-rows')
+            return
         blocking.append({'source': resolved(source) if source in inspected else unresolved(source),
                          'reference': unresolved(reference), 'status': status})
-        if len(blocking) > MAX_ITEMS:
-            raise ValueError('blocking dependency bound exceeded')
+
 
     while queue:
         path, depth = queue.pop(0)
         if path in visited:
             continue
         if len(visited) >= MAX_ITEMS or depth > max_depth:
-            block(path, '<depth-or-count-bound>')
-            continue
+            truncated.add('import-queue')
+            break
         visited.add(path)
         try:
             record = script_reader(path)
+        except SurfaceBound as error:
+            truncated.add(error.code)
+            continue
         except (OSError, ValueError):
             block(path, '<unreadable-or-forbidden>')
             continue
         budget += len(json.dumps(record).encode())
         if budget > MAX_TOTAL_BYTES:
-            raise ValueError('graph byte bound exceeded')
+            truncated.add('graph-bytes')
+            break
         inspected.add(path)
+        truncated.update(record.get('truncations', []))
         public = dict(record, imports=[], executables=[], credential_references=[])
+        public['truncations'] = record.get('truncations', [])
         scripts.append(public)
         # Scan uncertainty is represented by unresolved references, never completeness.
         for credential in record['credential_references']:
@@ -409,8 +462,11 @@ def inspect_graph(paths, roots=APP_ROOTS, max_depth=16, script_reader=scan_scrip
                 public[field].append(resolved(reference))
                 queue.append((reference, depth + 1))
                 if len(queue) > MAX_ITEMS:
-                    raise ValueError('import queue bound exceeded')
-    return {'scripts': scripts, 'blocking_dependencies': blocking, 'dependency_coverage': 'manual-review-required'}
+                    queue = queue[:MAX_ITEMS]
+                    truncated.add('import-queue')
+    for code in sorted(truncated):
+        blocking.append(bound_row(code))
+    return {'scripts': scripts, 'blocking_dependencies': blocking, 'truncations': sorted(truncated), 'dependency_coverage': 'manual-review-required'}
 
 
 def read_script(path):
@@ -485,24 +541,43 @@ def collect(command=run_command, cron_files=None, script_reader=scan_script):
     coverage = {}
     paths = set()
     entry_blocks = []
+    truncated = {}
     budget = 0
+
+    def mark(surface, code):
+        truncated.setdefault(surface, set()).add(code)
+        coverage[surface] = False
 
     def retain(surface, text, complete, system_cron=False):
         nonlocal budget
-        for invocation, (operand, certain) in entry_operands(surface, text, system_cron):
+        entries = []
+        try:
+            for item in entry_operands(surface, text, system_cron):
+                if len(entries) >= MAX_ITEMS:
+                    mark(surface, 'entries')
+                    break
+                entries.append(item)
+        except SurfaceBound as error:
+            entries = []
+            mark(surface, error.code)
+        for invocation, (operand, certain) in entries[:MAX_ITEMS]:
             if operand:
                 paths.add(operand)
-            if not certain:
+            if not certain and len(entry_blocks) < MAX_ITEMS:
                 entry_blocks.append({'source': unresolved(invocation), 'reference': unresolved(invocation), 'status': 'unresolved'})
-            if len(entry_blocks) > MAX_ITEMS:
-                raise ValueError('entry bound exceeded')
+            if len(entry_blocks) >= MAX_ITEMS:
+                mark(surface, 'entries')
+        if len(entries) > MAX_ITEMS:
+            mark(surface, 'entries')
         record = structural(surface, text, system_cron)
-        record['acquired'] = complete
+        for code in record['truncations']:
+            mark(surface, code)
+        record['acquired'] = complete and surface not in truncated
         budget += len(json.dumps(record).encode())
         if budget > MAX_TOTAL_BYTES:
-            raise ValueError('inventory output bound exceeded')
+            raise SurfaceBound('output-bytes')
         observations.append(record)
-        coverage[surface] = coverage.get(surface, True) and complete
+        coverage[surface] = coverage.get(surface, True) and complete and surface not in truncated
         for field in record['fields']:
             if field['key'] in {'executable', 'ExecStart', 'ExecStartPre', 'ExecStop'}:
                 for path in field['values']:
@@ -511,14 +586,18 @@ def collect(command=run_command, cron_files=None, script_reader=scan_script):
         return record
 
     def observe(surface, argv):
-        text, complete = command(argv)
+        try:
+            text, complete = command(argv)
+        except OSError:
+            text, complete = '', False
         return retain(surface, text, complete)
 
     units = observe('units', COMMANDS['units'])
     names = {name for field in units['fields'] for name in field['values'] if UNIT_NAME.fullmatch(name)}
     if len(names) > MAX_ITEMS:
-        raise ValueError('unit count bound exceeded')
-    coverage['dropins'] = True
+        mark('units', 'unit-count')
+        names = sorted(names)[:MAX_ITEMS]
+    coverage['dropins'] = coverage.get('units', False)
     for unit in sorted(names):
         observe('dropins', ('systemctl', 'cat', '--no-pager', '--', unit))
     for surface, name in [('timers', 'timers'), ('processes', 'processes'),
@@ -532,20 +611,39 @@ def collect(command=run_command, cron_files=None, script_reader=scan_script):
             descriptor = os.open('/etc/cron.d', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
             try:
                 with os.scandir(descriptor) as entries:
-                    for entry in entries:
+                    for entry in sorted(entries, key=lambda item: item.name):
                         if len(cron_paths) >= MAX_ITEMS:
-                            raise ValueError('cron count bound exceeded')
+                            mark('cron', 'cron-count')
+                            break
                         if entry.is_file(follow_symlinks=False):
                             cron_paths.append('/etc/cron.d/' + entry.name)
             finally:
                 os.close(descriptor)
-        for path in cron_paths:
-            raw, _ = read_file(path)
-            retain('cron', raw.decode('utf-8', errors='strict'), True, system_cron=True)
+        if len(cron_paths) > MAX_ITEMS:
+            mark('cron', 'cron-count')
+        for path in sorted(cron_paths)[:MAX_ITEMS]:
+            try:
+                raw, _ = read_file(path)
+                retain('cron', raw.decode('utf-8', errors='strict'), True, system_cron=True)
+            except SurfaceBound as error:
+                if error.code == 'output-bytes':
+                    raise
+                mark('cron', error.code)
+            except (OSError, ValueError):
+                coverage['cron'] = False
+                entry_blocks.append({'source': unresolved(path), 'reference': unresolved('<unreadable>'), 'status': 'unresolved'})
+    except SurfaceBound as error:
+        if error.code == 'output-bytes':
+            raise
+        mark('cron', error.code)
     except (OSError, ValueError):
         coverage['cron'] = False
     graph = inspect_graph(paths, script_reader=script_reader)
     graph['blocking_dependencies'].extend(entry_blocks)
+    for code in graph['truncations']:
+        mark('usr_local', code)
+    for surface in sorted(truncated):
+        graph['blocking_dependencies'].append(bound_row(surface))
     inspected_paths = {item['path'] for item in graph['scripts']}
     for observation in observations:
         retained = []
@@ -557,22 +655,14 @@ def collect(command=run_command, cron_files=None, script_reader=scan_script):
             retained.append(field)
         observation['fields'] = retained
     return {'acquired': coverage, 'dependency_coverage': 'manual-review-required', 'observations': observations,
-            'scripts': graph['scripts'], 'blocking_dependencies': graph['blocking_dependencies']}
+            'scripts': graph['scripts'], 'blocking_dependencies': graph['blocking_dependencies'],
+            'truncations': [{'surface': surface, 'reasons': sorted(codes)} for surface, codes in sorted(truncated.items())]}
 
 
 if __name__ == '__main__':
     try:
         result = collect()
-        # Validate size without allocating a second full encoded document.
-        encoder = json.JSONEncoder(ensure_ascii=True)
-        total = 0
-        for chunk in encoder.iterencode(result):
-            total += len(chunk.encode())
-            if total > MAX_TOTAL_BYTES:
-                raise ValueError('output too large')
-        for chunk in encoder.iterencode(result):
-            sys.stdout.write(chunk)
-        sys.stdout.write('\n')
-    except (OSError, ValueError, RecursionError):
-        sys.stderr.write('read-only inventory refused\n')
-        sys.exit(1)
+    except (OSError, ValueError, RecursionError) as error:
+        result = refusal(error)
+    sys.stdout.write(encode_result(result))
+    sys.exit(1 if 'refusal' in result else 0)

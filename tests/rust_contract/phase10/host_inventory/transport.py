@@ -83,10 +83,16 @@ def read_host(host, runner=ssh_once):
     argv = ['ssh', '-T', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15',
             '-o', 'StrictHostKeyChecking=yes', HOSTS[host], 'python3 -B -I -']
     data, complete = runner(argv, READER.read_bytes())
-    if not complete or len(data) > MAX_BYTES:
-        raise ValueError('host inventory incomplete')
+    if len(data) > MAX_BYTES:
+        return {'refusal': 'output-bytes'}
+    if not data:
+        return {'refusal': 'transport-error'}
     result = json.loads(data)
-    if not isinstance(result, dict) or set(result) != {'acquired', 'dependency_coverage', 'observations', 'scripts', 'blocking_dependencies'}:
+    if isinstance(result, dict) and set(result) == {'refusal'} and result['refusal'] in {'output-bytes', 'os-error', 'value-error', 'recursion'}:
+        return result
+    if not complete:
+        return {'refusal': 'transport-error'}
+    if not isinstance(result, dict) or set(result) != {'acquired', 'dependency_coverage', 'observations', 'scripts', 'blocking_dependencies', 'truncations'}:
         raise ValueError('host inventory shape refused')
     return result
 
@@ -98,6 +104,9 @@ def collect_hosts(document, runner=ssh_once):
     fixture runners; the shell CLI deliberately has no live activation path.
     """
     snapshots = {host: read_host(host, runner) for host in HOSTS}
+    failures = {host: snapshot for host, snapshot in snapshots.items() if 'refusal' in snapshot}
+    if failures:
+        return {'host_refusals': failures}
     result = dict(document)
     result['scope'] = 'installed'
     result['dependency_coverage'] = 'manual-review-required'

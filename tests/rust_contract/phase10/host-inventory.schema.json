@@ -135,7 +135,8 @@
         "observations",
         "scripts",
         "blocking_dependencies",
-        "dependency_coverage"
+        "dependency_coverage",
+        "truncations"
       ],
       "properties": {
         "observations": {
@@ -232,6 +233,26 @@
               },
               "acquired": {
                 "type": "boolean"
+              },
+              "truncations": {
+                "type": "array",
+                "maxItems": 11,
+                "uniqueItems": true,
+                "items": {
+                  "enum": [
+                    "unit-count",
+                    "structural-items",
+                    "blocking-rows",
+                    "cron-count",
+                    "entries",
+                    "import-queue",
+                    "statements",
+                    "logical-lines",
+                    "graph-bytes",
+                    "references",
+                    "command-bytes"
+                  ]
+                }
               }
             }
           }
@@ -288,6 +309,26 @@
               },
               "read_acquired": {
                 "type": "boolean"
+              },
+              "truncations": {
+                "type": "array",
+                "maxItems": 11,
+                "uniqueItems": true,
+                "items": {
+                  "enum": [
+                    "unit-count",
+                    "structural-items",
+                    "blocking-rows",
+                    "cron-count",
+                    "entries",
+                    "import-queue",
+                    "statements",
+                    "logical-lines",
+                    "graph-bytes",
+                    "references",
+                    "command-bytes"
+                  ]
+                }
               }
             }
           }
@@ -300,6 +341,51 @@
         },
         "dependency_coverage": {
           "const": "manual-review-required"
+        },
+        "truncations": {
+          "type": "array",
+          "maxItems": 7,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "surface",
+              "reasons"
+            ],
+            "properties": {
+              "surface": {
+                "enum": [
+                  "units",
+                  "dropins",
+                  "timers",
+                  "processes",
+                  "usr_local",
+                  "packages",
+                  "cron"
+                ]
+              },
+              "reasons": {
+                "type": "array",
+                "maxItems": 11,
+                "uniqueItems": true,
+                "items": {
+                  "enum": [
+                    "unit-count",
+                    "structural-items",
+                    "blocking-rows",
+                    "cron-count",
+                    "entries",
+                    "import-queue",
+                    "statements",
+                    "logical-lines",
+                    "graph-bytes",
+                    "references",
+                    "command-bytes"
+                  ]
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -490,7 +576,7 @@
     },
     "blocking": {
       "type": "array",
-      "maxItems": 2000,
+      "maxItems": 5000,
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -509,7 +595,25 @@
           "status": {
             "enum": [
               "unresolved",
-              "removed-package"
+              "removed-package",
+              "bound-exceeded:unit-count",
+              "bound-exceeded:structural-items",
+              "bound-exceeded:blocking-rows",
+              "bound-exceeded:cron-count",
+              "bound-exceeded:entries",
+              "bound-exceeded:import-queue",
+              "bound-exceeded:statements",
+              "bound-exceeded:logical-lines",
+              "bound-exceeded:graph-bytes",
+              "bound-exceeded:references",
+              "bound-exceeded:command-bytes",
+              "bound-exceeded:units",
+              "bound-exceeded:dropins",
+              "bound-exceeded:timers",
+              "bound-exceeded:processes",
+              "bound-exceeded:usr_local",
+              "bound-exceeded:packages",
+              "bound-exceeded:cron"
             ]
           },
           "host": {
