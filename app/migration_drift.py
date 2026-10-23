@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import re
 from typing import Any
-from sqlalchemy import Enum, Float, Numeric, String
 
+from sqlalchemy import Enum, Float, Numeric, String
 
 # PostGIS owns spatial_ref_sys in public and the geocoder tables in its tiger
 # schema. Schema is part of every fingerprint so an application table such as
 # public.state can never be hidden by an extension table name.
 POSTGIS_SYSTEM_TABLES = {
     ("public", "spatial_ref_sys"),
-    *(("tiger", name) for name in {
+    *(("tiger", name) for name in (
         "addr", "addrfeat", "bg", "county", "county_lookup",
         "countysub_lookup", "cousub", "direction_lookup", "edges", "faces",
         "featnames", "geocode_settings", "geocode_settings_default", "layer",
@@ -21,7 +21,7 @@ POSTGIS_SYSTEM_TABLES = {
         "secondary_unit_lookup", "state", "state_lookup", "street_type_lookup",
         "tabblock", "tabblock20", "tract", "zcta5", "zip_lookup",
         "zip_lookup_all", "zip_lookup_base", "zip_state", "zip_state_loc",
-    }),
+    )),
     ("topology", "topology"),
 }
 
@@ -64,6 +64,19 @@ EXTERNAL_SCHEMA_FINGERPRINTS = {
     ("public", "rfqs", "reference_number_key", "unique_constraint", None, None, None, ("reference_number",)),
 }
 
+# Rust owns these schema objects (Phases 8-9 Task 5a).
+RUST_OWNED_SCHEMA_OBJECTS = {
+    ("public", "watchlist_producer_state", "table", "watchlist_producer_state"),
+    ("public", "watchlist_events", "column", "producer"),
+    ("public", "watchlist_events", "column", "source_event_id"),
+    ("public", "watchlist_events", "column", "source_stream_seq"),
+    ("public", "watchlist_events", "column", "scope_attested_at"),
+    ("public", "watchlist_events", "column", "derived_event_key"),
+    ("public", "watchlist_events", "check_constraint", "ck_watchlist_events_producer_identity"),
+    ("public", "watchlist_events", "index", "uq_watchlist_events_producer_source_target_derived"),
+    ("public", "market_event_outbox", "column", "producer_evidence"),
+}
+
 # Historical Verdaxis migrations retain these tables for data moves, but the
 # current ORM deliberately does not own them. Any future exclusion must name
 # its object here and be documented as legacy.
@@ -95,6 +108,9 @@ def include_object(
     table = getattr(object_, "table", None)
     table_name = getattr(table, "name", None)
     table_schema = getattr(table, "schema", None) or "public"
+    identity = (object_schema, name, type_, name) if type_ == "table" else (table_schema, table_name, type_, name)
+    if reflected and compare_to is None and identity in RUST_OWNED_SCHEMA_OBJECTS:
+        return False
     if table is not None and _is_postgis_system_table(table):
         return False
     if table_schema == "public" and table_name in LEGACY_TABLES:
