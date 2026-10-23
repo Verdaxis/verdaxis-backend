@@ -287,6 +287,49 @@ queued batch, then sequential affected-gate reruns after it finished; no duplica
 call or measurement. The automatic commit security review failed with API 404;
 that is not a successful security-review claim.
 
+## Release 2 staging merge — 23 October 2026
+
+The integration review (`outputs/research/rust-sm-r2-integration-review.md`)
+accepted `77307790` with no source fix, leaving one open release condition: the
+inherited advisory RUSTSEC-2026-0385 (`ctutils` < 0.4.4), fixed on staging by
+PR #123. `76f7e334` merges `origin/staging` at exactly `539fe2a2` into
+`77307790` with `--no-ff`, no conflict, and no manual resolution. Relative to
+the lane base, the merge brings in exactly the nine staging files: eight test
+files plus the `ctutils 0.4.4` lock entry. Reviewed the full merge diff: no
+assertion or test attribute was dropped; the migration downgrade test replaces
+two assertions with stronger ones (explicit NOWAIT lock-refusal text, pinned
+`fee_20260912_seller_per_mt` revision) and gains `test_alembic_timeout_reaps_the_child`;
+`test_assert_host_git_owner.py` gains the symlinked-unit-artifact refusal case.
+
+One batched staging wrapper ran the full gate set on `76f7e334`
+(`work/r2-staging-merge-gates.sh`, log `work/r2-staging-merge-gates.log`).
+The session was cut off mid-`rust-postgres` by the tooling usage limit, not by a
+gate failure; the four remaining gates were resumed in one continuation wrapper
+(`work/r2-staging-merge-gates-resume.sh`, log
+`work/r2-staging-merge-gates-resume.log`, final `CALL_EXIT=0`). Together they
+are the complete single batch the PM ordered, in two wrapper calls caused by the
+interruption.
+
+| Gate | Result |
+| --- | --- |
+| `cd rs && cargo audit` | 0, no finding — RUSTSEC-2026-0385 cleared by `ctutils 0.4.4` |
+| fmt check | 0 |
+| clippy workspace, warnings denied | 0 |
+| clippy with contract-tests | 0 |
+| offline workspace tests | 0, 275 passed |
+| market contract suite | 0, 6 cases + 7 + 7 equivalence |
+| cache-events suite | 0, 32 passed |
+| Rust disposable PostgreSQL runner | 0, 285 passed |
+| Python unit + monitor + rust_contract | 0, **3698 passed, 2 skipped** — the two inherited `test_phase2_*` failures now pass |
+| Python PostgreSQL market migrations | 0, 14 passed |
+| `tests/phase0/test_cutover.py` | 0, 20 passed |
+
+No Rust source changed in the merge, so the meaning results recorded on
+`77307790` carry unchanged; the year-zero rerun disposition stands as reviewed.
+Branch pushed: `77307790..76f7e334`. PR #114 stays draft; trading caching stays
+off. Any merge to staging, release or activation remains a separate PM and
+founder decision.
+
 ## Resume point and limits
 
 The prepared-budget listener switch still defaults off. The accepted Task 9/10
