@@ -88,7 +88,7 @@ pub fn render(mail: &AuthMail, sender: &str, frontend: &str) -> Value {
             format!("{}/verify-email?token={}", frontend.trim_end_matches('/'), encode(pending.as_deref().unwrap_or(token))),
         ),
         AuthMail::Reset { name, token, .. } => (
-            "Reset your password", "<p>Hello {{NAME}},</p><p><a href=\"{{URL}}\">Reset your password</a></p>", name.as_str(),
+            "Reset your password", include_str!("templates/reset.html"), name.as_str(),
             format!("{}/reset-password?token={}", frontend.trim_end_matches('/'), encode(token)),
         ),
         AuthMail::AccountExists { .. } => ("Your Verdaxis account", "<p>You have a Verdaxis account.</p><p><a href=\"{{URL}}\">Sign in</a></p>", "", format!("{}/login", frontend.trim_end_matches('/'))),
