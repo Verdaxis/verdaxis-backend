@@ -121,9 +121,11 @@ async fn stream_token_uses_current_bearer_actor() {
     )
     .unwrap();
     let id = Uuid::new_v4();
-    // Reuse an organization from the migrated fixture; no stream-specific DML.
-    let organization: Uuid = sqlx::query_scalar("SELECT id FROM organizations ORDER BY id LIMIT 1")
-        .fetch_one(&owner)
+    let organization = Uuid::new_v4();
+    sqlx::query("INSERT INTO organizations (id, name, type) VALUES ($1, $2, 'FUEL_BUYER')")
+        .bind(organization)
+        .bind(format!("Stream fixture {organization}"))
+        .execute(&owner)
         .await
         .unwrap();
     sqlx::query("INSERT INTO users (id,email,password_hash,role,status,email_verified,must_change_password,organization_id) VALUES ($1,$2,'unused','BUYER','APPROVED',true,false,$3)")
@@ -191,6 +193,11 @@ async fn stream_token_uses_current_bearer_actor() {
     ));
     sqlx::query("DELETE FROM users WHERE id=$1")
         .bind(id)
+        .execute(&owner)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM organizations WHERE id=$1")
+        .bind(organization)
         .execute(&owner)
         .await
         .unwrap();
