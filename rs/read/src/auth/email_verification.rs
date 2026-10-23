@@ -214,7 +214,10 @@ async fn resend_route(
         .map(Json)
 }
 
-pub fn client_address(peer: Option<Extension<ConnectInfo<SocketAddr>>>, headers: &HeaderMap) -> String {
+pub fn client_address(
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
+    headers: &HeaderMap,
+) -> String {
     crate::runtime::http::client_ip(
         peer.map(|peer| peer.0.0.ip()),
         headers
