@@ -23,13 +23,25 @@ pub struct EmailSettings {
     pub pool: PgPool,
     pub mail: MailDispatcher,
     pub limits: SharedLimits,
+    monitor_token: Option<std::sync::Arc<str>>,
 }
 impl EmailSettings {
+    pub fn with_monitor_token(mut self, token: String) -> Self {
+        self.monitor_token = (!token.is_empty()).then(|| token.into());
+        self
+    }
+    fn monitor_admitted(&self, headers: &HeaderMap) -> bool {
+        use sha2::{Digest, Sha256, digest::CtOutput};
+        let Some(expected) = self.monitor_token.as_deref() else { return false; };
+        let Some(presented) = headers.get("x-monitor-token") else { return false; };
+        CtOutput::<Sha256>::new(Sha256::digest(expected.as_bytes())) == CtOutput::<Sha256>::new(Sha256::digest(presented.as_bytes()))
+    }
     pub fn new(pool: PgPool, mail: MailDispatcher) -> Self {
         Self {
             pool,
             mail,
             limits: SharedLimits::default(),
+            monitor_token: None,
         }
     }
 }
@@ -138,34 +150,46 @@ pub async fn resend(
     address: &str,
     monitor_admitted: bool,
 ) -> Result<Value, ApiError> {
-    let mut tx = settings.pool.begin().await.map_err(database_error)?;
-    let user: Option<(uuid::Uuid, Option<String>)> = sqlx::query_as(
-        "SELECT id,first_name FROM users WHERE email=$1 AND NOT email_verified FOR UPDATE",
-    )
-    .bind(address)
-    .fetch_optional(&mut *tx)
-    .await
-    .map_err(database_error)?;
-    let mail = if let Some((id, name)) = user {
-        let token = generate_token();
-        sqlx::query("UPDATE users SET email_verification_token_hash=$2,email_verification_token_expires_at=$3 WHERE id=$1")
-            .bind(id).bind(token_digest(&token)).bind(Utc::now()+Duration::hours(24)).execute(&mut *tx).await.map_err(database_error)?;
-        Some(AuthMail::Verification {
-            to: address.into(),
-            name: name.unwrap_or_else(|| "there".into()),
-            token,
-            pending: None,
-        })
-    } else {
-        None
-    };
-    tx.commit().await.map_err(database_error)?;
+    let mail = retry_transaction(|| resend_attempt(settings, address)).await?;
     if !super::email::suppress_verification(monitor_admitted, address)
         && let Some(mail) = mail
     {
         settings.mail.dispatch(mail);
     }
     Ok(json!({"message":"If applicable, a verification link will be sent."}))
+}
+async fn resend_attempt(settings: &EmailSettings, address: &str) -> Result<Option<AuthMail>, sqlx::Error> {
+    let mut tx = settings.pool.begin().await?;
+    let user: Option<(uuid::Uuid, Option<String>)> = sqlx::query_as(
+        "SELECT id,first_name FROM users WHERE email=$1 AND NOT email_verified FOR UPDATE",
+    ).bind(address).fetch_optional(&mut *tx).await?;
+    let mail = if let Some((id,name)) = user {
+        let token = generate_token();
+        sqlx::query("UPDATE users SET email_verification_token_hash=$2,email_verification_token_expires_at=$3 WHERE id=$1")
+            .bind(id).bind(token_digest(&token)).bind(Utc::now()+Duration::hours(24)).execute(&mut *tx).await?;
+        Some(AuthMail::Verification { to:address.into(),name:name.unwrap_or_else(||"there".into()),token,pending:None })
+    } else { None };
+    tx.commit().await?;
+    Ok(mail)
+}
+
+pub async fn retry_transaction<T, F, Fut>(mut attempt: F) -> Result<T,ApiError>
+where F: FnMut() -> Fut, Fut: std::future::Future<Output=Result<T,sqlx::Error>> {
+    for index in 0..3 {
+        match attempt().await {
+            Err(error) if index < 2 && crate::auth::lock::WriteConflict::is_write_conflict(&error) => continue,
+            result => return result.map_err(database_error),
+        }
+    }
+    unreachable!("bounded transaction attempts")
+}
+
+pub async fn auth_json<T: serde::de::DeserializeOwned>(headers: &HeaderMap, body: axum::body::Body) -> Result<T,ApiError> {
+    let bytes=crate::auth::error::read_auth_body(headers,body).await?;
+    serde_json::from_slice(&bytes).map_err(|_|AuthFailure::new(AuthCode::ValidationFailed).into())
+}
+pub fn email_address(body: &Value) -> Result<String,ApiError> {
+    crate::crud::referrals::invite::normalize_email(body).map(|email|email.to_lowercase()).map_err(|_|AuthFailure::new(AuthCode::ValidationFailed).into())
 }
 
 #[derive(Deserialize)]
@@ -182,7 +206,7 @@ async fn verify_route(
     State(settings): State<EmailSettings>,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: HeaderMap,
-    Query(query): Query<VerifyQuery>,
+    query: Result<Query<VerifyQuery>, axum::extract::rejection::QueryRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let client = client_address(peer, &headers);
     settings.limits.check_endpoint(
@@ -190,6 +214,7 @@ async fn verify_route(
         "/api/auth/verify-email",
         Utc::now().timestamp() as u64,
     )?;
+    let Query(query)=query.map_err(|_|AuthFailure::new(AuthCode::ValidationFailed))?;
     let mut result = verify(&settings, &query.token).await?;
     if result["requires_org"] == true {
         result["registration_token"] = query.token.into();
@@ -200,16 +225,17 @@ async fn resend_route(
     State(settings): State<EmailSettings>,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: HeaderMap,
-    Json(body): Json<Value>,
+    body: axum::body::Body,
 ) -> Result<Json<Value>, ApiError> {
-    let address = crate::crud::referrals::invite::normalize_email(&body)?;
+    let body: Value=auth_json(&headers,body).await?;
+    let address = email_address(&body)?;
     let client = client_address(peer, &headers);
     settings.limits.check_endpoint(
         &client,
         "/api/auth/resend-verification-email",
         Utc::now().timestamp() as u64,
     )?;
-    resend(&settings, &address.to_lowercase(), false)
+    resend(&settings, &address, settings.monitor_admitted(&headers))
         .await
         .map(Json)
 }

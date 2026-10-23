@@ -67,6 +67,7 @@ impl MailDispatcher {
             return;
         };
         let dispatcher = self.clone();
+        use tracing::instrument::WithSubscriber;
         tokio::spawn(async move {
             let payload = render(&mail, &dispatcher.sender, &dispatcher.frontend);
             let mut sent = false;
@@ -90,7 +91,7 @@ impl MailDispatcher {
             }
             drop(permit);
             dispatcher.done.notify_waiters();
-        });
+        }.with_current_subscriber());
     }
     /// Await the currently admitted deliveries during graceful shutdown.
     pub async fn drain(&self) {

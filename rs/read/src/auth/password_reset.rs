@@ -1,16 +1,16 @@
 //! E1/E2 operations over the dedicated reset-token store.
 use super::email::AuthMail;
-use super::email_verification::{EmailSettings, client_address, database_error};
+use super::email_verification::{EmailSettings, client_address, database_error, retry_transaction, auth_json, email_address};
 use crate::auth::{
     error::{AuthCode, AuthFailure},
     password, store,
     token_bytes::{generate_token, token_digest},
 };
-use crate::{ApiError, ApiErrorKind};
+use crate::ApiError;
 use axum::{
     Extension, Json, Router,
     extract::{ConnectInfo, State},
-    http::{HeaderMap, StatusCode},
+    http::HeaderMap,
     routing::post,
 };
 use chrono::{Duration, Utc};
@@ -22,52 +22,29 @@ fn invalid() -> ApiError {
     AuthFailure::new(AuthCode::ResetTokenInvalid).into()
 }
 fn validation() -> ApiError {
-    ApiError {
-        status: StatusCode::UNPROCESSABLE_ENTITY,
-        detail: json!({"code":"REQUEST_INVALID","message":"Password must contain 8 to 1024 UTF-8 bytes"}),
-        retry_after: None,
-        kind: ApiErrorKind::Expected,
-    }
+    AuthFailure::new(AuthCode::ValidationFailed).into()
 }
 pub async fn forgot(settings: &EmailSettings, address: &str) -> Result<Value, ApiError> {
     store::sweep_expired_reset_tokens(&settings.pool, Utc::now())
         .await
         .map_err(database_error)?;
-    let mut tx = settings.pool.begin().await.map_err(database_error)?;
-    let user = store::lock_user_by_email(&mut tx, address)
-        .await
-        .map_err(database_error)?;
-    let mail = if let Some(user) = user.filter(|user| user.email_verified) {
-        let now = Utc::now();
-        let token = generate_token();
-        store::upsert_reset_token(
-            &mut tx,
-            &store::NewResetToken {
-                user_id: user.id,
-                token_hash: token_digest(&token),
-                expires_at: now + Duration::hours(1),
-            },
-            now,
-        )
-        .await
-        .map_err(database_error)?;
-        audit(&mut tx, user.id, "PASSWORD_RESET_REQUESTED")
-            .await
-            .map_err(database_error)?;
-        Some(AuthMail::Reset {
-            to: address.into(),
-            name: "there".into(),
-            token,
-        })
-    } else {
-        None
-    };
-    tx.commit().await.map_err(database_error)?;
-    if let Some(mail) = mail {
-        settings.mail.dispatch(mail);
-    }
+    let mail=retry_transaction(|| forgot_attempt(settings,address)).await?;
+    if let Some(mail)=mail { settings.mail.dispatch(mail); }
     Ok(json!({"message":"If applicable, a password reset link will be sent."}))
 }
+async fn forgot_attempt(settings:&EmailSettings,address:&str)->Result<Option<AuthMail>,sqlx::Error> {
+    let mut tx=settings.pool.begin().await?;
+    let user=store::lock_user_by_email(&mut tx,address).await?;
+    let mail=if let Some(user)=user.filter(|user|user.email_verified) {
+        let now=Utc::now();let token=generate_token();
+        store::upsert_reset_token(&mut tx,&store::NewResetToken{user_id:user.id,token_hash:token_digest(&token),expires_at:now+Duration::hours(1)},now).await?;
+        audit(&mut tx,user.id,"PASSWORD_RESET_REQUESTED").await?;
+        Some(AuthMail::Reset{to:address.into(),name:"there".into(),token})
+    } else {None};
+    tx.commit().await?;
+    Ok(mail)
+}
+
 pub async fn reset(
     settings: &EmailSettings,
     token: &str,
@@ -146,7 +123,7 @@ async fn forgot_route(
     State(settings): State<EmailSettings>,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: HeaderMap,
-    Json(body): Json<Value>,
+    body: axum::body::Body,
 ) -> Result<Json<Value>, ApiError> {
     let client = client_address(peer, &headers);
     let now = Utc::now().timestamp() as u64;
@@ -154,7 +131,8 @@ async fn forgot_route(
         .limits
         .preauth_check(&client, "/api/auth/forgot-password", now)
         .map_err(|error| ApiError::from(error.auth_failure()))?;
-    let address = crate::crud::referrals::invite::normalize_email(&body)?;
+    let body:Value=auth_json(&headers,body).await?;
+    let address=email_address(&body)?;
     settings
         .limits
         .check_endpoint(&client, "/api/auth/forgot-password", now)?;
@@ -164,8 +142,9 @@ async fn reset_route(
     State(settings): State<EmailSettings>,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: HeaderMap,
-    Json(body): Json<ResetRequest>,
+    body: axum::body::Body,
 ) -> Result<Json<Value>, ApiError> {
+    let body:ResetRequest=auth_json(&headers,body).await?;
     password::validate_bytes(&body.new_password).map_err(|_| validation())?;
     settings.limits.check_endpoint(
         &client_address(peer, &headers),
