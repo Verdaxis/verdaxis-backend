@@ -153,6 +153,55 @@ def test_internal_evidence_column_is_additive_and_python_writes_default_null(sup
     assert json.loads(sql("SELECT payload FROM market_event_outbox")) == {"schema_version": 1}
 
 
+def test_python_entity_flush_keeps_original_insert_and_returning_columns(supplier_scratch_database):
+    from uuid import UUID
+
+    from sqlalchemy import event
+    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+
+    from app.models.market_event import MarketEventOutbox
+    from app.models.watchlist import WatchlistEvent, WatchlistEventType
+
+    sql, migrate = supplier_scratch_database
+    migrate("upgrade", REVISION)
+    seed_target(sql)
+    url = make_url(os.environ["POSTGRES_ADMIN_TEST_DATABASE_URL"]).set(
+        database=sql("SELECT current_database()")
+    ).render_as_string(hide_password=False)
+    statements = []
+
+    async def flush():
+        engine = create_async_engine(url)
+        @event.listens_for(engine.sync_engine, "before_cursor_execute")
+        def capture(connection, cursor, statement, parameters, context, executemany):
+            if statement.startswith("INSERT INTO"):
+                statements.append(statement)
+        try:
+            async with AsyncSession(engine) as session:
+                session.add(WatchlistEvent(
+                    watchlist_id=UUID(WATCHLIST), watchlist_target_id=UUID(TARGET),
+                    event_type=WatchlistEventType.PIN_PRICE_CHANGED,
+                ))
+                session.add(MarketEventOutbox(
+                    event_type="order.updated", aggregate_type="order", aggregate_id="fixture",
+                    participant_org_ids=["88888888-7777-0000-0000-000000000009"], payload={},
+                ))
+                await session.flush()
+                await session.rollback()
+        finally:
+            await engine.dispose()
+    asyncio.run(flush())
+    expected = {
+        "watchlist_events": ["id", "watchlist_id", "watchlist_target_id", "event_type", "event_payload", "is_read", "created_at"],
+        "market_event_outbox": ["id", "event_type", "aggregate_type", "aggregate_id", "participant_org_ids", "payload", "created_at", "dispatched_at", "stream_seq", "delivery_attempts", "last_error"],
+    }
+    assert len(statements) == 2, statements
+    for statement in statements:
+        table = statement.split()[2]
+        assert statement.split("(", 1)[1].split(")", 1)[0].split(", ") == expected[table]
+        assert "RETURNING" not in statement, statement
+
+
 def test_producer_metadata_matches_migrated_head(supplier_scratch_database):
     sql, migrate = supplier_scratch_database
     migrate("upgrade", REVISION)

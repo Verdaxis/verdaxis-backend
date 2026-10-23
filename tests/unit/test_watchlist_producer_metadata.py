@@ -26,10 +26,10 @@ def test_default_entity_select_retains_its_literal_column_list(entity, columns):
     (WatchlistEvent, ["producer", "source_event_id", "source_stream_seq", "scope_attested_at", "derived_event_key"]),
     (MarketEventOutbox, ["producer_evidence"]),
 ])
-def test_producer_columns_are_registered_and_deferred(entity, columns):
+def test_producer_columns_are_registered_but_excluded_from_mapping(entity, columns):
     mapper = inspect(entity)
-    assert set(columns) <= set(mapper.columns.keys()), "producer metadata is absent"
-    assert all(mapper.attrs[column].deferred for column in columns)
+    assert set(columns) <= set(entity.__table__.columns.keys()), "producer metadata is absent"
+    assert not set(columns) & set(mapper.attrs.keys())
 
 
 def test_watermark_metadata_has_no_relationships_or_application_importers():
