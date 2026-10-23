@@ -165,7 +165,8 @@ def test_accepted_scenarios_bind_distinct_source_tests():
             }
         else:
             names = set(re.findall(
-                r"#\[(?:tokio::)?test(?:\([^\n]*\))?\]\s*(?:async\s+)?fn\s+(\w+)",
+                r"#\[(?:tokio::)?test(?:\([^\n]*\))?\]\s*"
+                r"(?:#\[[^\n]*\]\s*)*(?:async\s+)?fn\s+(\w+)",
                 source,
             ))
         assert name in names, identity

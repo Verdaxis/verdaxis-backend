@@ -216,17 +216,19 @@ async fn committed_rows_only() {
     let mut session = open(&db.settings()).await;
     let mut producer = connect(&db.url).await;
 
+    // Cache-generation writes serialize producers through commit. Complete the
+    // earlier batch before opening the transaction that holds that shared row.
+    insert_rows(&mut db.observer, "committed_rows_only_early", 2).await;
+    assert_eq!(
+        session.assign_one_batch().await,
+        Ok(AssignOutcome::Committed { assigned: 2 })
+    );
     // A producer's uncommitted row is invisible to the sequencer.
     let mut late = producer.begin().await.expect("producer transaction");
     insert_rows(&mut late, "committed_rows_only_late", 1).await;
     assert_eq!(
         session.assign_one_batch().await,
         Ok(AssignOutcome::NothingPending)
-    );
-    insert_rows(&mut db.observer, "committed_rows_only_early", 2).await;
-    assert_eq!(
-        session.assign_one_batch().await,
-        Ok(AssignOutcome::Committed { assigned: 2 })
     );
     late.commit().await.expect("producer commit");
     assert_eq!(

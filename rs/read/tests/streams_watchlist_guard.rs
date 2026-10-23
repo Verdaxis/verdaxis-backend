@@ -1171,7 +1171,10 @@ async fn dispatch_does_not_create_watchlist_rows() {
     .await
     .expect("read the sequenced rows");
     reader.commit().await.expect("end the snapshot");
-    let delivered_types: Vec<&str> = delivered.iter().map(|(_, kind)| kind.as_str()).collect();
+    // Sequence order is authoritative; a single producer transaction does not
+    // impose an event-type order on rows with equal creation timestamps.
+    let mut delivered_types: Vec<&str> = delivered.iter().map(|(_, kind)| kind.as_str()).collect();
+    delivered_types.sort_unstable();
     assert_eq!(
         delivered_types,
         vec!["order_created", "trade_created", "trade_delivered"]
