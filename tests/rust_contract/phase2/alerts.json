@@ -1,0 +1,1081 @@
+{
+  "version": 1,
+  "oracle_sha": "dee697f3a1c29a0e4e619534de25518efcac8d15",
+  "fixture_only": true,
+  "fastapi_version": "0.135.3",
+  "pydantic_version": "2.13.4",
+  "settings": {
+    "environment": "test",
+    "jwt_secret_env": "JWT_SECRET",
+    "jwt_issuer_env": "JWT_ISSUER",
+    "jwt_audience_env": "JWT_AUDIENCE",
+    "free_tier_alert_limit": 5
+  },
+  "sources": {
+    "app/routers/alerts.py": "898db5e873ecf55047e8bff89a01ab6b5aae7511593011314301d0f6fed84129",
+    "app/schemas/alerts.py": "79f4afd7d2be38ace0e03c3fbce76d0721e22155a494282dcdb1e059f1ac9296",
+    "app/models/alerts.py": "a7b2230941ee3554df0859e5f39e1cc14dc5d5c96a0bc797a55be2eeb8ec43c1"
+  },
+  "python_behaviour": {
+    "A01": {
+      "success_status": 201,
+      "no_organization": {
+        "status": 400,
+        "detail": "User must belong to an organization"
+      },
+      "free_tier_reached": {
+        "status": 403,
+        "detail": "Free tier limit of 5 active alerts reached. Delete an existing alert to create a new one."
+      },
+      "database_failure": {
+        "status": 500,
+        "detail": "Database operation failed."
+      }
+    },
+    "A02": {
+      "success_status": 200,
+      "no_organization": {
+        "status": 400,
+        "detail": "User must belong to an organization"
+      },
+      "order": "created_at DESC, no secondary key, inactive rows included"
+    },
+    "A03": {
+      "success_status": 204,
+      "no_organization": {
+        "status": 400,
+        "detail": "User must belong to an organization"
+      },
+      "not_found": {
+        "status": 404,
+        "detail": "Alert not found"
+      },
+      "foreign_organization": {
+        "status": 403,
+        "detail": "You can only delete your own alerts"
+      }
+    }
+  },
+  "admission_order": [
+    "json_syntax_422",
+    "authentication_401",
+    "typed_validation_422",
+    "handler_400_403_404"
+  ],
+  "response_examples": {
+    "single": "{\"id\":\"50000000-0000-4000-8000-000000000001\",\"org_id\":\"10000000-0000-4000-8000-000000000001\",\"product_id\":\"30000000-0000-4000-8000-000000000001\",\"product_name\":\"VLSFO 0.5% Singapore\",\"market_product\":\"VLSFO_SINGAPORE\",\"delivery_point_id\":\"40000000-0000-4000-8000-000000000001\",\"direction\":\"above\",\"threshold_usd\":\"12.34\",\"is_active\":true,\"triggered_at\":\"2026-10-18T12:30:00Z\",\"created_at\":\"2026-10-18T12:00:00Z\"}",
+    "list": "[{\"id\":\"50000000-0000-4000-8000-000000000001\",\"org_id\":\"10000000-0000-4000-8000-000000000001\",\"product_id\":\"30000000-0000-4000-8000-000000000001\",\"product_name\":\"VLSFO 0.5% Singapore\",\"market_product\":\"VLSFO_SINGAPORE\",\"delivery_point_id\":\"40000000-0000-4000-8000-000000000001\",\"direction\":\"above\",\"threshold_usd\":\"12.34\",\"is_active\":true,\"triggered_at\":\"2026-10-18T12:30:00Z\",\"created_at\":\"2026-10-18T12:00:00Z\"},{\"id\":\"50000000-0000-4000-8000-000000000002\",\"org_id\":\"10000000-0000-4000-8000-000000000001\",\"product_id\":\"30000000-0000-4000-8000-000000000001\",\"product_name\":null,\"market_product\":null,\"delivery_point_id\":null,\"direction\":\"below\",\"threshold_usd\":\"0.01\",\"is_active\":false,\"triggered_at\":null,\"created_at\":\"2026-10-18T12:00:00Z\"}]"
+  },
+  "vectors": [
+    {
+      "id": "valid-full",
+      "field": "request",
+      "body": {
+        "product_id": "30000000-0000-4000-8000-000000000001",
+        "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+        "direction": "above",
+        "threshold_usd": "12.34"
+      },
+      "python": {
+        "kind": "accepted",
+        "values": {
+          "product_id": "30000000-0000-4000-8000-000000000001",
+          "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+          "direction": "above",
+          "threshold_usd": "12.34"
+        }
+      }
+    },
+    {
+      "id": "valid-null-point",
+      "field": "request",
+      "body": {
+        "product_id": "30000000-0000-4000-8000-000000000001",
+        "delivery_point_id": null,
+        "direction": "above",
+        "threshold_usd": "12.34"
+      },
+      "python": {
+        "kind": "accepted",
+        "values": {
+          "product_id": "30000000-0000-4000-8000-000000000001",
+          "delivery_point_id": null,
+          "direction": "above",
+          "threshold_usd": "12.34"
+        }
+      }
+    },
+    {
+      "id": "valid-point-absent",
+      "field": "request",
+      "body": {
+        "product_id": "30000000-0000-4000-8000-000000000001",
+        "direction": "above",
+        "threshold_usd": "12.34"
+      },
+      "python": {
+        "kind": "accepted",
+        "values": {
+          "product_id": "30000000-0000-4000-8000-000000000001",
+          "delivery_point_id": null,
+          "direction": "above",
+          "threshold_usd": "12.34"
+        }
+      }
+    },
+    {
+      "id": "valid-below",
+      "field": "request",
+      "body": {
+        "product_id": "30000000-0000-4000-8000-000000000001",
+        "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+        "direction": "below",
+        "threshold_usd": "0.01"
+      },
+      "python": {
+        "kind": "accepted",
+        "values": {
+          "product_id": "30000000-0000-4000-8000-000000000001",
+          "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+          "direction": "below",
+          "threshold_usd": "0.01"
+        }
+      }
+    },
+    {
+      "id": "valid-integer-threshold",
+      "field": "request",
+      "body": {
+        "product_id": "30000000-0000-4000-8000-000000000001",
+        "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+        "direction": "above",
+        "threshold_usd": 1
+      },
+      "python": {
+        "kind": "accepted",
+        "values": {
+          "product_id": "30000000-0000-4000-8000-000000000001",
+          "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+          "direction": "above",
+          "threshold_usd": "1"
+        }
+      }
+    },
+    {
+      "id": "valid-integer-string-threshold",
+      "field": "request",
+      "body": {
+        "product_id": "30000000-0000-4000-8000-000000000001",
+        "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+        "direction": "above",
+        "threshold_usd": "1"
+      },
+      "python": {
+        "kind": "accepted",
+        "values": {
+          "product_id": "30000000-0000-4000-8000-000000000001",
+          "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+          "direction": "above",
+          "threshold_usd": "1"
+        }
+      }
+    },
+    {
+      "id": "valid-float-threshold",
+      "field": "request",
+      "body": {
+        "product_id": "30000000-0000-4000-8000-000000000001",
+        "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+        "direction": "above",
+        "threshold_usd": 1.5
+      },
+      "python": {
+        "kind": "accepted",
+        "values": {
+          "product_id": "30000000-0000-4000-8000-000000000001",
+          "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+          "direction": "above",
+          "threshold_usd": "1.5"
+        }
+      }
+    },
+    {
+      "id": "valid-exponent-threshold",
+      "field": "request",
+      "body": {
+        "product_id": "30000000-0000-4000-8000-000000000001",
+        "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+        "direction": "above",
+        "threshold_usd": "1e2"
+      },
+      "python": {
+        "kind": "accepted",
+        "values": {
+          "product_id": "30000000-0000-4000-8000-000000000001",
+          "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+          "direction": "above",
+          "threshold_usd": "100"
+        }
+      }
+    },
+    {
+      "id": "valid-tiny-threshold",
+      "field": "request",
+      "body": {
+        "product_id": "30000000-0000-4000-8000-000000000001",
+        "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+        "direction": "above",
+        "threshold_usd": "0.0001"
+      },
+      "python": {
+        "kind": "accepted",
+        "values": {
+          "product_id": "30000000-0000-4000-8000-000000000001",
+          "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+          "direction": "above",
+          "threshold_usd": "0.0001"
+        }
+      }
+    },
+    {
+      "id": "valid-extra-field-ignored",
+      "field": "request",
+      "body": {
+        "product_id": "30000000-0000-4000-8000-000000000001",
+        "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+        "direction": "above",
+        "threshold_usd": "12.34",
+        "is_active": false,
+        "org_id": "10000000-0000-4000-8000-000000000001"
+      },
+      "python": {
+        "kind": "accepted",
+        "values": {
+          "product_id": "30000000-0000-4000-8000-000000000001",
+          "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+          "direction": "above",
+          "threshold_usd": "12.34"
+        }
+      }
+    },
+    {
+      "id": "missing-all-required",
+      "field": "missing",
+      "body": {},
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"product_id\"],\"msg\":\"Field required\",\"input\":{}},{\"type\":\"missing\",\"loc\":[\"body\",\"direction\"],\"msg\":\"Field required\",\"input\":{}},{\"type\":\"missing\",\"loc\":[\"body\",\"threshold_usd\"],\"msg\":\"Field required\",\"input\":{}}]}"
+      }
+    },
+    {
+      "id": "missing-product-id",
+      "field": "product_id",
+      "body": {
+        "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+        "direction": "above",
+        "threshold_usd": "12.34"
+      },
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"product_id\"],\"msg\":\"Field required\",\"input\":{\"delivery_point_id\":\"40000000-0000-4000-8000-000000000001\",\"direction\":\"above\",\"threshold_usd\":\"12.34\"}}]}"
+      }
+    },
+    {
+      "id": "missing-direction",
+      "field": "direction",
+      "body": {
+        "product_id": "30000000-0000-4000-8000-000000000001",
+        "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+        "threshold_usd": "12.34"
+      },
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"direction\"],\"msg\":\"Field required\",\"input\":{\"product_id\":\"30000000-0000-4000-8000-000000000001\",\"delivery_point_id\":\"40000000-0000-4000-8000-000000000001\",\"threshold_usd\":\"12.34\"}}]}"
+      }
+    },
+    {
+      "id": "missing-threshold",
+      "field": "threshold_usd",
+      "body": {
+        "product_id": "30000000-0000-4000-8000-000000000001",
+        "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+        "direction": "above"
+      },
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\",\"threshold_usd\"],\"msg\":\"Field required\",\"input\":{\"product_id\":\"30000000-0000-4000-8000-000000000001\",\"delivery_point_id\":\"40000000-0000-4000-8000-000000000001\",\"direction\":\"above\"}}]}"
+      }
+    },
+    {
+      "id": "product-id-uuid-invalid",
+      "field": "product_id",
+      "body": {
+        "product_id": "not-a-uuid",
+        "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+        "direction": "above",
+        "threshold_usd": "12.34"
+      },
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"uuid_parsing\",\"loc\":[\"body\",\"product_id\"],\"msg\":\"Input should be a valid UUID, invalid character: found `n` at 1\",\"input\":\"not-a-uuid\",\"ctx\":{\"error\":\"invalid character: found `n` at 1\"}}]}"
+      }
+    },
+    {
+      "id": "delivery-point-id-uuid-invalid",
+      "field": "delivery_point_id",
+      "body": {
+        "product_id": "30000000-0000-4000-8000-000000000001",
+        "delivery_point_id": "not-a-uuid",
+        "direction": "above",
+        "threshold_usd": "12.34"
+      },
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"uuid_parsing\",\"loc\":[\"body\",\"delivery_point_id\"],\"msg\":\"Input should be a valid UUID, invalid character: found `n` at 1\",\"input\":\"not-a-uuid\",\"ctx\":{\"error\":\"invalid character: found `n` at 1\"}}]}"
+      }
+    },
+    {
+      "id": "product-id-uuid-short",
+      "field": "product_id",
+      "body": {
+        "product_id": "bad",
+        "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+        "direction": "above",
+        "threshold_usd": "12.34"
+      },
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"uuid_parsing\",\"loc\":[\"body\",\"product_id\"],\"msg\":\"Input should be a valid UUID, invalid length: expected length 32 for simple format, found 3\",\"input\":\"bad\",\"ctx\":{\"error\":\"invalid length: expected length 32 for simple format, found 3\"}}]}"
+      }
+    },
+    {
+      "id": "delivery-point-id-uuid-short",
+      "field": "delivery_point_id",
+      "body": {
+        "product_id": "30000000-0000-4000-8000-000000000001",
+        "delivery_point_id": "bad",
+        "direction": "above",
+        "threshold_usd": "12.34"
+      },
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"uuid_parsing\",\"loc\":[\"body\",\"delivery_point_id\"],\"msg\":\"Input should be a valid UUID, invalid length: expected length 32 for simple format, found 3\",\"input\":\"bad\",\"ctx\":{\"error\":\"invalid length: expected length 32 for simple format, found 3\"}}]}"
+      }
+    },
+    {
+      "id": "product-id-uuid-empty",
+      "field": "product_id",
+      "body": {
+        "product_id": "",
+        "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+        "direction": "above",
+        "threshold_usd": "12.34"
+      },
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"uuid_parsing\",\"loc\":[\"body\",\"product_id\"],\"msg\":\"Input should be a valid UUID, invalid length: expected length 32 for simple format, found 0\",\"input\":\"\",\"ctx\":{\"error\":\"invalid length: expected length 32 for simple format, found 0\"}}]}"
+      }
+    },
+    {
+      "id": "delivery-point-id-uuid-empty",
+      "field": "delivery_point_id",
+      "body": {
+        "product_id": "30000000-0000-4000-8000-000000000001",
+        "delivery_point_id": "",
+        "direction": "above",
+        "threshold_usd": "12.34"
+      },
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"uuid_parsing\",\"loc\":[\"body\",\"delivery_point_id\"],\"msg\":\"Input should be a valid UUID, invalid length: expected length 32 for simple format, found 0\",\"input\":\"\",\"ctx\":{\"error\":\"invalid length: expected length 32 for simple format, found 0\"}}]}"
+      }
+    },
+    {
+      "id": "product-id-uuid-null",
+      "field": "product_id",
+      "body": {
+        "product_id": null,
+        "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+        "direction": "above",
+        "threshold_usd": "12.34"
+      },
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"uuid_type\",\"loc\":[\"body\",\"product_id\"],\"msg\":\"UUID input should be a string, bytes or UUID object\",\"input\":null}]}"
+      }
+    },
+    {
+      "id": "delivery-point-id-uuid-null",
+      "field": "delivery_point_id",
+      "body": {
+        "product_id": "30000000-0000-4000-8000-000000000001",
+        "delivery_point_id": null,
+        "direction": "above",
+        "threshold_usd": "12.34"
+      },
+      "python": {
+        "kind": "accepted",
+        "values": {
+          "product_id": "30000000-0000-4000-8000-000000000001",
+          "delivery_point_id": null,
+          "direction": "above",
+          "threshold_usd": "12.34"
+        }
+      }
+    },
+    {
+      "id": "product-id-uuid-number",
+      "field": "product_id",
+      "body": {
+        "product_id": 123,
+        "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+        "direction": "above",
+        "threshold_usd": "12.34"
+      },
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"uuid_type\",\"loc\":[\"body\",\"product_id\"],\"msg\":\"UUID input should be a string, bytes or UUID object\",\"input\":123}]}"
+      }
+    },
+    {
+      "id": "delivery-point-id-uuid-number",
+      "field": "delivery_point_id",
+      "body": {
+        "product_id": "30000000-0000-4000-8000-000000000001",
+        "delivery_point_id": 123,
+        "direction": "above",
+        "threshold_usd": "12.34"
+      },
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"uuid_type\",\"loc\":[\"body\",\"delivery_point_id\"],\"msg\":\"UUID input should be a string, bytes or UUID object\",\"input\":123}]}"
+      }
+    },
+    {
+      "id": "product-id-uuid-boolean",
+      "field": "product_id",
+      "body": {
+        "product_id": true,
+        "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+        "direction": "above",
+        "threshold_usd": "12.34"
+      },
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"uuid_type\",\"loc\":[\"body\",\"product_id\"],\"msg\":\"UUID input should be a string, bytes or UUID object\",\"input\":true}]}"
+      }
+    },
+    {
+      "id": "delivery-point-id-uuid-boolean",
+      "field": "delivery_point_id",
+      "body": {
+        "product_id": "30000000-0000-4000-8000-000000000001",
+        "delivery_point_id": true,
+        "direction": "above",
+        "threshold_usd": "12.34"
+      },
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"uuid_type\",\"loc\":[\"body\",\"delivery_point_id\"],\"msg\":\"UUID input should be a string, bytes or UUID object\",\"input\":true}]}"
+      }
+    },
+    {
+      "id": "product-id-uuid-array",
+      "field": "product_id",
+      "body": {
+        "product_id": [],
+        "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+        "direction": "above",
+        "threshold_usd": "12.34"
+      },
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"uuid_type\",\"loc\":[\"body\",\"product_id\"],\"msg\":\"UUID input should be a string, bytes or UUID object\",\"input\":[]}]}"
+      }
+    },
+    {
+      "id": "delivery-point-id-uuid-array",
+      "field": "delivery_point_id",
+      "body": {
+        "product_id": "30000000-0000-4000-8000-000000000001",
+        "delivery_point_id": [],
+        "direction": "above",
+        "threshold_usd": "12.34"
+      },
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"uuid_type\",\"loc\":[\"body\",\"delivery_point_id\"],\"msg\":\"UUID input should be a string, bytes or UUID object\",\"input\":[]}]}"
+      }
+    },
+    {
+      "id": "product-id-uuid-object",
+      "field": "product_id",
+      "body": {
+        "product_id": {},
+        "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+        "direction": "above",
+        "threshold_usd": "12.34"
+      },
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"uuid_type\",\"loc\":[\"body\",\"product_id\"],\"msg\":\"UUID input should be a string, bytes or UUID object\",\"input\":{}}]}"
+      }
+    },
+    {
+      "id": "delivery-point-id-uuid-object",
+      "field": "delivery_point_id",
+      "body": {
+        "product_id": "30000000-0000-4000-8000-000000000001",
+        "delivery_point_id": {},
+        "direction": "above",
+        "threshold_usd": "12.34"
+      },
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"uuid_type\",\"loc\":[\"body\",\"delivery_point_id\"],\"msg\":\"UUID input should be a string, bytes or UUID object\",\"input\":{}}]}"
+      }
+    },
+    {
+      "id": "product-id-uuid-valid-simple-format",
+      "field": "product_id",
+      "body": {
+        "product_id": "30000000000040008000000000000001",
+        "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+        "direction": "above",
+        "threshold_usd": "12.34"
+      },
+      "python": {
+        "kind": "accepted",
+        "values": {
+          "product_id": "30000000-0000-4000-8000-000000000001",
+          "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+          "direction": "above",
+          "threshold_usd": "12.34"
+        }
+      }
+    },
+    {
+      "id": "delivery-point-id-uuid-valid-simple-format",
+      "field": "delivery_point_id",
+      "body": {
+        "product_id": "30000000-0000-4000-8000-000000000001",
+        "delivery_point_id": "30000000000040008000000000000001",
+        "direction": "above",
+        "threshold_usd": "12.34"
+      },
+      "python": {
+        "kind": "accepted",
+        "values": {
+          "product_id": "30000000-0000-4000-8000-000000000001",
+          "delivery_point_id": "30000000-0000-4000-8000-000000000001",
+          "direction": "above",
+          "threshold_usd": "12.34"
+        }
+      }
+    },
+    {
+      "id": "product-id-uuid-valid-uppercase",
+      "field": "product_id",
+      "body": {
+        "product_id": "30000000-0000-4000-8000-000000000001",
+        "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+        "direction": "above",
+        "threshold_usd": "12.34"
+      },
+      "python": {
+        "kind": "accepted",
+        "values": {
+          "product_id": "30000000-0000-4000-8000-000000000001",
+          "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+          "direction": "above",
+          "threshold_usd": "12.34"
+        }
+      }
+    },
+    {
+      "id": "delivery-point-id-uuid-valid-uppercase",
+      "field": "delivery_point_id",
+      "body": {
+        "product_id": "30000000-0000-4000-8000-000000000001",
+        "delivery_point_id": "30000000-0000-4000-8000-000000000001",
+        "direction": "above",
+        "threshold_usd": "12.34"
+      },
+      "python": {
+        "kind": "accepted",
+        "values": {
+          "product_id": "30000000-0000-4000-8000-000000000001",
+          "delivery_point_id": "30000000-0000-4000-8000-000000000001",
+          "direction": "above",
+          "threshold_usd": "12.34"
+        }
+      }
+    },
+    {
+      "id": "product-id-uuid-valid-braces",
+      "field": "product_id",
+      "body": {
+        "product_id": "{30000000-0000-4000-8000-000000000001}",
+        "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+        "direction": "above",
+        "threshold_usd": "12.34"
+      },
+      "python": {
+        "kind": "accepted",
+        "values": {
+          "product_id": "30000000-0000-4000-8000-000000000001",
+          "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+          "direction": "above",
+          "threshold_usd": "12.34"
+        }
+      }
+    },
+    {
+      "id": "delivery-point-id-uuid-valid-braces",
+      "field": "delivery_point_id",
+      "body": {
+        "product_id": "30000000-0000-4000-8000-000000000001",
+        "delivery_point_id": "{30000000-0000-4000-8000-000000000001}",
+        "direction": "above",
+        "threshold_usd": "12.34"
+      },
+      "python": {
+        "kind": "accepted",
+        "values": {
+          "product_id": "30000000-0000-4000-8000-000000000001",
+          "delivery_point_id": "30000000-0000-4000-8000-000000000001",
+          "direction": "above",
+          "threshold_usd": "12.34"
+        }
+      }
+    },
+    {
+      "id": "direction-invalid-sideways",
+      "field": "direction",
+      "body": {
+        "product_id": "30000000-0000-4000-8000-000000000001",
+        "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+        "direction": "sideways",
+        "threshold_usd": "12.34"
+      },
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"value_error\",\"loc\":[\"body\",\"direction\"],\"msg\":\"Value error, direction must be 'above' or 'below'\",\"input\":\"sideways\",\"ctx\":{\"error\":{}}}]}"
+      }
+    },
+    {
+      "id": "direction-invalid-case",
+      "field": "direction",
+      "body": {
+        "product_id": "30000000-0000-4000-8000-000000000001",
+        "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+        "direction": "Above",
+        "threshold_usd": "12.34"
+      },
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"value_error\",\"loc\":[\"body\",\"direction\"],\"msg\":\"Value error, direction must be 'above' or 'below'\",\"input\":\"Above\",\"ctx\":{\"error\":{}}}]}"
+      }
+    },
+    {
+      "id": "direction-invalid-upper",
+      "field": "direction",
+      "body": {
+        "product_id": "30000000-0000-4000-8000-000000000001",
+        "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+        "direction": "ABOVE",
+        "threshold_usd": "12.34"
+      },
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"value_error\",\"loc\":[\"body\",\"direction\"],\"msg\":\"Value error, direction must be 'above' or 'below'\",\"input\":\"ABOVE\",\"ctx\":{\"error\":{}}}]}"
+      }
+    },
+    {
+      "id": "direction-invalid-empty",
+      "field": "direction",
+      "body": {
+        "product_id": "30000000-0000-4000-8000-000000000001",
+        "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+        "direction": "",
+        "threshold_usd": "12.34"
+      },
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"value_error\",\"loc\":[\"body\",\"direction\"],\"msg\":\"Value error, direction must be 'above' or 'below'\",\"input\":\"\",\"ctx\":{\"error\":{}}}]}"
+      }
+    },
+    {
+      "id": "direction-invalid-number",
+      "field": "direction",
+      "body": {
+        "product_id": "30000000-0000-4000-8000-000000000001",
+        "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+        "direction": 123,
+        "threshold_usd": "12.34"
+      },
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"string_type\",\"loc\":[\"body\",\"direction\"],\"msg\":\"Input should be a valid string\",\"input\":123}]}"
+      }
+    },
+    {
+      "id": "direction-invalid-null",
+      "field": "direction",
+      "body": {
+        "product_id": "30000000-0000-4000-8000-000000000001",
+        "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+        "direction": null,
+        "threshold_usd": "12.34"
+      },
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"string_type\",\"loc\":[\"body\",\"direction\"],\"msg\":\"Input should be a valid string\",\"input\":null}]}"
+      }
+    },
+    {
+      "id": "direction-invalid-boolean",
+      "field": "direction",
+      "body": {
+        "product_id": "30000000-0000-4000-8000-000000000001",
+        "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+        "direction": true,
+        "threshold_usd": "12.34"
+      },
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"string_type\",\"loc\":[\"body\",\"direction\"],\"msg\":\"Input should be a valid string\",\"input\":true}]}"
+      }
+    },
+    {
+      "id": "direction-invalid-array",
+      "field": "direction",
+      "body": {
+        "product_id": "30000000-0000-4000-8000-000000000001",
+        "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+        "direction": [],
+        "threshold_usd": "12.34"
+      },
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"string_type\",\"loc\":[\"body\",\"direction\"],\"msg\":\"Input should be a valid string\",\"input\":[]}]}"
+      }
+    },
+    {
+      "id": "direction-invalid-object",
+      "field": "direction",
+      "body": {
+        "product_id": "30000000-0000-4000-8000-000000000001",
+        "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+        "direction": {},
+        "threshold_usd": "12.34"
+      },
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"string_type\",\"loc\":[\"body\",\"direction\"],\"msg\":\"Input should be a valid string\",\"input\":{}}]}"
+      }
+    },
+    {
+      "id": "threshold-zero",
+      "field": "threshold_usd",
+      "body": {
+        "product_id": "30000000-0000-4000-8000-000000000001",
+        "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+        "direction": "above",
+        "threshold_usd": 0
+      },
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"value_error\",\"loc\":[\"body\",\"threshold_usd\"],\"msg\":\"Value error, threshold_usd must be positive\",\"input\":0,\"ctx\":{\"error\":{}}}]}"
+      }
+    },
+    {
+      "id": "threshold-zero-string",
+      "field": "threshold_usd",
+      "body": {
+        "product_id": "30000000-0000-4000-8000-000000000001",
+        "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+        "direction": "above",
+        "threshold_usd": "0"
+      },
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"value_error\",\"loc\":[\"body\",\"threshold_usd\"],\"msg\":\"Value error, threshold_usd must be positive\",\"input\":\"0\",\"ctx\":{\"error\":{}}}]}"
+      }
+    },
+    {
+      "id": "threshold-zero-decimal-string",
+      "field": "threshold_usd",
+      "body": {
+        "product_id": "30000000-0000-4000-8000-000000000001",
+        "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+        "direction": "above",
+        "threshold_usd": "0.00"
+      },
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"value_error\",\"loc\":[\"body\",\"threshold_usd\"],\"msg\":\"Value error, threshold_usd must be positive\",\"input\":\"0.00\",\"ctx\":{\"error\":{}}}]}"
+      }
+    },
+    {
+      "id": "threshold-negative-integer",
+      "field": "threshold_usd",
+      "body": {
+        "product_id": "30000000-0000-4000-8000-000000000001",
+        "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+        "direction": "above",
+        "threshold_usd": -1
+      },
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"value_error\",\"loc\":[\"body\",\"threshold_usd\"],\"msg\":\"Value error, threshold_usd must be positive\",\"input\":-1,\"ctx\":{\"error\":{}}}]}"
+      }
+    },
+    {
+      "id": "threshold-negative-string",
+      "field": "threshold_usd",
+      "body": {
+        "product_id": "30000000-0000-4000-8000-000000000001",
+        "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+        "direction": "above",
+        "threshold_usd": "-0.01"
+      },
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"value_error\",\"loc\":[\"body\",\"threshold_usd\"],\"msg\":\"Value error, threshold_usd must be positive\",\"input\":\"-0.01\",\"ctx\":{\"error\":{}}}]}"
+      }
+    },
+    {
+      "id": "threshold-parsing-text",
+      "field": "threshold_usd",
+      "body": {
+        "product_id": "30000000-0000-4000-8000-000000000001",
+        "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+        "direction": "above",
+        "threshold_usd": "fast"
+      },
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"decimal_parsing\",\"loc\":[\"body\",\"threshold_usd\"],\"msg\":\"Input should be a valid decimal\",\"input\":\"fast\"}]}"
+      }
+    },
+    {
+      "id": "threshold-parsing-empty",
+      "field": "threshold_usd",
+      "body": {
+        "product_id": "30000000-0000-4000-8000-000000000001",
+        "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+        "direction": "above",
+        "threshold_usd": ""
+      },
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"decimal_parsing\",\"loc\":[\"body\",\"threshold_usd\"],\"msg\":\"Input should be a valid decimal\",\"input\":\"\"}]}"
+      }
+    },
+    {
+      "id": "threshold-parsing-null",
+      "field": "threshold_usd",
+      "body": {
+        "product_id": "30000000-0000-4000-8000-000000000001",
+        "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+        "direction": "above",
+        "threshold_usd": null
+      },
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"decimal_type\",\"loc\":[\"body\",\"threshold_usd\"],\"msg\":\"Decimal input should be an integer, float, string or Decimal object\",\"input\":null}]}"
+      }
+    },
+    {
+      "id": "threshold-parsing-boolean",
+      "field": "threshold_usd",
+      "body": {
+        "product_id": "30000000-0000-4000-8000-000000000001",
+        "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+        "direction": "above",
+        "threshold_usd": true
+      },
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"decimal_type\",\"loc\":[\"body\",\"threshold_usd\"],\"msg\":\"Decimal input should be an integer, float, string or Decimal object\",\"input\":true}]}"
+      }
+    },
+    {
+      "id": "threshold-parsing-array",
+      "field": "threshold_usd",
+      "body": {
+        "product_id": "30000000-0000-4000-8000-000000000001",
+        "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+        "direction": "above",
+        "threshold_usd": []
+      },
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"decimal_type\",\"loc\":[\"body\",\"threshold_usd\"],\"msg\":\"Decimal input should be an integer, float, string or Decimal object\",\"input\":[]}]}"
+      }
+    },
+    {
+      "id": "threshold-parsing-object",
+      "field": "threshold_usd",
+      "body": {
+        "product_id": "30000000-0000-4000-8000-000000000001",
+        "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+        "direction": "above",
+        "threshold_usd": {}
+      },
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"decimal_type\",\"loc\":[\"body\",\"threshold_usd\"],\"msg\":\"Decimal input should be an integer, float, string or Decimal object\",\"input\":{}}]}"
+      }
+    },
+    {
+      "id": "threshold-nan-string",
+      "field": "threshold_usd",
+      "body": {
+        "product_id": "30000000-0000-4000-8000-000000000001",
+        "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+        "direction": "above",
+        "threshold_usd": "NaN"
+      },
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"finite_number\",\"loc\":[\"body\",\"threshold_usd\"],\"msg\":\"Input should be a finite number\",\"input\":\"NaN\"}]}"
+      }
+    },
+    {
+      "id": "threshold-infinity-string",
+      "field": "threshold_usd",
+      "body": {
+        "product_id": "30000000-0000-4000-8000-000000000001",
+        "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+        "direction": "above",
+        "threshold_usd": "Infinity"
+      },
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"finite_number\",\"loc\":[\"body\",\"threshold_usd\"],\"msg\":\"Input should be a finite number\",\"input\":\"Infinity\"}]}"
+      }
+    },
+    {
+      "id": "threshold-negative-infinity-string",
+      "field": "threshold_usd",
+      "body": {
+        "product_id": "30000000-0000-4000-8000-000000000001",
+        "delivery_point_id": "40000000-0000-4000-8000-000000000001",
+        "direction": "above",
+        "threshold_usd": "-Infinity"
+      },
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"finite_number\",\"loc\":[\"body\",\"threshold_usd\"],\"msg\":\"Input should be a finite number\",\"input\":\"-Infinity\"}]}"
+      }
+    },
+    {
+      "id": "body-array",
+      "field": "request",
+      "body": [],
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"model_attributes_type\",\"loc\":[\"body\"],\"msg\":\"Input should be a valid dictionary or object to extract fields from\",\"input\":[]}]}"
+      }
+    },
+    {
+      "id": "body-string",
+      "field": "request",
+      "body": "x",
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"model_attributes_type\",\"loc\":[\"body\"],\"msg\":\"Input should be a valid dictionary or object to extract fields from\",\"input\":\"x\"}]}"
+      }
+    },
+    {
+      "id": "body-number",
+      "field": "request",
+      "body": 1,
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"model_attributes_type\",\"loc\":[\"body\"],\"msg\":\"Input should be a valid dictionary or object to extract fields from\",\"input\":1}]}"
+      }
+    },
+    {
+      "id": "body-boolean",
+      "field": "request",
+      "body": true,
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"model_attributes_type\",\"loc\":[\"body\"],\"msg\":\"Input should be a valid dictionary or object to extract fields from\",\"input\":true}]}"
+      }
+    },
+    {
+      "id": "body-null",
+      "field": "request",
+      "body": null,
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"missing\",\"loc\":[\"body\"],\"msg\":\"Field required\",\"input\":null}]}"
+      }
+    },
+    {
+      "id": "multiple-errors",
+      "field": "request",
+      "body": {
+        "product_id": "bad",
+        "direction": "sideways",
+        "threshold_usd": 0
+      },
+      "python": {
+        "kind": "rejected",
+        "status": 422,
+        "body": "{\"detail\":[{\"type\":\"uuid_parsing\",\"loc\":[\"body\",\"product_id\"],\"msg\":\"Input should be a valid UUID, invalid length: expected length 32 for simple format, found 3\",\"input\":\"bad\",\"ctx\":{\"error\":\"invalid length: expected length 32 for simple format, found 3\"}},{\"type\":\"value_error\",\"loc\":[\"body\",\"direction\"],\"msg\":\"Value error, direction must be 'above' or 'below'\",\"input\":\"sideways\",\"ctx\":{\"error\":{}}},{\"type\":\"value_error\",\"loc\":[\"body\",\"threshold_usd\"],\"msg\":\"Value error, threshold_usd must be positive\",\"input\":0,\"ctx\":{\"error\":{}}}]}"
+      }
+    }
+  ]
+}

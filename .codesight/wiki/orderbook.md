@@ -2,30 +2,44 @@
 
 > **Navigation aid.** Route list and file locations extracted via AST. Read the source files listed below before implementing or modifying this subsystem.
 
-The Orderbook subsystem handles **10 routes** and touches: auth, db, cache, queue.
+The Orderbook subsystem handles **15 routes** and touches: db, queue, auth.
 
 ## Routes
 
-- `GET` `/bids` → in: Optional, out: PaginatedResponse [auth, db, cache, queue]
+- `GET` `/snapshot` → in: MarketProduc, out: OrderBookSnapshotResponse [db]
   `app/routers/orderbook.py`
-- `GET` `/asks` → in: Optional, out: PaginatedResponse [auth, db, cache, queue]
+- `GET` `/bids` → in: MarketProduc, out: OrderBookSnapshotResponse [db]
   `app/routers/orderbook.py`
-- `GET` `/with-ci` → in: Optional, out: PaginatedResponse [auth, db, cache, queue]
+- `GET` `/asks` → in: MarketProduc, out: OrderBookSnapshotResponse [db]
   `app/routers/orderbook.py`
-- `GET` `/my` → in: Optional, out: PaginatedResponse [auth, db, cache, queue]
+- `GET` `/with-ci` → in: MarketProduc, out: OrderBookSnapshotResponse [db]
   `app/routers/orderbook.py`
-- `GET` `/my/latest-ask-template` → in: Optional, out: PaginatedResponse [auth, db, cache, queue]
+- `GET` `/my` → in: MarketProduc, out: OrderBookSnapshotResponse [db]
   `app/routers/orderbook.py`
-- `GET` `/aggregated` → in: Optional, out: PaginatedResponse [auth, db, cache, queue]
+- `GET` `/my/latest-ask-template` → in: MarketProduc, out: OrderBookSnapshotResponse [db]
   `app/routers/orderbook.py`
-- `GET` `/regions` → in: Optional, out: PaginatedResponse [auth, db, cache, queue]
+- `GET` `/aggregated` → in: MarketProduc, out: OrderBookSnapshotResponse
   `app/routers/orderbook.py`
-- `GET` `/fuel-types` → in: Optional, out: PaginatedResponse [auth, db, cache, queue]
+- `GET` `/product-counts` → in: MarketProduc, out: OrderBookSnapshotResponse [db]
   `app/routers/orderbook.py`
-- `PUT` `/{order_id}` params(order_id) → out: PaginatedResponse [auth, db, cache, queue]
+- `GET` `/map-summary` → in: MarketProduc, out: OrderBookSnapshotResponse
   `app/routers/orderbook.py`
-- `DELETE` `/{order_id}` params(order_id) → out: PaginatedResponse [auth, db, cache, queue]
+- `GET` `/map-summary/compact` → in: MarketProduc, out: OrderBookSnapshotResponse
   `app/routers/orderbook.py`
+- `GET` `/regions` → in: MarketProduc, out: OrderBookSnapshotResponse [db]
+  `app/routers/orderbook.py`
+- `GET` `/fuel-types` → in: MarketProduc, out: OrderBookSnapshotResponse [db]
+  `app/routers/orderbook.py`
+- `PUT` `/{order_id}` params(order_id) → out: OrderBookSnapshotResponse [db, queue]
+  `app/routers/orderbook.py`
+- `POST` `/{order_id}/cancel` params(order_id) → out: OrderBookSnapshotResponse [auth, db]
+  `app/routers/orderbook.py`
+- `DELETE` `/{order_id}` params(order_id) → out: OrderBookSnapshotResponse [auth, db]
+  `app/routers/orderbook.py`
+
+## High-Impact Files
+
+- `app/routers/orderbook.py` — imported by 24 files
 
 ## Source Files
 

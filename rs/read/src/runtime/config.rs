@@ -121,6 +121,13 @@ pub fn config_from_deployed_environment(
             .map(str::to_owned)
             .ok_or_else(|| format!("{key} must be set in the deployed environment"))
     };
+    let raw_required = |key: &str| {
+        environment
+            .get(key)
+            .filter(|value| !value.trim().is_empty())
+            .cloned()
+            .ok_or_else(|| format!("{key} must be set in the deployed environment"))
+    };
     let release_sha = required("RELEASE_SHA")?;
     let budget: PreparedBudget = serde_json::from_str(budget_json)
         .map_err(|_| "the prepared budget artifact is not valid JSON")?;
@@ -156,6 +163,26 @@ pub fn config_from_deployed_environment(
         pool_max: rust_pool,
         python_budget: budget.python_budget,
         configured_max_connections: budget.configured_max_connections,
+        phase2: crate::Phase2Options {
+            // Task 23: the deploy transaction writes these to the Rust runtime
+            // file only. A deployed start without them is refused rather than
+            // serving Phase 2 routes with an unverifiable token authority.
+            jwt_secret: Some(raw_required("JWT_SECRET")?),
+            jwt_secret_previous: environment
+                .get("JWT_SECRET_PREVIOUS")
+                .filter(|value| !value.trim().is_empty())
+                .cloned(),
+            jwt_issuer: Some(raw_required("JWT_ISSUER")?),
+            jwt_audience: Some(raw_required("JWT_AUDIENCE")?),
+            frontend_url: Some(raw_required("FRONTEND_URL")?),
+            email_from: Some(raw_required("EMAIL_FROM")?),
+            resend_api_key: Some(raw_required("RESEND_API_KEY")?),
+            // PD5: only `.runtime-release.env` carries this key; the runtime
+            // preparer never projects it from the deployed `.env`.
+            watchlist_producer_activated_at: environment
+                .get("WATCHLIST_PRODUCER_ACTIVATED_AT")
+                .cloned(),
+        },
     })
 }
 
