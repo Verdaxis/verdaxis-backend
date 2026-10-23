@@ -1,4 +1,4 @@
-# Tasks 22 and 23 — checkpoint, 22 October 2026
+# Tasks 22 and 23 — checkpoint, 23 October 2026
 
 ## Status
 
@@ -63,25 +63,55 @@ Tests: `2d530e8c`; implementation: `3d220846`, `2181e4a1`; corrected test loadin
 not RED evidence. Staging `fbe0b2c1` was merged without conflict in `9afea6dc`.
 The M1 full-Python run is also superseded by the staging result above.
 
+## PD2-L1 follow-up and final qualification
+
+The earlier failures above are superseded by these results. Implementation
+revision: `f770aa3dc3e744f841584031ba727cd2aa39e77e`. Documentation-only commits
+after that revision do not change the qualified code.
+
+- `27ae9778`: separate Codesight refresh, committed before gate calls.
+- PostgreSQL ordering test `5c9ad00d`, SQL fix `7ef9d6ee`, formatting
+  `9e82f4d8`: Rust orders by count descending, then referrer UUID ascending,
+  before taking ten. The migrated disposable test includes ties inside the
+  list and at the cut, and asserts every returned entry in exact order.
+- Comparator tests `b67df0a7`, `4cdee293`, change `39bd0e44`: only successful
+  GET R03 `/api/referrals/leaderboard` permits undefined Python tie order.
+  Counts match rank by rank; complete groups retain their member sets; the
+  final group in a full ten retains its count and distinct members. Status,
+  headers, fields, types and consecutive ranks remain checked. No Python
+  application code changed.
+- Race barrier tests `bac6f9ff`, fix `f770aa3d`: allocation previously watched
+  hard-coded scenario-zero databases even when selected ninth. The runner now
+  supplies the current scenario's database identities. This was a harness
+  failure, not a runtime allocation failure.
+
+| Evidence | Revision | Host / UTC on Oct 23 | Exit |
+| --- | --- | --- | --- |
+| Comparator RED / GREEN | `4cdee293` / `9e82f4d8` | M1 00:44:23–25 | 1 (two intended failures) / 0 (40 passed) |
+| PostgreSQL ordering RED / GREEN | `5c9ad00d` / `9e82f4d8` | staging 03:09:17–03:16:24 | 1 (exact order assertion) / 0 |
+| Race-cell RED / GREEN | `bac6f9ff` / `f770aa3d` | staging 06:04:19–33 | 1 (two intended failures) / 0 (28 passed) |
+| fmt, both Clippy modes, offline workspace | `f770aa3d` | staging 06:53:58–07:06:29 | 0 each; 400 passed, one ignored |
+| `cd rs && cargo audit` | `f770aa3d` | staging 07:06:29–34 | 0 |
+| `bash rs/read/tests/run_postgres.sh` | `f770aa3d` | staging 07:06:34–07:17:20 | 0 |
+| All Phase 2 scenarios | `f770aa3d` | staging 07:17:20–07:58:52 | 0 |
+| Standalone races, `heavy run 7200` | `f770aa3d` | staging 06:05–06:40:29 | 0; nine scenarios, 27 races |
+| Phase 1 meaning, `heavy run 7200` | `f770aa3d` | staging 08:00–08:52:05 | 0; no failed groups |
+
+Local logs: `work/pd2-l1-m1.log`, `work/pd2-l1-staging.log`,
+`work/pd2-race-red-green.log`, `work/pd2-races-final.log`,
+`work/pd2-final-batch.log`, `work/pd2-meaning-final.log`.
+The M1 audit at `9e82f4d8` failed to fetch the advisory database; both subsequent
+staging audits passed. The prices group, including `R13-invalid-visibility`,
+passed in both meaning runs; no price fix was required. Full Python unit and
+monitor tests were not repeated in this follow-up: no application Python or
+shared Python inputs changed (PM instruction). Their preceding green result
+is retained above.
+
 ## Remaining
 
-- Push `feat/rust-phase-2` when every gate is green, then read PR #88 CI.
-- Diagnose `referral-reads-populated` / `top-ten-with-ties-across-the-boundary`:
-  the harness still requires Python's arbitrary membership at the tenth-place
-  tie. Check both payloads and client/business assertions before changing the
-  harness; do not change Python or treat byte equality as acceptance.
-- Rerun the incomplete races separately within a bounded call; do not repeat
-  passed gates unless a fix touches them. The last race log was still in
-  preferences schedules when the combined budget expired.
-- Run the final-SHA Phase 1 meaning gate once with `heavy run 7200`; it has not
-  run on this continuation's SHA. Python PostgreSQL and Phase 0 last passed at
-  `dabf9799`, not the current SHA.
-- `.codesight` refresh completed via the skill. Generated changes are preserved
-  but not yet committed or reviewed for publication.
-- PR #88 still points to `c078f1e7`; no push was made in this continuation.
-  Existing CI is not evidence for the local commits.
-- Task 24 (staging deploy and journeys) and Task 25 (production) run with the
-  PM.
+- Push only `feat/rust-phase-2`, then read PR #88 CI at the pushed revision.
+- Task 24 (staging deploy and journeys) and Task 25 (production) remain with
+  the PM. Neither task started; no live deployment or measurement ran.
 
 ## Earlier steps
 
