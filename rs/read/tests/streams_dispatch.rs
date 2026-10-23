@@ -649,11 +649,15 @@ mod postgres {
     #[tokio::test]
     #[ignore = "requires disposable PostgreSQL"]
     async fn retention_snapshot_resets_existing_subscribers() {
-        use verdaxis_read::streams::dispatch::PgDispatchStore;
         use sqlx::postgres::PgPoolOptions;
+        use verdaxis_read::streams::dispatch::PgDispatchStore;
         let app_url = std::env::var("STREAM_DISPATCH_APP_URL").unwrap();
         let owner_url = std::env::var("STREAM_DISPATCH_OWNER_URL").unwrap();
-        let pool = PgPoolOptions::new().max_connections(1).connect(&app_url).await.unwrap();
+        let pool = PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&app_url)
+            .await
+            .unwrap();
         let mut owner = PgConnection::connect(&owner_url).await.unwrap();
         sqlx::query("UPDATE market_event_retention_control SET mode='rust_active', ownership_epoch=ownership_epoch+1, environment='test', release_sha=repeat('a',40), selector_config_digest=repeat('b',64), drain_completed_at=now() WHERE singleton")
             .execute(&mut owner).await.unwrap();
@@ -670,27 +674,51 @@ mod postgres {
         drain.turn(&mut store).await.unwrap();
         assert_eq!(drain.cursor(), seq);
         // Queued data must lose to the retention terminal after coverage is lost.
-        let floor: i64 = sqlx::query_scalar("SELECT discarded_through_seq FROM market_event_replay_state").fetch_one(&mut owner).await.unwrap();
+        let floor: i64 =
+            sqlx::query_scalar("SELECT discarded_through_seq FROM market_event_replay_state")
+                .fetch_one(&mut owner)
+                .await
+                .unwrap();
         let mut tx = owner.begin().await.unwrap();
-        sqlx::query("DELETE FROM market_event_outbox WHERE id=$1").bind(id).execute(&mut *tx).await.unwrap();
+        sqlx::query("DELETE FROM market_event_outbox WHERE id=$1")
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
         tx.rollback().await.unwrap();
-        assert_eq!(sqlx::query_scalar::<_,i64>("SELECT discarded_through_seq FROM market_event_replay_state").fetch_one(&mut owner).await.unwrap(), floor);
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT discarded_through_seq FROM market_event_replay_state"
+            )
+            .fetch_one(&mut owner)
+            .await
+            .unwrap(),
+            floor
+        );
         assert_eq!(private_seq(&mut private).await, seq);
         // Keep the hub behind the next committed deletion.
         let next_id = Uuid::new_v4();
         let next: i64 = sqlx::query_scalar("INSERT INTO market_event_outbox (id,event_type,aggregate_type,aggregate_id,participant_org_ids,payload,stream_seq,delivery_attempts,created_at) VALUES ($1,'trade_created','dispatch_retention',$1::uuid::text,$2::json,'{}',nextval('market_event_stream_seq'),0,now()) RETURNING stream_seq")
             .bind(next_id).bind(json!([org]).to_string()).fetch_one(&mut owner).await.unwrap();
-        sqlx::query("DELETE FROM market_event_outbox WHERE id=$1").bind(next_id).execute(&mut owner).await.unwrap();
+        sqlx::query("DELETE FROM market_event_outbox WHERE id=$1")
+            .bind(next_id)
+            .execute(&mut owner)
+            .await
+            .unwrap();
         drain.turn(&mut store).await.unwrap();
         for sub in [&mut private, &mut prices, &mut book] {
-            assert!(matches!(sub.recv().await, Some(Delivery::Terminal(Terminal::Retention))));
+            assert!(matches!(
+                sub.recv().await,
+                Some(Delivery::Terminal(Terminal::Retention))
+            ));
             assert!(sub.recv().await.is_none());
         }
         assert!(drain.cursor() >= next);
-        let fresh = Dispatch::initialize(&mut store, StreamHub::default()).await.unwrap();
+        let fresh = Dispatch::initialize(&mut store, StreamHub::default())
+            .await
+            .unwrap();
         assert!(fresh.cursor() >= next);
         pool.close().await;
         owner.close().await.unwrap();
     }
-
 }
