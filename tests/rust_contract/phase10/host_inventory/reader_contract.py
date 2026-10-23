@@ -47,6 +47,9 @@ class ReaderContract(unittest.TestCase):
         self.assertEqual(self.reader.redact('https://example.test/public'),
                          'https://example.test/public')
         self.assertEqual(self.reader.redact('TOKEN=<redacted>'), 'TOKEN=<redacted>')
+        for source in ('curl --password sensitive', 'Authorization: Bearer sensitive',
+                       'PASS=escaped\\ value', 'echo "TOKEN=unterminated sensitive'):
+            self.assertNotIn('sensitive', self.reader.redact(source))
 
     def test_nofollow_bounds_metadata_and_imports(self):
         with tempfile.TemporaryDirectory(prefix='w0-reader-') as temp:
@@ -86,7 +89,9 @@ class ReaderContract(unittest.TestCase):
         for path in ('/tmp/.env', '/tmp/.env.production', '/tmp/credentials/db',
                      '/tmp/secret/token', '/tmp/key.pem', '/tmp/id_ed25519',
                      '/tmp/keys/signing', '/home/a/.config/verdaxis/artifact-provenance/record.json',
-                     '/tmp/credentials/../backup.sh', '/tmp/db-password', '/tmp/auth_token'):
+                     '/tmp/credentials/../backup.sh', '/tmp/db-password', '/tmp/auth_token',
+                     '/usr/local/libexec/runtime.env', '/tmp/runtime.ENV'):
+
             with self.subTest(path=path):
                 with self.assertRaisesRegex(ValueError, 'forbidden'):
                     self.reader.read_script(path)

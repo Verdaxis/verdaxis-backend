@@ -44,6 +44,18 @@ def redact(text):
     # Consume continued lines first: no second line of a secret may survive.
     text = re.sub(r'\\\r?\n', ' ', text)
     text = re.sub(r'(?im)\b(Environment(?:File)?\s*)=.*$', r'\1=<redacted>', text)
+    # Ambiguous shell quoting/escapes and non-assignment credential transports
+    # cannot be safely reconstructed. Keep the credential key/flag, drop its tail.
+    text = re.sub(r'(?im)(--[A-Za-z_-]*(?:pass|secret|token|key|auth|credential|cookie)[A-Za-z_-]*)(?:\s+|=).*$' , r'\1=<redacted>', text)
+    text = re.sub(r'(?im)\b(Authorization|Cookie)\s*:.*$', r'\1=<redacted>', text)
+    lines = []
+    for line in text.splitlines(keepends=True):
+        if '\\' in line or line.count('"') % 2 or line.count("'") % 2:
+            match = re.search(r'\b([A-Za-z_][A-Za-z0-9_]*)=', line)
+            if match and SECRET_KEY.search(match[1]):
+                line = line[:match.start()] + match[1] + '=<redacted>' + ('\n' if line.endswith('\n') else '')
+        lines.append(line)
+    text = ''.join(lines)
     text = ASSIGNMENT.sub(lambda match: match[1] + '=<redacted>'
                           if SECRET_KEY.search(match[1]) else match[0], text)
     text = re.sub(r'[A-Za-z][A-Za-z0-9+.-]*://[^\s/]+@[^\s]*', '<redacted>', text)
@@ -57,7 +69,7 @@ def redact(text):
 def forbidden(path):
     parts = PurePosixPath(path).parts
     return (not path.startswith('/') or '..' in parts or
-            any(part.lower() == 'artifact-provenance' or part.lower().startswith('.env') or
+            any(part.lower() == 'artifact-provenance' or part.lower().startswith('.env') or part.lower().endswith('.env') or
                 re.search(r'(?i)(credential|secret|password|passwd|token|(^|[._-])keys?($|[._-])|^id_rsa|^id_ed25519|\.(pem|p12|pfx)$)', part)
                 for part in parts))
 
@@ -117,6 +129,8 @@ def read_script(path):
                 imports.add(name)
         if '$' in text or '`' in text:
             imports_complete = False  # static discovery cannot prove dynamic references
+    if len(imports) + len(references) > MAX_ITEMS:
+        raise ValueError('import count bound exceeded')
     # File contents are never returned. Only static imports and metadata survive.
     return {'path': redact(path), 'uid': before.st_uid, 'gid': before.st_gid,
             'mode': format(stat.S_IMODE(before.st_mode), '04o'), 'size': len(raw),
@@ -257,6 +271,9 @@ def collect(command=run_command, cron_files=None, script_reader=read_script):
         visited.add(path)
         try:
             record = script_reader(path)
+            budget += len(json.dumps(record, ensure_ascii=True).encode())
+            if budget > MAX_TOTAL_BYTES:
+                raise ValueError('inventory output bound exceeded')
             scripts.append(record)
             coverage['imports'] &= record['imports_complete']
             for name in record['imports']:
@@ -271,10 +288,16 @@ def collect(command=run_command, cron_files=None, script_reader=read_script):
 if __name__ == '__main__':
     try:
         result = collect()
-        output = json.dumps(result, ensure_ascii=True)
-        if len(output.encode()) > MAX_TOTAL_BYTES:
-            raise ValueError('output too large')
-        sys.stdout.write(output + '\n')
+        # Validate size without allocating a second full encoded document.
+        encoder = json.JSONEncoder(ensure_ascii=True)
+        total = 0
+        for chunk in encoder.iterencode(result):
+            total += len(chunk.encode())
+            if total > MAX_TOTAL_BYTES:
+                raise ValueError('output too large')
+        for chunk in encoder.iterencode(result):
+            sys.stdout.write(chunk)
+        sys.stdout.write('\n')
     except (OSError, ValueError, RecursionError):
         sys.stderr.write('read-only inventory refused\n')
         sys.exit(1)
