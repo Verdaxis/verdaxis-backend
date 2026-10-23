@@ -62,6 +62,27 @@ class Round5Contract(unittest.TestCase):
                 result = transport.read_host('staging', lambda argv, data: (json.dumps(result).encode(), False))
                 self.assertEqual(result, {'refusal': code})
 
+    def test_each_bound_reason_is_structural(self):
+        codes = ('statements', 'logical-lines', 'references', 'blocking-rows',
+                 'import-queue', 'graph-bytes')
+        for code in codes:
+            with self.subTest(vector=code):
+                def reader(path):
+                    raise self.reader.SurfaceBound(code)
+                result = self.reader.inspect_graph(['/tmp/fixture.py'], script_reader=reader)
+                self.assertEqual(result['truncations'], [code])
+                self.assertTrue(any(row['status'] == 'bound-exceeded:' + code
+                                    for row in result['blocking_dependencies']))
+        for surface, argv_name in [('units', 'list-unit-files'), ('cron', 'crontab')]:
+            with self.subTest(vector='command-bytes-' + surface):
+                def command(argv):
+                    return ('host-private', False) if argv_name in argv else ('', True)
+                result = self.reader.collect(command, cron_files=[])
+                self.assertFalse(result['acquired'][surface])
+                self.assertTrue(any(row['status'] == 'bound-exceeded:' + surface
+                                    for row in result['blocking_dependencies']))
+                self.assertNotIn('host-private', json.dumps(result))
+
     def test_total_output_refuses_with_code(self):
         self.assertTrue(hasattr(self.reader, 'encode_result'), 'bounded encoder absent')
         with patch.object(self.reader, 'MAX_TOTAL_BYTES', 8):
