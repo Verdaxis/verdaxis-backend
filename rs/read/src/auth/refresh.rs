@@ -21,7 +21,7 @@ use axum::{
     routing::post,
 };
 use axum_extra::extract::CookieJar;
-use chrono::{DateTime, Duration, Utc};
+use chrono::{Duration, Utc};
 use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode, errors::ErrorKind};
 use serde_json::{Value, json};
 use sqlx::PgPool;
@@ -273,7 +273,7 @@ async fn rotate(
         if live && row.rotation_grace_until.is_some_and(|t| t >= now) {
             return Ok(Outcome::Grace);
         }
-        revoke_family(&mut tx, row.family_id).await?;
+        store::revoke_refresh_family(&mut tx, row.family_id).await?;
         tx.commit().await?;
         return Ok(Outcome::Refused(AuthCode::RefreshTokenReplayed));
     }
@@ -282,7 +282,7 @@ async fn rotate(
     }
     let jti = generate_token();
     let digest = token_digest(&jti);
-    mark_rotated(&mut tx, &row.jti_hash, &digest, now).await?;
+    store::mark_refresh_rotated(&mut tx, &row.jti_hash, &digest, now).await?;
     store::insert_refresh(
         &mut tx,
         &NewRefreshRow {
@@ -300,20 +300,4 @@ async fn rotate(
         .refresh(user.id, row.family_id, &jti, now, Some(now));
     tx.commit().await?;
     Ok(Outcome::Issued(access, refresh))
-}
-async fn revoke_family(conn: &mut sqlx::PgConnection, family: Uuid) -> Result<(), sqlx::Error> {
-    sqlx::query("UPDATE refresh_sessions SET revoked=true WHERE family_id=$1")
-        .bind(family)
-        .execute(conn)
-        .await?;
-    Ok(())
-}
-async fn mark_rotated(
-    conn: &mut sqlx::PgConnection,
-    jti: &str,
-    next: &str,
-    now: DateTime<Utc>,
-) -> Result<(), sqlx::Error> {
-    sqlx::query("UPDATE refresh_sessions SET revoked=true,replaced_by_jti_hash=$2,rotation_grace_until=$3,last_used_at=$4 WHERE jti_hash=$1").bind(jti).bind(next).bind(now+Duration::seconds(5)).bind(now).execute(conn).await?;
-    Ok(())
 }

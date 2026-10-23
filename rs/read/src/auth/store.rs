@@ -371,3 +371,25 @@ pub async fn consume_reset_token(
     .await?;
     Ok(consumed.rows_affected() == 1)
 }
+
+/// Revoke all rows of a family after the device and user locks.
+pub async fn revoke_refresh_family(
+    conn: &mut sqlx::PgConnection,
+    family: Uuid,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE refresh_sessions SET revoked=true WHERE family_id=$1")
+        .bind(family)
+        .execute(conn)
+        .await?;
+    Ok(())
+}
+/// Link a locked predecessor to its successor and record its rotation time.
+pub async fn mark_refresh_rotated(
+    conn: &mut sqlx::PgConnection,
+    jti: &str,
+    next: &str,
+    now: DateTime<Utc>,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE refresh_sessions SET revoked=true,replaced_by_jti_hash=$2,rotation_grace_until=$3,last_used_at=$4 WHERE jti_hash=$1").bind(jti).bind(next).bind(now+TimeDelta::seconds(5)).bind(now).execute(conn).await?;
+    Ok(())
+}
