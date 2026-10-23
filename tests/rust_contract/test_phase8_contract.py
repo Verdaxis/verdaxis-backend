@@ -596,6 +596,44 @@ def test_phase8_module_reviewer_refuses_unaccepted_module_syntax(prefix, reason)
     assert any(reason in violation for violation in violations), (reason, violations)
 
 
+@pytest.mark.parametrize("expression, reason", [
+    ('set()', 'only direct sa constructors are allowed'),
+    ('[set()]', 'argument List is not allowed'),
+    ('{"x": set()}', 'argument Dict is not allowed'),
+    ('{1, 2}', 'argument Set is not allowed'),
+    ('{}', 'argument Dict is not allowed'),
+    ('1+2j', 'argument BinOp is not allowed'),
+    ('1-2j', 'argument BinOp is not allowed'),
+    ('-1', 'argument UnaryOp is not allowed'),
+    ('+1', 'argument UnaryOp is not allowed'),
+    ('2j', 'argument Constant is not allowed'),
+    ('1.5', 'argument Constant is not allowed'),
+    ('b"x"', 'argument Constant is not allowed'),
+    ('...', 'argument Constant is not allowed'),
+    ('[["x"]]', 'argument List is not allowed'),
+    ('(("x",),)', 'argument Tuple is not allowed'),
+    ('[1.5]', 'argument List is not allowed'),
+])
+@pytest.mark.parametrize("location", ["revision", "ddl", "constructor"])
+def test_phase8_module_reviewer_refuses_nonliteral_syntax(expression, reason, location):
+    tree = migration_module('op.create_table("watchlist_producer_state")')
+    if location == "revision":
+        assignment = next(node for node in tree.body if isinstance(node, ast.Assign) and node.targets[0].id == "branch_labels")
+        assignment.value = ast.parse(expression, mode="eval").body
+        reason = "revision value must be literal"
+    else:
+        argument = expression if location == "ddl" else f'sa.Column("id", sa.Integer(), server_default={expression})'
+        tree = migration_module(f'op.create_table("watchlist_producer_state", {argument})')
+    violations = review_migration_operations(tree, load_ledger()["schema_change_set"])
+    assert any(reason in violation for violation in violations), (reason, violations)
+
+
+@pytest.mark.parametrize("expression", ['"x"', '1', 'True', 'None', '["x", 1, True, None]', '("x", 1, True, None)'])
+def test_phase8_module_reviewer_accepts_reviewed_literal_nodes(expression):
+    tree = migration_module(f'op.create_index("index_name", "table_name", {expression})')
+    assert review_migration_operations(tree, load_ledger()["schema_change_set"]) == []
+
+
 def test_phase8_module_reviewer_accepts_static_ddl_and_head_reads():
     tree = migration_module('''heads = op.get_bind().execute(sa.text("SELECT version_num FROM alembic_version")).scalars().all()
 op.add_column("watchlist_events", sa.Column("producer", sa.Text(), nullable=False, server_default="legacy-python"))
