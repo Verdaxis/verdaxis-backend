@@ -343,6 +343,16 @@ until their owning task supplies the gates; parsing never grants execution
 authority. `rs/read/tests/phase10_cli.rs` pins dispatch, help, redaction and
 non-UTF-8 argument behaviour.
 
+Task 35 adds the off-host W0 fixture adapter and verifier in
+`deploy/tests/{collect-host-inventory,verify-host-inventory,host-inventory-contract}.sh`.
+They share the bounded reader and classification checks in
+`tests/rust_contract/phase10/host_inventory/inventory.py` (CI-only Python, no
+application imports). `host-inventory.schema.json` defines the register;
+`host-dependencies.json` stays empty and marked `uncollected` until separately
+authorized installed evidence exists. Stage 1 accepts sanitized fixtures only,
+uses private external evidence directories with SHA-256 sidecars, and disables
+live collection, installed acceptance, signing, and schedule changes.
+
 ## File Map
 
 ```

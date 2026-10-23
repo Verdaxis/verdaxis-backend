@@ -133,6 +133,11 @@ class InventoryContract(unittest.TestCase):
         result = run(COLLECT, '--live', '--host', 'production')
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('stage 1', result.stderr)
+        for forbidden in (self.folder / '.env', self.folder / 'artifact-provenance' / 'record.json'):
+            result = run(COLLECT, '--fixture', forbidden, '--evidence-dir', self.folder,
+                         '--output-name', 'forbidden.json')
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('credential input paths are forbidden', result.stderr)
         # Never overwrite an existing evidence artifact or follow an output link.
         result = run(COLLECT, '--fixture', FIXTURE, '--evidence-dir', self.folder,
                      '--output-name', output.name)
@@ -142,7 +147,18 @@ class InventoryContract(unittest.TestCase):
         self.assertNotEqual(run(COLLECT, '--fixture', FIXTURE, '--evidence-dir', self.folder,
                                 '--output-name', link.name).returncode, 0)
         empty = ROOT / 'tests/rust_contract/phase10/host-dependencies.json'
+        from jsonschema import Draft202012Validator
+        schema = json.loads((empty.parent / 'host-inventory.schema.json').read_text())
+        Draft202012Validator(schema).validate(json.loads(empty.read_text()))
         self.assertNotEqual(run(VERIFY, '--fixture', empty).returncode, 0)
+        # A digest-valid payload with a second JSON value is still invalid.
+        malformed = self.folder / 'stream.json'
+        malformed.write_text(output.read_text() + '{}')
+        malformed.with_suffix('.json.sha256').write_text(hashlib.sha256(malformed.read_bytes()).hexdigest() + '\n')
+        self.assertNotEqual(run(VERIFY, '--fixture', malformed).returncode, 0)
+        bad = copy.deepcopy(doc)
+        bad['observations'][0]['text'] = 'PASSWORD=fixture-password-123'
+        self.refused(bad, 'unredacted secret-looking value')
 
 
 if __name__ == '__main__':

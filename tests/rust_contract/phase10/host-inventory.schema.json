@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://verdaxis.example/schemas/host-inventory-v1",
+  "title": "W0 dependency register (unsigned; installed acceptance is separate)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "scope", "binding", "hosts", "required_dependencies", "dependencies", "schedules", "credential_references", "observations", "source_sha256", "schedule_sha256"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "scope": {"enum": ["uncollected", "fixture", "installed"]},
+    "binding": {"const": "unsigned, digest-bound"},
+    "source_sha256": {"$ref": "#/$defs/digest"},
+    "schedule_sha256": {"$ref": "#/$defs/digest"},
+    "hosts": {"type": "array", "maxItems": 2, "items": {"$ref": "#/$defs/host"}},
+    "required_dependencies": {"$ref": "#/$defs/strings"},
+    "dependencies": {"type": "array", "maxItems": 10000, "items": {"$ref": "#/$defs/dependency"}},
+    "schedules": {"type": "array", "maxItems": 10000, "items": {"$ref": "#/$defs/schedule"}},
+    "credential_references": {"$ref": "#/$defs/paths"},
+    "observations": {"type": "array", "maxItems": 10000, "items": {"type": "object", "additionalProperties": false, "required": ["host", "surface", "text"], "properties": {"host": {"enum": ["production", "staging", "offhost"]}, "surface": {"enum": ["units", "timers", "dropins", "cron", "processes", "usr_local", "packages", "imports"]}, "text": {"type": "string", "maxLength": 65536}}}}
+  },
+  "$defs": {
+    "text": {"type": "string", "minLength": 1, "maxLength": 4096},
+    "digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "strings": {"type": "array", "maxItems": 10000, "uniqueItems": true, "items": {"$ref": "#/$defs/text"}},
+    "paths": {"type": "array", "maxItems": 1000, "uniqueItems": true, "items": {"type": "string", "pattern": "^/[^\\u0000\\r\\n]+$", "maxLength": 4096}},
+    "coverage": {
+      "type": "object", "additionalProperties": false,
+      "required": ["units", "timers", "dropins", "cron", "processes", "usr_local", "packages", "imports"],
+      "properties": {"units": {"type": "boolean"}, "timers": {"type": "boolean"}, "dropins": {"type": "boolean"}, "cron": {"type": "boolean"}, "processes": {"type": "boolean"}, "usr_local": {"type": "boolean"}, "packages": {"type": "boolean"}, "imports": {"type": "boolean"}}
+    },
+    "host": {"type": "object", "additionalProperties": false, "required": ["id", "owner", "coverage"], "properties": {"id": {"enum": ["production", "staging"]}, "owner": {"$ref": "#/$defs/text"}, "coverage": {"$ref": "#/$defs/coverage"}}},
+    "schedule": {"type": "object", "additionalProperties": false, "required": ["id", "host", "expression", "owner"], "properties": {"id": {"$ref": "#/$defs/text"}, "host": {"enum": ["production", "staging", "offhost"]}, "expression": {"$ref": "#/$defs/text"}, "owner": {"$ref": "#/$defs/text"}}},
+    "dependency": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "host", "kind", "location", "path", "owner", "sha256", "classification", "evidence", "imports", "import_evidence", "removed_package_dependencies", "unix_identity", "database_identity", "destination", "retention", "restore_contract", "credential_references"],
+      "properties": {
+        "id": {"$ref": "#/$defs/text"},
+        "host": {"enum": ["production", "staging", "offhost"]},
+        "kind": {"enum": ["backup", "restore", "staging-pull", "dump", "fleet", "unit", "timer", "dropin", "cron", "process", "usr-local", "other"]},
+        "location": {"enum": ["host", "offhost"]},
+        "path": {"type": "string", "pattern": "^/[^\\u0000\\r\\n]+$", "minLength": 2, "maxLength": 4096},
+        "owner": {"$ref": "#/$defs/text"},
+        "sha256": {"$ref": "#/$defs/digest"},
+        "classification": {"enum": ["replacement-required", "retirement-approved", "unaffected"]},
+        "evidence": {"$ref": "#/$defs/text"},
+        "imports": {"$ref": "#/$defs/strings"},
+        "import_evidence": {"$ref": "#/$defs/text"},
+        "removed_package_dependencies": {"$ref": "#/$defs/strings"},
+        "unix_identity": {"$ref": "#/$defs/text"},
+        "database_identity": {"$ref": "#/$defs/text"},
+        "destination": {"$ref": "#/$defs/text"},
+        "retention": {"$ref": "#/$defs/text"},
+        "restore_contract": {"$ref": "#/$defs/text"},
+        "credential_references": {"$ref": "#/$defs/paths"}
+      }
+    }
+  }
+}
