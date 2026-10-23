@@ -85,11 +85,19 @@ impl Fixture {
         sqlx::query("INSERT INTO organizations VALUES($1)").bind(organization).execute(&mut admin).await.unwrap();
         sqlx::query("INSERT INTO users(id,organization_id,role,status) VALUES($1,$2,'ADMIN','APPROVED')")
             .bind(actor).bind(organization).execute(&mut admin).await.unwrap();
+        sqlx::raw_sql(&format!("GRANT USAGE ON SCHEMA {schema} TO rust_app; GRANT SELECT,INSERT,UPDATE ON ALL TABLES IN SCHEMA {schema} TO rust_app; REVOKE UPDATE ON {schema}.audit_logs,{schema}.user_status_transitions,{schema}.market_event_outbox FROM rust_app"))
+            .execute(&mut admin).await.unwrap();
+        let runtime_url = std::env::var("RUST_TEST_DATABASE_URL").expect("explicit disposable runtime URL required");
+        let runtime = url::Url::parse(&runtime_url).unwrap();
+        assert_eq!(runtime.host_str(), Some("127.0.0.1"));
+        assert_eq!(runtime.port(), parsed.port());
+        assert_eq!(runtime.path(), parsed.path());
+        assert_eq!(runtime.username(), "rust_app");
         let search_path = format!("SET search_path TO {schema}");
         let pool = PgPoolOptions::new().max_connections(3).after_connect(move |conn, _| {
             let sql = search_path.clone();
             Box::pin(async move { sqlx::raw_sql(&sql).execute(conn).await?; Ok(()) })
-        }).connect(&url).await.unwrap();
+        }).connect(&runtime_url).await.unwrap();
         Self { pool, admin, schema, actor, organization }
     }
 
