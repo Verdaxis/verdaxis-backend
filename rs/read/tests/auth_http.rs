@@ -782,16 +782,19 @@ async fn auth_body_limit_is_enforced() {
     assert_eq!(interrupted.code(), AuthCode::RequestInvalid);
 
     // Through the HTTP stack, an oversized body is the 413 auth envelope.
-    let app = middleware(Router::new().route(
-        "/api/auth/login",
-        post(|request: Request<Body>| async move {
-            let (parts, body) = request.into_parts();
-            match read_auth_body(&parts.headers, body).await {
-                Ok(body) => body.len().to_string().into_response(),
-                Err(failure) => failure.into_response(),
-            }
-        }),
-    ));
+    let app = middleware(
+        Router::new().route(
+            "/api/auth/login",
+            post(|request: Request<Body>| async move {
+                let (parts, body) = request.into_parts();
+                match read_auth_body(&parts.headers, body).await {
+                    Ok(body) => body.len().to_string().into_response(),
+                    Err(failure) => failure.into_response(),
+                }
+            }),
+        ),
+        "staging",
+    );
     let oversized = || Body::from(vec![b'a'; AUTH_BODY_LIMIT_BYTES + 1]);
     for declare in [true, false] {
         let mut request = Request::post("/api/auth/login")
@@ -841,6 +844,7 @@ async fn forwarded_client_address_uses_last_loopback_hop() {
     let app = middleware_with_limits(
         Router::new().route("/api/auth/forgot-password", post(|| async { "ok" })),
         SharedLimits::default(),
+        "staging",
     );
 
     // A direct client cannot choose its address: a forwarded header from a
@@ -896,4 +900,45 @@ async fn forwarded_client_address_uses_last_loopback_hop() {
         StatusCode::OK,
         "an IPv6 loopback peer also uses the last hop"
     );
+}
+
+#[tokio::test]
+async fn state_free_cors_uses_explicit_environment() {
+    use axum::{Router, body::Body, http::Request, routing::get};
+    use tower::ServiceExt;
+    for environment in ["production", "unknown"] {
+        for limited in [false, true] {
+            let routes = Router::new().route("/probe", get(|| async { "ok" }));
+            let app = if limited {
+                verdaxis_read::runtime::http::middleware_with_limits(
+                    routes,
+                    Default::default(),
+                    environment,
+                )
+            } else {
+                verdaxis_read::runtime::http::middleware(routes, environment)
+            };
+            for origin in [
+                "https://app.verdaxis.exchange",
+                "https://staging.verdaxis.exchange",
+            ] {
+                let response = app
+                    .clone()
+                    .oneshot(
+                        Request::get("/probe")
+                            .header("origin", origin)
+                            .body(Body::empty())
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    response
+                        .headers()
+                        .contains_key("access-control-allow-origin"),
+                    environment == "production" && origin == "https://app.verdaxis.exchange"
+                );
+            }
+        }
+    }
 }

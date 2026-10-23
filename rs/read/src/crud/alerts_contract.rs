@@ -158,7 +158,7 @@ pub async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     );
     axum::serve(
         tokio::net::TcpListener::bind(bind).await?,
-        crate::runtime::http::middleware(app),
+        crate::runtime::http::middleware(app, &std::env::var("ENVIRONMENT").unwrap_or_default()),
     )
     .await?;
     Ok(())

@@ -1,8 +1,6 @@
 pub use verdaxis_read::{ApiError, auth, runtime};
 
-#[allow(dead_code)]
-#[path = "../src/auth/login.rs"]
-mod login;
+use verdaxis_read::auth::login;
 
 use axum::{
     body::{Body, to_bytes},
@@ -128,4 +126,34 @@ async fn login_form_requires_both_fields_and_bounded_body() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+}
+#[tokio::test]
+async fn login_composed_prefix_budget() {
+    let state = state().await;
+    let limits = state.limits.clone();
+    let routes = login::router(state).route(
+        "/api/auth/login/probe",
+        axum::routing::post(|| async { StatusCode::UNPROCESSABLE_ENTITY }),
+    );
+    let app = verdaxis_read::runtime::http::middleware_with_limits(routes, limits, "staging");
+    for number in 1..=31 {
+        let mut req = request(None, "username=a");
+        *req.uri_mut() = match number {
+            1 | 3 | 5 => "/api/auth/login",
+            2 | 4 => "/api/auth/login/",
+            _ => "/api/auth/login/probe",
+        }
+        .parse()
+        .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(
+            response.status(),
+            if number <= 30 {
+                StatusCode::UNPROCESSABLE_ENTITY
+            } else {
+                StatusCode::TOO_MANY_REQUESTS
+            },
+            "request {number}"
+        );
+    }
 }

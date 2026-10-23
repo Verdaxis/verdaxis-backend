@@ -800,3 +800,7 @@ clients retry the unchanged request. The receipt commits with the economic effec
 and outbox. Runtime access is SELECT
 and INSERT only; receipts are retained. Migration `rcp_20261003_command_results`
 follows acceptance priority. Forward corrective releases must retain receipts.
+
+## Rust login component
+
+`auth/login.rs` owns form login, device-bound issuance and the login-day upsert in one transaction. Its router remains unmounted. Shared ingress supplies one pre-auth charge and Unix-second quota time; component-only requests admit locally. State-free HTTP constructors require an explicit environment.

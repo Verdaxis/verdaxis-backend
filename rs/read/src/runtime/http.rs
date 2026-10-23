@@ -38,8 +38,13 @@ struct HttpState {
     phase2_limits: crate::auth::limits::SharedLimits,
 }
 
-pub fn middleware(routes: Router) -> Router {
-    compose(routes, None, crate::auth::limits::SharedLimits::default())
+pub fn middleware(routes: Router, environment: &str) -> Router {
+    compose(
+        routes,
+        None,
+        crate::auth::limits::SharedLimits::default(),
+        environment,
+    )
 }
 
 pub fn middleware_with_state(routes: Router, app_state: crate::AppState) -> Router {
@@ -47,19 +52,25 @@ pub fn middleware_with_state(routes: Router, app_state: crate::AppState) -> Rout
         routes,
         Some(app_state),
         crate::auth::limits::SharedLimits::default(),
+        "",
     )
 }
 
 /// Compose one pre-auth authority around a route split. Task 22 must attach
 /// both real upstream owners here before admin-feedback cutover is permitted.
-pub fn middleware_with_limits(routes: Router, limits: crate::auth::limits::SharedLimits) -> Router {
-    compose(routes, None, limits)
+pub fn middleware_with_limits(
+    routes: Router,
+    limits: crate::auth::limits::SharedLimits,
+    environment: &str,
+) -> Router {
+    compose(routes, None, limits, environment)
 }
 
 fn compose(
     routes: Router,
     app_state: Option<crate::AppState>,
     limits: crate::auth::limits::SharedLimits,
+    environment: &str,
 ) -> Router {
     let state = HttpState {
         started: Instant::now(),
@@ -69,7 +80,7 @@ fn compose(
     let environment = app_state
         .as_ref()
         .map(|state| state.config.environment.clone())
-        .unwrap_or_else(|| "staging".into());
+        .unwrap_or_else(|| environment.to_owned());
     let routes = routes.layer(middleware::from_fn_with_state(state, dispatch_boundary));
     let routes = if let Some(app_state) = app_state {
         routes.layer(middleware::from_fn_with_state(
@@ -288,7 +299,7 @@ fn preauth_refusal(path: &str, refusal: Refusal) -> Response {
 /// CORS are separate outer layers.
 async fn dispatch_boundary(
     State(state): State<HttpState>,
-    request: Request,
+    mut request: Request,
     next: Next,
 ) -> Response {
     let path = request.uri().path();
@@ -303,13 +314,14 @@ async fn dispatch_boundary(
             .get("x-forwarded-for")
             .and_then(|value| value.to_str().ok()),
     );
-    if let Err(refusal) =
-        state
-            .phase2_limits
-            .preauth_check(&client, path, state.started.elapsed().as_secs())
-    {
+    let quota_now = chrono::Utc::now().timestamp().max(0) as u64;
+    if let Err(refusal) = state.phase2_limits.preauth_check(&client, path, quota_now) {
         return preauth_refusal(path, refusal);
     }
+    request
+        .extensions_mut()
+        .insert(crate::auth::login::PreauthCharged(quota_now));
+    let path = request.uri().path();
     if let Some(response) = crate::auth::scope::known_get_refusal(request.method().as_str(), path) {
         return response;
     }
