@@ -278,6 +278,18 @@ owns the one budgeted listener connection. Nothing starts either yet. See
 Exact `market/amount.rs` operations retain intermediate economic rounding while
 removing wire-spelling emulation. See `docs/rust-phase1/same-meaning-contract.md`.
 
+## Trusted watchlist producer schema
+
+Revision `p89_20261022_watchlist_producer` follows `prc_20261018_cache`.
+It adds five producer identity columns, their all-or-none CHECK and replay
+identity index to `watchlist_events`, nullable internal JSONB evidence to
+`market_event_outbox`, and the singleton `watchlist_producer_state` watermark.
+Existing Python inserts retain legacy identity and NULL evidence. The app can
+read, insert and update the watermark but cannot delete it; shared outbox
+writer/sequencer grants stay unchanged. The consumer is not activated by this
+schema change. Downgrade refuses retained trusted rows or internal evidence.
+The applying production release requires this exact reviewed checkpoint.
+
 ## Rust Phase 2 contract preparation
 
 `tests/rust_contract/phase2/routes.json` pins the 27 CRUD method/path pairs,

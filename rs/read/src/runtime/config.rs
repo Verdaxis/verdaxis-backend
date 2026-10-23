@@ -1,4 +1,4 @@
-use crate::{Config, DEFAULT_READ_ADMISSION_SLOTS, verify_release};
+use crate::{verify_release, Config, DEFAULT_READ_ADMISSION_SLOTS};
 use percent_encoding::percent_decode_str;
 use std::net::IpAddr;
 
@@ -325,8 +325,8 @@ pub fn validate_config(config: &Config) -> Result<(), String> {
     .map_err(|_| "invalid compiled revision allowlist")?;
     check_revision(&config.migration_revision, &allowed)?;
     if config.environment == "production" {
-        if config.migration_revision != "p0_20261016_union" {
-            return Err("production requires its reviewed union checkpoint".into());
+        if config.migration_revision != "p89_20261022_watchlist_producer" {
+            return Err("production requires its reviewed producer checkpoint".into());
         }
         if config.prepared_budget.is_none() {
             return Err("production requires its prepared connection budget".into());

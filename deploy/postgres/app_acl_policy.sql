@@ -38,6 +38,8 @@ INSERT INTO app_table_policy (table_name, privileges) VALUES
     ('kyc_grace_notices', ARRAY['SELECT', 'INSERT', 'UPDATE']),
     ('live_slice_benchmarks', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('market_command_results', ARRAY['SELECT', 'INSERT']),
+    -- Includes nullable producer_evidence. The shared writer/sequencer keeps
+    -- INSERT/UPDATE; the producer consumer uses SELECT only. No DELETE.
     ('market_event_outbox', ARRAY['SELECT', 'INSERT', 'UPDATE']),
     ('market_indications', ARRAY['SELECT']),
     ('market_row_quarantines', ARRAY['SELECT']),
@@ -86,7 +88,9 @@ INSERT INTO app_table_policy (table_name, privileges) VALUES
     ('users', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('vessels', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('watchlist_entries', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
+    -- Producer identity columns use the existing event insertion authority.
     ('watchlist_events', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
+    ('watchlist_producer_state', ARRAY['SELECT', 'INSERT', 'UPDATE']),
     ('watchlist_targets', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('watchlists', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']);
 
