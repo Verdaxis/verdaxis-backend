@@ -91,12 +91,26 @@ async fn login_quota_threshold_and_reset() {
     let state = state().await;
     let now = chrono::Utc::now().timestamp() as u64;
     for _ in 0..5 {
-        state.limits.check_endpoint("unknown", "/api/auth/login", now - 60).unwrap();
+        state
+            .limits
+            .check_endpoint("unknown", "/api/auth/login", now - 60)
+            .unwrap();
     }
     let app = login::router(state);
     for number in 1..=6 {
-        let response = app.clone().oneshot(request(None, "username=a")).await.unwrap();
-        assert_eq!(response.status(), if number <= 5 { StatusCode::UNPROCESSABLE_ENTITY } else { StatusCode::TOO_MANY_REQUESTS });
+        let response = app
+            .clone()
+            .oneshot(request(None, "username=a"))
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            if number <= 5 {
+                StatusCode::UNPROCESSABLE_ENTITY
+            } else {
+                StatusCode::TOO_MANY_REQUESTS
+            }
+        );
     }
 }
 

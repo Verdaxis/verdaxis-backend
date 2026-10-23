@@ -164,7 +164,15 @@ async fn login_credential_refusal_vectors() {
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
         assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
         assert_eq!(snapshot(&owner, &ids).await, before);
-        assert_eq!(sqlx::query_scalar::<_, i64>("SELECT count(*) FROM users WHERE id=$1 OR email=$2").bind(unknown).bind(format!("{unknown}@login.invalid")).fetch_one(&owner).await.unwrap(), 0);
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM users WHERE id=$1 OR email=$2")
+                .bind(unknown)
+                .bind(format!("{unknown}@login.invalid"))
+                .fetch_one(&owner)
+                .await
+                .unwrap(),
+            0
+        );
         results.push((
             response.headers().clone(),
             to_bytes(response.into_body(), 4096).await.unwrap(),
@@ -206,10 +214,28 @@ async fn login_account_admission_vectors() {
 async fn login_writes_one_family_per_device() {
     let (owner, _, state, id) = setup().await;
     let device = device();
-    assert_eq!(send(state.clone(), id, PASSWORD, &device).await.status(), StatusCode::OK);
-    let first = sqlx::query("SELECT first_login_at,last_login_at FROM user_login_days WHERE user_id=$1").bind(id).fetch_one(&owner).await.unwrap();
-    assert_eq!(send(state.clone(), id, PASSWORD, &device).await.status(), StatusCode::OK);
-    assert_eq!(sqlx::query_scalar::<_, i64>("SELECT count(*) FROM user_login_days WHERE user_id=$1").bind(id).fetch_one(&owner).await.unwrap(), 1);
+    assert_eq!(
+        send(state.clone(), id, PASSWORD, &device).await.status(),
+        StatusCode::OK
+    );
+    let first =
+        sqlx::query("SELECT first_login_at,last_login_at FROM user_login_days WHERE user_id=$1")
+            .bind(id)
+            .fetch_one(&owner)
+            .await
+            .unwrap();
+    assert_eq!(
+        send(state.clone(), id, PASSWORD, &device).await.status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM user_login_days WHERE user_id=$1")
+            .bind(id)
+            .fetch_one(&owner)
+            .await
+            .unwrap(),
+        1
+    );
     assert_eq!(
         sqlx::query_scalar::<_, i64>(
             "SELECT count(*) FROM refresh_sessions WHERE user_id=$1 AND NOT revoked"
@@ -228,8 +254,14 @@ async fn login_writes_one_family_per_device() {
     .await
     .unwrap();
     assert_eq!(row.get::<i32, _>("login_count"), 2);
-    assert_eq!(row.get::<chrono::DateTime<Utc>, _>("first_login_at"), first.get::<chrono::DateTime<Utc>, _>("first_login_at"));
-    assert!(row.get::<chrono::DateTime<Utc>, _>("last_login_at") > first.get::<chrono::DateTime<Utc>, _>("last_login_at"));
+    assert_eq!(
+        row.get::<chrono::DateTime<Utc>, _>("first_login_at"),
+        first.get::<chrono::DateTime<Utc>, _>("first_login_at")
+    );
+    assert!(
+        row.get::<chrono::DateTime<Utc>, _>("last_login_at")
+            > first.get::<chrono::DateTime<Utc>, _>("last_login_at")
+    );
     assert!(
         row.get::<chrono::DateTime<Utc>, _>("last_login_at")
             > row.get::<chrono::DateTime<Utc>, _>("first_login_at")
@@ -261,9 +293,18 @@ async fn login_second_account_same_device_revokes_first() {
         .unwrap(),
         0
     );
-    let live = sqlx::query("SELECT family_id,device_id_hash FROM refresh_sessions WHERE user_id=$1 AND NOT revoked").bind(other).fetch_all(&owner).await.unwrap();
+    let live = sqlx::query(
+        "SELECT family_id,device_id_hash FROM refresh_sessions WHERE user_id=$1 AND NOT revoked",
+    )
+    .bind(other)
+    .fetch_all(&owner)
+    .await
+    .unwrap();
     assert_eq!(live.len(), 1);
-    assert_eq!(live[0].get::<String, _>("device_id_hash"), verdaxis_read::auth::token_bytes::token_digest(&device));
+    assert_eq!(
+        live[0].get::<String, _>("device_id_hash"),
+        verdaxis_read::auth::token_bytes::token_digest(&device)
+    );
     let _: Uuid = live[0].get("family_id");
     cleanup(&owner, id).await;
     cleanup(&owner, other).await;
