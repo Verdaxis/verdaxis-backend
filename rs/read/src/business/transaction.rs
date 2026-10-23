@@ -290,9 +290,15 @@ impl Completion {
     }
     fn acknowledgement(&self, result: Result<(), sqlx::Error>) -> Result<(), sqlx::Error> {
         #[cfg(feature = "contract-tests")]
-        if result.is_ok() && self.control.as_ref().is_some_and(|control| control.lose_ack()) {
+        if result.is_ok()
+            && self
+                .control
+                .as_ref()
+                .is_some_and(|control| control.lose_ack())
+        {
             return Err(sqlx::Error::Io(std::io::Error::new(
-                std::io::ErrorKind::UnexpectedEof, "completion acknowledgement unavailable",
+                std::io::ErrorKind::UnexpectedEof,
+                "completion acknowledgement unavailable",
             )));
         }
         result
@@ -333,7 +339,6 @@ impl CompletionControl {
     pub fn lose_ack(&self) -> bool {
         self.lost_ack
     }
-
 }
 
 #[cfg(feature = "contract-tests")]
@@ -366,5 +371,6 @@ fn commit_failure(error: sqlx::Error) -> AttemptError {
         axum::http::StatusCode::SERVICE_UNAVAILABLE,
         "COMMIT_OUTCOME_UNKNOWN",
         "The transaction outcome must be checked before another command.",
-    ).into()
+    )
+    .into()
 }
