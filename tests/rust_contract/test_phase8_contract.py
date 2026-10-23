@@ -638,12 +638,98 @@ def test_phase8_module_reviewer_accepts_reviewed_literal_nodes(expression):
     assert review_migration_operations(tree, load_ledger()["schema_change_set"]) == []
 
 
+def test_phase8_reviewed_migration_digests(tmp_path):
+    checker = globals().get("review_migration_digests")
+    assert callable(checker), "exact-byte migration boundary missing"
+    path = "alembic/versions/p89_20261022_watchlist_producer.py"
+    target = tmp_path / path
+    target.parent.mkdir(parents=True)
+    target.write_bytes(b"# reviewed migration\n")
+    digest = hashlib.sha256(target.read_bytes()).hexdigest()
+    assert checker(tmp_path, [path], {}) == [f"{path}: reviewed_sha256=<unlisted> actual_sha256={digest}"]
+    assert checker(tmp_path, [path], {path: digest}) == []
+    target.write_bytes(target.read_bytes() + b" ")
+    changed = hashlib.sha256(target.read_bytes()).hexdigest()
+    assert checker(tmp_path, [path], {path: digest}) == [f"{path}: reviewed_sha256={digest} actual_sha256={changed}"]
+
+
+def test_phase8_reviewed_migration_list_starts_empty():
+    path = ROOT / "tests/rust_contract/phase8/reviewed-migrations.json"
+    assert path.is_file(), "reviewed migration digest list missing"
+    assert json.loads(path.read_text()) == {}, "Task 5a review must add the first approved digest"
+
+
+def task5a_fixture():
+    manifest = load_ledger()["schema_change_set"]
+    condition = manifest["constraints"]["ck_watchlist_events_producer_identity"]
+    body = f'''heads = op.get_bind().execute(sa.text("SELECT version_num FROM alembic_version")).scalars().all()
+if len(heads) != 1:
+    raise RuntimeError("Expected one migration head")
+op.add_column("watchlist_events", sa.Column("producer", sa.String(32), sa.CheckConstraint("producer IN ('legacy-python', 'rust-market-v1')"), nullable=False, server_default="legacy-python"))
+op.add_column("watchlist_events", sa.Column("source_event_id", sa.UUID()))
+op.add_column("watchlist_events", sa.Column("source_stream_seq", sa.BigInteger()))
+op.add_column("watchlist_events", sa.Column("scope_attested_at", sa.DateTime(timezone=True)))
+op.add_column("watchlist_events", sa.Column("derived_event_key", sa.String(255)))
+op.add_column("market_event_outbox", sa.Column("producer_evidence", postgresql.JSONB(), nullable=True))
+op.create_table("watchlist_producer_state", sa.Column("singleton", sa.Boolean(), sa.CheckConstraint("singleton"), primary_key=True), sa.Column("consumed_through_seq", sa.BigInteger(), sa.CheckConstraint("consumed_through_seq >= 0"), server_default="0"), sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()")))
+op.create_check_constraint("ck_watchlist_events_producer_identity", "watchlist_events", {condition!r})
+op.create_index("uq_watchlist_events_producer_source_target_derived", "watchlist_events", ["producer", "source_event_id", "watchlist_target_id", "derived_event_key"], unique=True, postgresql_where=sa.text("source_event_id IS NOT NULL"))
+op.execute("UPDATE watchlist_events SET producer = 'legacy-python'")
+heads = op.get_bind().execute(sa.text("SELECT version_num FROM alembic_version")).scalars().all()
+if len(heads) != 1:
+    raise RuntimeError("Expected one migration head")'''
+    tree = migration_module(body, module_prefix="from sqlalchemy.dialects import postgresql")
+    downgrade = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "downgrade")
+    downgrade.body = ast.parse('''trusted_rows = op.get_bind().execute(sa.text("SELECT EXISTS (SELECT 1 FROM watchlist_events WHERE producer = 'rust-market-v1')")).scalar_one()
+producer_evidence = op.get_bind().execute(sa.text("SELECT EXISTS (SELECT 1 FROM market_event_outbox WHERE producer_evidence IS NOT NULL)")).scalar_one()
+if trusted_rows or producer_evidence:
+    raise RuntimeError("Retained producer evidence prevents downgrade")
+op.drop_index("uq_watchlist_events_producer_source_target_derived", table_name="watchlist_events")
+op.drop_table("watchlist_producer_state")
+op.drop_column("market_event_outbox", "producer_evidence")
+op.drop_column("watchlist_events", "derived_event_key")
+op.drop_column("watchlist_events", "scope_attested_at")
+op.drop_column("watchlist_events", "source_stream_seq")
+op.drop_column("watchlist_events", "source_event_id")
+op.drop_column("watchlist_events", "producer")''').body
+    return tree
+
+
+def test_phase8_task5a_exact_shapes_pass():
+    assert review_migration_operations(task5a_fixture(), load_ledger()["schema_change_set"]) == []
+
+
+@pytest.mark.parametrize("old, new", [
+    ('sa.CheckConstraint("singleton")', 'sa.CheckConstraint("pg_try_advisory_lock(42)", name="unreviewed_lock")'),
+    ('server_default="legacy-python"', 'server_default=sa.text("set_config(\'application_name\', \'unreviewed-migration\', false)")'),
+    ('sa.text("source_event_id IS NOT NULL")', 'sa.text("producer = \'rust-market-v1\'")'),
+    ('"producer IN (\'legacy-python\', \'rust-market-v1\')"', '"pg_try_advisory_lock(42)"'),
+])
+def test_phase8_task5a_refuses_changed_sql_values(old, new):
+    # Match normalized AST text, not the source's choice of quote characters.
+    original = ast.parse(old, mode="eval").body if not old.startswith("server_default=") else None
+    tree = task5a_fixture()
+    changed = False
+    for node in ast.walk(tree):
+        if original is not None and isinstance(node, ast.Call) and node.args:
+            for index, argument in enumerate(node.args):
+                if ast.dump(argument) == ast.dump(original):
+                    node.args[index] = ast.parse(new, mode="eval").body
+                    changed = True
+        if old.startswith("server_default=") and isinstance(node, ast.keyword) and node.arg == "server_default" and isinstance(node.value, ast.Constant) and node.value.value == "legacy-python":
+            node.value = ast.parse(new.split("=", 1)[1], mode="eval").body
+            changed = True
+    assert changed, "negative SQL fixture did not reach its target"
+    violations = review_migration_operations(tree, load_ledger()["schema_change_set"])
+    assert any("unreviewed SQL value" in violation for violation in violations), violations
+
+
 def test_phase8_module_reviewer_accepts_static_ddl_and_head_reads():
     tree = migration_module('''heads = op.get_bind().execute(sa.text("SELECT version_num FROM alembic_version")).scalars().all()
 op.add_column("watchlist_events", sa.Column("producer", sa.Text(), nullable=False, server_default="legacy-python"))
 op.create_table("watchlist_producer_state", sa.Column("id", sa.Integer(), primary_key=True))
 op.create_check_constraint("ck_watchlist_events_producer_identity", "watchlist_events", "producer IS NOT NULL")
-op.create_index("uq_watchlist_events_producer_source_target_derived", "watchlist_events", ["producer"], unique=True, postgresql_where=sa.text("producer = 'rust-market-v1'"))
+op.create_index("uq_watchlist_events_producer_source_target_derived", "watchlist_events", ["producer"], unique=True, postgresql_where=sa.text("source_event_id IS NOT NULL"))
 op.execute(sa.text("UPDATE watchlist_events SET producer = 'legacy-python'"))''')
     assert review_migration_operations(tree, load_ledger()["schema_change_set"]) == []
 
