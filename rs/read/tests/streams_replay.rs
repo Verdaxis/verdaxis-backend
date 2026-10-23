@@ -380,6 +380,173 @@ async fn client_cancel_releases_subscription() {
     assert_eq!(hub.subscriber_count(), 0);
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ReadStage {
+    Boundary,
+    Page,
+    Revalidate,
+}
+
+#[derive(Clone)]
+struct ReadBarrier {
+    entered: Arc<tokio::sync::Notify>,
+    release: Arc<tokio::sync::Notify>,
+    active: Arc<std::sync::atomic::AtomicUsize>,
+}
+impl ReadBarrier {
+    fn new() -> Self {
+        Self {
+            entered: Arc::new(tokio::sync::Notify::new()),
+            release: Arc::new(tokio::sync::Notify::new()),
+            active: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        }
+    }
+    async fn wait(&self) {
+        struct Lease(Arc<std::sync::atomic::AtomicUsize>);
+        impl Drop for Lease {
+            fn drop(&mut self) {
+                self.0.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+        self.active.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let _lease = Lease(self.active.clone());
+        self.entered.notify_one();
+        self.release.notified().await;
+    }
+    fn active(&self) -> usize {
+        self.active.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+#[derive(Clone)]
+struct BlockedSource {
+    source: Source,
+    barrier: ReadBarrier,
+    stage: ReadStage,
+    armed: Arc<std::sync::atomic::AtomicBool>,
+}
+impl BlockedSource {
+    fn new(stage: ReadStage) -> Self {
+        Self {
+            source: Source::new(0, 2, vec![page(0, 2, [1, 2], false)]),
+            barrier: ReadBarrier::new(),
+            stage,
+            armed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        }
+    }
+    async fn block(&self, stage: ReadStage) {
+        if self.stage == stage && self.armed.load(std::sync::atomic::Ordering::SeqCst) {
+            self.barrier.wait().await;
+        }
+    }
+    fn arm(&self) {
+        self.armed.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+impl ReplaySource for BlockedSource {
+    async fn boundary(&self) -> Result<ReplayBoundary, StoreError> {
+        self.block(ReadStage::Boundary).await;
+        self.source.boundary().await
+    }
+    async fn page(&self, organization: Uuid, after: i64, through: i64, limits: PageLimits) -> Result<ReplayPage, StoreError> {
+        self.block(ReadStage::Page).await;
+        self.source.page(organization, after, through, limits).await
+    }
+    async fn revalidate(&self, principal: &StreamPrincipal) -> Result<(), StreamError> {
+        self.block(ReadStage::Revalidate).await;
+        self.source.revalidate(principal).await
+    }
+}
+
+async fn pending_read_terminal(stage: ReadStage, expected: Terminal) {
+    let hub = StreamHub::default();
+    let source = BlockedSource::new(stage);
+    let clock = Clock::new();
+    let mut replay = Replay::open(source.clone(), &hub, principal(Uuid::from_u128(8), org()), Some(0), clock.clone()).await.unwrap();
+    source.arm();
+    if stage == ReadStage::Revalidate { clock.advance(15); }
+    let read = replay.next();
+    tokio::pin!(read);
+    tokio::select! {
+        biased;
+        _ = &mut read => panic!("read completed before its barrier"),
+        _ = source.barrier.entered.notified() => {},
+    }
+    assert_eq!(source.barrier.active(), 1);
+    if expected == Terminal::Overflow {
+        for seq in 3..=103 { publish(&hub, seq); }
+    } else {
+        hub.terminate_all(expected);
+    }
+    let result = tokio::time::timeout(std::time::Duration::from_millis(100), &mut read).await;
+    assert!(result.is_ok(), "terminal must finish while the read barrier remains held");
+    assert_eq!(result.unwrap().unwrap().terminal(), Some(expected));
+    assert_eq!(source.barrier.active(), 0, "cancelled read must release its lease");
+    assert_eq!(hub.subscriber_count(), 0);
+}
+#[tokio::test]
+async fn pending_page_overflow_preempts_read() { pending_read_terminal(ReadStage::Page, Terminal::Overflow).await; }
+#[tokio::test]
+async fn pending_page_shutdown_preempts_read() { pending_read_terminal(ReadStage::Page, Terminal::Shutdown).await; }
+#[tokio::test]
+async fn pending_revalidation_overflow_preempts_read() { pending_read_terminal(ReadStage::Revalidate, Terminal::Overflow).await; }
+#[tokio::test]
+async fn pending_revalidation_shutdown_preempts_read() { pending_read_terminal(ReadStage::Revalidate, Terminal::Shutdown).await; }
+#[tokio::test]
+async fn pending_boundary_shutdown_preempts_read() {
+    let hub = StreamHub::default();
+    let source = BlockedSource::new(ReadStage::Boundary);
+    source.arm();
+    let opening = Replay::open(source.clone(), &hub, principal(Uuid::from_u128(8), org()), Some(0), Clock::new());
+    tokio::pin!(opening);
+    tokio::select! {
+        biased;
+        _ = &mut opening => panic!("boundary completed before its barrier"),
+        _ = source.barrier.entered.notified() => {},
+    }
+    hub.terminate_all(Terminal::Shutdown);
+    let result = tokio::time::timeout(std::time::Duration::from_millis(100), &mut opening).await;
+    assert!(result.is_ok(), "terminal must preempt boundary capture");
+    let mut replay = result.unwrap().unwrap();
+    terminal(&mut replay, Terminal::Shutdown).await;
+    assert_eq!(source.barrier.active(), 0);
+}
+#[tokio::test]
+async fn cancel_pending_page_releases_read_and_registration() {
+    let hub = StreamHub::default();
+    let source = BlockedSource::new(ReadStage::Page);
+    let mut replay = Replay::open(source.clone(), &hub, principal(Uuid::from_u128(8), org()), Some(0), Clock::new()).await.unwrap();
+    source.arm();
+    {
+        let read = replay.next();
+        tokio::pin!(read);
+        tokio::select! {
+            biased;
+            _ = &mut read => panic!("page completed before its barrier"),
+            _ = source.barrier.entered.notified() => {},
+        }
+        assert_eq!(source.barrier.active(), 1);
+    }
+    assert_eq!(source.barrier.active(), 0);
+    drop(replay);
+    assert_eq!(hub.subscriber_count(), 0);
+}
+#[tokio::test]
+async fn body_drop_mid_page_releases_registration() {
+    use futures_util::StreamExt;
+    let hub = StreamHub::default();
+    let replay = open(Source::new(0, 2, vec![page(0, 2, [1, 2], false)]), &hub, Some(0), Clock::new()).await;
+    let stream = futures_util::stream::unfold(replay, |mut replay| async move {
+        replay.next().await.map(|frame| (Ok::<_, std::convert::Infallible>(frame.into_event()), replay))
+    });
+    let response = axum::response::IntoResponse::into_response(axum::response::sse::Sse::new(stream));
+    let mut body = response.into_body().into_data_stream();
+    let first = body.next().await.unwrap().unwrap();
+    assert!(std::str::from_utf8(&first).unwrap().contains("id: 1"));
+    assert_eq!(hub.subscriber_count(), 1);
+    drop(body);
+    assert_eq!(hub.subscriber_count(), 0);
+}
+
 #[tokio::test]
 #[ignore = "requires the disposable PostgreSQL replay fixture"]
 async fn postgres_replay_snapshots() {
