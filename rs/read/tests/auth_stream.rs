@@ -38,9 +38,13 @@ fn stream_token_claims_and_ttl() {
     validation.set_issuer(&["verdaxis"]);
     validation.set_audience(&["verdaxis-api"]);
     validation.validate_exp = false;
-    let claims = decode::<Value>(token, &DecodingKey::from_secret(SECRET.as_bytes()), &validation)
-        .unwrap()
-        .claims;
+    let claims = decode::<Value>(
+        token,
+        &DecodingKey::from_secret(SECRET.as_bytes()),
+        &validation,
+    )
+    .unwrap()
+    .claims;
     assert_eq!(claims["sub"], actor.id.to_string());
     assert_eq!(claims["org_id"], actor.organization_id.unwrap().to_string());
     assert_eq!(claims["environment"], "production");
@@ -56,7 +60,10 @@ fn stream_token_claims_and_ttl() {
 
 #[test]
 fn stream_token_requires_organization() {
-    let error = issuer().issue(&actor(None), "client", Utc::now()).err().unwrap();
+    let error = issuer()
+        .issue(&actor(None), "client", Utc::now())
+        .err()
+        .unwrap();
     assert_eq!(error.status.as_u16(), 403);
     assert_eq!(error.detail["code"], "AUTH_ORGANIZATION_REQUIRED");
 }
@@ -74,7 +81,9 @@ fn stream_token_limit_is_30_per_minute() {
     assert_eq!(error.detail["code"], "RATE_LIMITED");
     assert_eq!(error.retry_after, Some(60));
     issuer.issue(&actor, "other-client", now).unwrap();
-    issuer.issue(&actor, "client", now + chrono::Duration::seconds(60)).unwrap();
+    issuer
+        .issue(&actor, "client", now + chrono::Duration::seconds(60))
+        .unwrap();
 }
 
 #[tokio::test]
@@ -83,7 +92,9 @@ async fn stream_token_uses_current_bearer_actor() {
     use std::sync::Arc;
     use verdaxis_read::{AppState, Config, MarketPolicy};
 
-    let owner = sqlx::PgPool::connect(&std::env::var("AUTH_STORE_TEST_OWNER_URL").unwrap()).await.unwrap();
+    let owner = sqlx::PgPool::connect(&std::env::var("AUTH_STORE_TEST_OWNER_URL").unwrap())
+        .await
+        .unwrap();
     let config = Config {
         kyc_execution_gate_enabled: true,
         environment: "test".into(),
@@ -99,36 +110,88 @@ async fn stream_token_uses_current_bearer_actor() {
         configured_max_connections: 100,
     };
     let pools = verdaxis_read::connect(&config).await.unwrap();
-    let state = AppState::new(config.clone(), pools, MarketPolicy {
-        source_sha: config.release_sha.clone(), products: vec![], points: vec![],
-    }).unwrap();
+    let state = AppState::new(
+        config.clone(),
+        pools,
+        MarketPolicy {
+            source_sha: config.release_sha.clone(),
+            products: vec![],
+            points: vec![],
+        },
+    )
+    .unwrap();
     let id = Uuid::new_v4();
     // Reuse an organization from the migrated fixture; no stream-specific DML.
-    let organization: Uuid = sqlx::query_scalar("SELECT id FROM organizations ORDER BY id LIMIT 1").fetch_one(&owner).await.unwrap();
+    let organization: Uuid = sqlx::query_scalar("SELECT id FROM organizations ORDER BY id LIMIT 1")
+        .fetch_one(&owner)
+        .await
+        .unwrap();
     sqlx::query("INSERT INTO users (id,email,password_hash,role,status,email_verified,must_change_password,organization_id) VALUES ($1,$2,'unused','BUYER','APPROVED',true,false,$3)")
         .bind(id).bind(format!("{id}@stream.invalid")).bind(organization).execute(&owner).await.unwrap();
     let now = Utc::now();
-    let settings = auth::VerificationSettings::new(SECRET.into(), None, "verdaxis".into(), "verdaxis-api".into());
-    let access_token = auth::TokenIssuer::new(SECRET, "verdaxis", "verdaxis-api").access(id, now, None);
+    let settings = auth::VerificationSettings::new(
+        SECRET.into(),
+        None,
+        "verdaxis".into(),
+        "verdaxis-api".into(),
+    );
+    let access_token =
+        auth::TokenIssuer::new(SECRET, "verdaxis", "verdaxis-api").access(id, now, None);
     let tokens = Arc::new(issuer());
     for expected in [Some(organization), None] {
-        sqlx::query("UPDATE users SET organization_id=$2 WHERE id=$1").bind(id).bind(expected).execute(&owner).await.unwrap();
+        sqlx::query("UPDATE users SET organization_id=$2 WHERE id=$1")
+            .bind(id)
+            .bind(expected)
+            .execute(&owner)
+            .await
+            .unwrap();
         let tokens = tokens.clone();
-        let access = auth::verify_authorization(Some(&format!("Bearer {access_token}")), &settings, now).unwrap();
-        let result = auth::run_authenticated(&state, access, auth::AuthenticatedRequest::new("GET", "/api/auth/stream-token", false), move |tx| {
-            Box::pin(async move { tokens.issue(tx.actor(), "client", now) })
-        }).await;
+        let access =
+            auth::verify_authorization(Some(&format!("Bearer {access_token}")), &settings, now)
+                .unwrap();
+        let result = auth::run_authenticated(
+            &state,
+            access,
+            auth::AuthenticatedRequest::new("GET", "/api/auth/stream-token", false),
+            move |tx| Box::pin(async move { tokens.issue(tx.actor(), "client", now) }),
+        )
+        .await;
         if expected.is_some() {
             assert!(result.is_ok());
         } else {
-            assert!(matches!(result, Err(auth::AuthenticatedError::Database(error)) if error.status.as_u16() == 403 && error.detail["code"] == "AUTH_ORGANIZATION_REQUIRED"));
+            assert!(
+                matches!(result, Err(auth::AuthenticatedError::Database(error)) if error.status.as_u16() == 403 && error.detail["code"] == "AUTH_ORGANIZATION_REQUIRED")
+            );
         }
     }
-    sqlx::query("UPDATE users SET must_change_password=true WHERE id=$1").bind(id).execute(&owner).await.unwrap();
-    let access = auth::verify_authorization(Some(&format!("Bearer {access_token}")), &settings, now).unwrap();
-    let result = auth::run_authenticated(&state, access, auth::AuthenticatedRequest::new("GET", "/api/auth/stream-token", false), |_| {
-        Box::pin(async { panic!("account refusal must precede stream issuance"); #[allow(unreachable_code)] Ok(()) })
-    }).await;
-    assert!(matches!(result, Err(auth::AuthenticatedError::Authentication(_))));
-    sqlx::query("DELETE FROM users WHERE id=$1").bind(id).execute(&owner).await.unwrap();
+    sqlx::query("UPDATE users SET must_change_password=true WHERE id=$1")
+        .bind(id)
+        .execute(&owner)
+        .await
+        .unwrap();
+    let access =
+        auth::verify_authorization(Some(&format!("Bearer {access_token}")), &settings, now)
+            .unwrap();
+    let result = auth::run_authenticated(
+        &state,
+        access,
+        auth::AuthenticatedRequest::new("GET", "/api/auth/stream-token", false),
+        |_| {
+            Box::pin(async {
+                panic!("account refusal must precede stream issuance");
+                #[allow(unreachable_code)]
+                Ok(())
+            })
+        },
+    )
+    .await;
+    assert!(matches!(
+        result,
+        Err(auth::AuthenticatedError::Authentication(_))
+    ));
+    sqlx::query("DELETE FROM users WHERE id=$1")
+        .bind(id)
+        .execute(&owner)
+        .await
+        .unwrap();
 }
