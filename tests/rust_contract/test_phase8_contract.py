@@ -886,6 +886,37 @@ def inventory_gate_fixture(tmp_path):
     return predecessor, path, {path: digest}
 
 
+@pytest.mark.parametrize("metadata", ["replace", "grafts", "shallow"])
+def test_phase8_inventory_refuses_altered_git_history(tmp_path, metadata):
+    source = tmp_path / "source"
+    source.mkdir()
+    predecessor, path, reviewed = inventory_gate_fixture(source)
+    extra = source / "alembic/versions/watchlist_extra.py"
+    extra.write_text('revision = "extra"\ndown_revision = "predecessor"\n')
+    subprocess.run(["git", "-C", str(source), "add", str(extra)], check=True)
+    subprocess.run(["git", "-C", str(source), "commit", "-qm", "fixture later tree"], check=True)
+    later = subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip()
+    subprocess.run(["git", "-C", str(source), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(source), "commit", "-qm", "fixture final tree"], check=True)
+    root = source
+    if metadata == "replace":
+        subprocess.run(["git", "-C", str(source), "replace", predecessor, later], check=True)
+        expected = "replacement refs refused"
+    elif metadata == "grafts":
+        grafts = source / ".git/info/grafts"
+        grafts.write_text(predecessor + "\n")
+        expected = "grafts file refused"
+    else:
+        root = tmp_path / "shallow"
+        subprocess.run(["git", "clone", "-q", "--depth", "1", source.as_uri(), str(root)], check=True)
+        expected = "shallow history lacks predecessor"
+    try:
+        violations = review_migration_inventory(root, predecessor, reviewed, {}, [path])
+    except subprocess.CalledProcessError as error:
+        pytest.fail(f"history guard must return a refusal, not a Git exception: {error}")
+    assert any(expected in reason for reason in violations), violations
+
+
 def test_phase8_inventory_refuses_substituted_ancestor(tmp_path, monkeypatch):
     predecessor, path, reviewed = inventory_gate_fixture(tmp_path)
     extra = tmp_path / "alembic/versions/watchlist_extra.py"
