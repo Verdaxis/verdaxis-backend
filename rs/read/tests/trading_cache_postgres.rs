@@ -1372,6 +1372,73 @@ async fn clock_boundaries_change_payloads_without_writes() {
     writer.close().await.unwrap();
 }
 
+async fn route_json(state: &AppState, uri: &str) -> (u16, serde_json::Value) {
+    use tower::ServiceExt;
+    let routes = axum::Router::new()
+        .merge(verdaxis_read::routes::orderbook_snapshot::routes())
+        .merge(verdaxis_read::routes::orderbook_lists::routes())
+        .merge(verdaxis_read::routes::orderbook_map::routes())
+        .merge(verdaxis_read::routes::prices::routes())
+        .merge(verdaxis_read::routes::curves_canonical::routes())
+        .with_state(state.clone());
+    let response = routes.oneshot(axum::http::Request::builder().uri(uri)
+        .body(axum::body::Body::empty()).unwrap()).await.unwrap();
+    let status = response.status().as_u16();
+    let bytes = axum::body::to_bytes(response.into_body(), 8 * 1024 * 1024).await.unwrap();
+    (status, serde_json::from_slice(&bytes).unwrap())
+}
+
+#[tokio::test]
+async fn public_route_wrappers_check_generations_and_time_without_listener_wakes() {
+    let _serial = SERIAL.lock().await;
+    let Some((url, mut writer)) = writer().await else { return; };
+    let (mut state, runtime, _record) = admitted_state(&url, &mut writer).await;
+    state.policy = Arc::new(serde_json::from_slice::<MarketPolicy>(
+        include_bytes!("../../../deploy/rust/market-policy.json")).unwrap());
+    let start = instant_at("2026-10-23T08:00:00Z");
+    let clock = Arc::new(ControlledClock(std::sync::Mutex::new(TradingClock::new(Instant::now(), start))));
+    state.trading_read_observer = clock.clone();
+    let product = state.policy.products.iter().find(|p| p.execution_mode == "ORDERBOOK").unwrap();
+    let point = &state.policy.points[0];
+    let paths = vec![
+        format!("/api/orderbook/snapshot?market_product={}&delivery_point_id={}&availability_window=SPOT", product.code, point.id),
+        "/api/orderbook/bids".into(), "/api/orderbook/asks".into(), "/api/orderbook".into(), "/api/orderbook/with-ci".into(),
+        "/api/orderbook/aggregated".into(), "/api/orderbook/product-counts".into(),
+        "/api/orderbook/map-summary".into(), "/api/orderbook/map-summary/compact".into(),
+        "/api/orderbook/regions".into(), "/api/orderbook/fuel-types".into(),
+        "/api/prices".into(), "/api/prices/reference".into(),
+        "/api/curves/forward/table".into(), "/api/curves/forward/board".into(),
+        format!("/api/curves/forward/slice?market_product={}&delivery_point_id={}&availability_window=SPOT", product.code, point.id),
+    ];
+    let mut disabled = state.clone();
+    disabled.trading_cache = None;
+    for path in paths {
+        runtime.authority().refresh(runtime.record_path(), clock.now().monotonic);
+        state.trading_caches.clear();
+        let expected = route_json(&disabled, &path).await;
+        let actual = route_json(&state, &path).await;
+        assert_eq!(actual, expected, "cache off/on cold: {path}");
+        assert_eq!(actual.0, 200, "{path}");
+        assert!(state.trading_caches.entries() > 0, "route has no proven wrapper: {path}");
+        assert_eq!(route_json(&state, &path).await, expected, "warm: {path}");
+        // No runtime tick consumes the event. The next route request must still
+        // read the new committed generation and replace its old entry.
+        sqlx::query("UPDATE products SET is_active = is_active").execute(&mut writer).await.unwrap();
+        let gate = Arc::new(ReadBarrier { stage: TradingReadStage::BeforeInsert,
+            entered: tokio::sync::Notify::new(), release: tokio::sync::Notify::new() });
+        let mut paused = state.clone();
+        paused.trading_read_observer = gate.clone();
+        let request_path = path.clone();
+        let task = tokio::spawn(async move { route_json(&paused, &request_path).await });
+        tokio::time::timeout(Duration::from_secs(30), gate.entered.notified()).await
+            .expect("post-commit route must miss without event delivery");
+        gate.release.notify_one();
+        assert_eq!(task.await.unwrap(), expected, "post-commit: {path}");
+    }
+    reset(&mut writer).await;
+    writer.close().await.unwrap();
+}
+
 async fn incarnation_epoch(connection: &mut PgConnection) -> Result<String, ApiError> {
     sqlx::query_scalar(
         "SELECT database_epoch FROM public.public_read_cache_incarnation WHERE singleton",
