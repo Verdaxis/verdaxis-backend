@@ -114,14 +114,8 @@ fn read_document(path: &Path, deadline: Instant) -> Result<FleetSnapshot, ApiErr
 /// remains relative to the held directory even if that directory is renamed.
 #[cfg(unix)]
 fn open_regular_file(path: &Path) -> Result<std::fs::File, ApiError> {
-    use std::{
-        ffi::CString,
-        os::{
-            fd::{AsRawFd, FromRawFd, OwnedFd},
-            unix::ffi::OsStrExt,
-        },
-        path::Component,
-    };
+    use rustix::fs::{Mode, OFlags, openat};
+    use std::path::Component;
     if !path.is_absolute() {
         return Err(unavailable());
     }
@@ -134,24 +128,17 @@ fn open_regular_file(path: &Path) -> Result<std::fs::File, ApiError> {
         let Component::Normal(name) = part else {
             return Err(unavailable());
         };
-        let name = CString::new(name.as_bytes()).map_err(|_| unavailable())?;
         let last = parts.peek().is_none();
-        let flags = libc::O_RDONLY
-            | libc::O_CLOEXEC
-            | libc::O_NOFOLLOW
+        let flags = OFlags::RDONLY
+            | OFlags::CLOEXEC
+            | OFlags::NOFOLLOW
             | if last {
-                libc::O_NONBLOCK
+                OFlags::NONBLOCK
             } else {
-                libc::O_DIRECTORY
+                OFlags::DIRECTORY
             };
-        // SAFETY: directory is a live descriptor; name is NUL-terminated. No
-        // creation flag is used. A successful descriptor is owned exactly once.
-        let descriptor = unsafe { libc::openat(directory.as_raw_fd(), name.as_ptr(), flags) };
-        if descriptor < 0 {
-            return Err(unavailable());
-        }
-        // SAFETY: openat returned a new, valid descriptor owned by this call.
-        let descriptor = unsafe { OwnedFd::from_raw_fd(descriptor) };
+        let descriptor =
+            openat(&directory, name, flags, Mode::empty()).map_err(|_| unavailable())?;
         let file = std::fs::File::from(descriptor);
         if last {
             let metadata = file.metadata().map_err(|_| unavailable())?;
