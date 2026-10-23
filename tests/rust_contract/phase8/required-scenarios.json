@@ -2104,7 +2104,8 @@
         "statement": "SELECT version_num FROM alembic_version"
       },
       "reviewed_statements": [
-        "UPDATE watchlist_events SET producer = 'legacy-python'"
+        "UPDATE watchlist_events SET producer = 'legacy-python'",
+        "LOCK TABLE market_event_outbox, watchlist_events IN ACCESS EXCLUSIVE MODE"
       ],
       "inline_checks": [
         "watchlist_events.producer"
@@ -2130,6 +2131,7 @@
         }
       },
       "downgrade": {
+        "lock": "LOCK TABLE market_event_outbox, watchlist_events IN ACCESS EXCLUSIVE MODE",
         "reads": "trusted_rows = op.get_bind().execute(sa.text(\"SELECT EXISTS (SELECT 1 FROM watchlist_events WHERE producer = 'rust-market-v1')\")).scalar_one()\nproducer_evidence = op.get_bind().execute(sa.text(\"SELECT EXISTS (SELECT 1 FROM market_event_outbox WHERE producer_evidence IS NOT NULL)\")).scalar_one()",
         "drops": [
           "op.drop_index(\"uq_watchlist_events_producer_source_target_derived\", table_name=\"watchlist_events\")",
