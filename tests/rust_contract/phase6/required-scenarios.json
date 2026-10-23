@@ -2284,6 +2284,14 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_replay.rs",
+      "test_name": "stale_cursor_receives_terminal_reset",
+      "red": [
+        "assertion",
+        "negative_control"
       ]
     },
     {
@@ -2296,6 +2304,14 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_replay.rs",
+      "test_name": "equal_cursor_replays_above_floor",
+      "red": [
+        "assertion",
+        "negative_control"
       ]
     },
     {
@@ -2308,6 +2324,14 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_replay.rs",
+      "test_name": "future_cursor_receives_terminal_reset",
+      "red": [
+        "assertion",
+        "negative_control"
       ]
     },
     {
@@ -2320,6 +2344,14 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_replay.rs",
+      "test_name": "replay_601_rows_with_foreign_sequence_holes",
+      "red": [
+        "assertion",
+        "negative_control"
       ]
     },
     {
@@ -2332,6 +2364,14 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_replay.rs",
+      "test_name": "subscribe_before_capture_merges_live_overlap",
+      "red": [
+        "assertion",
+        "negative_control"
       ]
     },
     {
@@ -2344,6 +2384,14 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_replay.rs",
+      "test_name": "prune_before_page_snapshot_resets",
+      "red": [
+        "assertion",
+        "negative_control"
       ]
     },
     {
@@ -2356,6 +2404,14 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_replay.rs",
+      "test_name": "prune_between_pages_resets",
+      "red": [
+        "assertion",
+        "negative_control"
       ]
     },
     {
@@ -2368,6 +2424,14 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_replay.rs",
+      "test_name": "prune_after_snapshot_keeps_captured_page",
+      "red": [
+        "assertion",
+        "negative_control"
       ]
     },
     {
@@ -2380,6 +2444,14 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_replay.rs",
+      "test_name": "empty_table_preserves_nonzero_floor",
+      "red": [
+        "assertion",
+        "negative_control"
       ]
     },
     {
@@ -2392,6 +2464,14 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_replay.rs",
+      "test_name": "no_cursor_uses_post_subscription_baseline",
+      "red": [
+        "assertion",
+        "negative_control"
       ]
     },
     {
@@ -2404,6 +2484,14 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_replay.rs",
+      "test_name": "expiry_mid_page_precedes_next_business_frame",
+      "red": [
+        "assertion",
+        "negative_control"
       ]
     },
     {
@@ -2416,6 +2504,14 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_replay.rs",
+      "test_name": "authorization_mid_page_never_rebinds_scope",
+      "red": [
+        "assertion",
+        "negative_control"
       ]
     },
     {
@@ -2428,6 +2524,14 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_replay.rs",
+      "test_name": "overflow_during_replay_discards_page",
+      "red": [
+        "assertion",
+        "negative_control"
       ]
     },
     {
@@ -2440,6 +2544,14 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_replay.rs",
+      "test_name": "overflow_during_live_discards_queue",
+      "red": [
+        "assertion",
+        "negative_control"
       ]
     },
     {
@@ -2452,6 +2564,14 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_replay.rs",
+      "test_name": "client_cancel_releases_subscription",
+      "red": [
+        "assertion",
+        "negative_control"
       ]
     },
     {
@@ -2464,6 +2584,14 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_replay.rs",
+      "test_name": "body_drop_mid_page_releases_registration",
+      "red": [
+        "assertion",
+        "negative_control"
       ]
     },
     {
@@ -2476,7 +2604,16 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
-      ]
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_replay.rs",
+      "test_name": "postgres_replay_snapshots",
+      "red": [
+        "assertion",
+        "negative_control"
+      ],
+      "suite": "tests/postgres/test_phase6_replay.py"
     },
     {
       "id": "E102",

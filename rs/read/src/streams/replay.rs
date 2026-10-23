@@ -83,7 +83,7 @@ pub enum ReplayFrame {
 impl ReplayFrame {
     pub fn sequence(&self) -> Option<i64> {
         match self {
-            Self::Business(event) => Some(event.seq),
+            Self::Business(event) => Some(event.seq()),
             _ => None,
         }
     }
@@ -95,10 +95,7 @@ impl ReplayFrame {
     }
     pub fn into_event(self) -> Event {
         match self {
-            Self::Business(event) => Event::default()
-                .event(event.event_type)
-                .id(event.seq.to_string())
-                .data(event.payload.to_string()),
+            Self::Business(event) => event.into_event(),
             Self::Terminal(terminal) => terminal.into_event(),
             Self::Heartbeat => Event::default().comment("keepalive"),
         }
@@ -263,10 +260,10 @@ impl<S: ReplaySource, C: ReplayClock> Replay<S, C> {
                 self.recheck_at = Instant::now() + RECHECK;
             }
             if let Some(event) = self.page.pop_front() {
-                if event.seq <= self.cursor {
+                if event.seq() <= self.cursor {
                     continue;
                 }
-                self.cursor = event.seq;
+                self.cursor = event.seq();
                 self.heartbeat_at = Instant::now() + HEARTBEAT;
                 return Some(ReplayFrame::Business(event));
             }
@@ -325,13 +322,7 @@ impl<S: ReplaySource, C: ReplayClock> Replay<S, C> {
                     {
                         return self.finish(Terminal::InvalidEvent);
                     }
-                    self.page.push_back(StoredEvent {
-                        seq: event.seq(),
-                        participants: event.participants().to_vec(),
-                        event_type: event.event_type().to_owned(),
-                        payload: event.payload().clone(),
-                        public_invalidated: event.public_invalidated(),
-                    });
+                    self.page.push_back((*event).clone());
                 }
                 Some(Delivery::Private(_)) => {}
                 Some(Delivery::PublicInvalidation) => return self.finish(Terminal::InvalidEvent),
@@ -359,10 +350,10 @@ fn valid_page(page: &ReplayPage, after: i64, through: i64, organization: Uuid) -
     }
     let mut previous = after;
     page.events.iter().all(|event| {
-        let valid = event.seq > previous
-            && event.seq <= through
-            && event.participants.contains(&organization);
-        previous = event.seq;
+        let valid = event.seq() > previous
+            && event.seq() <= through
+            && event.participants().contains(&organization);
+        previous = event.seq();
         valid
     })
 }

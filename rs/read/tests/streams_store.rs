@@ -292,18 +292,18 @@ async fn postgres_sequence_holes_and_scope() {
     assert_eq!(
         page.events
             .iter()
-            .map(|event| event.seq)
+            .map(|event| event.seq())
             .collect::<Vec<_>>(),
         vec![10, 30]
     );
-    assert!(page.events[0].public_invalidated);
-    assert!(!page.events[1].public_invalidated);
-    assert_eq!(page.events[0].participants, vec![ORG]);
-    assert_eq!(page.events[0].event_type, "trade_created");
-    assert_eq!(page.events[0].payload["schema_version"], 1);
+    assert!(page.events[0].public_invalidated());
+    assert!(!page.events[1].public_invalidated());
+    assert_eq!(page.events[0].participants(), vec![ORG]);
+    assert_eq!(page.events[0].event_type(), "trade_created");
+    assert_eq!(page.events[0].payload()["schema_version"], 1);
     assert!(
         page.events[0]
-            .payload
+            .payload()
             .get("_public_market_invalidation")
             .is_none()
     );
@@ -315,7 +315,7 @@ async fn postgres_sequence_holes_and_scope() {
     assert_eq!(
         tail.events
             .iter()
-            .map(|event| event.seq)
+            .map(|event| event.seq())
             .collect::<Vec<_>>(),
         vec![30]
     );
@@ -333,7 +333,7 @@ async fn postgres_sequence_holes_and_scope() {
         foreign
             .events
             .iter()
-            .map(|event| event.seq)
+            .map(|event| event.seq())
             .collect::<Vec<_>>(),
         vec![20]
     );
@@ -371,7 +371,7 @@ async fn postgres_prefix_retained() {
     assert_eq!(
         page.events
             .iter()
-            .map(|event| event.seq)
+            .map(|event| event.seq())
             .collect::<Vec<_>>(),
         vec![5, 15, 25]
     );
@@ -400,7 +400,7 @@ async fn postgres_prefix_discarded() {
     assert_eq!(
         page.events
             .iter()
-            .map(|event| event.seq)
+            .map(|event| event.seq())
             .collect::<Vec<_>>(),
         vec![25]
     );

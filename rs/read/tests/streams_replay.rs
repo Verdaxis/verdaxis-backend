@@ -61,13 +61,13 @@ fn boundary(floor: i64, high: i64) -> ReplayBoundary {
     }
 }
 fn event(seq: i64) -> StoredEvent {
-    StoredEvent {
+    StoredEvent::new(
         seq,
-        participants: vec![org()],
-        event_type: "trade_created".into(),
-        payload: json!({"schema_version":1,"quantity":"5"}),
-        public_invalidated: false,
-    }
+        vec![org()],
+        "trade_created",
+        json!({"schema_version":1,"quantity":"5"}),
+    )
+    .unwrap()
 }
 fn page(floor: i64, high: i64, ids: impl IntoIterator<Item = i64>, more: bool) -> ReplayPage {
     ReplayPage {

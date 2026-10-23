@@ -20,14 +20,12 @@ use sqlx::postgres::PgRow;
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use uuid::Uuid;
 
-/// Maximum rows in one replay page.
-pub const STREAM_PAGE_ROWS: usize = 500;
-/// Maximum serialized payload bytes in one replay page.
-pub const STREAM_PAGE_PAYLOAD_BYTES: usize = 2 * 1024 * 1024;
-/// Maximum serialized payload bytes of one persisted event.
-pub const STREAM_EVENT_PAYLOAD_BYTES: usize = 256 * 1024;
-/// Maximum participant organizations of one persisted event.
-pub const STREAM_EVENT_PARTICIPANTS: usize = 256;
+pub use super::bus::StoredEvent;
+pub use super::policy::{
+    MAX_EVENT_BYTES as STREAM_EVENT_PAYLOAD_BYTES,
+    MAX_PAGE_BYTES as STREAM_PAGE_PAYLOAD_BYTES, MAX_PAGE_ROWS as STREAM_PAGE_ROWS,
+    MAX_PARTICIPANTS as STREAM_EVENT_PARTICIPANTS,
+};
 
 /// Stream statement bound in milliseconds.
 const STREAM_STATEMENT_TIMEOUT_MS: u64 = 5_000;
@@ -76,16 +74,6 @@ ORDER BY stream_seq
 pub struct ReplayBoundary {
     pub discarded_through: i64,
     pub high_water: i64,
-}
-
-/// One persisted event prepared for fan-out.
-#[derive(Debug, Clone, PartialEq)]
-pub struct StoredEvent {
-    pub seq: i64,
-    pub participants: Vec<Uuid>,
-    pub event_type: String,
-    pub payload: Value,
-    pub public_invalidated: bool,
 }
 
 /// One bounded replay page and the barrier observed in the same snapshot.
@@ -316,7 +304,7 @@ pub async fn replay_page(
         }
         if events
             .iter()
-            .map(|event| event.seq)
+            .map(|event| event.seq())
             .ne(sequences.iter().copied())
         {
             return Err(StoreError::Unavailable);
@@ -405,20 +393,14 @@ fn read_event(row: &PgRow, maximum_participants: usize) -> Result<StoredEvent, S
     let participants_raw: String = row
         .try_get("participants")
         .map_err(|_| StoreError::Unavailable)?;
-    let mut payload: Value = row
+    let payload: Value = row
         .try_get("payload")
         .map_err(|_| StoreError::Unavailable)?;
-    let object = payload
-        .as_object_mut()
-        .ok_or(StoreError::InvalidEvent(seq))?;
-    let public_invalidated =
-        object.remove("_public_market_invalidation") == Some(Value::Bool(true));
-    object.entry("schema_version").or_insert(Value::from(1));
-    Ok(StoredEvent {
+    StoredEvent::new(
         seq,
-        participants: decode_participants(seq, &participants_raw, maximum_participants)?,
-        event_type,
+        decode_participants(seq, &participants_raw, maximum_participants)?,
+        &event_type,
         payload,
-        public_invalidated,
-    })
+    )
+    .map_err(|_| StoreError::InvalidEvent(seq))
 }

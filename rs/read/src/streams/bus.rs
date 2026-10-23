@@ -82,7 +82,7 @@ impl Terminal {
 }
 
 /// Validated shared envelope. Store-side size checks must precede JSON decoding.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct StoredEvent {
     seq: i64,
     participants: Vec<Uuid>,
@@ -107,7 +107,7 @@ impl StoredEvent {
             || event_type.len() > 80
             || !event_type
                 .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
             || !payload.is_object()
             || serde_json::to_vec(&payload)
                 .map_err(|_| InvalidEvent)?
