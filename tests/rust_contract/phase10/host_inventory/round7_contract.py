@@ -3,6 +3,7 @@ import json
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from reader_contract import READER, ROOT, TRANSPORT, load
@@ -62,7 +63,7 @@ class Round7Contract(unittest.TestCase):
             with self.subTest(vector=status):
                 rows=self.reader.PriorityRows(1)
                 rows.add(dict(self.reader.bound_row(status),status='overflow:'+status))
-                for i in range(3): rows.add(dict(self.reader.bound_row(str(i)),status=status))
+                for i in range(3): rows.add(dict(self.reader.bound_row(str(i)),reference=self.reader.unresolved(str(i)),status=status))
                 self.assertEqual(sum(r['status']=='overflow:'+status for r in rows.values()),1)
 
     def test_queue_slice_actual(self):
