@@ -34,7 +34,7 @@ async fn e2_consumes_and_revokes() {
     .await
     .unwrap();
     auth::store::insert_refresh(
-        &mut *pool.acquire().await.unwrap(),
+        &mut pool.acquire().await.unwrap(),
         &auth::store::NewRefreshRow {
             user_id: id,
             family_id: Uuid::new_v4(),
