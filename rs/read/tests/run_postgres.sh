@@ -60,16 +60,18 @@ log=$(mktemp "${TMPDIR:-/tmp}/rust-postgres-tests.XXXXXX")
 set +e
 # The Task 6 visibility, trade-evidence and market-policy matrices need the
 # seeded fixture catalog and the Python oracle, which this database does not
-# carry. They are named here rather than silently skipped:
-# rs/read/tests/run_market_contract.sh runs them against their own disposable
-# database.
+# carry. The Phase 5 compliance overlay populated-fixture case needs that
+# seeded market database plus the overlay vessel/order fixture manifest. They
+# are named here rather than silently skipped: rs/read/tests/run_market_contract.sh
+# runs them against their own disposable database.
 cargo test --manifest-path rs/Cargo.toml --locked --workspace --features contract-tests \
   -- --test-threads=1 --skip public_visibility_matrix_matches_python \
   --skip trade_evidence_matrix_matches_python \
   --skip benchmark_key_first_matches_key_join_last \
   --skip biofuel_supplier_metadata_clause_hides_only_failing_asks \
   --skip eligibility_sets_match_legacy_for_the_curve_relation \
-  --skip eligibility_sets_match_legacy_predicate_for_every_order 2>&1 | tee "$log"
+  --skip eligibility_sets_match_legacy_predicate_for_every_order \
+  --skip compliance_overlay_postgres_cases 2>&1 | tee "$log"
 cargo_status=${PIPESTATUS[0]}
 set -e
 if (( cargo_status != 0 )); then
