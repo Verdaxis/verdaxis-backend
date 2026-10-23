@@ -735,8 +735,8 @@ mod postgres {
         let mut subscription = hub.subscribe_org(org).unwrap();
         let mut sequences = Vec::new();
         for size in sizes {
-            // json_build_object emits the nine-byte {"x" : ""} wrapper.
-            let row: (i64, i32) = sqlx::query_as("INSERT INTO market_event_outbox (id,event_type,aggregate_type,aggregate_id,participant_org_ids,payload,stream_seq,delivery_attempts,created_at) VALUES ($1,'trade_created','byte_budget',$1::uuid::text,$2::json,json_build_object('x',repeat('a',$3)),nextval('market_event_stream_seq'),0,now()) RETURNING stream_seq,octet_length(payload::text)")
+            // Preserve the nine-byte JSON wrapper in PostgreSQL json storage.
+            let row: (i64, i32) = sqlx::query_as("INSERT INTO market_event_outbox (id,event_type,aggregate_type,aggregate_id,participant_org_ids,payload,stream_seq,delivery_attempts,created_at) VALUES ($1,'trade_created','byte_budget',$1::uuid::text,$2::json,('{\"x\": \"' || repeat('a',$3) || '\"}')::json,nextval('market_event_stream_seq'),0,now()) RETURNING stream_seq,octet_length(payload::text)")
                 .bind(Uuid::new_v4()).bind(json!([org]).to_string()).bind((*size - 9) as i32)
                 .fetch_one(&mut owner).await.unwrap();
             assert_eq!(row.1 as usize, *size, "fixture persisted bytes");
