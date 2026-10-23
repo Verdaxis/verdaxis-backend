@@ -68,6 +68,12 @@ fn availability_coordinate_cases() {
     let response = serde_json::to_value(projected).unwrap();
     assert_eq!(response[0]["lat"], 0.0);
     assert_eq!(response[0]["lng"], 0.0);
+    let mut asymmetric = row();
+    asymmetric.lat = Some(51.9);
+    asymmetric.lng = Some(4.5);
+    let response = serde_json::to_value(project_rows(vec![asymmetric]).unwrap()).unwrap();
+    assert_eq!(response[0]["lat"], 51.9);
+    assert_eq!(response[0]["lng"], 4.5);
 }
 
 #[test]
@@ -356,4 +362,215 @@ async fn availability_postgres_cases() {
     assert_eq!(error.status, 503);
     assert_eq!(error.detail["code"], "READ_RESULT_LIMIT");
     transaction.rollback().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "requires an explicit disposable PostgreSQL URL with PostGIS"]
+async fn availability_populated_policy_cases() {
+    let url = std::env::var("AVAILABILITY_TEST_DATABASE_URL").unwrap();
+    let parsed = url::Url::parse(&url).unwrap();
+    assert!(matches!(parsed.host_str(), Some("127.0.0.1" | "::1")));
+    assert!(parsed.path().ends_with("_test"));
+    let mut connection = sqlx::PgConnection::connect(&url).await.unwrap();
+    execute(&mut connection, "CREATE SCHEMA availability_cases; SET search_path = availability_cases, public").await;
+    let connection = &mut connection;
+    execute(connection, "SET statement_timeout = '5s'").await;
+    execute(connection, "CREATE TABLE organizations (id uuid PRIMARY KEY, provenance text, verification_status text);
+        CREATE TABLE users (id uuid PRIMARY KEY, organization_id uuid, status text, kyc_status text);
+        CREATE TABLE products (id uuid PRIMARY KEY, name text, fuel_type text, fuel_grade text, is_active boolean);
+        CREATE TABLE delivery_points (id uuid PRIMARY KEY, name text, region text, is_active boolean);
+        CREATE TABLE ports (id text PRIMARY KEY, name text, location geography(POINT,4326), is_active boolean);
+        CREATE TABLE inventory_items (supplier_id uuid, owner_user_id uuid, port_id text, product_name text, current_stock_mt numeric, price_per_mt_usd numeric, off_spec boolean DEFAULT false, specification_standard text, carbon_intensity_method text, certification_declared boolean DEFAULT false, certification_scheme text, msds_available boolean DEFAULT false, carbon_intensity_gco2_mj numeric, feedstock text, origin text);").await;
+    for product in policy().products {
+        sqlx::query("INSERT INTO products VALUES ($1,$2,$3,$4,true)")
+            .bind(product.id)
+            .bind(product.name)
+            .bind(product.fuel_type)
+            .bind(product.fuel_grade)
+            .execute(&mut *connection)
+            .await
+            .unwrap();
+    }
+    for point in policy().points {
+        sqlx::query("INSERT INTO delivery_points VALUES ($1,$2,$3,true)")
+            .bind(point.id)
+            .bind(point.name)
+            .bind(point.region)
+            .execute(&mut *connection)
+            .await
+            .unwrap();
+    }
+
+    execute(connection, "INSERT INTO ports VALUES ('NLRTM','Rotterdam',ST_SetSRID(ST_MakePoint(4.5,51.9),4326)::geography,true)").await;
+    let real = "00000000-0000-4000-8000-000000000001";
+    insert_supplier(connection, real, "REAL").await;
+    stock(connection, real, "NLRTM", "1200", "125.5").await;
+    let expected_real = json!([{
+        "port_id":"NLRTM", "port_name":"Rotterdam", "lat":51.9, "lng":4.5,
+        "fuel_type":"BIO_METHANOL", "market_product_code":"BIO_METHANOL",
+        "total_stock_mt":"1200", "avg_price_per_mt":"125.50", "supplier_count":1,
+        "availability_level":"AVAILABLE", "source_kind":"LIVE_INVENTORY",
+        "scope":"DELIVERY_POINT", "demo_status":"REAL_ONLY", "unknown_count":0
+    }]);
+    assert_eq!(read(connection, None).await.unwrap(), expected_real);
+
+    for mutation in [
+        "UPDATE organizations SET verification_status = 'PENDING'",
+        "UPDATE inventory_items SET owner_user_id = NULL",
+        "UPDATE users SET organization_id = '00000000-0000-4000-8000-000000000099'",
+        "UPDATE users SET status = 'REJECTED'",
+        "UPDATE organizations SET provenance = 'DEMO'",
+    ] {
+        execute(connection, "BEGIN").await;
+        execute(connection, mutation).await;
+        assert_eq!(read(connection, None).await.unwrap(), json!([{
+            "port_id":"NLRTM", "port_name":"Rotterdam", "lat":51.9, "lng":4.5,
+            "fuel_type":"BIO_METHANOL", "market_product_code":"BIO_METHANOL",
+            "total_stock_mt":null, "avg_price_per_mt":null, "supplier_count":0,
+            "availability_level":"NONE", "source_kind":"UNKNOWN",
+            "scope":"DELIVERY_POINT", "demo_status":"UNKNOWN", "unknown_count":1
+        }]), "{mutation}");
+        execute(connection, "ROLLBACK").await;
+        assert_eq!(read(connection, None).await.unwrap(), expected_real);
+    }
+    execute(connection, "BEGIN; UPDATE organizations SET provenance = 'UNKNOWN'").await;
+    stock(connection, real, "NLRTM", "300", "500").await;
+    stock(connection, real, "NLRTM", "400", "600").await;
+    assert_eq!(read(connection, None).await.unwrap()[0]["unknown_count"], 1);
+    execute(connection, "ROLLBACK").await;
+
+    for mutation in [
+        "UPDATE ports SET is_active = false",
+        "UPDATE products SET id = '00000000-0000-4000-8000-000000000099' WHERE name = 'Bio Methanol'",
+        "UPDATE products SET name = 'Other Methanol' WHERE name = 'Bio Methanol'; UPDATE inventory_items SET product_name = 'Other Methanol'",
+        "UPDATE products SET fuel_type = 'Other' WHERE name = 'Bio Methanol'",
+        "UPDATE products SET fuel_grade = 'Other' WHERE name = 'Bio Methanol'",
+        "UPDATE delivery_points SET id = '00000000-0000-4000-8000-000000000099' WHERE name = 'Rotterdam'",
+        "UPDATE delivery_points SET region = 'Asia' WHERE name = 'Rotterdam'",
+    ] {
+        execute(connection, "BEGIN").await;
+        execute(connection, mutation).await;
+        assert_eq!(read(connection, None).await.unwrap(), json!([]), "{mutation}");
+        execute(connection, "ROLLBACK").await;
+        assert_eq!(read(connection, None).await.unwrap(), expected_real);
+    }
+    execute(connection, "BEGIN;
+        INSERT INTO products VALUES ('00000000-0000-4000-8000-000000000099','Other Fuel','Methanol','Bio',true);
+        UPDATE inventory_items SET product_name = 'Other Fuel'").await;
+    assert_eq!(read(connection, None).await.unwrap(), json!([]));
+    execute(connection, "ROLLBACK; BEGIN;
+        INSERT INTO delivery_points VALUES ('00000000-0000-4000-8000-000000000099','Other Port','Europe',true);
+        UPDATE ports SET name = 'Other Port'").await;
+    assert_eq!(read(connection, None).await.unwrap(), json!([]));
+    execute(connection, "ROLLBACK; BEGIN; UPDATE inventory_items SET product_name = 'UCOME B100'").await;
+    assert_eq!(read(connection, None).await.unwrap(), json!([]));
+    execute(connection, "UPDATE ports SET name = 'Singapore'").await;
+    assert_eq!(read(connection, None).await.unwrap()[0]["market_product_code"], "UCOME_B100");
+    execute(connection, "ROLLBACK").await;
+
+    let demo = "c9c1ccbf-66fe-4a1b-b171-fe4f7ddc31a4";
+    execute(connection, "BEGIN; DELETE FROM inventory_items").await;
+    insert_supplier(connection, demo, "DEMO").await;
+    stock(connection, demo, "NLRTM", "40", "100").await;
+    stock(connection, demo, "NLRTM", "60", "200").await;
+    assert_eq!(read(connection, None).await.unwrap(), json!([{
+        "port_id":"NLRTM", "port_name":"Rotterdam", "lat":51.9, "lng":4.5,
+        "fuel_type":"BIO_METHANOL", "market_product_code":"BIO_METHANOL",
+        "total_stock_mt":"100", "avg_price_per_mt":"150.00", "supplier_count":1,
+        "availability_level":"LIMITED", "source_kind":"DEMO_SEED",
+        "scope":"DELIVERY_POINT", "demo_status":"DEMO_ONLY", "unknown_count":0
+    }]));
+    execute(connection, "ROLLBACK; BEGIN; UPDATE inventory_items SET product_name = 'B30',
+        specification_standard = 'ISO 8217:2024 RF 380', carbon_intensity_method = 'declared',
+        certification_declared = true, certification_scheme = 'ISCC EU', msds_available = true,
+        carbon_intensity_gco2_mj = 30, feedstock = 'used cooking oil', origin = 'NL'").await;
+    assert_eq!(read(connection, None).await.unwrap()[0]["market_product_code"], "B30");
+    for mutation in [
+        "UPDATE inventory_items SET specification_standard = NULL",
+        "UPDATE inventory_items SET carbon_intensity_method = '   '",
+        "UPDATE inventory_items SET certification_declared = false",
+        "UPDATE inventory_items SET certification_scheme = '   '",
+        "UPDATE inventory_items SET msds_available = false",
+        "UPDATE inventory_items SET carbon_intensity_gco2_mj = NULL",
+        "UPDATE inventory_items SET feedstock = '   '",
+        "UPDATE inventory_items SET origin = '   '",
+    ] {
+        execute(connection, "SAVEPOINT metadata_field").await;
+        execute(connection, mutation).await;
+        assert_eq!(read(connection, None).await.unwrap(), json!([]), "{mutation}");
+        execute(connection, "ROLLBACK TO SAVEPOINT metadata_field; RELEASE SAVEPOINT metadata_field").await;
+        assert_eq!(read(connection, None).await.unwrap()[0]["market_product_code"], "B30");
+    }
+    execute(connection, "UPDATE inventory_items SET specification_standard = E' \\tiso 8217:2024 rf 380\\r\\n',
+        carbon_intensity_method = E' \\tdeclared\\n', certification_scheme = ' ISCC EU ',
+        feedstock = ' used cooking oil ', origin = ' NL '").await;
+    assert_eq!(read(connection, None).await.unwrap()[0]["total_stock_mt"], "1200");
+    execute(connection, "UPDATE inventory_items SET product_name = 'B100', specification_standard = 'ISO 8217:2024 DFA'").await;
+    let rows = read(connection, None).await.unwrap();
+    assert_eq!(rows[0]["market_product_code"], "B100");
+    assert_eq!(rows[0]["fuel_type"], "B100");
+    assert_eq!(rows[0]["total_stock_mt"], "1200");
+    execute(connection, "UPDATE inventory_items SET specification_standard = 'ISO 8217:2024 RF 380'").await;
+    assert_eq!(read(connection, None).await.unwrap(), json!([]));
+    execute(connection, "ROLLBACK; BEGIN;
+        INSERT INTO ports VALUES ('AAA','Rotterdam',ST_SetSRID(ST_MakePoint(4.5,51.9),4326)::geography,true);
+        INSERT INTO inventory_items SELECT supplier_id,owner_user_id,'AAA',product_name,current_stock_mt,price_per_mt_usd,off_spec,specification_standard,carbon_intensity_method,certification_declared,certification_scheme,msds_available,carbon_intensity_gco2_mj,feedstock,origin FROM inventory_items;
+        INSERT INTO inventory_items SELECT supplier_id,owner_user_id,port_id,'e-Methanol',current_stock_mt,price_per_mt_usd,off_spec,specification_standard,carbon_intensity_method,certification_declared,certification_scheme,msds_available,carbon_intensity_gco2_mj,feedstock,origin FROM inventory_items").await;
+    let rows = read(connection, None).await.unwrap();
+    let mut identities = Vec::new();
+    for row in rows.as_array().unwrap() {
+        let id: String = sqlx::query_scalar("SELECT p.id::text FROM products p JOIN jsonb_to_recordset($1::jsonb->'products') AS spec(id uuid, code text) ON spec.id = p.id WHERE spec.code = $2")
+            .bind(serde_json::to_string(&policy()).unwrap()).bind(row["market_product_code"].as_str().unwrap())
+            .fetch_one(&mut *connection).await.unwrap();
+        identities.push((row["port_id"].as_str().unwrap().to_owned(), id));
+    }
+    assert_eq!(identities, vec![
+        ("AAA".to_owned(), "9510c713-6e39-5080-add3-0a7c29657b79".to_owned()),
+        ("AAA".to_owned(), "f9b20492-b445-59cd-b292-a386d913f488".to_owned()),
+        ("NLRTM".to_owned(), "9510c713-6e39-5080-add3-0a7c29657b79".to_owned()),
+        ("NLRTM".to_owned(), "f9b20492-b445-59cd-b292-a386d913f488".to_owned()),
+    ]);
+    execute(connection, "ROLLBACK").await;
+
+    // Disjoint attested fixture labels isolate the three ILIKE predicates.
+    let mut filter_policy = policy();
+    let product = filter_policy.products.iter_mut().find(|p| p.code == "BIO_METHANOL").unwrap();
+    product.name = "NameMarker".into();
+    product.fuel_type = "TypeMarker".into();
+    product.fuel_grade = "GradeMarker".into();
+    execute(connection, "UPDATE products SET name = 'NameMarker', fuel_type = 'TypeMarker', fuel_grade = 'GradeMarker' WHERE name = 'Bio Methanol';
+        UPDATE inventory_items SET product_name = 'NameMarker'").await;
+    for filter in ["meMa", "peMa", "deMa"] {
+        let rows = select_availability(connection, &filter_policy, Some(filter.into())).await.unwrap();
+        let rows = serde_json::to_value(rows).unwrap();
+        assert_eq!(rows[0]["market_product_code"], "BIO_METHANOL", "{filter}");
+        assert_eq!(rows.as_array().unwrap().len(), 1, "{filter}");
+    }
+
+    let pool = sqlx::postgres::PgPoolOptions::new().max_connections(16)
+        .after_connect(|connection, _| Box::pin(async move {
+            sqlx::query("SET search_path = availability_cases, public").execute(connection).await?;
+            Ok(())
+        })).connect(&url).await.unwrap();
+    let health = sqlx::postgres::PgPoolOptions::new().max_connections(1).connect_lazy(&url).unwrap();
+    let state = AppState::new(config(&url), runtime::db::Pools { read: pool.clone(), health }, filter_policy).unwrap();
+    let app = runtime::http::middleware_with_state(availability::routes().with_state(state.clone()), state);
+    let expected = json!([{
+        "port_id":"NLRTM", "port_name":"Rotterdam", "lat":51.9, "lng":4.5,
+        "fuel_type":"BIO_METHANOL", "market_product_code":"BIO_METHANOL",
+        "total_stock_mt":"1200", "avg_price_per_mt":"125.50", "supplier_count":1,
+        "availability_level":"AVAILABLE", "source_kind":"LIVE_INVENTORY",
+        "scope":"DELIVERY_POINT", "demo_status":"REAL_ONLY", "unknown_count":0
+    }]);
+    for query in ["", "?fuel_type=", "?limit=0", "?fuel_type=meMa", "?fuel_type=peMa", "?fuel_type=deMa"] {
+        let response = public_fixture::request(app.clone(), &format!("/api/availability{query}")).await;
+        assert_eq!(response.status(), 200, "{query}");
+        assert_eq!(public_fixture::json_body(response).await, expected, "{query}");
+    }
+    for query in ["0", "-1", "1.5", "one"] {
+        let response = public_fixture::request(app.clone(), &format!("/api/availability?fuel_type={query}")).await;
+        assert_eq!(response.status(), 200, "{query}");
+        assert_eq!(public_fixture::json_body(response).await, json!([]), "{query}");
+    }
+    pool.close().await;
 }
