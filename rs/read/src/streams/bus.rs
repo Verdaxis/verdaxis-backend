@@ -89,6 +89,7 @@ pub struct StoredEvent {
     event_type: String,
     payload: Value,
     public_invalidated: bool,
+    payload_bytes: usize,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -99,7 +100,20 @@ impl StoredEvent {
         seq: i64,
         participants: Vec<Uuid>,
         event_type: &str,
+        payload: Value,
+    ) -> Result<Self, InvalidEvent> {
+        let payload_bytes = serde_json::to_vec(&payload).map_err(|_| InvalidEvent)?.len();
+        Self::from_persisted(seq, participants, event_type, payload, payload_bytes)
+    }
+
+    /// Preserve the store's validated pre-normalization byte count. Normalized
+    /// output may add schema_version; it never changes the persisted budget.
+    pub(super) fn from_persisted(
+        seq: i64,
+        participants: Vec<Uuid>,
+        event_type: &str,
         mut payload: Value,
+        payload_bytes: usize,
     ) -> Result<Self, InvalidEvent> {
         if seq <= 0
             || participants.len() > MAX_PARTICIPANTS
@@ -109,10 +123,8 @@ impl StoredEvent {
                 .bytes()
                 .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
             || !payload.is_object()
-            || serde_json::to_vec(&payload)
-                .map_err(|_| InvalidEvent)?
-                .len()
-                > MAX_EVENT_BYTES
+            || payload_bytes == 0
+            || payload_bytes > MAX_EVENT_BYTES
         {
             return Err(InvalidEvent);
         }
@@ -127,8 +139,14 @@ impl StoredEvent {
             event_type: event_type.to_owned(),
             payload,
             public_invalidated,
+            payload_bytes,
         })
     }
+    /// Budgeted bytes before marker removal or schema-version insertion.
+    pub fn payload_bytes(&self) -> usize {
+        self.payload_bytes
+    }
+
     pub fn seq(&self) -> i64 {
         self.seq
     }

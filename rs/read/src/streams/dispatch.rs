@@ -315,9 +315,7 @@ impl DispatchStore for PgDispatchStore {
         let boundary = Boundary::new(page.boundary.discarded_through, page.boundary.high_water)?;
         let mut rows = Vec::with_capacity(page.events.len());
         for event in page.events {
-            let bytes = serde_json::to_vec(event.payload())
-                .map_err(|_| DispatchError::InvalidPage)?
-                .len();
+            let bytes = event.payload_bytes();
             rows.push(ScanRow::event(Arc::new(event), bytes)?);
         }
         ScanPage::new(boundary, rows, page.more)
