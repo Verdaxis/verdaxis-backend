@@ -220,6 +220,24 @@ def test_producer_metadata_matches_migrated_head(supplier_scratch_database):
 
 
 @pytest.mark.parametrize("relation", ["market_event_outbox", "watchlist_events"])
+def test_unlisted_event_column_still_reports_schema_drift(supplier_scratch_database, relation):
+    sql, migrate = supplier_scratch_database
+    migrate("upgrade", REVISION)
+    sql(f"ALTER TABLE {relation} ADD COLUMN unlisted_extra text")
+    url = make_url(os.environ["MARKET_INTEGRITY_TEST_DATABASE_URL"]).set(
+        database=sql("SELECT current_database()")
+    ).render_as_string(hide_password=False)
+    result = subprocess.run(
+        [sys.executable, "-m", "alembic", "check"], cwd=ROOT,
+        env={**os.environ, "DATABASE_URL": url, "MIGRATOR_DATABASE_URL": url},
+        capture_output=True, text=True, check=False,
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode != 0, output
+    assert "remove_column" in output and "unlisted_extra" in output and relation in output, output
+
+
+@pytest.mark.parametrize("relation", ["market_event_outbox", "watchlist_events"])
 def test_concurrent_trusted_writer_is_not_removed_by_downgrade(supplier_scratch_database, relation):
     import asyncpg
 
