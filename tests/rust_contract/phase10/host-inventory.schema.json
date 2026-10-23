@@ -329,6 +329,32 @@
                     "command-bytes"
                   ]
                 }
+              },
+              "dropped": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "propertyNames": {
+                  "enum": [
+                    "1",
+                    "2",
+                    "3",
+                    "4",
+                    "5"
+                  ]
+                }
+              },
+              "priority_overflow": {
+                "type": "array",
+                "maxItems": 2,
+                "items": {
+                  "enum": [
+                    "credential-denied",
+                    "removed-package"
+                  ]
+                }
               }
             }
           }
@@ -613,7 +639,10 @@
               "bound-exceeded:processes",
               "bound-exceeded:usr_local",
               "bound-exceeded:packages",
-              "bound-exceeded:cron"
+              "bound-exceeded:cron",
+              "credential-denied",
+              "overflow:credential-denied",
+              "overflow:removed-package"
             ]
           },
           "host": {

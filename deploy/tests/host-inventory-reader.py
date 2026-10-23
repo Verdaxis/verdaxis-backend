@@ -52,6 +52,52 @@ class SurfaceBound(ValueError):
         self.code = code
 
 
+def row_priority(row):
+    status = row.get('status', '')
+    if status == 'credential-denied':
+        return 1
+    if status == 'removed-package':
+        return 2
+    if status.startswith(('bound-exceeded:', 'overflow:')):
+        return 3
+    if status:
+        return 4
+    return 5
+
+
+class PriorityRows:
+    """Bound each evidence class; reserved marker slots are outside data budgets.
+
+    Later high-priority evidence cannot be crowded out by ordinary rows. Only
+    counts survive for dropped rows, and class overflow markers are indelible.
+    """
+    def __init__(self, capacity):
+        self.capacity = capacity
+        self.rows = {}
+        self.dropped = {}
+        self.markers = {}
+
+    def add(self, row):
+        priority = row_priority(row)
+        if priority == 3:
+            self.markers[row['status']] = row
+            return
+        key = json.dumps(row, sort_keys=True)
+        bucket = self.rows.setdefault(priority, {})
+        bucket[key] = row
+        if len(bucket) > self.capacity:
+            del bucket[max(bucket)]
+            self.dropped[str(priority)] = self.dropped.get(str(priority), 0) + 1
+            if priority in (1, 2):
+                name = 'credential-denied' if priority == 1 else 'removed-package'
+                self.markers[name] = dict(bound_row(name), status='overflow:' + name)
+
+    def values(self):
+        markers = list(self.markers.values())
+        return sorted(markers + [row for bucket in self.rows.values() for row in bucket.values()],
+                      key=lambda row: (row_priority(row), json.dumps(row, sort_keys=True)))
+
+
 def refusal(error):
     if isinstance(error, SurfaceBound) and error.code == 'output-bytes':
         return {'refusal': 'output-bytes'}
@@ -203,17 +249,31 @@ def scan_script(path):
     if not scan_parsed:
         imports.add('<dynamic-or-unparsed>')
     truncated = []
-    if len(imports) + len(references) + len(executables) > MAX_ITEMS:
-        truncated.append('references')
-        imports = set(sorted(imports)[:MAX_ITEMS])
-        references = set(sorted(references)[:max(0, MAX_ITEMS - len(imports))])
-        executables = set(sorted(executables)[:max(0, MAX_ITEMS - len(imports) - len(references))])
+    dropped = {}
+    # Reserve denial and removed-package capacity before ordinary references.
+    groups = [(1, 'credential_references', sorted(references)),
+              (2, 'imports', sorted(name for name in imports if name.split('.')[0] in {'app', 'scripts', 'alembic'})),
+              (4, 'imports', sorted(name for name in imports if name.split('.')[0] not in {'app', 'scripts', 'alembic'})),
+              (5, 'executables', sorted(executables))]
+    retained = {'credential_references': [], 'imports': [], 'executables': []}
+    overflow = []
+    for priority, field, values in groups:
+        retained[field].extend(values[:MAX_ITEMS])
+        if len(values) > MAX_ITEMS:
+            truncated.append('references')
+            dropped[str(priority)] = len(values) - MAX_ITEMS
+            if priority in (1, 2):
+                overflow.append('credential-denied' if priority == 1 else 'removed-package')
+    imports = retained['imports']
+    references = retained['credential_references']
+    executables = retained['executables']
     # File contents are never returned. Only static imports and metadata survive.
     return {'path': path if safe_path(path) else '<unparsed>', 'uid': before.st_uid, 'gid': before.st_gid,
             'mode': format(stat.S_IMODE(before.st_mode), '04o'), 'size': len(raw),
             'sha256': hashlib.sha256(raw).hexdigest(), 'imports': sorted(imports),
             'read_acquired': True, 'credential_references': sorted(references),
-            'executables': sorted(executables), 'truncations': truncated}
+            'executables': sorted(executables), 'truncations': sorted(set(truncated)),
+            'dropped': dropped, 'priority_overflow': overflow}
 
 
 # Only these structural values may cross the host boundary (PD10-W1).
@@ -396,7 +456,8 @@ def resolved(path):
 
 
 def inspect_graph(paths, roots=APP_ROOTS, max_depth=16, script_reader=scan_script):
-    scripts, blocking = [], []
+    scripts = []
+    blocking = PriorityRows(MAX_ITEMS)
     visited = set()
     inspected = set()
     queue = [(path, 0) for path in sorted(set(paths))]
@@ -404,10 +465,7 @@ def inspect_graph(paths, roots=APP_ROOTS, max_depth=16, script_reader=scan_scrip
     truncated = set()
 
     def block(source, reference, status='unresolved'):
-        if len(blocking) >= MAX_ITEMS:
-            truncated.add('blocking-rows')
-            return
-        blocking.append({'source': resolved(source) if source in inspected else unresolved(source),
+        blocking.add({'source': resolved(source) if source in inspected else unresolved(source),
                          'reference': unresolved(reference), 'status': status})
 
 
@@ -433,6 +491,8 @@ def inspect_graph(paths, roots=APP_ROOTS, max_depth=16, script_reader=scan_scrip
             break
         inspected.add(path)
         truncated.update(record.get('truncations', []))
+        for name in record.get('priority_overflow', []):
+            blocking.add(dict(bound_row(name), status='overflow:' + name))
         public = dict(record, imports=[], executables=[], credential_references=[])
         public['truncations'] = record.get('truncations', [])
         scripts.append(public)
@@ -441,7 +501,7 @@ def inspect_graph(paths, roots=APP_ROOTS, max_depth=16, script_reader=scan_scrip
             # Credential files must never be inspected, so they cannot acquire
             # structural identity. Even the path remains host-local.
             public['credential_references'].append(unresolved(credential))
-            block(path, credential)
+            block(path, credential, 'credential-denied')
         for field in ('imports', 'executables'):
             for reference in record.get(field, []):
                 if reference.split('.')[0] in {'app', 'scripts', 'alembic'}:
@@ -464,9 +524,11 @@ def inspect_graph(paths, roots=APP_ROOTS, max_depth=16, script_reader=scan_scrip
                 if len(queue) > MAX_ITEMS:
                     queue = queue[:MAX_ITEMS]
                     truncated.add('import-queue')
+    if blocking.dropped:
+        truncated.add('blocking-rows')
     for code in sorted(truncated):
-        blocking.append(bound_row(code))
-    return {'scripts': scripts, 'blocking_dependencies': blocking, 'truncations': sorted(truncated), 'dependency_coverage': 'manual-review-required'}
+        blocking.add(bound_row(code))
+    return {'scripts': scripts, 'blocking_dependencies': blocking.values(), 'dropped': blocking.dropped, 'truncations': sorted(truncated), 'dependency_coverage': 'manual-review-required'}
 
 
 def read_script(path):
@@ -647,11 +709,13 @@ def collect(command=run_command, cron_files=None, script_reader=scan_script):
     except (OSError, ValueError):
         coverage['cron'] = False
     graph = inspect_graph(paths, script_reader=script_reader)
-    graph['blocking_dependencies'].extend(entry_blocks)
+    final_rows = PriorityRows(MAX_ITEMS)
+    for row in graph['blocking_dependencies'] + entry_blocks:
+        final_rows.add(row)
     for code in graph['truncations']:
         mark('usr_local', code)
     for surface in sorted(truncated):
-        graph['blocking_dependencies'].append(bound_row(surface))
+        final_rows.add(bound_row(surface))
     inspected_paths = {item['path'] for item in graph['scripts']}
     for observation in observations:
         retained = []
@@ -662,8 +726,9 @@ def collect(command=run_command, cron_files=None, script_reader=scan_script):
                     continue
             retained.append(field)
         observation['fields'] = retained
+        observation['acquired'] = observation['acquired'] and coverage.get(observation['surface'], False)
     return {'acquired': coverage, 'dependency_coverage': 'manual-review-required', 'observations': observations,
-            'scripts': graph['scripts'], 'blocking_dependencies': graph['blocking_dependencies'],
+            'scripts': graph['scripts'], 'blocking_dependencies': final_rows.values(),
             'truncations': [{'surface': surface, 'reasons': sorted(codes)} for surface, codes in sorted(truncated.items())]}
 
 

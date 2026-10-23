@@ -67,7 +67,8 @@ class Round6Contract(unittest.TestCase):
                             return ('a.service b.service c.service\n' if branch == 'unit-count' else 'a.service\n'), True
                         if 'cat' in argv:
                             if branch == 'logical-lines': return 'Description="' + 'x' * 80, True
-                            if branch in ('entries', 'statements'): return 'ExecStart="' + 'x' * 80, True
+                            if branch == 'statements': return 'ExecStart="' + 'x' * 80, True
+                            if branch == 'entries': return 'ExecStart=/a.py\nExecStart=/b.py\nExecStart=/c.py\n', True
                             return 'User=a\nGroup=b\nWorkingDirectory=/c\n', True
                         if 'crontab' in argv: return 'A=1\nB=2\nC=3\n', True
                         if argv[0] == 'find': return str(script) + '\n', True

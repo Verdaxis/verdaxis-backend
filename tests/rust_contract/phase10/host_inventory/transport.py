@@ -87,7 +87,15 @@ def read_host(host, runner=ssh_once):
         return {'refusal': 'output-bytes'}
     if not data:
         return {'refusal': 'transport-error'}
-    result = json.loads(data)
+    try:
+        result = json.loads(data)
+    except (ValueError, TypeError):
+        return {'refusal': 'transport-error'}
+    if isinstance(result, dict) and 'refusal' in result:
+        if set(result) != {'refusal'} or not isinstance(result['refusal'], str):
+            return {'refusal': 'transport-error'}
+        if result['refusal'] not in {'output-bytes', 'os-error', 'value-error', 'recursion'}:
+            return {'refusal': 'transport-error'}
     if isinstance(result, dict) and set(result) == {'refusal'} and result['refusal'] in {'output-bytes', 'os-error', 'value-error', 'recursion'}:
         return result
     if not complete:
