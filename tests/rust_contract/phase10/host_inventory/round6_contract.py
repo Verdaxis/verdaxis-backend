@@ -92,6 +92,28 @@ class Round6Contract(unittest.TestCase):
                         self.assertIn(branch, reasons)
                         self.assertEqual(result['dependency_coverage'], 'manual-review-required')
                         self.assertTrue(any(r['status'].startswith('bound-exceeded:') for r in result['blocking_dependencies']))
+                        # Every actual branch gets deterministic ordering and the
+                        # exact reason marker; collection cases also validate the
+                        # installed schema and reconciled acquisition state.
+                        self.assertTrue(any(r['status'] == 'bound-exceeded:' + branch or
+                                            r['status'] == 'bound-exceeded:' + item['surface']
+                                            for r in result['blocking_dependencies']
+                                            for item in result.get('truncations', []) if isinstance(item, dict))
+                                        if 'acquired' in result else
+                                        any(r['status'] == 'bound-exceeded:' + branch for r in result['blocking_dependencies']))
+                        rows = result['blocking_dependencies']
+                        self.assertEqual(rows, sorted(rows, key=lambda r: (self.reader.row_priority(r), json.dumps(r, sort_keys=True))))
+                        self.assertLessEqual(len(result['scripts']), 2)
+                        if 'acquired' in result:
+                            for observation in result['observations']:
+                                if not result['acquired'][observation['surface']]:
+                                    self.assertFalse(observation['acquired'])
+                            transport = load(TRANSPORT)
+                            base = json.loads((ROOT/'tests/rust_contract/phase10/host-dependencies.json').read_text())
+                            document = transport.collect_hosts(base, lambda argv, data: (json.dumps(result).encode(), True))
+                            from jsonschema import Draft202012Validator
+                            Draft202012Validator(json.loads((ROOT/'tests/rust_contract/phase10/host-inventory.schema.json').read_text())).validate(document)
+
 
     def test_hostile_refusals_are_normalized(self):
         transport = load(TRANSPORT)

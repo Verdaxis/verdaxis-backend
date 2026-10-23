@@ -646,8 +646,6 @@ def collect(command=run_command, cron_files=None, script_reader=scan_script):
                 entry_blocks.append({'source': unresolved(invocation), 'reference': unresolved(invocation), 'status': 'unresolved'})
             if len(entry_blocks) >= MAX_ITEMS:
                 mark(surface, 'entries')
-        if len(entries) > MAX_ITEMS:
-            mark(surface, 'entries')
         record = structural(surface, text, system_cron)
         for code in record['truncations']:
             mark(surface, code)
