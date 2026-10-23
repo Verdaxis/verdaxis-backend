@@ -86,7 +86,7 @@ def races(context):
                 from contextlib import ExitStack
                 with ExitStack() as stack:
                     gates = [(database, stack.enter_context(connect(port,database,autocommit=True)))
-                             for database in ('phase2_route_0_python_test','phase2_route_0_rust_test')]
+                             for database in context.race_databases]
                     keys = [78000+int(actor[-3:]) for actor in (first,second)]
                     for database, gate in gates:
                         if collision:
