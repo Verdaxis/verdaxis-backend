@@ -304,10 +304,31 @@ def review_migration_digests(root, paths, reviewed):
     return violations
 
 
+def recorded_schema_base(root, supplied=None):
+    """The predecessor changes only through an explicit PM-reviewed record edit."""
+    record = root / "tests/rust_contract/phase8/schema-base.json"
+    try:
+        if record.is_symlink():
+            return None, ["schema-base.json: symlink record refused"]
+        value = json.loads(record.read_text())
+    except (OSError, ValueError) as error:
+        return None, [f"schema-base.json: missing or malformed record: {error}"]
+    if not isinstance(value, dict) or set(value) != {"predecessor_sha"} or not isinstance(value["predecessor_sha"], str) or not re.fullmatch(r"[0-9a-f]{40}", value["predecessor_sha"]):
+        return None, ["schema-base.json: expected one full predecessor_sha"]
+    approved = value["predecessor_sha"]
+    for source, candidate in (("argument", supplied), ("PHASE8_SCHEMA_BASE", os.environ.get("PHASE8_SCHEMA_BASE"))):
+        if candidate is not None and candidate != approved:
+            return None, [f"schema-base.json: predecessor mismatch approved={approved} {source}={candidate}"]
+    return approved, []
+
+
 def review_migration_inventory(root, predecessor, reviewed, other, expected_phase8):
     """Inventory all configured loadable sources and validate every ownership pin."""
     import configparser
 
+    predecessor, errors = recorded_schema_base(root, predecessor)
+    if errors:
+        return errors
     settings = {
         "script_location": "%(here)s/alembic",
         "version_locations": None,
@@ -1031,8 +1052,8 @@ def test_phase8_module_reviewer_accepts_static_ddl_and_head_reads():
 @pytest.mark.skipif(os.environ.get("PHASE8_COMPLETENESS") != "1", reason="Task 14 gate: requires the integrated Task 5a revision")
 def test_phase8_change_set_is_one_additive_revision():
     manifest = load_ledger()["schema_change_set"]
-    schema_base = os.environ.get("PHASE8_SCHEMA_BASE", "")
-    assert re.fullmatch(r"[0-9a-f]{40}", schema_base), "Task 5a must record the integrated predecessor SHA in PHASE8_SCHEMA_BASE"
+    schema_base, errors = recorded_schema_base(ROOT)
+    assert not errors, errors
     status_lines = subprocess.check_output(["git", "diff", "--name-status", schema_base, "HEAD", "--", "alembic/versions"], cwd=ROOT, text=True).splitlines()
     added = [line.split("\t")[-1] for line in status_lines if line.startswith("A")]
     # Other phases may add their own revisions after the recorded base; this gate
