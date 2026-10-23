@@ -28,7 +28,8 @@ pub fn decode_snapshot(bytes: &[u8]) -> Result<FleetSnapshot, ApiError> {
     if bytes.len() > MAX_BYTES {
         return Err(unavailable());
     }
-    let document: FleetSnapshot = serde_json::from_slice(bytes).map_err(|_| unavailable())?;
+    let text = std::str::from_utf8(bytes).map_err(|_| unavailable())?;
+    let document: FleetSnapshot = serde_json::from_str(text).map_err(|_| unavailable())?;
     let date = &document.last_updated;
     if date.len() != 10
         || date.as_bytes().iter().enumerate().any(|(index, byte)| {
@@ -104,11 +105,12 @@ fn read_document_with(
     if Instant::now() >= deadline {
         return Err(unavailable());
     }
-    let file = open_regular_file(path)?;
+    let mut file = open_regular_file(path)?;
+    let before = file.metadata().map_err(|_| unavailable())?;
     observe(ReadStage::Opened);
     // take() bounds allocation even if a publisher replaces or grows a document.
     let mut bytes = Vec::with_capacity(MAX_BYTES + 1);
-    let mut bounded = file.take((MAX_BYTES + 1) as u64);
+    let mut bounded = (&mut file).take((MAX_BYTES + 1) as u64);
     let mut chunk = [0_u8; 8192];
     loop {
         if Instant::now() >= deadline {
@@ -121,11 +123,29 @@ fn read_document_with(
         bytes.extend_from_slice(&chunk[..count]);
         observe(ReadStage::Chunk);
     }
+    let after = file.metadata().map_err(|_| unavailable())?;
+    if bytes.len() > MAX_BYTES || !same_observation(&before, &after) {
+        return Err(unavailable());
+    }
     let document = decode_snapshot(&bytes)?;
     if Instant::now() >= deadline {
         return Err(unavailable());
     }
     Ok(document)
+}
+
+#[cfg(unix)]
+fn same_observation(before: &std::fs::Metadata, after: &std::fs::Metadata) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    before.dev() == after.dev()
+        && before.ino() == after.ino()
+        && before.size() == after.size()
+        && before.mtime() == after.mtime()
+        && before.mtime_nsec() == after.mtime_nsec()
+        // Atomic publication can unlink the held old inode, changing only its
+        // link count and ctime. Its unchanged bytes remain a valid observation.
+        && ((before.ctime() == after.ctime() && before.ctime_nsec() == after.ctime_nsec())
+            || after.nlink() < before.nlink())
 }
 
 /// Walk from a held root descriptor, never following links. Each opened child
