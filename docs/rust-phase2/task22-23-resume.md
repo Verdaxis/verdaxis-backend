@@ -5,8 +5,9 @@
 The Task 22 review fixes, the Task 23 runtime projection and the two PM items
 for this round (watchlist settings from release metadata; one payload order
 rule) are committed. The final gate batch records its results in the section
-below. No staging or production deployment was attempted. Task 24 has not
-started. No measurement was run (decision 110).
+below. The final review's F1/F2 gate repairs are committed and qualified in
+the "Review fix round" section. No staging or production deployment was
+attempted. Task 24 has not started. No measurement was run (decision 110).
 
 ## Commits in the review fix round
 
@@ -107,19 +108,69 @@ monitor tests were not repeated in this follow-up: no application Python or
 shared Python inputs changed (PM instruction). Their preceding green result
 is retained above.
 
+## Review fix round (F1/F2) — 23 October 2026
+
+The final review's two remaining gate defects are closed at
+`9ccb9328fd1c86ee5592d283d4fa4ab0a1ec3796`:
+
+- **F1 (major), order-write cache evidence.** Tests `42f11ca0`, fixes
+  `533d625c` and `9ccb9328`. `phase2_order_write.py` deep-copies `before`,
+  applies `expect_cache_invalidations(expected, int(changed))`, then compares
+  both complete cache table objects with `after` — the referral
+  implementation's exact pattern. Outbox and receipt checks are retained.
+  `tests/rust_contract/test_order_write_cache_state.py` rejects a wrong new
+  event key or value, deletion or mutation of an old event, a different
+  domain, column damage, extra generation rows, and replay metadata mutation
+  for both replay actions.
+- **F2 (minor), leaderboard rank type.** Tests `42f11ca0`, fix `533d625c`.
+  `phase2_scenarios.py` requires `type(entry["rank"]) is int` before the
+  consecutive-value check. `tests/rust_contract/test_leaderboard_ties.py`
+  refuses Boolean, float and string ranks. The PD2-L1 exception stays limited
+  to successful GET R03 at `/api/referrals/leaderboard`.
+
+Decision 126 order: RED tests committed first at `42f11ca0` (12 intended
+assertion failures against the prior gate code in
+`work/pd2-review-fix-batch.log`), then the fixes.
+
+Rust source is unchanged since `f770aa3d` (`git diff f770aa3d..9ccb9328 -- rs/`
+is empty), so the recorded fmt, clippy, offline, Rust PostgreSQL and Phase 1
+meaning results at `f770aa3d` carry forward. `cargo audit` and PR #88's Rust CI
+still report RUSTSEC-2026-0385 (`ctutils` 0.4.3), inherited; `Cargo.lock` is
+unchanged.
+
+Gate evidence at `9ccb9328` (staging test host; UTC on Oct 23):
+
+| Gate | Evidence | UTC | Exit |
+| --- | --- | --- | --- |
+| RED tests | `work/pd2-review-fix-batch.log` | 14:09:42–46 | 1; 12 intended failures, 11 passed |
+| Harness GREEN (76 tests) | `work/pd2-review-fix-batch3.log` | 16:49:41–53 | 0 |
+| All Phase 2 scenarios | `work/pd2-review-fix-batch5.log` | 18:06:33–18:50:30 | 0; 21 scenarios, 367 actions |
+| Standalone races | `work/pd2-review-fix-batch3.log` | 16:56:29–17:27:08 | 0; 9 scenarios, 27 races |
+
+Two intermediate scenario attempts failed on host events, not assertions: the
+first (`pd2-review-fix-batch3.log`, 16:49Z) on a transient harness startup
+error (`nothing accepted a connection on 127.0.0.1:56183`) under heavy
+concurrent load, the second (`pd2-review-fix-batch4.log`, 17:34Z) when the
+test host rebooted mid-run (exit 143). The rerun after recovery passed all 21
+scenarios.
+
 ## Remaining
 
-- Pushed only `feat/rust-phase-2` at `68da0fd7` on Oct 23. PR #88 CI
-  finished: backend `test`, `postgres-analytics`, and `postgres-phase0` passed
-  (run `39932402006`). Rust `offline` failed in the dependency advisory step
-  before its test/build gates; `contract` and `publish` were skipped (run
-  `39932402025`). The new Oct 23 advisory is RUSTSEC-2026-0385 in `ctutils`
-  0.4.3; the audit recommends >=0.4.4. Earlier test-host audits passed before
-  this advisory appeared. No advisory suppression or dependency update was
-  made in this round. PM follow-up: coordinate the dependency update, then
-  rerun Rust CI. Local failed-step log: `work/pd2-ci-failed.log`.
+- F1/F2 are closed at `9ccb9328` and the review-fix gates are green (see the
+  "Review fix round" section). Pushed `feat/rust-phase-2` at `9ccb9328` on
+  Oct 23 after those gates. PR #88 CI finished: backend `test`,
+  `postgres-analytics`, and `postgres-phase0` passed (run `39932402006`).
+  Rust `offline` failed in the dependency advisory step before its test/build
+  gates; `contract` and `publish` were skipped (run `39932402025`). The new
+  Oct 23 advisory is RUSTSEC-2026-0385 in `ctutils` 0.4.3; the audit
+  recommends >=0.4.4. Earlier test-host audits passed before this advisory
+  appeared. No advisory suppression or dependency update was made in this
+  round. PM follow-up: coordinate the dependency update, then rerun Rust CI.
+  Local failed-step log: `work/pd2-ci-failed.log`.
 - Task 24 (staging deploy and journeys) and Task 25 (production) remain with
-  the PM. Neither task started; no live deployment or measurement ran.
+  the PM. Neither task started; no live deployment or measurement ran. The PM
+  first reconciles Task 24's scope with decisions 110, 112 and 113 before it
+  starts.
 
 ## Earlier steps
 
