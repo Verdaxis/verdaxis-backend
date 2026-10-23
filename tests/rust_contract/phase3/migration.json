@@ -1,0 +1,30 @@
+{
+  "revision": "p3_20261020_auth_tokens",
+  "parent": "prc_20261018_cache",
+  "observed_single_head_at_task_start": "prc_20261018_cache",
+  "observed_on_commit": "93317e5921c9e23c9de8b6c75985a0b935ea5c15",
+  "checkpoint_case": 1,
+  "checkpoint_rows": [
+    ["prc_20261018_cache", "p3_20261020_auth_tokens"],
+    ["p3_20261020_auth_tokens", "p3_20261020_auth_tokens"]
+  ],
+  "table": "password_reset_tokens",
+  "columns": [
+    {"name": "user_id", "type": "uuid", "nullable": false, "default": null},
+    {"name": "token_hash", "type": "text", "nullable": false, "default": null},
+    {"name": "expires_at", "type": "timestamp with time zone", "nullable": false, "default": null},
+    {"name": "created_at", "type": "timestamp with time zone", "nullable": false, "default": "now()"},
+    {"name": "used_at", "type": "timestamp with time zone", "nullable": true, "default": null}
+  ],
+  "constraints": {
+    "password_reset_tokens_pkey": "PRIMARY KEY (user_id)",
+    "uq_password_reset_tokens_token_hash": "UNIQUE (token_hash)",
+    "fk_password_reset_tokens_user_id_users": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE"
+  },
+  "indexes": ["ix_password_reset_tokens_expires_at"],
+  "runtime_privileges": {
+    "table": ["DELETE", "SELECT"],
+    "insert_columns": ["created_at", "expires_at", "token_hash", "used_at", "user_id"],
+    "update_columns": ["created_at", "expires_at", "token_hash", "used_at"]
+  }
+}

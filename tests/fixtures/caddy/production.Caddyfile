@@ -1,0 +1,51 @@
+{
+	servers {
+		trusted_proxies static 194.233.68.86/32
+		trusted_proxies_strict
+	}
+}
+
+api.verdaxis.exchange {
+	encode zstd gzip
+	request_body {
+		max_size 32MB
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		X-Frame-Options DENY
+		-Server
+	}
+	# Temporary log block removed after diagnosis.
+	route {
+		handle /script.js {
+			reverse_proxy localhost:8700
+		}
+		handle /api/send {
+			@allowed_origin expression `{header.Origin} in ['https://app.verdaxis.exchange', 'https://verdaxis.exchange', 'https://canary.verdaxis.exchange']`
+			handle @allowed_origin {
+				request_body {
+					max_size 64KB
+				}
+				reverse_proxy localhost:8700
+			}
+			handle {
+				respond 403
+			}
+		}
+		handle {
+			reverse_proxy localhost:8000 {
+				header_up X-Forwarded-For {client_ip}
+				flush_interval -1
+				transport http {
+					keepalive off
+				}
+			}
+		}
+	}
+}
+
+unrelated.example {
+	respond "unchanged"
+}

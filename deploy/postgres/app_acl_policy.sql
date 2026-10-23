@@ -58,6 +58,10 @@ INSERT INTO app_table_policy (table_name, privileges) VALUES
     ('organization_market_approvals', ARRAY['SELECT']),
     ('organization_join_requests', ARRAY['SELECT', 'INSERT', 'UPDATE']),
     ('organizations', ARRAY['SELECT', 'DELETE']),
+    -- Rust-owned reset tokens: whole-row reads and deletes here; inserts and
+    -- updates name their columns below, so a later column gets no write
+    -- authority until it is declared.
+    ('password_reset_tokens', ARRAY['SELECT', 'DELETE']),
     ('pending_registrations', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('physical_stems', ARRAY['SELECT']),
     ('port_intelligence', ARRAY['SELECT']),
@@ -65,6 +69,9 @@ INSERT INTO app_table_policy (table_name, privileges) VALUES
     ('price_alerts', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('producer_projects', ARRAY['SELECT']),
     ('products', ARRAY['SELECT']),
+    ('public_read_cache_generations', ARRAY['SELECT']),
+    ('public_read_cache_events', ARRAY['SELECT']),
+    ('public_read_cache_incarnation', ARRAY['SELECT']),
     ('public_listings', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('referrals', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('refresh_sessions', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
@@ -214,7 +221,16 @@ INSERT INTO app_column_policy (table_name, column_name, privilege_type) VALUES
     ('organizations', 'supplier_tier', 'UPDATE'),
     ('organizations', 'tax_id', 'UPDATE'),
     ('organizations', 'country_code', 'UPDATE'),
-    ('organizations', 'verification_status', 'UPDATE');
+    ('organizations', 'verification_status', 'UPDATE'),
+    ('password_reset_tokens', 'user_id', 'INSERT'),
+    ('password_reset_tokens', 'token_hash', 'INSERT'),
+    ('password_reset_tokens', 'expires_at', 'INSERT'),
+    ('password_reset_tokens', 'created_at', 'INSERT'),
+    ('password_reset_tokens', 'used_at', 'INSERT'),
+    ('password_reset_tokens', 'token_hash', 'UPDATE'),
+    ('password_reset_tokens', 'expires_at', 'UPDATE'),
+    ('password_reset_tokens', 'created_at', 'UPDATE'),
+    ('password_reset_tokens', 'used_at', 'UPDATE');
 
 CREATE TEMP TABLE app_sequence_policy (
     sequence_name text PRIMARY KEY,

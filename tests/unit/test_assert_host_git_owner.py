@@ -50,37 +50,41 @@ def patch_checkout_owner(monkeypatch, uid, name=OWNER_NAME):
 
 
 @pytest.fixture
-def tuple_state(tmp_path):
+def tuple_state(tmp_path, monkeypatch):
     sha = "a" * 40
     identity = f"ENVIRONMENT=production\nRELEASE_SHA={sha}\n"
     (tmp_path / ".runtime-monitor.env").write_text(identity)
     (tmp_path / ".runtime-release.env").write_text(identity + "MIGRATION_REVISION=p0_20261016_union\n")
     (tmp_path / ".env").write_bytes(b"synthetic")
+    # The unit directory is a fixture path too: the assertion helper reads
+    # whatever UNIT_DIR names, never the real host's /etc/systemd/system.
+    units_dir = tmp_path / "systemd"
     units = {
-        "/etc/systemd/system/verdaxis-backend.service": b"unit",
-        "/etc/systemd/system/verdaxis-backend.service.d/90-phase0-fence.conf": b"guard",
+        units_dir / "verdaxis-backend.service": b"unit",
+        units_dir / "verdaxis-backend.service.d/90-phase0-fence.conf": b"guard",
     }
-    artifacts = {str(path): hashlib.sha256(path.read_bytes()).hexdigest() for path in tmp_path.iterdir()}
-    artifacts.update({name: hashlib.sha256(value).hexdigest() for name, value in units.items()})
+    for path, value in units.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(value)
+    monkeypatch.setattr(assert_host, "UNIT_DIR", units_dir)
+    artifacts = {
+        str(path): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in tmp_path.iterdir()
+        if path.is_file()
+    }
+    artifacts.update({str(path): hashlib.sha256(value).hexdigest() for path, value in units.items()})
     manifest = dict(release_sha=sha, identity={"revision": "p0_20261016_union"},
                     monitor_identity_file=str(tmp_path / ".runtime-monitor.env"), artifacts=artifacts)
     return sha, manifest, units
 
 
-def patch_unit_reads(monkeypatch, units):
-    original_read = assert_host.Path.read_bytes
-    monkeypatch.setattr(assert_host.Path, "read_bytes",
-                        lambda path: units[str(path)] if str(path) in units else original_read(path))
-
-
 def test_tuple_git_commands_run_as_the_checkout_owner(monkeypatch, tuple_state):
-    sha, manifest, units = tuple_state
+    sha, manifest, _ = tuple_state
     root = Path(manifest["monitor_identity_file"]).parent
     stub = StubCommand(sha)
     monkeypatch.setattr(assert_host, "ROOT", root)
     monkeypatch.setattr(assert_host, "command", stub)
     patch_checkout_owner(monkeypatch, OWNER_UID)
-    patch_unit_reads(monkeypatch, units)
     assert_host.verify_tuple(manifest)
     git_calls = stub.git_calls()
     assert len(git_calls) == 2
@@ -139,12 +143,11 @@ def test_unresolvable_owner_uid_refuses(monkeypatch, tuple_state):
 
 
 def test_readiness_check_keeps_owner_git_argv(monkeypatch, tuple_state):
-    sha, manifest, units = tuple_state
+    sha, manifest, _ = tuple_state
     stub = StubCommand(sha)
     monkeypatch.setattr(assert_host, "ROOT", Path(manifest["monitor_identity_file"]).parent)
     monkeypatch.setattr(assert_host, "command", stub)
     patch_checkout_owner(monkeypatch, OWNER_UID)
-    patch_unit_reads(monkeypatch, units)
 
     class Response:
         def __init__(self, payload):

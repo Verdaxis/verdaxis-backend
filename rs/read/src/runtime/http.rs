@@ -1,3 +1,4 @@
+use crate::auth::{limits::Refusal, origin::trusted_origins};
 use crate::{ApiError, request_id};
 use axum::{
     Router,
@@ -13,8 +14,10 @@ use std::{
     time::Instant,
 };
 
-/// The one credentialed browser origin in scope for Phase 1.
-const STAGING_ORIGIN: &str = "https://staging.verdaxis.exchange";
+/// Use the same closed environment policy as the cookie origin guard.
+pub fn allowed_browser_origin(environment: &str, origin: &str) -> bool {
+    trusted_origins(environment).contains(&origin)
+}
 
 pub fn client_ip(peer: Option<IpAddr>, forwarded: Option<&str>) -> String {
     if peer.is_some_and(|ip| ip.is_loopback())
@@ -63,6 +66,10 @@ fn compose(
         buckets: Arc::new(Mutex::new(HashMap::new())),
         phase2_limits: limits,
     };
+    let environment = app_state
+        .as_ref()
+        .map(|state| state.config.environment.clone())
+        .unwrap_or_else(|| "staging".into());
     let routes = routes.layer(middleware::from_fn_with_state(state, dispatch_boundary));
     let routes = if let Some(app_state) = app_state {
         routes.layer(middleware::from_fn_with_state(
@@ -73,7 +80,7 @@ fn compose(
         routes
     };
     routes
-        .layer(middleware::from_fn(cors))
+        .layer(middleware::from_fn_with_state(environment, cors))
         .layer(middleware::from_fn(log_request))
 }
 
@@ -130,11 +137,13 @@ async fn log_request(mut request: Request, next: Next) -> Response {
     response
 }
 
-async fn cors(request: Request, next: Next) -> Response {
+async fn cors(State(environment): State<String>, request: Request, next: Next) -> Response {
     let Some(origin) = request.headers().get(header::ORIGIN).cloned() else {
         return next.run(request).await;
     };
-    let allowed = origin == STAGING_ORIGIN;
+    let allowed = origin
+        .to_str()
+        .is_ok_and(|origin| allowed_browser_origin(&environment, origin));
     let preflight = request.method() == "OPTIONS"
         && request
             .headers()
@@ -260,6 +269,20 @@ fn public_get_path(path: &str) -> bool {
             .is_some_and(|id| !id.is_empty() && !id.contains('/'))
 }
 
+/// The pre-auth 429. An auth route gets the auth envelope and the seconds until
+/// its window resets; the Phase 2 admin prefix keeps its existing response.
+fn preauth_refusal(path: &str, refusal: Refusal) -> Response {
+    if path.starts_with("/api/auth/") {
+        return refusal.auth_failure().into_response();
+    }
+    (
+        StatusCode::TOO_MANY_REQUESTS,
+        [("retry-after", "60")],
+        axum::Json(serde_json::json!({"detail":"Rate limit exceeded"})),
+    )
+        .into_response()
+}
+
 /// Apply the two rules that sit just outside route dispatch: the Market Support
 /// context boundary and the fixed-window price limits (AD-01). Admission and
 /// CORS are separate outer layers.
@@ -280,16 +303,12 @@ async fn dispatch_boundary(
             .get("x-forwarded-for")
             .and_then(|value| value.to_str().ok()),
     );
-    if !state
-        .phase2_limits
-        .preauth(&client, path, state.started.elapsed().as_secs())
+    if let Err(refusal) =
+        state
+            .phase2_limits
+            .preauth_check(&client, path, state.started.elapsed().as_secs())
     {
-        return (
-            StatusCode::TOO_MANY_REQUESTS,
-            [("retry-after", "60")],
-            axum::Json(serde_json::json!({"detail":"Rate limit exceeded"})),
-        )
-            .into_response();
+        return preauth_refusal(path, refusal);
     }
     if let Some(response) = crate::auth::scope::known_get_refusal(request.method().as_str(), path) {
         return response;

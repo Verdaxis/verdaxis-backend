@@ -13,7 +13,6 @@
 #[cfg(feature = "contract-http")]
 #[test]
 fn simple_reads_match_python() {
-    verdaxis_contract::compare_group("simple_reads").expect("simple_reads contract group");
     let python = std::env::var("RUST_TEST_PYTHON")
         .unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../venv/bin/python").into());
     let status = std::process::Command::new(python)
@@ -33,6 +32,7 @@ import asyncio, os
 from sqlalchemy import text
 from app.seeds.safety import seed_session
 from scripts.rust_contract.record import record, differences
+from scripts.rust_contract.compare import load_cases, CASES_PATH
 
 async def fixture(remove=False):
     async with seed_session() as session:
@@ -45,7 +45,9 @@ async def fixture(remove=False):
 
 asyncio.run(fixture())
 try:
-    cases=[dict(id='duplicate-list',method='GET',path='/api/ports'),dict(id='duplicate-detail',method='GET',path='/api/ports/TASK8_DUP')]
+    # Seed before the first Rust request: reference payloads may remain valid
+    # for 60 seconds, so mutating the fixture after warming a cache is not parity.
+    cases=load_cases(CASES_PATH, 'simple_reads') + [dict(id='duplicate-list',method='GET',path='/api/ports'),dict(id='duplicate-detail',method='GET',path='/api/ports/TASK8_DUP')]
     token=os.environ['DISPOSABLE_TEST_TOKEN']
     expected=record(os.environ['PYTHON_CONTRACT_URL'],token,cases)
     actual=record(os.environ['RUST_CONTRACT_URL'],token,cases)

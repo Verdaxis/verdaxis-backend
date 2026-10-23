@@ -32,9 +32,15 @@ from app.models.news import NewsItem
 from app.models.notification import Notification
 from app.models.orderbook import OrderBookOrder, Trade
 from app.models.orders import Commission
+from app.models.password_reset_token import PasswordResetToken
 from app.models.port import Port, PortIntelligence, Vessel
 from app.models.producer import ProducerProject
 from app.models.product_analytics import UserLoginDay, UserStatusTransition
+from app.models.public_read_cache import (
+    PublicReadCacheEvent,
+    PublicReadCacheGeneration,
+    PublicReadCacheIncarnation,
+)
 from app.models.referral import Referral, ReferralStatus
 from app.models.refresh_session import RefreshSession
 from app.models.registration import (

@@ -14,12 +14,14 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
-
 _BACKEND_ROOT = Path(__file__).resolve().parents[2]
 _PARENT = "miq_20260720_market_quarantine"
 # Later product migrations extend the linearized market chain. The mi-specific
 # refusal/quarantine semantics exercised below are unchanged.
-_HEAD = "p0_20261016_union"
+from alembic.config import Config
+from alembic.script import ScriptDirectory
+
+_HEAD = ScriptDirectory.from_config(Config(str(_BACKEND_ROOT / "alembic.ini"))).get_current_head()
 _HISTORICAL_HEAD = "kycd_20261015_staging"
 _SENTINEL = UUID("00000000-dead-beef-0000-aaa0e15eed01")
 _DEMO_ORG = UUID("4da7b285-34ee-5443-9406-f96b4ed1a251")
@@ -618,11 +620,12 @@ async def test_fee_downgrade_fails_fast_during_idempotent_trade_read(
                     "oa_20260910_auto_real_orgs",
                 )
             )
-            refused = await asyncio.wait_for(downgrade_task, timeout=5)
+            # This bound only stops a hung subprocess; the NOWAIT refusal text proves it did not wait.
+            refused = await asyncio.wait_for(downgrade_task, timeout=60)
             assert refused.returncode != 0
-            assert "could not obtain lock on relation" in (
-                f"{refused.stdout}\n{refused.stderr}"
-            )
+            output = f"{refused.stdout}\n{refused.stderr}"
+            assert "could not obtain lock on relation" in output
+            assert "canceling statement due to lock timeout" not in output
 
             # The runtime transaction can continue through subscription
             # resolution and trade insertion after the fail-closed downgrade.
@@ -753,7 +756,7 @@ async def test_parent_shape_sentinel_requires_explicit_cli_quarantine_then_upgra
 
     downgrade = await asyncio.to_thread(_alembic, database_url, "downgrade", _PARENT)
     assert downgrade.returncode != 0
-    assert "Phase 0 union requires a forward correction; downgrade is refused" in f"{downgrade.stdout}\n{downgrade.stderr}"
+    assert "public read cache checkpoint requires a reviewed forward revert" in f"{downgrade.stdout}\n{downgrade.stderr}"
     current = await asyncio.to_thread(_alembic, database_url, "current")
     assert current.returncode == 0, current.stderr
     assert _HEAD in current.stdout
@@ -1276,3 +1279,47 @@ async def test_automatic_org_classification_downgrade_restores_prior_guard(migra
         database_url, "SELECT provenance FROM organizations WHERE id=:id", {"id": organization_id},
     )
     assert result.scalar_one() == "REAL"
+
+
+@pytest.mark.asyncio
+async def test_cache_checkpoint_follows_production_revision(migration_database):
+    """The first same-meaning release upgrades from production's revision.
+
+    ``prc_20261018_cache`` must hang directly off the revision production runs
+    (``p0_20261016_union``) and be named by the release allowlist, so the
+    literal upgrade below is the deploy path. Later revisions chain after it;
+    the single-head rule is pinned by the newest revision's own test.
+    """
+    database_url, _database_name = migration_database
+
+    script = ScriptDirectory.from_config(Config(str(_BACKEND_ROOT / "alembic.ini")))
+    assert script.get_revision("prc_20261018_cache").down_revision == "p0_20261016_union"
+    allowlist = json.loads(
+        (_BACKEND_ROOT / "deploy/rust/allowed-revisions.json").read_text()
+    )
+    assert allowlist == ["kycg_20261014_staging", "p0_20261016_union", "prc_20261018_cache"]
+
+    production = await asyncio.to_thread(
+        _alembic, database_url, "upgrade", "p0_20261016_union"
+    )
+    assert production.returncode == 0, production.stderr
+    current = await _database_execute(
+        database_url, "SELECT version_num FROM alembic_version"
+    )
+    assert current.scalar_one() == "p0_20261016_union"
+
+    upgraded = await asyncio.to_thread(
+        _alembic, database_url, "upgrade", "prc_20261018_cache"
+    )
+    assert upgraded.returncode == 0, upgraded.stderr
+    current = await _database_execute(
+        database_url, "SELECT version_num FROM alembic_version"
+    )
+    assert current.scalar_one() == "prc_20261018_cache"
+    cache_tables = await _database_execute(
+        database_url,
+        "SELECT count(*) FROM pg_tables WHERE schemaname = 'public' "
+        "AND tablename IN ('public_read_cache_generations', "
+        "'public_read_cache_events', 'public_read_cache_incarnation')",
+    )
+    assert cache_tables.scalar_one() == 3
