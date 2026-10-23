@@ -72,7 +72,8 @@ pub struct AppState {
     /// `None` when the reviewed switch is off. Request paths then send exactly
     /// the uncached service's SQL and return exactly its response.
     pub trading_cache: Option<std::sync::Arc<runtime::cache_events::TradingCacheRuntime>>,
-    pub public_trading_cache: std::sync::Arc<runtime::cache::TradingCache<runtime::trading_routes::PublicTradingKey>>,
+    pub public_trading_cache:
+        std::sync::Arc<runtime::cache::TradingCache<runtime::trading_routes::PublicTradingKey>>,
     pub trading_read_observer: std::sync::Arc<dyn runtime::admission::TradingReadObserver>,
     /// Stable identity of this process's environment, release and policy.
     pub policy_identity: String,

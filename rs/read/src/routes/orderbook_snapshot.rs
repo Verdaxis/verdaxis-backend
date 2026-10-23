@@ -108,62 +108,70 @@ pub async fn snapshot(State(state): State<AppState>, RawQuery(raw): RawQuery) ->
     let policy = state.policy.clone();
     let config = state.config.clone();
     let cache_enabled = state.trading_cache.is_some();
-    let mut response = crate::runtime::trading_routes::read(&state, PATH, raw, "orderbook", clock, None, move |connection| {
-        Box::pin(async move {
-            let mut tx = connection
-                .begin()
-                .await
-                .map_err(|error| query_error(PATH, &error))?;
-            if !cache_enabled {
-                sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
-                    .execute(&mut *tx)
+    let mut response = crate::runtime::trading_routes::read(
+        &state,
+        PATH,
+        raw,
+        "orderbook",
+        clock,
+        None,
+        move |connection| {
+            Box::pin(async move {
+                let mut tx = connection
+                    .begin()
                     .await
                     .map_err(|error| query_error(PATH, &error))?;
-            }
-            let sql = order_query_sql(include_str!("../../sql/orderbook/snapshot.sql"));
-            let filters = PublicOrderFilters {
-                surface: OrderSurface::Orderbook,
-                market_product: Some(&query.market_product),
-                delivery_point_id: Some(query.delivery_point_id),
-                availability_window: Some(&query.availability_window),
-                ..Default::default()
-            };
-            let rows =
-                bind_order_query(&sql, &policy, &VisibilityClock::at(now), &config, &filters)
-                    .map_err(|error| query_error(PATH, &error))?
-                    .fetch_all(&mut *tx)
+                if !cache_enabled {
+                    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+                        .execute(&mut *tx)
+                        .await
+                        .map_err(|error| query_error(PATH, &error))?;
+                }
+                let sql = order_query_sql(include_str!("../../sql/orderbook/snapshot.sql"));
+                let filters = PublicOrderFilters {
+                    surface: OrderSurface::Orderbook,
+                    market_product: Some(&query.market_product),
+                    delivery_point_id: Some(query.delivery_point_id),
+                    availability_window: Some(&query.availability_window),
+                    ..Default::default()
+                };
+                let rows =
+                    bind_order_query(&sql, &policy, &VisibilityClock::at(now), &config, &filters)
+                        .map_err(|error| query_error(PATH, &error))?
+                        .fetch_all(&mut *tx)
+                        .await
+                        .map_err(|error| query_error(PATH, &error))?;
+                // A separate disposable test server can stop exactly between the
+                // two reads. This seam is absent from production builds.
+                #[cfg(feature = "contract-tests")]
+                if config.environment == "test"
+                    && let Ok(key) = std::env::var("RUST_SNAPSHOT_TEST_BARRIER")
+                {
+                    let key: i64 = key.parse().map_err(|_| ApiError::internal())?;
+                    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+                        .bind(key)
+                        .execute(&mut *tx)
+                        .await
+                        .map_err(|error| query_error(PATH, &error))?;
+                }
+                let orders: Vec<_> = rows
+                    .iter()
+                    .map(PublicOrder::from_row)
+                    .collect::<Result<_, _>>()?;
+                let keys: Vec<_> = orders
+                    .iter()
+                    .filter_map(|order| order.benchmark_key(now).transpose())
+                    .collect::<Result<_, _>>()?;
+                let mut cache = LiveBenchmarkCache::default();
+                let benchmarks = cache.load(&mut tx, &policy, &config, &keys, now).await?;
+                let response = project_snapshot(&query, now, &orders, &benchmarks)?;
+                tx.commit()
                     .await
                     .map_err(|error| query_error(PATH, &error))?;
-            // A separate disposable test server can stop exactly between the
-            // two reads. This seam is absent from production builds.
-            #[cfg(feature = "contract-tests")]
-            if config.environment == "test"
-                && let Ok(key) = std::env::var("RUST_SNAPSHOT_TEST_BARRIER")
-            {
-                let key: i64 = key.parse().map_err(|_| ApiError::internal())?;
-                sqlx::query("SELECT pg_advisory_xact_lock($1)")
-                    .bind(key)
-                    .execute(&mut *tx)
-                    .await
-                    .map_err(|error| query_error(PATH, &error))?;
-            }
-            let orders: Vec<_> = rows
-                .iter()
-                .map(PublicOrder::from_row)
-                .collect::<Result<_, _>>()?;
-            let keys: Vec<_> = orders
-                .iter()
-                .filter_map(|order| order.benchmark_key(now).transpose())
-                .collect::<Result<_, _>>()?;
-            let mut cache = LiveBenchmarkCache::default();
-            let benchmarks = cache.load(&mut tx, &policy, &config, &keys, now).await?;
-            let response = project_snapshot(&query, now, &orders, &benchmarks)?;
-            tx.commit()
-                .await
-                .map_err(|error| query_error(PATH, &error))?;
-            Ok(response)
-        })
-    })
+                Ok(response)
+            })
+        },
+    )
     .await?;
     crate::runtime::trading_routes::generated_at(&mut response, now, true);
     Ok(axum::Json(response).into_response())

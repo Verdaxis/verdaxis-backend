@@ -1381,75 +1381,153 @@ async fn route_json(state: &AppState, uri: &str) -> (u16, serde_json::Value) {
         .merge(verdaxis_read::routes::prices::routes())
         .merge(verdaxis_read::routes::curves_canonical::routes())
         .with_state(state.clone());
-    let response = routes.oneshot(axum::http::Request::builder().uri(uri)
-        .body(axum::body::Body::empty()).unwrap()).await.unwrap();
+    let response = routes
+        .oneshot(
+            axum::http::Request::builder()
+                .uri(uri)
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
     let status = response.status().as_u16();
-    let bytes = axum::body::to_bytes(response.into_body(), 8 * 1024 * 1024).await.unwrap();
+    let bytes = axum::body::to_bytes(response.into_body(), 8 * 1024 * 1024)
+        .await
+        .unwrap();
     (status, serde_json::from_slice(&bytes).unwrap())
 }
 
 #[tokio::test]
 async fn public_route_wrappers_check_generations_and_time_without_listener_wakes() {
     let _serial = SERIAL.lock().await;
-    let Ok(url) = std::env::var("ROUTE_CACHE_TEST_DATABASE_URL") else { return; };
+    let Ok(url) = std::env::var("ROUTE_CACHE_TEST_DATABASE_URL") else {
+        return;
+    };
     let mut writer = PgConnection::connect_with(&options(&url)).await.unwrap();
     let (mut state, runtime, record) = admitted_state(&url, &mut writer).await;
-    state.policy = Arc::new(serde_json::from_slice::<MarketPolicy>(
-        include_bytes!("../../../deploy/rust/market-policy.json")).unwrap());
+    state.policy = Arc::new(
+        serde_json::from_slice::<MarketPolicy>(include_bytes!(
+            "../../../deploy/rust/market-policy.json"
+        ))
+        .unwrap(),
+    );
     let start = instant_at("2026-10-23T08:00:00Z");
-    let clock = Arc::new(ControlledClock(std::sync::Mutex::new(TradingClock::new(Instant::now(), start))));
+    let clock = Arc::new(ControlledClock(std::sync::Mutex::new(TradingClock::new(
+        Instant::now(),
+        start,
+    ))));
     state.trading_read_observer = clock.clone();
-    let product_id: uuid::Uuid = sqlx::query_scalar("SELECT id FROM products WHERE is_active ORDER BY id LIMIT 1").fetch_one(&mut writer).await.unwrap();
-    let point_id: uuid::Uuid = sqlx::query_scalar("SELECT id FROM delivery_points WHERE is_active ORDER BY id LIMIT 1").fetch_one(&mut writer).await.unwrap();
-    let product = state.policy.products.iter().find(|p| p.id == product_id).unwrap();
-    let point = state.policy.points.iter().find(|p| p.id == point_id).unwrap();
+    let product_id: uuid::Uuid =
+        sqlx::query_scalar("SELECT id FROM products WHERE is_active ORDER BY id LIMIT 1")
+            .fetch_one(&mut writer)
+            .await
+            .unwrap();
+    let point_id: uuid::Uuid =
+        sqlx::query_scalar("SELECT id FROM delivery_points WHERE is_active ORDER BY id LIMIT 1")
+            .fetch_one(&mut writer)
+            .await
+            .unwrap();
+    let product = state
+        .policy
+        .products
+        .iter()
+        .find(|p| p.id == product_id)
+        .unwrap();
+    let point = state
+        .policy
+        .points
+        .iter()
+        .find(|p| p.id == point_id)
+        .unwrap();
     let paths = vec![
-        format!("/api/orderbook/snapshot?market_product={}&delivery_point_id={}&availability_window=SPOT", product.code, point.id),
-        "/api/orderbook/bids".into(), "/api/orderbook/asks".into(), "/api/orderbook".into(), "/api/orderbook/with-ci".into(),
-        "/api/orderbook/aggregated".into(), "/api/orderbook/product-counts".into(),
-        "/api/orderbook/map-summary".into(), "/api/orderbook/map-summary/compact".into(),
-        "/api/orderbook/regions".into(), "/api/orderbook/fuel-types".into(),
-        "/api/prices".into(), "/api/prices/reference".into(),
-        "/api/curves/forward/table".into(), "/api/curves/forward/board".into(),
-        format!("/api/curves/forward/slice?market_product={}&delivery_point_id={}&availability_window=SPOT", product.code, point.id),
+        format!(
+            "/api/orderbook/snapshot?market_product={}&delivery_point_id={}&availability_window=SPOT",
+            product.code, point.id
+        ),
+        "/api/orderbook/bids".into(),
+        "/api/orderbook/asks".into(),
+        "/api/orderbook".into(),
+        "/api/orderbook/with-ci".into(),
+        "/api/orderbook/aggregated".into(),
+        "/api/orderbook/product-counts".into(),
+        "/api/orderbook/map-summary".into(),
+        "/api/orderbook/map-summary/compact".into(),
+        "/api/orderbook/regions".into(),
+        "/api/orderbook/fuel-types".into(),
+        "/api/prices".into(),
+        "/api/prices/reference".into(),
+        "/api/curves/forward/table".into(),
+        "/api/curves/forward/board".into(),
+        format!(
+            "/api/curves/forward/slice?market_product={}&delivery_point_id={}&availability_window=SPOT",
+            product.code, point.id
+        ),
     ];
     let mut disabled = state.clone();
     disabled.trading_cache = None;
     let mut revision = 1;
     for path in paths {
-        let expiry: chrono::DateTime<chrono::Utc> = (clock.now().wall + Duration::from_secs(1)).into();
-        sqlx::query("UPDATE orderbook_orders SET expires_at = $1").bind(expiry).execute(&mut writer).await.unwrap();
-        runtime.authority().refresh(runtime.record_path(), clock.now().monotonic);
+        let expiry: chrono::DateTime<chrono::Utc> =
+            (clock.now().wall + Duration::from_secs(1)).into();
+        sqlx::query("UPDATE orderbook_orders SET expires_at = $1")
+            .bind(expiry)
+            .execute(&mut writer)
+            .await
+            .unwrap();
+        runtime
+            .authority()
+            .refresh(runtime.record_path(), clock.now().monotonic);
         state.trading_caches.clear();
         let expected = route_json(&disabled, &path).await;
         let actual = route_json(&state, &path).await;
         assert_eq!(actual, expected, "cache off/on cold: {path}");
         assert_eq!(actual.0, 200, "{path}");
-        assert!(state.trading_caches.entries() > 0, "route has no proven wrapper: {path}");
+        assert!(
+            state.trading_caches.entries() > 0,
+            "route has no proven wrapper: {path}"
+        );
         assert_eq!(route_json(&state, &path).await, expected, "warm: {path}");
         // No runtime tick consumes the event. The next route request must still
         // read the new committed generation and replace its old entry.
-        sqlx::query("UPDATE products SET is_active = is_active").execute(&mut writer).await.unwrap();
-        let gate = Arc::new(ClockBarrier { clock: clock.clone(), gate: ReadBarrier { stage: TradingReadStage::BeforeInsert,
-            entered: tokio::sync::Notify::new(), release: tokio::sync::Notify::new() } });
+        sqlx::query("UPDATE products SET is_active = is_active")
+            .execute(&mut writer)
+            .await
+            .unwrap();
+        let gate = Arc::new(ClockBarrier {
+            clock: clock.clone(),
+            gate: ReadBarrier {
+                stage: TradingReadStage::BeforeInsert,
+                entered: tokio::sync::Notify::new(),
+                release: tokio::sync::Notify::new(),
+            },
+        });
         let mut paused = state.clone();
         paused.trading_read_observer = gate.clone();
         let request_path = path.clone();
         let task = tokio::spawn(async move { route_json(&paused, &request_path).await });
-        tokio::time::timeout(Duration::from_secs(30), gate.gate.entered.notified()).await
+        tokio::time::timeout(Duration::from_secs(30), gate.gate.entered.notified())
+            .await
             .expect("post-commit route must miss without event delivery");
         gate.gate.release.notify_one();
         assert_eq!(task.await.unwrap(), expected, "post-commit: {path}");
         clock.advance(Duration::from_secs(1));
-        runtime.authority().refresh(runtime.record_path(), clock.now().monotonic);
-        assert_eq!(route_json(&state, &path).await, route_json(&disabled, &path).await, "exact expiry: {path}");
+        runtime
+            .authority()
+            .refresh(runtime.record_path(), clock.now().monotonic);
+        assert_eq!(
+            route_json(&state, &path).await,
+            route_json(&disabled, &path).await,
+            "exact expiry: {path}"
+        );
         // Reused and reduced generations retain new authority ownership.
         for offset in [0, -1] {
             let current = generation(&mut writer).await;
             revision += 1;
             record.revoke(revision);
             publish_record(&runtime, &record);
-            runtime.authority().refresh(runtime.record_path(), clock.now().monotonic);
+            runtime
+                .authority()
+                .refresh(runtime.record_path(), clock.now().monotonic);
             assert_eq!(route_json(&state, &path).await.0, 500, "revoked: {path}");
             revision += 1;
             let successor = authority(revision);
@@ -1458,8 +1536,14 @@ async fn public_route_wrappers_check_generations_and_time_without_listener_wakes
             record.activate(&successor);
             publish_record(&runtime, &record);
             until_serving(&runtime, &successor).await;
-            runtime.authority().refresh(runtime.record_path(), clock.now().monotonic);
-            assert_eq!(route_json(&state, &path).await, route_json(&disabled, &path).await, "rotated: {path}");
+            runtime
+                .authority()
+                .refresh(runtime.record_path(), clock.now().monotonic);
+            assert_eq!(
+                route_json(&state, &path).await,
+                route_json(&disabled, &path).await,
+                "rotated: {path}"
+            );
         }
     }
     reset(&mut writer).await;

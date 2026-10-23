@@ -99,8 +99,18 @@ async fn request(
     }
     let copy = state.clone();
     let key = query.to_string();
-    let mut value = crate::runtime::trading_routes::read(&state, "/api/curves/forward", key, "curves", clock, None,
-        move |connection| Box::pin(async move { load_curve_on(connection, &copy, &query, now).await })).await?;
+    let mut value = crate::runtime::trading_routes::read(
+        &state,
+        "/api/curves/forward",
+        key,
+        "curves",
+        clock,
+        None,
+        move |connection| {
+            Box::pin(async move { load_curve_on(connection, &copy, &query, now).await })
+        },
+    )
+    .await?;
     crate::runtime::trading_routes::generated_at(&mut value, now, false);
     Ok(axum::Json(value).into_response())
 }
@@ -212,19 +222,31 @@ pub async fn load_curve(
     let state_copy = state.clone();
     let query = query.clone();
     run_admitted(state, move |connection| {
-        Box::pin(async move {
-            load_curve_on(connection, &state_copy, &query, now).await
-        })
+        Box::pin(async move { load_curve_on(connection, &state_copy, &query, now).await })
     })
     .await
 }
 
-async fn load_curve_on(connection: &mut PgConnection, state: &AppState, query: &Json, now: DateTime<Utc>) -> Result<Json, ApiError> {
+async fn load_curve_on(
+    connection: &mut PgConnection,
+    state: &AppState,
+    query: &Json,
+    now: DateTime<Utc>,
+) -> Result<Json, ApiError> {
     use sqlx::Connection;
-    let mut transaction = connection.begin().await.map_err(|e| super::ports::query_error("/api/curves/forward/table", &e))?;
-    sqlx::query("SET LOCAL jit = off").execute(&mut *transaction).await.map_err(|e| super::ports::query_error("/api/curves/forward/table", &e))?;
+    let mut transaction = connection
+        .begin()
+        .await
+        .map_err(|e| super::ports::query_error("/api/curves/forward/table", &e))?;
+    sqlx::query("SET LOCAL jit = off")
+        .execute(&mut *transaction)
+        .await
+        .map_err(|e| super::ports::query_error("/api/curves/forward/table", &e))?;
     let result = load(&mut transaction, state, query, now).await?;
-    transaction.commit().await.map_err(|e| super::ports::query_error("/api/curves/forward/table", &e))?;
+    transaction
+        .commit()
+        .await
+        .map_err(|e| super::ports::query_error("/api/curves/forward/table", &e))?;
     Ok(result)
 }
 

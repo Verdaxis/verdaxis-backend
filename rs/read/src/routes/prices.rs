@@ -257,103 +257,114 @@ async fn summary(
     let hours = integer(&raw, "hours", 1, 168, 24)?;
     let filters = PriceFilters::parse(&raw, &state, now)?;
     let policy = state.policy.clone();
-    let items = crate::runtime::trading_routes::read(&state, "/api/prices", raw, "prices", clock, Some(hours), move |connection| {
-        Box::pin(async move {
-            let evidence = filters.evidence(Some(now - chrono::Duration::hours(hours)));
-            let mut items = Vec::new();
-            for class in ["REAL", "DEMO"] {
-                let sql = trade_query_sql(include_str!("../../sql/prices/summary.sql"));
+    let items = crate::runtime::trading_routes::read(
+        &state,
+        "/api/prices",
+        raw,
+        "prices",
+        clock,
+        Some(hours),
+        move |connection| {
+            Box::pin(async move {
+                let evidence = filters.evidence(Some(now - chrono::Duration::hours(hours)));
+                let mut items = Vec::new();
+                for class in ["REAL", "DEMO"] {
+                    let sql = trade_query_sql(include_str!("../../sql/prices/summary.sql"));
+                    let rows = bind_trade_query(&sql, &policy, &evidence)
+                        .map_err(|_| ApiError::internal())?
+                        .bind(&filters.fuel)
+                        .bind(&filters.region)
+                        .bind(&filters.market)
+                        .bind(class)
+                        .fetch_all(&mut *connection)
+                        .await
+                        .map_err(|e| query_error("/api/prices", &e))?;
+                    let sql = trade_query_sql(include_str!("../../sql/prices/latest.sql"));
+                    let latest = bind_trade_query(&sql, &policy, &evidence)
+                        .map_err(|_| ApiError::internal())?
+                        .bind(&filters.fuel)
+                        .bind(&filters.region)
+                        .bind(&filters.market)
+                        .bind(class)
+                        .fetch_all(&mut *connection)
+                        .await
+                        .map_err(|e| query_error("/api/prices", &e))?;
+                    let latest = latest
+                        .iter()
+                        .map(|r| Ok((key(r)?, r)))
+                        .collect::<Result<HashMap<_, _>, ApiError>>()?;
+                    for row in rows {
+                        let last = latest.get(&key(&row)?).ok_or_else(ApiError::internal)?;
+                        let mut item = identity(&row)?;
+                        let count: i64 = row.try_get("count").map_err(|_| ApiError::internal())?;
+                        let time = observed(last)?;
+                        item["last_price"] = json!(text(last, "last_price")?);
+                        item["avg_price_24h"] = json!(
+                            rounded_price(&text(&row, "average")?)
+                                .map_err(|_| ApiError::internal())?
+                        );
+                        item["high_24h"] = json!(text(&row, "high")?);
+                        item["low_24h"] = json!(text(&row, "low")?);
+                        item["volume_24h"] = json!(text(&row, "volume")?);
+                        item["trade_count_24h"] = json!(count);
+                        item["price_change_pct"] = Json::Null;
+                        item["last_trade_at"] = json!(time);
+                        item["source_kind"] = json!(if class == "REAL" {
+                            "CONFIRMED_TRADE"
+                        } else {
+                            "DEMO_SEED"
+                        });
+                        item["scope"] = json!("DELIVERY_POINT");
+                        item["demo_status"] = json!(if class == "REAL" {
+                            "REAL_ONLY"
+                        } else {
+                            "DEMO_ONLY"
+                        });
+                        item["is_reference"] = json!(false);
+                        item["observed_at"] = json!(time);
+                        item["real_trade_count_24h"] =
+                            json!(if class == "REAL" { count } else { 0 });
+                        item["demo_trade_count_24h"] =
+                            json!(if class == "DEMO" { count } else { 0 });
+                        item["unknown_trade_count_24h"] = json!(0);
+                        items.push(item);
+                    }
+                }
+                let sql = price_quarantine_query(include_str!("../../sql/prices/quarantine.sql"));
                 let rows = bind_trade_query(&sql, &policy, &evidence)
                     .map_err(|_| ApiError::internal())?
                     .bind(&filters.fuel)
                     .bind(&filters.region)
                     .bind(&filters.market)
-                    .bind(class)
-                    .fetch_all(&mut *connection)
+                    .fetch_all(connection)
                     .await
                     .map_err(|e| query_error("/api/prices", &e))?;
-                let sql = trade_query_sql(include_str!("../../sql/prices/latest.sql"));
-                let latest = bind_trade_query(&sql, &policy, &evidence)
-                    .map_err(|_| ApiError::internal())?
-                    .bind(&filters.fuel)
-                    .bind(&filters.region)
-                    .bind(&filters.market)
-                    .bind(class)
-                    .fetch_all(&mut *connection)
-                    .await
-                    .map_err(|e| query_error("/api/prices", &e))?;
-                let latest = latest
-                    .iter()
-                    .map(|r| Ok((key(r)?, r)))
-                    .collect::<Result<HashMap<_, _>, ApiError>>()?;
                 for row in rows {
-                    let last = latest.get(&key(&row)?).ok_or_else(ApiError::internal)?;
                     let mut item = identity(&row)?;
-                    let count: i64 = row.try_get("count").map_err(|_| ApiError::internal())?;
-                    let time = observed(last)?;
-                    item["last_price"] = json!(text(last, "last_price")?);
-                    item["avg_price_24h"] = json!(
-                        rounded_price(&text(&row, "average")?).map_err(|_| ApiError::internal())?
-                    );
-                    item["high_24h"] = json!(text(&row, "high")?);
-                    item["low_24h"] = json!(text(&row, "low")?);
-                    item["volume_24h"] = json!(text(&row, "volume")?);
-                    item["trade_count_24h"] = json!(count);
+                    for name in ["last_price", "avg_price_24h", "high_24h", "low_24h"] {
+                        item[name] = Json::Null;
+                    }
+                    item["volume_24h"] = json!("0");
+                    item["trade_count_24h"] = json!(0);
                     item["price_change_pct"] = Json::Null;
-                    item["last_trade_at"] = json!(time);
-                    item["source_kind"] = json!(if class == "REAL" {
-                        "CONFIRMED_TRADE"
-                    } else {
-                        "DEMO_SEED"
-                    });
+                    item["last_trade_at"] = Json::Null;
+                    item["source_kind"] = json!("UNKNOWN");
                     item["scope"] = json!("DELIVERY_POINT");
-                    item["demo_status"] = json!(if class == "REAL" {
-                        "REAL_ONLY"
-                    } else {
-                        "DEMO_ONLY"
-                    });
+                    item["demo_status"] = json!("UNKNOWN");
                     item["is_reference"] = json!(false);
-                    item["observed_at"] = json!(time);
-                    item["real_trade_count_24h"] = json!(if class == "REAL" { count } else { 0 });
-                    item["demo_trade_count_24h"] = json!(if class == "DEMO" { count } else { 0 });
-                    item["unknown_trade_count_24h"] = json!(0);
+                    item["observed_at"] = json!(observed(&row)?);
+                    item["real_trade_count_24h"] = json!(0);
+                    item["demo_trade_count_24h"] = json!(0);
+                    item["unknown_trade_count_24h"] = json!(
+                        row.try_get::<i64, _>("count")
+                            .map_err(|_| ApiError::internal())?
+                    );
                     items.push(item);
                 }
-            }
-            let sql = price_quarantine_query(include_str!("../../sql/prices/quarantine.sql"));
-            let rows = bind_trade_query(&sql, &policy, &evidence)
-                .map_err(|_| ApiError::internal())?
-                .bind(&filters.fuel)
-                .bind(&filters.region)
-                .bind(&filters.market)
-                .fetch_all(connection)
-                .await
-                .map_err(|e| query_error("/api/prices", &e))?;
-            for row in rows {
-                let mut item = identity(&row)?;
-                for name in ["last_price", "avg_price_24h", "high_24h", "low_24h"] {
-                    item[name] = Json::Null;
-                }
-                item["volume_24h"] = json!("0");
-                item["trade_count_24h"] = json!(0);
-                item["price_change_pct"] = Json::Null;
-                item["last_trade_at"] = Json::Null;
-                item["source_kind"] = json!("UNKNOWN");
-                item["scope"] = json!("DELIVERY_POINT");
-                item["demo_status"] = json!("UNKNOWN");
-                item["is_reference"] = json!(false);
-                item["observed_at"] = json!(observed(&row)?);
-                item["real_trade_count_24h"] = json!(0);
-                item["demo_trade_count_24h"] = json!(0);
-                item["unknown_trade_count_24h"] = json!(
-                    row.try_get::<i64, _>("count")
-                        .map_err(|_| ApiError::internal())?
-                );
-                items.push(item);
-            }
-            Ok(items)
-        })
-    })
+                Ok(items)
+            })
+        },
+    )
     .await?;
     Ok(axum::Json(json!({"summaries":items,"generated_at":utc_rfc3339(now,"Z")})).into_response())
 }
@@ -399,90 +410,100 @@ async fn reference_response(
     }
     let policy = state.policy.clone();
     let key = format!("{}:{visibility}", raw);
-    let items = crate::runtime::trading_routes::read(&state, if export { "/api/prices/reference/export" } else { "/api/prices/reference" }, key, "prices_fixed", clock, None, move |connection| {
-        Box::pin(async move {
-            // The reference aggregate over the full trade set crosses the JIT
-            // cost threshold on the expanded corpus; the paged orderbook and
-            // curve handlers set the same transaction-local policy.
-            use sqlx::Connection;
-            let mut tx = connection
-                .begin()
-                .await
-                .map_err(|e| query_error("/api/prices/reference", &e))?;
-            sqlx::query("SET LOCAL jit = off")
-                .execute(&mut *tx)
-                .await
-                .map_err(|e| query_error("/api/prices/reference", &e))?;
-            let sql = trade_query_sql(include_str!("../../sql/prices/reference.sql"));
-            let rows = bind_trade_query(&sql, &policy, &filters.evidence(None))
-                .map_err(|_| ApiError::internal())?
-                .bind(&filters.fuel)
-                .bind(&filters.region)
-                .bind(&filters.market)
-                .bind(filters.from)
-                .bind(filters.to)
-                .fetch_all(&mut *tx)
-                .await
-                .map_err(|e| query_error("/api/prices/reference", &e))?;
-            tx.commit()
-                .await
-                .map_err(|e| query_error("/api/prices/reference", &e))?;
-            let mut items = Vec::new();
-            for row in rows {
-                let mut item = identity(&row)?;
-                let volume = text(&row, "volume")?;
-                let quantity = Decimal::from_str(&volume).map_err(|_| ApiError::internal())?;
-                let weighted = Decimal::from_str(&text(&row, "weighted_sum")?)
-                    .map_err(|_| ApiError::internal())?;
-                let vwap = if quantity > Decimal::ZERO {
-                    rounded_price(&(weighted / quantity).to_string())
-                        .map_err(|_| ApiError::internal())?
-                } else {
-                    "0".into()
-                };
-                item["vwap_usd"] = json!(vwap);
-                item["total_volume_mt"] = json!(if quantity == Decimal::ZERO {
-                    "0".into()
-                } else {
-                    volume
-                });
-                item["trade_count"] = json!(
-                    row.try_get::<i64, _>("count")
-                        .map_err(|_| ApiError::internal())?
-                );
-                item["date"] = json!(
-                    row.try_get::<NaiveDate, _>("trade_date")
-                        .map_err(|_| ApiError::internal())?
-                        .to_string()
-                );
-                item["visibility"] = json!(visibility);
-                item["source_kind"] = json!("CONFIRMED_TRADE");
-                item["scope"] = json!("DELIVERY_POINT");
-                item["demo_status"] = json!("REAL_ONLY");
-                item["is_reference"] = json!(true);
-                items.push(item);
-            }
-            Ok(items)
-        })
-    }).await?;
-            if export {
-                Ok((
-                    [
-                        ("content-type", "text/csv; charset=utf-8"),
-                        (
-                            "content-disposition",
-                            "attachment; filename=\"verdaxis_reference_prices.csv\"",
-                        ),
-                    ],
-                    reference_csv(&items).map_err(|_| ApiError::internal())?,
-                )
-                    .into_response())
-            } else {
-                Ok(
-                    axum::Json(json!({"prices":items,"generated_at":utc_rfc3339(now,"Z")}))
-                        .into_response(),
-                )
-            }
+    let items = crate::runtime::trading_routes::read(
+        &state,
+        if export {
+            "/api/prices/reference/export"
+        } else {
+            "/api/prices/reference"
+        },
+        key,
+        "prices_fixed",
+        clock,
+        None,
+        move |connection| {
+            Box::pin(async move {
+                // The reference aggregate over the full trade set crosses the JIT
+                // cost threshold on the expanded corpus; the paged orderbook and
+                // curve handlers set the same transaction-local policy.
+                use sqlx::Connection;
+                let mut tx = connection
+                    .begin()
+                    .await
+                    .map_err(|e| query_error("/api/prices/reference", &e))?;
+                sqlx::query("SET LOCAL jit = off")
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| query_error("/api/prices/reference", &e))?;
+                let sql = trade_query_sql(include_str!("../../sql/prices/reference.sql"));
+                let rows = bind_trade_query(&sql, &policy, &filters.evidence(None))
+                    .map_err(|_| ApiError::internal())?
+                    .bind(&filters.fuel)
+                    .bind(&filters.region)
+                    .bind(&filters.market)
+                    .bind(filters.from)
+                    .bind(filters.to)
+                    .fetch_all(&mut *tx)
+                    .await
+                    .map_err(|e| query_error("/api/prices/reference", &e))?;
+                tx.commit()
+                    .await
+                    .map_err(|e| query_error("/api/prices/reference", &e))?;
+                let mut items = Vec::new();
+                for row in rows {
+                    let mut item = identity(&row)?;
+                    let volume = text(&row, "volume")?;
+                    let quantity = Decimal::from_str(&volume).map_err(|_| ApiError::internal())?;
+                    let weighted = Decimal::from_str(&text(&row, "weighted_sum")?)
+                        .map_err(|_| ApiError::internal())?;
+                    let vwap = if quantity > Decimal::ZERO {
+                        rounded_price(&(weighted / quantity).to_string())
+                            .map_err(|_| ApiError::internal())?
+                    } else {
+                        "0".into()
+                    };
+                    item["vwap_usd"] = json!(vwap);
+                    item["total_volume_mt"] = json!(if quantity == Decimal::ZERO {
+                        "0".into()
+                    } else {
+                        volume
+                    });
+                    item["trade_count"] = json!(
+                        row.try_get::<i64, _>("count")
+                            .map_err(|_| ApiError::internal())?
+                    );
+                    item["date"] = json!(
+                        row.try_get::<NaiveDate, _>("trade_date")
+                            .map_err(|_| ApiError::internal())?
+                            .to_string()
+                    );
+                    item["visibility"] = json!(visibility);
+                    item["source_kind"] = json!("CONFIRMED_TRADE");
+                    item["scope"] = json!("DELIVERY_POINT");
+                    item["demo_status"] = json!("REAL_ONLY");
+                    item["is_reference"] = json!(true);
+                    items.push(item);
+                }
+                Ok(items)
+            })
+        },
+    )
+    .await?;
+    if export {
+        Ok((
+            [
+                ("content-type", "text/csv; charset=utf-8"),
+                (
+                    "content-disposition",
+                    "attachment; filename=\"verdaxis_reference_prices.csv\"",
+                ),
+            ],
+            reference_csv(&items).map_err(|_| ApiError::internal())?,
+        )
+            .into_response())
+    } else {
+        Ok(axum::Json(json!({"prices":items,"generated_at":utc_rfc3339(now,"Z")})).into_response())
+    }
 }
 
 /// Python csv.DictWriter's column order, minimal quoting and CRLF termination.

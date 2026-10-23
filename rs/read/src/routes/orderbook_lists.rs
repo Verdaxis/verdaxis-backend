@@ -280,9 +280,19 @@ async fn serve(state: AppState, raw: Option<String>, surface: Surface) -> ApiRes
     let query = parse(&raw, surface, now)?;
     let policy = state.policy.clone();
     let config = state.config.clone();
-    let body = crate::runtime::trading_routes::read(&state, surface.path(), raw, "orderbook", clock, None, move |connection| {
-        Box::pin(async move { load_list(connection, &policy, &config, query, surface, now).await })
-    })
+    let body = crate::runtime::trading_routes::read(
+        &state,
+        surface.path(),
+        raw,
+        "orderbook",
+        clock,
+        None,
+        move |connection| {
+            Box::pin(
+                async move { load_list(connection, &policy, &config, query, surface, now).await },
+            )
+        },
+    )
     .await?;
     Ok(axum::Json(body).into_response())
 }
