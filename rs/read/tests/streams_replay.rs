@@ -630,6 +630,7 @@ mod postgres {
     pub async fn run() {
         let app = PgPoolOptions::new()
             .max_connections(1)
+            .acquire_timeout(std::time::Duration::from_millis(500))
             .connect(&std::env::var("STREAM_REPLAY_APP_URL").expect("disposable app URL required"))
             .await
             .unwrap();
@@ -669,13 +670,10 @@ mod postgres {
             assert_eq!(id(&mut replay).await, baseline + n * 3);
             // A one-connection pool remains usable after every delivered row.
             assert_eq!(
-                tokio::time::timeout(
-                    std::time::Duration::from_millis(500),
-                    sqlx::query_scalar::<_, i32>("SELECT 1").fetch_one(&app),
-                )
-                .await
-                .expect("a delivered frame must not retain the one pool connection")
-                .unwrap(),
+                sqlx::query_scalar::<_, i32>("SELECT 1")
+                    .fetch_one(&app)
+                    .await
+                    .unwrap(),
                 1
             );
         }
