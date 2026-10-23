@@ -30,7 +30,99 @@ impl Refusal {
 #[derive(Clone, Default)]
 pub struct SharedLimits(std::sync::Arc<std::sync::Mutex<Phase2Limits>>);
 
+#[derive(Clone, Copy)]
+pub struct BusinessLimitKeys<'a> {
+    pub client: &'a str,
+    pub user: Option<&'a str>,
+    pub organization: Option<&'a str>,
+    pub token: Option<&'a str>,
+}
+
 impl SharedLimits {
+    /// Only declared method/template pairs may consume business quota. All
+    /// keys are checked before any counter changes, including the dual AI key.
+    pub fn check_business(
+        &self,
+        method: &str,
+        template: &str,
+        keys: BusinessLimitKeys<'_>,
+        now: u64,
+    ) -> Result<(), crate::ApiError> {
+        use crate::business::error::refusal;
+        use axum::http::StatusCode;
+        static ROUTES: std::sync::LazyLock<serde_json::Value> = std::sync::LazyLock::new(|| {
+            serde_json::from_str(include_str!(
+                "../../../../tests/rust_contract/phase4/routes.json"
+            ))
+            .expect("committed route inventory")
+        });
+        let routes = &*ROUTES;
+        let route = routes["routes"]
+            .as_array()
+            .expect("route inventory")
+            .iter()
+            .find(|route| route["method"] == method && route["path"] == template)
+            .ok_or_else(|| {
+                refusal(
+                    StatusCode::NOT_FOUND,
+                    "ROUTE_NOT_OWNED",
+                    "This route has no business owner.",
+                )
+            })?;
+        let mut policies = Vec::new();
+        for policy in route["limits"].as_array().expect("route limits") {
+            let identity = match policy["key"].as_str().expect("quota key") {
+                "client" => Some(keys.client),
+                "user" => keys.user,
+                "org" => keys.organization.or(keys.user),
+                "token" => keys.token.or(Some(keys.client)),
+                _ => None,
+            }
+            .ok_or_else(|| {
+                refusal(
+                    StatusCode::UNAUTHORIZED,
+                    "LIMIT_IDENTITY_REQUIRED",
+                    "A quota identity is required.",
+                )
+            })?;
+            let bucket = format!(
+                "business:{method}:{template}:{}",
+                policy["id"].as_str().expect("quota id")
+            );
+            let limit = u32::try_from(policy["count"].as_u64().expect("quota count"))
+                .expect("bounded quota");
+            let window = if policy["window"] == "hour" { 3600 } else { 60 };
+            policies.push((identity, bucket, limit, window));
+        }
+        let mut authority = self.0.lock().expect("quota authority lock");
+        for (identity, bucket, limit, window) in &policies {
+            if let Some((started, used)) = authority
+                .buckets
+                .get(&(identity.to_string(), bucket.clone()))
+            {
+                let elapsed = now.saturating_sub(*started);
+                if elapsed < *window && used >= limit {
+                    let mut error = refusal(
+                        StatusCode::TOO_MANY_REQUESTS,
+                        "RATE_LIMITED",
+                        "The request quota is exhausted.",
+                    );
+                    error.retry_after = Some(
+                        u32::try_from(window.saturating_sub(elapsed).max(1))
+                            .expect("bounded quota window"),
+                    );
+                    return Err(error);
+                }
+            }
+        }
+        for (identity, bucket, limit, window) in policies {
+            authority
+                .admit(identity, &bucket, limit, window, now)
+                .expect("quota checked under the same lock");
+        }
+        Ok(())
+    }
+
     pub fn preauth(&self, client: &str, path: &str, now: u64) -> bool {
         self.preauth_check(client, path, now).is_ok()
     }
