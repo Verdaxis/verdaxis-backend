@@ -69,6 +69,15 @@ coordinates remain valid. The result is not cached.
 `rs/read/tests/phase5_availability.rs` covers the response, map coordinates,
 result bound, public admission and populated PostgreSQL cases.
 
+`rs/read/src/routes/demand.rs` serves anonymous demand groups from one SQL
+statement in `rs/read/sql/demand.sql`. The statement applies the shared current
+order policy, counts at most 32,769 candidate group identities, refuses more
+than 32,768 groups, and ranks complete aggregates before the requested output
+limit. UNKNOWN groups retain counts but no economic values. The route uses
+the shared admitted read transaction and structured market errors.
+`rs/read/tests/phase5_demand.rs` checks query limits, urgency, ordering,
+provenance, current owners and PostgreSQL group bounds.
+
 ## Optional fleet artifact configuration
 
 `Config.fleet_artifact_path` accepts `FLEET_ARTIFACT_PATH` and defaults to

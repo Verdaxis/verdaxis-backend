@@ -1,6 +1,7 @@
 pub mod availability;
 pub mod catalog;
 pub mod compliance_fuels;
+pub mod demand;
 // Phase 2 Task 10: feedback route registration.
 pub use crate::crud::feedback::routes as feedback_routes;
 // Phase 2 Task 10: end feedback route registration.
