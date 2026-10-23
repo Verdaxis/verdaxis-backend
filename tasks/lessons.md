@@ -393,3 +393,9 @@
 - **Trigger:** MCP used an independent limiter that consumed the public-read connection reserve; voyage ETS costs were rounded before currency conversion and unbounded durations reached date arithmetic.
 - **Rule:** Inject one per-worker limiter into all public database-read entry points, reserve one checkout, and test saturation in both directions. In-memory tools bypass it. Share the ETS phase-in schedule, not rounded display costs. Validate speed at 1 knot minimum and bound the full calendar voyage, including final berth, to 365 days before advancing dates.
 - **Why:** Independent limits do not compose into a shared pool budget. Intermediate rounding changes totals; input bounds and calendar-duration checks prevent overflow.
+
+### Refresh Cross-Tree Digest Pins After Every Staging Merge
+- **Date:** 2026-10-23
+- **Trigger:** The staging merge imported PR #122's `tests/rust_contract/phase2/routes.json`, pinning `deploy/migration-checkpoints.tsv` to staging's tree, while the phase-6 branch legitimately carried an extra `sse_20261021_replay_floor` checkpoint; the combined Python suite then failed only `test_source_digests_and_exact_exclusions`.
+- **Rule:** A conflict-free merge can still be semantically wrong: when one side pins a sha256 digest of a file the other side legitimately changes, re-pin the digest to the merged tree in the same change (refresh the inventory digest with it, as `3b5df58c` did) and run the affected digest tests before any batched host call.
+- **Why:** Git resolves textual conflicts, not cross-file invariants; a silently taken pin fails a full ~30-minute suite far from its cause.
