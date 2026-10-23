@@ -301,6 +301,15 @@ async fn e3_e4_serial_schedules() {
             .connect(&std::env::var("AUTH_EMAIL_TEST_DATABASE_URL").unwrap())
             .await
             .unwrap();
+        // The two bounded lock observations run before releasing the fixture row.
+        // Keep these dedicated sessions alive through that schedule; deployed
+        // session settings and application pools remain unchanged.
+        for pool in [&first, &second] {
+            sqlx::query("SET lock_timeout = '15s'")
+                .execute(pool)
+                .await
+                .unwrap();
+        }
         let first_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
             .fetch_one(&first)
             .await
