@@ -31,13 +31,55 @@ record, `ARCHITECTURE.md`, `docs/runtime-hardening.md` and the new
 
 ## Gate results
 
-Pending in this lane's final batch; see the lane report until this table is
-filled.
+Continuation evidence at `a8b8f77de0f679d74b8f3656e6b519ebe89618a8`
+(staging test host; UTC dates below). No push is authorized by these results:
+not all gates are green.
+
+| Gate | Command / evidence | UTC | Exit |
+| --- | --- | --- | --- |
+| Referral cache regression RED | Tests-only `2d530e8c`; preload `phase2_scenarios`, then pytest `tests/rust_contract/test_referral_cache_state.py` | Oct 22 21:15:31–35 | 1; four intended assertion failures, 16 passed |
+| Referral cache regression GREEN | `venv/bin/python -m pytest tests/rust_contract/test_referral_cache_state.py -q` | Oct 22 21:15:35–38 | 0; 20 passed |
+| fmt, Clippy (plain and contract-tests), offline workspace | `cargo fmt --all -- --check`; Clippy with `-D warnings`; `cargo test --locked --workspace`, all with `--manifest-path rs/Cargo.toml` | Oct 22 21:15:38–21:50:39 | 0 each; 400 passed, one ignored |
+| Full Python unit and monitor | `venv/bin/python -m pytest tests/unit tests/monitor -q -p no:warnings` | Oct 22 21:50:39–22:03:30 | 0; 2839 passed, one skipped |
+| Runner and regression tests | pytest `test_phase2_scenarios.py`, `test_phase2_runner.py`, `test_referral_cache_state.py` under `tests/rust_contract/` | Oct 22 22:03:30–35 | 0; 51 passed |
+| Audit | `cd rs && cargo audit` | Oct 22 22:03:35–43 | 0 |
+| Rust PostgreSQL | `bash rs/read/tests/run_postgres.sh` | Oct 22 22:34:33–22:59:13 | 0 |
+| Caddy and routing/runner tests | pytest `test_routing.py`, `test_phase2_caddy.py`, `test_phase2_report.py`, `test_phase2_scenarios.py`, `test_phase2_runner.py`, `test_route_jit_policy.py`, `test_referral_cache_state.py`, and `tests/unit/test_rust_caddy_candidate.py` | Oct 22 22:59:13–23:04:34 | 0 |
+| All Phase 2 scenarios | `venv/bin/python -m scripts.rust_contract.run_disposable --phase2 --phase2-group all --report /tmp/opus-r2-phase2-scenarios.json` | Oct 22 23:04:34–Oct 23 00:04:21 | 1; populated leaderboard tie case differs |
+| Phase 2 races | Registered route-qualified race scenarios, `run_disposable --phase2 --phase2-races` | Oct 23 00:04:21–00:34:40 | Incomplete; enclosing batch exit 124 |
+
+Local logs: `work/sol-p2-unit-batch-3-recovered.log` and
+`work/sol-p2-linux-batch.log`. Remote detailed logs remain in
+`/home/verdaxis-test/runs/rust-phase2/work/sol-*.log` and
+`/tmp/opus-r2-phase2-{scenarios,races}.log`. The combined Linux call used
+`heavy run 7200`; it exhausted that total budget during races. This is not a
+race assertion failure. No Phase 2 unit or child process remained at the
+post-run check.
+
+The previous referral allocation failure was fixed by accounting for the exact
+transaction-owned cache generation and event row, not by excluding metadata.
+Tests: `2d530e8c`; implementation: `3d220846`, `2181e4a1`; corrected test loading:
+`fee69c5c`, `9dd9cee3`, `a8b8f77d`. Earlier collection-error runs are superseded,
+not RED evidence. Staging `fbe0b2c1` was merged without conflict in `9afea6dc`.
+The M1 full-Python run is also superseded by the staging result above.
 
 ## Remaining
 
 - Push `feat/rust-phase-2` when every gate is green, then read PR #88 CI.
-- `.codesight` refresh: not run in this lane (it needs the refresh skill).
+- Diagnose `referral-reads-populated` / `top-ten-with-ties-across-the-boundary`:
+  the harness still requires Python's arbitrary membership at the tenth-place
+  tie. Check both payloads and client/business assertions before changing the
+  harness; do not change Python or treat byte equality as acceptance.
+- Rerun the incomplete races separately within a bounded call; do not repeat
+  passed gates unless a fix touches them. The last race log was still in
+  preferences schedules when the combined budget expired.
+- Run the final-SHA Phase 1 meaning gate once with `heavy run 7200`; it has not
+  run on this continuation's SHA. Python PostgreSQL and Phase 0 last passed at
+  `dabf9799`, not the current SHA.
+- `.codesight` refresh completed via the skill. Generated changes are preserved
+  but not yet committed or reviewed for publication.
+- PR #88 still points to `c078f1e7`; no push was made in this continuation.
+  Existing CI is not evidence for the local commits.
 - Task 24 (staging deploy and journeys) and Task 25 (production) run with the
   PM.
 
