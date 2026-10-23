@@ -381,6 +381,19 @@ impl Subscription {
         *self.terminal.borrow()
     }
 
+    /// Wait only for terminal control. This does not receive, copy or drain
+    /// queued data, and cancelling the wait does not consume the terminal.
+    pub async fn wait_terminal(&mut self) -> Terminal {
+        loop {
+            if let Some(terminal) = self.terminal() {
+                return terminal;
+            }
+            if self.terminal.changed().await.is_err() {
+                return Terminal::Unavailable;
+            }
+        }
+    }
+
     fn finish(&mut self, terminal: Terminal) -> Option<Delivery> {
         self.finished = true;
         self.data.close();
