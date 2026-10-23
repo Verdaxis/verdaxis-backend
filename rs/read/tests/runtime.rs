@@ -66,6 +66,7 @@ async fn fleet_config_cases() {
     let root = std::env::temp_dir().join(format!("fleet-config-{}", uuid::Uuid::new_v4()));
     let cwd = root.join("checkout");
     std::fs::create_dir_all(cwd.join("data")).unwrap();
+    let cwd = std::fs::canonicalize(cwd).unwrap();
     let resolved = resolve_fleet_artifact_path(&default.fleet_artifact_path, &cwd).unwrap();
     assert_eq!(resolved, cwd.join("data/fleet_demand.json"));
     assert!(!fleet_startup_probe(&resolved).await);
@@ -98,10 +99,15 @@ async fn fleet_config_cases() {
         assert!(resolve_fleet_artifact_path(Path::new(&invalid), &cwd).is_err());
         assert!(resolve_fleet_artifact_path(Path::new("data/escape/"), &cwd).is_err());
         std::fs::create_dir(cwd.join("data/feeds")).unwrap();
-        std::os::unix::fs::symlink("../fleet_demand.json", cwd.join("data/feeds/fleet.json")).unwrap();
-        let internal = resolve_fleet_artifact_path(Path::new("data/feeds/fleet.json"), &cwd).unwrap();
+        std::os::unix::fs::symlink("../fleet_demand.json", cwd.join("data/feeds/fleet.json"))
+            .unwrap();
+        let internal =
+            resolve_fleet_artifact_path(Path::new("data/feeds/fleet.json"), &cwd).unwrap();
         assert_eq!(internal, resolved);
-        assert_eq!(resolve_fleet_artifact_path(&internal, &cwd).unwrap(), internal);
+        assert_eq!(
+            resolve_fleet_artifact_path(&internal, &cwd).unwrap(),
+            internal
+        );
     }
     assert!(resolve_fleet_artifact_path(&resolved, &cwd).is_ok());
     std::fs::write(&resolved, b"not JSON").unwrap();
@@ -129,9 +135,18 @@ fn fleet_config_environment_encoding() {
         .current_dir(&root)
         .env_remove("RUST_CONFIG")
         .envs(deployed_environment())
-        .env("FLEET_ARTIFACT_PATH", std::ffi::OsString::from_vec(b"data/\xff.json".to_vec()))
-        .args(["--bind", "127.0.0.1:0", "--budget-file", budget.to_str().unwrap()])
-        .output().unwrap();
+        .env(
+            "FLEET_ARTIFACT_PATH",
+            std::ffi::OsString::from_vec(b"data/\xff.json".to_vec()),
+        )
+        .args([
+            "--bind",
+            "127.0.0.1:0",
+            "--budget-file",
+            budget.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
     assert!(!output.status.success());
     let log = String::from_utf8(output.stdout).unwrap();
     assert!(!log.contains("optional fleet artifact startup probe"));

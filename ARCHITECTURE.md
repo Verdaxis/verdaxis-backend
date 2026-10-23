@@ -63,9 +63,12 @@ that envelope; every other admitted read keeps its string detail.
 
 `Config.fleet_artifact_path` accepts `FLEET_ARTIFACT_PATH` and defaults to
 `data/fleet_demand.json`. Relative paths resolve under the backend unit's
-WorkingDirectory and stay within its trusted `data` directory; an explicit
-absolute path selects an operator-reviewed parent directory. Startup refuses
-empty paths, traversal and symlink escapes. `runtime::config` provides the
+WorkingDirectory. Relative and absolute paths must stay within its trusted
+`data` directory, canonicalised once at startup. Startup preserves raw syntax
+until validation and refuses empty paths, invalid encoding, trailing separators,
+traversal and proven symlink escapes. Internal links resolve to an in-root target;
+connection and state validation retain that representation without filesystem
+resolution. Missing, inaccessible and non-directory storage remains optional. `runtime::config` provides the
 resolver and one bounded two-second, 256 KiB JSON startup probe. The binary logs
 only available/unavailable; missing or invalid optional data does not affect
 process startup or the unchanged four-field database readiness response.

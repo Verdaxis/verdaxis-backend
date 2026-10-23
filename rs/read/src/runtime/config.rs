@@ -301,75 +301,99 @@ pub(crate) fn database_target(config: &Config) -> Result<DatabaseTarget, String>
     Ok(target)
 }
 
-/// Resolve operator configuration beneath the trusted data directory. An explicit
-/// absolute path selects its parent as the operator-reviewed data root.
-/// Missing optional files are valid; existing symlinks must stay within that root.
+/// Resolve once at startup beneath WorkingDirectory/data. Storage errors leave
+/// an unavailable optional path; invalid syntax and proven escapes are fatal.
 pub fn resolve_fleet_artifact_path(
     configured: &std::path::Path,
     working_directory: &std::path::Path,
 ) -> Result<std::path::PathBuf, String> {
-    use std::path::Component;
+    use std::path::{Component, PathBuf};
     let invalid = || "invalid FLEET_ARTIFACT_PATH".to_owned();
-    if configured.as_os_str().is_empty()
-        || configured
-            .to_str()
-            .is_none_or(|text| text.trim().is_empty() || text.contains('\0'))
-        || configured
-            .components()
-            .any(|part| matches!(part, Component::ParentDir))
-        || configured.file_name().is_none()
-        || !working_directory.is_absolute()
-    {
+    validate_fleet_path_syntax(configured)?;
+    if !working_directory.is_absolute() {
         return Err(invalid());
     }
+    let lexical_root = working_directory.join("data");
     let path = if configured.is_absolute() {
         configured.to_owned()
     } else {
         working_directory.join(configured)
     };
-    let root = if configured.is_absolute() {
-        path.parent().ok_or_else(invalid)?.to_owned()
-    } else {
-        working_directory.join("data")
-    };
-    if !path.starts_with(&root) || path == root {
+    // Check lexical confinement before observing the configured path. The one
+    // trusted root is never inferred from an absolute configured filename.
+    let suffix = path.strip_prefix(&lexical_root).map_err(|_| invalid())?;
+    if suffix.as_os_str().is_empty() {
         return Err(invalid());
     }
-    let canonical_root = if configured.is_absolute() {
-        // The absolute parent is explicit operator authority, not request input.
-        std::fs::canonicalize(&root).unwrap_or_else(|_| root.clone())
-    } else {
-        let expected = std::fs::canonicalize(working_directory)
-            .map_err(|_| invalid())?
-            .join("data");
-        if let Ok(actual) = std::fs::canonicalize(&root) {
-            if actual != expected {
-                return Err(invalid());
-            }
-        } else if std::fs::symlink_metadata(&root).is_ok_and(|m| m.file_type().is_symlink()) {
-            return Err(invalid());
-        }
-        expected
-    };
-    // Check each existing prefix, including dangling links. A missing suffix is
-    // optional data, not an invalid configuration. Never include OS errors/paths.
-    for prefix in path.ancestors() {
-        match std::fs::symlink_metadata(prefix) {
+    let root = std::fs::canonicalize(&lexical_root).unwrap_or(lexical_root);
+    let mut resolved = root.clone();
+    let mut pending: std::collections::VecDeque<_> = suffix
+        .components()
+        .map(|part| part.as_os_str().to_owned())
+        .collect();
+    let mut links = 0;
+    while let Some(part) = pending.pop_front() {
+        resolved.push(part);
+        match std::fs::symlink_metadata(&resolved) {
             Ok(metadata) if metadata.file_type().is_symlink() => {
-                let target = std::fs::canonicalize(prefix).map_err(|_| invalid())?;
-                if !target.starts_with(&canonical_root) {
-                    return Err(invalid());
+                links += 1;
+                if links > 40 {
+                    // A link loop is unavailable storage, not proof of escape.
+                    return Ok(root.join(suffix));
                 }
+                let target = match std::fs::read_link(&resolved) {
+                    Ok(target) => target,
+                    Err(_) => {
+                        return Ok(pending.iter().fold(resolved, |path, part| path.join(part)));
+                    }
+                };
+                let target = if target.is_absolute() {
+                    target
+                } else {
+                    resolved.parent().ok_or_else(invalid)?.join(target)
+                };
+                let mut normalized = PathBuf::new();
+                for component in target.components() {
+                    match component {
+                        Component::ParentDir => {
+                            normalized.pop();
+                        }
+                        Component::CurDir => {}
+                        _ => normalized.push(component.as_os_str()),
+                    }
+                }
+                let target_suffix = normalized.strip_prefix(&root).map_err(|_| invalid())?;
+                let mut next: std::collections::VecDeque<_> = target_suffix
+                    .components()
+                    .map(|part| part.as_os_str().to_owned())
+                    .collect();
+                next.append(&mut pending);
+                pending = next;
+                resolved = root.clone();
             }
             Ok(_) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(_) => return Err(invalid()),
-        }
-        if prefix == working_directory || prefix == root {
-            break;
+            // Missing/inaccessible storage is observed by the optional probe.
+            // No unproven escape is treated as configuration failure.
+            Err(_) => return Ok(pending.iter().fold(resolved, |path, part| path.join(part))),
         }
     }
-    Ok(path)
+    Ok(resolved)
+}
+
+fn validate_fleet_path_syntax(path: &std::path::Path) -> Result<(), String> {
+    let text = path.to_str().ok_or("invalid FLEET_ARTIFACT_PATH")?;
+    if text.trim().is_empty()
+        || text.contains('\0')
+        || text.ends_with(std::path::MAIN_SEPARATOR)
+        || path
+            .components()
+            .any(|part| matches!(part, std::path::Component::ParentDir))
+        || path.file_name().is_none()
+        || (!path.is_absolute() && !path.starts_with("data"))
+    {
+        return Err("invalid FLEET_ARTIFACT_PATH".into());
+    }
+    Ok(())
 }
 
 /// One optional startup observation, not a readiness dependency. Full fleet
@@ -411,9 +435,8 @@ pub async fn fleet_startup_probe(path: &std::path::Path) -> bool {
 }
 
 pub fn validate_config(config: &Config) -> Result<(), String> {
-    let working_directory =
-        std::env::current_dir().map_err(|_| "cannot resolve fleet working directory".to_owned())?;
-    resolve_fleet_artifact_path(&config.fleet_artifact_path, &working_directory)?;
+    // Filesystem resolution belongs to startup, not repeated DB/state validation.
+    validate_fleet_path_syntax(&config.fleet_artifact_path)?;
     if !matches!(
         config.environment.as_str(),
         "development" | "test" | "staging" | "production"

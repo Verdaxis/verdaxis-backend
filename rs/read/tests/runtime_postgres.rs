@@ -36,17 +36,30 @@ async fn fleet_config_startup_cases() {
         let cwd = root.join(case);
         std::fs::create_dir(&cwd).unwrap();
         let data = cwd.join("data");
-        let path = if case == "internal_link" { "data/feeds/fleet.json" } else { "data/fleet.json" };
+        let path = if case == "internal_link" {
+            "data/feeds/fleet.json"
+        } else {
+            "data/fleet.json"
+        };
         match case {
             "not_directory" => std::fs::write(&data, b"unavailable").unwrap(),
             "permission" => {
                 std::fs::create_dir(&data).unwrap();
                 std::fs::set_permissions(&data, std::fs::Permissions::from_mode(0o000)).unwrap();
-                assert_eq!(std::fs::metadata(data.join("fleet.json")).unwrap_err().kind(), std::io::ErrorKind::PermissionDenied);
+                assert_eq!(
+                    std::fs::metadata(data.join("fleet.json"))
+                        .unwrap_err()
+                        .kind(),
+                    std::io::ErrorKind::PermissionDenied
+                );
             }
             "internal_link" => {
                 std::fs::create_dir_all(data.join("feeds")).unwrap();
-                std::fs::write(data.join("fleet.json"), br#"{"entries":[],"last_updated":"2026-04-03","sources":[]}"#).unwrap();
+                std::fs::write(
+                    data.join("fleet.json"),
+                    br#"{"entries":[],"last_updated":"2026-04-03","sources":[]}"#,
+                )
+                .unwrap();
                 std::os::unix::fs::symlink("../fleet.json", data.join("feeds/fleet.json")).unwrap();
             }
             _ => {}
@@ -64,32 +77,55 @@ async fn fleet_config_startup_cases() {
         let log_path = cwd.join("startup.log");
         let log = std::fs::File::create(&log_path).unwrap();
         let mut child = Command::new(env!("CARGO_BIN_EXE_verdaxis-read"))
-            .current_dir(&cwd).env("RUST_CONFIG", document.to_string())
-            .stdout(Stdio::from(log.try_clone().unwrap())).stderr(Stdio::from(log))
-            .spawn().unwrap();
+            .current_dir(&cwd)
+            .env("RUST_CONFIG", document.to_string())
+            .stdout(Stdio::from(log.try_clone().unwrap()))
+            .stderr(Stdio::from(log))
+            .spawn()
+            .unwrap();
         let ready = tokio::time::timeout(std::time::Duration::from_secs(15), async {
             loop {
-                if let Ok(response) = client.get(format!("http://{bind}/health/ready")).send().await {
-                    if response.status().is_success() {
-                        break Some(response.json::<serde_json::Value>().await.unwrap());
-                    }
+                if let Ok(response) = client
+                    .get(format!("http://{bind}/health/ready"))
+                    .send()
+                    .await
+                    && response.status().is_success()
+                {
+                    break Some(response.json::<serde_json::Value>().await.unwrap());
                 }
-                if child.try_wait().unwrap().is_some() { break None; }
+                if child.try_wait().unwrap().is_some() {
+                    break None;
+                }
                 tokio::time::sleep(std::time::Duration::from_millis(50)).await;
             }
-        }).await;
+        })
+        .await;
         let _ = child.kill();
         child.wait().unwrap();
         if case == "permission" {
             std::fs::set_permissions(&data, std::fs::Permissions::from_mode(0o700)).unwrap();
         }
-        assert_eq!(ready.unwrap(), Some(serde_json::json!({
-            "status":"ok", "db":"ok", "environment":"test", "release_sha":compiled_sha(),
-        })), "{case}");
+        assert_eq!(
+            ready.unwrap(),
+            Some(serde_json::json!({
+                "status":"ok", "db":"ok", "environment":"test", "release_sha":compiled_sha(),
+            })),
+            "{case}"
+        );
         let log = std::fs::read_to_string(log_path).unwrap();
-        let expected = if case == "internal_link" { "available" } else { "unavailable" };
-        assert!(log.contains(&format!("\"availability\":\"{expected}\"")), "{case}: {log}");
-        assert_eq!(log.matches("optional fleet artifact startup probe").count(), 1);
+        let expected = if case == "internal_link" {
+            "available"
+        } else {
+            "unavailable"
+        };
+        assert!(
+            log.contains(&format!("\"availability\":\"{expected}\"")),
+            "{case}: {log}"
+        );
+        assert_eq!(
+            log.matches("optional fleet artifact startup probe").count(),
+            1
+        );
         assert!(!log.contains(cwd.to_str().unwrap()));
     }
     std::fs::remove_dir_all(root).unwrap();
