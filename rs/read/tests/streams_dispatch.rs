@@ -56,13 +56,37 @@ async fn ready(store: &mut Store, hub: StreamHub) -> Dispatch<StreamHub> {
     Dispatch::initialize(store, hub).await.unwrap()
 }
 async fn private_seq(sub: &mut verdaxis_read::streams::bus::Subscription) -> i64 {
-    match tokio::time::timeout(Duration::from_secs(1), sub.recv())
-        .await
-        .unwrap()
-        .unwrap()
-    {
-        Delivery::Private(e) => e.seq(),
-        other => panic!("expected private event: {other:?}"),
+    match tokio::time::timeout(Duration::from_secs(1), sub.recv()).await {
+        Ok(Some(Delivery::Private(e))) => e.seq(),
+        Ok(other) => panic!("expected a private event, got {other:?}"),
+        Err(_) => panic!("no private event was delivered"),
+    }
+}
+
+/// Explicit delivered-sequence check: names the row that failed to arrive.
+async fn expect_seq(sub: &mut verdaxis_read::streams::bus::Subscription, expected: i64) {
+    match tokio::time::timeout(Duration::from_secs(1), sub.recv()).await {
+        Ok(Some(Delivery::Private(e))) => {
+            assert_eq!(e.seq(), expected, "delivered sequence must be {expected}")
+        }
+        Ok(other) => panic!("expected private event {expected}, got {other:?}"),
+        Err(_) => panic!("row {expected} was not delivered"),
+    }
+}
+
+/// Explicit public-channel check: names the channel whose retry is missing.
+async fn expect_public(sub: &mut verdaxis_read::streams::bus::Subscription, channel: &str) {
+    match tokio::time::timeout(Duration::from_secs(1), sub.recv()).await {
+        Ok(Some(Delivery::PublicInvalidation)) => {}
+        Ok(other) => panic!("expected public invalidation on {channel}, got {other:?}"),
+        Err(_) => panic!("public invalidation on {channel} was not retried after the failure"),
+    }
+}
+
+/// Nothing may arrive after a refused page or an exhausted scope.
+async fn assert_no_delivery(sub: &mut verdaxis_read::streams::bus::Subscription) {
+    if let Ok(delivery) = tokio::time::timeout(Duration::from_millis(50), sub.recv()).await {
+        panic!("unexpected delivery: {delivery:?}");
     }
 }
 
@@ -189,6 +213,88 @@ fn legacy_schema_version() {
     )
     .unwrap();
     assert_eq!(current.payload()["schema_version"], 1);
+}
+
+#[tokio::test]
+async fn late_visible_row_is_delivered_in_order() {
+    // Rows that commit after an earlier scan must still be delivered, in
+    // sequence order, when a later poll sees them. The delivered sequence is
+    // asserted exactly: any skip or reorder of a committed row fails.
+    let org = Uuid::new_v4();
+    let hub = StreamHub::default();
+    let mut store = Store::new(vec![
+        // Snapshot 1: only row 3 has committed.
+        Ok(page(0, 3, vec![row(3, org, false)], false)),
+        // Snapshot 2 (a later poll): row 4 committed after the first scan.
+        Ok(page(0, 4, vec![row(4, org, false)], false)),
+        // Snapshot 3: two rows in one page, ascending.
+        Ok(page(0, 6, vec![row(5, org, false), row(6, org, false)], false)),
+    ]);
+    let mut drain = ready(&mut store, hub.clone()).await;
+    let mut sub = hub.subscribe_org(org).unwrap();
+    drain.turn(&mut store).await.unwrap();
+    expect_seq(&mut sub, 3).await;
+    drain.turn(&mut store).await.unwrap();
+    expect_seq(&mut sub, 4).await;
+    drain.turn(&mut store).await.unwrap();
+    expect_seq(&mut sub, 5).await;
+    expect_seq(&mut sub, 6).await;
+    assert_no_delivery(&mut sub).await;
+    assert_eq!(drain.cursor(), 6);
+}
+
+#[tokio::test]
+async fn pending_public_survives_scan_failure_and_partial_accept() {
+    // A marked row's public obligation must survive a real scan failure and a
+    // partial public acceptance, and the still-pending channel must be retried
+    // on the next turn, not cleared or lost.
+    let hub = StreamHub::default();
+    let org = Uuid::new_v4();
+    let mut store = Store::new(vec![
+        // Page 1: marked row 1 (both bits set), more pages follow.
+        Ok(page(0, 2, vec![row(1, org, true)], true)),
+        // Page 2 read fails: the scan error must not clear the pending bits.
+        Err(DispatchError::Store),
+    ]);
+    let sink = Sink {
+        hub: hub.clone(),
+        // Orderbook publication genuinely fails once (an injected failure).
+        fail: Some(PublicChannel::Orderbook),
+        fail_private: false,
+    };
+    let mut drain = Dispatch::initialize(&mut store, sink).await.unwrap();
+    let mut prices = hub.subscribe_public(PublicChannel::Prices).unwrap();
+    let mut book = hub.subscribe_public(PublicChannel::Orderbook).unwrap();
+    let mut sub = hub.subscribe_org(org).unwrap();
+    // Turn 1 delivers the marked row, then the next page read fails.
+    assert_eq!(drain.turn(&mut store).await, Err(DispatchError::Store));
+    expect_seq(&mut sub, 1).await;
+    // Turn 2: Prices accepts, Orderbook fails once more (injected sink failure).
+    assert_eq!(drain.turn(&mut store).await, Err(DispatchError::Publish));
+    assert_eq!(drain.pending_channels(), [false, true]);
+    // Turn 3: no new pages; the still-pending Orderbook channel is retried.
+    drain.turn(&mut store).await.unwrap();
+    assert_eq!(drain.pending_channels(), [false, false]);
+    expect_public(&mut prices, "prices").await;
+    expect_public(&mut book, "orderbook").await;
+}
+
+#[tokio::test]
+async fn wrong_org_never_receives_private_rows() {
+    // A private row reaches exactly its participant organizations. The wrong
+    // organization is checked first so a leak fails on the direct receive
+    // assertion, not on a missing-delivery timeout elsewhere.
+    let org = Uuid::new_v4();
+    let wrong = Uuid::nil();
+    let hub = StreamHub::default();
+    let mut store = Store::new(vec![Ok(page(0, 1, vec![row(1, org, false)], false))]);
+    let mut drain = ready(&mut store, hub.clone()).await;
+    let mut sub = hub.subscribe_org(org).unwrap();
+    let mut stranger = hub.subscribe_org(wrong).unwrap();
+    drain.turn(&mut store).await.unwrap();
+    assert_no_delivery(&mut stranger).await;
+    expect_seq(&mut sub, 1).await;
+    assert_eq!(drain.cursor(), 1);
 }
 
 #[tokio::test]
