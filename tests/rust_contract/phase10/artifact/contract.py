@@ -279,6 +279,90 @@ done
         self.refused(env=env)
         self.assertEqual(sentinel.read_text(), 'keep')
 
+    def test_parent_path_substitution_keeps_publication_and_cleanup_pinned(self):
+        import shutil
+
+        parent = self.root / 'publish-parent'
+        retained = self.root / 'retained-parent'
+        parent.mkdir(mode=0o700)
+        self.output = parent / 'out'
+        tools = self.root / 'publication-tools'
+        tools.mkdir()
+        race = tools / 'replace-parent.py'
+        race.write_text(f'''from pathlib import Path
+import os
+parent = Path({str(parent)!r})
+retained = Path({str(retained)!r})
+if not retained.exists():
+    staging = list(parent.glob('.artifact-verify.*'))
+    assert len(staging) == 1
+    os.rename(parent, retained)
+    parent.mkdir(mode=0o700)
+    replacement = parent / staging[0].name
+    (replacement / 'tree').mkdir(parents=True)
+    (replacement / 'tree' / 'UNVERIFIED').write_text('unverified')
+    (replacement / 'KEEP').write_text('unrelated')
+''')
+        # Intercept the publication primitive only, after all final checks.
+        # Both old mv and the replacement rename-only Perl helper are covered.
+        for command in ('mv', 'perl'):
+            real = shutil.which(command)
+            self.assertIsNotNone(real)
+            wrapper = tools / command
+            wrapper.write_text(f'#!/bin/sh\n{os.sys.executable} {race} || exit $?\nexec {real} "$@"\n')
+            wrapper.chmod(0o755)
+        result = self.invoke(env=dict(os.environ, PATH=str(tools) + os.pathsep + os.environ['PATH']))
+        self.assertTrue(retained.exists(), 'publication race was not exercised')
+        replacement = list(parent.glob('.artifact-verify.*'))
+        self.assertEqual(len(replacement), 1, 'cleanup removed an unrelated tree')
+        self.assertEqual((replacement[0] / 'KEEP').read_text(), 'unrelated')
+        self.assertEqual((replacement[0] / 'tree' / 'UNVERIFIED').read_text(), 'unverified')
+        published = retained / 'out'
+        if result.returncode == 0:
+            self.assertEqual((published / 'verdaxis-read').read_bytes(), self.binary.read_bytes())
+            self.assertFalse((published / 'UNVERIFIED').exists())
+        else:
+            self.assertFalse(published.exists(), result.stderr)
+        self.assertFalse(list(retained.glob('.artifact-verify.*')), 'private staging was not cleaned')
+        self.assertFalse(self.marker.exists())
+
+    def test_each_validated_document_refuses_a_signed_json_stream(self):
+        original = {m.name: content for m, content in self.members}
+        for document in ('provenance record', 'metadata', 'policy manifest', 'allowed revisions'):
+            with self.subTest(document=document):
+                metadata = copy.deepcopy(self.metadata)
+                changes = {}
+                if document == 'provenance record':
+                    self.rebuild()
+                    valid = json.loads(self.record.read_bytes())
+                    invalid = dict(valid, workflow_ref='refs/heads/other')
+                    self.record.write_text(json.dumps(invalid) + '\n' + json.dumps(valid) + '\n')
+                    self.signature.write_bytes(self.key.sign(self.record.read_bytes()))
+                else:
+                    if document == 'metadata':
+                        invalid = dict(metadata, version=2)
+                        changes['artifact-metadata.json'] = (json.dumps(invalid) + '\n' + json.dumps(metadata)).encode()
+                    else:
+                        name = ('data/market-policy.manifest.json' if document == 'policy manifest'
+                                else 'data/allowed-revisions.json')
+                        valid = json.loads(original[name])
+                        invalid = dict(valid, source_sha='c' * 40) if document == 'policy manifest' else ['unapproved']
+                        content = (json.dumps(invalid) + '\n' + json.dumps(valid)).encode()
+                        changes[name] = content
+                        for entry in metadata['files']:
+                            if entry['path'] == name:
+                                entry['sha256'] = digest(content)
+                        if document == 'policy manifest':
+                            metadata['policy']['manifest_sha256'] = digest(content)
+                        else:
+                            metadata['revision_allowlist']['sha256'] = digest(content)
+                        changes['artifact-metadata.json'] = json.dumps(metadata).encode()
+                    self.rebuild(changes=changes, refresh_sums=True)
+                result = self.invoke()
+                self.assertNotEqual(result.returncode, 0, f'verifier accepted {document} JSON stream')
+                self.assertIn(f'{document} must contain exactly one JSON value', result.stderr)
+                self.assertFalse(self.output.exists(), 'refusal published files')
+
     def test_failure_leaves_the_output_directory_empty(self):
         self.output.mkdir()
         self.sign(workflow_ref='refs/heads/other')
