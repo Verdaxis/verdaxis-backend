@@ -69,13 +69,15 @@ impl Fixture {
             "CREATE TABLE organizations(id uuid PRIMARY KEY); \
              CREATE TABLE users(id uuid PRIMARY KEY, organization_id uuid, role text, status text, \
              email_verified boolean DEFAULT true, must_change_password boolean DEFAULT false, \
-             password_changed_at timestamptz, authentication_revoked_at timestamptz); \
+             password_changed_at timestamptz, authentication_revoked_at timestamptz, email text, password_hash text, email_verification_token_hash text, email_verification_token_expires_at timestamptz, referral_code text, pending_approval_email_transition_id uuid,pending_approval_email_payload jsonb,pending_approval_email_retry_at timestamptz); \
              CREATE TABLE organization_join_requests(id uuid PRIMARY KEY); \
              CREATE TABLE audit_logs(id uuid PRIMARY KEY,user_id uuid,action varchar(100), \
              resource_type varchar(50),resource_id varchar(100),changes jsonb,ip_address varchar(45), \
              request_id varchar(36),timestamp timestamptz); \
              CREATE TABLE user_status_transitions(id uuid PRIMARY KEY,user_id uuid,organization_id uuid, \
              role text,from_status text,to_status text,effective_at timestamptz,provenance text); \
+             CREATE TABLE refresh_sessions(id uuid PRIMARY KEY,user_id uuid,revoked boolean); \
+             CREATE TABLE market_event_outbox(id uuid PRIMARY KEY); \
              CREATE TABLE effects(id uuid PRIMARY KEY)",
         ).execute(&mut admin).await.unwrap();
         let actor = Uuid::new_v4();
@@ -119,7 +121,11 @@ impl BusinessCommand for Command {
     fn execute<'a>(&'a self, conn: &'a mut PgConnection, actor: &'a CurrentActor) -> Pin<Box<dyn Future<Output = Result<(), verdaxis_read::business::transaction::AttemptError>> + Send + 'a>> {
         Box::pin(async move {
             assert_eq!(actor.id, self.actor);
-            sqlx::query("INSERT INTO effects VALUES($1)").bind(self.actor).execute(conn).await?;
+            sqlx::query("INSERT INTO effects VALUES($1)").bind(self.actor).execute(&mut *conn).await?;
+            sqlx::query("UPDATE users SET status='REJECTED' WHERE id=$1").bind(self.actor).execute(&mut *conn).await?;
+            append_status_transition(conn, &StatusFact { id: Uuid::new_v4(), user_id: self.actor, organization_id: Some(self.organization), role: Some("ADMIN".into()), from: Some(AccountStatus::Approved), to: AccountStatus::Rejected, at: Utc::now() }).await?;
+            append_audit(conn, &AuditFact { id: Uuid::new_v4(), actor_id: Some(self.actor), action: "account.review".into(), resource_type: "user".into(), resource_id: Some(self.actor.to_string()), changes: None, ip_address: None, request_id: None, at: Utc::now() }).await?;
+            sqlx::query("INSERT INTO market_event_outbox VALUES($1)").bind(self.actor).execute(&mut *conn).await?;
             self.entered.notify_one();
             if self.pause { self.release.notified().await; }
             Ok(())
@@ -211,5 +217,76 @@ async fn p4_t2_c05() {
     let permit = tokio::time::timeout(std::time::Duration::from_secs(10), permits.acquire()).await.unwrap().unwrap();
     assert_eq!(sqlx::query_scalar::<_, i64>("SELECT count(*) FROM effects").fetch_one(&fixture.pool).await.unwrap(), 1);
     drop(permit);
+    fixture.finish().await;
+}
+
+#[cfg(feature = "contract-tests")]
+#[tokio::test]
+#[ignore = "requires explicit disposable PostgreSQL authority"]
+async fn p4_t2_c09() {
+    use verdaxis_read::business::transaction::{CompletionControl, CompletionPoint, run_controlled_write};
+    for (point, lost_ack, cancel) in [
+        (CompletionPoint::BeforeCommit, false, true),
+        (CompletionPoint::AfterCommit, false, true),
+        (CompletionPoint::AfterCommit, true, false),
+    ] {
+        let fixture = Fixture::new().await;
+        let control = CompletionControl::new(point, lost_ack);
+        let gate = control.clone();
+        let permits = Arc::new(Semaphore::new(1));
+        let capacity = permits.clone();
+        let pool = fixture.pool.clone();
+        let id = fixture.actor;
+        let cmd = command(&fixture, false);
+        let caller = tokio::spawn(async move { run_controlled_write(pool, capacity, access(id), cmd, gate).await });
+        tokio::time::timeout(std::time::Duration::from_secs(10), control.reached()).await.unwrap();
+        assert_eq!(permits.available_permits(), 0);
+        let before: i64 = sqlx::query_scalar("SELECT count(*) FROM effects").fetch_one(&fixture.pool).await.unwrap();
+        assert_eq!(before, if point == CompletionPoint::BeforeCommit { 0 } else { 1 });
+        if cancel { caller.abort(); }
+        control.release();
+        let result = caller.await;
+        if lost_ack {
+            assert_eq!(result.unwrap().unwrap_err().detail["code"], "COMMIT_OUTCOME_UNKNOWN");
+        }
+        let permit = tokio::time::timeout(std::time::Duration::from_secs(10), permits.acquire()).await.unwrap().unwrap();
+        assert_eq!(sqlx::query_scalar::<_,i64>("SELECT count(*) FROM effects").fetch_one(&fixture.pool).await.unwrap(), 1);
+        for table in ["audit_logs", "user_status_transitions", "market_event_outbox"] {
+            assert_eq!(sqlx::query_scalar::<_,i64>(&format!("SELECT count(*) FROM {table}")).fetch_one(&fixture.pool).await.unwrap(), 1);
+        }
+        assert_eq!(sqlx::query_scalar::<_,String>("SELECT status FROM users WHERE id=$1").bind(id).fetch_one(&fixture.pool).await.unwrap(), "REJECTED");
+        assert!(control.discarded());
+        drop(permit);
+        fixture.finish().await;
+    }
+}
+
+struct Events;
+impl verdaxis_read::business::admission::AdmissionEvents for Events {
+    fn visible<'a>(&'a self, _: &'a mut PgConnection, _: Uuid) -> verdaxis_read::business::transaction::CommandFuture<'a,bool,verdaxis_read::business::transaction::AttemptError> {
+        Box::pin(async { Ok(false) })
+    }
+    fn append<'a>(&'a self, conn: &'a mut PgConnection, user: Uuid, _: Uuid, _: bool) -> verdaxis_read::business::transaction::CommandFuture<'a,(),verdaxis_read::business::transaction::AttemptError> {
+        Box::pin(async move { sqlx::query("INSERT INTO market_event_outbox VALUES($1)").bind(user).execute(conn).await?; Ok(()) })
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires explicit disposable PostgreSQL authority"]
+async fn p4_t2_c10() {
+    use verdaxis_read::business::admission::RejectAccount;
+    let fixture = Fixture::new().await;
+    let target = Uuid::new_v4();
+    sqlx::query("INSERT INTO users(id,organization_id,role,status,email,password_hash) VALUES($1,$2,'BUYER','APPROVED','synthetic@example.test','synthetic')")
+        .bind(target).bind(fixture.organization).execute(&fixture.pool).await.unwrap();
+    sqlx::query("INSERT INTO refresh_sessions VALUES($1,$2,false)").bind(Uuid::new_v4()).bind(target).execute(&fixture.pool).await.unwrap();
+    let result = run_ordered_write(fixture.pool.clone(), Arc::new(Semaphore::new(1)), access(fixture.actor), RejectAccount { user_id: target, now: Utc::now(), reason: "review".into(), events: Events }).await.unwrap();
+    assert_eq!(result.user_id, target);
+    let cutoff: DateTime<Utc> = sqlx::query_scalar("SELECT authentication_revoked_at FROM users WHERE id=$1").bind(target).fetch_one(&fixture.pool).await.unwrap();
+    assert_eq!(cutoff, result.cutoff);
+    assert_eq!(sqlx::query_scalar::<_,i64>("SELECT count(*) FROM refresh_sessions WHERE NOT revoked").fetch_one(&fixture.pool).await.unwrap(), 0);
+    for table in ["audit_logs", "user_status_transitions", "market_event_outbox"] {
+        assert_eq!(sqlx::query_scalar::<_,i64>(&format!("SELECT count(*) FROM {table}")).fetch_one(&fixture.pool).await.unwrap(), 1);
+    }
     fixture.finish().await;
 }
