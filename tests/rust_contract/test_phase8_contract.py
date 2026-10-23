@@ -856,10 +856,47 @@ def inventory_gate_fixture(tmp_path):
     subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
     subprocess.run(["git", "-C", str(tmp_path), "commit", "-qm", "fixture predecessor"], check=True)
     predecessor = subprocess.check_output(["git", "-C", str(tmp_path), "rev-parse", "HEAD"], text=True).strip()
+    record = tmp_path / "tests/rust_contract/phase8/schema-base.json"
+    record.parent.mkdir(parents=True)
+    record.write_text(json.dumps({"predecessor_sha": predecessor}))
     path = "alembic/versions/p89_20261022_watchlist_producer.py"
     (tmp_path / path).write_text('revision = "phase8"\ndown_revision = "predecessor"\n')
     digest = hashlib.sha256((tmp_path / path).read_bytes()).hexdigest()
     return predecessor, path, {path: digest}
+
+
+def test_phase8_inventory_refuses_substituted_ancestor(tmp_path, monkeypatch):
+    predecessor, path, reviewed = inventory_gate_fixture(tmp_path)
+    extra = tmp_path / "alembic/versions/watchlist_extra.py"
+    extra.write_text('revision = "extra"\ndown_revision = "predecessor"\n')
+    subprocess.run(["git", "-C", str(tmp_path), "add", str(extra)], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "commit", "-qm", "fixture later ancestor"], check=True)
+    later = subprocess.check_output(["git", "-C", str(tmp_path), "rev-parse", "HEAD"], text=True).strip()
+    # The required migration is still added after this later, otherwise-valid base.
+    subprocess.run(["git", "-C", str(tmp_path), "add", path], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "commit", "-qm", "fixture required revision"], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "merge-base", "--is-ancestor", later, "HEAD"], check=True)
+    monkeypatch.setenv("PHASE8_SCHEMA_BASE", later)
+    violations = review_migration_inventory(tmp_path, later, reviewed, {}, [path])
+    assert any(predecessor in reason and later in reason and "predecessor mismatch" in reason for reason in violations), violations
+
+
+@pytest.mark.parametrize("content", [None, "{", "[]", '{}', '{"predecessor_sha": "short"}', '{"predecessor_sha": 1}', '{"predecessor_sha": "' + "0" * 40 + '", "extra": true}'])
+def test_phase8_inventory_refuses_missing_or_malformed_base_record(tmp_path, content):
+    predecessor, path, reviewed = inventory_gate_fixture(tmp_path)
+    record = tmp_path / "tests/rust_contract/phase8/schema-base.json"
+    if content is None:
+        record.unlink()
+    else:
+        record.write_text(content)
+    violations = review_migration_inventory(tmp_path, predecessor, reviewed, {}, [path])
+    assert any("schema-base.json" in reason for reason in violations), violations
+
+
+def test_phase8_committed_schema_base_is_pinned():
+    record = ROOT / "tests/rust_contract/phase8/schema-base.json"
+    assert record.is_file(), "reviewed schema base record missing"
+    assert json.loads(record.read_text()) == {"predecessor_sha": "274bd3ab737621339d158ab4795578009de5bf4f"}
 
 
 @pytest.mark.parametrize("case", ["second_revision", "unlisted", "location", "missing", "invalid_digest", "outside_inventory", "duplicate", "symlink", "absolute", "nonobject"])
