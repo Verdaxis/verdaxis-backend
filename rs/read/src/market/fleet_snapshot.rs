@@ -106,8 +106,8 @@ fn read_document_with(
         return Err(unavailable());
     }
     let mut file = open_regular_file(path)?;
-    let before = file.metadata().map_err(|_| unavailable())?;
     observe(ReadStage::Opened);
+    let before = file.metadata().map_err(|_| unavailable())?;
     // take() bounds allocation even if a publisher replaces or grows a document.
     let mut bytes = Vec::with_capacity(MAX_BYTES + 1);
     let mut bounded = (&mut file).take((MAX_BYTES + 1) as u64);
@@ -142,10 +142,8 @@ fn same_observation(before: &std::fs::Metadata, after: &std::fs::Metadata) -> bo
         && before.size() == after.size()
         && before.mtime() == after.mtime()
         && before.mtime_nsec() == after.mtime_nsec()
-        // Atomic publication can unlink the held old inode, changing only its
-        // link count and ctime. Its unchanged bytes remain a valid observation.
-        && ((before.ctime() == after.ctime() && before.ctime_nsec() == after.ctime_nsec())
-            || after.nlink() < before.nlink())
+        && before.ctime() == after.ctime()
+        && before.ctime_nsec() == after.ctime_nsec()
 }
 
 /// Walk from a held root descriptor, never following links. Each opened child
@@ -198,7 +196,9 @@ mod tests {
     #[test]
     fn fleet_document_change_cases() {
         use std::io::{Seek, SeekFrom, Write};
-        let directory = std::env::temp_dir().canonicalize().unwrap()
+        let directory = std::env::temp_dir()
+            .canonicalize()
+            .unwrap()
             .join(format!("fleet-change-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir(&directory).unwrap();
         let path = directory.join("observation.json");
@@ -211,7 +211,8 @@ mod tests {
             if matches!(stage, ReadStage::Opened) {
                 std::fs::rename(&next, &path).unwrap();
             }
-        }).unwrap();
+        })
+        .unwrap();
         assert_eq!(old.last_updated, "2024-01-01");
         assert_eq!(std::fs::read(&path).unwrap(), replacement);
 
@@ -221,13 +222,21 @@ mod tests {
             std::fs::write(&path, &padded).unwrap();
             let mut changed = false;
             let result = read_document_with(&path, Instant::now() + READ_DEADLINE, |stage| {
-                if changed || !matches!(stage, ReadStage::Chunk) { return; }
+                if changed || !matches!(stage, ReadStage::Chunk) {
+                    return;
+                }
                 changed = true;
                 let mut writer = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
                 match change {
-                    "growth" => { writer.seek(SeekFrom::End(0)).unwrap(); writer.write_all(b" ").unwrap(); }
+                    "growth" => {
+                        writer.seek(SeekFrom::End(0)).unwrap();
+                        writer.write_all(b" ").unwrap();
+                    }
                     "truncation" => writer.set_len(8192).unwrap(),
-                    "rewrite" => { writer.seek(SeekFrom::Start(0)).unwrap(); writer.write_all(replacement).unwrap(); }
+                    "rewrite" => {
+                        writer.seek(SeekFrom::Start(0)).unwrap();
+                        writer.write_all(replacement).unwrap();
+                    }
                     _ => unreachable!(),
                 }
                 writer.sync_all().unwrap();
