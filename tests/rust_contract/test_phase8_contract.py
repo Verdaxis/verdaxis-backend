@@ -2,6 +2,7 @@
 
 import ast
 import copy
+import hashlib
 import json
 import os
 import re
@@ -585,7 +586,7 @@ def test_phase8_migration_reviewer_refuses_unreviewed_operations():
         def upgrade():
             op.drop_column("watchlist_events", "producer")
         '''
-    assert review_migration_operations(upgrade_of(destructive), manifest) == ["upgrade: unreviewed operation op.drop_column"]
+    assert review_migration_operations(upgrade_of(destructive), manifest) == ["upgrade: unreviewed drop operation"]
 
 
 @pytest.mark.parametrize("statement", [
