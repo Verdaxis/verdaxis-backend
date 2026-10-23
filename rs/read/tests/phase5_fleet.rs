@@ -240,6 +240,36 @@ async fn fleet_config_cases() {
             );
         }
     }
+    for payload in [b"{\"entries\":[".as_slice(), b"{}"] {
+        fixture.write(payload);
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/fleet-intelligence")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let body = to_bytes(response.into_body(), MAX_BYTES + 1).await.unwrap();
+        let value: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(value["detail"]["code"], "READ_UNAVAILABLE");
+        assert!(value.get("entries").is_none());
+    }
+    fixture.write(&bytes(&document()));
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/fleet-intelligence")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
     let response = app
         .oneshot(
             Request::builder()
