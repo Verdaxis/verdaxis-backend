@@ -16,6 +16,18 @@ comes from each environment's `/health/ready` response, not a dated SHA in
 source documentation. The shared-host marker is
 `/home/verdaxis-prod/verdaxis/PRODUCTION_HOST.md`.
 
+## Rust business transaction foundation
+
+`rs/read/src/business/` supplies caller-owned audit/status appenders and an
+ordered command owner. The owner releases its read-only preview before locking
+organizations, sorted users including the actor, and join requests through the
+shared auth lock helper. It rechecks account authority and preview identity
+inside the write transaction. A detached task holds admission through caller
+cancellation; ambiguous commit outcomes are not replayed. Business quota
+adapters use exact method/template pairs from the committed route inventory.
+No business route is mounted by these modules. The foundation remains pending
+integration and database qualification before consumer acceptance.
+
 ## Rust Phase 2 feedback
 
 `rs/read/src/crud/feedback.rs` provides the Task 10 feedback submission and

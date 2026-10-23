@@ -5,7 +5,6 @@ use sqlx::{Connection, PgConnection, postgres::PgPoolOptions};
 use tokio::sync::{Notify, Semaphore};
 use uuid::Uuid;
 use verdaxis_read::{
-    ApiError,
     auth::{CurrentActor, VerifiedAccess, store::revoke_user_authentication},
     business::{
         audit::{AuditFact, append_audit},
@@ -25,8 +24,17 @@ fn p4_t2_c06() {
     let _ = interface;
 }
 
-#[test]
-fn p4_t2_c04() {
+#[tokio::test]
+async fn p4_t2_c04() {
+    use verdaxis_read::auth::lock::{OrgWriteError, retry_org_write};
+    use verdaxis_read::business::transaction::AttemptError;
+    let mut attempts = 0;
+    let result: Result<(), OrgWriteError<AttemptError>> = retry_org_write(|_| {
+        attempts += 1;
+        std::future::ready(Err(AttemptError::Database(sqlx::Error::Protocol("unclassified failure".into()))))
+    }).await;
+    assert!(matches!(result, Err(OrgWriteError::Failed(_))));
+    assert_eq!(attempts, 1);
     use axum::http::StatusCode;
     for (state, status, code) in [
         ("55P03", StatusCode::CONFLICT, "MARKET_BUSY"),
@@ -100,10 +108,10 @@ struct Command {
 impl BusinessCommand for Command {
     type Output = ();
 
-    fn preview<'a>(&'a self, conn: &'a mut PgConnection) -> Pin<Box<dyn Future<Output = Result<OrganizationWritePlan, ApiError>> + Send + 'a>> {
+    fn preview<'a>(&'a self, conn: &'a mut PgConnection) -> Pin<Box<dyn Future<Output = Result<OrganizationWritePlan, verdaxis_read::business::transaction::AttemptError>> + Send + 'a>> {
         Box::pin(async move {
             let organization: Option<Uuid> = sqlx::query_scalar("SELECT organization_id FROM users WHERE id=$1")
-                .bind(self.actor).fetch_one(conn).await.map_err(|_| ApiError::database())?;
+                .bind(self.actor).fetch_one(conn).await?;
             Ok(OrganizationWritePlan::new([self.organization], [self.actor], [], serde_json::json!({"organization": organization})))
         })
     }
@@ -123,9 +131,30 @@ impl BusinessCommand for Command {
 #[ignore = "requires explicit disposable PostgreSQL authority"]
 async fn p4_t2_c02() {
     let fixture = Fixture::new().await;
-    // Admission is checked again after the canonical scope locks.
-    sqlx::query("UPDATE users SET status='REJECTED' WHERE id=$1").bind(fixture.actor).execute(&fixture.pool).await.unwrap();
-    let result = run_ordered_write(fixture.pool.clone(), Arc::new(Semaphore::new(1)), access(fixture.actor), command(&fixture, false)).await;
+    let mut holder = fixture.pool.acquire().await.unwrap();
+    let mut held = holder.begin().await.unwrap();
+    sqlx::query("SELECT id FROM organizations WHERE id=$1 FOR UPDATE")
+        .bind(fixture.organization).execute(&mut *held).await.unwrap();
+    let pool = fixture.pool.clone();
+    let id = fixture.actor;
+    let cmd = command(&fixture, false);
+    let caller = tokio::spawn(async move {
+        run_ordered_write(pool, Arc::new(Semaphore::new(1)), access(id), cmd).await
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            let blocked: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE pid <> pg_backend_pid() AND cardinality(pg_blocking_pids(pid)) > 0 AND query LIKE 'SELECT id FROM organizations%')")
+                .fetch_one(&mut *held).await.unwrap();
+            if blocked { break; }
+            tokio::task::yield_now().await;
+        }
+    }).await.unwrap();
+    // This update completes while the business owner waits for its first lock.
+    sqlx::query("UPDATE users SET status='REJECTED' WHERE id=$1")
+        .bind(fixture.actor).execute(&mut *held).await.unwrap();
+    held.commit().await.unwrap();
+    drop(holder);
+    let result = caller.await.unwrap();
     assert_eq!(result.unwrap_err().status.as_u16(), 403);
     assert_eq!(sqlx::query_scalar::<_, i64>("SELECT count(*) FROM effects").fetch_one(&fixture.pool).await.unwrap(), 0);
     fixture.finish().await;
