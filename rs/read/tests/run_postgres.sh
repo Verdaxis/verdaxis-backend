@@ -50,6 +50,8 @@ CREATE TABLE alembic_version(version_num varchar(64));
 INSERT INTO alembic_version VALUES ('kycg_20261014_staging');
 SQL
 export RUST_TEST_DATABASE_URL="postgres://rust_app:disposable_app_pw@127.0.0.1:$port/verdaxis_rust_test"
+# Demand cases require an explicit disposable _test URL and create only connection-local temporary tables.
+export RUST_DEMAND_TEST_DATABASE_URL="$RUST_TEST_DATABASE_URL"
 export RUST_TEST_MEMBER_DATABASE_URL="postgres://rust_member:disposable_member_pw@127.0.0.1:$port/verdaxis_rust_test"
 export RUST_TEST_MIGRATOR_DATABASE_URL="postgres://rust_migrator:disposable_migrator_pw@127.0.0.1:$port/verdaxis_rust_test"
 export RELEASE_SHA=$(git rev-parse HEAD)
