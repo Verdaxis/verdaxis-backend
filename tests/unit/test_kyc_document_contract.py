@@ -20,6 +20,7 @@ def test_checkpoint_and_migration_chain():
     rows = Path("deploy/migration-checkpoints.tsv").read_text().splitlines()
     assert "kycg_20261014_staging\tkycd_20261015_staging" in rows
     assert "kycd_20261015_staging\tkycd_20261015_staging" in rows
+    assert f"{head}\t{head}" in rows
 
 
 def test_model_export_and_append_only_acl():

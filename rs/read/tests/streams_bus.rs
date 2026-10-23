@@ -590,7 +590,7 @@ async fn cancellation_cleanup() {
     b04().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn partial_registration_cleanup() {
     b09().await;
 }
