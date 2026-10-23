@@ -7,7 +7,24 @@ import re
 import subprocess
 from pathlib import Path
 
-import pytest
+import pytest_asyncio
+from sqlalchemy.ext.asyncio import create_async_engine
+
+from tests.postgres.retention_test_support import clear_retention
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def isolated_dispatch_history(analytics_pg_url):
+    # Other stream suites intentionally leave high floors and synthetic IDs.
+    # Reset only this disposable fixture before each global dispatch proof.
+    engine = create_async_engine(analytics_pg_url)
+    try:
+        async with engine.begin() as connection:
+            await clear_retention(connection)
+        yield
+    finally:
+        await engine.dispose()
+
 
 ROOT = Path(__file__).resolve().parents[2]
 
