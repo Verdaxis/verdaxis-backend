@@ -360,11 +360,15 @@ impl std::io::Write for LogCapture {
         self.0.lock().unwrap().extend_from_slice(bytes);
         Ok(bytes.len())
     }
-    fn flush(&mut self) -> std::io::Result<()> { Ok(()) }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for LogCapture {
     type Writer = Self;
-    fn make_writer(&'a self) -> Self { self.clone() }
+    fn make_writer(&'a self) -> Self {
+        self.clone()
+    }
 }
 
 #[tokio::test]
@@ -372,15 +376,26 @@ impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for LogCapture {
 async fn e6_concurrent_consumption_has_one_result() {
     let f = Fixture::new(false).await;
     let email = format!("{}@gmail.com", Uuid::new_v4());
-    assert_eq!(f.request("/api/auth/register", signup(&email, None)).await.0, StatusCode::ACCEPTED);
+    assert_eq!(
+        f.request("/api/auth/register", signup(&email, None))
+            .await
+            .0,
+        StatusCode::ACCEPTED
+    );
     let token = f.token(&email).await;
     let mut holder = f.owner.begin().await.unwrap();
-    sqlx::query("SELECT id FROM pending_registrations WHERE email=$1 FOR UPDATE").bind(&email).execute(&mut *holder).await.unwrap();
+    sqlx::query("SELECT id FROM pending_registrations WHERE email=$1 FOR UPDATE")
+        .bind(&email)
+        .execute(&mut *holder)
+        .await
+        .unwrap();
     let mut tasks = Vec::new();
     for _ in 0..2 {
         let app = router(f.settings.clone());
         let body = organization(&token);
-        tasks.push(tokio::spawn(async move { request(app, "/api/auth/register-with-org", body).await }));
+        tasks.push(tokio::spawn(async move {
+            request(app, "/api/auth/register-with-org", body).await
+        }));
     }
     tokio::time::timeout(std::time::Duration::from_secs(5), async {
         loop {
@@ -393,12 +408,22 @@ async fn e6_concurrent_consumption_has_one_result() {
     let mut statuses = Vec::new();
     for task in tasks {
         let result = task.await.unwrap();
-        if result.0 == StatusCode::BAD_REQUEST { assert_eq!(result.2["detail"]["code"], "REGISTRATION_TOKEN_INVALID"); }
+        if result.0 == StatusCode::BAD_REQUEST {
+            assert_eq!(result.2["detail"]["code"], "REGISTRATION_TOKEN_INVALID");
+        }
         statuses.push(result.0);
     }
     statuses.sort();
     assert_eq!(statuses, vec![StatusCode::OK, StatusCode::BAD_REQUEST]);
-    assert_eq!(count(&f.owner,"SELECT count(*) FROM users WHERE email=$1",&email).await,1);
+    assert_eq!(
+        count(
+            &f.owner,
+            "SELECT count(*) FROM users WHERE email=$1",
+            &email
+        )
+        .await,
+        1
+    );
     f.stop().await;
 }
 
@@ -407,10 +432,17 @@ async fn e6_concurrent_consumption_has_one_result() {
 async fn e5_failed_delivery_preserves_response() {
     use tracing::instrument::WithSubscriber;
     let captured = LogCapture(Arc::new(std::sync::Mutex::new(Vec::new())));
-    let subscriber = tracing_subscriber::fmt().without_time().with_ansi(false).with_writer(captured.clone()).finish();
+    let subscriber = tracing_subscriber::fmt()
+        .without_time()
+        .with_ansi(false)
+        .with_writer(captured.clone())
+        .finish();
     let f = Fixture::new(true).await;
     let email = format!("{}@gmail.com", Uuid::new_v4());
-    let response = f.request("/api/auth/register", signup(&email, None)).with_subscriber(subscriber).await;
+    let response = f
+        .request("/api/auth/register", signup(&email, None))
+        .with_subscriber(subscriber)
+        .await;
     assert_eq!(response.0, StatusCode::ACCEPTED);
     assert_eq!(response.2, json!({"status":"check_email"}));
     f.drain().await;
