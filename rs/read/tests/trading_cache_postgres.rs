@@ -1507,10 +1507,11 @@ async fn public_route_wrappers_check_generations_and_time_without_listener_wakes
         assert_eq!(route_json(&state, &path).await, expected, "warm: {path}");
         // No runtime tick consumes the event. The next route request must still
         // read the new committed generation and replace its old entry.
-        sqlx::query("UPDATE products SET is_active = is_active")
+        sqlx::query("UPDATE orderbook_orders SET price_per_mt_usd = price_per_mt_usd + 1")
             .execute(&mut writer)
             .await
             .unwrap();
+        let committed = route_json(&disabled, &path).await;
         let gate = Arc::new(ClockBarrier {
             clock: clock.clone(),
             gate: ReadBarrier {
@@ -1527,7 +1528,7 @@ async fn public_route_wrappers_check_generations_and_time_without_listener_wakes
             .await
             .expect("post-commit route must miss without event delivery");
         gate.gate.release.notify_one();
-        assert_eq!(task.await.unwrap(), expected, "post-commit: {path}");
+        assert_eq!(task.await.unwrap(), committed, "post-commit: {path}");
         clock.advance(Duration::from_secs(1));
         runtime
             .authority()
