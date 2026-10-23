@@ -21,7 +21,7 @@ from pathlib import PurePosixPath
 MAX_SCRIPT_BYTES = 262144
 MAX_OUTPUT_BYTES = 2097152
 MAX_ITEMS = 1000
-MAX_TOTAL_BYTES = 8388608
+MAX_TOTAL_BYTES = 7340032  # leave transport framing headroom below 8 MiB
 
 # THE REVIEWED REMOTE COMMAND ALLOWLIST. No shell execution or arbitrary argv.
 # sudo is used ONLY for these exact three crontab reads. systemctl needs no sudo.
@@ -527,7 +527,11 @@ def run_command(argv):
             os.killpg(process.pid, signal.SIGKILL)
             status = process.wait()
             complete = False
-        return (data.decode('utf-8', errors='replace') if complete else ''), complete and status == 0
+        # On truncation retain complete physical lines only. No partial token
+        # can become a structural field at the byte boundary.
+        if not complete:
+            data = data[:data.rfind(b'\n') + 1]
+        return data.decode('utf-8', errors='replace'), complete and status == 0
     finally:
         if process.poll() is None:
             os.killpg(process.pid, signal.SIGKILL)
@@ -590,6 +594,10 @@ def collect(command=run_command, cron_files=None, script_reader=scan_script):
             text, complete = command(argv)
         except OSError:
             text, complete = '', False
+        if not complete:
+            mark(surface, 'command-bytes')
+        if surface in {'units', 'timers', 'usr_local', 'processes', 'packages'}:
+            text = '\n'.join(sorted(text.splitlines()))
         return retain(surface, text, complete)
 
     units = observe('units', COMMANDS['units'])
