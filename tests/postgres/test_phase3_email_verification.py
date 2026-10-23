@@ -20,3 +20,7 @@ def test_e3_e4_postgres(analytics_pg_url):
     assert run.returncode == 0, run.stdout + run.stderr
     assert "test e3_consumes_and_assigns_once ... ok" in run.stdout
     assert "test e4_response_and_delivery_boundary ... ok" in run.stdout
+    assert "test e3_e4_serial_schedules ... ok" in run.stdout
+    assert "test e4_http_quota ... ok" in run.stdout
+    assert "test e4_http_canary_admission ... ok" in run.stdout
+    assert "test e4_write_attempt_restarts ... ok" in run.stdout

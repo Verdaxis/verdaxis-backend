@@ -255,70 +255,51 @@ async fn e3_e4_serial_schedules() {
         .await
         .unwrap();
     assert_eq!(role, "verdaxis_app_test");
-    let settings = email_verification::EmailSettings::new(
-        runtime,
-        email::MailDispatcher::new(crud::referrals::invite::MailClient::disabled()),
-    );
-    for verify_first in [true, false] {
-        let id = Uuid::new_v4();
-        let address = format!("{id}@example.com");
-        let old = Uuid::new_v4().to_string();
-        let new = Uuid::new_v4().to_string();
+    use axum::{Router,Json,http::StatusCode,routing::post};
+    let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();let endpoint=listener.local_addr().unwrap();
+    let (sender,mut delivered)=tokio::sync::mpsc::channel(8);
+    let server=tokio::spawn(async move {axum::serve(listener,Router::new().route("/",post(move |Json(payload):Json<serde_json::Value>|{let sender=sender.clone();async move {sender.send(payload).await.unwrap();StatusCode::OK}}))).await.unwrap();});
+    let mail=email::MailDispatcher::new(crud::referrals::invite::MailClient::loopback(format!("http://{endpoint}/"),"synthetic".into()).unwrap());
+    for verify_first in [true,false] {
+        let id=Uuid::new_v4();let referrer=Uuid::new_v4();let address=format!("{id}@example.com");let old=Uuid::new_v4().to_string();
+        sqlx::query("INSERT INTO users(id,email,password_hash,status,email_verified,must_change_password) VALUES ($1,$2,'unused','PENDING',true,false)").bind(referrer).bind(format!("{referrer}@example.com")).execute(&owner).await.unwrap();
         sqlx::query("INSERT INTO users(id,email,password_hash,status,email_verified,must_change_password,email_verification_token_hash,email_verification_token_expires_at) VALUES ($1,$2,'unused','PENDING',false,false,$3,$4)").bind(id).bind(&address).bind(token_digest(&old)).bind(Utc::now()+Duration::hours(24)).execute(&owner).await.unwrap();
-        let mut holder = owner.begin().await.unwrap();
-        sqlx::query("SELECT id FROM users WHERE id=$1 FOR UPDATE")
-            .bind(id)
-            .execute(&mut *holder)
-            .await
-            .unwrap();
-        if verify_first {
-            sqlx::query("UPDATE users SET email_verified=true,email_verification_token_hash=NULL,email_verification_token_expires_at=NULL WHERE id=$1").bind(id).execute(&mut *holder).await.unwrap();
-        } else {
-            sqlx::query("UPDATE users SET email_verification_token_hash=$2 WHERE id=$1")
-                .bind(id)
-                .bind(token_digest(&new))
-                .execute(&mut *holder)
-                .await
-                .unwrap();
+        sqlx::query("INSERT INTO referrals(id,referrer_id,referred_user_id,referral_code_used,status) VALUES ($1,$2,$3,'VDX-TEST01','SIGNED_UP')").bind(Uuid::new_v4()).bind(referrer).bind(id).execute(&owner).await.unwrap();
+        let first=sqlx::postgres::PgPoolOptions::new().max_connections(1).connect(&std::env::var("AUTH_EMAIL_TEST_DATABASE_URL").unwrap()).await.unwrap();
+        let second=sqlx::postgres::PgPoolOptions::new().max_connections(1).connect(&std::env::var("AUTH_EMAIL_TEST_DATABASE_URL").unwrap()).await.unwrap();
+        let first_pid:i32=sqlx::query_scalar("SELECT pg_backend_pid()").fetch_one(&first).await.unwrap();
+        let second_pid:i32=sqlx::query_scalar("SELECT pg_backend_pid()").fetch_one(&second).await.unwrap();
+        let suffix=id.simple().to_string();let fun=format!("e3f_{suffix}");let trigger=format!("e3t_{suffix}");let key=i64::from_be_bytes(id.as_bytes()[..8].try_into().unwrap());
+        // All identifiers and the barrier key come only from this test's UUID.
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE FUNCTION {fun}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.id='{id}'::uuid THEN PERFORM pg_advisory_xact_lock({key}); END IF; RETURN NEW; END $$; CREATE TRIGGER {trigger} BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION {fun}();"))).execute(&owner).await.unwrap();
+        let mut barrier=owner.begin().await.unwrap();sqlx::query("SELECT pg_advisory_xact_lock($1)").bind(key).execute(&mut *barrier).await.unwrap();
+        let first_settings=email_verification::EmailSettings::new(first,mail.clone());let second_settings=email_verification::EmailSettings::new(second,mail.clone());
+        let first_address=address.clone();let first_old=old.clone();
+        let holder=tokio::spawn(async move {if verify_first {email_verification::verify(&first_settings,&first_old).await}else{email_verification::resend(&first_settings,&first_address,false).await}});
+        wait_blocked(&owner,first_pid).await;
+        let next_address=address.clone();let next_old=old.clone();
+        let waiter=tokio::spawn(async move {if verify_first {email_verification::resend(&second_settings,&next_address,false).await}else{email_verification::verify(&second_settings,&next_old).await}});
+        tokio::time::timeout(std::time::Duration::from_secs(5),async {loop {let blocked:bool=sqlx::query_scalar("SELECT $1=ANY(pg_blocking_pids($2))").bind(first_pid).bind(second_pid).fetch_one(&owner).await.unwrap();if blocked {break;}tokio::task::yield_now().await;}}).await.unwrap();
+        barrier.commit().await.unwrap();holder.await.unwrap().unwrap();let result=waiter.await.unwrap();mail.drain().await;
+        let settings=email_verification::EmailSettings::new(runtime.clone(),mail.clone());
+        if verify_first {result.unwrap();assert!(delivered.try_recv().is_err());} else {
+            let error=result.unwrap_err();assert_eq!(error.status,StatusCode::BAD_REQUEST);assert_eq!(error.detail["code"],"EMAIL_TOKEN_INVALID");
+            let payload=delivered.recv().await.unwrap();let token=payload["html"].as_str().unwrap().split("token=").nth(1).unwrap().split('"').next().unwrap();
+            let hash:String=sqlx::query_scalar("SELECT email_verification_token_hash FROM users WHERE id=$1").bind(id).fetch_one(&owner).await.unwrap();assert_eq!(hash,token_digest(token));
+            email_verification::verify(&settings,token).await.unwrap();
         }
-        let waiting = settings.clone();
-        let address_wait = address.clone();
-        let old_wait = old.clone();
-        let contender = tokio::spawn(async move {
-            if verify_first {
-                email_verification::resend(&waiting, &address_wait, true).await
-            } else {
-                email_verification::verify(&waiting, &old_wait).await
-            }
-        });
-        tokio::time::timeout(std::time::Duration::from_secs(5),async {loop {
-            let blocked:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE cardinality(pg_blocking_pids(pid))>0)").fetch_one(&owner).await.unwrap();if blocked {break;}tokio::task::yield_now().await;
-        }}).await.unwrap();
-        holder.commit().await.unwrap();
-        let result = contender.await.unwrap();
-        if verify_first {
-            assert!(result.is_ok());
-            let hash: Option<String> =
-                sqlx::query_scalar("SELECT email_verification_token_hash FROM users WHERE id=$1")
-                    .bind(id)
-                    .fetch_one(&owner)
-                    .await
-                    .unwrap();
-            assert!(hash.is_none());
-        } else {
-            assert_eq!(
-                result.unwrap_err().status,
-                axum::http::StatusCode::BAD_REQUEST
-            );
-            email_verification::verify(&settings, &new).await.unwrap();
-            assert!(email_verification::verify(&settings, &new).await.is_err());
-        }
-        sqlx::query("DELETE FROM users WHERE id=$1")
-            .bind(id)
-            .execute(&owner)
-            .await
-            .unwrap();
+        let before:(Option<String>,Option<chrono::DateTime<Utc>>,String,chrono::DateTime<Utc>)=sqlx::query_as("SELECT u.email_verification_token_hash,u.email_verification_token_expires_at,u.referral_code,r.verified_at FROM users u JOIN referrals r ON r.referred_user_id=u.id WHERE u.id=$1").bind(id).fetch_one(&owner).await.unwrap();assert!(before.0.is_none()&&before.1.is_none());
+        let error=email_verification::verify(&settings,&old).await.unwrap_err();assert_eq!(error.status,StatusCode::BAD_REQUEST);assert_eq!(error.detail["code"],"EMAIL_TOKEN_INVALID");
+        email_verification::resend(&settings,&address,false).await.unwrap();mail.drain().await;assert!(delivered.try_recv().is_err());
+        let after:(Option<String>,Option<chrono::DateTime<Utc>>,String,chrono::DateTime<Utc>)=sqlx::query_as("SELECT u.email_verification_token_hash,u.email_verification_token_expires_at,u.referral_code,r.verified_at FROM users u JOIN referrals r ON r.referred_user_id=u.id WHERE u.id=$1").bind(id).fetch_one(&owner).await.unwrap();assert_eq!(before,after);
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!("DROP TRIGGER {trigger} ON users; DROP FUNCTION {fun}();"))).execute(&owner).await.unwrap();
+        sqlx::query("DELETE FROM referrals WHERE referred_user_id=$1").bind(id).execute(&owner).await.unwrap();
+        sqlx::query("DELETE FROM users WHERE id=ANY($1)").bind(vec![id,referrer]).execute(&owner).await.unwrap();
     }
+    server.abort();let _=server.await;
+}
+async fn wait_blocked(owner:&sqlx::PgPool,pid:i32) {
+    tokio::time::timeout(std::time::Duration::from_secs(5),async {loop {let blocked:bool=sqlx::query_scalar("SELECT cardinality(pg_blocking_pids($1))>0").bind(pid).fetch_one(owner).await.unwrap();if blocked {break;}tokio::task::yield_now().await;}}).await.unwrap();
 }
 
 #[tokio::test]
@@ -391,4 +372,15 @@ async fn e4_http_canary_admission() {
         .unwrap();
     server.abort();
     let _ = server.await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL authority"]
+async fn e4_http_quota() {
+    use axum::{body::Body,http::{Request,StatusCode}};use tower::ServiceExt;
+    let runtime=sqlx::PgPool::connect(&std::env::var("AUTH_EMAIL_TEST_DATABASE_URL").unwrap()).await.unwrap();
+    let app=email_verification::router(email_verification::EmailSettings::new(runtime,email::MailDispatcher::new(crud::referrals::invite::MailClient::disabled())));
+    for index in 0..4 {let response=app.clone().oneshot(Request::post("/api/auth/resend-verification-email").header("content-type","application/json").body(Body::from(r#"{"email":"quota@example.com"}"#)).unwrap()).await.unwrap();
+        if index<3 {assert_eq!(response.status(),StatusCode::OK);}else{assert_eq!(response.status(),StatusCode::TOO_MANY_REQUESTS);assert!(response.headers().contains_key("retry-after"));}
+    }
 }

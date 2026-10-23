@@ -16,3 +16,6 @@ def test_e1_e2_postgres(analytics_pg_url):
     )
     assert run.returncode == 0, run.stdout + run.stderr
     assert "test e2_consumes_and_revokes ... ok" in run.stdout
+    assert "test e2_invited_account_retains_resolver_state ... ok" in run.stdout
+    assert "test e1_write_attempt_restarts ... ok" in run.stdout
+    assert "test e1_response_cleanup_and_delivery ... ok" in run.stdout

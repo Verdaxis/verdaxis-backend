@@ -22,9 +22,9 @@ async fn e1_e2_validation_and_quota() {
         email::MailDispatcher::new(crud::referrals::invite::MailClient::disabled()),
     );
     let app = password_reset::router(settings);
-    for body in [
-        r#"{"token":"","new_password":"long-enough"}"#,
-        r#"{"token":"token","new_password":"short"}"#,
+    for (body, expected, code) in [
+        (r#"{"token":"","new_password":"long-enough"}"#, StatusCode::BAD_REQUEST, "RESET_TOKEN_INVALID"),
+        (r#"{"token":"token","new_password":"short"}"#, StatusCode::UNPROCESSABLE_ENTITY, "VALIDATION_FAILED"),
     ] {
         let response = app
             .clone()
@@ -36,10 +36,9 @@ async fn e1_e2_validation_and_quota() {
             )
             .await
             .unwrap();
-        assert!(matches!(
-            response.status(),
-            StatusCode::BAD_REQUEST | StatusCode::UNPROCESSABLE_ENTITY
-        ));
+        assert_eq!(response.status(),expected);
+        let bytes=axum::body::to_bytes(response.into_body(),4096).await.unwrap();
+        let value:serde_json::Value=serde_json::from_slice(&bytes).unwrap();assert_eq!(value["detail"]["code"],code);
     }
     let limits = auth::limits::SharedLimits::default();
     for _ in 0..3 {
