@@ -51,40 +51,120 @@ async fn e2_consumes_and_revokes() {
             .unwrap(),
         email::MailDispatcher::new(crud::referrals::invite::MailClient::disabled()),
     );
+    use axum::{
+        body::{Body, to_bytes},
+        http::{Request, StatusCode},
+    };
     use tower::ServiceExt;
-    use axum::{body::{Body,to_bytes},http::{Request,StatusCode}};
     // This verified account exercises issuance before consumption.
-    let before:(String,String)=sqlx::query_as("SELECT password_reset_token_hash,password_reset_expires::text FROM users WHERE id=$1").bind(id).fetch_one(&pool).await.unwrap();
-    let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let endpoint=listener.local_addr().unwrap();
-    let (sender,mut receiver)=tokio::sync::mpsc::channel(1);
-    let server=tokio::spawn(async move {
-        axum::serve(listener,axum::Router::new().route("/",axum::routing::post(move |axum::Json(payload):axum::Json<serde_json::Value>| {
-            let sender=sender.clone();async move {sender.send(payload).await.unwrap();StatusCode::OK}
-        }))).await.unwrap();
+    let before: (String, String) = sqlx::query_as(
+        "SELECT password_reset_token_hash,password_reset_expires::text FROM users WHERE id=$1",
+    )
+    .bind(id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = listener.local_addr().unwrap();
+    let (sender, mut receiver) = tokio::sync::mpsc::channel(1);
+    let server = tokio::spawn(async move {
+        axum::serve(
+            listener,
+            axum::Router::new().route(
+                "/",
+                axum::routing::post(move |axum::Json(payload): axum::Json<serde_json::Value>| {
+                    let sender = sender.clone();
+                    async move {
+                        sender.send(payload).await.unwrap();
+                        StatusCode::OK
+                    }
+                }),
+            ),
+        )
+        .await
+        .unwrap();
     });
-    let mut settings=settings;
-    settings.mail=email::MailDispatcher::new(crud::referrals::invite::MailClient::loopback(format!("http://{endpoint}/"),"synthetic".into()).unwrap());
-    password_reset::forgot(&settings,&address).await.unwrap();
+    let mut settings = settings;
+    settings.mail = email::MailDispatcher::new(
+        crud::referrals::invite::MailClient::loopback(
+            format!("http://{endpoint}/"),
+            "synthetic".into(),
+        )
+        .unwrap(),
+    );
+    password_reset::forgot(&settings, &address).await.unwrap();
     settings.mail.drain().await;
-    let payload=receiver.recv().await.unwrap();
-    let html=payload["html"].as_str().unwrap();
-    let issued=html.split("token=").nth(1).unwrap().split('"').next().unwrap();
-    let after_forgot:(String,String)=sqlx::query_as("SELECT password_reset_token_hash,password_reset_expires::text FROM users WHERE id=$1").bind(id).fetch_one(&pool).await.unwrap();
-    assert_eq!(before,after_forgot);
-    for presented in ["invitation-fixture",token.as_str()] {
-        let response=password_reset::router(settings.clone()).oneshot(Request::post("/api/auth/reset-password").header("content-type","application/json").body(Body::from(serde_json::json!({"token":presented,"new_password":"New-password-123"}).to_string())).unwrap()).await.unwrap();
-        assert_eq!(response.status(),StatusCode::BAD_REQUEST);
-        let body:serde_json::Value=serde_json::from_slice(&to_bytes(response.into_body(),4096).await.unwrap()).unwrap();
-        assert_eq!(body["detail"]["code"],"RESET_TOKEN_INVALID");
-        let hash:String=sqlx::query_scalar("SELECT password_hash FROM users WHERE id=$1").bind(id).fetch_one(&pool).await.unwrap();assert_eq!(hash,"unused");
+    let payload = receiver.recv().await.unwrap();
+    let html = payload["html"].as_str().unwrap();
+    let issued = html
+        .split("token=")
+        .nth(1)
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap();
+    let after_forgot: (String, String) = sqlx::query_as(
+        "SELECT password_reset_token_hash,password_reset_expires::text FROM users WHERE id=$1",
+    )
+    .bind(id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(before, after_forgot);
+    for presented in ["invitation-fixture", token.as_str()] {
+        let response = password_reset::router(settings.clone())
+            .oneshot(
+                Request::post("/api/auth/reset-password")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::json!({"token":presented,"new_password":"New-password-123"})
+                            .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body["detail"]["code"], "RESET_TOKEN_INVALID");
+        let hash: String = sqlx::query_scalar("SELECT password_hash FROM users WHERE id=$1")
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(hash, "unused");
     }
-    auth::store::insert_refresh(&mut pool.acquire().await.unwrap(),&auth::store::NewRefreshRow{user_id:id,family_id:Uuid::new_v4(),jti_hash:token_digest(&Uuid::new_v4().to_string()),device_id_hash:token_digest("second-device"),expires_at:Utc::now()+Duration::days(7)}).await.unwrap();
-    password_reset::reset(&settings,issued,"New-password-123").await.unwrap();
-    let replay=password_reset::reset(&settings,issued,"Another-password-123").await.unwrap_err();
-    assert_eq!(replay.status,StatusCode::BAD_REQUEST);assert_eq!(replay.detail["code"],"RESET_TOKEN_INVALID");
-    let after_reset:(String,String)=sqlx::query_as("SELECT password_reset_token_hash,password_reset_expires::text FROM users WHERE id=$1").bind(id).fetch_one(&pool).await.unwrap();assert_eq!(before,after_reset);
-    server.abort();let _=server.await;
+    auth::store::insert_refresh(
+        &mut pool.acquire().await.unwrap(),
+        &auth::store::NewRefreshRow {
+            user_id: id,
+            family_id: Uuid::new_v4(),
+            jti_hash: token_digest(&Uuid::new_v4().to_string()),
+            device_id_hash: token_digest("second-device"),
+            expires_at: Utc::now() + Duration::days(7),
+        },
+    )
+    .await
+    .unwrap();
+    password_reset::reset(&settings, issued, "New-password-123")
+        .await
+        .unwrap();
+    let replay = password_reset::reset(&settings, issued, "Another-password-123")
+        .await
+        .unwrap_err();
+    assert_eq!(replay.status, StatusCode::BAD_REQUEST);
+    assert_eq!(replay.detail["code"], "RESET_TOKEN_INVALID");
+    let after_reset: (String, String) = sqlx::query_as(
+        "SELECT password_reset_token_hash,password_reset_expires::text FROM users WHERE id=$1",
+    )
+    .bind(id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(before, after_reset);
+    server.abort();
+    let _ = server.await;
     let row:(String,bool,Option<chrono::DateTime<Utc>>,String) = sqlx::query_as("SELECT password_hash,must_change_password,password_changed_at,password_reset_token_hash FROM users WHERE id=$1").bind(id).fetch_one(&pool).await.unwrap();
     assert!(auth::password::verify("New-password-123", &row.0).await);
     assert!(!row.1 && row.2.is_some());
@@ -299,22 +379,50 @@ async fn e1_response_cleanup_and_delivery() {
 #[tokio::test]
 #[ignore = "requires disposable PostgreSQL authority"]
 async fn e2_invited_account_retains_resolver_state() {
-    use axum::{body::{Body,to_bytes},http::{Request,StatusCode}};
+    use axum::{
+        body::{Body, to_bytes},
+        http::{Request, StatusCode},
+    };
     use tower::ServiceExt;
-    let owner=sqlx::PgPool::connect(&std::env::var("AUTH_EMAIL_TEST_OWNER_URL").unwrap()).await.unwrap();
-    let runtime=sqlx::PgPool::connect(&std::env::var("AUTH_EMAIL_TEST_DATABASE_URL").unwrap()).await.unwrap();
-    let org=Uuid::new_v4();let id=Uuid::new_v4();let token=Uuid::new_v4().to_string();
+    let owner = sqlx::PgPool::connect(&std::env::var("AUTH_EMAIL_TEST_OWNER_URL").unwrap())
+        .await
+        .unwrap();
+    let runtime = sqlx::PgPool::connect(&std::env::var("AUTH_EMAIL_TEST_DATABASE_URL").unwrap())
+        .await
+        .unwrap();
+    let org = Uuid::new_v4();
+    let id = Uuid::new_v4();
+    let token = Uuid::new_v4().to_string();
     sqlx::query("INSERT INTO organizations(id,name,type,verification_status) VALUES ($1,$2,'FUEL_BUYER','APPROVED')").bind(org).bind(format!("E2 {org}")).execute(&owner).await.unwrap();
     sqlx::query("INSERT INTO users(id,email,password_hash,status,role,organization_id,email_verified,must_change_password,password_reset_token_hash,password_reset_expires) VALUES ($1,$2,'invited-password','APPROVED','BUYER',$3,false,true,$4,$5)").bind(id).bind(format!("{id}@example.com")).bind(org).bind(token_digest(&token)).bind(Utc::now()+Duration::hours(1)).execute(&owner).await.unwrap();
     let before:(String,String,String)=sqlx::query_as("SELECT password_reset_token_hash,password_reset_expires::text,password_hash FROM users WHERE id=$1").bind(id).fetch_one(&owner).await.unwrap();
-    let settings=email_verification::EmailSettings::new(runtime,email::MailDispatcher::new(crud::referrals::invite::MailClient::disabled()));
+    let settings = email_verification::EmailSettings::new(
+        runtime,
+        email::MailDispatcher::new(crud::referrals::invite::MailClient::disabled()),
+    );
     // This unverified invitation exercises the no-issuance branch and substitution.
-    password_reset::forgot(&settings,&format!("{id}@example.com")).await.unwrap();
-    let response=password_reset::router(settings).oneshot(Request::post("/api/auth/reset-password").header("content-type","application/json").body(Body::from(serde_json::json!({"token":token,"new_password":"New-password-123"}).to_string())).unwrap()).await.unwrap();
-    assert_eq!(response.status(),StatusCode::BAD_REQUEST);
-    let body:serde_json::Value=serde_json::from_slice(&to_bytes(response.into_body(),4096).await.unwrap()).unwrap();assert_eq!(body["detail"]["code"],"RESET_TOKEN_INVALID");
-    let after:(String,String,String)=sqlx::query_as("SELECT password_reset_token_hash,password_reset_expires::text,password_hash FROM users WHERE id=$1").bind(id).fetch_one(&owner).await.unwrap();assert_eq!(before,after);
-    let script=r#"
+    password_reset::forgot(&settings, &format!("{id}@example.com"))
+        .await
+        .unwrap();
+    let response = password_reset::router(settings)
+        .oneshot(
+            Request::post("/api/auth/reset-password")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({"token":token,"new_password":"New-password-123"})
+                        .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body: serde_json::Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+    assert_eq!(body["detail"]["code"], "RESET_TOKEN_INVALID");
+    let after:(String,String,String)=sqlx::query_as("SELECT password_reset_token_hash,password_reset_expires::text,password_hash FROM users WHERE id=$1").bind(id).fetch_one(&owner).await.unwrap();
+    assert_eq!(before, after);
+    let script = r#"
 import asyncio, os
 from datetime import datetime, UTC
 from sqlalchemy import select
@@ -332,7 +440,23 @@ async def main():
     await engine.dispose()
 asyncio.run(main())
 "#;
-    let status=std::process::Command::new(std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_|"venv/bin/python".into())).args(["-c",script]).env("E2_TOKEN",&token).status().unwrap();assert!(status.success());
-    sqlx::query("DELETE FROM users WHERE id=$1").bind(id).execute(&owner).await.unwrap();
-    sqlx::query("DELETE FROM organizations WHERE id=$1").bind(org).execute(&owner).await.unwrap();
+    let status = std::process::Command::new(
+        std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "venv/bin/python".into()),
+    )
+    .args(["-c", script])
+    .current_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+    .env("E2_TOKEN", &token)
+    .status()
+    .unwrap();
+    assert!(status.success());
+    sqlx::query("DELETE FROM users WHERE id=$1")
+        .bind(id)
+        .execute(&owner)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM organizations WHERE id=$1")
+        .bind(org)
+        .execute(&owner)
+        .await
+        .unwrap();
 }

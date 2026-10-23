@@ -23,8 +23,16 @@ async fn e1_e2_validation_and_quota() {
     );
     let app = password_reset::router(settings);
     for (body, expected, code) in [
-        (r#"{"token":"","new_password":"long-enough"}"#, StatusCode::BAD_REQUEST, "RESET_TOKEN_INVALID"),
-        (r#"{"token":"token","new_password":"short"}"#, StatusCode::UNPROCESSABLE_ENTITY, "VALIDATION_FAILED"),
+        (
+            r#"{"token":"","new_password":"long-enough"}"#,
+            StatusCode::BAD_REQUEST,
+            "RESET_TOKEN_INVALID",
+        ),
+        (
+            r#"{"token":"token","new_password":"short"}"#,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "VALIDATION_FAILED",
+        ),
     ] {
         let response = app
             .clone()
@@ -36,9 +44,12 @@ async fn e1_e2_validation_and_quota() {
             )
             .await
             .unwrap();
-        assert_eq!(response.status(),expected);
-        let bytes=axum::body::to_bytes(response.into_body(),4096).await.unwrap();
-        let value:serde_json::Value=serde_json::from_slice(&bytes).unwrap();assert_eq!(value["detail"]["code"],code);
+        assert_eq!(response.status(), expected);
+        let bytes = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(value["detail"]["code"], code);
     }
     let limits = auth::limits::SharedLimits::default();
     for _ in 0..3 {
