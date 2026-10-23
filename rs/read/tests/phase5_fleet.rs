@@ -301,12 +301,13 @@ async fn fleet_document_file_cases() {
     std::fs::create_dir(fixture.path()).unwrap();
     assert!(read(&fixture.path()).await.is_err());
     std::fs::remove_dir(fixture.path()).unwrap();
-    rustix::fs::mkfifoat(
-        rustix::fs::CWD,
-        fixture.path(),
-        rustix::fs::Mode::RUSR | rustix::fs::Mode::WUSR,
-    )
-    .unwrap();
+    assert!(
+        std::process::Command::new("mkfifo")
+            .arg(fixture.path())
+            .status()
+            .unwrap()
+            .success()
+    );
     assert!(read(&fixture.path()).await.is_err());
 }
 
