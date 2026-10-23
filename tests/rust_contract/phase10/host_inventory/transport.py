@@ -2,6 +2,7 @@
 import importlib.util
 import json
 import os
+import re
 import selectors
 import signal
 import subprocess
@@ -85,7 +86,7 @@ def read_host(host, runner=ssh_once):
     if not complete or len(data) > MAX_BYTES:
         raise ValueError('host inventory incomplete')
     result = json.loads(data)
-    if not isinstance(result, dict) or set(result) != {'coverage', 'observations', 'scripts'}:
+    if not isinstance(result, dict) or set(result) != {'coverage', 'observations', 'scripts', 'blocking_dependencies'}:
         raise ValueError('host inventory shape refused')
     return result
 
@@ -100,9 +101,11 @@ def collect_hosts(document, runner=ssh_once):
     result = dict(document)
     result['scope'] = 'installed'
     result['host_snapshots'] = snapshots
-    result['observations'] = [
-        {'host': host, 'surface': item['surface'], 'text': item['text']}
-        for host, snapshot in snapshots.items() for item in snapshot['observations']]
+    # Raw/free-form observations are never projected into installed evidence.
+    result['observations'] = []
+    result['blocking_dependencies'] = [
+        dict(row, host=host) for host, snapshot in snapshots.items()
+        for row in snapshot['blocking_dependencies']]
     result['hosts'] = [
         {'id': host, 'owner': 'operator-review-required', 'coverage': snapshot['coverage']}
         for host, snapshot in snapshots.items()]

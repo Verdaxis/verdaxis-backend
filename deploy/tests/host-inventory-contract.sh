@@ -6,3 +6,4 @@ cd "$root"
 python=${HOST_INVENTORY_TEST_PYTHON:-python3}
 "$python" tests/rust_contract/phase10/host_inventory/contract.py
 "$python" tests/rust_contract/phase10/host_inventory/reader_contract.py
+"$python" tests/rust_contract/phase10/host_inventory/review_contract.py

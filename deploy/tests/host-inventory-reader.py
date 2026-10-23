@@ -10,6 +10,7 @@ import json
 import os
 import re
 import selectors
+import shlex
 import signal
 import stat
 import subprocess
@@ -61,7 +62,7 @@ def redact(text):
     text = re.sub(r'[A-Za-z][A-Za-z0-9+.-]*://[^\s/]+@[^\s]*', '<redacted>', text)
     # Hex is a subset of base64. Redact long runs even without word boundaries.
     # Assignment keys must remain visible; redact only the runs in their values.
-    chunks = re.split(r'(\b[A-Za-z_][A-Za-z0-9_]*=)', text)
+    chunks = re.split(r'(\b[A-Za-z_][A-Za-z0-9_]{0,30}=)', text)
     return ''.join(chunk if index % 2 else re.sub(r'[A-Za-z0-9+/_=-]{32,}', '<redacted>', chunk)
                    for index, chunk in enumerate(chunks))
 
@@ -105,6 +106,7 @@ def read_script(path):
     imports = set()
     references = set()
     imports_complete = True
+    executables = set()
     # Unknown executable formats are metadata-only and cannot prove import safety.
     if b'\x00' in raw or not (path.endswith(('.py', '.sh')) or text.startswith('#!')):
         imports_complete = False
@@ -115,7 +117,11 @@ def read_script(path):
                 if isinstance(node, ast.Import):
                     imports.update(alias.name for alias in node.names)
                 elif isinstance(node, ast.ImportFrom):
-                    imports.add('.' * node.level + (node.module or ''))
+                    prefix = '.' * node.level + (node.module or '')
+                    imports.add(prefix)
+                    for alias in node.names:
+                        if alias.name != '*':
+                            imports.add(prefix + ('.' if node.module else '') + alias.name)
                 elif isinstance(node, ast.Call) and (isinstance(node.func, ast.Name) and node.func.id in {'__import__', 'eval', 'exec'} or isinstance(node.func, ast.Attribute) and node.func.attr == 'import_module'):
                     imports_complete = False
         except (SyntaxError, RecursionError):
@@ -129,13 +135,206 @@ def read_script(path):
                 imports.add(name)
         if '$' in text or '`' in text:
             imports_complete = False  # static discovery cannot prove dynamic references
-    if len(imports) + len(references) > MAX_ITEMS:
+    if not path.endswith('.py'):
+        for line in text.splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith('#') or re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*=.*', stripped):
+                continue
+            resolved = executable(stripped)
+            if resolved:
+                executables.add(resolved)
+            elif not re.match(r'(?:\.|source)\s+', stripped):
+                imports_complete = False
+    if len(imports) + len(references) + len(executables) > MAX_ITEMS:
         raise ValueError('import count bound exceeded')
     # File contents are never returned. Only static imports and metadata survive.
     return {'path': redact(path), 'uid': before.st_uid, 'gid': before.st_gid,
             'mode': format(stat.S_IMODE(before.st_mode), '04o'), 'size': len(raw),
             'sha256': hashlib.sha256(raw).hexdigest(), 'imports': sorted(redact(name) for name in imports),
-            'imports_complete': imports_complete, 'credential_references': sorted(redact(name) for name in references)}
+            'imports_complete': imports_complete, 'credential_references': sorted(redact(name) for name in references),
+            'executables': sorted(redact(name) for name in executables)}
+
+
+# Only these structural values may cross the host boundary (PD10-W1).
+PATH_VALUE = re.compile(r'/[A-Za-z0-9_./@+-]{1,4095}')
+NAME_VALUE = re.compile(r'[A-Za-z_][A-Za-z0-9_.@:-]{0,127}')
+TIMER_KEYS = {'OnCalendar', 'OnBootSec', 'OnStartupSec', 'OnActiveSec',
+              'OnUnitActiveSec', 'OnUnitInactiveSec', 'AccuracySec', 'RandomizedDelaySec'}
+APP_ROOTS = ('/home/verdaxis-prod/verdaxis/prod/be', '/home/verdaxis-prod/verdaxis/staging/be')
+
+
+def sha(text):
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def safe_path(value):
+    return PATH_VALUE.fullmatch(value) is not None and '..' not in PurePosixPath(value).parts
+
+
+def executable(value):
+    # shlex is a tokenizer, never a shell. Only argv[0] survives; assignments,
+    # wrappers and all arguments remain host-local. Ambiguous syntax is refused.
+    try:
+        words = shlex.split(value)
+    except ValueError:
+        return None
+    if not words:
+        return None
+    first = words[0].lstrip('-+!:@')
+    return first if safe_path(first) else None
+
+
+def structural(surface, text, system_cron=False):
+    fields = []
+    unparsed = []
+    # A physical multiline quoted value is uncertain: suppress the entire
+    # continuation until its quote closes, rather than parsing suffixes as fields.
+    pending = ''
+    for physical in text.splitlines(keepends=True):
+        pending += physical
+        if len(pending.encode()) > MAX_OUTPUT_BYTES:
+            raise ValueError('logical line bound exceeded')
+        if physical.rstrip('\r\n').endswith('\\'):
+            continue
+        try:
+            shlex.split(pending.replace('\\\n', ' '))
+        except ValueError:
+            continue
+        raw = pending
+        pending = ''
+        line = raw.replace('\\\n', ' ').strip()
+        parsed = []
+        if surface == 'dropins' and '=' in line:
+            key, value = line.split('=', 1)
+            key, value = key.strip(), value.strip()
+            if key in {'User', 'Group'} and NAME_VALUE.fullmatch(value) or key == 'WorkingDirectory' and safe_path(value):
+                parsed = [value]
+            elif key in {'Wants', 'Requires', 'After'} and value and all(UNIT_NAME.fullmatch(v) or re.fullmatch(r'[A-Za-z0-9_.@:-]+\.(?:target|socket|mount|path)', v) for v in value.split()):
+                parsed = value.split()
+            elif key in TIMER_KEYS and value and re.fullmatch(r'[A-Za-z0-9*,:./+~ _=-]{1,256}', value):
+                parsed = [value]
+            elif key in {'ExecStart', 'ExecStartPre', 'ExecStop'}:
+                path = executable(value)
+                if path:
+                    parsed = [path]
+            elif key == 'Environment':
+                words = shlex.split(value)
+                if words and all('=' in w and re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]{0,127}', w.split('=', 1)[0]) for w in words):
+                    parsed = sorted({w.split('=', 1)[0] for w in words})
+            elif key == 'EnvironmentFile':
+                words = shlex.split(value)
+                if words and all(safe_path(w.lstrip('-')) for w in words):
+                    parsed = [w.lstrip('-') for w in words]
+            if parsed:
+                fields.append({'key': key, 'values': [redact(v) for v in parsed]})
+        elif surface == 'cron' and line and not line.startswith('#'):
+            parts = line.split(None, 6 if system_cron else 5)
+            count = 6 if system_cron else 5
+            schedule = parts[:5]
+            if len(parts) == count + 1 and all(re.fullmatch(r'[0-9*/,-]+', v) for v in schedule):
+                path = executable(parts[count])
+                if path:
+                    fields.extend([{'key': 'schedule', 'values': [' '.join(schedule)]},
+                                   {'key': 'executable', 'values': [redact(path)]}])
+                    parsed = [path]
+            elif line.startswith('@'):
+                parts = line.split(None, 2 if system_cron else 1)
+                if len(parts) == (3 if system_cron else 2) and parts[0] in {'@reboot', '@hourly', '@daily', '@weekly', '@monthly', '@yearly', '@annually', '@midnight'}:
+                    path = executable(parts[-1])
+                    if path:
+                        fields.extend([{'key': 'schedule', 'values': [parts[0]]}, {'key': 'executable', 'values': [redact(path)]}])
+                        parsed = [path]
+        elif surface in {'units', 'timers'}:
+            names = [word for word in line.split() if UNIT_NAME.fullmatch(word)]
+            if names:
+                fields.append({'key': 'unit', 'values': [redact(n) for n in names]})
+                parsed = names
+        elif surface == 'usr_local' and safe_path(line):
+            fields.append({'key': 'executable', 'values': [redact(line)]})
+            parsed = [line]
+        if not parsed:
+            unparsed.append({'value': '<unparsed>', 'sha256': sha(raw)})
+        if len(fields) + len(unparsed) > MAX_ITEMS:
+            raise ValueError('structural item bound exceeded')
+    if pending:
+        unparsed.append({'value': '<unparsed>', 'sha256': sha(pending)})
+    return {'surface': surface, 'sha256': sha(text), 'fields': fields, 'unparsed': unparsed}
+
+
+def inspect_graph(paths, roots=APP_ROOTS, max_depth=16, script_reader=read_script):
+    scripts, blocking = [], []
+    visited = set()
+    queue = [(path, 0) for path in sorted(set(paths))]
+    budget = 0
+
+    def block(source, reference, status='unresolved'):
+        blocking.append({'source': redact(source), 'reference': redact(reference), 'status': status})
+        if len(blocking) > MAX_ITEMS:
+            raise ValueError('blocking dependency bound exceeded')
+
+    while queue:
+        path, depth = queue.pop(0)
+        if path in visited:
+            continue
+        if len(visited) >= MAX_ITEMS or depth > max_depth:
+            block(path, '<depth-or-count-bound>')
+            continue
+        visited.add(path)
+        try:
+            record = script_reader(path)
+        except (OSError, ValueError):
+            block(path, '<unreadable-or-forbidden>')
+            continue
+        budget += len(json.dumps(record).encode())
+        if budget > MAX_TOTAL_BYTES:
+            raise ValueError('graph byte bound exceeded')
+        scripts.append(record)
+        if not record['imports_complete']:
+            block(path, '<dynamic-or-unparsed>')
+        for reference in record['imports'] + record.get('executables', []):
+            if reference.split('.')[0] in {'app', 'scripts', 'alembic'}:
+                block(path, reference, 'removed-package')
+            if reference in sys.stdlib_module_names:
+                continue  # system interpreter remains installed; no import execution
+            candidates = []
+            if reference.startswith('/'):
+                candidates = [reference]
+            elif reference.startswith('.') and re.fullmatch(r'\.+[A-Za-z_][A-Za-z0-9_.]*', reference):
+                level = len(reference) - len(reference.lstrip('.'))
+                parent = PurePosixPath(path).parent
+                for _ in range(level - 1):
+                    parent = parent.parent
+                module = reference.lstrip('.').replace('.', '/')
+                candidates.extend([str(parent) + '/' + module + '.py', str(parent) + '/' + module + '/__init__.py'])
+            elif re.fullmatch(r'[A-Za-z_][A-Za-z0-9_.]*', reference):
+                module = reference.replace('.', '/')
+                for root in (str(PurePosixPath(path).parent), *roots):
+                    candidates.extend([root + '/' + module + '.py', root + '/' + module + '/__init__.py'])
+            found = None
+            for candidate in candidates:
+                try:
+                    # Resolve using the same no-follow/deny/bounds policy, never
+                    # find_spec/importlib (which can execute package initializers).
+                    script_reader(candidate)
+                    found = candidate
+                    break
+                except (OSError, ValueError):
+                    continue
+            if found is None:
+                block(path, reference)
+                continue
+            if depth >= max_depth:
+                block(path, reference)
+                continue
+            queue.append((found, depth + 1))
+            # Importing a package also runs every parent __init__.py.
+            if not reference.startswith('/'):
+                base = found[:-len(module + '.py')] if found.endswith(module + '.py') else found[:-len(module + '/__init__.py')]
+                for index in range(1, len(reference.split('.'))):
+                    queue.append((base + '/'.join(reference.split('.')[:index]) + '/__init__.py', depth + 1))
+            if len(queue) > MAX_ITEMS:
+                raise ValueError('import queue bound exceeded')
+    return {'scripts': scripts, 'blocking_dependencies': blocking, 'complete': not blocking}
 
 
 def allowed(argv):
@@ -198,41 +397,41 @@ def run_command(argv):
 def collect(command=run_command, cron_files=None, script_reader=read_script):
     observations = []
     coverage = {}
-    scripts = []
     paths = set()
     budget = 0
 
-    def observe(surface, argv):
+    def retain(surface, text, complete, system_cron=False):
         nonlocal budget
-        text, complete = command(argv)
-        safe = redact(text)  # before storage or transport
-        budget += len(safe.encode())
+        record = structural(surface, text, system_cron)
+        record['complete'] = complete
+        budget += len(json.dumps(record).encode())
         if budget > MAX_TOTAL_BYTES:
             raise ValueError('inventory output bound exceeded')
-        observations.append({'surface': surface, 'text': safe, 'complete': complete})
+        observations.append(record)
         coverage[surface] = coverage.get(surface, True) and complete
-        for path in re.findall(r'/[A-Za-z0-9_./-]+\.(?:sh|py)\b', safe):
-            if not forbidden(path):
-                paths.add(path)
-        return safe
+        for field in record['fields']:
+            if field['key'] in {'executable', 'ExecStart', 'ExecStartPre', 'ExecStop'}:
+                for path in field['values']:
+                    if safe_path(path) and not forbidden(path) and (path.endswith(('.sh', '.py')) or path.startswith('/usr/local/')):
+                        paths.add(path)
+        return record
+
+    def observe(surface, argv):
+        text, complete = command(argv)
+        return retain(surface, text, complete)
 
     units = observe('units', COMMANDS['units'])
-    names = [line.split()[0] for line in units.splitlines() if line.split() and UNIT_NAME.fullmatch(line.split()[0])]
+    names = {name for field in units['fields'] for name in field['values'] if UNIT_NAME.fullmatch(name)}
     if len(names) > MAX_ITEMS:
         raise ValueError('unit count bound exceeded')
     coverage['dropins'] = True
-    for unit in sorted(set(names)):
+    for unit in sorted(names):
         observe('dropins', ('systemctl', 'cat', '--no-pager', '--', unit))
-    observe('timers', COMMANDS['timers'])
-    observe('processes', COMMANDS['processes'])
-    executables = observe('usr_local', COMMANDS['executables'])
-    for path in executables.splitlines():
-        if re.search(r'(?i)(backup|restore|pull|dump|fleet)', path) and not forbidden(path):
-            paths.add(path)
+    for surface, name in [('timers', 'timers'), ('processes', 'processes'),
+                          ('usr_local', 'executables'), ('packages', 'packages')]:
+        observe(surface, COMMANDS[name])
     for name in ('cron-root', 'cron-service', 'cron-operator'):
         observe('cron', COMMANDS[name])
-    # System cron files are read as bounded regular files, never sourced.
-    coverage['cron'] = coverage.get('cron', True)
     cron_paths = list(cron_files) if cron_files is not None else ['/etc/crontab']
     try:
         if cron_files is None:
@@ -248,41 +447,13 @@ def collect(command=run_command, cron_files=None, script_reader=read_script):
                 os.close(descriptor)
         for path in cron_paths:
             raw, _ = read_file(path)
-            safe = redact(raw.decode('utf-8', errors='replace'))
-            budget += len(safe.encode())
-            if budget > MAX_TOTAL_BYTES:
-                raise ValueError('inventory output bound exceeded')
-            observations.append({'surface': 'cron', 'text': safe, 'complete': True})
-            for name in re.findall(r'/[A-Za-z0-9_./-]+\.(?:sh|py)\b', safe):
-                if not forbidden(name):
-                    paths.add(name)
+            retain('cron', raw.decode('utf-8', errors='strict'), True, system_cron=True)
     except (OSError, ValueError):
         coverage['cron'] = False
-    observe('packages', COMMANDS['packages'])
-    coverage['imports'] = True
-    visited = set()
-    while paths:
-        path = min(paths)
-        paths.remove(path)
-        if path in visited:
-            continue
-        if len(visited) >= MAX_ITEMS:
-            raise ValueError('script count bound exceeded')
-        visited.add(path)
-        try:
-            record = script_reader(path)
-            budget += len(json.dumps(record, ensure_ascii=True).encode())
-            if budget > MAX_TOTAL_BYTES:
-                raise ValueError('inventory output bound exceeded')
-            scripts.append(record)
-            coverage['imports'] &= record['imports_complete']
-            for name in record['imports']:
-                if name.startswith('/usr/local/') and not forbidden(name):
-                    paths.add(name)
-        except (OSError, ValueError):
-            coverage['imports'] = False
-            observations.append({'surface': 'imports', 'text': redact(path) + ': unreadable or refused', 'complete': False})
-    return {'coverage': coverage, 'observations': observations, 'scripts': scripts}
+    graph = inspect_graph(paths, script_reader=script_reader)
+    coverage['imports'] = graph['complete']
+    return {'coverage': coverage, 'observations': observations,
+            'scripts': graph['scripts'], 'blocking_dependencies': graph['blocking_dependencies']}
 
 
 if __name__ == '__main__':

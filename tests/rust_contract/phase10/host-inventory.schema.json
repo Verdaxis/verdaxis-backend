@@ -4,64 +4,576 @@
   "title": "W0 dependency register (unsigned; installed acceptance is separate)",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "scope", "binding", "hosts", "required_dependencies", "dependencies", "schedules", "credential_references", "observations", "source_sha256", "schedule_sha256"],
+  "required": [
+    "schema_version",
+    "scope",
+    "binding",
+    "hosts",
+    "required_dependencies",
+    "dependencies",
+    "schedules",
+    "credential_references",
+    "observations",
+    "source_sha256",
+    "schedule_sha256"
+  ],
   "properties": {
-    "host_snapshots": {"type": "object", "additionalProperties": false, "required": ["production", "staging"], "properties": {"production": {"$ref": "#/$defs/snapshot"}, "staging": {"$ref": "#/$defs/snapshot"}}},
-    "schema_version": {"const": 1},
-    "scope": {"enum": ["uncollected", "fixture", "installed"]},
-    "binding": {"const": "unsigned, digest-bound"},
-    "source_sha256": {"$ref": "#/$defs/digest"},
-    "schedule_sha256": {"$ref": "#/$defs/digest"},
-    "hosts": {"type": "array", "maxItems": 2, "items": {"$ref": "#/$defs/host"}},
-    "required_dependencies": {"$ref": "#/$defs/strings"},
-    "dependencies": {"type": "array", "maxItems": 10000, "items": {"$ref": "#/$defs/dependency"}},
-    "schedules": {"type": "array", "maxItems": 10000, "items": {"$ref": "#/$defs/schedule"}},
-    "credential_references": {"$ref": "#/$defs/paths"},
-    "observations": {"type": "array", "maxItems": 10000, "items": {"type": "object", "additionalProperties": false, "required": ["host", "surface", "text"], "properties": {"host": {"enum": ["production", "staging", "offhost"]}, "surface": {"enum": ["units", "timers", "dropins", "cron", "processes", "usr_local", "packages", "imports"]}, "text": {"type": "string", "maxLength": 2097152}}}}
+    "host_snapshots": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "production",
+        "staging"
+      ],
+      "properties": {
+        "production": {
+          "$ref": "#/$defs/snapshot"
+        },
+        "staging": {
+          "$ref": "#/$defs/snapshot"
+        }
+      }
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "scope": {
+      "enum": [
+        "uncollected",
+        "fixture",
+        "installed"
+      ]
+    },
+    "binding": {
+      "const": "unsigned, digest-bound"
+    },
+    "source_sha256": {
+      "$ref": "#/$defs/digest"
+    },
+    "schedule_sha256": {
+      "$ref": "#/$defs/digest"
+    },
+    "hosts": {
+      "type": "array",
+      "maxItems": 2,
+      "items": {
+        "$ref": "#/$defs/host"
+      }
+    },
+    "required_dependencies": {
+      "$ref": "#/$defs/strings"
+    },
+    "dependencies": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": {
+        "$ref": "#/$defs/dependency"
+      }
+    },
+    "schedules": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": {
+        "$ref": "#/$defs/schedule"
+      }
+    },
+    "credential_references": {
+      "$ref": "#/$defs/paths"
+    },
+    "observations": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "host",
+          "surface",
+          "text"
+        ],
+        "properties": {
+          "host": {
+            "enum": [
+              "production",
+              "staging",
+              "offhost"
+            ]
+          },
+          "surface": {
+            "enum": [
+              "units",
+              "timers",
+              "dropins",
+              "cron",
+              "processes",
+              "usr_local",
+              "packages",
+              "imports"
+            ]
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 2097152
+          }
+        }
+      }
+    },
+    "blocking_dependencies": {
+      "$ref": "#/$defs/blocking"
+    }
   },
   "$defs": {
     "snapshot": {
-      "type": "object", "additionalProperties": false, "required": ["coverage", "observations", "scripts"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "coverage",
+        "observations",
+        "scripts",
+        "blocking_dependencies"
+      ],
       "properties": {
-        "coverage": {"$ref": "#/$defs/coverage"},
-        "observations": {"type": "array", "maxItems": 10000, "items": {"type": "object", "additionalProperties": false, "required": ["surface", "text", "complete"], "properties": {"surface": {"enum": ["units", "timers", "dropins", "cron", "processes", "usr_local", "packages", "imports"]}, "text": {"type": "string", "maxLength": 2097152}, "complete": {"type": "boolean"}}}},
-        "scripts": {"type": "array", "maxItems": 1000, "items": {"type": "object", "additionalProperties": false, "required": ["path", "uid", "gid", "mode", "size", "sha256", "imports", "imports_complete", "credential_references"], "properties": {"path": {"$ref": "#/$defs/text"}, "uid": {"type": "integer", "minimum": 0}, "gid": {"type": "integer", "minimum": 0}, "mode": {"type": "string", "pattern": "^[0-7]{4}$"}, "size": {"type": "integer", "minimum": 0, "maximum": 262144}, "sha256": {"$ref": "#/$defs/digest"}, "imports": {"$ref": "#/$defs/strings"}, "imports_complete": {"type": "boolean"}, "credential_references": {"$ref": "#/$defs/paths"}}}}
+        "coverage": {
+          "$ref": "#/$defs/coverage"
+        },
+        "observations": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "surface",
+              "sha256",
+              "fields",
+              "unparsed",
+              "complete"
+            ],
+            "properties": {
+              "surface": {
+                "enum": [
+                  "units",
+                  "timers",
+                  "dropins",
+                  "cron",
+                  "processes",
+                  "usr_local",
+                  "packages",
+                  "imports"
+                ]
+              },
+              "sha256": {
+                "$ref": "#/$defs/digest"
+              },
+              "complete": {
+                "type": "boolean"
+              },
+              "fields": {
+                "type": "array",
+                "maxItems": 1000,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "key",
+                    "values"
+                  ],
+                  "properties": {
+                    "key": {
+                      "enum": [
+                        "unit",
+                        "User",
+                        "Group",
+                        "WorkingDirectory",
+                        "Wants",
+                        "Requires",
+                        "After",
+                        "OnCalendar",
+                        "OnBootSec",
+                        "OnStartupSec",
+                        "OnActiveSec",
+                        "OnUnitActiveSec",
+                        "OnUnitInactiveSec",
+                        "AccuracySec",
+                        "RandomizedDelaySec",
+                        "ExecStart",
+                        "ExecStartPre",
+                        "ExecStop",
+                        "Environment",
+                        "EnvironmentFile",
+                        "schedule",
+                        "executable"
+                      ]
+                    },
+                    "values": {
+                      "$ref": "#/$defs/strings"
+                    }
+                  }
+                }
+              },
+              "unparsed": {
+                "type": "array",
+                "maxItems": 1000,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "value",
+                    "sha256"
+                  ],
+                  "properties": {
+                    "value": {
+                      "const": "<unparsed>"
+                    },
+                    "sha256": {
+                      "$ref": "#/$defs/digest"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "scripts": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "uid",
+              "gid",
+              "mode",
+              "size",
+              "sha256",
+              "imports",
+              "imports_complete",
+              "credential_references"
+            ],
+            "properties": {
+              "path": {
+                "$ref": "#/$defs/text"
+              },
+              "uid": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "gid": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "mode": {
+                "type": "string",
+                "pattern": "^[0-7]{4}$"
+              },
+              "size": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 262144
+              },
+              "sha256": {
+                "$ref": "#/$defs/digest"
+              },
+              "imports": {
+                "$ref": "#/$defs/strings"
+              },
+              "imports_complete": {
+                "type": "boolean"
+              },
+              "credential_references": {
+                "$ref": "#/$defs/paths"
+              },
+              "executables": {
+                "$ref": "#/$defs/strings"
+              }
+            }
+          }
+        },
+        "blocking_dependencies": {
+          "$ref": "#/$defs/blocking"
+        }
       }
     },
-    "text": {"type": "string", "minLength": 1, "maxLength": 4096},
-    "digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
-    "strings": {"type": "array", "maxItems": 10000, "uniqueItems": true, "items": {"$ref": "#/$defs/text"}},
-    "paths": {"type": "array", "maxItems": 1000, "uniqueItems": true, "items": {"type": "string", "pattern": "^/[^\\u0000\\r\\n]+$", "maxLength": 4096}},
-    "coverage": {
-      "type": "object", "additionalProperties": false,
-      "required": ["units", "timers", "dropins", "cron", "processes", "usr_local", "packages", "imports"],
-      "properties": {"units": {"type": "boolean"}, "timers": {"type": "boolean"}, "dropins": {"type": "boolean"}, "cron": {"type": "boolean"}, "processes": {"type": "boolean"}, "usr_local": {"type": "boolean"}, "packages": {"type": "boolean"}, "imports": {"type": "boolean"}}
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
     },
-    "host": {"type": "object", "additionalProperties": false, "required": ["id", "owner", "coverage"], "properties": {"id": {"enum": ["production", "staging"]}, "owner": {"$ref": "#/$defs/text"}, "coverage": {"$ref": "#/$defs/coverage"}}},
-    "schedule": {"type": "object", "additionalProperties": false, "required": ["id", "host", "expression", "owner"], "properties": {"id": {"$ref": "#/$defs/text"}, "host": {"enum": ["production", "staging", "offhost"]}, "expression": {"$ref": "#/$defs/text"}, "owner": {"$ref": "#/$defs/text"}}},
-    "dependency": {
-      "type": "object", "additionalProperties": false,
-      "required": ["id", "host", "kind", "location", "path", "owner", "sha256", "classification", "evidence", "imports", "import_evidence", "removed_package_dependencies", "unix_identity", "database_identity", "destination", "retention", "restore_contract", "credential_references"],
+    "digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "strings": {
+      "type": "array",
+      "maxItems": 10000,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/text"
+      }
+    },
+    "paths": {
+      "type": "array",
+      "maxItems": 1000,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^/[^\\u0000\\r\\n]+$",
+        "maxLength": 4096
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "units",
+        "timers",
+        "dropins",
+        "cron",
+        "processes",
+        "usr_local",
+        "packages",
+        "imports"
+      ],
       "properties": {
-        "id": {"$ref": "#/$defs/text"},
-        "host": {"enum": ["production", "staging", "offhost"]},
-        "kind": {"enum": ["backup", "restore", "staging-pull", "dump", "fleet", "unit", "timer", "dropin", "cron", "process", "usr-local", "other"]},
-        "location": {"enum": ["host", "offhost"]},
-        "path": {"type": "string", "pattern": "^/[^\\u0000\\r\\n]+$", "minLength": 2, "maxLength": 4096},
-        "owner": {"$ref": "#/$defs/text"},
-        "sha256": {"$ref": "#/$defs/digest"},
-        "classification": {"enum": ["replacement-required", "retirement-approved", "unaffected"]},
-        "evidence": {"$ref": "#/$defs/text"},
-        "imports": {"$ref": "#/$defs/strings"},
-        "import_evidence": {"$ref": "#/$defs/text"},
-        "removed_package_dependencies": {"$ref": "#/$defs/strings"},
-        "unix_identity": {"$ref": "#/$defs/text"},
-        "database_identity": {"$ref": "#/$defs/text"},
-        "destination": {"$ref": "#/$defs/text"},
-        "retention": {"$ref": "#/$defs/text"},
-        "restore_contract": {"$ref": "#/$defs/text"},
-        "credential_references": {"$ref": "#/$defs/paths"}
+        "units": {
+          "type": "boolean"
+        },
+        "timers": {
+          "type": "boolean"
+        },
+        "dropins": {
+          "type": "boolean"
+        },
+        "cron": {
+          "type": "boolean"
+        },
+        "processes": {
+          "type": "boolean"
+        },
+        "usr_local": {
+          "type": "boolean"
+        },
+        "packages": {
+          "type": "boolean"
+        },
+        "imports": {
+          "type": "boolean"
+        }
+      }
+    },
+    "host": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "owner",
+        "coverage"
+      ],
+      "properties": {
+        "id": {
+          "enum": [
+            "production",
+            "staging"
+          ]
+        },
+        "owner": {
+          "$ref": "#/$defs/text"
+        },
+        "coverage": {
+          "$ref": "#/$defs/coverage"
+        }
+      }
+    },
+    "schedule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "host",
+        "expression",
+        "owner"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/text"
+        },
+        "host": {
+          "enum": [
+            "production",
+            "staging",
+            "offhost"
+          ]
+        },
+        "expression": {
+          "$ref": "#/$defs/text"
+        },
+        "owner": {
+          "$ref": "#/$defs/text"
+        }
+      }
+    },
+    "dependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "host",
+        "kind",
+        "location",
+        "path",
+        "owner",
+        "sha256",
+        "classification",
+        "evidence",
+        "imports",
+        "import_evidence",
+        "removed_package_dependencies",
+        "unix_identity",
+        "database_identity",
+        "destination",
+        "retention",
+        "restore_contract",
+        "credential_references"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/text"
+        },
+        "host": {
+          "enum": [
+            "production",
+            "staging",
+            "offhost"
+          ]
+        },
+        "kind": {
+          "enum": [
+            "backup",
+            "restore",
+            "staging-pull",
+            "dump",
+            "fleet",
+            "unit",
+            "timer",
+            "dropin",
+            "cron",
+            "process",
+            "usr-local",
+            "other"
+          ]
+        },
+        "location": {
+          "enum": [
+            "host",
+            "offhost"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^/[^\\u0000\\r\\n]+$",
+          "minLength": 2,
+          "maxLength": 4096
+        },
+        "owner": {
+          "$ref": "#/$defs/text"
+        },
+        "sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "classification": {
+          "enum": [
+            "replacement-required",
+            "retirement-approved",
+            "unaffected"
+          ]
+        },
+        "evidence": {
+          "$ref": "#/$defs/text"
+        },
+        "imports": {
+          "$ref": "#/$defs/strings"
+        },
+        "import_evidence": {
+          "$ref": "#/$defs/text"
+        },
+        "removed_package_dependencies": {
+          "$ref": "#/$defs/strings"
+        },
+        "unix_identity": {
+          "$ref": "#/$defs/text"
+        },
+        "database_identity": {
+          "$ref": "#/$defs/text"
+        },
+        "destination": {
+          "$ref": "#/$defs/text"
+        },
+        "retention": {
+          "$ref": "#/$defs/text"
+        },
+        "restore_contract": {
+          "$ref": "#/$defs/text"
+        },
+        "credential_references": {
+          "$ref": "#/$defs/paths"
+        }
+      }
+    },
+    "blocking": {
+      "type": "array",
+      "maxItems": 2000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "source",
+          "reference",
+          "status"
+        ],
+        "properties": {
+          "source": {
+            "$ref": "#/$defs/text"
+          },
+          "reference": {
+            "$ref": "#/$defs/text"
+          },
+          "status": {
+            "enum": [
+              "unresolved",
+              "removed-package"
+            ]
+          },
+          "host": {
+            "enum": [
+              "production",
+              "staging"
+            ]
+          }
+        }
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "scope": {
+            "const": "installed"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "host_snapshots",
+          "blocking_dependencies"
+        ],
+        "properties": {
+          "observations": {
+            "maxItems": 0
+          }
+        }
+      }
+    }
+  ]
 }

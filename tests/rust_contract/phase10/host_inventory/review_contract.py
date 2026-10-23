@@ -42,7 +42,6 @@ class ReviewContract(unittest.TestCase):
         output = json.dumps(result)
         for secret in secrets:
             self.assertNotIn(secret, output)
-        self.assertNotIn('observations', result) if False else None
         self.assertNotIn('"text"', output)
         for value in ('fixture', '/srv/fixture', '/bin/tool', '/usr/bin/curl',
                       '/etc/fixture/runtime.env', 'OnCalendar', '04:00:00'):

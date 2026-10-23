@@ -63,7 +63,7 @@ class ReaderContract(unittest.TestCase):
             self.assertEqual(row['mode'], '0750')
             self.assertEqual(row['uid'], os.getuid())
             self.assertEqual(row['size'], len(data))
-            self.assertEqual(row['imports'], ['app.models', 'json'])
+            self.assertEqual(row['imports'], ['app.models', 'app.models.User', 'json'])
             self.assertNotIn('sensitive', json.dumps(row))
             link = folder / 'link.py'
             link.symlink_to(script)
@@ -116,7 +116,8 @@ class ReaderContract(unittest.TestCase):
         result = self.reader.collect(command, cron_files=[], script_reader=script_reader)
         text = json.dumps(result)
         self.assertNotIn('fixture-secret', text)
-        self.assertIn('<redacted>', text)
+        self.assertIn('Environment', text)
+        self.assertNotIn('"text"', text)
         self.assertIn('/usr/local/bin', self.reader.COMMANDS['executables'])
         self.assertEqual(self.reader.COMMANDS['processes'], ('ps', '-eo', 'pid=,user=,comm='))
         for argv in seen:
@@ -145,7 +146,7 @@ class ReaderContract(unittest.TestCase):
         calls = []
         def runner(argv, data):
             calls.append((argv, data))
-            return b'{"coverage":{},"observations":[],"scripts":[]}', True
+            return b'{"coverage":{},"observations":[],"scripts":[],"blocking_dependencies":[]}', True
         for host, target in [('staging', '194.233.68.86'), ('production', 'verdaxis-prod-eu')]:
             transport.read_host(host, runner)
             argv, data = calls[-1]
