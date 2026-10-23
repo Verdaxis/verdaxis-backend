@@ -7,6 +7,7 @@ import re
 import subprocess
 from pathlib import Path
 
+import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -80,4 +81,26 @@ def test_retention_snapshot_resets_existing_subscribers(analytics_pg_url):
     print(result.stderr)
     assert result.returncode == 0
     assert "test postgres::retention_snapshot_resets_existing_subscribers ... ok" in result.stdout
+    assert "1 passed; 0 failed; 0 ignored" in result.stdout
+
+
+@pytest.mark.parametrize("case", [
+    "legacy_event_bytes_below_limit", "legacy_event_bytes_at_limit",
+    "legacy_event_bytes_above_limit", "legacy_page_bytes_below_limit",
+    "legacy_page_bytes_at_limit", "legacy_page_bytes_above_limit",
+])
+def test_legacy_byte_budget(analytics_pg_url, case):
+    result = subprocess.run(
+        ["cargo", "test", "--manifest-path", "rs/Cargo.toml", "--locked",
+         "-p", "verdaxis-read", "--features", "contract-tests", "--test",
+         "streams_dispatch", f"postgres::{case}", "--", "--exact", "--ignored", "--test-threads=1"],
+        cwd=ROOT, env={**os.environ, "SQLX_OFFLINE": "true",
+            "STREAM_DISPATCH_APP_URL": os.environ["DATABASE_URL"].replace("postgresql+asyncpg://", "postgresql://", 1),
+            "STREAM_DISPATCH_OWNER_URL": analytics_pg_url.replace("postgresql+asyncpg://", "postgresql://", 1)},
+        capture_output=True, text=True, timeout=1800, check=False,
+    )
+    print(result.stdout)
+    print(result.stderr)
+    assert result.returncode == 0
+    assert f"test postgres::{case} ... ok" in result.stdout
     assert "1 passed; 0 failed; 0 ignored" in result.stdout

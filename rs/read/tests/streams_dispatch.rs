@@ -721,4 +721,68 @@ mod postgres {
         pool.close().await;
         owner.close().await.unwrap();
     }
+    async fn legacy_byte_budget(sizes: &[usize], accepted: bool) {
+        use sqlx::postgres::PgPoolOptions;
+        use verdaxis_read::streams::{dispatch::PgDispatchStore, store};
+        let pool = PgPoolOptions::new().max_connections(1)
+            .connect(&std::env::var("STREAM_DISPATCH_APP_URL").unwrap()).await.unwrap();
+        let mut owner = PgConnection::connect(&std::env::var("STREAM_DISPATCH_OWNER_URL").unwrap()).await.unwrap();
+        let org = Uuid::new_v4();
+        let hub = StreamHub::default();
+        let mut adapter = PgDispatchStore::new(pool.clone());
+        let mut drain = Dispatch::initialize(&mut adapter, hub.clone()).await.unwrap();
+        let baseline = drain.cursor();
+        let mut subscription = hub.subscribe_org(org).unwrap();
+        let mut sequences = Vec::new();
+        for size in sizes {
+            // json_build_object emits the nine-byte {"x" : ""} wrapper.
+            let row: (i64, i32) = sqlx::query_as("INSERT INTO market_event_outbox (id,event_type,aggregate_type,aggregate_id,participant_org_ids,payload,stream_seq,delivery_attempts,created_at) VALUES ($1,'trade_created','byte_budget',$1::uuid::text,$2::json,json_build_object('x',repeat('a',$3)),nextval('market_event_stream_seq'),0,now()) RETURNING stream_seq,octet_length(payload::text)")
+                .bind(Uuid::new_v4()).bind(json!([org]).to_string()).bind((*size - 9) as i32)
+                .fetch_one(&mut owner).await.unwrap();
+            assert_eq!(row.1 as usize, *size, "fixture persisted bytes");
+            sequences.push(row.0);
+        }
+        let boundary = store::replay_boundary(&pool).await.unwrap();
+        let replay = store::replay_page(&pool, org, baseline, boundary.high_water, store::PageLimits::default()).await;
+        if !accepted {
+            assert!(matches!(replay, Err(store::StoreError::InvalidEvent(_))));
+            assert!(adapter.scan(baseline).await.is_err());
+        } else {
+            let replay = replay.expect("legacy replay must accept persisted byte budget");
+            assert!(replay.events.iter().all(|event| event.payload()["schema_version"] == 1));
+            assert_eq!(replay.events.len(), sizes.len().min(8));
+            assert_eq!(replay.more, sizes.iter().sum::<usize>() > 2 * 1024 * 1024);
+            assert!(adapter.scan(baseline).await.is_ok(), "dispatch must accept the same persisted page as replay");
+            while drain.cursor() < *sequences.last().unwrap() {
+                drain.turn(&mut adapter).await.expect("dispatch persisted budget");
+            }
+            for seq in sequences { assert_eq!(private_seq(&mut subscription).await, seq); }
+        }
+        pool.close().await;
+        owner.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore = "requires disposable PostgreSQL"]
+    async fn legacy_event_bytes_below_limit() { legacy_byte_budget(&[262_143], true).await; }
+    #[tokio::test]
+    #[ignore = "requires disposable PostgreSQL"]
+    async fn legacy_event_bytes_at_limit() { legacy_byte_budget(&[262_144], true).await; }
+    #[tokio::test]
+    #[ignore = "requires disposable PostgreSQL"]
+    async fn legacy_event_bytes_above_limit() { legacy_byte_budget(&[262_145], false).await; }
+    #[tokio::test]
+    #[ignore = "requires disposable PostgreSQL"]
+    async fn legacy_page_bytes_below_limit() {
+        let mut sizes = vec![262_144; 8]; sizes[7] -= 1; legacy_byte_budget(&sizes, true).await;
+    }
+    #[tokio::test]
+    #[ignore = "requires disposable PostgreSQL"]
+    async fn legacy_page_bytes_at_limit() { legacy_byte_budget(&[262_144; 8], true).await; }
+    #[tokio::test]
+    #[ignore = "requires disposable PostgreSQL"]
+    async fn legacy_page_bytes_above_limit() {
+        let mut sizes = vec![262_144; 8]; sizes.push(9); legacy_byte_budget(&sizes, true).await;
+    }
+
 }
