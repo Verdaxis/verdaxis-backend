@@ -1,7 +1,10 @@
 """Producer identity, replay keys, runtime authority and reversible schema additions."""
+import asyncio
 import json
 import os
 import subprocess
+import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
