@@ -1,13 +1,12 @@
 """Durable market event envelopes awaiting shared transport integration."""
 from __future__ import annotations
 
-import uuid
 from datetime import UTC, datetime
+import uuid
 
 from sqlalchemy import (
     JSON,
     BigInteger,
-    Column,
     DateTime,
     Index,
     Integer,
@@ -17,20 +16,18 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.market_constraints import postgresql_check
 from app.model_base import Base
+from app.market_constraints import postgresql_check
 
 
 class MarketEventOutbox(Base):
     """Participant-scoped event persisted in the economic transaction."""
 
     __tablename__ = "market_event_outbox"
-    __mapper_args__ = {"exclude_properties": ["producer_evidence"]}
     __table_args__ = (
-        Column("producer_evidence", JSONB().with_variant(JSON(), "sqlite"), nullable=True),
         Index("ix_market_event_outbox_pending", "dispatched_at", "created_at"),
         # Integration (Stage 5): the shared SSE dispatcher's sequencer claims
         # rows where stream_seq IS NULL in created_at order.

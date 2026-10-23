@@ -1,18 +1,16 @@
 """Watchlist models for market-radar slices, pins, and event history."""
 import enum
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, UTC
 
 from sqlalchemy import (
-    JSON,
-    BigInteger,
     Boolean,
     CheckConstraint,
-    Column,
     DateTime,
     Enum,
     ForeignKey,
     Index,
+    JSON,
     String,
     text,
 )
@@ -165,18 +163,7 @@ class WatchlistTarget(Base):
 
 class WatchlistEvent(Base):
     __tablename__ = "watchlist_events"
-    __mapper_args__ = {"exclude_properties": ["producer", "source_event_id", "source_stream_seq", "scope_attested_at", "derived_event_key"]}
     __table_args__ = (
-        Column("producer", String(32), CheckConstraint("producer IN ('legacy-python', 'rust-market-v1')"), nullable=False, server_default="legacy-python"),
-        Column("source_event_id", UUID(as_uuid=True), nullable=True),
-        Column("source_stream_seq", BigInteger(), nullable=True),
-        Column("scope_attested_at", DateTime(timezone=True), nullable=True),
-        Column("derived_event_key", String(255), nullable=True),
-        CheckConstraint(
-            "(producer = 'legacy-python' AND source_event_id IS NULL AND source_stream_seq IS NULL AND scope_attested_at IS NULL AND derived_event_key IS NULL) OR (producer = 'rust-market-v1' AND source_event_id IS NOT NULL AND source_stream_seq IS NOT NULL AND scope_attested_at IS NOT NULL AND derived_event_key IS NOT NULL AND char_length(derived_event_key) > 0)",
-            name="ck_watchlist_events_producer_identity",
-        ),
-        Index("uq_watchlist_events_producer_source_target_derived", "producer", "source_event_id", "watchlist_target_id", "derived_event_key", unique=True, postgresql_where=text("source_event_id IS NOT NULL")),
         Index("ix_watchlist_events_target_created_at", "watchlist_target_id", "created_at"),
         Index("ix_watchlist_events_target_is_read_created", "watchlist_target_id", "is_read", "created_at"),
         Index("ix_watchlist_events_watchlist_created_at", "watchlist_id", "created_at", "id"),
