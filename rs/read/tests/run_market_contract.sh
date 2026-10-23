@@ -84,8 +84,12 @@ docker exec -i "$container" psql -q -U postgres -d "$db" -v ON_ERROR_STOP=1 -c \
 
 log=$(mktemp "${TMPDIR:-/tmp}/rust-market-tests.XXXXXX")
 set +e
+# Optional target list, so one task can run its own equivalence file while a
+# later task's file is still being written.
+targets=${RUST_MARKET_TARGETS:---test market_contract_postgres --test meaning_curve_queries --test meaning_orderbook_queries}
+# shellcheck disable=SC2086
 cargo test --manifest-path "$repo/rs/Cargo.toml" --locked -p verdaxis-read \
-  --features contract-tests --test market_contract_postgres -- --test-threads=1 2>&1 | tee "$log"
+  --features contract-tests $targets -- --test-threads=1 2>&1 | tee "$log"
 cargo_status=${PIPESTATUS[0]}
 set -e
 if (( cargo_status != 0 )); then

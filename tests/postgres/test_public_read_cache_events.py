@@ -1,9 +1,12 @@
 """Transactional public cache metadata never grants runtime write authority."""
 import asyncio
 import importlib.util
+import json
 import os
 import re
+import secrets
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -406,3 +409,240 @@ def test_rust_listener_uses_migrated_disposable_database(analytics_pg_url):
                    "RELEASE_SHA": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip(), "SQLX_OFFLINE": "true"}
     subprocess.run(["cargo", "test", "--manifest-path", "rs/Cargo.toml", "-p", "verdaxis-read", "--test", "cache_events_postgres"],
                    cwd=root, env=environment, check=True, timeout=900)
+
+
+def test_rust_trading_cache_needs_every_authority_and_generation(
+    analytics_pg_url, market_pg_url
+):
+    """Run the Rust trading-cache target against two disposable incarnations.
+
+    The two databases are separate migrated schemas on one disposable server,
+    not live hosts. `an_entry_from_the_prior_incarnation_is_never_a_hit` needs
+    both URLs, so this driver is what actually executes it in the suite.
+    """
+    environment = {
+        **os.environ,
+        "PUBLIC_CACHE_TEST_DATABASE_URL": analytics_pg_url.replace(
+            "postgresql+asyncpg://", "postgres://", 1
+        ),
+        "PUBLIC_CACHE_TEST_SECOND_DATABASE_URL": market_pg_url.replace(
+            "postgresql+asyncpg://", "postgres://", 1
+        ),
+        "RELEASE_SHA": subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+        ).strip(),
+        "SQLX_OFFLINE": "true",
+    }
+    subprocess.run(
+        [
+            "cargo",
+            "test",
+            "--manifest-path",
+            "rs/Cargo.toml",
+            "-p",
+            "verdaxis-read",
+            "--test",
+            "trading_cache_postgres",
+            "--",
+            "--test-threads=1",
+        ],
+        cwd=ROOT,
+        env=environment,
+        check=True,
+        timeout=1200,
+    )
+
+
+@pytest.mark.asyncio
+async def test_rust_public_route_cache_schedules(route_market, market_pg_url):
+    """Actual route handlers use the same disposable authority and snapshot proof."""
+    client, seeded = route_market
+    response = await client.post("/api/orderbook", json={
+        "side": "BID", "product_id": str(seeded["product_id"]),
+        "delivery_point_id": str(seeded["point_id"]), "quantity_mt": "300.00",
+        "price_per_mt_usd": "700.00", "availability_window": "SPOT",
+    }, headers=_headers(seeded["buyer_id"], "rust-route-cache"))
+    assert response.status_code == 201, response.text
+    environment = {
+        **os.environ,
+        "ROUTE_CACHE_TEST_DATABASE_URL": market_pg_url.replace("postgresql+asyncpg://", "postgres://", 1),
+        "RELEASE_SHA": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
+        "SQLX_OFFLINE": "true",
+    }
+    subprocess.run(
+        ["cargo", "test", "--manifest-path", "rs/Cargo.toml", "-p", "verdaxis-read",
+         "--test", "trading_cache_postgres", "public_route_wrappers_check_generations_and_time_without_listener_wakes", "--", "--test-threads=1"],
+        cwd=ROOT, env=environment, check=True, timeout=1200,
+    )
+
+
+async def _wait_for_file(path: Path, timeout: float = 180.0) -> None:
+    deadline = time.monotonic() + timeout
+    while not path.exists():
+        if time.monotonic() > deadline:
+            raise AssertionError(f"timed out waiting for {path.name}")
+        await asyncio.sleep(0.05)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("incarnation", ["market", "analytics"])
+async def test_two_rust_readers_never_serve_the_prior_generation(
+    route_market, market_pg_url, analytics_pg_url, tmp_path, incarnation
+):
+    """Mixed Python-writer/Rust-reader schedule on two database incarnations.
+
+    Two independent Rust processes on the same disposable incarnation warm a
+    trading entry at generation G. Python then commits one real dependency write.
+    Repeat the schedule on the other incarnation. Neither Rust process
+    consumes the invalidation wake before its next read, so each must derive
+    G+1 from the generation check in its own snapshot. Only then is the wake
+    delivered and the entry cleared. This is a correctness schedule; it
+    measures nothing.
+    """
+    client, seeded = route_market
+    analytics = analytics_pg_url.replace("postgresql+asyncpg://", "postgres://", 1)
+    engine = seeded["engine"]
+    analytics_engine = create_async_engine(analytics_pg_url)
+    epoch = secrets.token_hex(32)
+    primary = secrets.token_hex(32)
+    target = analytics if incarnation == "analytics" else market_pg_url.replace(
+        "postgresql+asyncpg://", "postgres://", 1
+    )
+    readers = {"a": target, "b": target}
+    # Each reader asserts its own database name, so the two incarnations are
+    # proved rather than assumed.
+    names = {reader: url.rsplit("/", 1)[-1].split("?", 1)[0] for reader, url in readers.items()}
+
+    for database in (engine, analytics_engine):
+        async with database.begin() as connection:
+            await connection.execute(
+                text(
+                    "UPDATE public_read_cache_incarnation SET database_epoch = :epoch, "
+                    "primary_identity = :primary, authority_revision = 1, active = true "
+                    "WHERE singleton"
+                ),
+                {"epoch": epoch, "primary": primary},
+            )
+    record = tmp_path / "cache-authority.json"
+    record.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "state": "active",
+                "database_epoch": epoch,
+                "primary_identity": primary,
+                "authority_revision": 1,
+            }
+        )
+    )
+
+    root = ROOT
+    release = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=root, text=True
+    ).strip()
+    environment = {
+        **os.environ,
+        "PUBLIC_CACHE_TEST_DATABASE_URL": readers["b"],
+        "PUBLIC_CACHE_TEST_RECORD": str(record),
+        "PUBLIC_CACHE_TEST_SCHEDULE": "mixed",
+        "PUBLIC_CACHE_TEST_BARRIER_DIR": str(tmp_path),
+        "RELEASE_SHA": release,
+        "SQLX_OFFLINE": "true",
+    }
+    # Build once so the two readers do not contend for the cargo lock.
+    subprocess.run(
+        [
+            "cargo",
+            "test",
+            "--manifest-path",
+            "rs/Cargo.toml",
+            "-p",
+            "verdaxis-read",
+            "--test",
+            "trading_cache_postgres",
+            "--no-run",
+        ],
+        cwd=root,
+        env=environment,
+        check=True,
+        timeout=900,
+    )
+
+    processes = {}
+    logs = []
+    try:
+        for reader in ("a", "b"):
+            log = (tmp_path / f"reader_{reader}.log").open("wb")
+            logs.append(log)
+            processes[reader] = await asyncio.create_subprocess_exec(
+                "cargo",
+                "test",
+                "--manifest-path",
+                "rs/Cargo.toml",
+                "-p",
+                "verdaxis-read",
+                "--test",
+                "trading_cache_postgres",
+                "--",
+                "--exact",
+                "--nocapture",
+                "mixed_python_writer_schedule",
+                cwd=root,
+                env={
+                    **environment,
+                    "PUBLIC_CACHE_TEST_READER": reader,
+                    "PUBLIC_CACHE_TEST_READER_DATABASE_URL": readers[reader],
+                    "PUBLIC_CACHE_TEST_EXPECT_DATABASE": names[reader],
+                },
+                stdout=log,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+        for reader in processes:
+            await _wait_for_file(tmp_path / f"{reader}.warm.rust")
+
+        created = await client.post(
+            "/api/orderbook",
+            json={
+                "side": "BID",
+                "product_id": str(seeded["product_id"]),
+                "delivery_point_id": str(seeded["point_id"]),
+                "quantity_mt": "200.00",
+                "price_per_mt_usd": "600.00",
+                "availability_window": "SPOT",
+            },
+            headers=_headers(seeded["buyer_id"], "cache-race-writer"),
+        )
+        assert created.status_code == 201, created.text
+        if incarnation == "analytics":
+            async with analytics_engine.begin() as connection:
+                await connection.execute(text("UPDATE products SET is_active = is_active"))
+        for reader in processes:
+            (tmp_path / f"{reader}.warm.python").write_text("1")
+
+        for reader in processes:
+            await _wait_for_file(tmp_path / f"{reader}.read.rust")
+            result = json.loads((tmp_path / f"result_{reader}.json").read_text())
+            assert result["after"] > result["before"], (reader, result)
+            await _wait_for_file(tmp_path / f"{reader}.cleared.rust")
+            code = await asyncio.wait_for(processes[reader].wait(), 120)
+            assert code == 0, (
+                (tmp_path / f"reader_{reader}.log").read_text()
+                if (tmp_path / f"reader_{reader}.log").exists()
+                else reader
+            )
+    finally:
+        for process in processes.values():
+            if process.returncode is None:
+                process.kill()
+                await process.wait()
+        for log in logs:
+            log.close()
+        for database in (engine, analytics_engine):
+            async with database.begin() as connection:
+                await connection.execute(
+                    text(
+                        "UPDATE public_read_cache_incarnation SET active = false, "
+                        "authority_revision = 0"
+                    )
+                )
+        await analytics_engine.dispose()
