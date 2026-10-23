@@ -148,12 +148,30 @@ impl<S: ReplaySource, C: ReplayClock> Replay<S, C> {
             .revalidate(&principal)
             .await
             .map_err(AdmissionError::Authorization)?;
-        let subscription = hub
+        let mut subscription = hub
             .subscribe_org(principal.organization_id())
             .map_err(|_| AdmissionError::Capacity)?;
-        let boundary = source.boundary().await.map_err(AdmissionError::Store)?;
+        let captured = tokio::select! {
+            biased;
+            terminal = subscription.wait_terminal() => Err(terminal),
+            boundary = source.boundary() => Ok(boundary.map_err(AdmissionError::Store)?),
+        };
+        // A terminal during capture needs no baseline: the body will emit only
+        // that control. The cancelled snapshot future owns its rollback.
+        let (boundary, capture_terminal) = match captured {
+            Ok(boundary) => (boundary, None),
+            Err(terminal) => (
+                ReplayBoundary {
+                    discarded_through: 0,
+                    high_water: 0,
+                },
+                Some(terminal),
+            ),
+        };
         let now = clock.now();
-        let pending_terminal = if now >= principal.expires_at() {
+        let pending_terminal = if capture_terminal.is_some() {
+            capture_terminal
+        } else if now >= principal.expires_at() {
             Some(Terminal::AuthExpired)
         } else if cursor.is_some_and(|cursor| cursor < boundary.discarded_through) {
             Some(Terminal::Retention)
@@ -228,8 +246,10 @@ impl<S: ReplaySource, C: ReplayClock> Replay<S, C> {
             }
             if self.check_due() {
                 let expiry = self.expiry_deadline();
+                let subscription = self.subscription.as_mut()?;
                 let result = tokio::select! {
                     biased;
+                    terminal = subscription.wait_terminal() => return self.finish(terminal),
                     _ = tokio::time::sleep_until(expiry) => return self.finish(Terminal::AuthExpired),
                     result = self.source.revalidate(&self.principal) => result,
                 };
@@ -252,8 +272,10 @@ impl<S: ReplaySource, C: ReplayClock> Replay<S, C> {
             }
             if self.replaying {
                 let expiry = self.expiry_deadline();
+                let subscription = self.subscription.as_mut()?;
                 let result = tokio::select! {
                     biased;
+                    terminal = subscription.wait_terminal() => return self.finish(terminal),
                     _ = tokio::time::sleep_until(expiry) => return self.finish(Terminal::AuthExpired),
                     result = self.source.page(self.principal.organization_id(), self.cursor, self.through, PageLimits::default()) => result,
                 };
