@@ -3,6 +3,9 @@
 mod actor;
 mod claims;
 pub mod cookies;
+pub mod email;
+pub mod email_verification;
+pub mod password_reset;
 pub mod error;
 pub mod issue;
 pub mod limits;
