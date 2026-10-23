@@ -235,7 +235,10 @@ async fn compliance_overlay_postgres_cases() {
     };
     let qualified = ids("visible_ids");
     let hidden = ids("hidden_ids");
-    assert!(qualified.len() >= 2, "two qualified fixture orders required");
+    assert!(
+        qualified.len() >= 2,
+        "two qualified fixture orders required"
+    );
     assert!(hidden.len() >= 2, "hidden ASK and BID fixtures required");
     let mut hidden_ask = false;
     let mut hidden_bid = false;
@@ -283,7 +286,10 @@ async fn compliance_overlay_postgres_cases() {
     }
     for id in &qualified {
         assert!(visible.contains(id), "qualified fixture must be public");
-        assert!(response.overlays[id].is_some(), "qualified overlay for {id}");
+        assert!(
+            response.overlays[id].is_some(),
+            "qualified overlay for {id}"
+        );
     }
     assert_ne!(
         response.overlays[&qualified[0]], response.overlays[&qualified[1]],
@@ -329,7 +335,8 @@ async fn compliance_overlay_postgres_cases() {
             .unwrap();
             assert_eq!(response.overlays.len(), request.order_ids().len());
             assert_eq!(
-                response.assumptions.fleet_vessel_count, expected_count,
+                response.assumptions.fleet_vessel_count,
+                expected_count,
                 "fleet scope {} with {} requested IDs",
                 scope["name"],
                 request.order_ids().len()
