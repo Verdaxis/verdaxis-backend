@@ -1393,7 +1393,7 @@ async fn public_route_wrappers_check_generations_and_time_without_listener_wakes
     let _serial = SERIAL.lock().await;
     let Ok(url) = std::env::var("ROUTE_CACHE_TEST_DATABASE_URL") else { return; };
     let mut writer = PgConnection::connect_with(&options(&url)).await.unwrap();
-    let (mut state, runtime, _record) = admitted_state(&url, &mut writer).await;
+    let (mut state, runtime, record) = admitted_state(&url, &mut writer).await;
     state.policy = Arc::new(serde_json::from_slice::<MarketPolicy>(
         include_bytes!("../../../deploy/rust/market-policy.json")).unwrap());
     let start = instant_at("2026-10-23T08:00:00Z");
@@ -1415,7 +1415,10 @@ async fn public_route_wrappers_check_generations_and_time_without_listener_wakes
     ];
     let mut disabled = state.clone();
     disabled.trading_cache = None;
+    let mut revision = 1;
     for path in paths {
+        let expiry: chrono::DateTime<chrono::Utc> = (clock.now().wall + Duration::from_secs(1)).into();
+        sqlx::query("UPDATE orderbook_orders SET expires_at = $1").bind(expiry).execute(&mut writer).await.unwrap();
         runtime.authority().refresh(runtime.record_path(), clock.now().monotonic);
         state.trading_caches.clear();
         let expected = route_json(&disabled, &path).await;
@@ -1437,6 +1440,27 @@ async fn public_route_wrappers_check_generations_and_time_without_listener_wakes
             .expect("post-commit route must miss without event delivery");
         gate.gate.release.notify_one();
         assert_eq!(task.await.unwrap(), expected, "post-commit: {path}");
+        clock.advance(Duration::from_secs(1));
+        runtime.authority().refresh(runtime.record_path(), clock.now().monotonic);
+        assert_eq!(route_json(&state, &path).await, route_json(&disabled, &path).await, "exact expiry: {path}");
+        // Reused and reduced generations retain new authority ownership.
+        for offset in [0, -1] {
+            let current = generation(&mut writer).await;
+            revision += 1;
+            record.revoke(revision);
+            publish_record(&runtime, &record);
+            runtime.authority().refresh(runtime.record_path(), clock.now().monotonic);
+            assert_eq!(route_json(&state, &path).await.0, 500, "revoked: {path}");
+            revision += 1;
+            let successor = authority(revision);
+            bind(&mut writer, &successor, true).await;
+            set_generation(&mut writer, current + offset).await;
+            record.activate(&successor);
+            publish_record(&runtime, &record);
+            until_serving(&runtime, &successor).await;
+            runtime.authority().refresh(runtime.record_path(), clock.now().monotonic);
+            assert_eq!(route_json(&state, &path).await, route_json(&disabled, &path).await, "rotated: {path}");
+        }
     }
     reset(&mut writer).await;
     writer.close().await.unwrap();

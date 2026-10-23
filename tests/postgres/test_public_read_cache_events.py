@@ -453,8 +453,16 @@ def test_rust_trading_cache_needs_every_authority_and_generation(
     )
 
 
-def test_rust_public_route_cache_schedules(route_market, market_pg_url):
+@pytest.mark.asyncio
+async def test_rust_public_route_cache_schedules(route_market, market_pg_url):
     """Actual route handlers use the same disposable authority and snapshot proof."""
+    client, seeded = route_market
+    response = await client.post("/api/orderbook", json={
+        "side": "BID", "product_id": str(seeded["product_id"]),
+        "delivery_point_id": str(seeded["point_id"]), "quantity_mt": "300.00",
+        "price_per_mt_usd": "700.00", "availability_window": "SPOT",
+    }, headers=_headers(seeded["buyer_id"], "rust-route-cache"))
+    assert response.status_code == 201, response.text
     environment = {
         **os.environ,
         "ROUTE_CACHE_TEST_DATABASE_URL": market_pg_url.replace("postgresql+asyncpg://", "postgres://", 1),
