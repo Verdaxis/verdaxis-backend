@@ -1539,6 +1539,7 @@ async fn public_route_wrappers_check_generations_and_time_without_listener_wakes
             "exact expiry: {path}"
         );
         // Reused and reduced generations retain new authority ownership.
+        let before_rotation = generation(&mut writer).await;
         for offset in [0, -1] {
             let current = generation(&mut writer).await;
             revision += 1;
@@ -1564,6 +1565,9 @@ async fn public_route_wrappers_check_generations_and_time_without_listener_wakes
                 "rotated: {path}"
             );
         }
+        // The disposable restore reused event keys too. Move beyond retained
+        // events before the next economic write; do not leave a duplicate key.
+        set_generation(&mut writer, before_rotation + 100).await;
     }
     reset(&mut writer).await;
     writer.close().await.unwrap();
