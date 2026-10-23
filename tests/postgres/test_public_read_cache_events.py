@@ -453,6 +453,21 @@ def test_rust_trading_cache_needs_every_authority_and_generation(
     )
 
 
+def test_rust_public_route_cache_schedules(route_market, market_pg_url):
+    """Actual route handlers use the same disposable authority and snapshot proof."""
+    environment = {
+        **os.environ,
+        "ROUTE_CACHE_TEST_DATABASE_URL": market_pg_url.replace("postgresql+asyncpg://", "postgres://", 1),
+        "RELEASE_SHA": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
+        "SQLX_OFFLINE": "true",
+    }
+    subprocess.run(
+        ["cargo", "test", "--manifest-path", "rs/Cargo.toml", "-p", "verdaxis-read",
+         "--test", "trading_cache_postgres", "public_route_wrappers_check_generations_and_time_without_listener_wakes", "--", "--test-threads=1"],
+        cwd=ROOT, env=environment, check=True, timeout=1200,
+    )
+
+
 async def _wait_for_file(path: Path, timeout: float = 180.0) -> None:
     deadline = time.monotonic() + timeout
     while not path.exists():
