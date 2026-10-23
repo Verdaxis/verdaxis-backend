@@ -65,20 +65,51 @@ async fn logout(State(state): State<LogoutState>, jar: CookieJar, request: Reque
     let cleared = AuthCookies::for_environment(&state.environment).clear(jar);
     let headers = request.headers().clone();
     drop(request);
-    let result=async{
- require_trusted_origin(&headers,&state.environment,presented.cookie_authenticated()).map_err(|_|ApiError::from(AuthFailure::new(AuthCode::BrowserOriginRejected)))?;
- let family=presented.refresh.as_deref().and_then(|token|legacy_family(&state,token));
- let device=presented.valid_device().map(token_digest);
- if device.is_none()&&family.is_none(){return Ok(());}
- for attempt in 0..2{let result=async{
- let mut tx=state.pool.begin().await?;sqlx::query("SET TRANSACTION READ WRITE").execute(&mut *tx).await?;
- if let Some(device)=&device{store::lock_device(&mut tx,device).await?;store::revoke_device_families(&mut tx,device,family.map(|(_,f)|f)).await?;}
- else if let Some((user,family))=family{store::lock_user(&mut tx,user).await?;sqlx::query("UPDATE refresh_sessions SET revoked=true WHERE user_id=$1 AND family_id=$2").bind(user).bind(family).execute(&mut *tx).await?;}
- tx.commit().await
- }.await;
- match result{Ok(())=>return Ok(()),Err(error) if attempt==0&&error.is_write_conflict()=>continue,Err(_)=>return Err(ApiError{status:StatusCode::SERVICE_UNAVAILABLE,..ApiError::database()})}
- }Err(ApiError::database())
- }.await;
+    let result = async {
+        require_trusted_origin(
+            &headers,
+            &state.environment,
+            presented.cookie_authenticated(),
+        )
+        .map_err(|_| ApiError::from(AuthFailure::new(AuthCode::BrowserOriginRejected)))?;
+        let family = presented
+            .refresh
+            .as_deref()
+            .and_then(|token| legacy_family(&state, token));
+        let device = presented.valid_device().map(token_digest);
+        if device.is_none() && family.is_none() {
+            return Ok(());
+        }
+        for attempt in 0..2 {
+            let result = async {
+                let mut tx = state.pool.begin().await?;
+                sqlx::query("SET TRANSACTION READ WRITE")
+                    .execute(&mut *tx)
+                    .await?;
+                if let Some(device) = &device {
+                    store::lock_device(&mut tx, device).await?;
+                    store::revoke_device_families(&mut tx, device, family.map(|(_, f)| f)).await?;
+                } else if let Some((user, family)) = family {
+                    store::lock_user(&mut tx, user).await?;
+                    store::revoke_family(&mut tx, user, family).await?;
+                }
+                tx.commit().await
+            }
+            .await;
+            match result {
+                Ok(()) => return Ok(()),
+                Err(error) if attempt == 0 && error.is_write_conflict() => continue,
+                Err(_) => {
+                    return Err(ApiError {
+                        status: StatusCode::SERVICE_UNAVAILABLE,
+                        ..ApiError::database()
+                    });
+                }
+            }
+        }
+        Err(ApiError::database())
+    }
+    .await;
     let response = match result {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => error.into_response(),

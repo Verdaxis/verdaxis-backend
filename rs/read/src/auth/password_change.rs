@@ -22,7 +22,7 @@ use axum::{
     routing::put,
 };
 use axum_extra::extract::CookieJar;
-use chrono::{Duration, Utc};
+use chrono::{Duration, Timelike, Utc};
 use serde::Deserialize;
 use serde_json::json;
 use sqlx::PgPool;
@@ -204,7 +204,7 @@ async fn replace(
     let hash = password::hash(&change.new_password)
         .await
         .map_err(|_| ChangeError::Refused(AuthFailure::new(AuthCode::ValidationFailed).into()))?;
-    let now = Utc::now();
+    let now = Utc::now().trunc_subsecs(6);
     let cutoff = store::revoke_user_authentication(
         &mut tx,
         user.id,
