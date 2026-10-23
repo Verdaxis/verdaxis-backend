@@ -11,7 +11,12 @@ fail() { printf 'artifact verification refused: %s\n' "$1" >&2; exit 1; }
 cleanup() { if [[ -n "$work" ]]; then rm -rf -- "$work"; fi; }
 trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
-archive= record= signature= public_key= output= source_sha=
+archive=''
+record=''
+signature=''
+public_key=''
+output=''
+source_sha=''
 repository=Verdaxis/verdaxis-backend
 workflow_path=.github/workflows/rust-read-ci.yml
 workflow_ref=refs/heads/staging
@@ -162,7 +167,7 @@ timeout 30 tar --list --file "$work/archive.tar" --quoting-style=escape > "$work
 cmp -s "$work/raw-names" "$work/tar-names" || fail 'archive parser disagreement'
 mkdir -m 700 "$work/tree"
 cd "$work/tree"
-timeout 30 tar --extract --file "$work/archive.tar" --no-same-owner --no-same-permissions --keep-old-files --no-overwrite-dir
+timeout 30 tar --extract --file "$work/archive.tar" --no-same-owner --no-same-permissions --no-overwrite-dir
 # No member may redirect a subsequent read, including after extraction returns.
 for name in "${names[@]}"; do
     [[ ! -L "$name" && -f "$name" && $(stat -c %h -- "$name") == 1 ]] || fail 'extracted member is not a private regular file'
