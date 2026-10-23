@@ -68,30 +68,36 @@ impl MailDispatcher {
         };
         let dispatcher = self.clone();
         use tracing::instrument::WithSubscriber;
-        tokio::spawn(async move {
-            let payload = render(&mail, &dispatcher.sender, &dispatcher.frontend);
-            let mut sent = false;
-            for delay in [0, 1, 3] {
-                if delay != 0 {
-                    tokio::time::sleep(Duration::from_secs(delay)).await;
-                }
-                if tokio::time::timeout(Duration::from_secs(10), dispatcher.client.send(&payload))
+        tokio::spawn(
+            async move {
+                let payload = render(&mail, &dispatcher.sender, &dispatcher.frontend);
+                let mut sent = false;
+                for delay in [0, 1, 3] {
+                    if delay != 0 {
+                        tokio::time::sleep(Duration::from_secs(delay)).await;
+                    }
+                    if tokio::time::timeout(
+                        Duration::from_secs(10),
+                        dispatcher.client.send(&payload),
+                    )
                     .await
                     .unwrap_or(false)
-                {
-                    sent = true;
-                    break;
+                    {
+                        sent = true;
+                        break;
+                    }
                 }
+                if !sent {
+                    tracing::warn!(
+                        recipient_digest = &digest[..12],
+                        "auth_mail_delivery_failed"
+                    );
+                }
+                drop(permit);
+                dispatcher.done.notify_waiters();
             }
-            if !sent {
-                tracing::warn!(
-                    recipient_digest = &digest[..12],
-                    "auth_mail_delivery_failed"
-                );
-            }
-            drop(permit);
-            dispatcher.done.notify_waiters();
-        }.with_current_subscriber());
+            .with_current_subscriber(),
+        );
     }
     /// Await the currently admitted deliveries during graceful shutdown.
     pub async fn drain(&self) {

@@ -81,13 +81,32 @@ fn e2_mail_link_is_encoded() {
 
 #[tokio::test]
 async fn e1_e2_rejections_use_auth_envelopes() {
-    let pool = sqlx::postgres::PgPoolOptions::new().connect_lazy("postgres://unused:unused@127.0.0.1:1/unused").unwrap();
-    let app=password_reset::router(email_verification::EmailSettings::new(pool,email::MailDispatcher::new(crud::referrals::invite::MailClient::disabled())));
-    for (path,body) in [("/api/auth/forgot-password","{"),("/api/auth/reset-password",r#"{"token":42}"#)] {
-        let response=app.clone().oneshot(Request::post(path).header("content-type","application/json").body(Body::from(body)).unwrap()).await.unwrap();
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
+        .unwrap();
+    let app = password_reset::router(email_verification::EmailSettings::new(
+        pool,
+        email::MailDispatcher::new(crud::referrals::invite::MailClient::disabled()),
+    ));
+    for (path, body) in [
+        ("/api/auth/forgot-password", "{"),
+        ("/api/auth/reset-password", r#"{"token":42}"#),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post(path)
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert!(response.status().is_client_error());
-        let bytes=axum::body::to_bytes(response.into_body(),4096).await.unwrap();
-        let value:serde_json::Value=serde_json::from_slice(&bytes).expect("JSON envelope");
+        let bytes = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&bytes).expect("JSON envelope");
         assert!(value["detail"]["code"].is_string());
     }
 }

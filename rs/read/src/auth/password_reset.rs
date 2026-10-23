@@ -1,12 +1,14 @@
 //! E1/E2 operations over the dedicated reset-token store.
 use super::email::AuthMail;
-use super::email_verification::{EmailSettings, client_address, database_error, retry_transaction, auth_json, email_address};
+use super::email_verification::{
+    EmailSettings, auth_json, client_address, database_error, email_address, retry_transaction,
+};
+use crate::ApiError;
 use crate::auth::{
     error::{AuthCode, AuthFailure},
     password, store,
     token_bytes::{generate_token, token_digest},
 };
-use crate::ApiError;
 use axum::{
     Extension, Json, Router,
     extract::{ConnectInfo, State},
@@ -28,19 +30,40 @@ pub async fn forgot(settings: &EmailSettings, address: &str) -> Result<Value, Ap
     store::sweep_expired_reset_tokens(&settings.pool, Utc::now())
         .await
         .map_err(database_error)?;
-    let mail=retry_transaction(|| forgot_attempt(settings,address)).await?;
-    if let Some(mail)=mail { settings.mail.dispatch(mail); }
+    let mail = retry_transaction(|| forgot_attempt(settings, address)).await?;
+    if let Some(mail) = mail {
+        settings.mail.dispatch(mail);
+    }
     Ok(json!({"message":"If applicable, a password reset link will be sent."}))
 }
-async fn forgot_attempt(settings:&EmailSettings,address:&str)->Result<Option<AuthMail>,sqlx::Error> {
-    let mut tx=settings.pool.begin().await?;
-    let user=store::lock_user_by_email(&mut tx,address).await?;
-    let mail=if let Some(user)=user.filter(|user|user.email_verified) {
-        let now=Utc::now();let token=generate_token();
-        store::upsert_reset_token(&mut tx,&store::NewResetToken{user_id:user.id,token_hash:token_digest(&token),expires_at:now+Duration::hours(1)},now).await?;
-        audit(&mut tx,user.id,"PASSWORD_RESET_REQUESTED").await?;
-        Some(AuthMail::Reset{to:address.into(),name:"there".into(),token})
-    } else {None};
+async fn forgot_attempt(
+    settings: &EmailSettings,
+    address: &str,
+) -> Result<Option<AuthMail>, sqlx::Error> {
+    let mut tx = settings.pool.begin().await?;
+    let user = store::lock_user_by_email(&mut tx, address).await?;
+    let mail = if let Some(user) = user.filter(|user| user.email_verified) {
+        let now = Utc::now();
+        let token = generate_token();
+        store::upsert_reset_token(
+            &mut tx,
+            &store::NewResetToken {
+                user_id: user.id,
+                token_hash: token_digest(&token),
+                expires_at: now + Duration::hours(1),
+            },
+            now,
+        )
+        .await?;
+        audit(&mut tx, user.id, "PASSWORD_RESET_REQUESTED").await?;
+        Some(AuthMail::Reset {
+            to: address.into(),
+            name: "there".into(),
+            token,
+        })
+    } else {
+        None
+    };
     tx.commit().await?;
     Ok(mail)
 }
@@ -131,8 +154,8 @@ async fn forgot_route(
         .limits
         .preauth_check(&client, "/api/auth/forgot-password", now)
         .map_err(|error| ApiError::from(error.auth_failure()))?;
-    let body:Value=auth_json(&headers,body).await?;
-    let address=email_address(&body)?;
+    let body: Value = auth_json(&headers, body).await?;
+    let address = email_address(&body)?;
     settings
         .limits
         .check_endpoint(&client, "/api/auth/forgot-password", now)?;
@@ -144,7 +167,7 @@ async fn reset_route(
     headers: HeaderMap,
     body: axum::body::Body,
 ) -> Result<Json<Value>, ApiError> {
-    let body:ResetRequest=auth_json(&headers,body).await?;
+    let body: ResetRequest = auth_json(&headers, body).await?;
     password::validate_bytes(&body.new_password).map_err(|_| validation())?;
     settings.limits.check_endpoint(
         &client_address(peer, &headers),
