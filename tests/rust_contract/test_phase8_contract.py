@@ -291,44 +291,119 @@ def executed_statement_text(call):
     return None
 
 
-def review_migration_operations(upgrade, manifest):
-    """Allow only the complete head-read statement, never its query subtree."""
+def review_migration_operations(module, manifest):
+    """Default deny the complete module; accept only the reviewed static grammar."""
+    if not isinstance(module, ast.Module):
+        return ["expected complete migration module"]
     permitted = manifest["permitted_migration_operations"]
-    reviewed_statements = {normalize_statement(statement) for statement in permitted["reviewed_statements"]}
+    imports = {ast.dump(ast.parse(source).body[0]) for source in permitted["module_imports"]}
+    revision_names = set(permitted["revision_names"])
+    constructors = {
+        "Column", "Text", "String", "Integer", "BigInteger", "Boolean",
+        "DateTime", "Numeric", "UUID", "JSON", "CheckConstraint",
+        "PrimaryKeyConstraint", "UniqueConstraint", "ForeignKey", "text",
+    }
     head_read = ast.parse(
         f'heads = op.get_bind().execute(sa.text({permitted["head_check"]["statement"]!r})).scalars().all()'
     ).body[0]
-    # Match a whole top-level statement, including assignment and consumption.
-    # Matching only execute() would expose CursorResult.connection to other SQL.
-    approved_head_nodes = {
-        child
-        for statement in upgrade.body
-        if ast.dump(statement) == ast.dump(head_read)
-        for child in ast.walk(statement)
-    }
+    empty_arguments = ast.dump(ast.parse("def f():\n    pass").body[0].args)
     violations = []
-    for node in ast.walk(upgrade):
-        if node in approved_head_nodes:
-            continue
-        # References are checked too: storing or passing an accessor is not a read.
-        if isinstance(node, ast.Attribute) and ast.unparse(node.value) == "op" and node.attr in {"get_bind", "get_context"}:
-            violations.append(f"unreviewed connection access: op.{node.attr}")
-        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
-            continue
-        receiver = ast.unparse(node.func.value)
-        operation = node.func.attr
-        if receiver != "op":
-            if operation in {"execute", "exec_driver_sql"}:
-                violations.append(f"unreviewed connection execute: {receiver}")
-            continue
-        if operation in permitted["ddl"] or operation in {"get_bind", "get_context"}:
-            continue
+    seen_revisions = set()
+    seen_functions = set()
+
+    def literal(node):
+        try:
+            ast.literal_eval(node)
+            return True
+        except (ValueError, TypeError):
+            return False
+
+    def direct_attribute(node, receiver):
+        return isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id == receiver
+
+    def argument_reason(node):
+        if literal(node):
+            return None
+        if not isinstance(node, ast.Call):
+            return f"argument {type(node).__name__} is not allowed"
+        if not direct_attribute(node.func, "sa") or node.func.attr not in constructors:
+            return "only direct sa constructors are allowed"
+        for keyword in node.keywords:
+            if keyword.arg is None:
+                return "expanded keyword arguments are not allowed"
+        for child in node.args + [keyword.value for keyword in node.keywords]:
+            reason = argument_reason(child)
+            if reason:
+                return reason
+        return None
+
+    def statement_reason(node):
+        if ast.dump(node) == ast.dump(head_read):
+            return None
+        if not isinstance(node, ast.Expr):
+            return f"statement {type(node).__name__} is not allowed"
+        call = node.value
+        if not isinstance(call, ast.Call) or not direct_attribute(call.func, "op"):
+            return "only direct reviewed op calls are allowed"
+        operation = call.func.attr
         if operation == "execute":
-            statement = executed_statement_text(node)
-            if statement not in reviewed_statements or len(node.args) != 1 or node.keywords:
-                violations.append(f"unreviewed op.execute: {statement!r}")
+            # SQL is a separate exact statement allowance, not a DDL argument.
+            if len(call.args) != 1 or call.keywords:
+                return "unreviewed execute statement"
+            sql = call.args[0]
+            if isinstance(sql, ast.Call):
+                if not (direct_attribute(sql.func, "sa") and sql.func.attr == "text" and len(sql.args) == 1 and not sql.keywords):
+                    return "unreviewed execute statement"
+                sql = sql.args[0]
+            if not isinstance(sql, ast.Constant) or not isinstance(sql.value, str):
+                return "unreviewed execute statement"
+            if normalize_statement(sql.value) not in permitted["reviewed_statements"]:
+                return "unreviewed execute statement"
+            return None
+        if operation not in permitted["ddl"]:
+            return f"unreviewed operation op.{operation}"
+        if any(keyword.arg is None for keyword in call.keywords):
+            return "expanded keyword arguments are not allowed"
+        for argument in call.args + [keyword.value for keyword in call.keywords]:
+            reason = argument_reason(argument)
+            if reason:
+                return reason
+        return None
+
+    for index, node in enumerate(module.body):
+        if index == 0 and isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
             continue
-        violations.append(f"unreviewed migration operation: op.{operation}")
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            if ast.dump(node) not in imports:
+                violations.append("module: unreviewed import")
+        elif isinstance(node, ast.Assign):
+            if len(node.targets) != 1 or not isinstance(node.targets[0], ast.Name) or node.targets[0].id not in revision_names:
+                violations.append("module: unreviewed module assignment")
+            elif not literal(node.value):
+                violations.append("module: revision value must be literal")
+            elif node.targets[0].id in seen_revisions:
+                violations.append("module: duplicate revision assignment")
+            else:
+                seen_revisions.add(node.targets[0].id)
+        elif isinstance(node, ast.FunctionDef):
+            if node.name not in {"upgrade", "downgrade"}:
+                violations.append(f"module: unreviewed function {node.name}")
+            elif ast.dump(node.args) != empty_arguments or node.decorator_list or node.returns is not None or node.type_comment or getattr(node, "type_params", []):
+                violations.append("module: function signature is not allowed")
+            elif node.name in seen_functions:
+                violations.append(f"module: duplicate function {node.name}")
+            else:
+                seen_functions.add(node.name)
+                for statement in node.body:
+                    reason = statement_reason(statement)
+                    if reason:
+                        violations.append(f"{node.name}: {reason}")
+        else:
+            violations.append(f"module: module statement {type(node).__name__} is not allowed")
+    if seen_revisions != revision_names:
+        violations.append("module: required revision assignments missing")
+    if seen_functions != {"upgrade", "downgrade"}:
+        violations.append("module: required migration functions missing")
     return violations
 
 
@@ -545,8 +620,8 @@ def test_phase8_change_set_is_one_additive_revision():
     changed = set(subprocess.check_output(["git", "diff", "--name-only", BASE, "HEAD"], cwd=ROOT, text=True).splitlines())
     assert set(manifest["expected_modified_paths"]) <= changed
     tree = ast.parse((ROOT / manifest["added_migrations"][0]).read_text())
+    assert review_migration_operations(tree, manifest) == []
     upgrade = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "upgrade")
-    assert review_migration_operations(upgrade, manifest) == []
     calls = [n for n in ast.walk(upgrade) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and ast.unparse(n.func.value) == "op"]
     assert calls, "no additive operations found"
     columns = {ast.literal_eval(call.args[0]) + "." + ast.literal_eval(call.args[1].args[0]) for call in calls if call.func.attr == "add_column"}

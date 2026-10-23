@@ -2088,6 +2088,8 @@
         "create_index"
       ],
       "reviewed_calls": [],
+      "module_imports": ["from alembic import op", "import sqlalchemy as sa"],
+      "revision_names": ["revision", "down_revision", "branch_labels", "depends_on"],
       "head_check": {
         "form": "heads = op.get_bind().execute(sa.text(statement)).scalars().all()",
         "statement": "SELECT version_num FROM alembic_version"
