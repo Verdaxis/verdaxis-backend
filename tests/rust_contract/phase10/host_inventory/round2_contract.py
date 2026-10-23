@@ -12,7 +12,7 @@ class Round2Contract(unittest.TestCase):
         self.reader = load(READER)
 
     def test_script_operands_are_default_deny_on_every_surface(self):
-        hex31 = '0123456789abcdef0123456789abcdef0'
+        hex31 = ('0123456789abcdef' + '0123456789abcde')
         self.assertEqual(len(hex31), 31)
         vectors = [('hex31', 'source ' + hex31, hex31),
                    ('url', "source 'https://example.test/hook?url=token=short-value'", 'short-value'),

@@ -16,7 +16,7 @@ class ReviewContract(unittest.TestCase):
     def test_review_examples_never_cross_transport(self):
         secrets = ['two words', 'password-short', 'pg-short', 'query-short',
                    'first-fragment', 'second-fragment', 'continued-secret', 'A' * 40 + '=',
-                   'a' * 40 + '=', '0123456789abcdef0123456789abcdef0']
+                   'a' * 40 + '=', ('0123456789abcdef' + '0123456789abcde')]
         self.assertEqual(len(secrets[-1]), 31)
         unit = '\n'.join([
             '[Service]', 'User=fixture', 'Group=fixture', 'WorkingDirectory=/srv/fixture',
