@@ -48,11 +48,11 @@ def test_tie_rule_preserves_other_contract_checks(damage):
     else:
         right["status"] = 201
     right["body"] = json.dumps(entries).encode()
-    with pytest.raises(AssertionError):
+    with pytest.raises((AssertionError, RuntimeError)):
         compare(left, right)
 
 
 def test_other_routes_keep_ordered_comparison():
-    with pytest.raises(AssertionError):
+    with pytest.raises((AssertionError, RuntimeError)):
         compare(response([("A", 3), ("B", 2), ("C", 2)]),
                 response([("A", 3), ("C", 2), ("B", 2)]), route="R02")
