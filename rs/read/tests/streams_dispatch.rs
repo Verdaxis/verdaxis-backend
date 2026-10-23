@@ -665,7 +665,7 @@ mod postgres {
         let mut prices = hub.subscribe_public(PublicChannel::Prices).unwrap();
         let mut book = hub.subscribe_public(PublicChannel::Orderbook).unwrap();
         let id = Uuid::new_v4();
-        let seq: i64 = sqlx::query_scalar("INSERT INTO market_event_outbox (id,event_type,aggregate_type,aggregate_id,participant_org_ids,payload,stream_seq,delivery_attempts,created_at) VALUES ($1,'trade_created','dispatch_retention',$1::text,$2::json,$3::json,nextval('market_event_stream_seq'),0,now()) RETURNING stream_seq")
+        let seq: i64 = sqlx::query_scalar("INSERT INTO market_event_outbox (id,event_type,aggregate_type,aggregate_id,participant_org_ids,payload,stream_seq,delivery_attempts,created_at) VALUES ($1,'trade_created','dispatch_retention',$1::uuid::text,$2::json,$3::json,nextval('market_event_stream_seq'),0,now()) RETURNING stream_seq")
             .bind(id).bind(json!([org]).to_string()).bind(json!({"_public_market_invalidation":true}).to_string()).fetch_one(&mut owner).await.unwrap();
         drain.turn(&mut store).await.unwrap();
         assert_eq!(drain.cursor(), seq);
@@ -678,7 +678,7 @@ mod postgres {
         assert_eq!(private_seq(&mut private).await, seq);
         // Keep the hub behind the next committed deletion.
         let next_id = Uuid::new_v4();
-        let next: i64 = sqlx::query_scalar("INSERT INTO market_event_outbox (id,event_type,aggregate_type,aggregate_id,participant_org_ids,payload,stream_seq,delivery_attempts,created_at) VALUES ($1,'trade_created','dispatch_retention',$1::text,$2::json,'{}',nextval('market_event_stream_seq'),0,now()) RETURNING stream_seq")
+        let next: i64 = sqlx::query_scalar("INSERT INTO market_event_outbox (id,event_type,aggregate_type,aggregate_id,participant_org_ids,payload,stream_seq,delivery_attempts,created_at) VALUES ($1,'trade_created','dispatch_retention',$1::uuid::text,$2::json,'{}',nextval('market_event_stream_seq'),0,now()) RETURNING stream_seq")
             .bind(next_id).bind(json!([org]).to_string()).fetch_one(&mut owner).await.unwrap();
         sqlx::query("DELETE FROM market_event_outbox WHERE id=$1").bind(next_id).execute(&mut owner).await.unwrap();
         drain.turn(&mut store).await.unwrap();
