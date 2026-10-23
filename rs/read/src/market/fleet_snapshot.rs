@@ -84,11 +84,28 @@ async fn run_worker<T: Send + 'static>(
 
 #[cfg(unix)]
 fn read_document(path: &Path, deadline: Instant) -> Result<FleetSnapshot, ApiError> {
+    read_document_with(path, deadline, |_| {})
+}
+
+#[cfg(unix)]
+#[derive(Clone, Copy)]
+enum ReadStage {
+    Opened,
+    Chunk,
+}
+
+#[cfg(unix)]
+fn read_document_with(
+    path: &Path,
+    deadline: Instant,
+    mut observe: impl FnMut(ReadStage),
+) -> Result<FleetSnapshot, ApiError> {
     use std::io::Read;
     if Instant::now() >= deadline {
         return Err(unavailable());
     }
     let file = open_regular_file(path)?;
+    observe(ReadStage::Opened);
     // take() bounds allocation even if a publisher replaces or grows a document.
     let mut bytes = Vec::with_capacity(MAX_BYTES + 1);
     let mut bounded = file.take((MAX_BYTES + 1) as u64);
@@ -102,6 +119,7 @@ fn read_document(path: &Path, deadline: Instant) -> Result<FleetSnapshot, ApiErr
             break;
         }
         bytes.extend_from_slice(&chunk[..count]);
+        observe(ReadStage::Chunk);
     }
     let document = decode_snapshot(&bytes)?;
     if Instant::now() >= deadline {
@@ -155,6 +173,52 @@ fn open_regular_file(path: &Path) -> Result<std::fs::File, ApiError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn fleet_document_change_cases() {
+        use std::io::{Seek, SeekFrom, Write};
+        let directory = std::env::temp_dir().canonicalize().unwrap()
+            .join(format!("fleet-change-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&directory).unwrap();
+        let path = directory.join("observation.json");
+        let original = br#"{"entries":[],"last_updated":"2024-01-01","sources":[]}"#;
+        let replacement = br#"{"entries":[],"last_updated":"2025-01-01","sources":[]}"#;
+        std::fs::write(&path, original).unwrap();
+        let next = directory.join("next.json");
+        std::fs::write(&next, replacement).unwrap();
+        let old = read_document_with(&path, Instant::now() + READ_DEADLINE, |stage| {
+            if matches!(stage, ReadStage::Opened) {
+                std::fs::rename(&next, &path).unwrap();
+            }
+        }).unwrap();
+        assert_eq!(old.last_updated, "2024-01-01");
+        assert_eq!(std::fs::read(&path).unwrap(), replacement);
+
+        for change in ["growth", "truncation", "rewrite"] {
+            let mut padded = original.to_vec();
+            padded.resize(16_384, b' ');
+            std::fs::write(&path, &padded).unwrap();
+            let mut changed = false;
+            let result = read_document_with(&path, Instant::now() + READ_DEADLINE, |stage| {
+                if changed || !matches!(stage, ReadStage::Chunk) { return; }
+                changed = true;
+                let mut writer = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+                match change {
+                    "growth" => { writer.seek(SeekFrom::End(0)).unwrap(); writer.write_all(b" ").unwrap(); }
+                    "truncation" => writer.set_len(8192).unwrap(),
+                    "rewrite" => { writer.seek(SeekFrom::Start(0)).unwrap(); writer.write_all(replacement).unwrap(); }
+                    _ => unreachable!(),
+                }
+                writer.sync_all().unwrap();
+            });
+            assert!(changed);
+            let error = result.expect_err(change);
+            assert_eq!(error.status, axum::http::StatusCode::SERVICE_UNAVAILABLE);
+            assert_eq!(error.detail["code"], "READ_UNAVAILABLE");
+        }
+        std::fs::remove_dir_all(directory).unwrap();
+    }
 
     #[tokio::test]
     async fn fleet_document_limits_deadline_and_cleanup() {

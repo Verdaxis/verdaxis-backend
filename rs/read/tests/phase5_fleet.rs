@@ -195,6 +195,31 @@ fn state(path: PathBuf) -> AppState {
 }
 
 #[tokio::test]
+async fn fleet_document_text_cases() {
+    let fixture = Fixture::new();
+    let app = fleet_intelligence::routes().with_state(state(fixture.path()));
+    for field in ["unknown", "fuel"] {
+        let mut value = document();
+        if field == "unknown" {
+            value["unknown"] = json!("MARKER");
+        } else {
+            value["entries"][0]["fuel"] = json!("MARKER");
+        }
+        let mut payload = bytes(&value);
+        let position = payload.windows(6).position(|part| part == b"MARKER").unwrap();
+        payload[position] = 0xff;
+        fixture.write(&payload);
+        let response = app.clone().oneshot(Request::builder()
+            .uri("/api/fleet-intelligence").body(Body::empty()).unwrap()).await.unwrap();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE, "{field}");
+        let body = to_bytes(response.into_body(), MAX_BYTES + 1).await.unwrap();
+        let value: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(value["detail"]["code"], "READ_UNAVAILABLE");
+        assert!(!std::str::from_utf8(&body).unwrap().contains(fixture.0.to_str().unwrap()));
+    }
+}
+
+#[tokio::test]
 async fn fleet_config_cases() {
     let fixture = Fixture::new();
     let app = verdaxis_read::runtime::http::middleware(
