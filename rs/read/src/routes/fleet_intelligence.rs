@@ -12,7 +12,9 @@ pub fn routes() -> Router<AppState> {
     Router::new().route(PATH, get(fleet))
 }
 
-async fn fleet(State(state): State<AppState>) -> Result<Json<fleet_snapshot::FleetSnapshot>, ApiError> {
+async fn fleet(
+    State(state): State<AppState>,
+) -> Result<Json<fleet_snapshot::FleetSnapshot>, ApiError> {
     fleet_snapshot::read_snapshot(&state.config.fleet_artifact_path, state.reads.clone())
         .await
         .map(Json)

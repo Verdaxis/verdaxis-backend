@@ -1,9 +1,9 @@
 //! One bounded, validated fleet observation; no publisher or fallback data.
 
+use crate::{ApiError, routes::market_data_error::unavailable};
 use serde::{Deserialize, Serialize};
 use std::{path::Path, sync::Arc, time::Duration};
 use tokio::{sync::Semaphore, time::Instant};
-use crate::{ApiError, routes::market_data_error::unavailable};
 
 pub const MAX_BYTES: usize = 262_144;
 const READ_DEADLINE: Duration = Duration::from_secs(2);
@@ -32,15 +32,21 @@ pub fn decode_snapshot(bytes: &[u8]) -> Result<FleetSnapshot, ApiError> {
     let date = &document.last_updated;
     if date.len() != 10
         || date.as_bytes().iter().enumerate().any(|(index, byte)| {
-            if index == 4 || index == 7 { *byte != b'-' } else { !byte.is_ascii_digit() }
+            if index == 4 || index == 7 {
+                *byte != b'-'
+            } else {
+                !byte.is_ascii_digit()
+            }
         })
         || chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").is_err()
         || document.entries.len() > 32
         || document.sources.len() > 16
         || document.sources.iter().any(|source| source.len() > 2048)
         || document.entries.iter().any(|entry| {
-            entry.fuel.len() > 64 || entry.color.len() > 32
-                || entry.ordered_vessels < 0 || entry.delivered_vessels < 0
+            entry.fuel.len() > 64
+                || entry.color.len() > 32
+                || entry.ordered_vessels < 0
+                || entry.delivered_vessels < 0
                 || entry.avg_consumption_mt < 0
         })
     {
@@ -51,7 +57,10 @@ pub fn decode_snapshot(bytes: &[u8]) -> Result<FleetSnapshot, ApiError> {
 
 /// Admission belongs to the filesystem worker, not the HTTP caller. A cancelled
 /// or expired caller cannot admit a replacement while its worker still runs.
-pub async fn read_snapshot(path: &Path, permits: Arc<Semaphore>) -> Result<FleetSnapshot, ApiError> {
+pub async fn read_snapshot(
+    path: &Path,
+    permits: Arc<Semaphore>,
+) -> Result<FleetSnapshot, ApiError> {
     let deadline = Instant::now() + READ_DEADLINE;
     let permit = permits.try_acquire_owned().map_err(|_| unavailable())?;
     let path = path.to_owned();
@@ -67,7 +76,8 @@ async fn run_worker<T: Send + 'static>(
         let _permit = permit;
         work()
     });
-    tokio::time::timeout_at(deadline, worker).await
+    tokio::time::timeout_at(deadline, worker)
+        .await
         .map_err(|_| unavailable())?
         .map_err(|_| unavailable())?
 }
@@ -75,19 +85,28 @@ async fn run_worker<T: Send + 'static>(
 #[cfg(unix)]
 fn read_document(path: &Path, deadline: Instant) -> Result<FleetSnapshot, ApiError> {
     use std::io::Read;
+    if Instant::now() >= deadline {
+        return Err(unavailable());
+    }
     let file = open_regular_file(path)?;
     // take() bounds allocation even if a publisher replaces or grows a document.
     let mut bytes = Vec::with_capacity(MAX_BYTES + 1);
     let mut bounded = file.take((MAX_BYTES + 1) as u64);
     let mut chunk = [0_u8; 8192];
     loop {
-        if Instant::now() >= deadline { return Err(unavailable()); }
+        if Instant::now() >= deadline {
+            return Err(unavailable());
+        }
         let count = bounded.read(&mut chunk).map_err(|_| unavailable())?;
-        if count == 0 { break; }
+        if count == 0 {
+            break;
+        }
         bytes.extend_from_slice(&chunk[..count]);
     }
     let document = decode_snapshot(&bytes)?;
-    if Instant::now() >= deadline { return Err(unavailable()); }
+    if Instant::now() >= deadline {
+        return Err(unavailable());
+    }
     Ok(document)
 }
 
@@ -95,21 +114,42 @@ fn read_document(path: &Path, deadline: Instant) -> Result<FleetSnapshot, ApiErr
 /// remains relative to the held directory even if that directory is renamed.
 #[cfg(unix)]
 fn open_regular_file(path: &Path) -> Result<std::fs::File, ApiError> {
-    use std::{ffi::CString, os::{fd::{AsRawFd, FromRawFd, OwnedFd}, unix::ffi::OsStrExt}, path::Component};
-    if !path.is_absolute() { return Err(unavailable()); }
+    use std::{
+        ffi::CString,
+        os::{
+            fd::{AsRawFd, FromRawFd, OwnedFd},
+            unix::ffi::OsStrExt,
+        },
+        path::Component,
+    };
+    if !path.is_absolute() {
+        return Err(unavailable());
+    }
     let mut parts = path.components().peekable();
-    if parts.next() != Some(Component::RootDir) { return Err(unavailable()); }
+    if parts.next() != Some(Component::RootDir) {
+        return Err(unavailable());
+    }
     let mut directory = std::fs::File::open("/").map_err(|_| unavailable())?;
     while let Some(part) = parts.next() {
-        let Component::Normal(name) = part else { return Err(unavailable()); };
+        let Component::Normal(name) = part else {
+            return Err(unavailable());
+        };
         let name = CString::new(name.as_bytes()).map_err(|_| unavailable())?;
         let last = parts.peek().is_none();
-        let flags = libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW
-            | if last { libc::O_NONBLOCK } else { libc::O_DIRECTORY };
+        let flags = libc::O_RDONLY
+            | libc::O_CLOEXEC
+            | libc::O_NOFOLLOW
+            | if last {
+                libc::O_NONBLOCK
+            } else {
+                libc::O_DIRECTORY
+            };
         // SAFETY: directory is a live descriptor; name is NUL-terminated. No
         // creation flag is used. A successful descriptor is owned exactly once.
         let descriptor = unsafe { libc::openat(directory.as_raw_fd(), name.as_ptr(), flags) };
-        if descriptor < 0 { return Err(unavailable()); }
+        if descriptor < 0 {
+            return Err(unavailable());
+        }
         // SAFETY: openat returned a new, valid descriptor owned by this call.
         let descriptor = unsafe { OwnedFd::from_raw_fd(descriptor) };
         let file = std::fs::File::from(descriptor);
@@ -140,7 +180,8 @@ mod tests {
             let _ = wait.recv_timeout(Duration::from_secs(10));
             let _ = finished.send(());
             Ok(())
-        }).await;
+        })
+        .await;
         assert!(result.is_err());
         assert_eq!(permits.available_permits(), 0);
         release.send(()).unwrap();
@@ -156,17 +197,25 @@ mod tests {
         let permit = permits.clone().acquire_owned().await.unwrap();
         let (started, ready) = tokio::sync::oneshot::channel();
         let (release, wait) = std::sync::mpsc::channel();
-        let request = tokio::spawn(run_worker(Instant::now() + READ_DEADLINE, permit, move || {
-            let _ = started.send(());
-            let _ = wait.recv_timeout(Duration::from_secs(10));
-            Ok(())
-        }));
+        let request = tokio::spawn(run_worker(
+            Instant::now() + READ_DEADLINE,
+            permit,
+            move || {
+                let _ = started.send(());
+                let _ = wait.recv_timeout(Duration::from_secs(10));
+                Ok(())
+            },
+        ));
         ready.await.unwrap();
         request.abort();
         assert!(request.await.unwrap_err().is_cancelled());
         assert_eq!(permits.available_permits(), 0);
         release.send(()).unwrap();
-        assert!(tokio::time::timeout(Duration::from_secs(2), permits.acquire()).await.is_ok());
+        assert!(
+            tokio::time::timeout(Duration::from_secs(2), permits.acquire())
+                .await
+                .is_ok()
+        );
     }
 }
 

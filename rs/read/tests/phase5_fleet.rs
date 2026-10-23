@@ -1,8 +1,14 @@
 //! Fleet document and public HTTP contracts.
 
-use axum::{body::{Body, to_bytes}, http::{Request, StatusCode}};
+use axum::{
+    body::{Body, to_bytes},
+    http::{Request, StatusCode},
+};
 use serde_json::{Value, json};
-use std::{path::{Path, PathBuf}, sync::Arc};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 use tokio::sync::Semaphore;
 use tower::ServiceExt;
 use verdaxis_read::{ApiError, AppState, routes};
@@ -16,19 +22,27 @@ struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {
         // Canonical temporary storage also works on macOS, where /var is a link.
-        let root = std::env::temp_dir().canonicalize().unwrap()
+        let root = std::env::temp_dir()
+            .canonicalize()
+            .unwrap()
             .join(format!("fleet-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(root.join("data")).unwrap();
         Self(root)
     }
 
-    fn path(&self) -> PathBuf { self.0.join("data/fleet_demand.json") }
+    fn path(&self) -> PathBuf {
+        self.0.join("data/fleet_demand.json")
+    }
 
-    fn write(&self, bytes: &[u8]) { std::fs::write(self.path(), bytes).unwrap(); }
+    fn write(&self, bytes: &[u8]) {
+        std::fs::write(self.path(), bytes).unwrap();
+    }
 }
 
 impl Drop for Fixture {
-    fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
 }
 
 fn document() -> Value {
@@ -39,11 +53,15 @@ fn document() -> Value {
     })
 }
 
-fn bytes(value: &Value) -> Vec<u8> { serde_json::to_vec(value).unwrap() }
+fn bytes(value: &Value) -> Vec<u8> {
+    serde_json::to_vec(value).unwrap()
+}
 
 async fn read(path: &Path) -> Result<Value, ()> {
-    read_snapshot(path, Arc::new(Semaphore::new(1))).await
-        .map(|value| serde_json::to_value(value).unwrap()).map_err(|_| ())
+    read_snapshot(path, Arc::new(Semaphore::new(1)))
+        .await
+        .map(|value| serde_json::to_value(value).unwrap())
+        .map_err(|_| ())
 }
 
 #[tokio::test]
@@ -59,12 +77,23 @@ async fn fleet_document_cases() {
         fixture.write(payload);
         assert!(read(&fixture.path()).await.is_err());
     }
-    for date in ["2023-02-29", "2024-2-29", "2024-02-29T00:00:00Z", "2024-02-29x"] {
+    for date in [
+        "2023-02-29",
+        "2024-2-29",
+        "2024-02-29T00:00:00Z",
+        "2024-02-29x",
+    ] {
         let mut value = document();
         value["last_updated"] = json!(date);
         assert!(decode_snapshot(&bytes(&value)).is_err(), "{date}");
     }
-    for field in ["fuel", "color", "ordered_vessels", "delivered_vessels", "avg_consumption_mt"] {
+    for field in [
+        "fuel",
+        "color",
+        "ordered_vessels",
+        "delivered_vessels",
+        "avg_consumption_mt",
+    ] {
         let mut value = document();
         value["entries"][0].as_object_mut().unwrap().remove(field);
         assert!(decode_snapshot(&bytes(&value)).is_err(), "{field}");
@@ -106,59 +135,121 @@ async fn fleet_document_limits() {
     value["sources"][0] = json!("s".repeat(2049));
     assert!(decode_snapshot(&bytes(&value)).is_err());
     for field in ["ordered_vessels", "delivered_vessels", "avg_consumption_mt"] {
-        for (count, accepted) in [(json!(0),true), (json!(2147483647),true),
-            (json!(-1),false), (json!(2147483648_u64),false), (json!(1.5),false),
-            (json!("12"),false), (Value::Null,false)] {
+        for (count, accepted) in [
+            (json!(0), true),
+            (json!(2147483647), true),
+            (json!(-1), false),
+            (json!(2147483648_u64), false),
+            (json!(1.5), false),
+            (json!("12"), false),
+            (Value::Null, false),
+        ] {
             let mut value = document();
             value["entries"][0][field] = count;
-            assert_eq!(decode_snapshot(&bytes(&value)).is_ok(), accepted, "{field}: {value}");
+            assert_eq!(
+                decode_snapshot(&bytes(&value)).is_ok(),
+                accepted,
+                "{field}: {value}"
+            );
         }
     }
 }
 
 fn state(path: PathBuf) -> AppState {
     let config = verdaxis_read::Config {
-        kyc_execution_gate_enabled:true, db_session_time_zone:"UTC".into(),
-        environment:"test".into(), release_sha:verdaxis_read::compiled_sha().into(),
-        migration_revision:"kycg_20261014_staging".into(),
-        database_url:"postgres://fixture:fixture_pw@127.0.0.1:1/fixture_test".into(),
-        bind:"127.0.0.1:0".parse().unwrap(), read_admission_slots:16, pool_max:17,
-        python_budget:52, configured_max_connections:100, prepared_budget:None,
-        compliance_eur_usd_rate:None, fleet_artifact_path:path,
+        kyc_execution_gate_enabled: true,
+        db_session_time_zone: "UTC".into(),
+        environment: "test".into(),
+        release_sha: verdaxis_read::compiled_sha().into(),
+        migration_revision: "kycg_20261014_staging".into(),
+        database_url: "postgres://fixture:fixture_pw@127.0.0.1:1/fixture_test".into(),
+        bind: "127.0.0.1:0".parse().unwrap(),
+        read_admission_slots: 16,
+        pool_max: 17,
+        python_budget: 52,
+        configured_max_connections: 100,
+        prepared_budget: None,
+        compliance_eur_usd_rate: None,
+        fleet_artifact_path: path,
     };
     let pools = verdaxis_read::runtime::db::Pools {
-        read:sqlx::postgres::PgPoolOptions::new().max_connections(16)
-            .connect_lazy(&config.database_url).unwrap(),
-        health:sqlx::postgres::PgPoolOptions::new().max_connections(1)
-            .connect_lazy(&config.database_url).unwrap(),
+        read: sqlx::postgres::PgPoolOptions::new()
+            .max_connections(16)
+            .connect_lazy(&config.database_url)
+            .unwrap(),
+        health: sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect_lazy(&config.database_url)
+            .unwrap(),
     };
-    AppState::new(config, pools, verdaxis_read::MarketPolicy {
-        source_sha:verdaxis_read::compiled_sha().into(), products:vec![], points:vec![],
-    }).unwrap()
+    AppState::new(
+        config,
+        pools,
+        verdaxis_read::MarketPolicy {
+            source_sha: verdaxis_read::compiled_sha().into(),
+            products: vec![],
+            points: vec![],
+        },
+    )
+    .unwrap()
 }
 
 #[tokio::test]
 async fn fleet_config_cases() {
     let fixture = Fixture::new();
     let app = verdaxis_read::runtime::http::middleware(
-        fleet_intelligence::routes().with_state(state(fixture.path())));
+        fleet_intelligence::routes().with_state(state(fixture.path())),
+    );
     for available in [false, true] {
-        if available { fixture.write(&bytes(&document())); }
-        let response = app.clone().oneshot(Request::builder()
-            .uri("/api/fleet-intelligence").header("Authorization", "Bearer unused")
-            .body(Body::empty()).unwrap()).await.unwrap();
-        assert_eq!(response.status(), if available { StatusCode::OK } else { StatusCode::SERVICE_UNAVAILABLE });
-        if !available { assert_eq!(response.headers()["retry-after"], "1"); }
+        if available {
+            fixture.write(&bytes(&document()));
+        }
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/fleet-intelligence")
+                    .header("Authorization", "Bearer unused")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            if available {
+                StatusCode::OK
+            } else {
+                StatusCode::SERVICE_UNAVAILABLE
+            }
+        );
+        if !available {
+            assert_eq!(response.headers()["retry-after"], "1");
+        }
         let body = to_bytes(response.into_body(), MAX_BYTES + 1).await.unwrap();
-        let value:Value = serde_json::from_slice(&body).unwrap();
-        if available { assert_eq!(value, document()); } else {
+        let value: Value = serde_json::from_slice(&body).unwrap();
+        if available {
+            assert_eq!(value, document());
+        } else {
             assert_eq!(value["detail"]["code"], "READ_UNAVAILABLE");
             assert_eq!(value.as_object().unwrap().len(), 1);
-            assert!(!String::from_utf8(body.to_vec()).unwrap().contains(fixture.0.to_str().unwrap()));
+            assert!(
+                !String::from_utf8(body.to_vec())
+                    .unwrap()
+                    .contains(fixture.0.to_str().unwrap())
+            );
         }
     }
-    let response = app.oneshot(Request::builder().method("POST").uri("/api/fleet-intelligence")
-        .body(Body::empty()).unwrap()).await.unwrap();
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/fleet-intelligence")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
     assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
 }
 
@@ -192,7 +283,11 @@ async fn fleet_document_admission_cases() {
     fixture.write(&bytes(&document()));
     let permits = Arc::new(Semaphore::new(1));
     let held = permits.clone().acquire_owned().await.unwrap();
-    assert!(read_snapshot(&fixture.path(), permits.clone()).await.is_err());
+    assert!(
+        read_snapshot(&fixture.path(), permits.clone())
+            .await
+            .is_err()
+    );
     drop(held);
     assert!(read_snapshot(&fixture.path(), permits).await.is_ok());
 }
