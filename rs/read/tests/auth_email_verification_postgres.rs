@@ -221,10 +221,11 @@ async fn e4_write_attempt_restarts() {
         email::MailDispatcher::new(crud::referrals::invite::MailClient::disabled()),
     );
     let result = email_verification::resend(&settings, &address, true).await;
-    let attempts: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT last_value FROM {seq}")))
-        .fetch_one(&owner)
-        .await
-        .unwrap();
+    let attempts: i64 =
+        sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT last_value FROM {seq}")))
+            .fetch_one(&owner)
+            .await
+            .unwrap();
     sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "DROP TRIGGER {trigger} ON users; DROP FUNCTION {fun}(); DROP SEQUENCE {seq};"
     )))
