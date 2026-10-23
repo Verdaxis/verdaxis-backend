@@ -24,6 +24,8 @@ CACHE_TABLES = (
 # Tables that Rust source names but that no trading cache entry depends on. Each
 # needs a reason; an unreviewed table named by a Rust query fails the ledger test.
 REVIEWED_EXCLUSIONS = {
+    "inventory_items": "public map read for availability; served uncached",
+    "producer_projects": "public producer project map read; served uncached",
     "news_items": "reference domain: the separate 60-second reference cache",
     "ports": "reference domain: the separate 60-second reference cache",
     "port_intelligence": "reference domain: the separate 60-second reference cache",
