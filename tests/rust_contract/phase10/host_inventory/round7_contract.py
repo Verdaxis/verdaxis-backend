@@ -130,4 +130,71 @@ class Round7Contract(unittest.TestCase):
             with self.assertRaises(ValueError): transport.publish(doc,'fixture.json')
 
 
+    def test_deadline_and_wait_limits(self):
+        import subprocess
+        for module in (self.reader, load(TRANSPORT)):
+            for branch in ('drain-deadline', 'wait-timeout'):
+                with self.subTest(module=module.__name__, branch=branch):
+                    original = module.subprocess.Popen
+                    def spawn(argv, **kwargs):
+                        process = original([sys.executable, '-c', 'import time; time.sleep(60)'], **kwargs)
+                        if branch == 'wait-timeout':
+                            real_wait = process.wait
+                            calls = [0]
+                            def wait(*args, **kwargs):
+                                calls[0] += 1
+                                if calls[0] == 1:
+                                    raise subprocess.TimeoutExpired('fixture', 0.1)
+                                return real_wait(*args, **kwargs)
+                            process.wait = wait
+                        return process
+                    class EmptySelector:
+                        def __enter__(self): return self
+                        def __exit__(self,*args): pass
+                        def register(self,*args): pass
+                        def get_map(self): return {}
+                    patches = [patch.object(module.subprocess, 'Popen', spawn)]
+                    if branch == 'drain-deadline':
+                        patches.append(patch.object(module.time, 'monotonic', side_effect=[0, 10000, 10000, 10000]))
+                    else:
+                        patches.append(patch.object(module.selectors, 'DefaultSelector', EmptySelector))
+                    with patches[0], patches[1]:
+                        if module is self.reader:
+                            _, acquired = module.run_command(module.COMMANDS['units'])
+                        else:
+                            _, acquired = module.ssh_once(['fixture'], b'x')
+                    self.assertFalse(acquired)
+
+    def test_file_bounds_and_change_after_stat(self):
+        with tempfile.TemporaryDirectory(prefix='w0-r7-') as temp:
+            path = Path(temp)/'file.sh'
+            path.write_bytes(b'a'*10)
+            with patch.object(self.reader,'MAX_SCRIPT_BYTES',9):
+                with self.assertRaises(ValueError): self.reader.read_file(str(path))
+            real_stat = self.reader.os.fstat
+            count = [0]
+            def stat_with_growth(fd):
+                value=real_stat(fd)
+                count[0]+=1
+                if count[0]==1: path.write_bytes(b'b'*11)
+                return value
+            with patch.object(self.reader.os,'fstat',stat_with_growth):
+                with self.assertRaises(ValueError): self.reader.read_file(str(path))
+            path.write_bytes(b'a'*10)
+            count[0]=0
+            def stat_with_overflow(fd):
+                value=real_stat(fd)
+                count[0]+=1
+                if count[0]==1: path.write_bytes(b'b'*40)
+                return value
+            with patch.object(self.reader,'MAX_SCRIPT_BYTES',16), patch.object(self.reader.os,'fstat',stat_with_overflow):
+                with self.assertRaises(ValueError): self.reader.read_file(str(path))
+
+    def test_depth_limit_separate_from_visited_limit(self):
+        def reader(path): return record(path,executables=['/tmp/b.py'])
+        result=self.reader.inspect_graph(['/tmp/a.py'],max_depth=0,script_reader=reader)
+        self.assertTrue(any(r['status']=='unresolved' for r in result['blocking_dependencies']))
+        result=self.reader.inspect_graph(['/tmp/a.py'],max_depth=-1,script_reader=reader)
+        self.assertEqual(result['truncations'],['import-queue'])
+
 if __name__=='__main__': unittest.main(verbosity=2)
