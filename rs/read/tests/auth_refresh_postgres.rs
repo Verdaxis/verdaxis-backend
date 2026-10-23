@@ -172,7 +172,16 @@ async fn refresh_replay_after_grace_revokes_family() {
     let f = Fixture::new().await;
     let response = f.send(&f.token, &f.device).await;
     assert_eq!(response.status(), 200);
-    let successor = response.headers().get_all("set-cookie").iter().filter_map(|v| v.to_str().ok()).find_map(|v| v.strip_prefix("refresh_token=").map(|v| v.split(';').next().unwrap().to_owned())).unwrap();
+    let successor = response
+        .headers()
+        .get_all("set-cookie")
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find_map(|v| {
+            v.strip_prefix("refresh_token=")
+                .map(|v| v.split(';').next().unwrap().to_owned())
+        })
+        .unwrap();
     sqlx::query("UPDATE refresh_sessions SET rotation_grace_until=$2 WHERE jti_hash=$1")
         .bind(token_digest(&f.jti))
         .bind(Utc::now() - Duration::seconds(1))
@@ -290,11 +299,19 @@ async fn concurrent_refresh_same_token_yields_one_successor() {
         let entering = std::sync::Arc::new(tokio::sync::Barrier::new(2));
         let mut first = f.state.clone();
         first.hooks.user_locked = Some(held.clone());
-        let winner = tokio::spawn({let token=f.token.clone();let device=f.device.clone();async move {send(first,&token,&device).await}});
+        let winner = tokio::spawn({
+            let token = f.token.clone();
+            let device = f.device.clone();
+            async move { send(first, &token, &device).await }
+        });
         held.wait().await;
         let mut second = f.state.clone();
         second.hooks.before_device = Some(entering.clone());
-        let waiter = tokio::spawn({let token=f.token.clone();let device=f.device.clone();async move {send(second,&token,&device).await}});
+        let waiter = tokio::spawn({
+            let token = f.token.clone();
+            let device = f.device.clone();
+            async move { send(second, &token, &device).await }
+        });
         entering.wait().await;
         tokio::time::timeout(std::time::Duration::from_secs(10), async {
             loop {
@@ -304,18 +321,23 @@ async fn concurrent_refresh_same_token_yields_one_successor() {
             }
         }).await.unwrap();
         held.wait().await;
-        let success=winner.await.unwrap();let refused=waiter.await.unwrap();
-        assert_eq!(success.status(),200,"{first_label}");
-        assert_eq!(success.headers().get_all("set-cookie").iter().count(),2);
-        assert_eq!(refused.status(),409);
+        let success = winner.await.unwrap();
+        let refused = waiter.await.unwrap();
+        assert_eq!(success.status(), 200, "{first_label}");
+        assert_eq!(success.headers().get_all("set-cookie").iter().count(), 2);
+        assert_eq!(refused.status(), 409);
         assert!(!refused.headers().contains_key("set-cookie"));
-        assert_eq!(response_code(refused).await,"REFRESH_ROTATION_IN_PROGRESS");
-        let rows=f.rows().await;
-        let rows=rows.as_array().unwrap();assert_eq!(rows.len(),2);
-        let predecessor=rows.iter().find(|r|r["jti_hash"]==token_digest(&f.jti)).unwrap();
-        let successor=rows.iter().find(|r|r["revoked"]==false).unwrap();
-        assert_eq!(predecessor["replaced_by_jti_hash"],successor["jti_hash"]);
-        assert_eq!(successor["family_id"],serde_json::json!(f.family));
+        assert_eq!(response_code(refused).await, "REFRESH_ROTATION_IN_PROGRESS");
+        let rows = f.rows().await;
+        let rows = rows.as_array().unwrap();
+        assert_eq!(rows.len(), 2);
+        let predecessor = rows
+            .iter()
+            .find(|r| r["jti_hash"] == token_digest(&f.jti))
+            .unwrap();
+        let successor = rows.iter().find(|r| r["revoked"] == false).unwrap();
+        assert_eq!(predecessor["replaced_by_jti_hash"], successor["jti_hash"]);
+        assert_eq!(successor["family_id"], serde_json::json!(f.family));
         f.cleanup().await;
     }
 }
