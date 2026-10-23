@@ -312,15 +312,11 @@ async fn e3_e4_serial_schedules() {
         let suffix = id.simple().to_string();
         let fun = format!("e3f_{suffix}");
         let trigger = format!("e3t_{suffix}");
-        let key = i64::from_be_bytes(id.as_bytes()[..8].try_into().unwrap());
-        // All identifiers and the barrier key come only from this test's UUID.
-        sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE FUNCTION {fun}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.id='{id}'::uuid THEN PERFORM pg_advisory_xact_lock({key}); END IF; RETURN NEW; END $$; CREATE TRIGGER {trigger} BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION {fun}();"))).execute(&owner).await.unwrap();
-        let mut barrier = owner.begin().await.unwrap();
-        sqlx::query("SELECT pg_advisory_xact_lock($1)")
-            .bind(key)
-            .execute(&mut *barrier)
-            .await
-            .unwrap();
+        let barrier_table=format!("e3b_{suffix}");
+        // Identifiers are generated from this test's UUID, never request data.
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE TABLE {barrier_table}(id integer PRIMARY KEY); INSERT INTO {barrier_table} VALUES(1); GRANT SELECT,UPDATE ON {barrier_table} TO verdaxis_app_test; CREATE FUNCTION {fun}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.id='{id}'::uuid THEN PERFORM id FROM {barrier_table} FOR UPDATE; END IF; RETURN NEW; END $$; CREATE TRIGGER {trigger} BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION {fun}();"))).execute(&owner).await.unwrap();
+        let mut barrier=owner.begin().await.unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!("SELECT id FROM {barrier_table} FOR UPDATE"))).execute(&mut *barrier).await.unwrap();
         let first_settings = email_verification::EmailSettings::new(first, mail.clone());
         let second_settings = email_verification::EmailSettings::new(second, mail.clone());
         let first_address = address.clone();
@@ -404,7 +400,7 @@ async fn e3_e4_serial_schedules() {
         let after:(Option<String>,Option<chrono::DateTime<Utc>>,String,chrono::DateTime<Utc>)=sqlx::query_as("SELECT u.email_verification_token_hash,u.email_verification_token_expires_at,u.referral_code,r.verified_at FROM users u JOIN referrals r ON r.referred_user_id=u.id WHERE u.id=$1").bind(id).fetch_one(&owner).await.unwrap();
         assert_eq!(before, after);
         sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
-            "DROP TRIGGER {trigger} ON users; DROP FUNCTION {fun}();"
+            "DROP TRIGGER {trigger} ON users; DROP FUNCTION {fun}(); DROP TABLE {barrier_table};"
         )))
         .execute(&owner)
         .await

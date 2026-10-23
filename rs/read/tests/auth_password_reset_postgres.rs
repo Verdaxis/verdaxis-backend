@@ -428,7 +428,7 @@ from datetime import datetime, UTC
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from app.models.user import User
-from app.models.organization import Organization
+from app.models.user import Organization
 from app.routers.auth_simple import _is_unclaimed_admin_invitation, hash_token_identifier
 async def main():
     engine=create_async_engine(os.environ['DATABASE_URL'])
