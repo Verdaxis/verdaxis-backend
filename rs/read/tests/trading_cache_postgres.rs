@@ -1399,9 +1399,15 @@ async fn route_json(state: &AppState, uri: &str) -> (u16, serde_json::Value) {
         match value {
             serde_json::Value::Object(fields) => {
                 fields.remove("generated_at");
-                for value in fields.values_mut() { remove_generated(value); }
+                for value in fields.values_mut() {
+                    remove_generated(value);
+                }
             }
-            serde_json::Value::Array(items) => for value in items { remove_generated(value); },
+            serde_json::Value::Array(items) => {
+                for value in items {
+                    remove_generated(value);
+                }
+            }
             _ => {}
         }
     }

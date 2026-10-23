@@ -129,12 +129,7 @@ async fn facts(
         facts.rolling_windows = if departure == Some(now) {
             RollingWindows::Unknown
         } else {
-            RollingWindows::Derived(
-                departure
-                    .map(SystemTime::from)
-                    .into_iter()
-                    .collect(),
-            )
+            RollingWindows::Derived(departure.map(SystemTime::from).into_iter().collect())
         };
         // Persisted benchmarks have no time-expiry predicate; writes invalidate.
         facts.benchmark_expiry = Deadline::None;
