@@ -30,7 +30,10 @@ pub struct StatusFact {
 }
 
 /// The caller holds the user lock and owns the status update and completion.
-pub async fn append_status_transition(conn: &mut PgConnection, fact: &StatusFact) -> Result<Option<Uuid>, sqlx::Error> {
+pub async fn append_status_transition(
+    conn: &mut PgConnection,
+    fact: &StatusFact,
+) -> Result<Option<Uuid>, sqlx::Error> {
     if fact.from == Some(fact.to) {
         return Ok(None);
     }

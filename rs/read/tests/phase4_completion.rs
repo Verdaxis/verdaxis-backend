@@ -1,6 +1,9 @@
 #![cfg(feature = "contract-tests")]
 
-use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 use verdaxis_read::business::transaction::{CompletionControl, CompletionPoint};
 
 #[tokio::test]

@@ -24,12 +24,16 @@ fn p4_t2_c50() {
             .check_business("GET", "/api/auth/me", keys, 100)
             .unwrap();
     }
-    assert!(limits
-        .check_business("GET", "/api/auth/me", keys, 100)
-        .is_err());
-    assert!(limits
-        .check_business("PUT", "/api/auth/me", keys, 160)
-        .is_ok());
+    assert!(
+        limits
+            .check_business("GET", "/api/auth/me", keys, 100)
+            .is_err()
+    );
+    assert!(
+        limits
+            .check_business("PUT", "/api/auth/me", keys, 160)
+            .is_ok()
+    );
 }
 
 #[test]
@@ -46,13 +50,19 @@ fn p4_t2_c51() {
             .check_business("POST", "/api/ai/chat", keys, 100)
             .unwrap();
     }
-    assert!(limits
-        .check_business("POST", "/api/ai/chat", keys, 100)
-        .is_err());
-    assert!(limits
-        .check_business("DELETE", "/api/ai/chat", keys, 100)
-        .is_err());
-    assert!(limits
-        .check_business("POST", "/api/ai/chat/extra", keys, 100)
-        .is_err());
+    assert!(
+        limits
+            .check_business("POST", "/api/ai/chat", keys, 100)
+            .is_err()
+    );
+    assert!(
+        limits
+            .check_business("DELETE", "/api/ai/chat", keys, 100)
+            .is_err()
+    );
+    assert!(
+        limits
+            .check_business("POST", "/api/ai/chat/extra", keys, 100)
+            .is_err()
+    );
 }

@@ -1,7 +1,7 @@
 use axum::http::StatusCode;
 use serde_json::json;
 
-use crate::{auth::AuthError, ApiError, ApiErrorKind};
+use crate::{ApiError, ApiErrorKind, auth::AuthError};
 
 pub fn refusal(status: StatusCode, code: &'static str, message: &'static str) -> ApiError {
     ApiError {
