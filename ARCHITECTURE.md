@@ -78,6 +78,14 @@ the shared admitted read transaction and structured market errors.
 `rs/read/tests/phase5_demand.rs` checks query limits, urgency, ordering,
 provenance, current owners and PostgreSQL group bounds.
 
+`rs/read/src/routes/producers.rs` provides the public producer read. It uses
+the shared admitted read transaction and one ordered SELECT from
+`rs/read/sql/producers.sql`. Filters validate project status and inclusive COD
+bounds. Coordinates are selected without changing geography; NUMERIC metadata
+remains exact decimal strings. The response accepts at most 5000 projects and
+refuses overflow without returning a partial list.
+`rs/read/tests/phase5_producers.rs` covers filters, fields and populated limits.
+
 ## Optional fleet artifact configuration
 
 `Config.fleet_artifact_path` accepts `FLEET_ARTIFACT_PATH` and defaults to

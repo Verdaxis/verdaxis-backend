@@ -246,6 +246,7 @@ pub const MOUNTED_GET_PATHS: &[&str] = &[
     "/api/ports",
     "/api/availability",
     "/api/compliance/fuels",
+    "/api/producers",
     "/api/catalog/products",
     "/api/catalog/delivery-points",
     "/api/news",
@@ -406,6 +407,7 @@ pub fn public_routes() -> Router<crate::AppState> {
         .merge(crate::routes::ports::routes())
         .merge(crate::routes::availability::routes())
         .merge(crate::routes::compliance_fuels::routes())
+        .merge(crate::routes::producers::routes())
         .merge(crate::routes::demand::routes())
         .merge(crate::routes::catalog::routes())
         .merge(crate::routes::news::routes())
