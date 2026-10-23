@@ -5,7 +5,7 @@ import os
 import subprocess
 from pathlib import Path
 
-from tests.postgres.test_product_analytics import analytics_pg_url  # noqa: F401
+from tests.postgres.conftest import analytics_pg_url  # noqa: F401
 
 ROOT = Path(__file__).resolve().parents[2]
 CASES = (
