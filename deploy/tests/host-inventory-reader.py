@@ -85,11 +85,13 @@ class PriorityRows:
         key = json.dumps(row, sort_keys=True)
         bucket = self.rows.setdefault(priority, {})
         bucket[key] = row
-        if len(bucket) > self.capacity:
-            del bucket[max(bucket)]
-            self.dropped[str(priority)] = self.dropped.get(str(priority), 0) + 1
-            if priority in (1, 2):
-                name = 'credential-denied' if priority == 1 else 'removed-package'
+        if sum(len(items) for items in self.rows.values()) > self.capacity:
+            worst_priority = max(p for p, items in self.rows.items() if items)
+            worst_bucket = self.rows[worst_priority]
+            del worst_bucket[max(worst_bucket)]
+            self.dropped[str(worst_priority)] = self.dropped.get(str(worst_priority), 0) + 1
+            if worst_priority in (1, 2):
+                name = 'credential-denied' if worst_priority == 1 else 'removed-package'
                 self.markers[name] = dict(bound_row(name), status='overflow:' + name)
 
     def values(self):
@@ -257,11 +259,14 @@ def scan_script(path):
               (5, 'executables', sorted(executables))]
     retained = {'credential_references': [], 'imports': [], 'executables': []}
     overflow = []
+    available = MAX_ITEMS
     for priority, field, values in groups:
-        retained[field].extend(values[:MAX_ITEMS])
-        if len(values) > MAX_ITEMS:
+        kept = values[:available]
+        retained[field].extend(kept)
+        available -= len(kept)
+        if len(values) > len(kept):
             truncated.append('references')
-            dropped[str(priority)] = len(values) - MAX_ITEMS
+            dropped[str(priority)] = len(values) - len(kept)
             if priority in (1, 2):
                 overflow.append('credential-denied' if priority == 1 else 'removed-package')
     imports = retained['imports']

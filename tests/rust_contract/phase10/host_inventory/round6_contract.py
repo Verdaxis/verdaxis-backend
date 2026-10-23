@@ -75,7 +75,7 @@ class Round6Contract(unittest.TestCase):
                         return '', True
                     cron = []
                     for i in range(3):
-                        p = Path(temp) / (str(i) + '.cron'); p.write_text(''); cron.append(p)
+                        p = Path(temp) / (str(i) + '.cron'); p.write_text(''); cron.append(str(p))
                     with patch.object(self.reader, 'MAX_ITEMS', 2), patch.object(self.reader, 'MAX_SCRIPT_BYTES', 32 if branch == 'statements' else 262144), patch.object(self.reader, 'MAX_OUTPUT_BYTES', 32 if branch == 'logical-lines' else 2097152):
                         if branch in ('references', 'blocking-rows', 'import-queue', 'graph-bytes'):
                             def record(path):
