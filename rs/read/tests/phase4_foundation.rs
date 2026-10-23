@@ -159,6 +159,7 @@ struct Command {
     entered: Arc<Notify>,
     release: Arc<Notify>,
     pause: bool,
+    executions: Arc<std::sync::Mutex<Vec<i32>>>,
 }
 
 impl BusinessCommand for Command {
@@ -206,6 +207,8 @@ impl BusinessCommand for Command {
     > {
         Box::pin(async move {
             assert_eq!(actor.id, self.actor);
+            let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()").fetch_one(&mut *conn).await?;
+            self.executions.lock().unwrap().push(pid);
             sqlx::query("INSERT INTO effects VALUES($1)")
                 .bind(self.actor)
                 .execute(&mut *conn)
@@ -346,6 +349,7 @@ fn command(fixture: &Fixture, pause: bool) -> Command {
         entered: Arc::new(Notify::new()),
         release: Arc::new(Notify::new()),
         pause,
+        executions: Arc::new(std::sync::Mutex::new(Vec::new())),
     }
 }
 
@@ -453,7 +457,7 @@ async fn p4_t2_c09() {
         (CompletionPoint::AfterCommit, false, true),
         (CompletionPoint::AfterCommit, true, false),
     ] {
-        let fixture = Fixture::new().await;
+        let mut fixture = Fixture::new().await;
         let control = CompletionControl::new(point, lost_ack);
         let gate = control.clone();
         let permits = Arc::new(Semaphore::new(1));
@@ -461,6 +465,7 @@ async fn p4_t2_c09() {
         let pool = fixture.pool.clone();
         let id = fixture.actor;
         let cmd = command(&fixture, false);
+        let executions = cmd.executions.clone();
         let caller = tokio::spawn(async move {
             run_controlled_write(pool, capacity, access(id), cmd, gate).await
         });
@@ -525,7 +530,18 @@ async fn p4_t2_c09() {
                 .unwrap(),
             "REJECTED"
         );
-        assert!(control.discarded());
+        let original_pid = executions.lock().unwrap()[0];
+        assert_eq!(executions.lock().unwrap().len(), 1);
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            loop {
+                let alive: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE pid=$1)")
+                    .bind(original_pid).fetch_one(&mut fixture.admin).await.unwrap();
+                if !alive { break; }
+                tokio::task::yield_now().await;
+            }
+        }).await.expect("original backend must terminate");
+        let replacement: i32 = sqlx::query_scalar("SELECT pg_backend_pid()").fetch_one(&fixture.pool).await.unwrap();
+        assert_ne!(replacement, original_pid);
         drop(permit);
         fixture.finish().await;
     }
@@ -623,4 +639,34 @@ async fn p4_t2_c10() {
         );
     }
     fixture.finish().await;
+}
+
+#[tokio::test]
+#[ignore = "requires explicit disposable PostgreSQL authority"]
+async fn p4_t2_c11() {
+    for (state, fail_count, expected_attempts, success) in [
+        ("40001", 2, 3, true), ("40P01", 3, 3, false), ("23514", 1, 1, false),
+    ] {
+        let mut fixture = Fixture::new().await;
+        // nextval is not rolled back, so the deferred trigger counts actual
+        // COMMIT attempts without adding committed business effects.
+        let sql = format!("CREATE SEQUENCE commit_attempt; CREATE FUNCTION reject_commit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF nextval('commit_attempt') <= {fail_count} THEN RAISE EXCEPTION 'deferred refusal' USING ERRCODE='{state}'; END IF; RETURN NEW; END $$; CREATE CONSTRAINT TRIGGER check_commit AFTER INSERT ON effects DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION reject_commit(); GRANT USAGE,SELECT ON SEQUENCE commit_attempt TO rust_app");
+        sqlx::raw_sql(sqlx::AssertSqlSafe(sql)).execute(&mut fixture.admin).await.unwrap();
+        let cmd = command(&fixture, false);
+        let executions = cmd.executions.clone();
+        let result = run_ordered_write(fixture.pool.clone(), Arc::new(Semaphore::new(1)), access(fixture.actor), cmd).await;
+        assert_eq!(executions.lock().unwrap().len(), expected_attempts);
+        assert_eq!(result.is_ok(), success);
+        if !success {
+            let error = result.unwrap_err();
+            assert_eq!(error.detail["code"], if state == "40P01" { "TRANSACTION_RETRY_EXHAUSTED" } else { "DATABASE_ERROR" });
+        }
+        for table in ["effects", "audit_logs", "user_status_transitions", "market_event_outbox"] {
+            let count: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {table}"))).fetch_one(&fixture.pool).await.unwrap();
+            assert_eq!(count, i64::from(success));
+        }
+        let status: String = sqlx::query_scalar("SELECT status FROM users WHERE id=$1").bind(fixture.actor).fetch_one(&fixture.pool).await.unwrap();
+        assert_eq!(status, if success { "REJECTED" } else { "APPROVED" });
+        fixture.finish().await;
+    }
 }
