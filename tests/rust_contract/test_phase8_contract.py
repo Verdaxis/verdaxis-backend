@@ -762,6 +762,81 @@ def test_phase8_reviewed_migration_list_starts_empty():
     assert json.loads(path.read_text()) == {}, "Task 5a review must add the first approved digest"
 
 
+def inventory_gate_fixture(tmp_path):
+    """Disposable repository with an approved predecessor and one new revision."""
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "config", "user.email", "fixture@example.invalid"], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "config", "user.name", "Fixture"], check=True)
+    (tmp_path / "alembic.ini").write_bytes((ROOT / "alembic.ini").read_bytes())
+    versions = tmp_path / "alembic/versions"
+    versions.mkdir(parents=True)
+    (versions / "predecessor.py").write_text('revision = "predecessor"\n')
+    subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "commit", "-qm", "fixture predecessor"], check=True)
+    predecessor = subprocess.check_output(["git", "-C", str(tmp_path), "rev-parse", "HEAD"], text=True).strip()
+    path = "alembic/versions/p89_20261022_watchlist_producer.py"
+    (tmp_path / path).write_text('revision = "phase8"\ndown_revision = "predecessor"\n')
+    digest = hashlib.sha256((tmp_path / path).read_bytes()).hexdigest()
+    return predecessor, path, {path: digest}
+
+
+@pytest.mark.parametrize("case", ["second_revision", "unlisted", "location", "missing", "invalid_digest", "outside_inventory", "duplicate", "symlink", "absolute", "nonobject"])
+def test_phase8_inventory_gate_refuses_unreviewed_migrations(tmp_path, case):
+    checker = globals().get("review_migration_inventory")
+    assert callable(checker), "complete Alembic inventory gate missing"
+    predecessor, path, reviewed = inventory_gate_fixture(tmp_path)
+    other = {}
+    expected_path = path
+    if case in {"second_revision", "unlisted"}:
+        expected_path = "alembic/versions/" + ("watchlist_extra.py" if case == "second_revision" else "another_name.py")
+        (tmp_path / expected_path).write_text('revision = "extra"\ndown_revision = "phase8"\n')
+    elif case == "location":
+        expected_path = "alembic.ini"
+        config = tmp_path / expected_path
+        config.write_text(config.read_text().replace("script_location = %(here)s/alembic", "script_location = %(here)s/elsewhere"))
+    elif case == "missing":
+        expected_path = "alembic/versions/removed_reviewed.py"
+        reviewed[expected_path] = "0" * 64
+    elif case == "invalid_digest":
+        expected_path = "alembic/versions/predecessor.py"
+        reviewed[expected_path] = "INVALID"
+    elif case == "outside_inventory":
+        expected_path = "alembic/versions/predecessor.py"
+        reviewed[expected_path] = hashlib.sha256((tmp_path / expected_path).read_bytes()).hexdigest()
+    elif case == "duplicate":
+        other[path] = {"sha256": reviewed[path], "owning_phase": 6}
+    elif case == "symlink":
+        target = tmp_path / path
+        target.unlink()
+        target.symlink_to("predecessor.py")
+    elif case == "absolute":
+        expected_path = str(tmp_path / path)
+        reviewed[expected_path] = reviewed[path]
+    elif case == "nonobject":
+        reviewed = []
+        expected_path = "reviewed-migrations.json"
+    violations = checker(tmp_path, predecessor, reviewed, other, [path])
+    assert violations and any(expected_path in reason for reason in violations), violations
+
+
+def test_phase8_inventory_gate_accepts_reviewed_other_phase(tmp_path):
+    checker = globals().get("review_migration_inventory")
+    assert callable(checker), "complete Alembic inventory gate missing"
+    predecessor, path, reviewed = inventory_gate_fixture(tmp_path)
+    extra = "alembic/versions/unrelated_name.py"
+    (tmp_path / extra).write_text('revision = "other_phase"\n')
+    other = {extra: {"sha256": hashlib.sha256((tmp_path / extra).read_bytes()).hexdigest(), "owning_phase": 6}}
+    assert checker(tmp_path, predecessor, reviewed, other, [path]) == []
+    (tmp_path / extra).write_text('revision = "changed"\n')
+    assert any(extra in reason for reason in checker(tmp_path, predecessor, reviewed, other, [path]))
+
+
+def test_phase8_other_phase_list_starts_empty():
+    path = ROOT / "tests/rust_contract/phase8/other-phase-migrations.json"
+    assert path.is_file(), "reviewed other-phase list missing"
+    assert json.loads(path.read_text()) == {}
+
+
 def task5a_fixture():
     manifest = load_ledger()["schema_change_set"]
     condition = manifest["constraints"]["ck_watchlist_events_producer_identity"]
