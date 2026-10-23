@@ -26,6 +26,7 @@ pub struct RejectAccount<E> {
     pub events: E,
 }
 
+#[derive(Debug)]
 pub struct RejectionResult {
     pub user_id: Uuid,
     pub cutoff: DateTime<Utc>,
