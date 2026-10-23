@@ -1064,6 +1064,7 @@ async fn phase5_composed_public_get_method_rules() {
     let (state, _read) = unreachable_database_state(1, std::time::Duration::from_secs(1));
     let assembled = verdaxis_read::router(state);
     for path in [
+        "/api/benchmarks",
         "/api/availability",
         "/api/demand",
         "/api/producers",

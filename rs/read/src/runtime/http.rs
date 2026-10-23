@@ -239,6 +239,7 @@ async fn cors(State(environment): State<String>, request: Request, next: Next) -
 
 /// Exact public GET inventory. Private paths and MCP never use slash redirects.
 pub const MOUNTED_GET_PATHS: &[&str] = &[
+    "/api/benchmarks",
     "/api/demand",
     "/api/fleet-intelligence",
     "/health/live",
@@ -405,6 +406,7 @@ async fn dispatch_boundary(
 
 pub fn public_routes() -> Router<crate::AppState> {
     Router::new()
+        .merge(crate::routes::benchmark_quotes::routes())
         .merge(crate::routes::ports::routes())
         .merge(crate::routes::availability::routes())
         .merge(crate::routes::compliance_fuels::routes())

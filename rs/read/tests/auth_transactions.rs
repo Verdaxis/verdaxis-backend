@@ -76,6 +76,7 @@ async fn postgres_authentication_ownership_and_revocation() {
         composed.config = Arc::new(config);
         let app = verdaxis_read::router(composed);
         for path in [
+            "/api/benchmarks",
             "/api/availability",
             "/api/demand",
             "/api/producers",

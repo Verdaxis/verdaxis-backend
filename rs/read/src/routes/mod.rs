@@ -1,4 +1,5 @@
 pub mod availability;
+pub mod benchmark_quotes;
 pub mod catalog;
 pub mod compliance_fuels;
 pub mod demand;

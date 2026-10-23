@@ -48,6 +48,12 @@ cores through their authenticated adapters.
 
 ## Phase 5 public market reads
 
+`routes::benchmark_quotes` serves `GET /api/benchmarks` through the shared
+admitted read owner. `sql/benchmark_quote.sql` selects one active canonical
+product/point lane and its optional stored quote in one statement; fallback
+prices use the existing shared benchmark policy and window calculation.
+`rs/read/tests/phase5_benchmarks.rs` covers query, catalog and quote behavior.
+
 `runtime::admission::run_market_read` runs the work of one public market read
 in the shared admitted owner task: one READ ONLY transaction with a
 transaction-local five-second statement limit, committed by the owner, with the
