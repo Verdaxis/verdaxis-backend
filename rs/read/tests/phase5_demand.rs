@@ -681,18 +681,34 @@ mod postgres {
         insert(&mut connection, &state, "SPOT", "REAL", "1").await;
         insert(&mut connection, &state, "2026-11", "REAL", "20").await;
         insert(&mut connection, &state, "2027-01", "REAL", "30").await;
+        insert(&mut connection, &state, "2026-12", "REAL", "10").await;
         for (now, expected) in [
             (
                 "2026-10-02T12:00:00Z",
-                json!([["2026-11", "HIGH"], ["SPOT", "HIGH"], ["2027-01", "LOW"]]),
+                json!([
+                    ["2026-11", "HIGH"],
+                    ["SPOT", "HIGH"],
+                    ["2026-12", "MEDIUM"],
+                    ["2027-01", "LOW"]
+                ]),
             ),
             (
                 "2026-10-01T12:00:00Z",
-                json!([["SPOT", "HIGH"], ["2026-11", "MEDIUM"], ["2027-01", "LOW"]]),
+                json!([
+                    ["SPOT", "HIGH"],
+                    ["2026-11", "MEDIUM"],
+                    ["2026-12", "MEDIUM"],
+                    ["2027-01", "LOW"]
+                ]),
             ),
             (
                 "2026-10-03T12:00:00Z",
-                json!([["2026-11", "HIGH"], ["SPOT", "HIGH"], ["2027-01", "MEDIUM"]]),
+                json!([
+                    ["2026-11", "HIGH"],
+                    ["SPOT", "HIGH"],
+                    ["2027-01", "MEDIUM"],
+                    ["2026-12", "MEDIUM"]
+                ]),
             ),
         ] {
             let clock = VisibilityClock::at(now.parse().unwrap());
