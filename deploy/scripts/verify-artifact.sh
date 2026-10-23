@@ -6,9 +6,14 @@ umask 077
 unset TAR_OPTIONS
 max_archive=$((256 * 1024 * 1024))
 max_member=$((128 * 1024 * 1024))
-work=
+work=''
+work_name=''
 fail() { printf 'artifact verification refused: %s\n' "$1" >&2; exit 1; }
-cleanup() { if [[ -n "$work" ]]; then rm -rf -- "$work"; fi; }
+cleanup() {
+    if [[ -n "$work_name" ]]; then
+        (cd -P -- "/proc/self/fd/$parent_fd" && rm -rf -- "$work_name")
+    fi
+}
 trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
 archive=''
@@ -44,7 +49,7 @@ done
 [[ "$repository" == Verdaxis/verdaxis-backend && "$workflow_path" == .github/workflows/rust-read-ci.yml && "$target" == x86_64-unknown-linux-gnu ]] || fail 'unapproved build identity'
 [[ "$workflow_ref" == refs/heads/staging || "$workflow_ref" == refs/heads/prod ]] || fail 'unapproved source ref'
 [[ -n "$archive" && -n "$record" && -n "$signature" && -n "$public_key" && -n "$output" ]] || fail 'required input is missing'
-for tool in tar openssl sha256sum jq stat dd od cmp realpath timeout; do
+for tool in tar openssl sha256sum jq stat dd od cmp timeout perl; do
     command -v "$tool" >/dev/null || fail 'a trusted system tool is missing'
 done
 tar --version | grep -q 'GNU tar' || fail 'GNU tar is required'
@@ -105,9 +110,10 @@ check_output() {
     fi
 }
 check_output
-work=$(mktemp -d "$PWD/.artifact-verify.XXXXXXXX")
-# PWD can retain the descriptor path; make the private work path independent of it.
-work=$(realpath -- "$work")
+work_name=$(mktemp -d .artifact-verify.XXXXXXXX)
+# All staging reads stay relative to the retained parent descriptor, even when
+# its original pathname is renamed. Publication and cleanup use work_name there.
+work="/proc/self/fd/$parent_fd/$work_name"
 snapshot "$archive" "$work/archive.tar" "$max_archive"
 snapshot "$record" "$work/record.json" 65536
 snapshot "$signature" "$work/record.sig" 64
@@ -116,6 +122,12 @@ snapshot "$public_key" "$work/public.pem" 16384
 openssl pkey -pubin -in "$work/public.pem" -text -noout | grep -q '^ED25519 Public-Key:' || fail 'an Ed25519 public key is required'
 openssl pkeyutl -verify -rawin -pubin -inkey "$work/public.pem" -in "$work/record.json" -sigfile "$work/record.sig" >/dev/null 2>&1 || fail 'invalid provenance signature'
 hash() { local value; value=$(sha256sum -- "$1"); printf '%s' "${value%% *}"; }
+# Inputs have byte bounds before jq slurps them. Reject streams before any
+# schema/binding predicate; jq -e alone observes only the last result.
+single_json() {
+    jq -e -s 'length == 1' "$1" >/dev/null 2>&1 || fail "$2 must contain exactly one JSON value"
+}
+single_json "$work/record.json" 'provenance record'
 archive_digest=$(hash "$work/archive.tar")
 jq -e --arg repo "$repository" --arg workflow "$workflow_path" --arg ref "$workflow_ref" --arg sha "$source_sha" --arg target "$target" --arg digest "$archive_digest" '
     type == "object" and
@@ -174,6 +186,7 @@ for name in "${names[@]}"; do
 done
 [[ ! -L data && -d data ]] || fail 'unsafe extracted data directory'
 metadata=artifact-metadata.json
+single_json "$metadata" 'metadata'
 jq -e --arg sha "$source_sha" --arg target "$target" '
     def fields($names): type == "object" and keys == ($names | sort);
     def matches($pattern): type == "string" and test($pattern);
@@ -220,6 +233,8 @@ for binding in 'policy.policy_path policy.policy_sha256' 'policy.manifest_path p
     name=$(jq -r ".$path_field" "$metadata")
     [[ -f "$name" && ! -L "$name" && "$(hash "$name")" == "$(jq -r ".$digest_field" "$metadata")" ]] || fail 'data binding mismatch'
 done
+single_json data/market-policy.manifest.json 'policy manifest'
+single_json data/allowed-revisions.json 'allowed revisions'
 jq -e --slurpfile meta "$metadata" '.source_sha == $meta[0].policy.source_sha and .policy_sha256 == $meta[0].policy.policy_sha256' data/market-policy.manifest.json >/dev/null || fail 'policy manifest binding mismatch'
 jq -e --slurpfile meta "$metadata" '. == $meta[0].revision_allowlist.revisions' data/allowed-revisions.json >/dev/null || fail 'revision allowlist binding mismatch'
 # Recheck the complete tree, then normalize modes rather than trust archive modes.
@@ -229,7 +244,8 @@ chmod 755 verdaxis-read data
 cd -- "/proc/self/fd/$parent_fd"
 [[ "$(stat -c '%d:%i' .)" == "$parent_identity" && "$(stat -c '%d:%i' -- "$(dirname -- "$output")")" == "$parent_identity" ]] || fail 'output parent changed'
 check_output
-# GNU mv -T replaces an absent or empty directory in one rename. It refuses a
-# nonempty destination; it never merges candidate files into user data.
-mv --no-target-directory -- "$work/tree" "$output_name"
+# Both names are relative to this pinned working directory. Perl CORE::rename
+# calls rename(2) only: unlike mv it cannot fall back to copying across devices.
+# The kernel refuses a nonempty destination and never merges directory contents.
+perl -e 'CORE::rename($ARGV[0], $ARGV[1]) or die "artifact publication rename failed: $!\n"' -- "$work_name/tree" "$output_name"
 printf 'verified verdaxis-read sha256=%s from release %s into %s\n' "$binary_digest" "$source_sha" "$output"
