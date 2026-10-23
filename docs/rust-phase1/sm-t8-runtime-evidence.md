@@ -163,6 +163,48 @@ successful staging batch records RED at 22:18:15Z and final completion at
 23:03:43Z on 22 October. Raw logs and exact commands remain in ignored `work/`.
 No build or test ran on the operator Mac; no measurements were run.
 
+## Review round 4 — 23 October 2026
+
+`effda3e4817208710f1ccf54a6de3e4165f81eaa` commits the tests
+before the fix. The controlled clock can advance wall and monotonic time
+separately. The public-helper case covers order expiry and tape departure:
+load once, hit with a distinct forward clock, advance wall time past departure
+while monotonic time remains before the stored boundary, then read twice.
+No generation changes. RED returns `[1, 1, 1, 1]` with one load for each
+family, instead of `[1, 1, 0, 0]` with two loads. Fifteen Rust cases pass;
+only the new case fails. The unit case also rejects the exact wall deadline,
+not just an instant after it.
+
+`e5e76e44` reconstructs the wall deadline from the stored evaluation pair and
+monotonic boundary, using checked arithmetic. The requesting wall clock must
+be strictly before it. Unknown or unrepresentable boundaries miss; there is
+no equality requirement, tolerance or TTL. Existing monotonic, lower-bound,
+authority, lease, generation and fence checks remain. `efca442d` applies the
+remote formatter patch.
+
+| Check | Source | Host | Exit |
+| --- | --- | --- | ---: |
+| Unit RED | `effda3e4` | remote M1 | 101 |
+| Public-helper PostgreSQL RED | `effda3e4` | staging | 1 |
+| Unit GREEN | `e5e76e44` | remote M1 | 0 |
+| Formatting | `efca442d` | remote M1 | 0 |
+| Warnings-denied clippy | `efca442d` | remote M1 | 0 |
+| Offline workspace (includes unit GREEN) | `efca442d` | remote M1 | 0 |
+| Full Python cache-event suite, 31 passed; Rust cache cases, 16 passed | `efca442d` | staging | 0 |
+| `cd rs && cargo audit` | `efca442d` | staging | 0 |
+| Seeded market contract, six passed | `efca442d` | staging | 0 |
+| Full Rust PostgreSQL runner | `efca442d` | staging | 0 |
+
+The first M1 batch found formatting differences and could not fetch the RustSec
+advisory database. Formatting was corrected and final-source Rust gates rerun;
+the advisory fetch still failed on M1. The exact audit command passed on staging.
+One staging call waited for its slot, then ran RED and every Linux gate without
+a duplicate call. Its RED exit is at 01:07:33Z, GREEN at 01:14:50Z and final
+batch/wrapper exit 0 at 01:37:59Z on 23 October. Exact source, commands, UTC times
+and exits are in ignored `work/r4-*.log` and the matching gate scripts.
+The full Python unit suite was not rerun: no Python or shared input changed.
+No build/test ran on the operator Mac; no measurements or activation occurred.
+
 ## Resume point and limits
 
 Trading caching remains inactive in serving routes. The prepared-budget listener
