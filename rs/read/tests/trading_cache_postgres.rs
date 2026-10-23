@@ -1394,7 +1394,19 @@ async fn route_json(state: &AppState, uri: &str) -> (u16, serde_json::Value) {
     let bytes = axum::body::to_bytes(response.into_body(), 8 * 1024 * 1024)
         .await
         .unwrap();
-    (status, serde_json::from_slice(&bytes).unwrap())
+    let mut value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    fn remove_generated(value: &mut serde_json::Value) {
+        match value {
+            serde_json::Value::Object(fields) => {
+                fields.remove("generated_at");
+                for value in fields.values_mut() { remove_generated(value); }
+            }
+            serde_json::Value::Array(items) => for value in items { remove_generated(value); },
+            _ => {}
+        }
+    }
+    remove_generated(&mut value);
+    (status, value)
 }
 
 #[tokio::test]

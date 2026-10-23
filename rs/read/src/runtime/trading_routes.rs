@@ -113,8 +113,8 @@ async fn facts(
     if family == "curves" {
         // Include every potential selected observation, not only the current
         // winner: expiry can expose a lower-ranked evidence class.
-        let departures: Vec<DateTime<Utc>> = sqlx::query_scalar(
-            "SELECT departure FROM (\
+        let departure: Option<DateTime<Utc>> = sqlx::query_scalar(
+            "SELECT min(departure) FROM (\
              SELECT confirmed_at + interval '30 days' AS departure FROM trades \
              UNION ALL SELECT observed_at + interval '7 days' FROM market_indications \
              UNION ALL SELECT observed_at + interval '30 days' FROM fair_price_bands \
@@ -125,14 +125,12 @@ async fn facts(
              UNION ALL SELECT coalesce(updated_at, created_at) + interval '7 days' FROM benchmarks \
              UNION ALL SELECT coalesce(updated_at, created_at) + interval '7 days' FROM orderbook_orders\
              ) AS boundaries WHERE departure >= $1")
-            .bind(now).fetch_all(&mut *connection).await.map_err(|_| ApiError::database())?;
-        facts.rolling_windows = if departures.iter().any(|value| *value == now) {
+            .bind(now).fetch_one(&mut *connection).await.map_err(|_| ApiError::database())?;
+        facts.rolling_windows = if departure == Some(now) {
             RollingWindows::Unknown
         } else {
             RollingWindows::Derived(
-                departures
-                    .into_iter()
-                    .min()
+                departure
                     .map(SystemTime::from)
                     .into_iter()
                     .collect(),
