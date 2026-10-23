@@ -267,6 +267,36 @@ async fn benchmark_catalog_cases() {
     connection.close().await.unwrap();
 }
 
+// Base midpoint: (1085 + 1105 + 1105 + 1125) / 4 = 1105 USD/MT.
+const FALLBACK_CASES: &[(&str, &str)] = &[
+    ("SPOT", "1105.00"),     // 1105 + 0 = 1105.
+    ("2027-02", "1135.00"),  // 1105 + 4 months * 7.50 = 1135.
+    ("2027-Q2", "1150.00"),  // April start: 1105 + 6 months * 7.50 = 1150.
+    ("2028-CAL", "1180.00"), // January start: 1105 + 15 months * 5.00 = 1180.
+    ("2026-09", "1105.00"),  // 1105 + max(-1, 0) * 7.50 = 1105.
+    ("2026-10", "1105.00"),  // 1105 + 0 months * 7.50 = 1105.
+    ("2026-Q3", "1105.00"),  // July start: 1105 + max(-3, 0) * 7.50 = 1105.
+    ("2026-Q4", "1105.00"),  // October start: 1105 + 0 months * 7.50 = 1105.
+    ("2025-CAL", "1105.00"), // January start: 1105 + max(-21, 0) * 5.00 = 1105.
+    ("2026-CAL", "1105.00"), // January start: 1105 + max(-9, 0) * 5.00 = 1105.
+];
+
+#[test]
+fn benchmark_fallback_price_cases() {
+    let key = (
+        "B30".to_owned(),
+        "78281fb3-e726-5396-802e-34b01fda21e8".to_owned(),
+    );
+    for &(window, expected) in FALLBACK_CASES {
+        let quote = routes::curves_canonical::benchmarks::board_quote(
+            None,
+            &(key.0.clone(), key.1.clone(), window.into()),
+            now(),
+        );
+        assert_eq!(quote["price"], expected, "{window}");
+    }
+}
+
 #[tokio::test]
 async fn benchmark_result_cases() {
     let Ok(url) = std::env::var("RUST_TEST_MIGRATOR_DATABASE_URL") else {
@@ -276,8 +306,9 @@ async fn benchmark_result_cases() {
     let mut connection = sqlx::PgConnection::connect(&url).await.unwrap();
     let policy = policy();
     fixture(&mut connection, &policy).await;
-    let (code, point) = seeded_key(&policy);
-    for window in ["SPOT", "2027-02", "2027-Q2", "2028-CAL"] {
+    let code = "B30".to_owned();
+    let point: Uuid = "78281fb3-e726-5396-802e-34b01fda21e8".parse().unwrap();
+    for &(window, expected) in FALLBACK_CASES {
         let raw =
             format!("market_product={code}&delivery_point_id={point}&availability_window={window}");
         let query = benchmark_quotes::parse_query(Some(&raw), &policy, now()).unwrap();
@@ -288,12 +319,7 @@ async fn benchmark_result_cases() {
                 .unwrap(),
         )
         .unwrap();
-        let expected = routes::curves_canonical::benchmarks::board_quote(
-            None,
-            &(code.clone(), point.to_string(), window.into()),
-            now(),
-        );
-        assert_eq!(quote["benchmark_price_per_mt_usd"], expected["price"]);
+        assert_eq!(quote["benchmark_price_per_mt_usd"], expected, "{window}");
         assert_eq!(quote["source"], "seed_matrix");
         assert_eq!(quote["observed_at"], Json::Null);
         assert_eq!(quote["market_product"], code);
