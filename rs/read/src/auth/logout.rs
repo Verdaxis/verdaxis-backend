@@ -90,8 +90,7 @@ async fn logout(State(state): State<LogoutState>, jar: CookieJar, request: Reque
                     store::lock_device(&mut tx, device).await?;
                     store::revoke_device_families(&mut tx, device, family.map(|(_, f)| f)).await?;
                 } else if let Some((user, family)) = family {
-                    store::lock_user(&mut tx, user).await?;
-                    store::revoke_family(&mut tx, user, family).await?;
+                    revoke_legacy_family(&mut tx, user, family).await?;
                 }
                 tx.commit().await
             }
@@ -116,6 +115,15 @@ async fn logout(State(state): State<LogoutState>, jar: CookieJar, request: Reque
     };
     (cleared, response).into_response()
 }
+async fn revoke_legacy_family(
+    conn: &mut sqlx::PgConnection,
+    user: Uuid,
+    family: Uuid,
+) -> Result<(), sqlx::Error> {
+    store::lock_user(conn, user).await?;
+    store::revoke_family(conn, user, family).await
+}
+
 fn legacy_family(state: &LogoutState, token: &str) -> Option<(Uuid, Uuid)> {
     let mut validation = Validation::new(Algorithm::HS256);
     validation.set_issuer(&[&state.issuer]);
