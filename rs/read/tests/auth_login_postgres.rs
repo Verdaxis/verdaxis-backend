@@ -1,8 +1,6 @@
 #![cfg(feature = "contract-tests")]
+use verdaxis_read::auth::login;
 pub use verdaxis_read::{ApiError, auth, runtime};
-#[allow(dead_code)]
-#[path = "../src/auth/login.rs"]
-mod login;
 
 use axum::{
     body::{Body, to_bytes},
@@ -343,5 +341,111 @@ async fn login_session_failure_rolls_back_and_is_retryable() {
             .unwrap(),
         1
     );
+    cleanup(&owner, id).await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL"]
+async fn login_composed_refusal_matrix_charges_once() {
+    let (owner, _, state, id) = setup().await;
+    for (case, expected) in [
+        ("origin", 403),
+        ("form", 422),
+        ("body", 413),
+        ("wrong", 401),
+        ("unknown", 401),
+        ("unverified", 403),
+        ("pending", 403),
+        ("rejected", 403),
+        ("endpoint", 429),
+    ] {
+        sqlx::query("UPDATE users SET status=$2,email_verified=$3 WHERE id=$1")
+            .bind(id)
+            .bind(if case == "pending" {
+                "PENDING"
+            } else if case == "rejected" {
+                "REJECTED"
+            } else {
+                "APPROVED"
+            })
+            .bind(case != "unverified")
+            .execute(&owner)
+            .await
+            .unwrap();
+        let mut state = state.clone();
+        state.limits = SharedLimits::default();
+        let limits = state.limits.clone();
+        let now = Utc::now().timestamp() as u64;
+        if case == "endpoint" {
+            for _ in 0..5 {
+                limits
+                    .check_endpoint("unknown", "/api/auth/login", now)
+                    .unwrap();
+            }
+        }
+        let routes = login::router(state).route(
+            "/api/auth/login/probe",
+            axum::routing::post(|| async { StatusCode::NO_CONTENT }),
+        );
+        let app = verdaxis_read::runtime::http::middleware_with_limits(
+            routes,
+            limits.clone(),
+            "production",
+        );
+        let subject = if case == "unknown" {
+            Uuid::new_v4()
+        } else {
+            id
+        };
+        let body = match case {
+            "form" => "username=a".to_owned(),
+            "body" => "x".repeat(128 * 1024 + 1),
+            _ => format!(
+                "username={subject}%40login.invalid&password={}",
+                if case == "wrong" { "wrong" } else { PASSWORD }
+            ),
+        };
+        let before = snapshot(&owner, &[id, subject]).await;
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post("/api/auth/login/")
+                    .header(
+                        "origin",
+                        if case == "origin" {
+                            "https://other.invalid"
+                        } else {
+                            "https://app.verdaxis.exchange"
+                        },
+                    )
+                    .header("content-type", "application/x-www-form-urlencoded")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status().as_u16(), expected, "{case}");
+        assert_eq!(snapshot(&owner, &[id, subject]).await, before);
+        for number in 2..=31 {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::post("/api/auth/login/probe")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                response.status(),
+                if number <= 30 {
+                    StatusCode::NO_CONTENT
+                } else {
+                    StatusCode::TOO_MANY_REQUESTS
+                },
+                "{case}: {number}"
+            );
+        }
+    }
     cleanup(&owner, id).await;
 }

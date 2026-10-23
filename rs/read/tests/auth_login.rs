@@ -135,7 +135,14 @@ async fn login_composed_prefix_budget() {
         "/api/auth/login/probe",
         axum::routing::post(|| async { StatusCode::UNPROCESSABLE_ENTITY }),
     );
-    let app = verdaxis_read::runtime::http::middleware_with_limits(routes, limits, "staging");
+    let app =
+        verdaxis_read::runtime::http::middleware_with_limits(routes, limits.clone(), "production");
+    let expired = chrono::Utc::now().timestamp() as u64 - 60;
+    for _ in 0..30 {
+        limits
+            .preauth_check("unknown", "/api/auth/login", expired)
+            .unwrap();
+    }
     for number in 1..=31 {
         let mut req = request(None, "username=a");
         *req.uri_mut() = match number {
