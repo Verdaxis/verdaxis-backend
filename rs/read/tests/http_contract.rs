@@ -1063,18 +1063,44 @@ async fn phase5_composed_public_get_method_rules() {
     use verdaxis_read::runtime::http::MOUNTED_GET_PATHS;
     let (state, _read) = unreachable_database_state(1, std::time::Duration::from_secs(1));
     let assembled = verdaxis_read::router(state);
-    for path in ["/api/availability", "/api/demand", "/api/producers", "/api/fleet-intelligence"] {
+    for path in [
+        "/api/availability",
+        "/api/demand",
+        "/api/producers",
+        "/api/fleet-intelligence",
+    ] {
         assert!(MOUNTED_GET_PATHS.contains(&path));
         for method in ["HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"] {
-            let response = assembled.clone().oneshot(Request::builder().method(method).uri(path)
-                .body(Body::empty()).unwrap()).await.unwrap();
+            let response = assembled
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method(method)
+                        .uri(path)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
             assert_eq!(response.status(), 405, "{method} {path}");
             assert_eq!(response.headers()["allow"], "GET");
         }
-        let response = assembled.clone().oneshot(Request::builder().uri(format!("{path}/?probe=1&limit=2"))
-            .header("host", "localhost").body(Body::empty()).unwrap()).await.unwrap();
+        let response = assembled
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("{path}/?probe=1&limit=2"))
+                    .header("host", "localhost")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(response.status(), 307, "{path}");
-        assert_eq!(response.headers()["location"], format!("http://localhost{path}?probe=1&limit=2"));
+        assert_eq!(
+            response.headers()["location"],
+            format!("http://localhost{path}?probe=1&limit=2")
+        );
     }
 }
 

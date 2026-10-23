@@ -11,8 +11,8 @@ use std::{
 };
 use tokio::sync::Semaphore;
 use tower::ServiceExt;
-use verdaxis_read::{ApiError, AppState, routes};
 pub use verdaxis_read::runtime;
+use verdaxis_read::{ApiError, AppState, routes};
 
 #[path = "../src/routes/fleet_intelligence.rs"]
 mod fleet_intelligence;
