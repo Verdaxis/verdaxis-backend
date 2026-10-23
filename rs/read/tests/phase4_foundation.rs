@@ -258,7 +258,7 @@ impl BusinessCommand for Command {
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL authority"]
 async fn p4_t2_c02() {
-    let fixture = Fixture::new().await;
+    let mut fixture = Fixture::new().await;
     let mut holder = fixture.pool.acquire().await.unwrap();
     let mut held = holder.begin().await.unwrap();
     sqlx::query("SELECT id FROM organizations WHERE id=$1 FOR UPDATE")
@@ -272,14 +272,31 @@ async fn p4_t2_c02() {
     let caller = tokio::spawn(async move {
         run_ordered_write(pool, Arc::new(Semaphore::new(1)), access(id), cmd).await
     });
+    // Observe from a separate autocommit connection: pg_stat_activity snapshots
+    // are cached inside the holder transaction. Match the blocker PID without
+    // relying on query text that the observer role cannot read.
+    let holder_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *held)
+        .await
+        .unwrap();
     tokio::time::timeout(std::time::Duration::from_secs(10), async {
         loop {
-            let blocked: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE pid <> pg_backend_pid() AND cardinality(pg_blocking_pids(pid)) > 0 AND query LIKE 'SELECT id FROM organizations%')")
-                .fetch_one(&mut *held).await.unwrap();
-            if blocked { break; }
+            let blocked: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM pg_stat_activity \
+                 WHERE pid <> pg_backend_pid() AND $1 = ANY(pg_blocking_pids(pid)))",
+            )
+            .bind(holder_pid)
+            .fetch_one(&mut fixture.admin)
+            .await
+            .unwrap();
+            if blocked {
+                break;
+            }
             tokio::task::yield_now().await;
         }
-    }).await.unwrap();
+    })
+    .await
+    .expect("business owner must wait for the organization row lock");
     // This update completes while the business owner waits for its first lock.
     sqlx::query("UPDATE users SET status='REJECTED' WHERE id=$1")
         .bind(fixture.actor)
@@ -379,10 +396,12 @@ async fn p4_t2_c03() {
     drop(conn);
     for table in ["audit_logs", "user_status_transitions"] {
         assert_eq!(
-            sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {table}")))
-                .fetch_one(&fixture.pool)
-                .await
-                .unwrap(),
+            sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(format!(
+                "SELECT count(*) FROM {table}"
+            )))
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap(),
             0
         );
     }
@@ -489,10 +508,12 @@ async fn p4_t2_c09() {
             "market_event_outbox",
         ] {
             assert_eq!(
-                sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {table}")))
-                    .fetch_one(&fixture.pool)
-                    .await
-                    .unwrap(),
+                sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(format!(
+                    "SELECT count(*) FROM {table}"
+                )))
+                .fetch_one(&fixture.pool)
+                .await
+                .unwrap(),
                 1
             );
         }
@@ -592,10 +613,12 @@ async fn p4_t2_c10() {
         "market_event_outbox",
     ] {
         assert_eq!(
-            sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {table}")))
-                .fetch_one(&fixture.pool)
-                .await
-                .unwrap(),
+            sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(format!(
+                "SELECT count(*) FROM {table}"
+            )))
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap(),
             1
         );
     }
