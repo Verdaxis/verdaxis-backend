@@ -336,7 +336,7 @@ async def test_fresh_database_upgrades_and_checks_without_application_secrets(
     assert heads.returncode == 0, heads.stderr
     assert _HEAD in heads.stdout
 
-    upgraded = await asyncio.to_thread(_alembic, database_url, "upgrade", "prc_20261018_cache")
+    upgraded = await asyncio.to_thread(_alembic, database_url, "upgrade", "head")
     assert upgraded.returncode == 0, upgraded.stderr
     current = await asyncio.to_thread(_alembic, database_url, "current")
     assert current.returncode == 0, current.stderr
@@ -719,7 +719,7 @@ async def test_parent_shape_sentinel_requires_explicit_cli_quarantine_then_upgra
     assert archived["operator"] == "market-integrity-test"
     assert archived["reference"] == "TEST-MI-001"
 
-    upgraded = await asyncio.to_thread(_alembic, database_url, "upgrade", "prc_20261018_cache")
+    upgraded = await asyncio.to_thread(_alembic, database_url, "upgrade", "head")
     assert upgraded.returncode == 0, upgraded.stderr
 
 
@@ -851,7 +851,7 @@ async def test_invalid_legacy_synthetic_order_requires_reviewed_expiry_snapshot(
     )
     assert archive.one() == ("orderbook_orders_expired", "TEST-SYNTHETIC-EXPIRY")
 
-    upgraded = await asyncio.to_thread(_alembic, database_url, "upgrade", "prc_20261018_cache")
+    upgraded = await asyncio.to_thread(_alembic, database_url, "upgrade", "head")
     assert upgraded.returncode == 0, upgraded.stderr
 
 
@@ -971,7 +971,7 @@ async def test_accepted_rfq_requires_approved_exact_graph_quarantine_before_upgr
     )
     assert active_count.scalar_one() == 0
 
-    upgraded = await asyncio.to_thread(_alembic, database_url, "upgrade", "prc_20261018_cache")
+    upgraded = await asyncio.to_thread(_alembic, database_url, "upgrade", "head")
     assert upgraded.returncode == 0, upgraded.stderr
 
 
@@ -1154,7 +1154,7 @@ async def test_exact_operator_approval_promotes_only_eligible_real_organizations
         {"user_id": user_id},
     )
 
-    upgraded = await asyncio.to_thread(_alembic, database_url, "upgrade", "prc_20261018_cache")
+    upgraded = await asyncio.to_thread(_alembic, database_url, "upgrade", "head")
     assert upgraded.returncode == 0, upgraded.stderr
     promoted = await _database_execute(
         database_url,
