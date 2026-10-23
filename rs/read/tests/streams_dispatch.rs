@@ -103,6 +103,47 @@ async fn sorted_org_scope() {
     assert_eq!(drain.cursor(), 9);
 }
 
+#[tokio::test]
+async fn unsorted_repeated_participants_scope() {
+    let a = Uuid::new_v4();
+    let b = Uuid::new_v4();
+    let unrelated = Uuid::new_v4();
+    let hub = StreamHub::default();
+    // One row whose stored participant list is unsorted and repeats an org.
+    let duplicated = Arc::new(
+        StoredEvent::new(5, vec![b, a, a], "trade_created", json!({"quantity": "2"})).unwrap(),
+    );
+    let mut store = Store::new(vec![Ok(page(
+        0,
+        9,
+        vec![ScanRow::event(duplicated, 100).unwrap()],
+        false,
+    ))]);
+    let mut drain = ready(&mut store, hub.clone()).await;
+    let mut sa = hub.subscribe_org(a).unwrap();
+    let mut sb = hub.subscribe_org(b).unwrap();
+    let mut sc = hub.subscribe_org(unrelated).unwrap();
+    drain.turn(&mut store).await.unwrap();
+    // Each listed organization receives the row exactly once.
+    assert_eq!(private_seq(&mut sa).await, 5);
+    assert_eq!(private_seq(&mut sb).await, 5);
+    for sub in [&mut sa, &mut sb] {
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), sub.recv())
+                .await
+                .is_err(),
+            "a repeated participant must not deliver twice"
+        );
+    }
+    // An organization outside the participant list receives nothing.
+    assert!(
+        tokio::time::timeout(Duration::from_millis(50), sc.recv())
+            .await
+            .is_err()
+    );
+    assert_eq!(drain.cursor(), 5);
+}
+
 #[test]
 fn marker_removed() {
     let marked = StoredEvent::new(
