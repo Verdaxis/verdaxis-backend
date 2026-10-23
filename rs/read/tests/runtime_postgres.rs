@@ -32,7 +32,7 @@ async fn fleet_config_startup_cases() {
     let root = std::env::temp_dir().join(format!("fleet-startup-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&root).unwrap();
     let client = reqwest::Client::new();
-    for case in ["missing", "not_directory", "permission", "internal_link"] {
+    for case in ["missing", "not_directory", "permission", "internal_link", "chained_escape"] {
         let cwd = root.join(case);
         std::fs::create_dir(&cwd).unwrap();
         let data = cwd.join("data");
@@ -52,6 +52,12 @@ async fn fleet_config_startup_cases() {
                         .kind(),
                     std::io::ErrorKind::PermissionDenied
                 );
+            }
+            "chained_escape" => {
+                std::fs::create_dir_all(cwd.join("outside/subdir")).unwrap();
+                std::fs::create_dir(&data).unwrap();
+                std::os::unix::fs::symlink(cwd.join("outside/subdir"), data.join("b")).unwrap();
+                std::os::unix::fs::symlink("b/../fleet.json", data.join("fleet.json")).unwrap();
             }
             "internal_link" => {
                 std::fs::create_dir_all(data.join("feeds")).unwrap();
@@ -104,6 +110,12 @@ async fn fleet_config_startup_cases() {
         child.wait().unwrap();
         if case == "permission" {
             std::fs::set_permissions(&data, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        if case == "chained_escape" {
+            assert_eq!(ready.unwrap(), None);
+            let log = std::fs::read_to_string(log_path).unwrap();
+            assert!(!log.contains("optional fleet artifact startup probe"));
+            continue;
         }
         assert_eq!(
             ready.unwrap(),

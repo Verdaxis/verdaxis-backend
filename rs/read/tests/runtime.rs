@@ -124,6 +124,43 @@ async fn fleet_config_cases() {
 }
 
 #[cfg(unix)]
+#[tokio::test]
+async fn fleet_config_link_order_and_probe_cases() {
+    use verdaxis_read::runtime::config::{resolve_fleet_artifact_path, fleet_startup_probe};
+    let temp = std::env::temp_dir().join(format!("fleet-links-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(temp.join("data")).unwrap();
+    let cwd = std::fs::canonicalize(&temp).unwrap();
+    let data = cwd.join("data");
+    let outside = cwd.join("outside");
+    std::fs::create_dir_all(outside.join("subdir")).unwrap();
+    let document = br#"{"entries":[],"last_updated":"2026-04-03","sources":[]}"#;
+    std::fs::write(outside.join("fleet.json"), document).unwrap();
+    std::fs::write(data.join("fleet.json"), document).unwrap();
+    std::os::unix::fs::symlink(outside.join("subdir"), data.join("hop")).unwrap();
+    for target in ["hop/../fleet.json", "hop/.."] {
+        let link = data.join("entry.json");
+        std::os::unix::fs::symlink(target, &link).unwrap();
+        assert!(resolve_fleet_artifact_path(std::path::Path::new("data/entry.json"), &cwd).is_err());
+        std::fs::remove_file(link).unwrap();
+    }
+    std::os::unix::fs::symlink("hop/..", data.join("a")).unwrap();
+    std::os::unix::fs::symlink("a/fleet.json", data.join("entry.json")).unwrap();
+    assert!(resolve_fleet_artifact_path(std::path::Path::new("data/entry.json"), &cwd).is_err());
+    std::fs::create_dir(data.join("feeds")).unwrap();
+    std::fs::write(data.join("feeds/fleet.json"), document).unwrap();
+    let resolved = resolve_fleet_artifact_path(std::path::Path::new("data/feeds/fleet.json"), &cwd).unwrap();
+    std::fs::rename(data.join("feeds"), data.join("old-feeds")).unwrap();
+    std::os::unix::fs::symlink(&outside, data.join("feeds")).unwrap();
+    assert!(!fleet_startup_probe(&resolved).await);
+    let direct = resolve_fleet_artifact_path(std::path::Path::new("data/fleet.json"), &cwd).unwrap();
+    std::fs::remove_file(data.join("fleet.json")).unwrap();
+    rustix::fs::mknodat(rustix::fs::CWD, &direct, rustix::fs::FileType::Fifo, rustix::fs::Mode::RUSR | rustix::fs::Mode::WUSR, 0).unwrap();
+    assert!(!tokio::time::timeout(std::time::Duration::from_secs(2), fleet_startup_probe(&direct)).await.unwrap());
+    assert!(!fleet_startup_probe(std::path::Path::new("/dev/null")).await);
+    std::fs::remove_dir_all(temp).unwrap();
+}
+
+#[cfg(unix)]
 #[test]
 fn fleet_config_environment_encoding() {
     use std::os::unix::ffi::OsStringExt;
