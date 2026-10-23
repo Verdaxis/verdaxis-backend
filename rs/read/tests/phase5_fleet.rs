@@ -179,6 +179,11 @@ async fn fleet_document_file_cases() {
     std::fs::create_dir(fixture.0.join("data")).unwrap();
     std::fs::create_dir(fixture.path()).unwrap();
     assert!(read(&fixture.path()).await.is_err());
+    std::fs::remove_dir(fixture.path()).unwrap();
+    let name = std::ffi::CString::new(fixture.path().as_os_str().as_encoded_bytes()).unwrap();
+    // SAFETY: name is a valid NUL-terminated path in owned temporary storage.
+    assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+    assert!(read(&fixture.path()).await.is_err());
 }
 
 #[tokio::test]
