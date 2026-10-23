@@ -1,4 +1,5 @@
 #![cfg(feature = "contract-tests")]
+pub use verdaxis_read::{ApiError, auth, runtime};
 #[allow(dead_code)]
 #[path = "../src/auth/login.rs"]
 mod login;
