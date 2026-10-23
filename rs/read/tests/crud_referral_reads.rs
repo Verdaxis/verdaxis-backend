@@ -873,7 +873,17 @@ async fn postgres_referral_reads_and_public_resolution() {
     for number in (1_u128..=12).rev() {
         let referrer = Uuid::from_u128(0x6000 + number);
         let name = format!("Referrer {number:02}");
-        insert_user(&admin, referrer, "BUYER", None, true, None, Some(&name), None).await;
+        insert_user(
+            &admin,
+            referrer,
+            "BUYER",
+            None,
+            true,
+            None,
+            Some(&name),
+            None,
+        )
+        .await;
         let count = match number {
             1 => 4,
             2 | 3 => 3,
@@ -895,17 +905,23 @@ async fn postgres_referral_reads_and_public_resolution() {
         }
     }
     let (status, leaderboard) = send(
-        &app, "GET", "/api/referrals/leaderboard", Some(&token), false,
+        &app,
+        "GET",
+        "/api/referrals/leaderboard",
+        Some(&token),
+        false,
     )
     .await;
     assert_eq!(status, 200, "{leaderboard}");
     let expected: Vec<Value> = (1..=10)
-        .map(|number| json!({
-            "rank": number,
-            "user_name": format!("Referrer {number:02}"),
-            "organization_name": null,
-            "referral_count": if number == 1 { 4 } else if number <= 3 { 3 } else { 2 },
-        }))
+        .map(|number| {
+            json!({
+                "rank": number,
+                "user_name": format!("Referrer {number:02}"),
+                "organization_name": null,
+                "referral_count": if number == 1 { 4 } else if number <= 3 { 3 } else { 2 },
+            })
+        })
         .collect();
     assert_eq!(leaderboard, json!(expected));
     server.abort();
