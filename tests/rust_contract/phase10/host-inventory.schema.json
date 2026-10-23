@@ -6,6 +6,7 @@
   "additionalProperties": false,
   "required": ["schema_version", "scope", "binding", "hosts", "required_dependencies", "dependencies", "schedules", "credential_references", "observations", "source_sha256", "schedule_sha256"],
   "properties": {
+    "host_snapshots": {"type": "object", "additionalProperties": false, "required": ["production", "staging"], "properties": {"production": {"$ref": "#/$defs/snapshot"}, "staging": {"$ref": "#/$defs/snapshot"}}},
     "schema_version": {"const": 1},
     "scope": {"enum": ["uncollected", "fixture", "installed"]},
     "binding": {"const": "unsigned, digest-bound"},
@@ -16,9 +17,17 @@
     "dependencies": {"type": "array", "maxItems": 10000, "items": {"$ref": "#/$defs/dependency"}},
     "schedules": {"type": "array", "maxItems": 10000, "items": {"$ref": "#/$defs/schedule"}},
     "credential_references": {"$ref": "#/$defs/paths"},
-    "observations": {"type": "array", "maxItems": 10000, "items": {"type": "object", "additionalProperties": false, "required": ["host", "surface", "text"], "properties": {"host": {"enum": ["production", "staging", "offhost"]}, "surface": {"enum": ["units", "timers", "dropins", "cron", "processes", "usr_local", "packages", "imports"]}, "text": {"type": "string", "maxLength": 65536}}}}
+    "observations": {"type": "array", "maxItems": 10000, "items": {"type": "object", "additionalProperties": false, "required": ["host", "surface", "text"], "properties": {"host": {"enum": ["production", "staging", "offhost"]}, "surface": {"enum": ["units", "timers", "dropins", "cron", "processes", "usr_local", "packages", "imports"]}, "text": {"type": "string", "maxLength": 2097152}}}}
   },
   "$defs": {
+    "snapshot": {
+      "type": "object", "additionalProperties": false, "required": ["coverage", "observations", "scripts"],
+      "properties": {
+        "coverage": {"$ref": "#/$defs/coverage"},
+        "observations": {"type": "array", "maxItems": 10000, "items": {"type": "object", "additionalProperties": false, "required": ["surface", "text", "complete"], "properties": {"surface": {"enum": ["units", "timers", "dropins", "cron", "processes", "usr_local", "packages", "imports"]}, "text": {"type": "string", "maxLength": 2097152}, "complete": {"type": "boolean"}}}},
+        "scripts": {"type": "array", "maxItems": 1000, "items": {"type": "object", "additionalProperties": false, "required": ["path", "uid", "gid", "mode", "size", "sha256", "imports", "imports_complete", "credential_references"], "properties": {"path": {"$ref": "#/$defs/text"}, "uid": {"type": "integer", "minimum": 0}, "gid": {"type": "integer", "minimum": 0}, "mode": {"type": "string", "pattern": "^[0-7]{4}$"}, "size": {"type": "integer", "minimum": 0, "maximum": 262144}, "sha256": {"$ref": "#/$defs/digest"}, "imports": {"$ref": "#/$defs/strings"}, "imports_complete": {"type": "boolean"}, "credential_references": {"$ref": "#/$defs/paths"}}}}
+      }
+    },
     "text": {"type": "string", "minLength": 1, "maxLength": 4096},
     "digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
     "strings": {"type": "array", "maxItems": 10000, "uniqueItems": true, "items": {"$ref": "#/$defs/text"}},

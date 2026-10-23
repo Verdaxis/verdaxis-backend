@@ -352,6 +352,13 @@ application imports). `host-inventory.schema.json` defines the register;
 authorized installed evidence exists. Stage 1 accepts sanitized fixtures only,
 uses private external evidence directories with SHA-256 sidecars, and disables
 live collection, installed acceptance, signing, and schedule changes.
+Stage 2a adds `deploy/tests/host-inventory-reader.py`, the fixed standard-library
+script sent on SSH stdin, and off-host `host_inventory/transport.py`. The reader
+has one argv allowlist, bounded no-follow script/import reads and pre-transport
+redaction. Transport fixes the two SSH targets and the private evidence folder;
+its fixture tests substitute all commands and SSH. The shell CLI still refuses
+live collection pending separate authorization. Incomplete reads remain explicit
+coverage failures; observations do not approve dependencies or create schedules.
 
 ## File Map
 

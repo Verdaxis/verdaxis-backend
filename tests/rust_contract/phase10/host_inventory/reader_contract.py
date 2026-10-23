@@ -104,7 +104,11 @@ class ReaderContract(unittest.TestCase):
             if 'crontab' in argv:
                 return 'PASS=fixture-secret\n0 4 * * * /usr/local/bin/backup.sh\n', True
             return 'fixture output', True
-        result = self.reader.collect(command)
+        def script_reader(path):
+            return {'path': path, 'uid': 0, 'gid': 0, 'mode': '0750', 'size': 1,
+                    'sha256': 'a' * 64, 'imports': [], 'imports_complete': True,
+                    'credential_references': []}
+        result = self.reader.collect(command, cron_files=[], script_reader=script_reader)
         text = json.dumps(result)
         self.assertNotIn('fixture-secret', text)
         self.assertIn('<redacted>', text)
@@ -114,6 +118,21 @@ class ReaderContract(unittest.TestCase):
             self.assertTrue(self.reader.allowed(argv), argv)
         self.assertFalse(self.reader.allowed(('bash', '/tmp/backup.sh')))
         self.assertFalse(self.reader.allowed(('systemctl', 'restart', 'fixture.service')))
+        transport = load(TRANSPORT)
+        base = json.loads((ROOT / 'tests/rust_contract/phase10/host-dependencies.json').read_text())
+        calls = []
+        def runner(argv, data):
+            calls.append(argv)
+            return json.dumps(result).encode(), True
+        document = transport.collect_hosts(base, runner)
+        self.assertEqual(len(calls), 2)
+        from jsonschema import Draft202012Validator
+        schema = json.loads((ROOT / 'tests/rust_contract/phase10/host-inventory.schema.json').read_text())
+        Draft202012Validator(schema).validate(document)
+        self.assertEqual(document['scope'], 'installed')
+        self.assertEqual(document['binding'], 'unsigned, digest-bound')
+        self.assertEqual(document['dependencies'], [])
+        self.assertEqual(document['schedules'], [])
 
     def test_transport_one_fixed_stdin_script_per_host(self):
         self.assertTrue(TRANSPORT.exists(), 'fixed transport is not implemented')
