@@ -288,8 +288,14 @@ supplies the read clock and lifecycle checkpoints: serving uses the real clock,
 and disposable schedules hold a read at an exact checkpoint.
 `market/cache_dependencies.rs` derives each reviewed family's time boundary;
 moving price summaries (`prices`) need rolling-window facts, explicit fixed
-ranges use `prices_fixed`, and an unknown required fact bypasses storage. Serving routes are not wrapped yet: that step waits for the reviewed
-Tasks 9/10 handoff, so trading caching remains inactive. See
+ranges use `prices_fixed`, and an unknown required fact bypasses storage.
+`runtime/trading_routes.rs` adapts the accepted public snapshot/list/map, price
+and canonical-curve handlers to that helper, sharing one bounded AppState cache.
+It derives conservative global temporal minima in the same snapshot, includes
+UTC date in request keys and rebuilds generated timestamps after lookup. With
+the prepared-budget switch off, handlers retain the uncached admitted SQL path;
+no activation or deployment is implied by the wrappers. Personal, write, MCP,
+listings and tape surfaces are not wrapped by this step. See
 `docs/rust-phase1/cache-dependencies.md`.
 Exact `market/amount.rs` operations retain intermediate economic rounding while
 removing wire-spelling emulation. See `docs/rust-phase1/same-meaning-contract.md`.

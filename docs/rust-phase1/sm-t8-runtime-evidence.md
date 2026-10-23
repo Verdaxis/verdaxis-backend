@@ -205,15 +205,97 @@ and exits are in ignored `work/r4-*.log` and the matching gate scripts.
 The full Python unit suite was not rerun: no Python or shared input changed.
 No build/test ran on the operator Mac; no measurements or activation occurred.
 
+## Release 2 route integration — 23 October 2026
+
+Accepted runtime checkpoint: `0f01d4c6`. Merged accepted Task 9–10 `c599dddb`
+with `--no-ff` at `509c13b0`, then staging `3bd89ae9` at `c40de2dc`.
+Both merges were conflict-free. Reviewed the combined diagnostic accessors,
+exact named test skips, shared harness normalization and legacy JIT transaction.
+There was no Cargo lock resolution or manual conflict edit.
+
+`runtime/trading_routes.rs` adapts only the assigned snapshot/list/map, prices
+and canonical-curve HTTP handlers. A per-AppState bounded cache uses route,
+complete raw query (or parsed curve query), configuration/policy identity and
+captured UTC date. The date separates normalized calendar aliases. Successful
+JSON alone is retained; generated timestamps and CSV/HTTP rendering occur after
+lookup. Private/write, listings, tape and MCP paths remain outside this adapter.
+The prepared-budget switch remains off by default; the disabled branch calls
+the original admitted loader without boundary or cache metadata SQL.
+
+Enabled reads derive conservative global temporal minima in the runtime's
+repeatable read-only snapshot. They cover every future order/grace expiry,
+Singapore certificate midnight, rolling trades (including quarantine), curve
+7/30/90-day signal departures, seven-day freshness labels and UTC/Singapore
+calendar rules. Global unrelated rows can shorten reuse, not extend it.
+Inclusive rolling equality and unproved facts bypass storage. Existing loaders
+use nested savepoints, retaining transaction-local JIT and projection behavior.
+The snapshot's transaction characteristic statement runs only on the disabled
+path; the enabled outer transaction already establishes those characteristics.
+
+### Tests and limits of RED
+
+The first tests-only checkpoint `3825e4f3` failed on request timestamps, not the
+missing wrapper, and is not the behavioral RED claim. Corrected tests-only
+checkpoint `d42ab531` contains the repaired fixture but no wrappers. It failed
+with `route has no proven wrapper` on the actual snapshot HTTP handler (driver
+exit 1, 06:21:53Z). This is one route-level RED; the other route cases were
+blocked by that assertion, not individually run RED.
+
+GREEN exercises sixteen actual HTTP route variants: enabled/disabled payload
+parity, cold storage and warm requests, committed price changes before listener
+event delivery, exact order-expiry equality, revoked-authority failure, and
+successor reads with equal/lower generations. Existing runtime tests retain
+the two-process/two-incarnation and stale-publication proof. The route test
+compares generated-time-free business payloads; separate runtime clock tests
+retain wall/monotonic interval coverage. It does not claim a speed measurement.
+
+Two fixture-only corrections were needed: restore the disposable generation
+above retained event keys before further writes, and supply the required `side`
+query on product counts. These do not change production wrappers. On final
+fixture source `357d333c`, the full cache-event suite passes (32 Python tests).
+
+### Gate ledger
+
+Production wrapper source is `3cc01606`; subsequent code changes are test-only
+fixture corrections and a merge retaining the tests-only RED checkpoint.
+
+| Gate | Source | Exit / result |
+| --- | --- | --- |
+| fmt, warnings-denied clippy, offline workspace | `3cc01606`, remote M1 | 0 each |
+| M1 audit | `3cc01606` | 1, RustSec network fetch failed |
+| market contract | `3cc01606`, staging | 0 |
+| Rust PostgreSQL runner | `3cc01606`, staging | 0 |
+| Python unit + monitor + rust_contract | `3cc01606`, staging | 1; only the two inherited Phase 2 failures |
+| exact `cd rs && cargo audit` | `3cc01606`, staging | 0 |
+| Phase 1 meaning gate, once | `3cc01606`, staging | 1; only prices / `T9-date-year-zero` |
+| large prices simulation | `3cc01606`, staging | 0; 56 pairs, zero differences, no inconclusive group, pass |
+| fmt and clippy after fixture correction | `b07e5f90`, staging | 0 each |
+| full cache-event suite | `357d333c`, staging | 0; 32 passed |
+
+Inherited Python failures: `test_verifier_has_no_issuing_or_database_interface`
+and `test_source_digests_and_exact_exclusions`. The meaning failure reports
+body/header/status differences for `T9-date-year-zero`; every other group,
+including canonical and legacy curves, passed. The date parser is unchanged
+from the accepted staging tree; this result is recorded, not waived or fixed
+by modifying Python/comparator rules. The full meaning gate was not repeated.
+Large simulation uses the staging harness fix and is now conclusive.
+
+Raw exact commands, UTC times, SHAs and exits are in ignored
+`work/integration-*-gates.log`, `work/integration-recheck.log` and
+`work/integration-cache-recheck-2.log`, with matching scripts. Staging used one
+queued batch, then sequential affected-gate reruns after it finished; no duplicate
+call or measurement. The automatic commit security review failed with API 404;
+that is not a successful security-review claim.
+
 ## Resume point and limits
 
-Trading caching remains inactive in serving routes. The prepared-budget listener
-switch defaults off. The runtime hook, authority refresh, cache registry and
-commit-safe read helper are available, but no route calls `run_trading_read`.
-Do not edit the Task 9/10 route or SQL files until the PM accepts their uncached
-handoff and it is merged here. Then derive the actual route boundaries in the
-same snapshot, add wrappers and prove middleware behavior on hits. No activation,
-live DDL, deployment or measurement is authorized by this checkpoint.
+The prepared-budget listener switch still defaults off. The accepted Task 9/10
+handoff and staging harness fix are merged, and the assigned public HTTP wrappers
+are implemented. Independent route-integration review remains required, including
+middleware behavior on hits and the exact scope of conservative temporal bounds.
+The Phase 1 meaning gate has the recorded year-zero failure; do not claim release
+acceptance from the passing simulation alone. No activation, live DDL, deployment
+or measurement is authorized by this checkpoint.
 
 Open items for the route-wrapper step:
 
