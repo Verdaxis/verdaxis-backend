@@ -32,7 +32,13 @@ async fn fleet_config_startup_cases() {
     let root = std::env::temp_dir().join(format!("fleet-startup-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&root).unwrap();
     let client = reqwest::Client::new();
-    for case in ["missing", "not_directory", "permission", "internal_link", "chained_escape"] {
+    for case in [
+        "missing",
+        "not_directory",
+        "permission",
+        "internal_link",
+        "chained_escape",
+    ] {
         let cwd = root.join(case);
         std::fs::create_dir(&cwd).unwrap();
         let data = cwd.join("data");

@@ -72,6 +72,10 @@ resolution. Missing, inaccessible and non-directory storage remains optional. `r
 resolver and one bounded two-second, 256 KiB JSON startup probe. The binary logs
 only available/unavailable; missing or invalid optional data does not affect
 process startup or the unchanged four-field database readiness response.
+Link targets are expanded in filesystem order under held directory descriptors;
+parent steps cannot erase an unchecked link. `runtime::safe_fs` supplies the shared
+rustix no-follow descriptor walker, with nonblocking final opens and regular-file
+checks. The startup probe uses only that opener before its bounded read.
 Full document validation and the fleet route remain the fleet reader's concern.
 `rs/read/tests/runtime.rs` and `runtime_postgres.rs` cover this boundary.
 
