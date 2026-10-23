@@ -239,14 +239,17 @@ def test_tuple_assertion_binds_runtime_and_monitor_bytes(tmp_path, monkeypatch):
     (root / ".env").write_text("synthetic")
     monkeypatch.setattr(assert_host, "ROOT", root)
     monkeypatch.setattr(assert_host, "command", lambda args: sha if args[-1] == "HEAD" else "")
+    units_dir = tmp_path / "systemd"
+    monkeypatch.setattr(assert_host, "UNIT_DIR", units_dir)
     required_units = {
-        "/etc/systemd/system/verdaxis-backend.service": b"synthetic unit",
-        "/etc/systemd/system/verdaxis-backend.service.d/90-phase0-fence.conf": b"synthetic guard",
+        units_dir / "verdaxis-backend.service": b"synthetic unit",
+        units_dir / "verdaxis-backend.service.d/90-phase0-fence.conf": b"synthetic guard",
     }
-    original_read = Path.read_bytes
-    monkeypatch.setattr(Path, "read_bytes", lambda path: required_units[str(path)] if str(path) in required_units else original_read(path))
+    for path, value in required_units.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(value)
     artifacts = {str(path): hashlib.sha256(path.read_bytes()).hexdigest() for path in root.iterdir()}
-    artifacts.update({name: hashlib.sha256(value).hexdigest() for name, value in required_units.items()})
+    artifacts.update({str(path): hashlib.sha256(value).hexdigest() for path, value in required_units.items()})
     manifest = dict(release_sha=sha, identity={"revision": "p0_20261016_union"},
                     monitor_identity_file=str(root / ".runtime-monitor.env"), artifacts=artifacts)
     assert_host.verify_tuple(manifest)
