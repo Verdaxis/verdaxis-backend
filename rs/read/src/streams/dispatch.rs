@@ -288,3 +288,38 @@ async fn stopping(shutdown: &mut watch::Receiver<bool>) {
         }
     }
 }
+
+/// The shared bounded store owns every database snapshot and payload check.
+pub struct PgDispatchStore {
+    pool: sqlx::PgPool,
+}
+
+impl PgDispatchStore {
+    pub fn new(pool: sqlx::PgPool) -> Self {
+        Self { pool }
+    }
+}
+
+impl DispatchStore for PgDispatchStore {
+    async fn boundary(&mut self) -> Result<Boundary, DispatchError> {
+        let boundary = super::store::replay_boundary(&self.pool)
+            .await
+            .map_err(|_| DispatchError::Store)?;
+        Boundary::new(boundary.discarded_through, boundary.high_water)
+    }
+
+    async fn scan(&mut self, after: i64) -> Result<ScanPage, DispatchError> {
+        let page = super::store::dispatch_page(&self.pool, after)
+            .await
+            .map_err(|_| DispatchError::Store)?;
+        let boundary = Boundary::new(page.boundary.discarded_through, page.boundary.high_water)?;
+        let mut rows = Vec::with_capacity(page.events.len());
+        for event in page.events {
+            let bytes = serde_json::to_vec(event.payload())
+                .map_err(|_| DispatchError::InvalidPage)?
+                .len();
+            rows.push(ScanRow::event(Arc::new(event), bytes)?);
+        }
+        ScanPage::new(boundary, rows, page.more)
+    }
+}

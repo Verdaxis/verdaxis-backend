@@ -2092,6 +2092,13 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_dispatch.rs",
+      "test_name": "event_size_boundary",
+      "red": [
+        "negative_control"
       ]
     },
     {
@@ -2104,6 +2111,13 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_dispatch.rs",
+      "test_name": "participant_count_boundary",
+      "red": [
+        "negative_control"
       ]
     },
     {
@@ -2116,6 +2130,13 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_dispatch.rs",
+      "test_name": "page_byte_boundary",
+      "red": [
+        "negative_control"
       ]
     },
     {
@@ -2128,6 +2149,13 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_dispatch.rs",
+      "test_name": "hub_turn_control_fairness",
+      "red": [
+        "negative_control"
       ]
     },
     {
@@ -2140,6 +2168,13 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_dispatch.rs",
+      "test_name": "sorted_org_scope",
+      "red": [
+        "negative_control"
       ]
     },
     {
@@ -2152,6 +2187,13 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_dispatch.rs",
+      "test_name": "marker_removed",
+      "red": [
+        "negative_control"
       ]
     },
     {
@@ -2164,6 +2206,13 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_dispatch.rs",
+      "test_name": "legacy_schema_version",
+      "red": [
+        "negative_control"
       ]
     },
     {
@@ -2176,6 +2225,13 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_dispatch.rs",
+      "test_name": "public_frames_have_no_cursor_or_private_fields",
+      "red": [
+        "negative_control"
       ]
     },
     {
@@ -2188,7 +2244,15 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
-      ]
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_dispatch.rs",
+      "test_name": "postgres::committed_visibility_and_rollback",
+      "red": [
+        "negative_control"
+      ],
+      "suite": "tests/postgres/test_phase6_dispatch.py"
     },
     {
       "id": "E078",
@@ -2200,6 +2264,13 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_dispatch.rs",
+      "test_name": "poll_without_notification_drains_again",
+      "red": [
+        "negative_control"
       ]
     },
     {
@@ -2212,6 +2283,13 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_dispatch.rs",
+      "test_name": "poll_and_spurious_wakes_read_committed_state",
+      "red": [
+        "negative_control"
       ]
     },
     {
@@ -2224,6 +2302,13 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_dispatch.rs",
+      "test_name": "scan_failure_preserves_pending_channels",
+      "red": [
+        "negative_control"
       ]
     },
     {
@@ -2236,6 +2321,13 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_dispatch.rs",
+      "test_name": "pending_public_survives_scan_failure_and_partial_accept",
+      "red": [
+        "negative_control"
       ]
     },
     {
@@ -2248,6 +2340,13 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_dispatch.rs",
+      "test_name": "invalid_row_resets_and_scan_can_continue",
+      "red": [
+        "negative_control"
       ]
     },
     {
@@ -2260,6 +2359,13 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_dispatch.rs",
+      "test_name": "floor_overtaken_hub_resets_before_new_rows",
+      "red": [
+        "negative_control"
       ]
     },
     {
@@ -2272,6 +2378,13 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_dispatch.rs",
+      "test_name": "baseline_is_captured_before_live_scans",
+      "red": [
+        "negative_control"
       ]
     },
     {

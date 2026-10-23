@@ -47,6 +47,13 @@ activation disabled. The neutral evidence gate in
 `scripts/rust_contract/phase6_evidence.py` binds accepted scenario metadata to
 source tests and host logs; incomplete later-task evidence still refuses acceptance.
 
+Replay now consumes the same validated envelope as live dispatch. Store page limits
+are aliases of the shared stream policy, and metadata is checked before JSON
+is decoded. `PgDispatchStore` reads global pages and the retention boundary in
+one short read-only snapshot. `Replay` remains pull-driven and owns its bounded
+page and registration; terminal-only subscription waits cancel pending reads.
+HTTP route composition and runtime activation remain Tasks 8 and 9.
+
 ## Rust Phase 2 feedback
 
 `rs/read/src/crud/feedback.rs` provides the Task 10 feedback submission and

@@ -52,7 +52,7 @@ SELECT stream_seq,
 FROM public.market_event_outbox
 WHERE stream_seq > $1
   AND stream_seq <= $2
-  AND (participant_org_ids::jsonb) ? $3
+  AND ($3::text IS NULL OR (participant_org_ids::jsonb) ? $3)
 ORDER BY stream_seq
 LIMIT $4
 "#;
@@ -264,18 +264,41 @@ pub async fn replay_page(
     through: i64,
     limits: PageLimits,
 ) -> Result<ReplayPage, StoreError> {
+    read_page(pool, Some(organization), after, Some(through), limits).await
+}
+
+/// Read a global dispatch page and its coverage boundary in one snapshot.
+pub async fn dispatch_page(pool: &PgPool, after: i64) -> Result<ReplayPage, StoreError> {
+    read_page(pool, None, after, None, PageLimits::default()).await
+}
+
+async fn read_page(
+    pool: &PgPool,
+    organization: Option<Uuid>,
+    after: i64,
+    through: Option<i64>,
+    limits: PageLimits,
+) -> Result<ReplayPage, StoreError> {
     limits.validate()?;
-    if after < 0 || through < after {
+    if after < 0 || through.is_some_and(|through| through < after) {
         return Err(StoreError::InvalidPageRequest);
     }
 
     let mut transaction = begin_snapshot(pool).await?;
     let discarded_through = read_floor(&mut transaction).await?;
+    let through = match through {
+        Some(through) => through,
+        None => sqlx::query_scalar::<_, i64>(HIGH_WATER_SQL)
+            .fetch_one(&mut *transaction)
+            .await
+            .map_err(|_| StoreError::Unavailable)?
+            .max(discarded_through),
+    };
 
     let metadata_rows = sqlx::query(METADATA_SQL)
         .bind(after)
         .bind(through)
-        .bind(organization.to_string())
+        .bind(organization.map(|organization| organization.to_string()))
         .bind((limits.rows + 1) as i64)
         .bind(limits.participants as i64 * PARTICIPANT_JSON_BYTES + 2)
         .fetch_all(&mut *transaction)

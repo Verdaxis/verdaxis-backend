@@ -45,11 +45,22 @@ def test_committed_dispatch_visibility(analytics_pg_url):
     assert "1 passed; 0 failed; 0 ignored" in result.stdout
 
 
-@pytest.mark.skip(reason="Task 2 store/migration integration required; not retention acceptance")
 def test_retention_snapshot_resets_existing_subscribers(analytics_pg_url):
-    # Integration owner supplies the real store after Task 2 merges. The case
-    # must initialize the hub, register both public channels and an organization,
-    # commit a permitted migrator DELETE, then scan the advanced floor. Expect
-    # one cursor-free replay_retention reset, no queued business row, and a fresh
-    # baseline; rolling back the DELETE must leave the old cursor valid.
-    pytest.fail("replace this pending case with the Task 2 store/trigger fixture")
+    result = subprocess.run(
+        ["cargo", "test", "--manifest-path", "rs/Cargo.toml", "--locked",
+         "-p", "verdaxis-read", "--features", "contract-tests", "--test",
+         "streams_dispatch", "postgres::retention_snapshot_resets_existing_subscribers",
+         "--", "--exact", "--ignored", "--test-threads=1"],
+        cwd=ROOT,
+        env={**os.environ, "SQLX_OFFLINE": "true",
+             "STREAM_DISPATCH_APP_URL": os.environ["DATABASE_URL"].replace(
+                 "postgresql+asyncpg://", "postgresql://", 1),
+             "STREAM_DISPATCH_OWNER_URL": analytics_pg_url.replace(
+                 "postgresql+asyncpg://", "postgresql://", 1)},
+        capture_output=True, text=True, timeout=1800, check=False,
+    )
+    print(result.stdout)
+    print(result.stderr)
+    assert result.returncode == 0
+    assert "test postgres::retention_snapshot_resets_existing_subscribers ... ok" in result.stdout
+    assert "1 passed; 0 failed; 0 ignored" in result.stdout
