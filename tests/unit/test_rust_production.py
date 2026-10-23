@@ -54,7 +54,7 @@ def test_production_runtime_projects_only_its_app_identity(tmp_path):
         "KYC_EXECUTION_GATE_ENABLED=false\nJWT_SECRET=do-not-project\n"
     )
     result = preparer.prepare(
-        env, SHA, tmp_path / "runtime", ROOT, "p0_20261016_union",
+        env, SHA, tmp_path / "runtime", ROOT, "p89_20261022_watchlist_producer",
         environment="production",
     )
     text = result["runtime_env"].read_text()
@@ -65,9 +65,21 @@ def test_production_runtime_projects_only_its_app_identity(tmp_path):
     env.write_text(env.read_text().replace("verdaxis_app:", "verdaxis_app_staging:"))
     with pytest.raises(preparer.RustRuntimeError, match="identity"):
         preparer.prepare(
-            env, SHA, tmp_path / "runtime", ROOT, "p0_20261016_union",
+            env, SHA, tmp_path / "runtime", ROOT, "p89_20261022_watchlist_producer",
             environment="production",
         )
+
+
+@pytest.mark.parametrize("revision", ["p0_20261016_union", "prc_20261018_cache", "unlisted_revision"])
+def test_production_runtime_refuses_a_previous_or_unlisted_checkpoint(tmp_path, revision):
+    preparer = _load_preparer()
+    env = tmp_path / ".env"
+    env.write_text(
+        f"ENVIRONMENT=production\nRELEASE_SHA={SHA}\n"
+        "DATABASE_URL=postgresql+asyncpg://verdaxis_app:fixture-secret@127.0.0.1:5432/verdaxis_prod\n"
+    )
+    with pytest.raises(preparer.RustRuntimeError):
+        preparer.prepare(env, SHA, tmp_path / "runtime", ROOT, revision, environment="production")
 
 
 class ProductionReleaseFixture(RustReleaseFixture):

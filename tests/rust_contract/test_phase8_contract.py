@@ -893,10 +893,13 @@ def test_phase8_reviewed_migration_digests(tmp_path):
     assert checker(tmp_path, [path], {path: digest}) == [f"{path}: reviewed_sha256={digest} actual_sha256={changed}"]
 
 
-def test_phase8_reviewed_migration_list_starts_empty():
+def test_phase8_reviewed_migration_list_pins_producer_revision():
     path = ROOT / "tests/rust_contract/phase8/reviewed-migrations.json"
     assert path.is_file(), "reviewed migration digest list missing"
-    assert json.loads(path.read_text()) == {}, "Task 5a review must add the first approved digest"
+    reviewed = json.loads(path.read_text())
+    migration = "alembic/versions/p89_20261022_watchlist_producer.py"
+    assert set(reviewed) == {migration}, "the producer revision requires one exact digest"
+    assert review_migration_digests(ROOT, [migration], reviewed) == []
 
 
 def inventory_gate_fixture(tmp_path):
