@@ -304,6 +304,88 @@ def review_migration_digests(root, paths, reviewed):
     return violations
 
 
+def review_migration_inventory(root, predecessor, reviewed, other, expected_phase8):
+    """Inventory all configured loadable sources and validate every ownership pin."""
+    import configparser
+
+    settings = {
+        "script_location": "%(here)s/alembic",
+        "version_locations": None,
+        "recursive_version_locations": None,
+        "sourceless": None,
+        "path_separator": "os",
+        "version_path_separator": None,
+    }
+    config = configparser.ConfigParser(interpolation=None)
+    try:
+        config.read_string((root / "alembic.ini").read_text())
+        actual_settings = {key: config.get("alembic", key, fallback=None) for key in settings}
+    except (OSError, configparser.Error) as error:
+        return [f"alembic.ini: invalid migration locations: {error}"]
+    if actual_settings != settings:
+        return [f"alembic.ini: migration location settings changed: {actual_settings!r}"]
+    versions = root / "alembic/versions"
+    if versions.is_symlink() or (root / "alembic").is_symlink() or not versions.is_dir():
+        return ["alembic/versions: missing or symlink migration directory"]
+    if not re.fullmatch(r"[0-9a-f]{40}", predecessor):
+        return ["predecessor: expected approved full SHA"]
+    baseline = set(subprocess.check_output(
+        ["git", "ls-tree", "-r", "--name-only", predecessor, "--", "alembic/versions"], cwd=root, text=True,
+    ).splitlines())
+    # Alembic source discovery is nonrecursive with sourceless disabled. Include
+    # every .py file, independent of its name or declared revision ownership.
+    discovered = {
+        path.relative_to(root).as_posix() for path in versions.iterdir()
+        if path.suffix == ".py" and path.name != "__init__.py"
+    }
+    new_paths = discovered - baseline
+    violations = []
+    lists = (("reviewed-migrations.json", reviewed), ("other-phase-migrations.json", other))
+    mappings = []
+    for label, mapping in lists:
+        if not isinstance(mapping, dict):
+            violations.append(f"{label}: expected JSON object")
+            mappings.append({})
+        else:
+            mappings.append(mapping)
+    reviewed, other = mappings
+    for path in sorted(set(reviewed) & set(other)):
+        violations.append(f"{path}: duplicate ownership across migration lists")
+    for label, mapping in zip(("phase8", "other-phase"), mappings):
+        for path, entry in mapping.items():
+            if not isinstance(path, str):
+                violations.append(f"{path!r}: invalid migration path")
+                continue
+            relative = Path(path)
+            if relative.is_absolute() or relative.parts != ("alembic", "versions", relative.name) or relative.suffix != ".py" or path != relative.as_posix() or relative.name == "__init__.py":
+                violations.append(f"{path}: invalid path outside configured versions folder")
+                continue
+            if label == "other-phase":
+                if not isinstance(entry, dict) or set(entry) != {"sha256", "owning_phase"} or type(entry.get("owning_phase")) is not int or entry["owning_phase"] <= 0 or entry["owning_phase"] == 8:
+                    violations.append(f"{path}: invalid other-phase ownership entry")
+                    continue
+                digest = entry["sha256"]
+            else:
+                digest = entry
+            if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+                violations.append(f"{path}: invalid SHA-256 digest")
+            target = root / path
+            if target.is_symlink() or not target.is_file():
+                violations.append(f"{path}: missing or symlink listed migration")
+            else:
+                actual = hashlib.sha256(target.read_bytes()).hexdigest()
+                if actual != digest:
+                    violations.append(f"{path}: reviewed_sha256={digest} actual_sha256={actual}")
+            if path not in new_paths:
+                violations.append(f"{path}: listed entry outside new discovered revision set")
+    for path in sorted(new_paths - set(reviewed) - set(other)):
+        actual = hashlib.sha256((root / path).read_bytes()).hexdigest() if (root / path).is_file() and not (root / path).is_symlink() else "<missing-or-symlink>"
+        violations.append(f"{path}: unlisted new migration actual_sha256={actual}")
+    if set(reviewed) != set(expected_phase8) or len(reviewed) != 1:
+        violations.append(f"phase8: expected exactly one approved revision {sorted(expected_phase8)!r}; listed {sorted(reviewed)!r}")
+    return violations
+
+
 def review_migration_operations(module, manifest):
     """Default deny the complete module; accept only the reviewed static grammar."""
     if not isinstance(module, ast.Module):
@@ -923,10 +1005,8 @@ def test_phase8_change_set_is_one_additive_revision():
     changed = set(subprocess.check_output(["git", "diff", "--name-only", BASE, "HEAD"], cwd=ROOT, text=True).splitlines())
     assert set(manifest["expected_modified_paths"]) <= changed
     reviewed = json.loads((ROOT / "tests/rust_contract/phase8/reviewed-migrations.json").read_text())
-    phase8_paths = set(manifest["added_migrations"]) | {
-        str(path.relative_to(ROOT)) for path in (ROOT / "alembic/versions").glob("p89_*.py")
-    }
-    assert review_migration_digests(ROOT, phase8_paths, reviewed) == []
+    other = json.loads((ROOT / "tests/rust_contract/phase8/other-phase-migrations.json").read_text())
+    assert review_migration_inventory(ROOT, schema_base, reviewed, other, manifest["added_migrations"]) == []
     tree = ast.parse((ROOT / manifest["added_migrations"][0]).read_text())
     assert review_migration_operations(tree, manifest) == []
     upgrade = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "upgrade")
