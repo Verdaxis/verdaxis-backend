@@ -2187,7 +2187,7 @@
           "referrals"
         ],
         "summary": "Resolve Referral Code",
-        "description": "Public endpoint — validate a referral code and return referrer info.",
+        "description": "Public endpoint \u2014 validate a referral code and return referrer info.",
         "operationId": "resolve_referral_code_api_referrals_resolve__code__get",
         "parameters": [
           {
