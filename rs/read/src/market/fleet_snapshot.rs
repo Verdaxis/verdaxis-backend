@@ -190,6 +190,7 @@ mod tests {
             let mut padded = original.to_vec();
             padded.resize(16_384, b' ');
             std::fs::write(&path, &padded).unwrap();
+            let initial_modified = std::fs::metadata(&path).unwrap().modified().unwrap();
             let mut changed = false;
             let result = read_document_with(&path, Instant::now() + READ_DEADLINE, |stage| {
                 if changed || !matches!(stage, ReadStage::Chunk) {
@@ -206,6 +207,11 @@ mod tests {
                     "rewrite" => {
                         writer.seek(SeekFrom::Start(0)).unwrap();
                         writer.write_all(replacement).unwrap();
+                        // Same-length writes inside timestamp resolution are the accepted
+                        // residual risk; ARCHITECTURE and cutover notes require atomic rename.
+                        writer
+                            .set_modified(initial_modified + std::time::Duration::from_secs(2))
+                            .unwrap();
                     }
                     _ => unreachable!(),
                 }
