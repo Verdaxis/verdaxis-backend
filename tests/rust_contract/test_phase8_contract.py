@@ -311,12 +311,16 @@ def review_migration_operations(module, manifest):
     seen_revisions = set()
     seen_functions = set()
 
+    def scalar_literal(node):
+        return isinstance(node, ast.Constant) and type(node.value) in {str, int, bool, type(None)}
+
     def literal(node):
-        try:
-            ast.literal_eval(node)
-            return True
-        except (ValueError, TypeError):
-            return False
+        # Metadata and column-name sequences need only flat scalar containers.
+        # Do not evaluate expressions: literal_eval also accepts set() and operators.
+        return scalar_literal(node) or (
+            isinstance(node, (ast.List, ast.Tuple))
+            and all(scalar_literal(element) for element in node.elts)
+        )
 
     def direct_attribute(node, receiver):
         return isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id == receiver
