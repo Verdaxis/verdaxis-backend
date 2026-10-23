@@ -71,6 +71,15 @@ class Simulation(runner.Runner):
                 third = record(env["python_url"], self.token, cases)
                 profile = os.environ.get("RUST_CONTRACT_PROFILE")
                 digest = os.environ.get("MEANING_RULES_SHA256")
+                if profile == "phase1-meaning-v1":
+                    # Both Python recordings of the sandwich must carry the
+                    # canonical tape page: raw tie order is source-dependent.
+                    from scripts.rust_contract.meaning_runner import (
+                        canonicalise_tape_recordings,
+                    )
+
+                    first = canonicalise_tape_recordings(first)
+                    third = canonicalise_tape_recordings(third)
                 stability = recording_differences(first, third, profile=profile, rules_sha256=digest)
                 parity = recording_differences(first, middle, profile=profile, rules_sha256=digest)
         except ContractError as error:
@@ -79,10 +88,13 @@ class Simulation(runner.Runner):
             self.stop_environment()
 
         if stability:
+            disagreed = sorted({path.split(":", 1)[0] for path in stability})
             return {
                 "outcome": "inconclusive",
                 "reason": "python sandwich disagreed",
                 "cases": len(cases),
+                "paths": stability[:10],
+                "cases_disagreed": disagreed,
             }
         differences = parity
         return {
@@ -107,6 +119,8 @@ class Simulation(runner.Runner):
             "counts": self.counts,
             "source_sha": self.sha,
             "manifest_digest": workload.manifest_digest(self.manifest),
+            "profile": os.environ.get("RUST_CONTRACT_PROFILE"),
+            "rules_sha256": os.environ.get("MEANING_RULES_SHA256"),
             "groups": {},
             "total_pairs": 0,
             "differences": 0,
