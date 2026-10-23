@@ -247,11 +247,11 @@ async fn e1_response_cleanup_and_delivery() {
     // Sweep is a separate operation and each request removes at most 1000 rows.
     let batch = Uuid::new_v4().to_string();
     sqlx::query("INSERT INTO users(id,email,password_hash,status,email_verified,must_change_password) SELECT md5($1||g)::uuid,$1||g||'@example.com','unused','PENDING',false,false FROM generate_series(1,1500) g").bind(&batch).execute(&owner).await.unwrap();
-    sqlx::query("INSERT INTO password_reset_tokens(user_id,token_hash,expires_at) SELECT id,repeat('0',32)||replace(id::text,'-',''),now()-interval '1 hour' FROM users WHERE email LIKE $1").bind(format!("{batch}%"))).execute(&owner).await.unwrap();
+    sqlx::query("INSERT INTO password_reset_tokens(user_id,token_hash,expires_at) SELECT id,repeat('0',32)||replace(id::text,'-',''),now()-interval '1 hour' FROM users WHERE email LIKE $1").bind(format!("{batch}%")).execute(&owner).await.unwrap();
     password_reset::forgot(&settings, "absent@example.com")
         .await
         .unwrap();
-    let remaining:i64=sqlx::query_scalar("SELECT count(*) FROM password_reset_tokens t JOIN users u ON u.id=t.user_id WHERE u.email LIKE $1").bind(format!("{batch}%"))).fetch_one(&owner).await.unwrap();
+    let remaining:i64=sqlx::query_scalar("SELECT count(*) FROM password_reset_tokens t JOIN users u ON u.id=t.user_id WHERE u.email LIKE $1").bind(format!("{batch}%")).fetch_one(&owner).await.unwrap();
     assert_eq!(remaining, 500);
     sqlx::query("DELETE FROM users WHERE email LIKE $1")
         .bind(format!("{batch}%"))

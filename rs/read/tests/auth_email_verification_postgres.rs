@@ -18,11 +18,11 @@ async fn e3_consumes_and_assigns_once() {
     .await
     .unwrap();
     let referrer = Uuid::new_v4();
-    sqlx::query("INSERT INTO users(id,email,password_hash,status,email_verified,must_change_password) VALUES ($1,$2,'unused','PENDING',true,false)").bind(referrer).bind(format!("{referrer}@example.com"))).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO users(id,email,password_hash,status,email_verified,must_change_password) VALUES ($1,$2,'unused','PENDING',true,false)").bind(referrer).bind(format!("{referrer}@example.com")).execute(&pool).await.unwrap();
     let id = Uuid::new_v4();
     let token = Uuid::new_v4().to_string();
     sqlx::query("INSERT INTO users (id,email,password_hash,status,email_verified,must_change_password,email_verification_token_hash,email_verification_token_expires_at) VALUES ($1,$2,'unused','PENDING',false,false,$3,$4)")
-        .bind(id).bind(format!("{id}@example.com")).bind(token_digest(&token)).bind(Utc::now()+Duration::hours(24))).execute(&pool).await.unwrap();
+        .bind(id).bind(format!("{id}@example.com")).bind(token_digest(&token)).bind(Utc::now()+Duration::hours(24)).execute(&pool).await.unwrap();
     let settings = email_verification::EmailSettings::new(
         sqlx::PgPool::connect(&std::env::var("AUTH_EMAIL_TEST_DATABASE_URL").unwrap())
             .await
