@@ -330,6 +330,7 @@ if not retained.exists():
         original = {m.name: content for m, content in self.members}
         for document in ('provenance record', 'metadata', 'policy manifest', 'allowed revisions'):
             with self.subTest(document=document):
+                self.output = self.root / ('out-' + document.replace(' ', '-'))
                 metadata = copy.deepcopy(self.metadata)
                 changes = {}
                 if document == 'provenance record':
