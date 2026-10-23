@@ -148,7 +148,7 @@ def read_script(path):
     if len(imports) + len(references) + len(executables) > MAX_ITEMS:
         raise ValueError('import count bound exceeded')
     # File contents are never returned. Only static imports and metadata survive.
-    return {'path': redact(path), 'uid': before.st_uid, 'gid': before.st_gid,
+    return {'path': path if safe_path(path) else '<unparsed>', 'uid': before.st_uid, 'gid': before.st_gid,
             'mode': format(stat.S_IMODE(before.st_mode), '04o'), 'size': len(raw),
             'sha256': hashlib.sha256(raw).hexdigest(), 'imports': sorted(redact(name) for name in imports),
             'imports_complete': imports_complete, 'credential_references': sorted(redact(name) for name in references),
