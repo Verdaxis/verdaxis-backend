@@ -109,7 +109,15 @@ is retained above.
 
 ## Remaining
 
-- Push only `feat/rust-phase-2`, then read PR #88 CI at the pushed revision.
+- Pushed only `feat/rust-phase-2` at `68da0fd7` on Oct 23. PR #88 CI
+  finished: backend `test`, `postgres-analytics`, and `postgres-phase0` passed
+  (run `39932402006`). Rust `offline` failed in the dependency advisory step
+  before its test/build gates; `contract` and `publish` were skipped (run
+  `39932402025`). The new Oct 23 advisory is RUSTSEC-2026-0385 in `ctutils`
+  0.4.3; the audit recommends >=0.4.4. Earlier test-host audits passed before
+  this advisory appeared. No advisory suppression or dependency update was
+  made in this round. PM follow-up: coordinate the dependency update, then
+  rerun Rust CI. Local failed-step log: `work/pd2-ci-failed.log`.
 - Task 24 (staging deploy and journeys) and Task 25 (production) remain with
   the PM. Neither task started; no live deployment or measurement ran.
 
