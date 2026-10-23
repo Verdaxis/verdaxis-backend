@@ -1467,7 +1467,7 @@ async fn public_route_wrappers_check_generations_and_time_without_listener_wakes
         "/api/orderbook".into(),
         "/api/orderbook/with-ci".into(),
         "/api/orderbook/aggregated".into(),
-        "/api/orderbook/product-counts".into(),
+        "/api/orderbook/product-counts?side=BID".into(),
         "/api/orderbook/map-summary".into(),
         "/api/orderbook/map-summary/compact".into(),
         "/api/orderbook/regions".into(),
