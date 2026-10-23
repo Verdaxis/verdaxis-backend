@@ -2,11 +2,11 @@
 
 > **Navigation aid.** Route list and file locations extracted via AST. Read the source files listed below before implementing or modifying this subsystem.
 
-The Activity subsystem handles **1 routes** and touches: auth, db, cache, queue.
+The Activity subsystem handles **1 routes** and touches: auth, cache.
 
 ## Routes
 
-- `GET` `/activity` [auth, db, cache, queue]
+- `GET` `/activity` [auth, cache]
   `app/routers/activity.py`
 
 ## Source Files

@@ -2,13 +2,13 @@
 
 > **Navigation aid.** Route list and file locations extracted via AST. Read the source files listed below before implementing or modifying this subsystem.
 
-The Ports subsystem handles **2 routes** and touches: auth, db.
+The Ports subsystem handles **2 routes** and touches: db.
 
 ## Routes
 
-- `GET` `/ports` → in: Annotated, out: List [auth, db]
+- `GET` `/ports` → in: Annotated, out: List [db]
   `app/routers/ports.py`
-- `GET` `/ports/{port_id}` params(port_id) → in: Annotated, out: List [auth, db]
+- `GET` `/ports/{port_id}` params(port_id) → in: Annotated, out: List [db]
   `app/routers/ports.py`
 
 ## Source Files
