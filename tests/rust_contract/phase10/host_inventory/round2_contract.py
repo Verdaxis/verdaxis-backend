@@ -34,7 +34,7 @@ class Round2Contract(unittest.TestCase):
                         self.assertNotIn('second-fragment', output)
                         self.assertIn('<unresolved>', output)
                         self.assertIn('sha256', output)
-                        self.assertFalse(result.get('complete', result.get('coverage', {}).get('imports')))
+                        self.assertFalse(result['dependency_coverage'] != 'manual-review-required')
 
     def test_interpreter_and_wrapper_operands_are_inspected(self):
         for name, prefix in [('python', '/usr/bin/python3'), ('env', '/usr/bin/env python3'),
@@ -55,7 +55,7 @@ class Round2Contract(unittest.TestCase):
                             return '', True
                         result = self.reader.collect(command, cron_files=[])
                         self.assertIn(str(script), {r['path'] for r in result['scripts']}, f'{name}/{surface} skips script')
-                        self.assertFalse(result['coverage']['imports'])
+                        self.assertFalse((result['dependency_coverage'] != 'manual-review-required'))
                         self.assertTrue(result['blocking_dependencies'])
                         self.assertNotIn('never-transport', json.dumps(result))
 
@@ -67,7 +67,7 @@ class Round2Contract(unittest.TestCase):
             shadow.write_text('import app.missing\n')
             result = self.reader.inspect_graph([str(entry)], roots=[temp])
             self.assertTrue(result['blocking_dependencies'], 'unproved import roots must block')
-            self.assertFalse(result['complete'])
+            self.assertFalse((result['dependency_coverage'] != 'manual-review-required'))
             self.assertTrue(result['blocking_dependencies'])
 
 

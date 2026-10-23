@@ -9,5 +9,6 @@
   "dependencies": [],
   "schedules": [],
   "credential_references": [],
-  "observations": []
+  "observations": [],
+  "dependency_coverage": "manual-review-required"
 }

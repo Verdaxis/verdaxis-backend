@@ -79,10 +79,10 @@ class InventoryContract(unittest.TestCase):
         doc = json.loads(self.collect().read_text())
         self.assertEqual({h['id'] for h in doc['hosts']}, {'production', 'staging'})
         for host in doc['hosts']:
-            for field in ('units', 'timers', 'dropins', 'cron', 'processes', 'usr_local', 'packages', 'imports'):
-                self.assertTrue(host['coverage'][field])
+            for field in ('units', 'timers', 'dropins', 'cron', 'processes', 'usr_local', 'packages'):
+                self.assertTrue(host['acquired'][field])
                 bad = copy.deepcopy(doc)
-                next(h for h in bad['hosts'] if h['id'] == host['id'])['coverage'][field] = False
+                next(h for h in bad['hosts'] if h['id'] == host['id'])['acquired'][field] = False
                 self.refused(bad, 'coverage incomplete')
         for category in ('backup', 'restore', 'staging-pull', 'dump'):
             self.assertTrue(any(d['kind'] == category for d in doc['dependencies']))

@@ -15,7 +15,8 @@
     "credential_references",
     "observations",
     "source_sha256",
-    "schedule_sha256"
+    "schedule_sha256",
+    "dependency_coverage"
   ],
   "properties": {
     "host_snapshots": {
@@ -120,6 +121,9 @@
     },
     "blocking_dependencies": {
       "$ref": "#/$defs/blocking"
+    },
+    "dependency_coverage": {
+      "const": "manual-review-required"
     }
   },
   "$defs": {
@@ -127,15 +131,13 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "coverage",
+        "acquired",
         "observations",
         "scripts",
-        "blocking_dependencies"
+        "blocking_dependencies",
+        "dependency_coverage"
       ],
       "properties": {
-        "coverage": {
-          "$ref": "#/$defs/coverage"
-        },
         "observations": {
           "type": "array",
           "maxItems": 10000,
@@ -147,7 +149,7 @@
               "sha256",
               "fields",
               "unparsed",
-              "complete"
+              "acquired"
             ],
             "properties": {
               "surface": {
@@ -164,9 +166,6 @@
               },
               "sha256": {
                 "$ref": "#/$defs/digest"
-              },
-              "complete": {
-                "type": "boolean"
               },
               "fields": {
                 "type": "array",
@@ -230,6 +229,9 @@
                     }
                   }
                 }
+              },
+              "acquired": {
+                "type": "boolean"
               }
             }
           }
@@ -248,7 +250,7 @@
               "size",
               "sha256",
               "imports",
-              "imports_complete",
+              "read_acquired",
               "credential_references"
             ],
             "properties": {
@@ -278,20 +280,26 @@
               "imports": {
                 "$ref": "#/$defs/references"
               },
-              "imports_complete": {
-                "type": "boolean"
-              },
               "credential_references": {
                 "$ref": "#/$defs/references"
               },
               "executables": {
                 "$ref": "#/$defs/references"
+              },
+              "read_acquired": {
+                "type": "boolean"
               }
             }
           }
         },
         "blocking_dependencies": {
           "$ref": "#/$defs/blocking"
+        },
+        "acquired": {
+          "$ref": "#/$defs/acquired"
+        },
+        "dependency_coverage": {
+          "const": "manual-review-required"
         }
       }
     },
@@ -322,53 +330,13 @@
         "maxLength": 4096
       }
     },
-    "coverage": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "units",
-        "timers",
-        "dropins",
-        "cron",
-        "processes",
-        "usr_local",
-        "packages",
-        "imports"
-      ],
-      "properties": {
-        "units": {
-          "type": "boolean"
-        },
-        "timers": {
-          "type": "boolean"
-        },
-        "dropins": {
-          "type": "boolean"
-        },
-        "cron": {
-          "type": "boolean"
-        },
-        "processes": {
-          "type": "boolean"
-        },
-        "usr_local": {
-          "type": "boolean"
-        },
-        "packages": {
-          "type": "boolean"
-        },
-        "imports": {
-          "type": "boolean"
-        }
-      }
-    },
     "host": {
       "type": "object",
       "additionalProperties": false,
       "required": [
         "id",
         "owner",
-        "coverage"
+        "acquired"
       ],
       "properties": {
         "id": {
@@ -380,8 +348,8 @@
         "owner": {
           "$ref": "#/$defs/text"
         },
-        "coverage": {
-          "$ref": "#/$defs/coverage"
+        "acquired": {
+          "$ref": "#/$defs/acquired"
         }
       }
     },
@@ -596,6 +564,42 @@
       "maxItems": 1000,
       "items": {
         "$ref": "#/$defs/reference"
+      }
+    },
+    "acquired": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "units",
+        "timers",
+        "dropins",
+        "cron",
+        "processes",
+        "usr_local",
+        "packages"
+      ],
+      "properties": {
+        "units": {
+          "type": "boolean"
+        },
+        "timers": {
+          "type": "boolean"
+        },
+        "dropins": {
+          "type": "boolean"
+        },
+        "cron": {
+          "type": "boolean"
+        },
+        "processes": {
+          "type": "boolean"
+        },
+        "usr_local": {
+          "type": "boolean"
+        },
+        "packages": {
+          "type": "boolean"
+        }
       }
     }
   },

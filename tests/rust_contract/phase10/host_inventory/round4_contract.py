@@ -11,6 +11,8 @@ from reader_contract import READER, load
 class Round4Contract(unittest.TestCase):
     def setUp(self):
         self.reader = load(READER)
+        if hasattr(self.reader, 'FILE_ROOTS'):
+            self.reader.FILE_ROOTS = tuple(r for r in self.reader.FILE_ROOTS if r != '/tmp')
 
     def test_assignments_and_all_exec_keys_block(self):
         for line in ('JOB=ok /usr/bin/python3 /missing/required.py',

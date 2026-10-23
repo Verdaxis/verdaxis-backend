@@ -106,7 +106,7 @@ def validate(document):
     if len(document['hosts']) != 2 or {h['id'] for h in document['hosts']} != {'production', 'staging'}:
         refuse('both hosts required')
     for host in document['hosts']:
-        if not all(host['coverage'].values()):
+        if not all(host['acquired'].values()):
             refuse('coverage incomplete')
     rows = document['dependencies']
     ids = [row['id'] for row in rows]

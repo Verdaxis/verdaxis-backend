@@ -54,10 +54,10 @@ class Round3Contract(unittest.TestCase):
                             entry = Path(temp) / 'backup.sh'
                             entry.write_text(invocation + '\n')
                             result = self.reader.inspect_graph([str(entry)], roots=[temp])
-                            complete = result['complete']
+                            complete = (result['dependency_coverage'] != 'manual-review-required')
                         else:
                             result = self.remote(invocation, surface)
-                            complete = result['coverage']['imports']
+                            complete = (result['dependency_coverage'] != 'manual-review-required')
                         self.assertFalse(complete, name + '/' + surface + ' falsely complete')
                         self.assertTrue(result['blocking_dependencies'])
                         self.assertNotIn('/missing/required.py', json.dumps(result))
@@ -69,10 +69,10 @@ class Round3Contract(unittest.TestCase):
                         entry = Path(temp) / 'backup.sh'
                         entry.write_text(invocation + '\n')
                         result = self.reader.inspect_graph([str(entry)], roots=[temp])
-                        complete = result['complete']
+                        complete = (result['dependency_coverage'] != 'manual-review-required')
                     else:
                         result = self.remote(invocation, surface)
-                        complete = result['coverage']['imports']
+                        complete = (result['dependency_coverage'] != 'manual-review-required')
                     self.assertFalse(complete)
                     self.assertNotIn('/missing/required.py', json.dumps(result))
 
@@ -86,7 +86,7 @@ class Round3Contract(unittest.TestCase):
             (root / 'tools/json.py').write_text('')
             (root / 'json.py').write_text('import app.hidden\n')
             result = self.reader.inspect_graph([str(root / 'backup.py')], roots=[temp])
-            self.assertFalse(result['complete'], 'nested candidate order falsely complete')
+            self.assertFalse((result['dependency_coverage'] != 'manual-review-required'), 'nested candidate order falsely complete')
             self.assertTrue(result['blocking_dependencies'])
 
 

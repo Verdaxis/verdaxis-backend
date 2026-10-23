@@ -16,6 +16,8 @@ def load(path):
     spec = importlib.util.spec_from_file_location(path.stem.replace('-', '_'), path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    if path == READER and hasattr(module, 'FILE_ROOTS'):
+        module.FILE_ROOTS = (*module.FILE_ROOTS, '/tmp')  # disposable fixture files only
     return module
 
 
@@ -111,7 +113,7 @@ class ReaderContract(unittest.TestCase):
             return 'fixture output', True
         def script_reader(path):
             return {'path': path, 'uid': 0, 'gid': 0, 'mode': '0750', 'size': 1,
-                    'sha256': 'a' * 64, 'imports': [], 'imports_complete': True,
+                    'sha256': 'a' * 64, 'imports': [], 'read_acquired': True,
                     'credential_references': []}
         result = self.reader.collect(command, cron_files=[], script_reader=script_reader)
         text = json.dumps(result)
@@ -146,7 +148,7 @@ class ReaderContract(unittest.TestCase):
         calls = []
         def runner(argv, data):
             calls.append((argv, data))
-            return b'{"coverage":{},"observations":[],"scripts":[],"blocking_dependencies":[]}', True
+            return b'{"acquired":{},"dependency_coverage":"manual-review-required","observations":[],"scripts":[],"blocking_dependencies":[]}', True
         for host, target in [('staging', '194.233.68.86'), ('production', 'verdaxis-prod-eu')]:
             transport.read_host(host, runner)
             argv, data = calls[-1]

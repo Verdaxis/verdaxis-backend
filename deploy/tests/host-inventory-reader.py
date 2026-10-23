@@ -67,10 +67,22 @@ def redact(text):
                    for index, chunk in enumerate(chunks))
 
 
+# Exact inspection roots; fixture tests replace this tuple, never extend live CLI.
+FILE_ROOTS = ('/etc/systemd/system', '/usr/lib/systemd/system', '/lib/systemd/system',
+              '/etc/cron.d', '/usr/local/bin', '/usr/local/sbin', '/usr/local/libexec')
+FILE_EXACT = ('/etc/crontab',)
+
+
+def file_allowed(path):
+    if forbidden(path):
+        return False
+    return path in FILE_EXACT or any(path.startswith(root + '/') for root in FILE_ROOTS)
+
+
 def forbidden(path):
     parts = PurePosixPath(path).parts
     return (not path.startswith('/') or '..' in parts or
-            any(part.lower() == 'artifact-provenance' or part.lower().startswith('.env') or part.lower().endswith('.env') or
+            any(part.lower() in {'.pgpass', 'shadow', 'gshadow', '.ssh', '.netrc', '.git-credentials', 'verdaxis'} or part.lower() == 'artifact-provenance' or part.lower().startswith('.env') or part.lower().endswith('.env') or
                 re.search(r'(?i)(credential|secret|password|passwd|token|(^|[._-])keys?($|[._-])|^id_rsa|^id_ed25519|\.(pem|p12|pfx)$)', part)
                 for part in parts))
 
@@ -78,6 +90,8 @@ def forbidden(path):
 def read_file(path):
     if forbidden(path):
         raise ValueError('credential path forbidden')
+    if not file_allowed(path):
+        raise ValueError('path outside inspection allowlist')
     directory = os.open('/', os.O_RDONLY | os.O_DIRECTORY)
     try:
         for part in PurePosixPath(path).parts[1:-1]:
@@ -105,11 +119,11 @@ def scan_script(path):
     text = raw.decode('utf-8', errors='replace')
     imports = set()
     references = set()
-    imports_complete = True
+    scan_parsed = True
     executables = set()
     # Unknown executable formats are metadata-only and cannot prove import safety.
     if b'\x00' in raw or not (path.endswith(('.py', '.sh')) or text.startswith('#!')):
-        imports_complete = False
+        scan_parsed = False
     if path.endswith('.py'):
         try:
             tree = ast.parse(text)
@@ -123,16 +137,16 @@ def scan_script(path):
                         if alias.name != '*':
                             imports.add(prefix + ('.' if node.module else '') + alias.name)
                 elif isinstance(node, ast.Call) and (isinstance(node.func, ast.Name) and node.func.id in {'__import__', 'eval', 'exec'} or isinstance(node.func, ast.Attribute) and node.func.attr == 'import_module'):
-                    imports_complete = False
+                    scan_parsed = False
         except (SyntaxError, RecursionError):
-            imports_complete = False
+            scan_parsed = False
     else:
         for statement in logical_statements(text):
             try:
                 words = shlex.split(statement)
             except ValueError:
                 imports.add(statement)
-                imports_complete = False
+                scan_parsed = False
                 continue
             if not words or words[0].startswith('#'):
                 continue
@@ -144,23 +158,23 @@ def scan_script(path):
                         imports.add(words[1])
                 else:
                     imports.add(statement)
-                    imports_complete = False
-            elif re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*=.*', statement.strip()) and not any(c in statement for c in '$`\\'):
-                continue
+                    scan_parsed = False
             else:
                 operand, certain = script_operand(statement)
                 if operand:
                     executables.add(operand)
                 if not certain:
                     imports.add(statement)
-                    imports_complete = False
+                    scan_parsed = False
+    if not scan_parsed:
+        imports.add('<dynamic-or-unparsed>')
     if len(imports) + len(references) + len(executables) > MAX_ITEMS:
         raise ValueError('import count bound exceeded')
     # File contents are never returned. Only static imports and metadata survive.
     return {'path': path if safe_path(path) else '<unparsed>', 'uid': before.st_uid, 'gid': before.st_gid,
             'mode': format(stat.S_IMODE(before.st_mode), '04o'), 'size': len(raw),
             'sha256': hashlib.sha256(raw).hexdigest(), 'imports': sorted(imports),
-            'imports_complete': imports_complete, 'credential_references': sorted(references),
+            'read_acquired': True, 'credential_references': sorted(references),
             'executables': sorted(executables)}
 
 
@@ -221,8 +235,10 @@ def entry_operands(surface, text, system_cron=False):
         invocation = None
         if surface == 'dropins' and '=' in line:
             key, value = line.split('=', 1)
-            if key.strip() in {'ExecStart', 'ExecStartPre', 'ExecStop'}:
+            if key.strip().startswith('Exec'):
                 invocation = value.strip()
+            elif key.strip() == 'EnvironmentFile':
+                yield value, (None, False)
         elif surface == 'cron' and line and not line.startswith('#'):
             parts = line.split(None, 6 if system_cron else 5)
             count = 6 if system_cron else 5
@@ -367,8 +383,7 @@ def inspect_graph(paths, roots=APP_ROOTS, max_depth=16, script_reader=scan_scrip
         inspected.add(path)
         public = dict(record, imports=[], executables=[], credential_references=[])
         scripts.append(public)
-        if not record['imports_complete']:
-            block(path, '<dynamic-or-unparsed>')
+        # Scan uncertainty is represented by unresolved references, never completeness.
         for credential in record['credential_references']:
             # Credential files must never be inspected, so they cannot acquire
             # structural identity. Even the path remains host-local.
@@ -395,7 +410,7 @@ def inspect_graph(paths, roots=APP_ROOTS, max_depth=16, script_reader=scan_scrip
                 queue.append((reference, depth + 1))
                 if len(queue) > MAX_ITEMS:
                     raise ValueError('import queue bound exceeded')
-    return {'scripts': scripts, 'blocking_dependencies': blocking, 'complete': not blocking}
+    return {'scripts': scripts, 'blocking_dependencies': blocking, 'dependency_coverage': 'manual-review-required'}
 
 
 def read_script(path):
@@ -482,7 +497,7 @@ def collect(command=run_command, cron_files=None, script_reader=scan_script):
             if len(entry_blocks) > MAX_ITEMS:
                 raise ValueError('entry bound exceeded')
         record = structural(surface, text, system_cron)
-        record['complete'] = complete
+        record['acquired'] = complete
         budget += len(json.dumps(record).encode())
         if budget > MAX_TOTAL_BYTES:
             raise ValueError('inventory output bound exceeded')
@@ -541,8 +556,7 @@ def collect(command=run_command, cron_files=None, script_reader=scan_script):
                     continue
             retained.append(field)
         observation['fields'] = retained
-    coverage['imports'] = graph['complete'] and not entry_blocks
-    return {'coverage': coverage, 'observations': observations,
+    return {'acquired': coverage, 'dependency_coverage': 'manual-review-required', 'observations': observations,
             'scripts': graph['scripts'], 'blocking_dependencies': graph['blocking_dependencies']}
 
 

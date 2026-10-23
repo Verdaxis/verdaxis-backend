@@ -86,7 +86,7 @@ def read_host(host, runner=ssh_once):
     if not complete or len(data) > MAX_BYTES:
         raise ValueError('host inventory incomplete')
     result = json.loads(data)
-    if not isinstance(result, dict) or set(result) != {'coverage', 'observations', 'scripts', 'blocking_dependencies'}:
+    if not isinstance(result, dict) or set(result) != {'acquired', 'dependency_coverage', 'observations', 'scripts', 'blocking_dependencies'}:
         raise ValueError('host inventory shape refused')
     return result
 
@@ -100,6 +100,7 @@ def collect_hosts(document, runner=ssh_once):
     snapshots = {host: read_host(host, runner) for host in HOSTS}
     result = dict(document)
     result['scope'] = 'installed'
+    result['dependency_coverage'] = 'manual-review-required'
     result['host_snapshots'] = snapshots
     # Raw/free-form observations are never projected into installed evidence.
     result['observations'] = []
@@ -107,7 +108,7 @@ def collect_hosts(document, runner=ssh_once):
         dict(row, host=host) for host, snapshot in snapshots.items()
         for row in snapshot['blocking_dependencies']]
     result['hosts'] = [
-        {'id': host, 'owner': 'operator-review-required', 'coverage': snapshot['coverage']}
+        {'id': host, 'owner': 'operator-review-required', 'acquired': snapshot['acquired']}
         for host, snapshot in snapshots.items()]
     import hashlib
     result['source_sha256'] = hashlib.sha256(json.dumps(snapshots, sort_keys=True).encode()).hexdigest()

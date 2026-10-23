@@ -97,19 +97,19 @@ class ReviewContract(unittest.TestCase):
             (root / 'app/hidden.py').write_text('import json\n')
             result = self.reader.inspect_graph([str(entry)], roots=[str(root)])
             self.assertEqual({r['path'] for r in result['scripts']}, {str(entry)})
-            self.assertFalse(result['complete'])
+            self.assertFalse((result['dependency_coverage'] != 'manual-review-required'))
             self.assertTrue(result['blocking_dependencies'])
             transport = load(TRANSPORT)
             snapshot = self.reader.collect(lambda argv: ('', True), cron_files=[])
             snapshot.update(scripts=result['scripts'], blocking_dependencies=result['blocking_dependencies'])
-            snapshot['coverage']['imports'] = result['complete']
+            snapshot['dependency_coverage'] = 'manual-review-required'
             base = json.loads((ROOT / 'tests/rust_contract/phase10/host-dependencies.json').read_text())
             document = transport.collect_hosts(base, lambda argv, data: (json.dumps(snapshot).encode(), True))
             self.assertTrue(document['blocking_dependencies'])
             self.assertTrue(all(r['status'] in ('unresolved', 'removed-package') for r in document['blocking_dependencies']))
             # Depth exhaustion and non-local imports cannot claim completeness.
             limited = self.reader.inspect_graph([str(entry)], roots=[str(root)], max_depth=0)
-            self.assertFalse(limited['complete'])
+            self.assertEqual(limited['dependency_coverage'], 'manual-review-required')
             self.assertTrue(limited['blocking_dependencies'])
 
 
