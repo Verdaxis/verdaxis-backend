@@ -185,7 +185,10 @@ async fn revocation_cutoff_is_monotonic_under_concurrency() {
         assert_eq!(*result, expected, "each call advances the preceding cutoff");
         previous = *result;
     }
-    assert_eq!(cutoff(&mut fixture.owner, fixture.user).await, Some(previous));
+    assert_eq!(
+        cutoff(&mut fixture.owner, fixture.user).await,
+        Some(previous)
+    );
     assert_eq!(sessions(&mut fixture.owner, fixture.user).await, (4, 0));
     fixture.remove().await;
 }
@@ -231,10 +234,16 @@ async fn caller_rollback_preserves_cutoff_and_sessions() {
     );
     assert_eq!(cutoff(&mut transaction, fixture.user).await, Some(now));
     assert_eq!(sessions(&mut transaction, fixture.user).await, (3, 0));
-    assert_eq!(cutoff(&mut fixture.owner, fixture.user).await, Some(initial));
+    assert_eq!(
+        cutoff(&mut fixture.owner, fixture.user).await,
+        Some(initial)
+    );
     assert_eq!(sessions(&mut fixture.owner, fixture.user).await, (3, 3));
     transaction.rollback().await.unwrap();
-    assert_eq!(cutoff(&mut fixture.owner, fixture.user).await, Some(initial));
+    assert_eq!(
+        cutoff(&mut fixture.owner, fixture.user).await,
+        Some(initial)
+    );
     assert_eq!(sessions(&mut fixture.owner, fixture.user).await, (3, 3));
     fixture.remove().await;
 }
@@ -269,7 +278,10 @@ async fn unknown_user_returns_row_not_found() {
         Err(sqlx::Error::RowNotFound)
     ));
     transaction.rollback().await.unwrap();
-    assert_eq!(cutoff(&mut fixture.owner, fixture.user).await, Some(instant()));
+    assert_eq!(
+        cutoff(&mut fixture.owner, fixture.user).await,
+        Some(instant())
+    );
     assert_eq!(sessions(&mut fixture.owner, fixture.user).await, (1, 1));
     fixture.remove().await;
 }
