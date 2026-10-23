@@ -348,6 +348,182 @@ mod postgres {
     }
 
     #[tokio::test]
+    async fn demand_status_expiry_cases() {
+        let (mut connection, state, clock) = fixture().await;
+        for provenance in ["REAL", "DEMO", "UNKNOWN"] {
+            insert(&mut connection, &state, "SPOT", provenance, "7").await;
+        }
+        sqlx::query("UPDATE demand_bids SET expires_at=NULL, status='PARTIALLY_FILLED'")
+            .execute(&mut connection).await.unwrap();
+        let result = read(&mut connection, &state, clock, None).await.unwrap();
+        assert_eq!(result.as_array().unwrap().len(), 2);
+        assert_eq!(result[0]["volume_mt"], "7");
+        assert_eq!(result[0]["bid_count"], 1);
+        assert_eq!(result[0]["source_kind"], "LIVE_ORDER");
+        assert_eq!(result[1]["source_kind"], "UNKNOWN");
+        assert_eq!(result[1]["unknown_count"], 1);
+        assert_eq!(result[1]["volume_mt"], Value::Null);
+    }
+
+    #[tokio::test]
+    async fn demand_catalog_cases() {
+        let (mut connection, state, clock) = fixture().await;
+        insert(&mut connection, &state, "SPOT", "REAL", "11").await;
+        for (change, restore) in [
+            ("UPDATE products SET is_active=false", "UPDATE products SET is_active=true"),
+            ("UPDATE products SET name=name || ' changed'", "UPDATE products SET name=left(name,length(name)-8)"),
+            ("UPDATE products SET fuel_grade=fuel_grade || ' changed'", "UPDATE products SET fuel_grade=left(fuel_grade,length(fuel_grade)-8)"),
+            ("UPDATE delivery_points SET is_active=false", "UPDATE delivery_points SET is_active=true"),
+            ("UPDATE delivery_points SET region=region || ' changed'", "UPDATE delivery_points SET region=left(region,length(region)-8)"),
+            ("UPDATE delivery_points SET name=name || ' changed'", "UPDATE delivery_points SET name=left(name,length(name)-8)"),
+        ] {
+            sqlx::query(change).execute(&mut connection).await.unwrap();
+            assert_eq!(read(&mut connection, &state, clock, None).await.unwrap(), json!([]), "{change}");
+            sqlx::query(restore).execute(&mut connection).await.unwrap();
+            assert_eq!(read(&mut connection, &state, clock, None).await.unwrap()[0]["volume_mt"], "11", "{restore}");
+        }
+        sqlx::query("UPDATE demand_bids SET product_id=(SELECT id FROM products WHERE name='Bio-LNG')")
+            .execute(&mut connection).await.unwrap();
+        assert_eq!(read(&mut connection, &state, clock, None).await.unwrap(), json!([]));
+    }
+
+    #[tokio::test]
+    async fn demand_owner_cases() {
+        let (mut connection, state, clock) = fixture().await;
+        let owner = Uuid::new_v4();
+        let org = Uuid::new_v4();
+        let other = Uuid::new_v4();
+        sqlx::query("INSERT INTO organizations VALUES ($1,'APPROVED','REAL'),($2,'APPROVED','REAL')")
+            .bind(org).bind(other).execute(&mut connection).await.unwrap();
+        sqlx::query("INSERT INTO users VALUES ($1,$2,'BUYER','APPROVED',true,false,'APPROVED',$2)")
+            .bind(owner).bind(org).execute(&mut connection).await.unwrap();
+        insert(&mut connection, &state, "SPOT", "REAL", "13").await;
+        sqlx::query("UPDATE demand_bids SET owner_user_id=$1,organization_id=$2")
+            .bind(owner).bind(org).execute(&mut connection).await.unwrap();
+        for (change, restore) in [
+            ("UPDATE organizations SET verification_status='PENDING'", "UPDATE organizations SET verification_status='APPROVED'"),
+            ("UPDATE users SET email_verified=false", "UPDATE users SET email_verified=true"),
+            ("UPDATE users SET must_change_password=true", "UPDATE users SET must_change_password=false"),
+            ("UPDATE users SET status='PENDING'", "UPDATE users SET status='APPROVED'"),
+            ("UPDATE users SET kyc_status='REJECTED'", "UPDATE users SET kyc_status='APPROVED'"),
+            ("UPDATE users SET kyc_organization_id=NULL", "UPDATE users SET kyc_organization_id=organization_id"),
+        ] {
+            sqlx::query(change).execute(&mut connection).await.unwrap();
+            assert_eq!(read(&mut connection, &state, clock, None).await.unwrap(), json!([]), "{change}");
+            sqlx::query(restore).execute(&mut connection).await.unwrap();
+            assert_eq!(read(&mut connection, &state, clock, None).await.unwrap()[0]["volume_mt"], "13", "{restore}");
+        }
+        sqlx::query("UPDATE demand_bids SET organization_id=$1").bind(other).execute(&mut connection).await.unwrap();
+        assert_eq!(read(&mut connection, &state, clock, None).await.unwrap(), json!([]));
+        sqlx::query("UPDATE demand_bids SET organization_id=$1").bind(org).execute(&mut connection).await.unwrap();
+        sqlx::query("UPDATE users SET kyc_status='PENDING',kyc_organization_id=NULL").execute(&mut connection).await.unwrap();
+        assert_eq!(read(&mut connection, &state, clock, None).await.unwrap(), json!([]));
+        sqlx::query("INSERT INTO kyc_execution_grace VALUES ($1,$2,'2026-10-24Z')")
+            .bind(owner).bind(org).execute(&mut connection).await.unwrap();
+        assert_eq!(read(&mut connection, &state, clock, None).await.unwrap()[0]["volume_mt"], "13");
+        sqlx::query("UPDATE kyc_execution_grace SET organization_id=$1").bind(other).execute(&mut connection).await.unwrap();
+        assert_eq!(read(&mut connection, &state, clock, None).await.unwrap(), json!([]));
+        sqlx::query("UPDATE kyc_execution_grace SET organization_id=$1,expires_at='2026-10-23T12:00:00Z'")
+            .bind(org).execute(&mut connection).await.unwrap();
+        assert_eq!(read(&mut connection, &state, clock, None).await.unwrap(), json!([]));
+        let mut advisory = state.clone();
+        std::sync::Arc::make_mut(&mut advisory.config).kyc_execution_gate_enabled = false;
+        assert_eq!(read(&mut connection, &advisory, clock, None).await.unwrap()[0]["volume_mt"], "13");
+        sqlx::query("UPDATE users SET kyc_organization_id=$1").bind(other).execute(&mut connection).await.unwrap();
+        assert_eq!(read(&mut connection, &advisory, clock, None).await.unwrap(), json!([]));
+        sqlx::query("UPDATE users SET kyc_organization_id=NULL,kyc_status='REJECTED'").execute(&mut connection).await.unwrap();
+        assert_eq!(read(&mut connection, &advisory, clock, None).await.unwrap(), json!([]));
+        sqlx::query("UPDATE kyc_execution_grace SET expires_at='2026-10-24Z'").execute(&mut connection).await.unwrap();
+        assert_eq!(read(&mut connection, &state, clock, None).await.unwrap(), json!([]));
+    }
+
+    #[tokio::test]
+    async fn demand_declaration_cases() {
+        let (mut connection, state, clock) = fixture().await;
+        for (product, point, terms_column, expected) in [
+            ("UCOME B100", "Singapore", "fame_terms", "UCOME_B100"),
+            ("Bio-LNG", "Rotterdam", "lng_terms", "BIO_LNG"),
+        ] {
+            sqlx::query("TRUNCATE demand_bids").execute(&mut connection).await.unwrap();
+            sqlx::query("INSERT INTO demand_bids (id,product_id,delivery_point_id) SELECT $1,p.id,dp.id FROM products p CROSS JOIN delivery_points dp WHERE p.name=$2 AND dp.name=$3")
+                .bind(Uuid::new_v4()).bind(product).bind(point).execute(&mut connection).await.unwrap();
+            assert_eq!(read(&mut connection, &state, clock, None).await.unwrap(), json!([]));
+            sqlx::query(sqlx::AssertSqlSafe(format!("UPDATE demand_bids SET {terms_column}='{{\"side\":\"BID\"}}'")))
+                .execute(&mut connection).await.unwrap();
+            let result = read(&mut connection, &state, clock, None).await.unwrap();
+            assert_eq!(result.as_array().unwrap().len(), 1);
+            assert_eq!(result[0]["market_product_code"], expected);
+            assert_eq!(result[0]["volume_mt"], "10");
+            sqlx::query("UPDATE demand_bids SET off_spec=true").execute(&mut connection).await.unwrap();
+            assert_eq!(read(&mut connection, &state, clock, None).await.unwrap(), json!([]));
+            sqlx::query(sqlx::AssertSqlSafe(format!("UPDATE demand_bids SET off_spec=false,{terms_column}='{{\"side\":\"ASK\"}}'")))
+                .execute(&mut connection).await.unwrap();
+            assert_eq!(read(&mut connection, &state, clock, None).await.unwrap(), json!([]));
+        }
+    }
+
+    #[tokio::test]
+    async fn demand_aggregate_filter_cases() {
+        let (mut connection, state, clock) = fixture().await;
+        insert(&mut connection, &state, "SPOT", "REAL", "17").await;
+        sqlx::query("UPDATE demand_bids SET price_per_mt_usd=700,created_at='2026-10-21T10:00:00Z'")
+            .execute(&mut connection).await.unwrap();
+        insert(&mut connection, &state, "SPOT", "REAL", "19").await;
+        sqlx::query("UPDATE demand_bids SET price_per_mt_usd=600,created_at='2026-10-22T11:00:00Z' WHERE remaining_quantity_mt=19")
+            .execute(&mut connection).await.unwrap();
+        let expected = json!([{
+            "fuel_type":"B30", "region":"Asia", "market_product_code":"B30",
+            "delivery_point_id":"78281fb3-e726-5396-802e-34b01fda21e8",
+            "delivery_point_name":"Dalian", "availability_window_code":"SPOT",
+            "volume_mt":"36", "max_price_per_mt":"700", "urgency":"HIGH", "bid_count":2,
+            "earliest_delivery":"Spot", "created_at":"2026-10-22T11:00:00Z",
+            "source_kind":"LIVE_ORDER", "scope":"DELIVERY_POINT", "demo_status":"REAL_ONLY", "unknown_count":0
+        }]);
+        assert_eq!(read(&mut connection, &state, clock, None).await.unwrap(), expected);
+        for query in ["fuel_type=iof", "fuel_type=b3", "region=SI", "fuel_type=IoF&region=si"] {
+            assert_eq!(read(&mut connection, &state, clock, Some(query)).await.unwrap(), expected, "{query}");
+        }
+        for query in ["fuel_type=ethanol", "region=europe", "fuel_type=b3&region=europe"] {
+            assert_eq!(read(&mut connection, &state, clock, Some(query)).await.unwrap(), json!([]), "{query}");
+        }
+    }
+
+    #[tokio::test]
+    async fn demand_sql_urgency_cases() {
+        let (mut connection, state, _) = fixture().await;
+        insert(&mut connection, &state, "SPOT", "REAL", "1").await;
+        insert(&mut connection, &state, "2026-11", "REAL", "20").await;
+        insert(&mut connection, &state, "2027-01", "REAL", "30").await;
+        for (now, expected) in [
+            ("2026-10-02T12:00:00Z", json!([["2026-11","HIGH"],["SPOT","HIGH"],["2027-01","LOW"]])),
+            ("2026-10-01T12:00:00Z", json!([["SPOT","HIGH"],["2026-11","MEDIUM"],["2027-01","LOW"]])),
+            ("2026-10-03T12:00:00Z", json!([["2026-11","HIGH"],["SPOT","HIGH"],["2027-01","MEDIUM"]])),
+        ] {
+            let clock = VisibilityClock::at(now.parse().unwrap());
+            let result = read(&mut connection, &state, clock, None).await.unwrap();
+            let actual: Vec<_> = result.as_array().unwrap().iter()
+                .map(|row| json!([row["availability_window_code"],row["urgency"]])).collect();
+            assert_eq!(json!(actual), expected, "{now}");
+        }
+    }
+
+    #[tokio::test]
+    async fn demand_full_key_cases() {
+        let (mut connection, state, clock) = fixture().await;
+        sqlx::query("INSERT INTO demand_bids (id,product_id,delivery_point_id,provenance,expires_at) SELECT md5(p.name || dp.name || v.provenance)::uuid,p.id,dp.id,v.provenance,'2030-01-01Z' FROM products p CROSS JOIN delivery_points dp CROSS JOIN (VALUES ('REAL'),('DEMO')) v(provenance) WHERE p.name IN ('B30','B100') AND dp.name IN ('Busan','Dalian')")
+            .execute(&mut connection).await.unwrap();
+        let result = read(&mut connection, &state, clock, None).await.unwrap();
+        let actual: Vec<_> = result.as_array().unwrap().iter().map(|row|
+            json!([row["market_product_code"],row["delivery_point_name"],row["source_kind"],row["volume_mt"]])).collect();
+        assert_eq!(json!(actual), json!([
+            ["B100","Busan","DEMO_SEED","10"], ["B100","Busan","LIVE_ORDER","10"],
+            ["B100","Dalian","DEMO_SEED","10"], ["B100","Dalian","LIVE_ORDER","10"],
+            ["B30","Busan","DEMO_SEED","10"], ["B30","Busan","LIVE_ORDER","10"],
+            ["B30","Dalian","DEMO_SEED","10"], ["B30","Dalian","LIVE_ORDER","10"]
+        ]));
+    }
+
+    #[tokio::test]
     async fn demand_result_limits() {
         let (mut connection, state, clock) = fixture().await;
         let (product, point) = lane(&state);
