@@ -312,11 +312,16 @@ async fn e3_e4_serial_schedules() {
         let suffix = id.simple().to_string();
         let fun = format!("e3f_{suffix}");
         let trigger = format!("e3t_{suffix}");
-        let barrier_table=format!("e3b_{suffix}");
+        let barrier_table = format!("e3b_{suffix}");
         // Identifiers are generated from this test's UUID, never request data.
         sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE TABLE {barrier_table}(id integer PRIMARY KEY); INSERT INTO {barrier_table} VALUES(1); GRANT SELECT,UPDATE ON {barrier_table} TO verdaxis_app_test; CREATE FUNCTION {fun}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.id='{id}'::uuid THEN PERFORM id FROM {barrier_table} FOR UPDATE; END IF; RETURN NEW; END $$; CREATE TRIGGER {trigger} BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION {fun}();"))).execute(&owner).await.unwrap();
-        let mut barrier=owner.begin().await.unwrap();
-        sqlx::query(sqlx::AssertSqlSafe(format!("SELECT id FROM {barrier_table} FOR UPDATE"))).execute(&mut *barrier).await.unwrap();
+        let mut barrier = owner.begin().await.unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "SELECT id FROM {barrier_table} FOR UPDATE"
+        )))
+        .execute(&mut *barrier)
+        .await
+        .unwrap();
         let first_settings = email_verification::EmailSettings::new(first, mail.clone());
         let second_settings = email_verification::EmailSettings::new(second, mail.clone());
         let first_address = address.clone();
