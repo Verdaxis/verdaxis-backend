@@ -98,7 +98,7 @@ class ProductionReleaseFixture(RustReleaseFixture):
                 "[Unit]\nDescription=production fixture\n[Service]\nExecStart=/bin/true\n"
             )
         (self.source / "deploy/migration-checkpoints.tsv").write_text(
-            "p0_20261016_union\tp0_20261016_union\n"
+            "p89_20261022_watchlist_producer\tp89_20261022_watchlist_producer\n"
         )
 
     def push_rust_release(self, *, enabled):
@@ -117,8 +117,8 @@ class ProductionReleaseFixture(RustReleaseFixture):
         env.update(
             TARGET_BRANCH="staging", DEPLOY_ENVIRONMENT="production",
             SERVICE_NAME="verdaxis-backend.service",
-            MIGRATION_EXPECTED_CURRENT_REVISION="p0_20261016_union",
-            MIGRATION_TARGET_REVISION="p0_20261016_union",
+            MIGRATION_EXPECTED_CURRENT_REVISION="p89_20261022_watchlist_producer",
+            MIGRATION_TARGET_REVISION="p89_20261022_watchlist_producer",
             DEPLOY_CURL_BODY=json.dumps({"status": "ok", "db": "ok", "environment": "production", "release_sha": release_sha}),
         )
         return env
@@ -305,14 +305,14 @@ def test_production_exact_prestarts_run_with_no_environment_or_app(tmp_path):
         shutil.copy2(ROOT / "scripts" / name, backend / "scripts" / name)
     runtime = backend / ".runtime-rust"
     runtime.mkdir()
-    for name, data in (("budget.json", {"version": 1, "release_sha": SHA}), ("revision.json", {"release_sha": SHA, "revision": "p0_20261016_union"})):
+    for name, data in (("budget.json", {"version": 1, "release_sha": SHA}), ("revision.json", {"release_sha": SHA, "revision": "p89_20261022_watchlist_producer"})):
         path = runtime / name
         path.write_text(json.dumps(data))
         path.chmod(0o600)
     for line in (ROOT / "deploy/systemd/verdaxis-rust.service").read_text().splitlines():
         if not line.startswith("ExecStartPre="):
             continue
-        command = line.removeprefix("ExecStartPre=").replace("/home/verdaxis-prod/verdaxis/prod/be", str(backend)).replace("${RELEASE_SHA}", SHA).replace("${MIGRATION_REVISION}", "p0_20261016_union")
+        command = line.removeprefix("ExecStartPre=").replace("/home/verdaxis-prod/verdaxis/prod/be", str(backend)).replace("${RELEASE_SHA}", SHA).replace("${MIGRATION_REVISION}", "p89_20261022_watchlist_producer")
         result = subprocess.run(shlex.split(command), cwd=backend, env={}, capture_output=True, text=True, timeout=10)
         assert result.returncode == 0, result.stderr
     assert not (backend / ".env").exists()
