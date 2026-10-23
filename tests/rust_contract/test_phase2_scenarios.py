@@ -58,7 +58,8 @@ def test_created_route_databases_follow_runtime_test_target_grammar(monkeypatch)
     class StopBeforeServers(Exception):
         pass
 
-    def stop(_context):
+    def stop(context):
+        assert context.race_databases == ("phase2_route_0_python_test", "phase2_route_0_rust_test")
         raise StopBeforeServers
 
     monkeypatch.setattr(phase2_routes, "connect", lambda *_args, **_kwargs: Connection())
