@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "scope": "fixture",
+  "binding": "unsigned, digest-bound",
+  "hosts": [
+    {"id": "production", "owner": "fixture-operator", "coverage": {"units": true, "timers": true, "dropins": true, "cron": true, "processes": true, "usr_local": true, "packages": true, "imports": true}},
+    {"id": "staging", "owner": "fixture-operator", "coverage": {"units": true, "timers": true, "dropins": true, "cron": true, "processes": true, "usr_local": true, "packages": true, "imports": true}}
+  ],
+  "required_dependencies": ["backup", "restore", "staging-pull", "dump", "fleet"],
+  "dependencies": [
+    {"id": "backup", "host": "production", "kind": "backup", "location": "host", "path": "/usr/local/sbin/fixture-backup.sh", "owner": "fixture-backup", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "classification": "unaffected", "evidence": "fixture shell producer calls pg_dump only", "imports": [], "import_evidence": "fixture static import list", "removed_package_dependencies": [], "unix_identity": "fixture-backup", "database_identity": "fixture_backup_role", "destination": "/var/backups/fixture", "retention": "fixture 7 days", "restore_contract": "fixture restore to disposable database", "credential_references": ["/etc/fixture/backup.env"]},
+    {"id": "restore", "host": "production", "kind": "restore", "location": "host", "path": "/usr/local/sbin/fixture-restore.sh", "owner": "fixture-backup", "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "classification": "unaffected", "evidence": "fixture restore calls psql only", "imports": [], "import_evidence": "fixture static import list", "removed_package_dependencies": [], "unix_identity": "fixture-backup", "database_identity": "fixture_restore_role", "destination": "disposable fixture database", "retention": "not applicable", "restore_contract": "fixture validates restored catalog", "credential_references": ["/etc/fixture/backup.env"]},
+    {"id": "staging-pull", "host": "staging", "kind": "staging-pull", "location": "host", "path": "/usr/local/libexec/fixture-staging-pull.sh", "owner": "fixture-staging", "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "classification": "unaffected", "evidence": "fixture shell pull calls pg_restore only", "imports": [], "import_evidence": "fixture static import list", "removed_package_dependencies": [], "unix_identity": "fixture-staging", "database_identity": "fixture_staging_role", "destination": "fixture staging database", "retention": "fixture 1 day", "restore_contract": "fixture excludes personal data", "credential_references": ["/etc/fixture/pull.env"]},
+    {"id": "dump", "host": "production", "kind": "dump", "location": "host", "path": "/usr/local/sbin/fixture-dump.sh", "owner": "fixture-backup", "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "classification": "unaffected", "evidence": "fixture dump calls pg_dump only", "imports": [], "import_evidence": "fixture static import list", "removed_package_dependencies": [], "unix_identity": "fixture-backup", "database_identity": "fixture_backup_role", "destination": "/var/backups/fixture", "retention": "fixture 7 days", "restore_contract": "fixture restore contract", "credential_references": ["/etc/fixture/backup.env"]},
+    {"id": "fleet", "host": "offhost", "kind": "fleet", "location": "offhost", "path": "/fixture/offhost/scrape_fleet_demand.py", "owner": "fixture-fleet", "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "classification": "unaffected", "evidence": "fixture off-host owner and import inspection", "imports": ["json", "pathlib"], "import_evidence": "fixture static imports contain no removed packages", "removed_package_dependencies": [], "unix_identity": "fixture-fleet", "database_identity": "none", "destination": "fixture publication document", "retention": "owner-managed", "restore_contract": "not applicable", "credential_references": []}
+  ],
+  "schedules": [
+    {"id": "staging-pull", "host": "staging", "expression": "0 3 * * *", "owner": "fixture-staging"},
+    {"id": "dump", "host": "production", "expression": "0 4 * * *", "owner": "fixture-backup"}
+  ],
+  "credential_references": ["/etc/fixture/backup.env", "/etc/fixture/pull.env"],
+  "observations": [
+    {"host": "production", "surface": "units", "text": "Environment=PASSWORD=fixture-password-123 TOKEN=fixture-token-456"},
+    {"host": "staging", "surface": "cron", "text": "DATABASE_URL=postgresql://fixture:fixture-url-password@localhost/fixture"}
+  ]
+}
