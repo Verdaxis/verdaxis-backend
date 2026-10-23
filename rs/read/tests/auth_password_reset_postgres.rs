@@ -33,13 +33,18 @@ async fn e2_consumes_and_revokes() {
     .execute(&pool)
     .await
     .unwrap();
-    auth::store::insert_refresh(&mut *pool.acquire().await.unwrap(), &auth::store::NewRefreshRow {
-        user_id: id,
-        family_id: Uuid::new_v4(),
-        jti_hash: token_digest(&Uuid::new_v4().to_string()),
-        device_id_hash: token_digest("fixture-device"),
-        expires_at: Utc::now() + Duration::days(7),
-    }).await.unwrap();
+    auth::store::insert_refresh(
+        &mut *pool.acquire().await.unwrap(),
+        &auth::store::NewRefreshRow {
+            user_id: id,
+            family_id: Uuid::new_v4(),
+            jti_hash: token_digest(&Uuid::new_v4().to_string()),
+            device_id_hash: token_digest("fixture-device"),
+            expires_at: Utc::now() + Duration::days(7),
+        },
+    )
+    .await
+    .unwrap();
     let settings = email_verification::EmailSettings::new(
         pool.clone(),
         email::MailDispatcher::new(crud::referrals::invite::MailClient::disabled()),
@@ -61,9 +66,19 @@ async fn e2_consumes_and_revokes() {
     assert!(auth::password::verify("New-password-123", &row.0).await);
     assert!(!row.1 && row.2.is_some());
     assert_eq!(row.3, invitation);
-    let live: i64 = sqlx::query_scalar("SELECT count(*) FROM refresh_sessions WHERE user_id=$1 AND NOT revoked").bind(id).fetch_one(&pool).await.unwrap();
-    assert_eq!(live,0);
-    sqlx::query("DELETE FROM refresh_sessions WHERE user_id=$1").bind(id).execute(&pool).await.unwrap();
+    let live: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM refresh_sessions WHERE user_id=$1 AND NOT revoked",
+    )
+    .bind(id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(live, 0);
+    sqlx::query("DELETE FROM refresh_sessions WHERE user_id=$1")
+        .bind(id)
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query("DELETE FROM audit_logs WHERE user_id=$1")
         .bind(id)
         .execute(&pool)
