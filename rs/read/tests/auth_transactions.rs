@@ -54,6 +54,26 @@ async fn postgres_authentication_ownership_and_revocation() {
         )
         .unwrap(),
     );
+    // Exercise the actual public composition against the migrated disposable DB.
+    {
+        use axum::{body::Body, http::Request};
+        use tower::ServiceExt;
+        let root = std::env::temp_dir().join(format!("composed-fleet-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("data")).unwrap();
+        let root = std::fs::canonicalize(root).unwrap();
+        std::fs::write(root.join("data/fleet.json"), br#"{"entries":[],"last_updated":"2024-01-01","sources":[]}"#).unwrap();
+        let mut composed = (*state).clone();
+        let mut config = (*composed.config).clone();
+        config.fleet_artifact_path = verdaxis_read::runtime::config::resolve_fleet_artifact_path(
+            std::path::Path::new("data/fleet.json"), &root).unwrap();
+        composed.config = Arc::new(config);
+        let app = verdaxis_read::router(composed);
+        for path in ["/api/availability", "/api/demand", "/api/producers", "/api/fleet-intelligence"] {
+            let response = app.clone().oneshot(Request::builder().uri(path).body(Body::empty()).unwrap()).await.unwrap();
+            assert_eq!(response.status(), 200, "{path}");
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
     assert_eq!(health.options().get_max_connections(), 1);
     assert_eq!(read_pool.options().get_max_connections(), 16);
     let fixture: serde_json::Value = serde_json::from_str(include_str!(
