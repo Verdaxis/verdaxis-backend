@@ -1,22 +1,39 @@
 //! Shared credential mail rendering and bounded delivery.
+use crate::auth::token_bytes::token_digest;
+use crate::crud::referrals::invite::MailClient;
+use serde_json::{Value, json};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{Notify, Semaphore};
-use serde_json::{Value, json};
-use crate::crud::referrals::invite::MailClient;
-use crate::auth::token_bytes::token_digest;
 
 pub enum AuthMail {
-    Verification { to: String, name: String, token: String, pending: Option<String> },
-    Reset { to: String, name: String, token: String },
-    AccountExists { to: String },
+    Verification {
+        to: String,
+        name: String,
+        token: String,
+        pending: Option<String>,
+    },
+    Reset {
+        to: String,
+        name: String,
+        token: String,
+    },
+    AccountExists {
+        to: String,
+    },
 }
 impl std::fmt::Debug for AuthMail {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { f.write_str("AuthMail([redacted])") }
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("AuthMail([redacted])")
+    }
 }
 impl AuthMail {
     fn recipient(&self) -> &str {
-        match self { Self::Verification { to, .. } | Self::Reset { to, .. } | Self::AccountExists { to } => to }
+        match self {
+            Self::Verification { to, .. } | Self::Reset { to, .. } | Self::AccountExists { to } => {
+                to
+            }
+        }
     }
 }
 
@@ -30,7 +47,13 @@ pub struct MailDispatcher {
 }
 impl MailDispatcher {
     pub fn new(client: MailClient) -> Self {
-        Self { client, slots: Arc::new(Semaphore::new(32)), done: Arc::new(Notify::new()), sender: "Verdaxis <noreply@verdaxis.exchange>".into(), frontend: "https://app.verdaxis.exchange".into() }
+        Self {
+            client,
+            slots: Arc::new(Semaphore::new(32)),
+            done: Arc::new(Notify::new()),
+            sender: "Verdaxis <noreply@verdaxis.exchange>".into(),
+            frontend: "https://app.verdaxis.exchange".into(),
+        }
     }
     pub fn with_rendering(mut self, sender: String, frontend: String) -> Self {
         self.sender = sender.into();
@@ -48,13 +71,23 @@ impl MailDispatcher {
             let payload = render(&mail, &dispatcher.sender, &dispatcher.frontend);
             let mut sent = false;
             for delay in [0, 1, 3] {
-                if delay != 0 { tokio::time::sleep(Duration::from_secs(delay)).await; }
-                if tokio::time::timeout(Duration::from_secs(10), dispatcher.client.send(&payload)).await.unwrap_or(false) {
+                if delay != 0 {
+                    tokio::time::sleep(Duration::from_secs(delay)).await;
+                }
+                if tokio::time::timeout(Duration::from_secs(10), dispatcher.client.send(&payload))
+                    .await
+                    .unwrap_or(false)
+                {
                     sent = true;
                     break;
                 }
             }
-            if !sent { tracing::warn!(recipient_digest = &digest[..12], "auth_mail_delivery_failed"); }
+            if !sent {
+                tracing::warn!(
+                    recipient_digest = &digest[..12],
+                    "auth_mail_delivery_failed"
+                );
+            }
             drop(permit);
             dispatcher.done.notify_waiters();
         });
@@ -65,7 +98,9 @@ impl MailDispatcher {
             let notified = self.done.notified();
             tokio::pin!(notified);
             notified.as_mut().enable();
-            if self.slots.available_permits() == 32 { return; }
+            if self.slots.available_permits() == 32 {
+                return;
+            }
             notified.await;
         }
     }
@@ -73,32 +108,65 @@ impl MailDispatcher {
 
 pub fn suppress_verification(monitor_admitted: bool, email: &str) -> bool {
     let (local, domain) = email.split_once('@').unwrap_or(("", ""));
-    monitor_admitted && local.starts_with("canary+") && domain.ends_with(".canary.verdaxis.exchange")
+    monitor_admitted
+        && local.starts_with("canary+")
+        && domain.ends_with(".canary.verdaxis.exchange")
 }
 fn escape(value: &str) -> String {
-    value.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\'', "&#39;")
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
 }
 fn encode(value: &str) -> String {
     url::form_urlencoded::byte_serialize(value.as_bytes()).collect()
 }
 pub fn render(mail: &AuthMail, sender: &str, frontend: &str) -> Value {
     let (title, template, name, link) = match mail {
-        AuthMail::Verification { name, token, pending, .. } => (
-            "Verify your email", include_str!("templates/verify.html"), name.as_str(),
-            format!("{}/verify-email?token={}", frontend.trim_end_matches('/'), encode(pending.as_deref().unwrap_or(token))),
+        AuthMail::Verification {
+            name,
+            token,
+            pending,
+            ..
+        } => (
+            "Verify your email",
+            include_str!("templates/verify.html"),
+            name.as_str(),
+            format!(
+                "{}/verify-email?token={}",
+                frontend.trim_end_matches('/'),
+                encode(pending.as_deref().unwrap_or(token))
+            ),
         ),
         AuthMail::Reset { name, token, .. } => (
-            "Reset your password", include_str!("templates/reset.html"), name.as_str(),
-            format!("{}/reset-password?token={}", frontend.trim_end_matches('/'), encode(token)),
+            "Reset your password",
+            include_str!("templates/reset.html"),
+            name.as_str(),
+            format!(
+                "{}/reset-password?token={}",
+                frontend.trim_end_matches('/'),
+                encode(token)
+            ),
         ),
-        AuthMail::AccountExists { .. } => ("Your Verdaxis account", "<p>You have a Verdaxis account.</p><p><a href=\"{{URL}}\">Sign in</a></p>", "", format!("{}/login", frontend.trim_end_matches('/'))),
+        AuthMail::AccountExists { .. } => (
+            "Your Verdaxis account",
+            "<p>You have a Verdaxis account.</p><p><a href=\"{{URL}}\">Sign in</a></p>",
+            "",
+            format!("{}/login", frontend.trim_end_matches('/')),
+        ),
     };
     let mut html = String::new();
     let mut rest = template;
     while let Some((prefix, tail)) = rest.split_once("{{") {
         html.push_str(prefix);
         let (key, suffix) = tail.split_once("}}").expect("static mail template");
-        match key { "NAME" => html.push_str(&escape(name)), "URL" => html.push_str(&escape(&link)), _ => unreachable!("static mail key") }
+        match key {
+            "NAME" => html.push_str(&escape(name)),
+            "URL" => html.push_str(&escape(&link)),
+            _ => unreachable!("static mail key"),
+        }
         rest = suffix;
     }
     html.push_str(rest);
