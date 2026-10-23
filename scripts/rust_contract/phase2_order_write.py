@@ -1,5 +1,11 @@
 """Task 20 database schedules. These qualify the boundary, not a market route."""
+import copy
 import json
+
+from scripts.rust_contract.phase2_state import (
+    CACHE_INVALIDATION_TABLES,
+    expect_cache_invalidations,
+)
 
 
 def order_write_scenario():
