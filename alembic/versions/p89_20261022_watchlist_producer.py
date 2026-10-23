@@ -55,6 +55,8 @@ def upgrade():
 
 
 def downgrade():
+    # Source-before-derived order: outbox source, then producer event history.
+    op.execute("LOCK TABLE market_event_outbox, watchlist_events IN ACCESS EXCLUSIVE MODE")
     trusted_rows = op.get_bind().execute(sa.text("SELECT EXISTS (SELECT 1 FROM watchlist_events WHERE producer = 'rust-market-v1')")).scalar_one()
     producer_evidence = op.get_bind().execute(sa.text("SELECT EXISTS (SELECT 1 FROM market_event_outbox WHERE producer_evidence IS NOT NULL)")).scalar_one()
     if trusted_rows or producer_evidence:
