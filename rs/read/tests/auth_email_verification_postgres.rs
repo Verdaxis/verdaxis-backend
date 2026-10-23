@@ -13,7 +13,7 @@ use uuid::Uuid;
 #[ignore = "requires disposable PostgreSQL authority"]
 async fn e3_consumes_and_assigns_once() {
     let pool = sqlx::PgPool::connect(
-        &std::env::var("AUTH_EMAIL_TEST_DATABASE_URL").expect("disposable database"),
+        &std::env::var("AUTH_EMAIL_TEST_OWNER_URL").expect("disposable database"),
     )
     .await
     .unwrap();
@@ -22,7 +22,7 @@ async fn e3_consumes_and_assigns_once() {
     sqlx::query("INSERT INTO users (id,email,password_hash,status,email_verified,must_change_password,email_verification_token_hash,email_verification_token_expires_at) VALUES ($1,$2,'unused','PENDING',false,false,$3,$4)")
         .bind(id).bind(format!("{id}@example.com")).bind(token_digest(&token)).bind(Utc::now()+Duration::hours(24)).execute(&pool).await.unwrap();
     let settings = email_verification::EmailSettings::new(
-        pool.clone(),
+        sqlx::PgPool::connect(&std::env::var("AUTH_EMAIL_TEST_DATABASE_URL").unwrap()).await.unwrap(),
         email::MailDispatcher::new(crud::referrals::invite::MailClient::disabled()),
     );
     let mut holder = pool.begin().await.unwrap();
@@ -82,7 +82,7 @@ async fn e4_response_and_delivery_boundary() {
         atomic::{AtomicUsize, Ordering},
     };
     use tower::ServiceExt;
-    let pool = sqlx::PgPool::connect(&std::env::var("AUTH_EMAIL_TEST_DATABASE_URL").unwrap())
+    let pool = sqlx::PgPool::connect(&std::env::var("AUTH_EMAIL_TEST_OWNER_URL").unwrap())
         .await
         .unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -117,7 +117,7 @@ async fn e4_response_and_delivery_boundary() {
         )
         .unwrap(),
     );
-    let settings = email_verification::EmailSettings::new(pool.clone(), mail.clone());
+    let settings = email_verification::EmailSettings::new(sqlx::PgPool::connect(&std::env::var("AUTH_EMAIL_TEST_DATABASE_URL").unwrap()).await.unwrap(), mail.clone());
     let mut expected = None;
     let mut ids = Vec::new();
     for verified in [Some(false), Some(true), None] {
@@ -169,4 +169,22 @@ async fn e4_response_and_delivery_boundary() {
     server.abort();
     let _ = server.await;
     pool.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL authority"]
+async fn e4_write_attempt_restarts() {
+    let owner=sqlx::PgPool::connect(&std::env::var("AUTH_EMAIL_TEST_OWNER_URL").unwrap()).await.unwrap();
+    let runtime=sqlx::PgPool::connect(&std::env::var("AUTH_EMAIL_TEST_DATABASE_URL").unwrap()).await.unwrap();
+    let id=Uuid::new_v4();let address=format!("{id}@example.com");
+    sqlx::query("INSERT INTO users(id,email,password_hash,status,email_verified,must_change_password) VALUES ($1,$2,'unused','PENDING',false,false)").bind(id).bind(&address).execute(&owner).await.unwrap();
+    let suffix=id.simple().to_string();
+    let seq=format!("e4_{suffix}");let fun=format!("e4f_{suffix}");let trigger=format!("e4t_{suffix}");
+    sqlx::raw_sql(&format!("CREATE SEQUENCE {seq}; GRANT USAGE,SELECT ON SEQUENCE {seq} TO verdaxis_app_test; CREATE FUNCTION {fun}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.id='{id}'::uuid AND nextval('{seq}')<=2 THEN RAISE EXCEPTION 'retry' USING ERRCODE='40001'; END IF; RETURN NEW; END $$; CREATE TRIGGER {trigger} BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION {fun}();")).execute(&owner).await.unwrap();
+    let settings=email_verification::EmailSettings::new(runtime,email::MailDispatcher::new(crud::referrals::invite::MailClient::disabled()));
+    let result=email_verification::resend(&settings,&address,true).await;
+    let attempts:i64=sqlx::query_scalar(&format!("SELECT last_value FROM {seq}")).fetch_one(&owner).await.unwrap();
+    sqlx::raw_sql(&format!("DROP TRIGGER {trigger} ON users; DROP FUNCTION {fun}(); DROP SEQUENCE {seq};")).execute(&owner).await.unwrap();
+    sqlx::query("DELETE FROM users WHERE id=$1").bind(id).execute(&owner).await.unwrap();
+    assert!(result.is_ok());assert_eq!(attempts,3);
 }

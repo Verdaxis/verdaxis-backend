@@ -15,7 +15,7 @@ use uuid::Uuid;
 #[ignore = "requires disposable PostgreSQL authority"]
 async fn e2_consumes_and_revokes() {
     let pool = sqlx::PgPool::connect(
-        &std::env::var("AUTH_EMAIL_TEST_DATABASE_URL").expect("disposable database"),
+        &std::env::var("AUTH_EMAIL_TEST_OWNER_URL").expect("disposable database"),
     )
     .await
     .unwrap();
@@ -46,7 +46,7 @@ async fn e2_consumes_and_revokes() {
     .await
     .unwrap();
     let settings = email_verification::EmailSettings::new(
-        pool.clone(),
+        sqlx::PgPool::connect(&std::env::var("AUTH_EMAIL_TEST_DATABASE_URL").unwrap()).await.unwrap(),
         email::MailDispatcher::new(crud::referrals::invite::MailClient::disabled()),
     );
     assert!(
@@ -90,4 +90,22 @@ async fn e2_consumes_and_revokes() {
         .await
         .unwrap();
     pool.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL authority"]
+async fn e1_write_attempt_restarts() {
+    let owner=sqlx::PgPool::connect(&std::env::var("AUTH_EMAIL_TEST_OWNER_URL").unwrap()).await.unwrap();
+    let runtime=sqlx::PgPool::connect(&std::env::var("AUTH_EMAIL_TEST_DATABASE_URL").unwrap()).await.unwrap();
+    let id=Uuid::new_v4();let address=format!("{id}@example.com");
+    sqlx::query("INSERT INTO users(id,email,password_hash,status,email_verified,must_change_password) VALUES ($1,$2,'unused','PENDING',true,false)").bind(id).bind(&address).execute(&owner).await.unwrap();
+    let suffix=id.simple().to_string();let seq=format!("e1_{suffix}");let fun=format!("e1f_{suffix}");let trigger=format!("e1t_{suffix}");
+    sqlx::raw_sql(&format!("CREATE SEQUENCE {seq}; GRANT USAGE,SELECT ON SEQUENCE {seq} TO verdaxis_app_test; CREATE FUNCTION {fun}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.user_id='{id}'::uuid AND nextval('{seq}')<=2 THEN RAISE EXCEPTION 'retry' USING ERRCODE='40P01'; END IF; RETURN NEW; END $$; CREATE TRIGGER {trigger} BEFORE INSERT OR UPDATE ON password_reset_tokens FOR EACH ROW EXECUTE FUNCTION {fun}();")).execute(&owner).await.unwrap();
+    let settings=email_verification::EmailSettings::new(runtime,email::MailDispatcher::new(crud::referrals::invite::MailClient::disabled()));
+    let result=password_reset::forgot(&settings,&address).await;
+    let attempts:i64=sqlx::query_scalar(&format!("SELECT last_value FROM {seq}")).fetch_one(&owner).await.unwrap();
+    sqlx::raw_sql(&format!("DROP TRIGGER {trigger} ON password_reset_tokens; DROP FUNCTION {fun}(); DROP SEQUENCE {seq};")).execute(&owner).await.unwrap();
+    sqlx::query("DELETE FROM audit_logs WHERE user_id=$1").bind(id).execute(&owner).await.unwrap();
+    sqlx::query("DELETE FROM users WHERE id=$1").bind(id).execute(&owner).await.unwrap();
+    assert!(result.is_ok());assert_eq!(attempts,3);
 }
