@@ -228,7 +228,12 @@ async fn late_visible_row_is_delivered_in_order() {
         // Snapshot 2 (a later poll): row 4 committed after the first scan.
         Ok(page(0, 4, vec![row(4, org, false)], false)),
         // Snapshot 3: two rows in one page, ascending.
-        Ok(page(0, 6, vec![row(5, org, false), row(6, org, false)], false)),
+        Ok(page(
+            0,
+            6,
+            vec![row(5, org, false), row(6, org, false)],
+            false,
+        )),
     ]);
     let mut drain = ready(&mut store, hub.clone()).await;
     let mut sub = hub.subscribe_org(org).unwrap();
