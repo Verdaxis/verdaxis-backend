@@ -53,7 +53,12 @@ column-level INSERT and UPDATE, so a later column gets no write authority.
 and reversible migration, the grants, the shared device key
 (`tests/rust_contract/phase3/device-lock-keys.json`) and drives
 `rs/read/tests/auth_store_postgres.rs` on the migrated database. No route uses
-these primitives yet.
+these primitives yet. `store::revoke_user_authentication` locks the user, advances
+`authentication_revoked_at` monotonically at PostgreSQL microsecond precision,
+and revokes all user refresh families without committing. Missing users return
+`sqlx::Error::RowNotFound`. `auth_revocation_postgres.rs`, driven by
+`tests/postgres/test_phase3_auth_revocation.py`, covers concurrent updates and
+caller rollback on the migrated runtime role.
 
 ## Rust Phase 2 order-write boundary
 
