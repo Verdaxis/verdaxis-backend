@@ -245,25 +245,16 @@ async fn attempt<C: BusinessCommand>(
         }
         Ok(value) => {
             completion.wait_at(CompletionPoint::BeforeCommit).await;
-            if transaction.commit().await.is_err() {
-                let _ = connection.close().await;
-                return Err(refusal(
-                    axum::http::StatusCode::SERVICE_UNAVAILABLE,
-                    "COMMIT_OUTCOME_UNKNOWN",
-                    "The transaction outcome must be checked before another command.",
-                )
-                .into());
+            let committed = transaction.commit().await;
+            if committed.is_ok() {
+                completion.wait_at(CompletionPoint::AfterCommit).await;
             }
-            completion.wait_at(CompletionPoint::AfterCommit).await;
-            if completion.lose_ack() {
+            // The narrow test seam can remove a successful acknowledgement, but
+            // it feeds the same classifier as a real SQLx completion failure.
+            let committed = completion.acknowledgement(committed);
+            if let Err(error) = committed {
                 let _ = connection.close().await;
-                completion.mark_discarded();
-                return Err(refusal(
-                    axum::http::StatusCode::SERVICE_UNAVAILABLE,
-                    "COMMIT_OUTCOME_UNKNOWN",
-                    "The transaction outcome must be checked before another command.",
-                )
-                .into());
+                return Err(commit_failure(error));
             }
             if connection.ping().await.is_err() {
                 let _ = connection.close().await;
@@ -272,7 +263,6 @@ async fn attempt<C: BusinessCommand>(
             // This owner conservatively closes even a clean connection. A later
             // pool-reuse optimization needs its own cleanup qualification.
             let _ = connection.close().await;
-            completion.mark_discarded();
             Ok(value)
         }
     }
@@ -291,14 +281,6 @@ struct Completion {
 }
 
 impl Completion {
-    fn mark_discarded(&self) {
-        #[cfg(feature = "contract-tests")]
-        if let Some(control) = &self.control {
-            control
-                .discarded
-                .store(true, std::sync::atomic::Ordering::SeqCst);
-        }
-    }
     async fn wait_at(&self, point: CompletionPoint) {
         #[cfg(feature = "contract-tests")]
         if let Some(control) = &self.control {
@@ -306,12 +288,14 @@ impl Completion {
         }
         let _ = point;
     }
-    fn lose_ack(&self) -> bool {
+    fn acknowledgement(&self, result: Result<(), sqlx::Error>) -> Result<(), sqlx::Error> {
         #[cfg(feature = "contract-tests")]
-        if let Some(control) = &self.control {
-            return control.lose_ack();
+        if result.is_ok() && self.control.as_ref().is_some_and(|control| control.lose_ack()) {
+            return Err(sqlx::Error::Io(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof, "completion acknowledgement unavailable",
+            )));
         }
-        false
+        result
     }
 }
 
@@ -322,7 +306,6 @@ pub struct CompletionControl {
     lost_ack: bool,
     reached: Arc<tokio::sync::Notify>,
     released: Arc<tokio::sync::Notify>,
-    discarded: Arc<std::sync::atomic::AtomicBool>,
 }
 
 #[cfg(feature = "contract-tests")]
@@ -333,7 +316,6 @@ impl CompletionControl {
             lost_ack,
             reached: Arc::new(tokio::sync::Notify::new()),
             released: Arc::new(tokio::sync::Notify::new()),
-            discarded: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
     pub async fn wait_at(&self, point: CompletionPoint) {
@@ -351,9 +333,7 @@ impl CompletionControl {
     pub fn lose_ack(&self) -> bool {
         self.lost_ack
     }
-    pub fn discarded(&self) -> bool {
-        self.discarded.load(std::sync::atomic::Ordering::SeqCst)
-    }
+
 }
 
 #[cfg(feature = "contract-tests")]
@@ -374,4 +354,17 @@ pub async fn run_controlled_write<C: BusinessCommand>(
         },
     )
     .await
+}
+
+fn commit_failure(error: sqlx::Error) -> AttemptError {
+    // An ErrorResponse is a known server rejection. Preserve its SQLSTATE for
+    // the existing whole-transaction retry classifier and database adapter.
+    if error.as_database_error().is_some() {
+        return AttemptError::Database(error);
+    }
+    refusal(
+        axum::http::StatusCode::SERVICE_UNAVAILABLE,
+        "COMMIT_OUTCOME_UNKNOWN",
+        "The transaction outcome must be checked before another command.",
+    ).into()
 }
