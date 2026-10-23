@@ -304,6 +304,39 @@ def review_migration_digests(root, paths, reviewed):
     return violations
 
 
+def schema_git(root, *arguments):
+    """Read true objects from this checkout, never inherited Git routing."""
+    environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    return subprocess.check_output(
+        ["git", "--no-replace-objects", "-C", str(root), *arguments],
+        env=environment, text=True, stderr=subprocess.PIPE,
+    )
+
+
+def schema_history_refusals(root, predecessor):
+    try:
+        if schema_git(root, "for-each-ref", "--format=%(refname)", "refs/replace/").strip():
+            return ["schema Git history: replacement refs refused"]
+        grafts = Path(schema_git(root, "rev-parse", "--git-path", "info/grafts").strip())
+        if not grafts.is_absolute():
+            grafts = root / grafts
+        if grafts.exists() or grafts.is_symlink():
+            return ["schema Git history: grafts file refused"]
+        shallow = schema_git(root, "rev-parse", "--is-shallow-repository").strip() == "true"
+        try:
+            schema_git(root, "cat-file", "-e", f"{predecessor}^{{commit}}")
+            # Traverse the predecessor's true history; missing parents must refuse.
+            schema_git(root, "rev-list", predecessor)
+        except subprocess.CalledProcessError:
+            label = "shallow history lacks predecessor" if shallow else "missing predecessor history"
+            return [f"schema Git history: {label}: {predecessor}"]
+        if shallow:
+            return [f"schema Git history: shallow history lacks predecessor completeness proof: {predecessor}"]
+    except (OSError, subprocess.CalledProcessError) as error:
+        return [f"schema Git history: cannot establish true objects: {error}"]
+    return []
+
+
 def recorded_schema_base(root, supplied=None):
     """The predecessor changes only through an explicit PM-reviewed record edit."""
     record = root / "tests/rust_contract/phase8/schema-base.json"
@@ -350,9 +383,10 @@ def review_migration_inventory(root, predecessor, reviewed, other, expected_phas
         return ["alembic/versions: missing or symlink migration directory"]
     if not re.fullmatch(r"[0-9a-f]{40}", predecessor):
         return ["predecessor: expected approved full SHA"]
-    baseline = set(subprocess.check_output(
-        ["git", "ls-tree", "-r", "--name-only", predecessor, "--", "alembic/versions"], cwd=root, text=True,
-    ).splitlines())
+    history_errors = schema_history_refusals(root, predecessor)
+    if history_errors:
+        return history_errors
+    baseline = set(schema_git(root, "ls-tree", "-r", "--name-only", predecessor, "--", "alembic/versions").splitlines())
     # Alembic source discovery is nonrecursive with sourceless disabled. Include
     # every .py file, independent of its name or declared revision ownership.
     discovered = {
@@ -1085,13 +1119,15 @@ def test_phase8_change_set_is_one_additive_revision():
     manifest = load_ledger()["schema_change_set"]
     schema_base, errors = recorded_schema_base(ROOT)
     assert not errors, errors
-    status_lines = subprocess.check_output(["git", "diff", "--name-status", schema_base, "HEAD", "--", "alembic/versions"], cwd=ROOT, text=True).splitlines()
+    history_errors = schema_history_refusals(ROOT, schema_base)
+    assert not history_errors, history_errors
+    status_lines = schema_git(ROOT, "diff", "--name-status", schema_base, "HEAD", "--", "alembic/versions").splitlines()
     added = [line.split("\t")[-1] for line in status_lines if line.startswith("A")]
     # Other phases may add their own revisions after the recorded base; this gate
     # owns only the Phase 8 revision and refuses touching pre-existing files.
     assert added.count(manifest["added_migrations"][0]) == 1, "the Phase 8 revision must be added exactly once"
     assert not [line for line in status_lines if not line.startswith("A")], "pre-existing migrations must not be modified or removed"
-    changed = set(subprocess.check_output(["git", "diff", "--name-only", BASE, "HEAD"], cwd=ROOT, text=True).splitlines())
+    changed = set(schema_git(ROOT, "diff", "--name-only", BASE, "HEAD").splitlines())
     assert set(manifest["expected_modified_paths"]) <= changed
     reviewed = json.loads((ROOT / "tests/rust_contract/phase8/reviewed-migrations.json").read_text())
     other = json.loads((ROOT / "tests/rust_contract/phase8/other-phase-migrations.json").read_text())
