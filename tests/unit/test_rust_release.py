@@ -287,7 +287,10 @@ case "${1:-}" in
       exec __REAL_PYTHON__ "$@"
       ;;
 esac
-if [[ "${DEPLOY_BLOCK_PHASE:-}" == "${1:-}" ]]; then sleep 30; fi
+if [[ "${DEPLOY_BLOCK_PHASE:-}" == "${1:-}" ]]; then
+    printf '%s\\n' "$1" > "${DEPLOY_TEST_LOG:?}.blocked"
+    sleep 120
+fi
 """
         # The fixture's `venv/bin/python` wrapper must work in a clean checkout.
         # GitHub CI installs the dependencies into the interpreter that runs
@@ -443,7 +446,11 @@ exit 0
     # -- execution ---------------------------------------------------------
     def deploy_environment(self, release_sha: str, *, fail_phase: str = "") -> dict:
         environment = {
-            **os.environ,
+            **{
+                key: value for key, value in os.environ.items()
+                if not key.startswith(('DEPLOY_', 'RUST_', 'HEALTH_', 'MIGRATION_'))
+                and key not in {'APPROVED_RELEASE_SHA', 'HOST_PROVENANCE_KEY_PATH'}
+            },
             "TARGET_BRANCH": "staging",
             "SERVICE_NAME": "verdaxis-backend-staging-test.service",
             "HEALTH_URL": "https://health.invalid/health/ready",
@@ -581,7 +588,11 @@ def test_fixture_health_validator_drains_its_input(release_fixture, fail_phase, 
     result = subprocess.run(
         [
             "bash", "-c",
-            'set -o pipefail; cat | "$1" scripts/validate_health_response.py',
+            'set -o pipefail; cat | "$1" scripts/validate_health_response.py; '
+            'statuses=("${PIPESTATUS[@]}"); '
+            'printf "PIPESTATUS=%s %s\\n" "${statuses[@]}" >&2; '
+            'if (( statuses[0] != 0 )); then exit "${statuses[0]}"; fi; '
+            'exit "${statuses[1]}"',
             "fixture-health-pipeline", str(release_fixture.checkout / "venv/bin/python"),
         ],
         input=b"x" * (1024 * 1024),
@@ -591,6 +602,7 @@ def test_fixture_health_validator_drains_its_input(release_fixture, fail_phase, 
         timeout=10,
     )
     assert result.returncode == expected_exit, result.stderr.decode()
+    assert f"PIPESTATUS=0 {expected_exit}" in result.stderr.decode()
     assert release_fixture.ledger == ["python:scripts/validate_health_response.py"]
 
 
@@ -990,11 +1002,21 @@ def test_interrupted_restart_window_releases_locks_and_keeps_state(release_fixtu
     )
     state_dir = release_fixture.checkout / ".runtime-deploy"
     try:
-        for _ in range(250):
-            state = (state_dir / "staging.state")
-            if state.exists() and "readiness-pending" in state.read_text():
-                break
+        blocked = Path(str(release_fixture.log_path) + ".blocked")
+        deadline = time.monotonic() + 60
+        while not blocked.exists() and running.poll() is None and time.monotonic() < deadline:
             time.sleep(0.02)
+        if not blocked.exists():
+            if running.poll() is not None:
+                stdout, stderr = running.communicate(timeout=5)
+            else:
+                stdout, stderr = "", "deploy did not reach the readiness helper"
+            pytest.fail(
+                f"readiness helper was not reached; exit={running.poll()}\n"
+                f"state={release_fixture.state_text()}\n"
+                f"ledger={release_fixture.ledger}\n{stdout}\n{stderr}"
+            )
+        assert blocked.read_text().strip() == "scripts/validate_health_response.py"
         assert "DEPLOYMENT_STATE=readiness-pending" in (state_dir / "staging.state").read_text()
         restarts = [
             e for e in release_fixture.ledger if e.startswith("sudo:systemctl restart")

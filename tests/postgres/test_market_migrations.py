@@ -41,7 +41,9 @@ def _command_env(database_url: str) -> dict[str, str]:
     }
 
 
-def _alembic(database_url: str, *arguments: str) -> subprocess.CompletedProcess[str]:
+def _alembic(
+    database_url: str, *arguments: str, timeout: float | None = None,
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, "-m", "alembic", *arguments],
         cwd=_BACKEND_ROOT,
@@ -49,6 +51,7 @@ def _alembic(database_url: str, *arguments: str) -> subprocess.CompletedProcess[
         text=True,
         capture_output=True,
         check=False,
+        timeout=timeout,
     )
 
 
@@ -597,34 +600,54 @@ async def test_fee_migration_refuses_downgrade_that_would_lose_fee_data(
     assert preserved.scalar_one() == 1
 
 
+def test_alembic_timeout_reaps_the_child(monkeypatch):
+    real_popen = subprocess.Popen
+    children = []
+
+    def start_sleeping_child(arguments, **kwargs):
+        child = real_popen(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            **kwargs,
+        )
+        children.append(child)
+        return child
+
+    monkeypatch.setattr(subprocess, "Popen", start_sleeping_child)
+    with pytest.raises(subprocess.TimeoutExpired):
+        _alembic("unused", "current", timeout=0.1)
+    assert len(children) == 1
+    assert children[0].poll() is not None
+
+
 @pytest.mark.asyncio
 async def test_fee_downgrade_fails_fast_during_idempotent_trade_read(
     migration_database,
 ):
     database_url, _database_name = migration_database
-    upgraded = await asyncio.to_thread(_alembic, database_url, "upgrade", _HISTORICAL_HEAD)
+    fee_revision = "fee_20260912_seller_per_mt"
+    upgraded = await asyncio.to_thread(_alembic, database_url, "upgrade", fee_revision)
     assert upgraded.returncode == 0, upgraded.stderr
 
     engine = create_async_engine(database_url)
-    downgrade_task = None
     try:
         async with engine.begin() as connection:
             # Idempotent manual creation reads trades before resolving the
             # seller subscription. Keep that first read lock open.
             await connection.execute(text("SELECT count(*) FROM trades"))
-            downgrade_task = asyncio.create_task(
-                asyncio.to_thread(
-                    _alembic,
-                    database_url,
-                    "downgrade",
-                    "oa_20260910_auto_real_orgs",
-                )
+            # subprocess.run kills and reaps the child on timeout. Cancelling
+            # an asyncio.to_thread waiter alone would leave Alembic running.
+            # The bound contains a hang; the refusal text proves NOWAIT.
+            refused = await asyncio.to_thread(
+                _alembic,
+                database_url,
+                "downgrade",
+                "oa_20260910_auto_real_orgs",
+                timeout=60,
             )
-            # This bound only stops a hung subprocess; the NOWAIT refusal text proves it did not wait.
-            refused = await asyncio.wait_for(downgrade_task, timeout=60)
             assert refused.returncode != 0
             output = f"{refused.stdout}\n{refused.stderr}"
             assert "could not obtain lock on relation" in output
+            assert "LOCK TABLE subscriptions, trades IN ACCESS EXCLUSIVE MODE NOWAIT" in output
             assert "canceling statement due to lock timeout" not in output
 
             # The runtime transaction can continue through subscription
@@ -637,10 +660,9 @@ async def test_fee_downgrade_fails_fast_during_idempotent_trade_read(
     finally:
         await engine.dispose()
 
-    assert downgrade_task is not None
     current = await asyncio.to_thread(_alembic, database_url, "current")
     assert current.returncode == 0, current.stderr
-    assert _HISTORICAL_HEAD in current.stdout
+    assert fee_revision in current.stdout
 
 
 @pytest.mark.asyncio
