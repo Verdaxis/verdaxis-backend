@@ -229,6 +229,8 @@ def test_phase8_expected_schema_manifest():
     # backfill statement are allowed, never connection access in general.
     assert permitted["ddl"] == ["add_column", "create_table", "create_check_constraint", "create_index"]
     assert permitted["reviewed_calls"] == []
+    assert permitted.get("module_imports") == ["from alembic import op", "import sqlalchemy as sa"]
+    assert permitted.get("revision_names") == ["revision", "down_revision", "branch_labels", "depends_on"]
     assert permitted["head_check"] == {
         "form": "heads = op.get_bind().execute(sa.text(statement)).scalars().all()",
         "statement": "SELECT version_num FROM alembic_version",
@@ -330,15 +332,31 @@ def review_migration_operations(upgrade, manifest):
     return violations
 
 
+def migration_module(body, *, module_prefix="", function="upgrade"):
+    """A complete static migration fixture; snippets are parsed, never executed."""
+    source = '''\
+from alembic import op
+import sqlalchemy as sa
+revision = "p89_20261022_watchlist_producer"
+down_revision = "reviewed_predecessor"
+branch_labels = None
+depends_on = None
+'''
+    source += module_prefix + "\n"
+    other = "downgrade" if function == "upgrade" else "upgrade"
+    source += f"def {function}():\n" + textwrap.indent(body, "    ") + "\n"
+    source += f"def {other}():\n    op.create_table('watchlist_producer_state', sa.Column('id', sa.Integer()))\n"
+    return ast.parse(source)
+
+
 def test_phase8_migration_reviewer_refuses_unreviewed_operations():
     manifest = load_ledger()["schema_change_set"]
     assert "permitted_migration_operations" in manifest, "reviewed migration operations missing from fixture"
 
     def upgrade_of(source):
-        return next(
-            node for node in ast.parse(textwrap.dedent(source)).body
-            if isinstance(node, ast.FunctionDef) and node.name == "upgrade"
-        )
+        parsed = ast.parse(textwrap.dedent(source))
+        body = parsed.body[0].body
+        return migration_module("\n".join(ast.unparse(statement) for statement in body))
 
     reviewed = '''\
         def upgrade():
@@ -358,23 +376,20 @@ def test_phase8_migration_reviewer_refuses_unreviewed_operations():
     head_check = '''\
         def upgrade():
             heads = op.get_bind().execute(sa.text("SELECT version_num FROM alembic_version")).scalars().all()
-            assert len(heads) == 1
         '''
     assert review_migration_operations(upgrade_of(head_check), manifest) == []
     before_and_after = '''\
         def upgrade():
             heads = op.get_bind().execute(sa.text("SELECT version_num FROM alembic_version")).scalars().all()
-            assert len(heads) == 1
             op.execute("UPDATE watchlist_events SET producer = 'legacy-python'")
             heads = op.get_bind().execute(sa.text("SELECT version_num FROM alembic_version")).scalars().all()
-            assert len(heads) == 1
         '''
     assert review_migration_operations(upgrade_of(before_and_after), manifest) == []
     foreign_delete = '''\
         def upgrade():
             op.execute(sa.text("DELETE FROM watchlist_events"))
         '''
-    assert review_migration_operations(upgrade_of(foreign_delete), manifest) == ["unreviewed op.execute: 'DELETE FROM watchlist_events'"]
+    assert review_migration_operations(upgrade_of(foreign_delete), manifest) == ["upgrade: unreviewed execute statement"]
     foreign_update = '''\
         def upgrade():
             op.execute("UPDATE watchlist_events SET producer = 'other-producer'")
@@ -384,12 +399,12 @@ def test_phase8_migration_reviewer_refuses_unreviewed_operations():
         def upgrade():
             op.execute(statement)
         '''
-    assert review_migration_operations(upgrade_of(not_literal), manifest) == ["unreviewed op.execute: None"]
+    assert review_migration_operations(upgrade_of(not_literal), manifest) == ["upgrade: unreviewed execute statement"]
     destructive = '''\
         def upgrade():
             op.drop_column("watchlist_events", "producer")
         '''
-    assert review_migration_operations(upgrade_of(destructive), manifest) == ["unreviewed migration operation: op.drop_column"]
+    assert review_migration_operations(upgrade_of(destructive), manifest) == ["upgrade: unreviewed operation op.drop_column"]
 
 
 @pytest.mark.parametrize("statement", [
@@ -405,7 +420,7 @@ def test_phase8_migration_reviewer_refuses_unreviewed_bind_execution(statement, 
         source = f"def upgrade():\n    op.get_bind().execute({statement})\n"
     else:
         source = f"def upgrade():\n    bind = op.get_bind()\n    bind.execute({statement})\n"
-    upgrade = ast.parse(source).body[0]
+    upgrade = migration_module("\n".join(ast.unparse(node) for node in ast.parse(source).body[0].body))
     assert review_migration_operations(upgrade, manifest), f"unreviewed {access} bind execution accepted"
 
 
@@ -416,7 +431,7 @@ def test_phase8_migration_reviewer_refuses_unreviewed_bind_execution(statement, 
     'op.get_bind().execute(sa.text("SELECT version_num FROM alembic_version"), parameters)',
 ])
 def test_phase8_migration_reviewer_refuses_unreviewed_connection_access(operation):
-    upgrade = ast.parse(f"def upgrade():\n    {operation}\n").body[0]
+    upgrade = migration_module(operation)
     assert review_migration_operations(upgrade, load_ledger()["schema_change_set"])
 
 
@@ -435,11 +450,85 @@ def test_phase8_migration_reviewer_refuses_unreviewed_connection_access(operatio
     'heads = op.get_bind().execute(sa.text("SELECT version_num FROM alembic_version")).scalars().all().connection',
 ])
 def test_phase8_migration_reviewer_refuses_head_result_connection_access(body):
-    source = "def upgrade():\n" + textwrap.indent(body, "    ") + "\n"
-    upgrade = ast.parse(source).body[0]
+    upgrade = migration_module(body)
     assert review_migration_operations(upgrade, load_ledger()["schema_change_set"]), (
         f"unreviewed head-result or connection access accepted: {body}"
     )
+
+
+@pytest.mark.parametrize("body, reason", [
+    ('getattr(op, "get_bind")()', 'only direct reviewed op calls are allowed'),
+    ('getattr(bind, "exec_driver_sql")("DELETE FROM watchlist_events")', 'only direct reviewed op calls are allowed'),
+    ('getattr(op, "execute")("DELETE FROM watchlist_events")', 'only direct reviewed op calls are allowed'),
+    ('get_bind = getattr(op, "get_bind")', 'statement Assign is not allowed'),
+    ('run_sql = getattr(bind, "exec_driver_sql")\nrun_sql("DELETE FROM watchlist_events")', 'statement Assign is not allowed'),
+    ('getattr(op, "get_context")().connection', 'only direct reviewed op calls are allowed'),
+    ('__import__("sqlalchemy")', 'only direct reviewed op calls are allowed'),
+    ('import importlib\nimportlib.import_module("sqlalchemy")', 'statement Import is not allowed'),
+    ('extra_sql()', 'only direct reviewed op calls are allowed'),
+    ('x = 1', 'statement Assign is not allowed'),
+    ('x: int = 1', 'statement AnnAssign is not allowed'),
+    ('op.execute', 'only direct reviewed op calls are allowed'),
+    ('(lambda: 1)()', 'only direct reviewed op calls are allowed'),
+    ('[x for x in []]', 'only direct reviewed op calls are allowed'),
+    ('with context():\n    pass', 'statement With is not allowed'),
+    ('for x in []:\n    pass', 'statement For is not allowed'),
+    ('while False:\n    pass', 'statement While is not allowed'),
+    ('try:\n    pass\nexcept Exception:\n    pass', 'statement Try is not allowed'),
+    ('if True:\n    pass', 'statement If is not allowed'),
+    ('exec("pass")', 'only direct reviewed op calls are allowed'),
+    ('eval("1")', 'only direct reviewed op calls are allowed'),
+    ('def nested():\n    pass', 'statement FunctionDef is not allowed'),
+    ('class Nested:\n    pass', 'statement ClassDef is not allowed'),
+    ('op.create_table(name)', 'argument Name is not allowed'),
+    ('op.create_table(other.name)', 'argument Attribute is not allowed'),
+    ('op.create_table(sa.__dict__)', 'argument Attribute is not allowed'),
+    ('op.create_table(sa.Column.__call__("x"))', 'only direct sa constructors are allowed'),
+    ('op.create_table(getattr(sa, "Column")("x"))', 'only direct sa constructors are allowed'),
+    ('op.create_table(sa.__getattribute__("Column"))', 'only direct sa constructors are allowed'),
+    ('op.create_table(f"table_{1}")', 'argument JoinedStr is not allowed'),
+    ('op.create_table("a" + "b")', 'argument BinOp is not allowed'),
+    ('op.create_table("%s" % "a")', 'argument BinOp is not allowed'),
+    ('op.create_table("{}".format("a"))', 'only direct sa constructors are allowed'),
+    ('op.create_table(*["x"])', 'argument Starred is not allowed'),
+    ('op.create_table(**{})', 'expanded keyword arguments are not allowed'),
+])
+@pytest.mark.parametrize("function", ["upgrade", "downgrade"])
+def test_phase8_module_reviewer_refuses_unaccepted_function_syntax(body, reason, function):
+    violations = review_migration_operations(migration_module(body, function=function), load_ledger()["schema_change_set"])
+    assert any(reason in violation for violation in violations), (reason, violations)
+
+
+@pytest.mark.parametrize("prefix, reason", [
+    ('def extra_sql():\n    op.get_bind().exec_driver_sql("DELETE FROM watchlist_events")', 'unreviewed function extra_sql'),
+    ('class Helper:\n    pass', 'module statement ClassDef is not allowed'),
+    ('import importlib', 'unreviewed import'),
+    ('from sqlalchemy import text', 'unreviewed import'),
+    ('import sqlalchemy as other', 'unreviewed import'),
+    ('sa = __import__("sqlalchemy")', 'unreviewed module assignment'),
+    ('alias = op.execute', 'unreviewed module assignment'),
+    ('op.execute("DELETE FROM watchlist_events")', 'module statement Expr is not allowed'),
+    ('revision = "a" + "b"', 'revision value must be literal'),
+    ('revision: str = "x"', 'module statement AnnAssign is not allowed'),
+    ('@decorator\ndef helper():\n    pass', 'unreviewed function helper'),
+    ('def upgrade(value=exec("pass")):\n    pass', 'function signature is not allowed'),
+    ('@decorator\ndef upgrade():\n    pass', 'function signature is not allowed'),
+    ('async def helper():\n    pass', 'module statement AsyncFunctionDef is not allowed'),
+])
+def test_phase8_module_reviewer_refuses_unaccepted_module_syntax(prefix, reason):
+    tree = migration_module('extra_sql()', module_prefix=prefix)
+    violations = review_migration_operations(tree, load_ledger()["schema_change_set"])
+    assert any(reason in violation for violation in violations), (reason, violations)
+
+
+def test_phase8_module_reviewer_accepts_static_ddl_and_head_reads():
+    tree = migration_module('''heads = op.get_bind().execute(sa.text("SELECT version_num FROM alembic_version")).scalars().all()
+op.add_column("watchlist_events", sa.Column("producer", sa.Text(), nullable=False, server_default="legacy-python"))
+op.create_table("watchlist_producer_state", sa.Column("id", sa.Integer(), primary_key=True))
+op.create_check_constraint("ck_watchlist_events_producer_identity", "watchlist_events", "producer IS NOT NULL")
+op.create_index("uq_watchlist_events_producer_source_target_derived", "watchlist_events", ["producer"], unique=True, postgresql_where=sa.text("producer = 'rust-market-v1'"))
+op.execute(sa.text("UPDATE watchlist_events SET producer = 'legacy-python'"))''')
+    assert review_migration_operations(tree, load_ledger()["schema_change_set"]) == []
 
 
 @pytest.mark.skipif(os.environ.get("PHASE8_COMPLETENESS") != "1", reason="Task 14 gate: requires the integrated Task 5a revision")
