@@ -23,6 +23,78 @@ fn config(variable: &str) -> Config {
     config
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn fleet_config_startup_cases() {
+    use std::os::unix::fs::PermissionsExt;
+    use std::process::{Command, Stdio};
+    let config = config("RUST_TEST_DATABASE_URL");
+    let root = std::env::temp_dir().join(format!("fleet-startup-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&root).unwrap();
+    let client = reqwest::Client::new();
+    for case in ["missing", "not_directory", "permission", "internal_link"] {
+        let cwd = root.join(case);
+        std::fs::create_dir(&cwd).unwrap();
+        let data = cwd.join("data");
+        let path = if case == "internal_link" { "data/feeds/fleet.json" } else { "data/fleet.json" };
+        match case {
+            "not_directory" => std::fs::write(&data, b"unavailable").unwrap(),
+            "permission" => {
+                std::fs::create_dir(&data).unwrap();
+                std::fs::set_permissions(&data, std::fs::Permissions::from_mode(0o000)).unwrap();
+                assert_eq!(std::fs::metadata(data.join("fleet.json")).unwrap_err().kind(), std::io::ErrorKind::PermissionDenied);
+            }
+            "internal_link" => {
+                std::fs::create_dir_all(data.join("feeds")).unwrap();
+                std::fs::write(data.join("fleet.json"), br#"{"entries":[],"last_updated":"2026-04-03","sources":[]}"#).unwrap();
+                std::os::unix::fs::symlink("../fleet.json", data.join("feeds/fleet.json")).unwrap();
+            }
+            _ => {}
+        }
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let bind = listener.local_addr().unwrap();
+        drop(listener);
+        let document = serde_json::json!({
+            "environment":"test", "release_sha":compiled_sha(),
+            "migration_revision":config.migration_revision, "database_url":config.database_url,
+            "db_session_time_zone":"UTC", "bind":bind.to_string(),
+            "pool_max":17, "python_budget":52, "configured_max_connections":100,
+            "fleet_artifact_path":path,
+        });
+        let log_path = cwd.join("startup.log");
+        let log = std::fs::File::create(&log_path).unwrap();
+        let mut child = Command::new(env!("CARGO_BIN_EXE_verdaxis-read"))
+            .current_dir(&cwd).env("RUST_CONFIG", document.to_string())
+            .stdout(Stdio::from(log.try_clone().unwrap())).stderr(Stdio::from(log))
+            .spawn().unwrap();
+        let ready = tokio::time::timeout(std::time::Duration::from_secs(15), async {
+            loop {
+                if let Ok(response) = client.get(format!("http://{bind}/health/ready")).send().await {
+                    if response.status().is_success() {
+                        break Some(response.json::<serde_json::Value>().await.unwrap());
+                    }
+                }
+                if child.try_wait().unwrap().is_some() { break None; }
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+        }).await;
+        let _ = child.kill();
+        child.wait().unwrap();
+        if case == "permission" {
+            std::fs::set_permissions(&data, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        assert_eq!(ready.unwrap(), Some(serde_json::json!({
+            "status":"ok", "db":"ok", "environment":"test", "release_sha":compiled_sha(),
+        })), "{case}");
+        let log = std::fs::read_to_string(log_path).unwrap();
+        let expected = if case == "internal_link" { "available" } else { "unavailable" };
+        assert!(log.contains(&format!("\"availability\":\"{expected}\"")), "{case}: {log}");
+        assert_eq!(log.matches("optional fleet artifact startup probe").count(), 1);
+        assert!(!log.contains(cwd.to_str().unwrap()));
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 #[tokio::test]
 async fn explicit_timezone_applies_to_every_connection_and_checks_database_default() {
     let mut config = config("RUST_TEST_DATABASE_URL");

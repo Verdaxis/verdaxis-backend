@@ -75,6 +75,8 @@ async fn fleet_config_cases() {
         "data/../other.json",
         "../data/fleet.json",
         "other/file.json",
+        "data/fleet.json/",
+        "data/escape/",
     ] {
         assert!(resolve_fleet_artifact_path(Path::new(invalid), &cwd).is_err());
     }
@@ -88,6 +90,19 @@ async fn fleet_config_cases() {
             .unwrap();
         assert!(resolve_fleet_artifact_path(Path::new("data/dangling.json"), &cwd).is_err());
     }
+    assert!(resolve_fleet_artifact_path(&outside.join("fleet.json"), &cwd).is_err());
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStringExt;
+        let invalid = std::ffi::OsString::from_vec(b"data/fleet-\xff.json".to_vec());
+        assert!(resolve_fleet_artifact_path(Path::new(&invalid), &cwd).is_err());
+        assert!(resolve_fleet_artifact_path(Path::new("data/escape/"), &cwd).is_err());
+        std::fs::create_dir(cwd.join("data/feeds")).unwrap();
+        std::os::unix::fs::symlink("../fleet_demand.json", cwd.join("data/feeds/fleet.json")).unwrap();
+        let internal = resolve_fleet_artifact_path(Path::new("data/feeds/fleet.json"), &cwd).unwrap();
+        assert_eq!(internal, resolved);
+        assert_eq!(resolve_fleet_artifact_path(&internal, &cwd).unwrap(), internal);
+    }
     assert!(resolve_fleet_artifact_path(&resolved, &cwd).is_ok());
     std::fs::write(&resolved, b"not JSON").unwrap();
     assert!(!fleet_startup_probe(&resolved).await);
@@ -99,6 +114,27 @@ async fn fleet_config_cases() {
     assert!(fleet_startup_probe(&resolved).await);
     std::fs::write(&resolved, vec![b' '; 262_145]).unwrap();
     assert!(!fleet_startup_probe(&resolved).await);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn fleet_config_environment_encoding() {
+    use std::os::unix::ffi::OsStringExt;
+    let root = std::env::temp_dir().join(format!("fleet-env-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(root.join("data")).unwrap();
+    let budget = root.join("budget.json");
+    std::fs::write(&budget, budget_document(compiled_sha())).unwrap();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_verdaxis-read"))
+        .current_dir(&root)
+        .env_remove("RUST_CONFIG")
+        .envs(deployed_environment())
+        .env("FLEET_ARTIFACT_PATH", std::ffi::OsString::from_vec(b"data/\xff.json".to_vec()))
+        .args(["--bind", "127.0.0.1:0", "--budget-file", budget.to_str().unwrap()])
+        .output().unwrap();
+    assert!(!output.status.success());
+    let log = String::from_utf8(output.stdout).unwrap();
+    assert!(!log.contains("optional fleet artifact startup probe"));
     std::fs::remove_dir_all(root).unwrap();
 }
 
