@@ -92,7 +92,7 @@ class PriorityRows:
             self.dropped[str(worst_priority)] = self.dropped.get(str(worst_priority), 0) + 1
             if worst_priority in (1, 2):
                 name = 'credential-denied' if worst_priority == 1 else 'removed-package'
-                self.markers[name] = dict(bound_row(name), status='overflow:' + name)
+                self.markers['overflow:' + name] = dict(bound_row(name), status='overflow:' + name)
 
     def values(self):
         markers = list(self.markers.values())
@@ -490,14 +490,22 @@ def inspect_graph(paths, roots=APP_ROOTS, max_depth=16, script_reader=scan_scrip
         except (OSError, ValueError):
             block(path, '<unreadable-or-forbidden>')
             continue
-        budget += len(json.dumps(record).encode())
-        if budget > MAX_TOTAL_BYTES:
-            truncated.add('graph-bytes')
-            break
+        # Priority facts were already acquired. Admit them before considering
+        # the ordinary record byte budget; never discard them with its payload.
         inspected.add(path)
         truncated.update(record.get('truncations', []))
         for name in record.get('priority_overflow', []):
             blocking.add(dict(bound_row(name), status='overflow:' + name))
+        for credential in record['credential_references']:
+            block(path, credential, 'credential-denied')
+        for reference in record.get('imports', []):
+            if reference.split('.')[0] in {'app', 'scripts', 'alembic'}:
+                block(path, reference, 'removed-package')
+        size = len(json.dumps(record).encode())
+        if budget + size > MAX_TOTAL_BYTES:
+            truncated.add('graph-bytes')
+            continue
+        budget += size
         public = dict(record, imports=[], executables=[], credential_references=[])
         public['truncations'] = record.get('truncations', [])
         scripts.append(public)
