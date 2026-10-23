@@ -44,7 +44,7 @@ class Round2Contract(unittest.TestCase):
                     with tempfile.TemporaryDirectory(prefix='w0-entry-') as temp:
                         script = Path(temp) / ('backup.sh' if name in {'sh', 'bash'} else 'backup.py')
                         script.write_text('source /not/present.sh\n' if name in {'sh', 'bash'} else 'import app.missing\n')
-                        invocation = prefix + ' ' + str(script) + ' --password=never-transport'
+                        invocation = prefix + ' ' + str(script)
                         def command(argv):
                             if 'list-unit-files' in argv:
                                 return 'fixture.service enabled\n', True
@@ -66,7 +66,7 @@ class Round2Contract(unittest.TestCase):
             entry.write_text('import json\n')
             shadow.write_text('import app.missing\n')
             result = self.reader.inspect_graph([str(entry)], roots=[temp])
-            self.assertIn(str(shadow), {r['path'] for r in result['scripts']}, 'stdlib shadow skipped')
+            self.assertTrue(result['blocking_dependencies'], 'unproved import roots must block')
             self.assertFalse(result['complete'])
             self.assertTrue(result['blocking_dependencies'])
 

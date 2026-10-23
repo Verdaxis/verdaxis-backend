@@ -80,7 +80,7 @@ class ReaderContract(unittest.TestCase):
             shell = folder / 'restore.sh'
             shell.write_text('#!/bin/sh\n. /etc/private.env\nsource /usr/local/libexec/helper.sh\n')
             row = self.reader.read_script(str(shell))
-            self.assertIn({'kind': 'resolved', 'path': '/etc/private.env'}, row['credential_references'])
+            self.assertTrue(all(r['kind'] == '<unresolved>' for r in row['credential_references']))
             self.assertTrue(all(r['kind'] == '<unresolved>' for r in row['imports']))
             # Import names are recorded, never imported, sourced or followed.
             self.assertNotIn('contents', row)

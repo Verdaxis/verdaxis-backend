@@ -533,9 +533,7 @@
         ],
         "properties": {
           "source": {
-            "type": "string",
-            "pattern": "^(?:/[A-Za-z0-9_./@+-]+|<unresolved>)$",
-            "maxLength": 4096
+            "$ref": "#/$defs/reference"
           },
           "reference": {
             "$ref": "#/$defs/reference"
