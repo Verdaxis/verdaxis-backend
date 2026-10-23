@@ -100,9 +100,9 @@ def redact(value):
 
 
 def validate(document):
-    schema_check(document)
-    if document['scope'] != 'fixture':
+    if isinstance(document, dict) and document.get('scope') != 'fixture':
         refuse('fixture scope required; installed acceptance is not implemented in stage 1')
+    schema_check(document)
     if len(document['hosts']) != 2 or {h['id'] for h in document['hosts']} != {'production', 'staging'}:
         refuse('both hosts required')
     for host in document['hosts']:
