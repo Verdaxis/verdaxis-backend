@@ -243,6 +243,7 @@ pub const MOUNTED_GET_PATHS: &[&str] = &[
     "/health/ready",
     "/health",
     "/api/ports",
+    "/api/availability",
     "/api/compliance/fuels",
     "/api/catalog/products",
     "/api/catalog/delivery-points",
@@ -402,6 +403,7 @@ async fn dispatch_boundary(
 pub fn public_routes() -> Router<crate::AppState> {
     Router::new()
         .merge(crate::routes::ports::routes())
+        .merge(crate::routes::availability::routes())
         .merge(crate::routes::compliance_fuels::routes())
         .merge(crate::routes::catalog::routes())
         .merge(crate::routes::news::routes())

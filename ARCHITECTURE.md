@@ -59,6 +59,16 @@ that envelope; every other admitted read keeps its string detail.
 `rs/read/tests/phase5_public_boundary.rs`, `rs/read/tests/http_contract.rs` and
 `rs/read/tests/admission_postgres.rs` check the boundary.
 
+`routes::availability` serves `GET /api/availability` through the shared
+admitted read helper. `rs/read/sql/availability.sql` selects canonical active
+inventory lanes and aggregates each evidence class in one statement snapshot.
+It prefers REAL, then disclosed DEMO evidence, retains unknown supplier counts,
+and sends exact NUMERIC totals and rounded means as decimal strings. It refuses
+more than 512 groups before omitting coordinate-less map entries; zero
+coordinates remain valid. The result is not cached.
+`rs/read/tests/phase5_availability.rs` covers the response, map coordinates,
+result bound, public admission and populated PostgreSQL cases.
+
 ## Optional fleet artifact configuration
 
 `Config.fleet_artifact_path` accepts `FLEET_ARTIFACT_PATH` and defaults to

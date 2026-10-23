@@ -1,3 +1,4 @@
+pub mod availability;
 pub mod catalog;
 pub mod compliance_fuels;
 // Phase 2 Task 10: feedback route registration.
