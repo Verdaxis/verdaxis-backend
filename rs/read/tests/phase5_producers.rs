@@ -65,8 +65,8 @@ fn producer_projection_cases() {
         capacity_kt_per_year: Some("99999999.99".into()),
         country: "NL".into(),
         region: None,
-        lat: Some(0.0),
-        lng: Some(0.0),
+        lat: Some(1.25),
+        lng: Some(103.8),
         cod_date: None,
         cod_year: None,
         status: "ANNOUNCED".into(),
@@ -83,8 +83,8 @@ fn producer_projection_cases() {
     assert_eq!(value.as_object().unwrap().len(), 19);
     assert_eq!(value["capacity_kt_per_year"], "99999999.99");
     assert_eq!(value["carbon_intensity_gco2_mj"], "0.00");
-    assert_eq!(value["lat"], 0.0);
-    assert_eq!(value["lng"], 0.0);
+    assert_eq!(value["lat"], 1.25);
+    assert_eq!(value["lng"], 103.8);
     for key in ["cod_date", "cod_year", "region", "organization_id", "notes"] {
         assert!(value[key].is_null());
     }
@@ -177,6 +177,10 @@ async fn producer_result_limits() {
         ('00000000-0000-0000-0000-000000000003','Later','Ammonia','Norway',NULL,'UNDER_CONSTRUCTION',NULL,NULL,NULL), \
         ('00000000-0000-0000-0000-000000000004','Early','Methanol','Netherlands',0,'CANCELLED',NULL,NULL,NULL)")
         .execute(&writer).await.unwrap();
+    sqlx::query("INSERT INTO producer_projects (id,name,fuel_type,country,cod_year,status,location,cod_date,region,feedstock,technology,data_source,notes) VALUES \
+        ('00000000-0000-0000-0000-000000000006','Alpha','Methanol','Netherlands',2030,'ANNOUNCED',ST_SetSRID(ST_MakePoint(103.8,1.25),4326)::geography,'2030-06-15','Europe','Biomass','Gasification','manual','Project metadata'), \
+        ('00000000-0000-0000-0000-000000000005','Zulu','Methanol','Netherlands',2030,'ANNOUNCED',NULL,NULL,NULL,NULL,NULL,NULL,NULL)")
+        .execute(&writer).await.unwrap();
     let state = state(&app_url);
     let (status, body) = get(&state, "").await;
     assert_eq!(status, 200);
@@ -186,31 +190,44 @@ async fn producer_result_limits() {
             .iter()
             .map(|v| v["name"].as_str().unwrap())
             .collect::<Vec<_>>(),
-        ["Early", "Same", "Same", "Later"]
+        ["Early", "Alpha", "Same", "Same", "Zulu", "Later"]
     );
-    assert_eq!(items[1]["id"], "00000000-0000-0000-0000-000000000001");
-    assert_eq!(items[1]["lat"], 0.0);
-    assert_eq!(items[1]["lng"], 0.0);
-    assert_eq!(items[1]["capacity_kt_per_year"], "99999999.99");
-    assert!(items[2]["lat"].is_null());
-    assert!(items[2]["capacity_kt_per_year"].is_null());
-    assert!(items[3]["cod_year"].is_null());
+    assert_eq!(items[1]["id"], "00000000-0000-0000-0000-000000000006");
+    assert_eq!(items[1]["lat"], 1.25);
+    assert_eq!(items[1]["lng"], 103.8);
+    assert_eq!(items[1]["cod_date"], "2030-06-15");
+    assert_eq!(items[1]["region"], "Europe");
+    assert_eq!(items[1]["feedstock"], "Biomass");
+    assert_eq!(items[1]["technology"], "Gasification");
+    assert_eq!(items[1]["data_source"], "manual");
+    assert_eq!(items[1]["notes"], "Project metadata");
+    for item in &items[1..5] {
+        assert_eq!(item["cod_year"], 2030);
+    }
+    assert_eq!(items[2]["id"], "00000000-0000-0000-0000-000000000001");
+    assert_eq!(items[3]["id"], "00000000-0000-0000-0000-000000000002");
+    assert_eq!(items[2]["lat"], 0.0);
+    assert_eq!(items[2]["lng"], 0.0);
+    assert_eq!(items[2]["capacity_kt_per_year"], "99999999.99");
+    assert!(items[3]["lat"].is_null());
+    assert!(items[3]["capacity_kt_per_year"].is_null());
+    assert!(items[5]["cod_year"].is_null());
     for (query, count) in [
-        ("?fuel_type=mEtHaNoL&country=ETHER", 3),
+        ("?fuel_type=mEtHaNoL&country=ETHER", 5),
         ("?status=OPERATIONAL", 1),
-        ("?status=ANNOUNCED", 1),
+        ("?status=ANNOUNCED", 3),
         ("?status=UNDER_CONSTRUCTION", 1),
         ("?status=CANCELLED", 1),
         ("?cod_year_max=0", 1),
         ("?cod_year_min=0&cod_year_max=0", 1),
-        ("?cod_year_min=2030&cod_year_max=2030", 2),
+        ("?cod_year_min=2030&cod_year_max=2030", 4),
         ("?cod_year_min=2031", 0),
     ] {
         let (status, body) = get(&state, query).await;
         assert_eq!(status, 200, "{query}");
         assert_eq!(body.as_array().unwrap().len(), count, "{query}");
     }
-    sqlx::query("INSERT INTO producer_projects (name,fuel_type,country,cod_year,status) SELECT 'Bulk ' || n,'Methanol','NL',2028,'ANNOUNCED' FROM generate_series(1,4996) n")
+    sqlx::query("INSERT INTO producer_projects (name,fuel_type,country,cod_year,status) SELECT 'Bulk ' || n,'Methanol','NL',2028,'ANNOUNCED' FROM generate_series(1,4994) n")
         .execute(&writer).await.unwrap();
     let (status, body) = get(&state, "").await;
     assert_eq!(status, 200);
