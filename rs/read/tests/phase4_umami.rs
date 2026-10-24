@@ -1107,6 +1107,7 @@ mod cases {
             .window(&query(), destination_set())
             .await;
         server.abort();
+        assert_eq!(window.availability, BehavioralAvailability::Available);
 
         let property_calls: Vec<_> = stub
             .seen()

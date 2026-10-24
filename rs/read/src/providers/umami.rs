@@ -661,9 +661,3 @@ fn decode_property_rows(
         })
         .collect())
 }
-
-fn named_cell(key: String, count: u64) -> crate::analytics::types::AggregateCell {
-    let mut cell = crate::analytics::policy::suppress(Some(count), None);
-    cell.key = key;
-    cell
-}
