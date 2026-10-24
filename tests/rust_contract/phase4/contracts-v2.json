@@ -1,7 +1,7 @@
 {
   "version": 2,
   "status": "partial",
-  "source_sha": "e2c7dcf5fbfedb9988205500022479a97f887321",
+  "source_sha": "b57affd30437869e60f21ffdd1e68f6d0ae1e9ff",
   "contracts": [
     {
       "id": "CF4_01",
@@ -1597,13 +1597,31 @@
         {
           "declaration": "pub enum SettlementOwnership { RecordedUser { side: TradeSide, user_id: Uuid, organization_id: Uuid }, AssistedCustomerMember { side: TradeSide, actor_user_id: Uuid, organization_id: Uuid, expected_role: ActorRole, evidence: AssistedSideEvidence } }",
           "sha256": "8bb9455598f483166ce28d746ec57661054083d383cc349088db4fcd8bfeea18"
+        },
+        {
+          "declaration": "pub async fn rebuild_live_slice_benchmarks_for_keys(conn: &mut PgConnection, policy: &MarketPolicy, config: &Config, keys: &[BenchmarkRebuildKey], now: DateTime<Utc>) -> Result<BenchmarkRebuildResult, InvalidationError>",
+          "sha256": "57869d42403a9d661466207780df65786efe49d87e33b0ecd1dd1b72c42cf0a7"
+        },
+        {
+          "declaration": "pub async fn calculate_live_benchmarks(conn: &mut PgConnection, policy: &MarketPolicy, config: &Config, keys: &[LiveBenchmarkKey], now: DateTime<Utc>) -> Result<HashMap<LiveBenchmarkKey, LiveBenchmark>, sqlx::Error>",
+          "sha256": "de303d62c7eac50359a3ea8b5fce5ca5a63d8946e754eea1e6bd48e5c0eeccbd"
+        },
+        {
+          "declaration": "pub async fn live_benchmarks(conn: &mut PgConnection, policy: &MarketPolicy, config: &Config, keys: &[LiveBenchmarkKey], now: DateTime<Utc>) -> Result<HashMap<LiveBenchmarkKey, LiveBenchmark>, ApiError>",
+          "sha256": "9c2fd44e29e9869a9fa8827558b13a633eb340b47a7baf1c1436a83e20457391"
+        },
+        {
+          "declaration": "pub struct InvalidateOrganization { pub organization_id: Uuid, pub actor_id: Uuid, pub now: DateTime<Utc>, pub policy: Arc<MarketPolicy>, pub config: Arc<Config> }",
+          "sha256": "82d97ebce8d7199ab80df49129301a16cde51b17b7466cdffd84e7f287afa19d"
         }
       ],
       "schemas": {
         "InvalidateOrganization": {
           "organization_id": "Uuid",
           "actor_id": "Uuid",
-          "now": "DateTime<Utc>; caller already holds canonical organization/user locks"
+          "now": "DateTime<Utc>; caller already holds canonical organization/user locks",
+          "policy": "Arc<MarketPolicy>; explicit immutable request-runtime snapshot supplied by caller",
+          "config": "Arc<Config>; same immutable runtime snapshot supplying kyc_execution_gate_enabled; no global or default configuration"
         },
         "InvalidationResult": {
           "withdrawn_orders": "Vec<Uuid>; max 100",
@@ -1796,6 +1814,25 @@
             "headers": "typed WWW-Authenticate, ETag/Retry-After as required"
           },
           "body": "{detail:{code,message,...typed_extras}}; never raw Python string/array or upstream body"
+        },
+        "BenchmarkRebuildResult": {
+          "rebuilt": "Vec<LiveBenchmarkKey>; sorted unique, <=100",
+          "deleted": "Vec<LiveBenchmarkKey>; sorted unique, <=100",
+          "ignored_null_points": "usize",
+          "scope": "only requested normalized keys; every eligible concrete key in exactly one rebuilt/deleted set"
+        },
+        "BenchmarkRebuildKey": {
+          "side": "BID|ASK",
+          "market_product": "Option<String>",
+          "delivery_point_id": "Option<Uuid>",
+          "availability_window": "Option<String>",
+          "source": "affected order rows after canonical locks; not an HTTP input",
+          "normalization": "missing/empty product, null point or missing/empty window => ignore; nonempty invalid canonical window => fail with InvalidationError::Application; valid product must resolve through supplied MarketPolicy, never guessed"
+        },
+        "InvalidationError": {
+          "Database": "sqlx::Error; original SQLSTATE retained through calculation and persistence",
+          "Application": "ApiError; domain refusal never SQLSTATE retry",
+          "conversion": "borrowed invalidator returns to existing business owner; Database->AttemptError::Database, Application->AttemptError::Application; no inner retry"
         }
       },
       "rules": {
@@ -1853,6 +1890,42 @@
         {
           "path": "app/services/command_results.py",
           "sha256": "a0b014426ddabff35747ff64ea11457aa6341242e3146f91bec213000baa1479"
+        },
+        {
+          "path": "rs/read/src/market/live_benchmarks.rs",
+          "sha256": "8d33fdcbb1155954e0799346d16ccf117e8c32fbf38d8e44bbae4dfcd17183be"
+        },
+        {
+          "path": "rs/read/sql/live_benchmarks.sql",
+          "sha256": "1bda864ac69deedad07917e8e4ad5c33c93791aa93720bf7b9b3bd5906c175a9"
+        },
+        {
+          "path": "rs/read/src/market/visibility.rs",
+          "sha256": "750193b9b57a1428faf44ba5cf3fded16fa6f205810dc60928531229e23c02fc"
+        },
+        {
+          "path": "rs/read/src/order_write/mod.rs",
+          "sha256": "6366f4bba798456a144b66b357b25f669452af359790431dc195738debd5993f"
+        },
+        {
+          "path": "rs/read/src/order_write/locks.rs",
+          "sha256": "654423d3d45a58cec507c25cf83abebd4aa8b39af676963ef30b6c2d403ddc91"
+        },
+        {
+          "path": "app/services/live_benchmarks.py",
+          "sha256": "456056d77f046c552fc2ccdf5d1fd05722728371a5d904bc9e107b0c4af42087"
+        },
+        {
+          "path": "app/models/live_slice_benchmark.py",
+          "sha256": "e2e5d91d3d7e75d9d36ef089c5b6efd119df0da04712100447c2c47f2b10b683"
+        },
+        {
+          "path": "alembic/versions/sb_2026_04_live_slice_benchmarks.py",
+          "sha256": "6f697da24f7a2a669cc3a409147af982545fd4031c8e8ef996c47a9db25fda15"
+        },
+        {
+          "path": "deploy/postgres/app_acl_policy.sql",
+          "sha256": "b097b2b2fe2925d4031c4fa6f6158247204b3cee18cd74433102b1cd6ef2d38c"
         }
       ],
       "status": "proposed_for_acceptance",
@@ -1880,6 +1953,26 @@
         {
           "path": "app/models/orderbook.py",
           "lines": "75-86"
+        },
+        {
+          "path": "app/services/live_benchmarks.py",
+          "lines": "96-104,124-205,208-277"
+        },
+        {
+          "path": "app/services/market_invalidation.py",
+          "lines": "327-335,371"
+        },
+        {
+          "path": "app/models/live_slice_benchmark.py",
+          "lines": "12-45"
+        },
+        {
+          "path": "rs/read/src/order_write/mod.rs",
+          "lines": "1-35"
+        },
+        {
+          "path": "rs/read/src/order_write/locks.rs",
+          "lines": "29-35,77-129"
         }
       ],
       "construction": {
@@ -3219,6 +3312,92 @@
         "SettlementOwnership": "pending Phases8-9 private authority proof",
         "MarketWriteError": "pending Phases8-9 adapter",
         "acceptance_status": "proposal only; no consumer release from producer specification"
+      },
+      "benchmark_rebuild": {
+        "producer": "Phase 4 Task 7; integration owner applies shared-file patch on merge",
+        "module": "order_write::benchmarks; private module with narrow function/type re-exports",
+        "caller": "order_write::invalidation calls on its borrowed connection after order changes and before audit/outbox transaction completion",
+        "calculation_refactor": {
+          "choice": "yes: existing live_benchmarks and LiveBenchmarkCache::load accept &mut PgConnection instead of &mut Transaction; callers pass dereferenced transaction; no transaction/pool creation",
+          "shared_core": "extract the existing single batched SELECT, qualification and VWAP body into calculate_live_benchmarks, returning original sqlx::Error; existing read wrapper delegates and keeps its current ApiError mapping; no copied SQL or policy",
+          "source": "rs/read/src/market/live_benchmarks.rs:13-17,40-47,49-111,116-194,203-227",
+          "preserve": [
+            "benchmark_candidate_sql and bind_order_query",
+            "candidate_is_benchmark_qualified",
+            "VisibilityClock::at(now)",
+            "qualified_vwap and cents rounding",
+            "request-local LiveBenchmarkCache behavior",
+            "JIT setting restoration; error rollback by caller"
+          ]
+        },
+        "policy_supply": "command.policy and command.config are Arc snapshots cloned from AppState by caller; invalidator passes .as_ref() to rebuild; never reread mutable globals/config or clock inside attempt; same policy/config/now for preview, mutation and calculation",
+        "keys": "deduplicate exact side/product-code/non-null-point/canonical-window; normalize before mutation; at most100 active-order-derived keys; null-point slice still uses existing side-independent lock but has no persisted benchmark key; ignore absent product/window as Python; invalid nonempty window refuses atomically",
+        "empty_keys": "no SELECT and no INSERT/UPDATE/DELETE; result vectors empty",
+        "empty_calculation": "DELETE only the exact requested side/product/point/window existing row, if any; never store zero/sentinel; unrelated keys unchanged",
+        "positive_calculation": "INSERT id=new UUID, key columns, benchmark_price_per_mt_usd=price, total_remaining_quantity_mt=quantity, order_count=checked i32 count, source=live_slice_vwap, created_at=now,updated_at=now; ON CONFLICT uq_live_slice_benchmarks_slice_key UPDATE only price,quantity,count,source,updated_at; preserve existing id and created_at",
+        "null_point": "never insert nullable point or use nil UUID; no broad DELETE for null; existing table point is NOT NULL",
+        "persistence_columns": {
+          "id": "uuid",
+          "side": "varchar(3) BID|ASK",
+          "market_product": "varchar(64)",
+          "delivery_point_id": "uuid nonnull FK",
+          "availability_window": "varchar(16)",
+          "benchmark_price_per_mt_usd": "numeric(10,2)",
+          "total_remaining_quantity_mt": "numeric(12,2)",
+          "order_count": "int4 checked conversion",
+          "source": "varchar(32) live_slice_vwap",
+          "created_at": "timestamptz",
+          "updated_at": "timestamptz"
+        },
+        "clock": "one command.now captured by outer request; use for candidate eligibility/expiry/qualification, created_at for new row and updated_at; bind UTC; no database wall-clock recapture; calculation reads caller uncommitted order changes",
+        "errors": "every SELECT/qualification decoding/Decimal conversion/count overflow/DELETE/UPSERT error aborts command; original SQLSTATE to shared outer retry classifier; no swallow, partial success, commit/savepoint, new pool connection, provider or dispatch; whole transaction rolls back all benchmark/order/inventory/audit/watchlist/outbox changes",
+        "authority": "existing app ACL grants live_slice_benchmarks SELECT/INSERT/UPDATE/DELETE; no new grants or Python model/schema edit",
+        "qualification": "same REAL/DEMO and same-side behavior as existing canonical Rust/Python calculation; no alternative benchmark predicate or formula",
+        "acceptance": [
+          "empty and duplicate keys",
+          "null-point ignored without touching concrete slices",
+          "delete stale requested row when no qualified liquidity",
+          "upsert aggregate and preserve existing id/created_at",
+          "captured now boundary",
+          "nondefault supplied policy/switch consumed",
+          "caller rollback after rebuild",
+          "injected rebuild SQLSTATE retains retry classification",
+          "unchanged existing read route results after connection refactor",
+          "Python reader accepts persisted row"
+        ],
+        "error_conversion": "calculate_live_benchmarks returns raw sqlx::Error; read-only HTTP wrapper maps to ApiError as before. Rebuild converts SQLx errors to InvalidationError::Database without formatting away SQLSTATE. Invalid key/domain validation becomes Application(ApiError)."
+      },
+      "write_boundary": {
+        "canonical_module": "rs/read/src/order_write/",
+        "invalidator_module": "order_write::invalidation",
+        "benchmark_writer_module": "order_write::benchmarks",
+        "market_write_module": "not created; plan market_write paths resolve to existing order_write boundary",
+        "entrypoint": "order_write::invalidate_organization is a caller-owned subcommand, not a second transaction entry point; only existing business::transaction::run_organization_write owns ordered admission/attempt/commit for this call graph",
+        "locking": "caller already holds organizations/users/joins; invalidator uses existing order_write::locks::{SliceKey,ordered_slice_lock_keys,market_slice_lock_sort_key} and existing timeout constants; no replacement hash, advisory namespace or late party lock",
+        "ownership": "all order/trade/inventory DML inside order_write; benchmark calculation in market remains read-only; benchmark persistence in order_write only",
+        "legacy_scaffold": "order_write::execute_order_command retains its existing standalone transaction shell for its own unmounted scaffold tests; invalidator never calls it, WriteSession, or its retry loop; no nesting, wrapping, second retry/transaction owner in business invalidation",
+        "plan_correction": "Phase4 Task7/\u00a711.2 and shared-file lists proposed market_write/{mod,invalidation,locks,reservations,events}.rs before existing boundary integration. Resolve to order_write/{mod,invalidation,reservations,events,benchmarks}.rs; reuse existing locks.rs unchanged; do not create second boundary or transaction.rs",
+        "producer": "Task7 leaf implementation; integration owner serializes mod.rs, market/live_benchmarks refactor, callers, Cargo target and architecture patch"
+      },
+      "integration_patch": {
+        "format": "exact shared module/export patch specification; not executable changes in this artifact revision",
+        "order_write_mod_rs": {
+          "replace_module_doc": "The single sealed market row-write boundary. Standalone order commands use execute_order_command. Ordered business commands enter only through the borrowed invalidate_organization subcommand after business-owner organization/user locks; that subcommand never owns completion or retries. No module outside order_write locks or changes order/trade/inventory rows.",
+          "after_mod_transaction": "mod invalidation;\nmod benchmarks;\nmod reservations;\nmod events;",
+          "add_exports": "pub use invalidation::{InvalidateOrganization, InvalidationResult, InvalidationError, invalidate_organization};\npub use benchmarks::{BenchmarkRebuildKey, BenchmarkRebuildResult, rebuild_live_slice_benchmarks_for_keys};",
+          "retain": "all existing command/locks/transaction exports unchanged; no pub mod market_write in lib.rs"
+        },
+        "market_live_benchmarks_rs": {
+          "import": "use sqlx::{PgConnection, Row};",
+          "live_benchmarks_parameter": "tx: &mut sqlx::Transaction<'_, sqlx::Postgres> -> conn: &mut PgConnection",
+          "new_core": "calculate_live_benchmarks declaration in signatures; move existing result block there once; replace &mut **tx with &mut *conn",
+          "wrapper": "live_benchmarks calls calculate_live_benchmarks(conn,policy,config,keys,now).await and keeps existing database_error adapter",
+          "cache_load_parameter": "tx: &mut sqlx::Transaction<'_, sqlx::Postgres> -> conn: &mut PgConnection",
+          "cache_call": "calculate missing keys via live_benchmarks(&mut *conn,policy,config,&missing,now); no cache lifetime or key change",
+          "exact_body_extraction": "Move existing lines123-183 core including empty-key early return into calculate_live_benchmarks. Return result directly. Existing live_benchmarks becomes only a delegate plus existing lines184-193 mapping, so the read and writer call the same core. Do not route writer through the mapped read wrapper."
+        },
+        "callers": "integration owner adapts existing LiveBenchmarkCache::load callers with &mut *transaction where deref coercion requires; no response, SQL, filters or clock change; enumerate actual merged callers before applying",
+        "no_changes": "lib.rs order_write export already exists; market/mod.rs live_benchmarks export already exists; do not add duplicate exports, nested transaction, copied locks or alternate policy SQL"
       }
     },
     {
