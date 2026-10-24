@@ -20,7 +20,7 @@ use rust_decimal::Decimal;
 use serde::Serialize;
 
 use super::marketplace::{
-    cell, daily_series, metric, one_decimal, share_pct, suppress, wire, AggregateCell,
+    cell, daily_series, metric, one_decimal, share_pct, suppress_cell, wire, AggregateCell,
     AllowedPropertySet, AnalyticsQuery, BehavioralWindow, ComponentStatus, DecimalMetricValue,
     Diagnostic, Event, Meta, MetricValue, Property, Quality, RankedRow, SeriesPoint, SourceStatus,
     MAX_RANKED_ROWS,
@@ -187,7 +187,7 @@ fn ranked(
     rows.into_iter()
         .take(limit)
         .map(|(key, count)| {
-            let (count, suppressed) = suppress(Some(count), Some(count), quality);
+            let (count, suppressed) = suppress_cell(Some(count), Some(count), quality);
             RankedRow {
                 share_pct: if suppressed {
                     None

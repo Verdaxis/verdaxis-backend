@@ -21,10 +21,13 @@
 //! - Unavailable and not-requested provider components carry `null`, never a
 //!   fabricated zero or empty collection.
 //!
-//! Scope note: the pure query parser (`validate_query`) and the exported
-//! `suppress` live in `analytics/policy.rs`, which is Task 15's file, not this
-//! lane's. This module owns the tab composition and names the integration
-//! patch in the lane report; it does not create a second exported policy.
+//! Scope note: the CF4_03 query/suppression ABI (`analytics::policy::
+//! validate_query` and `analytics::policy::suppress`) belongs to Task 15, not
+//! this lane. This module implements the same rules locally as `parse_query`
+//! and `suppress_cell` because Task 15's source is not integrated yet; the
+//! names are deliberately different so the lane publishes no competing ABI.
+//! Integration binds the real policy and deletes the local copies before
+//! acceptance.
 
 use std::collections::BTreeMap;
 
@@ -338,7 +341,7 @@ impl Quality {
 /// `0 < basis < 3` suppresses; a genuine zero stays visible; an unknown count
 /// stays unknown and is never suppressed. `entities` falls back to the event
 /// count when no distinct-entity count exists.
-pub fn suppress(count: Option<i64>, entities: Option<i64>, quality: &mut Quality) -> (Option<i64>, bool) {
+pub fn suppress_cell(count: Option<i64>, entities: Option<i64>, quality: &mut Quality) -> (Option<i64>, bool) {
     let Some(count) = count else {
         return (None, false);
     };
@@ -357,7 +360,7 @@ pub fn cell(
     entities: Option<i64>,
     quality: &mut Quality,
 ) -> AggregateCell {
-    let (count, suppressed) = suppress(count, entities, quality);
+    let (count, suppressed) = suppress_cell(count, entities, quality);
     AggregateCell {
         key: key.into(),
         count,
@@ -378,8 +381,8 @@ pub fn metric(
             suppressed: false,
         };
     }
-    let (value, suppressed_value) = suppress(value, None, quality);
-    let (previous, suppressed_previous) = suppress(previous, None, quality);
+    let (value, suppressed_value) = suppress_cell(value, None, quality);
+    let (previous, suppressed_previous) = suppress_cell(previous, None, quality);
     MetricValue {
         value,
         previous,
@@ -521,7 +524,7 @@ pub fn median_hours(deltas: &[TimeDelta]) -> Option<Decimal> {
 /// source answered for the whole period; a one- or two-event day is suppressed.
 fn series_point(date: NaiveDate, values: &BTreeMap<NaiveDate, i64>, quality: &mut Quality) -> SeriesPoint {
     let raw = values.get(&date).copied().unwrap_or(0);
-    let (value, _) = suppress(Some(raw), Some(raw), quality);
+    let (value, _) = suppress_cell(Some(raw), Some(raw), quality);
     SeriesPoint { date, value }
 }
 
@@ -1019,6 +1022,12 @@ impl AllowedPropertySet {
         let mut events: Vec<Event> = self.pairs.iter().map(|(event, _)| *event).collect();
         events.dedup();
         events
+    }
+
+    /// No breakdown requested. Distinct from an empty request that was
+    /// answered: this set was never sent anywhere.
+    pub fn not_requested() -> Self {
+        Self::default()
     }
 
     pub fn contains(&self, event: Event, property: Property) -> bool {
@@ -1920,7 +1929,7 @@ fn matrix_and_window_rows(
         } else {
             let key = row.window.clone().unwrap_or_default();
             let (count, suppressed) =
-                suppress(Some(row.orders), Some(row.organizations), quality);
+                suppress_cell(Some(row.orders), Some(row.organizations), quality);
             let share = if suppressed {
                 None
             } else {
@@ -2550,7 +2559,7 @@ fn parse_bool(value: &str) -> Option<bool> {
 /// Every refusal is `422 ANALYTICS_QUERY_INVALID`. The previous-window
 /// subtraction is checked: an underflowing period is refused, never wrapped
 /// into a different window.
-pub fn validate_query(input: QueryInput) -> Result<AnalyticsQuery, ApiError> {
+pub fn parse_query(input: QueryInput) -> Result<AnalyticsQuery, ApiError> {
     let start = input
         .start
         .as_deref()
@@ -2728,7 +2737,7 @@ async fn read_windows(
 }
 
 fn parse_state(raw: &str) -> Result<AnalyticsQuery, ApiError> {
-    validate_query(QueryInput::from_query_string(raw))
+    parse_query(QueryInput::from_query_string(raw))
 }
 
 /// Administrator authority, then token quota, in that order.
@@ -2809,12 +2818,44 @@ fn require_admin(actor: &crate::auth::CurrentActor) -> Result<(), ApiError> {
 impl AnalyticsService {
     /// Read one tab on a caller-owned connection. The caller has already
     /// authenticated, admitted the quota and parsed the query.
-    pub async fn read(
+    /// Read the behavioral provider window for a tab, before any database
+    /// connection is taken. A tab that needs no provider reads nothing here.
+    ///
+    /// The plan forbids holding a pooled connection through provider I/O, so
+    /// this phase and [`Self::compose`] are separate steps and the caller takes
+    /// the connection only for the second one.
+    pub async fn provider_read(
+        &self,
+        route: AnalyticsRoute,
+        query: &AnalyticsQuery,
+    ) -> ProviderReadings {
+        let properties = match route {
+            AnalyticsRoute::Acquisition => super::acquisition::requested_properties(),
+            AnalyticsRoute::Reliability => super::reliability::requested_properties(),
+            AnalyticsRoute::Marketplace => AllowedPropertySet::not_requested(),
+        };
+        if !matches!(
+            route,
+            AnalyticsRoute::Acquisition | AnalyticsRoute::Reliability
+        ) {
+            return ProviderReadings::not_requested();
+        }
+        let (current, previous) = read_windows(self, query, &properties).await;
+        ProviderReadings {
+            current: Some(super::acquisition::Reading { window: current }),
+            previous: previous.map(|window| super::acquisition::Reading { window }),
+        }
+    }
+
+    /// Compose a tab on a caller-owned connection, with the provider reading
+    /// already taken by [`Self::provider_read`].
+    pub async fn compose(
         &self,
         conn: &mut PgConnection,
         policy: &MarketPolicy,
         route: AnalyticsRoute,
         query: &AnalyticsQuery,
+        readings: &ProviderReadings,
         now: DateTime<Utc>,
     ) -> Result<Json, ApiError> {
         match route {
@@ -2823,56 +2864,64 @@ impl AnalyticsService {
                 Ok(to_json(&response))
             }
             AnalyticsRoute::Acquisition => {
-                let properties = super::acquisition::requested_properties();
-                let (current, previous) = read_windows(self, query, &properties).await;
-                let current = super::acquisition::Reading { window: current };
-                let previous = previous.map(|window| super::acquisition::Reading { window });
-                let mut quality = Quality::default();
                 let meta = meta(
                     query,
                     now,
                     MetaOptions {
-                        behavioral: Some(&current.window),
+                        behavioral: readings.current.as_ref().map(|reading| &reading.window),
                         behavioral_source: Source::Applicable,
                         ..MetaOptions::default()
                     },
                 );
+                let mut quality = Quality::default();
                 let response = super::acquisition::compose(
                     query,
                     meta,
-                    Some(&current),
-                    previous.as_ref(),
+                    readings.current.as_ref(),
+                    readings.previous.as_ref(),
                     &mut quality,
                 );
                 Ok(with_suppression(to_json(&response), &quality))
             }
             AnalyticsRoute::Reliability => {
-                let properties = super::reliability::requested_properties();
-                let (current, previous) = read_windows(self, query, &properties).await;
-                let current = super::acquisition::Reading { window: current };
-                let previous = previous.map(|window| super::acquisition::Reading { window });
-                let mut quality = Quality::default();
+                // Provider readings are already in hand, so the connection is
+                // used for the bounded audit sample and nothing else.
                 let audit = super::reliability::audit_activity(conn, query.start, query.end).await?;
                 let meta = meta(
                     query,
                     now,
                     MetaOptions {
-                        behavioral: Some(&current.window),
+                        behavioral: readings.current.as_ref().map(|reading| &reading.window),
                         behavioral_source: Source::Applicable,
                         ..MetaOptions::default()
                     },
                 );
+                let mut quality = Quality::default();
                 let response = super::reliability::compose(
                     query,
                     meta,
-                    Some(&current),
-                    previous.as_ref(),
+                    readings.current.as_ref(),
+                    readings.previous.as_ref(),
                     audit,
                     &mut quality,
                 );
                 Ok(with_suppression(to_json(&response), &quality))
             }
         }
+    }
+}
+
+/// A tab's typed provider reading. `None` means the tab never asked the
+/// provider (marketplace), which is not the same as an unavailable window.
+#[derive(Clone, Debug, Default)]
+pub struct ProviderReadings {
+    pub current: Option<super::acquisition::Reading>,
+    pub previous: Option<super::acquisition::Reading>,
+}
+
+impl ProviderReadings {
+    pub fn not_requested() -> Self {
+        Self::default()
     }
 }
 
@@ -2965,6 +3014,11 @@ pub async fn dispatch(
         }
     };
 
+    // Provider I/O happens before a pooled connection is taken: the plan
+    // forbids holding one through a remote call, and an unavailable provider
+    // must not tie up a database slot for its whole timeout.
+    let readings = service.provider_read(route, &query).await;
+
     // The admitted owner is detached from the caller, so it owns everything it
     // needs: no borrow of `app`, the request or the caller outlives this call.
     let policy = app.policy.clone();
@@ -2975,7 +3029,7 @@ pub async fn dispatch(
                 validate_marketplace_filters(conn, &query).await?;
             }
             service
-                .read(conn, policy.as_ref(), route, &query, now)
+                .compose(conn, policy.as_ref(), route, &query, &readings, now)
                 .await
         })
     })

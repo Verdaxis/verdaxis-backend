@@ -247,9 +247,11 @@ pub fn summarize(
         });
     }
 
+    // Every row the statement returned carries a first confirmation; the
+    // elapsed time is creation to first economic confirmation, in that
+    // direction as the reference computes it.
     let fills: Vec<TimeDelta> = fill_rows
         .iter()
-        .filter(|row| row.first_confirmed_at >= row.created_at)
         .map(|row| row.first_confirmed_at - row.created_at)
         .collect();
 

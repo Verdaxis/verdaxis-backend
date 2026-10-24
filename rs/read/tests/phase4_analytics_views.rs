@@ -10,7 +10,11 @@
 //! are ignored rather than silently skipped as passing.
 
 pub use serde_json::Value as Json;
-pub use verdaxis_read::{MarketPolicy, PointPolicy, ProductPolicy, auth};
+// The tab modules are compiled by path, so `crate::` inside them names this
+// test crate root: these re-exports are their shared boundary, not test use.
+pub use verdaxis_read::{
+    ApiError, AppState, MarketPolicy, PointPolicy, ProductPolicy, auth, business, market, runtime,
+};
 
 #[allow(dead_code)]
 #[path = "../src/analytics/marketplace.rs"]
@@ -28,6 +32,7 @@ pub mod acquisition;
 #[path = "../src/analytics/reliability.rs"]
 pub mod reliability;
 
+#[cfg(feature = "contract-tests")]
 use std::sync::Arc;
 
 use chrono::{DateTime, NaiveDate, Utc};
@@ -36,11 +41,11 @@ use serde_json::json;
 use uuid::Uuid;
 
 use marketplace::{
-    Activity, AllowedPropertySet, AnalyticsQuery, AnalyticsRoute, AnalyticsService, Audience,
+    Activity, AllowedPropertySet, AnalyticsQuery, AnalyticsRoute, Audience,
     BehavioralRead, BehavioralWindow, ComponentStatus, CoreMetrics, DailyEvent, DailyVisitor,
     Diagnostic, EntryPage, EntryRanking, Event, MetaOptions, Property, PropertyResult,
     PropertyValueCount, ProviderComponent, ProviderFuture, Quality, QueryInput, ReferenceFuture,
-    ReferenceQuote, ReferenceRead, ReferenceRequest, Source, SourceStatus, validate_query,
+    ReferenceQuote, ReferenceRead, ReferenceRequest, Source, SourceStatus, parse_query,
 };
 
 // ---------------------------------------------------------------------------
@@ -269,6 +274,9 @@ impl ReferenceRead for StubReference {
 }
 
 #[cfg(feature = "contract-tests")]
+use marketplace::AnalyticsService;
+
+#[cfg(feature = "contract-tests")]
 fn service(status: ComponentStatus) -> AnalyticsService {
     AnalyticsService {
         behavioral: Arc::new(StubBehavioral { status }),
@@ -490,7 +498,7 @@ fn p4_t19_c05() {
 #[test]
 fn p4_t19_c06() {
     // Defaults: compare on, ALL audience, LIVE activity, no filters.
-    let parsed = validate_query(QueryInput::from_query_string(
+    let parsed = parse_query(QueryInput::from_query_string(
         "start=2026-06-01T00:00:00Z&end=2026-07-01T00:00:00Z",
     ))
     .unwrap();
@@ -501,12 +509,12 @@ fn p4_t19_c06() {
     );
 
     // A naive timestamp is UTC; an explicit offset is converted to UTC.
-    let naive = validate_query(QueryInput::from_query_string(
+    let naive = parse_query(QueryInput::from_query_string(
         "start=2026-06-01T00:00:00&end=2026-07-01T00:00:00",
     ))
     .unwrap();
     assert_eq!(naive.start, parsed.start);
-    let offset = validate_query(QueryInput::from_query_string(
+    let offset = parse_query(QueryInput::from_query_string(
         "start=2026-06-01T02:00:00%2B02:00&end=2026-07-01T02:00:00%2B02:00",
     ))
     .unwrap();
@@ -524,7 +532,7 @@ fn p4_t19_c06() {
         "start=2026-06-01T00:00:00Z&end=2026-07-01T00:00:00Z&product_id=not-a-uuid",
         "start=2026-06-01T00:00:00Z&end=2026-07-01T00:00:00Z&availability_window=THIS-IS-TOO-LONG-X",
     ] {
-        let error = validate_query(QueryInput::from_query_string(raw))
+        let error = parse_query(QueryInput::from_query_string(raw))
             .expect_err("the query must be refused");
         assert_eq!(error.status, axum::http::StatusCode::UNPROCESSABLE_ENTITY, "{raw}");
         assert_eq!(error.detail["code"], "ANALYTICS_QUERY_INVALID", "{raw}");
@@ -549,14 +557,14 @@ fn p4_t19_c06() {
     marketplace::check_previous(&underflow).expect("no comparison, no arithmetic");
 
     // Comparison off needs no previous window at all, even for an early period.
-    let no_compare = validate_query(QueryInput::from_query_string(
+    let no_compare = parse_query(QueryInput::from_query_string(
         "start=0001-01-02T00:00:00Z&end=0001-01-04T00:00:00Z&compare=false",
     ))
     .unwrap();
     assert!(no_compare.previous().is_none());
 
     // Unknown parameters are ignored, never carried into SQL or a provider.
-    let ignored = validate_query(QueryInput::from_query_string(
+    let ignored = parse_query(QueryInput::from_query_string(
         "start=2026-06-01T00:00:00Z&end=2026-07-01T00:00:00Z&admin=1&sql=DROP",
     ))
     .unwrap();
@@ -746,11 +754,11 @@ fn p4_t19_c11() {
 
     // Suppression thresholds: 0 stays visible, 1 and 2 suppress, 3 stays.
     let mut quality = Quality::default();
-    assert_eq!(marketplace::suppress(Some(0), Some(0), &mut quality), (Some(0), false));
-    assert_eq!(marketplace::suppress(Some(1), None, &mut quality), (None, true));
-    assert_eq!(marketplace::suppress(Some(2), None, &mut quality), (None, true));
-    assert_eq!(marketplace::suppress(Some(3), None, &mut quality), (Some(3), false));
-    assert_eq!(marketplace::suppress(None, None, &mut quality), (None, false));
+    assert_eq!(marketplace::suppress_cell(Some(0), Some(0), &mut quality), (Some(0), false));
+    assert_eq!(marketplace::suppress_cell(Some(1), None, &mut quality), (None, true));
+    assert_eq!(marketplace::suppress_cell(Some(2), None, &mut quality), (None, true));
+    assert_eq!(marketplace::suppress_cell(Some(3), None, &mut quality), (Some(3), false));
+    assert_eq!(marketplace::suppress_cell(None, None, &mut quality), (None, false));
 }
 
 // ---------------------------------------------------------------------------
@@ -870,6 +878,35 @@ fn p4_t19_c15() {
     let retry_after = error.retry_after.expect("a quota refusal carries Retry-After");
     assert!((1..=60).contains(&retry_after));
 
+    // A malformed query is a 422 that also spends no quota: the administrator
+    // keeps all thirty admissions after twenty bad requests.
+    let limits = auth::limits::SharedLimits::default();
+    for _ in 0..20 {
+        let error = marketplace::admit_tab(
+            &actor(Some("ADMIN")),
+            &limits,
+            route,
+            "9.9.9.9",
+            "quota-token",
+            3_000,
+            "start=nope&end=nope",
+        )
+        .expect_err("a malformed query must be refused");
+        assert_eq!(error.status, StatusCode::UNPROCESSABLE_ENTITY);
+    }
+    for attempt in 0..30 {
+        marketplace::admit_tab(
+            &actor(Some("ADMIN")),
+            &limits,
+            route,
+            "9.9.9.9",
+            "quota-token",
+            3_000,
+            "start=2026-06-01T00:00:00Z&end=2026-07-01T00:00:00Z",
+        )
+        .unwrap_or_else(|_| panic!("attempt {attempt} must be admitted"));
+    }
+
     // A different token has its own window, and the window reopens.
     assert!(
         marketplace::admit_analytics(
@@ -979,7 +1016,7 @@ fn p4_t19_c16() {
 #[cfg(feature = "contract-tests")]
 mod postgres {
     use super::*;
-    use sqlx::{Connection, PgConnection, Row};
+    use sqlx::{Connection, PgConnection};
 
     struct Fixture {
         /// Runtime connection, granted only the app's reads.
@@ -1292,7 +1329,7 @@ mod postgres {
     #[tokio::test]
     #[ignore = "requires explicit disposable PostgreSQL authority"]
     async fn p4_t19_c08() {
-        let mut fixture = Fixture::new().await;
+        let fixture = Fixture::new().await;
         let mut conn = fixture.connect().await;
 
         let mut bad = query();
@@ -1349,12 +1386,14 @@ mod postgres {
         fixture.order(fixture.buyer_org, "BID", 780, "2026-06-04T12:00:00Z").await;
         let mut conn = fixture.connect().await;
         let service = service(ComponentStatus::Available);
+        let readings = service.provider_read(AnalyticsRoute::Marketplace, &query()).await;
         let body = service
-            .read(
+            .compose(
                 &mut conn,
                 &policy(),
                 AnalyticsRoute::Marketplace,
                 &query(),
+                &readings,
                 Utc::now(),
             )
             .await
@@ -1373,12 +1412,15 @@ mod postgres {
         fixture.audit("2026-06-15T12:00:00Z", "kyc.approved").await;
         fixture.audit("2026-05-01T12:00:00Z", "outside").await;
         let mut conn = fixture.connect().await;
-        let body = service(ComponentStatus::Available)
-            .read(
+        let service = service(ComponentStatus::Available);
+        let readings = service.provider_read(AnalyticsRoute::Reliability, &query()).await;
+        let body = service
+            .compose(
                 &mut conn,
                 &policy(),
                 AnalyticsRoute::Reliability,
                 &query(),
+                &readings,
                 Utc::now(),
             )
             .await
@@ -1391,8 +1433,4 @@ mod postgres {
         fixture.finish().await;
     }
 
-    #[allow(dead_code)]
-    fn unused(conn: &mut PgConnection) {
-        let _ = conn.fetch_one("SELECT 1");
-    }
 }
