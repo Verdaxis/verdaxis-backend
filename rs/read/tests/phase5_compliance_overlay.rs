@@ -828,22 +828,29 @@ async fn compliance_overlay_timeout_cases() {
     );
 }
 
-/// One statement sees one snapshot of the ASK map and the fleet count: a
-/// concurrent writer that changes an order's CI and inserts a vessel while the
-/// request's statement is parked cannot split the answer.
+/// One response is one statement, so its ASK map and fleet count cannot come
+/// from different committed states.
+///
+/// The claim is checked at the connection: SQLx statement logging counts each
+/// executed statement, and the response must account for exactly one. A
+/// table-lock barrier cannot prove this statement's snapshot because
+/// PostgreSQL takes a query's relation locks before its READ COMMITTED
+/// snapshot, so a change committed while the reader waits is visible to it;
+/// and changing an order row from a test would cross the Phase 2 write
+/// boundary. The count therefore follows a committed change on its own, and
+/// the map keeps the committed order values across both calls.
 #[cfg(feature = "contract-tests")]
 #[tokio::test]
 async fn compliance_overlay_snapshot_cases() {
     use rust_decimal::Decimal;
-    use std::time::{Duration, Instant};
+    use sqlx::ConnectOptions as _;
+    use tracing_subscriber::layer::SubscriberExt as _;
 
     let Some(url) = fixture_url() else { return };
     let writer = writer_pool().await;
-    let config = test_config(url, None);
-    let state = authenticated_state(&config).await;
+    let config = test_config(url.clone(), None);
     let manifest = manifest();
     let member = user_id(&writer, "fixture-real@rust-market.test").await;
-    let token = signed_token(member);
     let order = uuids(&manifest, "visible_ids")[0];
     let member_count = scope_count(&manifest, "member");
     let organization: Option<Uuid> =
@@ -852,73 +859,68 @@ async fn compliance_overlay_snapshot_cases() {
             .fetch_one(&writer)
             .await
             .expect("member organization");
-    let original_ci: Option<Decimal> =
+    let committed_ci: Option<Decimal> =
         sqlx::query_scalar("SELECT carbon_intensity_gco2_mj FROM orderbook_orders WHERE id=$1")
             .bind(order)
             .fetch_one(&writer)
             .await
             .expect("fixture ASK row");
-    let ask_body = || Body::from(serde_json::to_vec(&json!({"order_ids": [order]})).unwrap());
+    let committed_ci = committed_ci.expect("the fixture ASK declares a CI");
+    let actor = auth::CurrentActor {
+        id: member,
+        organization_id: organization,
+        role: Some("BUYER".into()),
+        email_verified: true,
+    };
 
-    let before = json_body(
-        post(
-            overlay_app(state.clone()),
-            Body::from(b"{\"order_ids\":[]}".to_vec()),
-            Some(token.as_str()),
-            false,
-        )
-        .await,
+    // A connection whose statements are logged, so the test counts them.
+    let options: sqlx::postgres::PgConnectOptions = url
+        .parse()
+        .expect("disposable fixture URL")
+        .log_statements(tracing::log::LevelFilter::Debug);
+    let mut connection = sqlx::PgConnection::connect_with(&options)
+        .await
+        .expect("logging connection");
+    let executed = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let record = OneStatement(executed.clone());
+    let first = tracing::subscriber::with_default(
+        tracing::subscriber::registry().with(record),
+        {
+            let policy = fixture_policy();
+            let config = config.clone();
+            let actor = actor.clone();
+            let executed = executed.clone();
+            async move {
+                executed.lock().unwrap().clear();
+                let request = OverlayRequest::validate(json!({"order_ids": [order]})).unwrap();
+                let response = overlay::select_overlay(
+                    &mut connection,
+                    &policy,
+                    &market::visibility::VisibilityClock::at(chrono::Utc::now()),
+                    &config,
+                    &actor,
+                    &request,
+                )
+                .await
+                .expect("overlay response");
+                (response, connection)
+            }
+        },
     )
     .await;
-    assert_eq!(
-        before["assumptions"]["fleet_vessel_count"],
-        json!(member_count)
+    let (response, mut connection) = first;
+    let statements = executed.lock().unwrap().clone();
+    assert_eq!(statements.len(), 1, "one statement per response: {statements:?}");
+    assert!(
+        statements[0].contains("fleet_count"),
+        "the one statement carries the fleet count: {statements:?}"
     );
+    assert_eq!(response.assumptions.fleet_vessel_count, member_count);
+    let overlay = response.overlays[&order].as_ref().expect("visible overlay");
+    assert_eq!(overlay.ci_gco2_mj, committed_ci);
 
-    // Park every reader of the catalog relation, then start the request: its
-    // one statement waits there with its READ COMMITTED snapshot already taken.
-    let mut park = writer.begin().await.expect("parking transaction");
-    sqlx::query("LOCK TABLE products IN ACCESS EXCLUSIVE MODE")
-        .execute(&mut *park)
-        .await
-        .expect("park readers on the catalog relation");
-    let task = tokio::spawn({
-        let app = overlay_app(state.clone());
-        let token = token.clone();
-        let body = ask_body();
-        async move {
-            let response = post(app, body, Some(token.as_str()), false).await;
-            (response.status(), json_body(response).await)
-        }
-    });
-    let started = Instant::now();
-    loop {
-        let waiting: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM pg_locks AS l \
-             JOIN pg_class AS c ON c.oid = l.relation \
-             WHERE c.relname = 'products' AND c.relnamespace = 'public'::regnamespace \
-               AND NOT l.granted",
-        )
-        .fetch_one(&writer)
-        .await
-        .expect("waiting reader count");
-        if waiting > 0 {
-            break;
-        }
-        assert!(
-            started.elapsed() < Duration::from_secs(10),
-            "the request's statement must park on the catalog relation"
-        );
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-
-    // Commit both changes from independent connections while the statement is
-    // parked. Neither write conflicts with the parked reader.
-    sqlx::query("UPDATE orderbook_orders SET carbon_intensity_gco2_mj='12.5' WHERE id=$1")
-        .bind(order)
-        .execute(&writer)
-        .await
-        .expect("change the ASK CI");
+    // A committed vessel insert moves the count on the next response; the map
+    // still names the committed order values.
     let snapshot_vessel = Uuid::new_v4();
     sqlx::query("INSERT INTO vessels (id,organization_id,name,imo_number) VALUES ($1,$2,$3,$4)")
         .bind(snapshot_vessel)
@@ -928,42 +930,29 @@ async fn compliance_overlay_snapshot_cases() {
         .execute(&writer)
         .await
         .expect("insert a member vessel");
-    park.rollback().await.expect("release the catalog relation");
-
-    let (status, body) = tokio::time::timeout(Duration::from_secs(15), task)
-        .await
-        .expect("the parked statement must resolve")
-        .expect("the request task");
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(
-        body["assumptions"]["fleet_vessel_count"],
-        json!(member_count),
-        "the statement must not see the concurrent insert"
-    );
-    assert_eq!(
-        decimal(&body["overlays"][&order.to_string()]["ci_gco2_mj"]),
-        original_ci.expect("the fixture ASK declares a CI"),
-        "the statement must not see the concurrent update"
-    );
-
-    // A later request observes both committed changes.
-    let after = json_body(
-        post(
-            overlay_app(state.clone()),
-            Body::from(serde_json::to_vec(&json!({"order_ids": [order]})).unwrap()),
-            Some(token.as_str()),
-            false,
-        )
-        .await,
+    executed.lock().unwrap().clear();
+    let request = OverlayRequest::validate(json!({"order_ids": [order]})).unwrap();
+    let after = tracing::subscriber::with_default(
+        tracing::subscriber::registry().with(OneStatement(executed.clone())),
+        overlay::select_overlay(
+            &mut connection,
+            &fixture_policy(),
+            &market::visibility::VisibilityClock::at(chrono::Utc::now()),
+            &config,
+            &actor,
+            &request,
+        ),
     )
-    .await;
+    .await
+    .expect("second overlay response");
+    let statements = executed.lock().unwrap().clone();
+    assert_eq!(statements.len(), 1, "one statement per response: {statements:?}");
+    assert_eq!(after.assumptions.fleet_vessel_count, member_count + 1);
+    let after_overlay = after.overlays[&order].as_ref().expect("visible overlay");
+    assert_eq!(after_overlay.ci_gco2_mj, committed_ci);
     assert_eq!(
-        after["assumptions"]["fleet_vessel_count"],
-        json!(member_count + 1)
-    );
-    assert_eq!(
-        decimal(&after["overlays"][&order.to_string()]["ci_gco2_mj"]),
-        Decimal::new(125, 1)
+        after_overlay.tco2e_avoided_per_mt,
+        overlay.tco2e_avoided_per_mt
     );
 
     // Restore the fixture so the other populated cases see the seeded values.
@@ -972,19 +961,51 @@ async fn compliance_overlay_snapshot_cases() {
         .execute(&writer)
         .await
         .expect("remove the snapshot vessel");
-    sqlx::query("UPDATE orderbook_orders SET carbon_intensity_gco2_mj=$1 WHERE id=$2")
-        .bind(original_ci)
-        .bind(order)
-        .execute(&writer)
+    let restored: i64 = sqlx::query_scalar("SELECT count(*) FROM vessels WHERE organization_id=$1")
+        .bind(organization)
+        .fetch_one(&writer)
         .await
-        .expect("restore the ASK CI");
-    let restored: Option<Decimal> =
-        sqlx::query_scalar("SELECT carbon_intensity_gco2_mj FROM orderbook_orders WHERE id=$1")
-            .bind(order)
-            .fetch_one(&writer)
-            .await
-            .expect("restored ASK row");
-    assert_eq!(restored, original_ci);
+        .expect("restored member count");
+    assert_eq!(restored as u64, member_count);
+    connection.close().await.expect("close the logging connection");
+}
+
+/// Records the summary of each SQLx statement event into a shared list.
+#[cfg(feature = "contract-tests")]
+struct OneStatement(std::sync::Arc<std::sync::Mutex<Vec<String>>>);
+
+#[cfg(feature = "contract-tests")]
+impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for OneStatement {
+    fn on_event(
+        &self,
+        event: &tracing::Event<'_>,
+        _context: tracing_subscriber::layer::Context<'_, S>,
+    ) {
+        if event.metadata().target() != "sqlx::query" {
+            return;
+        }
+        let mut summary = String::new();
+        event.record(&mut SummaryVisitor(&mut summary));
+        self.0.lock().expect("statement list").push(summary);
+    }
+}
+
+#[cfg(feature = "contract-tests")]
+struct SummaryVisitor<'a>(&'a mut String);
+
+#[cfg(feature = "contract-tests")]
+impl tracing::field::Visit for SummaryVisitor<'_> {
+    fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+        if field.name() == "summary" {
+            self.0.push_str(value);
+        }
+    }
+
+    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+        if field.name() == "summary" && self.0.is_empty() {
+            self.0.push_str(&format!("{value:?}"));
+        }
+    }
 }
 
 /// The accepted read index exists and is not unique.
