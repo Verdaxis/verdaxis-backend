@@ -206,7 +206,9 @@ pub fn fact_coverage(
         };
     };
     let fully_covered = coverage_start <= query.start
-        && query.previous_end().is_none_or(|previous_start| coverage_start <= previous_start);
+        && query
+            .previous_start()
+            .is_none_or(|previous_start| coverage_start <= previous_start);
     AnalyticsSourceCoverage {
         coverage_start: Some(coverage_start),
         coverage_end: None,
@@ -835,10 +837,12 @@ WITH activity AS (
     SELECT t.buyer_id, t.confirmed_at, 'trade' FROM trades t
     WHERE t.status IN ('CONFIRMED','DELIVERED','PAID') AND t.confirmed_at IS NOT NULL
       AND t.buyer_provenance = 'REAL' AND t.seller_provenance = 'REAL'
+      AND t.buyer_id <> ALL($5::uuid[]) AND t.seller_id <> ALL($5::uuid[])
     UNION ALL
     SELECT t.seller_id, t.confirmed_at, 'trade' FROM trades t
     WHERE t.status IN ('CONFIRMED','DELIVERED','PAID') AND t.confirmed_at IS NOT NULL
       AND t.buyer_provenance = 'REAL' AND t.seller_provenance = 'REAL'
+      AND t.buyer_id <> ALL($5::uuid[]) AND t.seller_id <> ALL($5::uuid[])
 ),
 per_org AS (
     SELECT org_id,
@@ -883,10 +887,12 @@ WITH activity AS (
     SELECT t.buyer_id, t.confirmed_at FROM trades t
     WHERE t.status IN ('CONFIRMED','DELIVERED','PAID') AND t.confirmed_at IS NOT NULL
       AND t.buyer_provenance = 'REAL' AND t.seller_provenance = 'REAL'
+      AND t.buyer_id <> ALL($2::uuid[]) AND t.seller_id <> ALL($2::uuid[])
     UNION ALL
     SELECT t.seller_id, t.confirmed_at FROM trades t
     WHERE t.status IN ('CONFIRMED','DELIVERED','PAID') AND t.confirmed_at IS NOT NULL
       AND t.buyer_provenance = 'REAL' AND t.seller_provenance = 'REAL'
+      AND t.buyer_id <> ALL($2::uuid[]) AND t.seller_id <> ALL($2::uuid[])
 )
 SELECT DISTINCT org_id, (ts AT TIME ZONE 'UTC')::date AS activity_date
 FROM activity
@@ -1111,6 +1117,11 @@ pub async fn load_login_rollup(
         .collect())
 }
 
+/// Distinct member login dates before the as-of instant.
+///
+/// The load is bounded by the fact contract itself: login facts are pruned to
+/// 800 UTC dates, so the lower horizon is the retention floor, never an
+/// arbitrary truncation of a member's history.
 pub async fn load_member_days(
     conn: &mut PgConnection,
     end: DateTime<Utc>,
@@ -1119,15 +1130,18 @@ pub async fn load_member_days(
     let upper = date_window(Some(midnight(NaiveDate::from_ymd_opt(1970, 1, 1).unwrap())), Some(end))
         .map(|(_, upper)| upper)
         .unwrap_or(end.date_naive());
+    let floor = upper - TimeDelta::days(799);
     let rows = sqlx::query(
         "SELECT DISTINCT user_id, activity_date
          FROM user_login_days
          WHERE role IN ('BUYER','SUPPLIER')
            AND (organization_id IS NULL OR organization_id <> ALL($2::uuid[]))
-           AND activity_date < $1",
+           AND activity_date < $1
+           AND activity_date >= $3",
     )
     .bind(upper)
     .bind(&demo)
+    .bind(floor)
     .fetch_all(&mut *conn)
     .await?;
     Ok(rows

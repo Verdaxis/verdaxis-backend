@@ -310,6 +310,16 @@ fn p4_t18_c04() {
     let coverage = fact_coverage(Some(utc(2026, 5, 20)), &partial, observed());
     assert_eq!(coverage.status, AnalyticsSourceStatus::Partial);
     assert_eq!(login_metric(&facts.login, &partial).value, None);
+
+    // The comparison window itself may start before coverage: 2 May here.
+    let comparison_partial = fact_coverage(Some(utc(2026, 5, 20)), &query(), observed());
+    assert_eq!(comparison_partial.status, AnalyticsSourceStatus::Partial);
+    assert_eq!(
+        comparison_partial.diagnostic,
+        Some(AnalyticsDiagnostic::InsufficientCoverage)
+    );
+    let comparison_full = fact_coverage(Some(utc(2026, 4, 1)), &query(), observed());
+    assert_eq!(comparison_full.status, AnalyticsSourceStatus::Available);
 }
 
 // ---------------------------------------------------------------------------
@@ -419,6 +429,17 @@ fn p4_t18_c05() {
     let zero_denominator = aggregate_ratio("k", Some(3), Some(0));
     assert_eq!(zero_denominator.ratio.rate_pct, None);
     assert_eq!(zero_denominator.ratio.denominator, Some(0));
+    assert!(!zero_denominator.ratio.suppressed);
+
+    // A one- or two-event component would publish a suppressed cell through a
+    // derived rate, so the whole ratio is suppressed and carries no numbers.
+    for (numerator, denominator) in [(Some(1u64), Some(50u64)), (Some(40), Some(2))] {
+        let ratio = aggregate_ratio("k", numerator, denominator);
+        assert!(ratio.ratio.suppressed, "{numerator:?} / {denominator:?}");
+        assert_eq!(ratio.ratio.numerator, None);
+        assert_eq!(ratio.ratio.denominator, None);
+        assert_eq!(ratio.ratio.rate_pct, None);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1009,6 +1030,24 @@ mod postgres {
         assert_eq!(response.active_members_trend[0].value, Some(0));
         assert_eq!(response.active_members_trend[14].value, Some(1));
 
+        // A stored-REAL trade with a demo identity party is demo, never live.
+        // The demo seller is active in both periods through trades alone, so a
+        // missing identity predicate would inflate the retained count.
+        sqlx::query(
+            "INSERT INTO trades (id, buyer_id, seller_id, buyer_provenance, seller_provenance,
+             status, created_at, confirmed_at, quantity_mt)
+             VALUES ('00000000-0000-4000-8000-0000000000aa',
+                     '00000000-0000-4000-8000-000000000001',
+                     'd1e43e55-3fb0-4b5e-9f0b-93aa10050222', 'REAL', 'REAL',
+                     'CONFIRMED', '2026-05-20T10:00:00Z', '2026-05-20T11:00:00Z', 8.00),
+                    ('00000000-0000-4000-8000-0000000000ab',
+                     '00000000-0000-4000-8000-000000000001',
+                     'd1e43e55-3fb0-4b5e-9f0b-93aa10050222', 'REAL', 'REAL',
+                     'CONFIRMED', '2026-06-16T10:00:00Z', '2026-06-16T11:00:00Z', 8.00)",
+        )
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
         let retention_facts = aggregates::load_retention_facts(&mut f.app, &query())
             .await
             .unwrap();

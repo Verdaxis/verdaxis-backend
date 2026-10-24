@@ -9,14 +9,13 @@
 use chrono::{DateTime, Utc};
 
 use super::aggregates::{
-    ActivationFacts, QualityTracker, behavioral_coverage, behavioral_event_cell, date_window,
-    fact_coverage, median_hours, rate_pct,
+    behavioral_coverage, behavioral_event_cell, date_window, fact_coverage, median_hours, rate_pct,
+    ActivationFacts, QualityTracker,
 };
 use super::types::{
-    ActivationResponse, AggregateCell, AnalyticsCoverage, AnalyticsMeta,
-    AnalyticsQuery, AnalyticsSourceCoverage, AnalyticsSourceStatus, BehavioralWindow,
-    ConversionRatioKind, DurationDistribution, JourneySource, JourneyStage, LabeledRatio,
-    RatioValue,
+    ActivationResponse, AggregateCell, AnalyticsCoverage, AnalyticsMeta, AnalyticsQuery,
+    AnalyticsSourceCoverage, AnalyticsSourceStatus, BehavioralWindow, ConversionRatioKind,
+    DurationDistribution, JourneySource, JourneyStage, LabeledRatio, RatioValue,
 };
 
 /// Signup journey stages in the order the funnel presents them.
@@ -216,13 +215,31 @@ pub fn activation(
     }
 }
 
-/// Aggregate-event ratio: both sides share the behavioural event basis. A
-/// non-positive or absent denominator leaves `rate_pct` null.
+/// Aggregate-event ratio: both sides share the behavioural event basis.
+///
+/// A 1 or 2 on either side is a small cell, and a rate derived from it would
+/// publish that suppressed value. The whole ratio is then suppressed with no
+/// component emitted. A non-positive or absent denominator leaves `rate_pct`
+/// null without suppressing a visible zero.
 pub fn aggregate_ratio(
     key: &str,
     numerator: Option<u64>,
     denominator: Option<u64>,
 ) -> LabeledRatio {
+    let small = |value: Option<u64>| value.is_some_and(|value| (1..3).contains(&value));
+    if small(numerator) || small(denominator) {
+        return LabeledRatio {
+            key: key.to_owned(),
+            kind: ConversionRatioKind::AggregateEvent,
+            ratio: RatioValue {
+                numerator: None,
+                denominator: None,
+                rate_pct: None,
+                suppressed: true,
+                cohort_complete: true,
+            },
+        };
+    }
     let rate = match (numerator, denominator) {
         (Some(numerator), Some(denominator)) if denominator > 0 => rate_pct(numerator, denominator),
         _ => None,
@@ -239,4 +256,3 @@ pub fn aggregate_ratio(
         },
     }
 }
-
