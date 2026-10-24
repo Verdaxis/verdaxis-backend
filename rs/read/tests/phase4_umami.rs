@@ -120,20 +120,18 @@ pub mod analytics {
             }
         }
     }
-
-    /// Path prefixes for `#[path]` are resolved after this attribute is
-    /// applied, so the source tree is reached directly from the suite
-    /// directory.
-    #[path = "../src/analytics/events.rs"]
-    pub mod events;
-    #[path = "../src/analytics/behavioral.rs"]
-    pub mod behavioral;
 }
 
-pub mod providers {
-    #[path = "../src/providers/umami.rs"]
-    pub mod umami;
-}
+// The production modules sit at the crate root: `#[path]` inside an inline
+// module resolves against a directory named after that module.
+#[path = "../src/analytics/events.rs"]
+pub mod events;
+
+#[path = "../src/analytics/behavioral.rs"]
+pub mod behavioral;
+
+#[path = "../src/providers/umami.rs"]
+pub mod umami;
 
 // ---------------------------------------------------------------------------
 // Cases.
