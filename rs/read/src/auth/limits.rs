@@ -140,9 +140,14 @@ fn network_identity(client: &str) -> String {
 impl Phase2Limits {
     pub fn preauth(&mut self, client: &str, path: &str, now: u64) -> bool {
         !path.starts_with("/api/admin/")
-            || self
-                .preauth_store
-                .accept(&network_identity(client), "/api/admin/", 300, 60, now, true)
+            || self.preauth_store.accept(
+                &network_identity(client),
+                "/api/admin/",
+                300,
+                60,
+                now,
+                true,
+            )
     }
     /// The owner is the current verified user ID, never a transport address.
     pub fn endpoint(&mut self, user: &str, path: &str, now: u64) -> bool {
@@ -189,9 +194,11 @@ mod tests {
     fn endpoint_refusal_has_a_machine_readable_code_and_retry() {
         let limits = SharedLimits::default();
         for _ in 0..5 {
-            assert!(limits
-                .check_endpoint("client", "/api/feedback", 100)
-                .is_ok());
+            assert!(
+                limits
+                    .check_endpoint("client", "/api/feedback", 100)
+                    .is_ok()
+            );
         }
         let error = limits
             .check_endpoint("client", "/api/feedback", 100)
@@ -248,13 +255,17 @@ mod tests {
         assert!(limits.preauth("admin", "/api/admin/users", 100));
         assert!(limits.endpoint("inviter", "/api/referrals/invite", 100));
         assert!(limits.preauth("192.0.2.2", "/api/admin/users", 160));
-        assert!(!limits
-            .preauth_store
-            .buckets
-            .contains_key(&("unknown".into(), "/api/admin/".into())));
-        assert!(limits
-            .user_store
-            .buckets
-            .contains_key(&("inviter".into(), "invite".into())));
+        assert!(
+            !limits
+                .preauth_store
+                .buckets
+                .contains_key(&("unknown".into(), "/api/admin/".into()))
+        );
+        assert!(
+            limits
+                .user_store
+                .buckets
+                .contains_key(&("inviter".into(), "invite".into()))
+        );
     }
 }

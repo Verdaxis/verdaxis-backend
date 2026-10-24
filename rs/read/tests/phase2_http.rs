@@ -274,18 +274,41 @@ async fn request_pipeline_enforces_syntax_auth_validation_quota_order() {
     );
     for _ in 0..5 {
         assert!(
-            admit_request(b"{\"message\":\"ok\"}", &context, || async { Ok(uuid::Uuid::nil()) }, Ok)
-                .await
-                .is_ok()
+            admit_request(
+                b"{\"message\":\"ok\"}",
+                &context,
+                || async { Ok(uuid::Uuid::nil()) },
+                Ok
+            )
+            .await
+            .is_ok()
         );
     }
-    let rejected = admit_request(b"{\"message\":\"ok\"}", &context, || async { Ok(uuid::Uuid::nil()) }, Ok)
-        .await
-        .unwrap_err();
+    let rejected = admit_request(
+        b"{\"message\":\"ok\"}",
+        &context,
+        || async { Ok(uuid::Uuid::nil()) },
+        Ok,
+    )
+    .await
+    .unwrap_err();
     assert_eq!(rejected.status(), 429);
-    let moved = RequestAdmission { client: "different-address".into(), ..context };
-    assert_eq!(admit_request(b"{}", &moved, || async { Ok(uuid::Uuid::nil()) }, Ok).await.unwrap_err().status(), 429);
-    assert!(admit_request(b"{}", &moved, || async { Ok(uuid::Uuid::from_u128(1)) }, Ok).await.is_ok());
+    let moved = RequestAdmission {
+        client: "different-address".into(),
+        ..context
+    };
+    assert_eq!(
+        admit_request(b"{}", &moved, || async { Ok(uuid::Uuid::nil()) }, Ok)
+            .await
+            .unwrap_err()
+            .status(),
+        429
+    );
+    assert!(
+        admit_request(b"{}", &moved, || async { Ok(uuid::Uuid::from_u128(1)) }, Ok)
+            .await
+            .is_ok()
+    );
 }
 
 #[tokio::test]

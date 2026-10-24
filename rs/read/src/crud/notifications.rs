@@ -370,7 +370,10 @@ async fn list(
     let raw = request.uri().query().unwrap_or_default().to_owned();
     let rows = run_authenticated(&state, access, authenticated, move |transaction| {
         Box::pin(async move {
-            let query = validate_and_admit(Value::Null, &admission, transaction.actor().id, |_| notification_query(&raw))?;
+            let query =
+                validate_and_admit(Value::Null, &admission, transaction.actor().id, |_| {
+                    notification_query(&raw)
+                })?;
             let recipient = transaction.actor().id;
             select_notifications(transaction.connection(), recipient, query).await
         })
@@ -415,9 +418,10 @@ async fn mark_read(
         AuthenticatedRequest::new("PATCH", MARK_PATH, support_present(request.headers()));
     let response = run_authenticated(&state, access, authenticated, move |transaction| {
         Box::pin(async move {
-            let notification = validate_and_admit(Value::Null, &admission, transaction.actor().id, |_| {
-                parse_notification_id(&notification)
-            })?;
+            let notification =
+                validate_and_admit(Value::Null, &admission, transaction.actor().id, |_| {
+                    parse_notification_id(&notification)
+                })?;
             let recipient = transaction.actor().id;
             mark_notification_read(transaction.connection(), recipient, notification).await?;
             Ok(success())
