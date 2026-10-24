@@ -1,17 +1,25 @@
-//! The single sealed order-book write boundary (Phase 2, Task 20).
+//! The single sealed market row-write boundary.
 //!
-//! One write transaction boundary: the command, its locks, its receipt, its
-//! outbox and its bounded retry. It is deliberately narrow. There is no matcher
-//! and no wider market lifecycle here, no route consumes it yet, and no module
-//! outside `order_write` may lock or change an order-book row.
-//!
-//! [`execute_order_command`] is the only entry point. `command` holds the typed
-//! data, `locks` holds the canonical lock identity, and `transaction` holds the
-//! shell and its [`WriteSession`] port.
+//! Standalone order commands use [`execute_order_command`]. Ordered business
+//! commands enter only through the borrowed [`invalidate_organization`]
+//! subcommand after business-owner organization/user locks; that subcommand
+//! never owns completion or retries. No module outside `order_write` locks or
+//! changes order/trade/inventory rows.
 
+mod benchmarks;
 pub mod command;
+mod events;
+mod invalidation;
 pub mod locks;
+mod reservations;
 mod transaction;
+
+pub use benchmarks::{
+    BenchmarkRebuildKey, BenchmarkRebuildResult, rebuild_live_slice_benchmarks_for_keys,
+};
+pub use invalidation::{
+    InvalidateOrganization, InvalidationError, InvalidationResult, invalidate_organization,
+};
 
 pub use command::{
     Canonical, CanonicalError, CommandContext, LockPlan, Operation, OrderCommand, OutboxEvent,
