@@ -413,6 +413,22 @@ fn scan_repository() -> Vec<String> {
     violations
 }
 
+fn boundary_reference_allowed(text: &str) -> bool {
+    !text.contains("order_write")
+}
+
+#[test]
+fn declared_business_exports_do_not_open_the_write_boundary() {
+    let business = "use crate::order_write::{InvalidateOrganization, invalidate_organization};";
+    assert!(boundary_reference_allowed(business), "declared business export");
+    assert!(boundary_reference_allowed("crate::order_write::invalidate_organization(conn, command)"));
+    assert!(!boundary_reference_allowed("use crate::order_write::execute_order_command;"));
+    assert!(!boundary_reference_allowed("use crate::order_write::{InvalidateOrganization, locks::SliceKey};"));
+    assert!(!boundary_reference_allowed("use crate::order_write::*;"));
+    let direct_write = ["UPDATE ", "order", "book_orders SET version=2"].concat();
+    assert_eq!(orderbook_dml(&normalized(&direct_write)), Some("order-book DML"));
+}
+
 #[test]
 fn order_book_writes_stay_in_the_one_boundary() {
     let violations = scan_repository();
