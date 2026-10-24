@@ -41,7 +41,13 @@ CREATE ROLE rust_member LOGIN NOINHERIT PASSWORD 'disposable_member_pw';
 CREATE ROLE rust_group NOLOGIN;
 GRANT rust_group TO rust_member;
 CREATE ROLE rust_migrator LOGIN NOINHERIT PASSWORD 'disposable_migrator_pw';
+-- Phase 10 Task 3 target-attestation accept cases need the deployed role names.
+CREATE ROLE verdaxis_app LOGIN NOINHERIT PASSWORD 'disposable_app_pw';
+CREATE ROLE verdaxis_app_staging LOGIN NOINHERIT PASSWORD 'disposable_staging_pw';
 CREATE DATABASE verdaxis_rust_test OWNER rust_migrator;
+-- A second database proves the attestation refuses a correct role on the
+-- wrong database name.
+CREATE DATABASE verdaxis_other_test OWNER rust_migrator;
 \connect verdaxis_rust_test
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 GRANT USAGE ON SCHEMA public TO rust_app, rust_member;
@@ -52,6 +58,9 @@ SQL
 export RUST_TEST_DATABASE_URL="postgres://rust_app:disposable_app_pw@127.0.0.1:$port/verdaxis_rust_test"
 export RUST_TEST_MEMBER_DATABASE_URL="postgres://rust_member:disposable_member_pw@127.0.0.1:$port/verdaxis_rust_test"
 export RUST_TEST_MIGRATOR_DATABASE_URL="postgres://rust_migrator:disposable_migrator_pw@127.0.0.1:$port/verdaxis_rust_test"
+export RUST_TEST_PRODUCTION_DATABASE_URL="postgres://verdaxis_app:disposable_app_pw@127.0.0.1:$port/verdaxis_rust_test"
+export RUST_TEST_STAGING_DATABASE_URL="postgres://verdaxis_app_staging:disposable_staging_pw@127.0.0.1:$port/verdaxis_rust_test"
+export RUST_TEST_WRONG_DATABASE_URL="postgres://verdaxis_app:disposable_app_pw@127.0.0.1:$port/verdaxis_other_test"
 export RELEASE_SHA=$(git rev-parse HEAD)
 
 log=$(mktemp "${TMPDIR:-/tmp}/rust-postgres-tests.XXXXXX")

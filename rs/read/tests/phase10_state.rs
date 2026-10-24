@@ -153,6 +153,74 @@ fn state_reader_refuses_oversize_symlink_and_invalid_json() {
 }
 
 #[test]
+fn state_lock_refuses_symlink_and_other_entries() {
+    let directory = TempDir::new();
+
+    // A symlink at the lock path is refused, and the entry it names is neither
+    // locked nor re-moded through the link.
+    let target = directory.path().join("real.lock");
+    std::fs::write(&target, b"").expect("write the link target");
+    std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o644))
+        .expect("widen the link target");
+    let link = directory.path().join("job.lock");
+    std::os::unix::fs::symlink(&target, &link).expect("plant a lock symlink");
+
+    assert_eq!(
+        StateLock::try_acquire(&link).err(),
+        Some(Exit::Precondition),
+        "a symlinked lock path is refused"
+    );
+    assert!(
+        std::fs::symlink_metadata(&link)
+            .expect("the link remains")
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(
+        std::fs::metadata(&target)
+            .expect("read the link target")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o644,
+        "the lock path never changes the mode of the file it names"
+    );
+
+    // A directory or a device entry at the lock path is refused.
+    let as_directory = directory.path().join("directory.lock");
+    std::fs::create_dir(&as_directory).expect("create a directory");
+    assert_eq!(
+        StateLock::try_acquire(&as_directory).err(),
+        Some(Exit::Precondition),
+        "a non-regular lock path is refused"
+    );
+}
+
+#[test]
+fn state_lock_does_not_change_existing_mode() {
+    let directory = TempDir::new();
+    let path = directory.path().join("job.lock");
+    std::fs::write(&path, b"").expect("write an existing lock");
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640))
+        .expect("set an owner-writable mode");
+
+    let lock = StateLock::try_acquire(&path)
+        .expect("open the lock")
+        .expect("take an existing regular lock");
+    drop(lock);
+
+    assert_eq!(
+        std::fs::metadata(&path)
+            .expect("read the lock mode")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o640,
+        "an existing lock keeps its mode"
+    );
+}
+
+#[test]
 fn state_lock_is_nonblocking() {
     let directory = TempDir::new();
     let path = directory.path().join("job.lock");
@@ -353,7 +421,7 @@ fn mail_transport_logs_recipient_digest_never_address() {
         "the recipient address must never be logged: {logged}"
     );
     let digest = recipient_digest(address);
-    assert_eq!(digest.len(), 16);
+    assert_eq!(digest.len(), 32, "16 bytes keep a guessable address hidden");
     assert!(
         logged.contains(&digest),
         "the log names the recipient by digest: {logged}"
