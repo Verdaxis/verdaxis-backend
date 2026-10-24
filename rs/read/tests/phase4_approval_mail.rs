@@ -1,3 +1,4 @@
+#[cfg_attr(not(feature = "contract-tests"), allow(dead_code))]
 #[path = "../src/business/approval_mail.rs"]
 mod approval_mail;
 
