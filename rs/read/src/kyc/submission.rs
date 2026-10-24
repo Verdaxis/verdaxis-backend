@@ -83,10 +83,7 @@ fn identity(value: &str) -> String {
     // Python compares `" ".join(value.split()).casefold()`: split on Unicode
     // whitespace, rejoin with single spaces, then full default (non-Turkic)
     // case folding. ICU4X owns the folding tables; no exceptions are kept here.
-    let whitespace_normalized = value
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
+    let whitespace_normalized = value.split_whitespace().collect::<Vec<_>>().join(" ");
     icu_casemap::CaseMapper::new()
         .fold_string(&whitespace_normalized)
         .into_owned()
