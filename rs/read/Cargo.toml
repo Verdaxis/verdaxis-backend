@@ -16,6 +16,14 @@ required-features = ["contract-tests"]
 name = "market_contract_postgres"
 required-features = ["contract-tests"]
 
+[[test]]
+name = "meaning_curve_queries"
+required-features = ["contract-tests"]
+
+[[test]]
+name = "meaning_orderbook_queries"
+required-features = ["contract-tests"]
+
 [[example]]
 name = "contract_server"
 required-features = ["contract-tests"]
