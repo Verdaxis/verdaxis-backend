@@ -104,9 +104,11 @@ fn non_admin_paths_are_not_charged_to_the_preauth_bucket() {
 fn endpoint_refusal_keeps_the_rate_limited_code_and_retry_after() {
     let limits = SharedLimits::default();
     for _ in 0..5 {
-        assert!(limits
-            .check_endpoint("verified-user", "/api/feedback", 100)
-            .is_ok());
+        assert!(
+            limits
+                .check_endpoint("verified-user", "/api/feedback", 100)
+                .is_ok()
+        );
     }
     let error = limits
         .check_endpoint("verified-user", "/api/feedback", 100)
