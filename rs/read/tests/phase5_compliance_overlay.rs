@@ -874,43 +874,42 @@ async fn compliance_overlay_snapshot_cases() {
     };
 
     // A connection whose statements are logged, so the test counts them.
-    let options: sqlx::postgres::PgConnectOptions = url
-        .parse()
+    let options = url
+        .parse::<sqlx::postgres::PgConnectOptions>()
         .expect("disposable fixture URL")
         .log_statements("debug".parse().expect("log level"));
     let mut connection = sqlx::PgConnection::connect_with(&options)
         .await
         .expect("logging connection");
     let executed = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
-    let record = OneStatement(executed.clone());
+    let policy = fixture_policy();
+    let actor_for_first = actor.clone();
+    let executed_for_first = executed.clone();
     let first = tracing::subscriber::with_default(
-        tracing::subscriber::registry().with(record),
-        {
-            let policy = fixture_policy();
-            let config = config.clone();
-            let actor = actor.clone();
-            let executed = executed.clone();
-            async move {
-                executed.lock().unwrap().clear();
-                let request = OverlayRequest::validate(json!({"order_ids": [order]})).unwrap();
-                let response = overlay::select_overlay(
-                    &mut connection,
-                    &policy,
-                    &market::visibility::VisibilityClock::at(chrono::Utc::now()),
-                    &config,
-                    &actor,
-                    &request,
-                )
-                .await
-                .expect("overlay response");
-                (response, connection)
-            }
+        tracing_subscriber::registry().with(OneStatement(executed.clone())),
+        || async {
+            executed_for_first.lock().unwrap().clear();
+            let request = OverlayRequest::validate(json!({"order_ids": [order]})).unwrap();
+            let response = overlay::select_overlay(
+                &mut connection,
+                &policy,
+                &market::visibility::VisibilityClock::at(chrono::Utc::now()),
+                &config,
+                &actor_for_first,
+                &request,
+            )
+            .await
+            .expect("overlay response");
+            (response, connection)
         },
-    )
-    .await;
-    let (response, mut connection) = first;
+    );
+    let (response, mut connection) = first.await;
     let statements = executed.lock().unwrap().clone();
-    assert_eq!(statements.len(), 1, "one statement per response: {statements:?}");
+    assert_eq!(
+        statements.len(),
+        1,
+        "one statement per response: {statements:?}"
+    );
     assert!(
         statements[0].contains("fleet_count"),
         "the one statement carries the fleet count: {statements:?}"
@@ -931,23 +930,29 @@ async fn compliance_overlay_snapshot_cases() {
         .await
         .expect("insert a member vessel");
     executed.lock().unwrap().clear();
-    let policy = fixture_policy();
     let request = OverlayRequest::validate(json!({"order_ids": [order]})).unwrap();
     let after = tracing::subscriber::with_default(
-        tracing::subscriber::registry().with(OneStatement(executed.clone())),
-        overlay::select_overlay(
-            &mut connection,
-            &policy,
-            &market::visibility::VisibilityClock::at(chrono::Utc::now()),
-            &config,
-            &actor,
-            &request,
-        ),
+        tracing_subscriber::registry().with(OneStatement(executed.clone())),
+        || async {
+            overlay::select_overlay(
+                &mut connection,
+                &policy,
+                &market::visibility::VisibilityClock::at(chrono::Utc::now()),
+                &config,
+                &actor,
+                &request,
+            )
+            .await
+        },
     )
     .await
     .expect("second overlay response");
     let statements = executed.lock().unwrap().clone();
-    assert_eq!(statements.len(), 1, "one statement per response: {statements:?}");
+    assert_eq!(
+        statements.len(),
+        1,
+        "one statement per response: {statements:?}"
+    );
     assert_eq!(after.assumptions.fleet_vessel_count, member_count + 1);
     let after_overlay = after.overlays[&order].as_ref().expect("visible overlay");
     assert_eq!(after_overlay.ci_gco2_mj, committed_ci);
@@ -968,7 +973,10 @@ async fn compliance_overlay_snapshot_cases() {
         .await
         .expect("restored member count");
     assert_eq!(restored as u64, member_count);
-    connection.close().await.expect("close the logging connection");
+    connection
+        .close()
+        .await
+        .expect("close the logging connection");
 }
 
 /// Records the summary of each SQLx statement event into a shared list.
@@ -1004,6 +1012,10 @@ impl tracing::field::Visit for SummaryVisitor<'_> {
             self.0.push('\n');
         }
     }
+
+    /// Every traced field of a statement event is a string or a number; a
+    /// debug-only field must not be mistaken for the statement summary.
+    fn record_debug(&mut self, _field: &tracing::field::Field, _value: &dyn std::fmt::Debug) {}
 }
 
 /// The accepted read index exists and is not unique.
