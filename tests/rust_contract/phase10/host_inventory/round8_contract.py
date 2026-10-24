@@ -40,8 +40,10 @@ class Round8Contract(unittest.TestCase):
         def reader(path):
             calls.append(path)
             return record(path,executables=['/tmp/1.py','/tmp/2.py','/tmp/3.py'] if path=='/tmp/a.py' else [])
-        # Trace real queue state at loop entry, without replacing the bound.
+        # Preserve the outer mutation reachability trace while observing queue.
+        outer_trace=sys.gettrace()
         def trace(frame,event,arg):
+            if outer_trace:outer_trace(frame,event,arg)
             if event=='line' and frame.f_code.co_name=='inspect_graph':
                 line=frame.f_lineno
                 source=READER.read_text().splitlines()[line-1].strip()
@@ -52,7 +54,7 @@ class Round8Contract(unittest.TestCase):
             with patch.object(self.reader,'MAX_ITEMS',2):
                 sys.settrace(trace)
                 try: return original(*args,**kwargs)
-                finally: sys.settrace(None)
+                finally: sys.settrace(outer_trace)
         def command(argv): return ('/tmp/a.py\n',True) if argv[0]=='find' else ('',True)
         with patch.object(self.reader,'inspect_graph',graph): result=self.reader.collect(command,cron_files=[],script_reader=reader)
         self.assertEqual(queues[1],(('/tmp/1.py',1),('/tmp/2.py',1)))
@@ -210,7 +212,10 @@ class Round8Contract(unittest.TestCase):
                 real_kill=self.reader.os.killpg
                 def killpg(pid,sig):killed.append(pid);return real_kill(pid,sig)
                 with patch.object(self.reader.subprocess,'Popen',spawn),clock,patch.object(self.reader.os,'killpg',killpg):
-                    raw=self.reader.run_command(self.reader.COMMANDS['units'])
+                    try:
+                        raw=self.reader.run_command(self.reader.COMMANDS['units'])
+                    except subprocess.TimeoutExpired:
+                        self.fail('command wait timeout escaped its bounded handler')
                 self.assertTrue(killed)
                 result=self.reader.collect(lambda argv:raw,cron_files=[])
                 self.assertEqual(result['scripts'],[])
@@ -244,7 +249,10 @@ class Round8Contract(unittest.TestCase):
                 real_kill=self.transport.os.killpg
                 def killpg(pid,sig):killed.append(pid);return real_kill(pid,sig)
                 with patch.object(self.transport.subprocess,'Popen',spawn),clock,patch.object(self.transport.os,'killpg',killpg):
-                    raw=self.transport.ssh_once(['fixture'],b'x')
+                    try:
+                        raw=self.transport.ssh_once(['fixture'],b'x')
+                    except subprocess.TimeoutExpired:
+                        self.fail('SSH wait timeout escaped its bounded handler')
                 self.assertTrue(killed)
                 self.assertEqual(raw,(b'',False))
                 self.assertEqual(self.transport.read_host('staging',lambda a,d:raw),{'refusal':'transport-error'})
