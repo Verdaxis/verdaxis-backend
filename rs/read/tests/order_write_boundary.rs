@@ -345,11 +345,9 @@ fn scan_repository() -> Vec<String> {
     collect(&root.join("rs"), "rs", &mut rust_files);
     rust_files.sort();
     for path in &rust_files {
-        // These exact integration fixtures write only to their attested
-        // disposable schema.
-        if path == &root.join("rs/read/tests/phase4_market_invalidation.rs")
-            || path == &root.join("rs/read/tests/integration_i1.rs")
-        {
+        // The released Task 7 fixture writes only to its attested disposable
+        // schema, checked below by its own URL, port and schema-name assertions.
+        if path == &root.join("rs/read/tests/phase4_market_invalidation.rs") {
             continue;
         }
         let text = std::fs::read_to_string(path).expect("readable Rust source");
@@ -370,8 +368,15 @@ fn scan_repository() -> Vec<String> {
                 }
                 continue;
             }
+            // One exact integration-round fixture creates its own order row in
+            // a schema it names per run. Every other rule below still applies
+            // to that file, and no other file may copy this spelling.
+            let approved_fixture_insert = path == &root.join("rs/read/tests/integration_i1.rs")
+                && literal.starts_with("INSERT INTO ORDERBOOK_ORDERS(");
             if let Some(rule) = orderbook_dml(&literal) {
-                violations.push(format!("{}: {rule}", path.display()));
+                if !approved_fixture_insert {
+                    violations.push(format!("{}: {rule}", path.display()));
+                }
             }
             if orderbook_row_lock(&literal) {
                 violations.push(format!("{}: order-book row FOR UPDATE", path.display()));
