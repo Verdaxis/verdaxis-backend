@@ -94,7 +94,14 @@ async fn invitation_accept_validation_vectors() {
         json!({"token": token(), "new_password": "AcceptedPassword9"}),
     ];
     for vector in vectors {
-        let (status, body) = send_with(state(), "/api/auth/invitations/accept", vector.to_string(), origin, None).await;
+        let (status, body) = send_with(
+            state(),
+            "/api/auth/invitations/accept",
+            vector.to_string(),
+            origin,
+            None,
+        )
+        .await;
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{vector}");
         assert_eq!(body["detail"]["code"], "VALIDATION_FAILED", "{vector}");
     }
@@ -133,8 +140,14 @@ async fn invitation_accept_password_policy_matches_python() {
             "{password}"
         );
     }
-    assert!(invitation_accept::strong_password(&format!("Aa1{}", "b".repeat(1021))));
-    assert!(!invitation_accept::strong_password(&format!("Aa1{}", "b".repeat(1022))));
+    assert!(invitation_accept::strong_password(&format!(
+        "Aa1{}",
+        "b".repeat(1021)
+    )));
+    assert!(!invitation_accept::strong_password(&format!(
+        "Aa1{}",
+        "b".repeat(1022)
+    )));
 }
 
 #[tokio::test]
@@ -155,7 +168,10 @@ async fn invitation_accept_is_origin_checked() {
         )
         .await;
         assert_eq!(status, StatusCode::FORBIDDEN, "{origin}");
-        assert_eq!(body["detail"]["code"], "BROWSER_ORIGIN_REJECTED", "{origin}");
+        assert_eq!(
+            body["detail"]["code"], "BROWSER_ORIGIN_REJECTED",
+            "{origin}"
+        );
     }
     // An absent origin is refused only when the request carries a session
     // cookie; without one the browser rule allows the request through to the

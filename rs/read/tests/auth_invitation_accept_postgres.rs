@@ -75,7 +75,11 @@ impl Fixture {
         )
         .bind(user)
         .bind(&email)
-        .bind(verdaxis_read::auth::password::hash(OLD_PASSWORD).await.unwrap())
+        .bind(
+            verdaxis_read::auth::password::hash(OLD_PASSWORD)
+                .await
+                .unwrap(),
+        )
         .bind(role)
         .bind(organization)
         .bind(token_digest(&token))
@@ -121,14 +125,15 @@ impl Fixture {
     }
 
     async fn sessions(&self) -> Vec<Value> {
-        sqlx::query_scalar(
-            "SELECT coalesce(jsonb_agg(to_jsonb(s) ORDER BY id),'[]') \
+        let rows: Value = sqlx::query_scalar(
+            "SELECT coalesce(jsonb_agg(to_jsonb(s) ORDER BY id),'[]'::jsonb) \
              FROM refresh_sessions s WHERE user_id=$1",
         )
         .bind(self.user)
         .fetch_one(&self.owner)
         .await
-        .unwrap()
+        .unwrap();
+        rows.as_array().cloned().unwrap_or_default()
     }
 
     async fn cleanup(&self) {
@@ -162,8 +167,8 @@ async fn send(
     cookie: Option<&str>,
 ) -> Response {
     let payload = json!({"token": token, "new_password": password, "accept_terms": terms});
-    let mut request = Request::post("/api/auth/invitations/accept")
-        .header("content-type", "application/json");
+    let mut request =
+        Request::post("/api/auth/invitations/accept").header("content-type", "application/json");
     if let Some(origin) = origin {
         request = request.header("origin", origin);
     }
@@ -273,7 +278,12 @@ async fn invitation_accept_consumes_token_and_issues_one_family() {
     assert_eq!(
         verify_access(
             body["access_token"].as_str().unwrap(),
-            &VerificationSettings::new(SECRET.into(), None, "verdaxis".into(), "verdaxis-api".into()),
+            &VerificationSettings::new(
+                SECRET.into(),
+                None,
+                "verdaxis".into(),
+                "verdaxis-api".into()
+            ),
             Utc::now()
         )
         .unwrap()
@@ -289,17 +299,16 @@ async fn invitation_accept_consumes_token_and_issues_one_family() {
     assert!(user["last_login"].is_string());
     assert!(user["referral_code"].is_string());
     assert!(user["password_changed_at"].is_string());
-    assert!(verdaxis_read::auth::password::verify(
-        NEW_PASSWORD,
-        user["password_hash"].as_str().unwrap()
-    )
-    .await);
+    assert!(
+        verdaxis_read::auth::password::verify(
+            NEW_PASSWORD,
+            user["password_hash"].as_str().unwrap()
+        )
+        .await
+    );
 
     let rows = f.sessions().await;
-    let live: Vec<&Value> = rows
-        .iter()
-        .filter(|row| row["revoked"] == false)
-        .collect();
+    let live: Vec<&Value> = rows.iter().filter(|row| row["revoked"] == false).collect();
     assert_eq!(live.len(), 1, "exactly one live family: {rows:?}");
     assert_eq!(
         live[0]["device_id_hash"],
@@ -307,8 +316,7 @@ async fn invitation_accept_consumes_token_and_issues_one_family() {
     );
     let refresh_claims = token_payload(&cookie_value(&set, "refresh_token="));
     assert_eq!(
-        live[0]["family_id"],
-        refresh_claims["family_id"],
+        live[0]["family_id"], refresh_claims["family_id"],
         "the live row is the family the response issued"
     );
     assert_eq!(
@@ -416,13 +424,12 @@ async fn invitation_accept_revokes_all_user_families() {
     }
     // The cutoff advanced past every pre-claim session, so an old access token
     // minted before acceptance is refused.
-    let cutoff: chrono::DateTime<Utc> = sqlx::query_scalar(
-        "SELECT authentication_revoked_at FROM users WHERE id=$1",
-    )
-    .bind(f.user)
-    .fetch_one(&f.owner)
-    .await
-    .unwrap();
+    let cutoff: chrono::DateTime<Utc> =
+        sqlx::query_scalar("SELECT authentication_revoked_at FROM users WHERE id=$1")
+            .bind(f.user)
+            .fetch_one(&f.owner)
+            .await
+            .unwrap();
     let password_cutoff: chrono::DateTime<Utc> =
         sqlx::query_scalar("SELECT password_changed_at FROM users WHERE id=$1")
             .bind(f.user)
@@ -477,13 +484,15 @@ async fn invitation_accept_rejects_expired_or_reissued_token() {
 
     // Reissued: a new secret replaces the old hash, so only the newest works.
     let reissued = generate_token();
-    sqlx::query("UPDATE users SET password_reset_token_hash=$2,password_reset_expires=$3 WHERE id=$1")
-        .bind(f.user)
-        .bind(token_digest(&reissued))
-        .bind(Utc::now() + Duration::days(7))
-        .execute(&f.owner)
-        .await
-        .unwrap();
+    sqlx::query(
+        "UPDATE users SET password_reset_token_hash=$2,password_reset_expires=$3 WHERE id=$1",
+    )
+    .bind(f.user)
+    .bind(token_digest(&reissued))
+    .bind(Utc::now() + Duration::days(7))
+    .execute(&f.owner)
+    .await
+    .unwrap();
     let stale = f.send(&f.token, NEW_PASSWORD, true).await;
     assert_eq!(stale.status(), StatusCode::BAD_REQUEST);
     assert_eq!(code(stale).await, "INVITATION_INVALID");
@@ -503,25 +512,76 @@ async fn invitation_accept_rejects_ineligible_account_states() {
     let cases = [
         // (status, email_verified, must_change_password, organization_status,
         //  role, organization type)
-        ("APPROVED", false, true, "PENDING", "SUPPLIER", "FUEL_SUPPLIER"),
-        ("APPROVED", true, true, "APPROVED", "SUPPLIER", "FUEL_SUPPLIER"),
-        ("APPROVED", false, false, "APPROVED", "SUPPLIER", "FUEL_SUPPLIER"),
-        ("PENDING", false, true, "APPROVED", "SUPPLIER", "FUEL_SUPPLIER"),
-        ("REJECTED", false, true, "APPROVED", "SUPPLIER", "FUEL_SUPPLIER"),
+        (
+            "APPROVED",
+            false,
+            true,
+            "PENDING",
+            "SUPPLIER",
+            "FUEL_SUPPLIER",
+        ),
+        (
+            "APPROVED",
+            true,
+            true,
+            "APPROVED",
+            "SUPPLIER",
+            "FUEL_SUPPLIER",
+        ),
+        (
+            "APPROVED",
+            false,
+            false,
+            "APPROVED",
+            "SUPPLIER",
+            "FUEL_SUPPLIER",
+        ),
+        (
+            "PENDING",
+            false,
+            true,
+            "APPROVED",
+            "SUPPLIER",
+            "FUEL_SUPPLIER",
+        ),
+        (
+            "REJECTED",
+            false,
+            true,
+            "APPROVED",
+            "SUPPLIER",
+            "FUEL_SUPPLIER",
+        ),
         // A role that does not match the organization side.
-        ("APPROVED", false, true, "APPROVED", "BUYER", "FUEL_SUPPLIER"),
-        ("APPROVED", false, true, "APPROVED", "SUPPLIER", "SHIPPING_LINE"),
+        (
+            "APPROVED",
+            false,
+            true,
+            "APPROVED",
+            "BUYER",
+            "FUEL_SUPPLIER",
+        ),
+        (
+            "APPROVED",
+            false,
+            true,
+            "APPROVED",
+            "SUPPLIER",
+            "SHIPPING_LINE",
+        ),
     ];
     for (status, verified, forced, organization_status, role, kind) in cases {
         let f = Fixture::new(role, kind).await;
-        sqlx::query("UPDATE users SET status=$2,email_verified=$3,must_change_password=$4 WHERE id=$1")
-            .bind(f.user)
-            .bind(status)
-            .bind(verified)
-            .bind(forced)
-            .execute(&f.owner)
-            .await
-            .unwrap();
+        sqlx::query(
+            "UPDATE users SET status=$2,email_verified=$3,must_change_password=$4 WHERE id=$1",
+        )
+        .bind(f.user)
+        .bind(status)
+        .bind(verified)
+        .bind(forced)
+        .execute(&f.owner)
+        .await
+        .unwrap();
         sqlx::query("UPDATE organizations SET verification_status=$2 WHERE id=$1")
             .bind(f.organization)
             .bind(organization_status)
@@ -601,23 +661,21 @@ async fn invitation_accept_does_not_touch_password_reset_tokens() {
     .execute(&f.owner)
     .await
     .unwrap();
-    let before: Value = sqlx::query_scalar(
-        "SELECT to_jsonb(t) FROM password_reset_tokens t WHERE user_id=$1",
-    )
-    .bind(f.user)
-    .fetch_one(&f.owner)
-    .await
-    .unwrap();
+    let before: Value =
+        sqlx::query_scalar("SELECT to_jsonb(t) FROM password_reset_tokens t WHERE user_id=$1")
+            .bind(f.user)
+            .fetch_one(&f.owner)
+            .await
+            .unwrap();
 
     let response = f.send(&f.token, NEW_PASSWORD, true).await;
     assert_eq!(response.status(), StatusCode::OK);
-    let after: Value = sqlx::query_scalar(
-        "SELECT to_jsonb(t) FROM password_reset_tokens t WHERE user_id=$1",
-    )
-    .bind(f.user)
-    .fetch_one(&f.owner)
-    .await
-    .unwrap();
+    let after: Value =
+        sqlx::query_scalar("SELECT to_jsonb(t) FROM password_reset_tokens t WHERE user_id=$1")
+            .bind(f.user)
+            .fetch_one(&f.owner)
+            .await
+            .unwrap();
     assert_eq!(before, after);
 
     // The invitation secret was never accepted as a reset token: the reset row
@@ -637,19 +695,19 @@ async fn invitation_accept_concurrent_claims_yield_one_session() {
         let token = f.token.clone();
         tasks.spawn(async move {
             let response = send(state, &token, NEW_PASSWORD, true, Some(FRONTEND), None).await;
-            response.status()
+            u16::from(response.status())
         });
     }
     let mut statuses = Vec::new();
     while let Some(status) = tasks.join_next().await {
         statuses.push(status.unwrap());
     }
-    statuses.sort();
+    statuses.sort_unstable();
     // Exactly one claim succeeds; the other sees the consumed secret.
     assert_eq!(
         statuses,
-        vec![StatusCode::OK, StatusCode::BAD_REQUEST],
-        "{statuses:?}"
+        vec![200, 400],
+        "one claim must succeed and the other must be refused"
     );
     let rows = f.sessions().await;
     let live: Vec<&Value> = rows.iter().filter(|row| row["revoked"] == false).collect();
