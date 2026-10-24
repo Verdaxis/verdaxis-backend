@@ -390,8 +390,25 @@ async fn e6_concurrent_consumption_has_one_result() {
         .await
         .unwrap();
     let mut tasks = Vec::new();
+    let mut pids = Vec::new();
     for _ in 0..2 {
-        let app = router(f.settings.clone());
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&std::env::var("AUTH_EMAIL_TEST_DATABASE_URL").unwrap())
+            .await
+            .unwrap();
+        sqlx::query("SET lock_timeout='15s'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        pids.push(pid);
+        let mut settings = f.settings.clone();
+        settings.pool = pool;
+        let app = router(settings);
         let body = organization(&token);
         tasks.push(tokio::spawn(async move {
             request(app, "/api/auth/register-with-org", body).await
@@ -399,7 +416,7 @@ async fn e6_concurrent_consumption_has_one_result() {
     }
     tokio::time::timeout(std::time::Duration::from_secs(5), async {
         loop {
-            let waiting: i64 = sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND query LIKE 'SELECT id,email,password_hash,first_name,last_name,role,referral_code FROM pending_registrations%' AND cardinality(pg_blocking_pids(pid))>0").fetch_one(&f.owner).await.unwrap();
+            let waiting: i64 = sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity WHERE pid=ANY($1) AND cardinality(pg_blocking_pids(pid))>0").bind(&pids).fetch_one(&f.owner).await.unwrap();
             if waiting == 2 { break; }
             tokio::task::yield_now().await;
         }
