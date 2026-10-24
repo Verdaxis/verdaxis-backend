@@ -370,7 +370,10 @@ def boundary_cases():
         path = op["path"]
         for method in retired_methods(op):
             cases.append((method, url + "/"))
-            cases.append((method, url + "/extra"))
+            # A bare static path plus a segment is the retired dynamic sibling
+            # shape, so only a path that already carries an id may take a tail.
+            if PLACEHOLDER.search(path):
+                cases.append((method, url + "/extra"))
         for method in METHODS:
             if method not in retired_methods(op):
                 cases.append((method, url))

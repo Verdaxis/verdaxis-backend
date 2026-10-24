@@ -25,21 +25,96 @@
       "name": "retire",
       "selected": true,
       "retirement": {
-        "acceptance_source": "merged-plan"
+        "caddy_file": "deploy/caddy/phase10-phase7-retire.caddy",
+        "caddy_sha256": "b90becf04f16c1f1b3e8902639192ea7645432cd6fccd38c1611d637243a8a9b",
+        "route_manifest": "tests/rust_contract/phase10/phase7-routes.json",
+        "route_manifest_sha256": "4985e55e35ecfb78ebe460ea122effa9a831df3fd208e3d73ed3e08b4f899fd1",
+        "operations": 20,
+        "status_code": 404,
+        "upstream": null,
+        "ownership_state": "accepted",
+        "ownership_scope": "exact matcher ownership record in this repository",
+        "live_state": "not-applied",
+        "acceptance_source": "live-http-and-retention"
       },
-      "retention": {},
-      "rollback": {},
-      "live_acceptance": {}
+      "retention": {
+        "retained_tables": [
+          "negotiation_rounds",
+          "negotiations",
+          "rfq_quotes",
+          "rfqs",
+          "supplier_offers"
+        ],
+        "migration": "none",
+        "table_drop": "none",
+        "data_cleanup": "none",
+        "schema_change": "none",
+        "change_set": [
+          "deploy/caddy/phase10-phase7-retire.caddy",
+          "deploy/tests/phase7-acceptance.sh",
+          "tests/rust_contract/phase10/phase7-decision.json",
+          "tests/rust_contract/phase10/phase7-routes.json",
+          "tests/rust_contract/test_phase10_phase7.py"
+        ],
+        "live_capture": {
+          "status": "not-run",
+          "authorization_ref": null,
+          "reason": "Applying Caddy ownership on staging or production needs separate authorization."
+        }
+      },
+      "rollback": {
+        "kind": "one-change",
+        "change": "Remove the single import of deploy/caddy/phase10-phase7-retire.caddy.",
+        "scope_operations": 20,
+        "target": "python-upstream",
+        "rehearsed": "fixture"
+      },
+      "live_acceptance": {
+        "required": true,
+        "authorized": false,
+        "authorization_ref": null,
+        "completion": "blocked-separately-authorized",
+        "staging": {
+          "status": "not-run",
+          "authorization_ref": null,
+          "evidence_sha256": null
+        },
+        "production": {
+          "status": "not-run",
+          "authorization_ref": null,
+          "evidence_sha256": null
+        }
+      },
+      "production_usage": {
+        "basis": "plan fact base, 22 October 2026",
+        "frontend_callers": 0,
+        "calls_since": "2026-10-17",
+        "retained_rows": {
+          "rfqs": 7,
+          "negotiations": 0,
+          "supplier_offers": 0
+        }
+      }
     }
   },
   "schema_producers": {
     "closed": false,
+    "active": [
+      "alembic"
+    ],
+    "blocking": [
+      "Task 5 baseline adoption",
+      "active Alembic producers"
+    ],
     "task_20_acceptance_requires_closure": true
   },
   "acceptance": {
     "state": "candidate",
     "blockers": [
-      "merged plan is not live acceptance"
+      "separately authorized staging Caddy ownership and 404 corpus",
+      "separately authorized production Caddy ownership and 404 corpus",
+      "schema-producer closure before Task 5"
     ]
-  }
+  },
+  "notes": "Founder decision 122 selects Path B. Ownership of the exact 20 operations is accepted in this repository; no staging or production application is claimed. Live acceptance and schema-producer closure remain blocking."
 }

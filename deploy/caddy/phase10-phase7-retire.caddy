@@ -1,0 +1,196 @@
+# Phase 10 Task 20, founder decision 122 (22 October 2026): retire the
+# Phase 7 indicative routes. Import this file inside the site's route block,
+# before the Python fallback. It owns exactly the 20 method/path operations
+# in tests/rust_contract/phase10/phase7-routes.json.
+#
+# Every handle returns 404 with no upstream. Static paths match exactly. A
+# dynamic id segment matches any single segment, because Python's router does
+# the same and only rejects a bad id later, so a UUID-only matcher would leak
+# braced, URN and percent-encoded spellings back to Python. The one real
+# static sibling (/api/supplier-offers/my) is excluded. Trailing slashes,
+# other methods, extra segments and prefix siblings stay on the fallback.
+#
+# Rollback is one change: remove the single import line. All 20 operations
+# then return to the Python upstream. This snippet changes no table or row.
+
+# 1/20 POST /api/rfq
+@phase7_rfq_create {
+	method POST OPTIONS
+	path /api/rfq
+}
+handle @phase7_rfq_create {
+	respond 404
+}
+
+# 2/20 GET /api/rfq
+@phase7_rfq_list {
+	method GET HEAD OPTIONS
+	path /api/rfq
+}
+handle @phase7_rfq_list {
+	respond 404
+}
+
+# 3/20 GET /api/rfq/{rfq_id}
+@phase7_rfq_read {
+	method GET HEAD OPTIONS
+	path_regexp phase7_rfq_read ^/api/rfq/[^/]+$
+}
+handle @phase7_rfq_read {
+	respond 404
+}
+
+# 4/20 POST /api/rfq/{rfq_id}/quote
+@phase7_rfq_quote_create {
+	method POST OPTIONS
+	path_regexp phase7_rfq_quote_create ^/api/rfq/[^/]+/quote$
+}
+handle @phase7_rfq_quote_create {
+	respond 404
+}
+
+# 5/20 PUT /api/rfq/{rfq_id}/quotes/{quote_id}
+@phase7_rfq_quote_revise {
+	method PUT OPTIONS
+	path_regexp phase7_rfq_quote_revise ^/api/rfq/[^/]+/quotes/[^/]+$
+}
+handle @phase7_rfq_quote_revise {
+	respond 404
+}
+
+# 6/20 POST /api/rfq/{rfq_id}/quotes/{quote_id}/withdraw
+@phase7_rfq_quote_withdraw {
+	method POST OPTIONS
+	path_regexp phase7_rfq_quote_withdraw ^/api/rfq/[^/]+/quotes/[^/]+/withdraw$
+}
+handle @phase7_rfq_quote_withdraw {
+	respond 404
+}
+
+# 7/20 POST /api/rfq/{rfq_id}/accept/{quote_id}
+@phase7_rfq_accept {
+	method POST OPTIONS
+	path_regexp phase7_rfq_accept ^/api/rfq/[^/]+/accept/[^/]+$
+}
+handle @phase7_rfq_accept {
+	respond 404
+}
+
+# 8/20 POST /api/rfq/{rfq_id}/cancel
+@phase7_rfq_cancel {
+	method POST OPTIONS
+	path_regexp phase7_rfq_cancel ^/api/rfq/[^/]+/cancel$
+}
+handle @phase7_rfq_cancel {
+	respond 404
+}
+
+# 9/20 POST /api/negotiations
+@phase7_negotiation_create {
+	method POST OPTIONS
+	path /api/negotiations
+}
+handle @phase7_negotiation_create {
+	respond 404
+}
+
+# 10/20 GET /api/negotiations
+@phase7_negotiation_list {
+	method GET HEAD OPTIONS
+	path /api/negotiations
+}
+handle @phase7_negotiation_list {
+	respond 404
+}
+
+# 11/20 GET /api/negotiations/{negotiation_id}
+@phase7_negotiation_read {
+	method GET HEAD OPTIONS
+	path_regexp phase7_negotiation_read ^/api/negotiations/[^/]+$
+}
+handle @phase7_negotiation_read {
+	respond 404
+}
+
+# 12/20 POST /api/negotiations/{negotiation_id}/counter
+@phase7_negotiation_counter {
+	method POST OPTIONS
+	path_regexp phase7_negotiation_counter ^/api/negotiations/[^/]+/counter$
+}
+handle @phase7_negotiation_counter {
+	respond 404
+}
+
+# 13/20 POST /api/negotiations/{negotiation_id}/accept
+@phase7_negotiation_accept {
+	method POST OPTIONS
+	path_regexp phase7_negotiation_accept ^/api/negotiations/[^/]+/accept$
+}
+handle @phase7_negotiation_accept {
+	respond 404
+}
+
+# 14/20 POST /api/negotiations/{negotiation_id}/decline
+@phase7_negotiation_decline {
+	method POST OPTIONS
+	path_regexp phase7_negotiation_decline ^/api/negotiations/[^/]+/decline$
+}
+handle @phase7_negotiation_decline {
+	respond 404
+}
+
+# 15/20 GET /api/supplier-offers
+@phase7_offer_list {
+	method GET HEAD OPTIONS
+	path /api/supplier-offers
+}
+handle @phase7_offer_list {
+	respond 404
+}
+
+# 16/20 GET /api/supplier-offers/my
+@phase7_offer_list_mine {
+	method GET HEAD OPTIONS
+	path /api/supplier-offers/my
+}
+handle @phase7_offer_list_mine {
+	respond 404
+}
+
+# 17/20 GET /api/supplier-offers/{offer_id}
+@phase7_offer_read {
+	method GET HEAD OPTIONS
+	path_regexp phase7_offer_read ^/api/supplier-offers/[^/]+$
+	not path /api/supplier-offers/my
+}
+handle @phase7_offer_read {
+	respond 404
+}
+
+# 18/20 POST /api/supplier-offers
+@phase7_offer_create {
+	method POST OPTIONS
+	path /api/supplier-offers
+}
+handle @phase7_offer_create {
+	respond 404
+}
+
+# 19/20 PUT /api/supplier-offers/{offer_id}
+@phase7_offer_update {
+	method PUT OPTIONS
+	path_regexp phase7_offer_update ^/api/supplier-offers/[^/]+$
+	not path /api/supplier-offers/my
+}
+handle @phase7_offer_update {
+	respond 404
+}
+
+# 20/20 POST /api/supplier-offers/{offer_id}/withdraw
+@phase7_offer_withdraw {
+	method POST OPTIONS
+	path_regexp phase7_offer_withdraw ^/api/supplier-offers/[^/]+/withdraw$
+}
+handle @phase7_offer_withdraw {
+	respond 404
+}

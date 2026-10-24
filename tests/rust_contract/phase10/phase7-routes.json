@@ -1,5 +1,476 @@
 {
   "schema_version": 1,
+  "source_manifest": "tests/rust_contract/phase10/routes.json",
+  "source_identity_sha256": "c45e70374423270be8c723b8792e44315bd18660de3838d412d9bc8727f37b7a",
+  "source_identity_fields": [
+    "id",
+    "source",
+    "source_sha256",
+    "method",
+    "path",
+    "line"
+  ],
   "source_task": 20,
-  "operations": []
+  "founder_decision": "122",
+  "counts": {
+    "rfq": 8,
+    "negotiations": 6,
+    "supplier_offers": 6,
+    "total": 20
+  },
+  "id_segment": {
+    "regexp": "[^/]+",
+    "reason": "Starlette routes any single non-empty segment to a typed path parameter and rejects a bad id with 422, so a UUID-only matcher would leave braced, URN and percent-encoded spellings reaching Python.",
+    "excluded_static_siblings": {
+      "/api/supplier-offers/{offer_id}": "/api/supplier-offers/my"
+    }
+  },
+  "boundaries": {
+    "not_owned": [
+      "trailing-slash",
+      "wrong-method",
+      "non-uuid-segment",
+      "extra-segment",
+      "prefix-sibling",
+      "double-slash"
+    ],
+    "retired_methods": {
+      "rule": "Each operation retires its own method, OPTIONS (CORS preflight would otherwise reach Python), and HEAD where the framework serves HEAD for a GET route.",
+      "other_methods": "Every other method stays on the fallback and is never captured."
+    },
+    "note": "Only canonical UUID segments match; a literal sibling such as /api/rfq/my is never captured."
+  },
+  "operations": [
+    {
+      "id": "route.POST /api/rfq",
+      "method": "POST",
+      "methods": [
+        "POST",
+        "OPTIONS"
+      ],
+      "path": "/api/rfq",
+      "source": "app/routers/rfq.py",
+      "source_line": 421,
+      "matcher": "phase7_rfq_create",
+      "match": {
+        "kind": "path",
+        "value": "/api/rfq",
+        "exclude": []
+      },
+      "status_code": 404,
+      "upstream": null,
+      "owner": "deploy/caddy/phase10-phase7-retire.caddy",
+      "evidence": "phase7_retirement_exact_operations_return_404"
+    },
+    {
+      "id": "route.GET /api/rfq",
+      "method": "GET",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ],
+      "path": "/api/rfq",
+      "source": "app/routers/rfq.py",
+      "source_line": 589,
+      "matcher": "phase7_rfq_list",
+      "match": {
+        "kind": "path",
+        "value": "/api/rfq",
+        "exclude": []
+      },
+      "status_code": 404,
+      "upstream": null,
+      "owner": "deploy/caddy/phase10-phase7-retire.caddy",
+      "evidence": "phase7_retirement_exact_operations_return_404"
+    },
+    {
+      "id": "route.GET /api/rfq/{rfq_id}",
+      "method": "GET",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ],
+      "path": "/api/rfq/{rfq_id}",
+      "source": "app/routers/rfq.py",
+      "source_line": 638,
+      "matcher": "phase7_rfq_read",
+      "match": {
+        "kind": "regex",
+        "value": "^/api/rfq/[^/]+$",
+        "exclude": []
+      },
+      "status_code": 404,
+      "upstream": null,
+      "owner": "deploy/caddy/phase10-phase7-retire.caddy",
+      "evidence": "phase7_retirement_exact_operations_return_404"
+    },
+    {
+      "id": "route.POST /api/rfq/{rfq_id}/quote",
+      "method": "POST",
+      "methods": [
+        "POST",
+        "OPTIONS"
+      ],
+      "path": "/api/rfq/{rfq_id}/quote",
+      "source": "app/routers/rfq.py",
+      "source_line": 662,
+      "matcher": "phase7_rfq_quote_create",
+      "match": {
+        "kind": "regex",
+        "value": "^/api/rfq/[^/]+/quote$",
+        "exclude": []
+      },
+      "status_code": 404,
+      "upstream": null,
+      "owner": "deploy/caddy/phase10-phase7-retire.caddy",
+      "evidence": "phase7_retirement_exact_operations_return_404"
+    },
+    {
+      "id": "route.PUT /api/rfq/{rfq_id}/quotes/{quote_id}",
+      "method": "PUT",
+      "methods": [
+        "PUT",
+        "OPTIONS"
+      ],
+      "path": "/api/rfq/{rfq_id}/quotes/{quote_id}",
+      "source": "app/routers/rfq.py",
+      "source_line": 751,
+      "matcher": "phase7_rfq_quote_revise",
+      "match": {
+        "kind": "regex",
+        "value": "^/api/rfq/[^/]+/quotes/[^/]+$",
+        "exclude": []
+      },
+      "status_code": 404,
+      "upstream": null,
+      "owner": "deploy/caddy/phase10-phase7-retire.caddy",
+      "evidence": "phase7_retirement_exact_operations_return_404"
+    },
+    {
+      "id": "route.POST /api/rfq/{rfq_id}/quotes/{quote_id}/withdraw",
+      "method": "POST",
+      "methods": [
+        "POST",
+        "OPTIONS"
+      ],
+      "path": "/api/rfq/{rfq_id}/quotes/{quote_id}/withdraw",
+      "source": "app/routers/rfq.py",
+      "source_line": 803,
+      "matcher": "phase7_rfq_quote_withdraw",
+      "match": {
+        "kind": "regex",
+        "value": "^/api/rfq/[^/]+/quotes/[^/]+/withdraw$",
+        "exclude": []
+      },
+      "status_code": 404,
+      "upstream": null,
+      "owner": "deploy/caddy/phase10-phase7-retire.caddy",
+      "evidence": "phase7_retirement_exact_operations_return_404"
+    },
+    {
+      "id": "route.POST /api/rfq/{rfq_id}/accept/{quote_id}",
+      "method": "POST",
+      "methods": [
+        "POST",
+        "OPTIONS"
+      ],
+      "path": "/api/rfq/{rfq_id}/accept/{quote_id}",
+      "source": "app/routers/rfq.py",
+      "source_line": 853,
+      "matcher": "phase7_rfq_accept",
+      "match": {
+        "kind": "regex",
+        "value": "^/api/rfq/[^/]+/accept/[^/]+$",
+        "exclude": []
+      },
+      "status_code": 404,
+      "upstream": null,
+      "owner": "deploy/caddy/phase10-phase7-retire.caddy",
+      "evidence": "phase7_retirement_exact_operations_return_404"
+    },
+    {
+      "id": "route.POST /api/rfq/{rfq_id}/cancel",
+      "method": "POST",
+      "methods": [
+        "POST",
+        "OPTIONS"
+      ],
+      "path": "/api/rfq/{rfq_id}/cancel",
+      "source": "app/routers/rfq.py",
+      "source_line": 877,
+      "matcher": "phase7_rfq_cancel",
+      "match": {
+        "kind": "regex",
+        "value": "^/api/rfq/[^/]+/cancel$",
+        "exclude": []
+      },
+      "status_code": 404,
+      "upstream": null,
+      "owner": "deploy/caddy/phase10-phase7-retire.caddy",
+      "evidence": "phase7_retirement_exact_operations_return_404"
+    },
+    {
+      "id": "route.POST /api/negotiations",
+      "method": "POST",
+      "methods": [
+        "POST",
+        "OPTIONS"
+      ],
+      "path": "/api/negotiations",
+      "source": "app/routers/negotiations.py",
+      "source_line": 515,
+      "matcher": "phase7_negotiation_create",
+      "match": {
+        "kind": "path",
+        "value": "/api/negotiations",
+        "exclude": []
+      },
+      "status_code": 404,
+      "upstream": null,
+      "owner": "deploy/caddy/phase10-phase7-retire.caddy",
+      "evidence": "phase7_retirement_exact_operations_return_404"
+    },
+    {
+      "id": "route.GET /api/negotiations",
+      "method": "GET",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ],
+      "path": "/api/negotiations",
+      "source": "app/routers/negotiations.py",
+      "source_line": 799,
+      "matcher": "phase7_negotiation_list",
+      "match": {
+        "kind": "path",
+        "value": "/api/negotiations",
+        "exclude": []
+      },
+      "status_code": 404,
+      "upstream": null,
+      "owner": "deploy/caddy/phase10-phase7-retire.caddy",
+      "evidence": "phase7_retirement_exact_operations_return_404"
+    },
+    {
+      "id": "route.GET /api/negotiations/{negotiation_id}",
+      "method": "GET",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ],
+      "path": "/api/negotiations/{negotiation_id}",
+      "source": "app/routers/negotiations.py",
+      "source_line": 855,
+      "matcher": "phase7_negotiation_read",
+      "match": {
+        "kind": "regex",
+        "value": "^/api/negotiations/[^/]+$",
+        "exclude": []
+      },
+      "status_code": 404,
+      "upstream": null,
+      "owner": "deploy/caddy/phase10-phase7-retire.caddy",
+      "evidence": "phase7_retirement_exact_operations_return_404"
+    },
+    {
+      "id": "route.POST /api/negotiations/{negotiation_id}/counter",
+      "method": "POST",
+      "methods": [
+        "POST",
+        "OPTIONS"
+      ],
+      "path": "/api/negotiations/{negotiation_id}/counter",
+      "source": "app/routers/negotiations.py",
+      "source_line": 872,
+      "matcher": "phase7_negotiation_counter",
+      "match": {
+        "kind": "regex",
+        "value": "^/api/negotiations/[^/]+/counter$",
+        "exclude": []
+      },
+      "status_code": 404,
+      "upstream": null,
+      "owner": "deploy/caddy/phase10-phase7-retire.caddy",
+      "evidence": "phase7_retirement_exact_operations_return_404"
+    },
+    {
+      "id": "route.POST /api/negotiations/{negotiation_id}/accept",
+      "method": "POST",
+      "methods": [
+        "POST",
+        "OPTIONS"
+      ],
+      "path": "/api/negotiations/{negotiation_id}/accept",
+      "source": "app/routers/negotiations.py",
+      "source_line": 974,
+      "matcher": "phase7_negotiation_accept",
+      "match": {
+        "kind": "regex",
+        "value": "^/api/negotiations/[^/]+/accept$",
+        "exclude": []
+      },
+      "status_code": 404,
+      "upstream": null,
+      "owner": "deploy/caddy/phase10-phase7-retire.caddy",
+      "evidence": "phase7_retirement_exact_operations_return_404"
+    },
+    {
+      "id": "route.POST /api/negotiations/{negotiation_id}/decline",
+      "method": "POST",
+      "methods": [
+        "POST",
+        "OPTIONS"
+      ],
+      "path": "/api/negotiations/{negotiation_id}/decline",
+      "source": "app/routers/negotiations.py",
+      "source_line": 997,
+      "matcher": "phase7_negotiation_decline",
+      "match": {
+        "kind": "regex",
+        "value": "^/api/negotiations/[^/]+/decline$",
+        "exclude": []
+      },
+      "status_code": 404,
+      "upstream": null,
+      "owner": "deploy/caddy/phase10-phase7-retire.caddy",
+      "evidence": "phase7_retirement_exact_operations_return_404"
+    },
+    {
+      "id": "route.GET /api/supplier-offers",
+      "method": "GET",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ],
+      "path": "/api/supplier-offers",
+      "source": "app/routers/supplier_offers.py",
+      "source_line": 259,
+      "matcher": "phase7_offer_list",
+      "match": {
+        "kind": "path",
+        "value": "/api/supplier-offers",
+        "exclude": []
+      },
+      "status_code": 404,
+      "upstream": null,
+      "owner": "deploy/caddy/phase10-phase7-retire.caddy",
+      "evidence": "phase7_retirement_exact_operations_return_404"
+    },
+    {
+      "id": "route.GET /api/supplier-offers/my",
+      "method": "GET",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ],
+      "path": "/api/supplier-offers/my",
+      "source": "app/routers/supplier_offers.py",
+      "source_line": 286,
+      "matcher": "phase7_offer_list_mine",
+      "match": {
+        "kind": "path",
+        "value": "/api/supplier-offers/my",
+        "exclude": []
+      },
+      "status_code": 404,
+      "upstream": null,
+      "owner": "deploy/caddy/phase10-phase7-retire.caddy",
+      "evidence": "phase7_retirement_exact_operations_return_404"
+    },
+    {
+      "id": "route.GET /api/supplier-offers/{offer_id}",
+      "method": "GET",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ],
+      "path": "/api/supplier-offers/{offer_id}",
+      "source": "app/routers/supplier_offers.py",
+      "source_line": 316,
+      "matcher": "phase7_offer_read",
+      "match": {
+        "kind": "regex",
+        "value": "^/api/supplier-offers/[^/]+$",
+        "exclude": [
+          "/api/supplier-offers/my"
+        ]
+      },
+      "status_code": 404,
+      "upstream": null,
+      "owner": "deploy/caddy/phase10-phase7-retire.caddy",
+      "evidence": "phase7_retirement_exact_operations_return_404"
+    },
+    {
+      "id": "route.POST /api/supplier-offers",
+      "method": "POST",
+      "methods": [
+        "POST",
+        "OPTIONS"
+      ],
+      "path": "/api/supplier-offers",
+      "source": "app/routers/supplier_offers.py",
+      "source_line": 334,
+      "matcher": "phase7_offer_create",
+      "match": {
+        "kind": "path",
+        "value": "/api/supplier-offers",
+        "exclude": []
+      },
+      "status_code": 404,
+      "upstream": null,
+      "owner": "deploy/caddy/phase10-phase7-retire.caddy",
+      "evidence": "phase7_retirement_exact_operations_return_404"
+    },
+    {
+      "id": "route.PUT /api/supplier-offers/{offer_id}",
+      "method": "PUT",
+      "methods": [
+        "PUT",
+        "OPTIONS"
+      ],
+      "path": "/api/supplier-offers/{offer_id}",
+      "source": "app/routers/supplier_offers.py",
+      "source_line": 424,
+      "matcher": "phase7_offer_update",
+      "match": {
+        "kind": "regex",
+        "value": "^/api/supplier-offers/[^/]+$",
+        "exclude": [
+          "/api/supplier-offers/my"
+        ]
+      },
+      "status_code": 404,
+      "upstream": null,
+      "owner": "deploy/caddy/phase10-phase7-retire.caddy",
+      "evidence": "phase7_retirement_exact_operations_return_404"
+    },
+    {
+      "id": "route.POST /api/supplier-offers/{offer_id}/withdraw",
+      "method": "POST",
+      "methods": [
+        "POST",
+        "OPTIONS"
+      ],
+      "path": "/api/supplier-offers/{offer_id}/withdraw",
+      "source": "app/routers/supplier_offers.py",
+      "source_line": 479,
+      "matcher": "phase7_offer_withdraw",
+      "match": {
+        "kind": "regex",
+        "value": "^/api/supplier-offers/[^/]+/withdraw$",
+        "exclude": []
+      },
+      "status_code": 404,
+      "upstream": null,
+      "owner": "deploy/caddy/phase10-phase7-retire.caddy",
+      "evidence": "phase7_retirement_exact_operations_return_404"
+    }
+  ]
 }

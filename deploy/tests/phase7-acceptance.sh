@@ -599,14 +599,18 @@ def start_caddy(directory, name, template, replacements):
         config_path = directory / f"{name}.caddy"
         config_path.write_text(template.format(port=port, **replacements))
         validation = subprocess.run(
-            [CADDY, "validate", "--config", str(config_path)],
+            [CADDY, "validate", "--adapter", "caddyfile", "--config", str(config_path)],
             capture_output=True,
             text=True,
         )
         if validation.returncode != 0:
             fail(f"Caddy rejected {name}: {validation.stdout}{validation.stderr}")
         log = log_path.open("w")
-        process = subprocess.Popen([CADDY, "run", "--config", str(config_path)], stdout=log, stderr=log)
+        process = subprocess.Popen(
+            [CADDY, "run", "--adapter", "caddyfile", "--config", str(config_path)],
+            stdout=log,
+            stderr=log,
+        )
         for _ in range(100):
             if process.poll() is not None:
                 break
@@ -633,7 +637,7 @@ def stop(process, log):
     log.close()
 
 
-def operations():
+def load_operations():
     return json.loads((FIXTURES / "phase7-routes.json").read_text())["operations"]
 
 
@@ -677,7 +681,7 @@ http://127.0.0.1:{port} {{
 }}
 """
     live_import = f"        import {SNIPPET}"
-    operations = operations()
+    operations = load_operations()
     port = None
     with tempfile.TemporaryDirectory(prefix="phase7-acceptance-") as temporary:
         directory = Path(temporary)
@@ -714,9 +718,10 @@ http://127.0.0.1:{port} {{
                 url = canonical(op["path"])
                 retired = [op["method"]] + (["HEAD"] if op["method"] == "GET" else []) + ["OPTIONS"]
                 for method in retired:
-                    for suffix in ("/", "/extra"):
-                        if (method, url + suffix) not in owned:
-                            checks.append((method, url + suffix))
+                    if (method, url + "/") not in owned:
+                        checks.append((method, url + "/"))
+                    if PLACEHOLDER.search(op["path"]) and (method, url + "/extra") not in owned:
+                        checks.append((method, url + "/extra"))
                 wrong = "PATCH" if op["method"] != "PATCH" else "DELETE"
                 if (wrong, url) not in owned:
                     checks.append((wrong, url))
