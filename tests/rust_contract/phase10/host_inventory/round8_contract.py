@@ -4,12 +4,11 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
+from collection_assertions import assert_collection, flags, observation, ordered
 from reader_contract import READER, ROOT, TRANSPORT, load
 from round7_contract import record
-from collection_assertions import assert_collection, flags, observation, ordered
-from unittest.mock import ANY
 
 
 class Round8Contract(unittest.TestCase):
@@ -254,9 +253,10 @@ class Round8Contract(unittest.TestCase):
 
     def test_transport_and_publisher_downstream(self):
         original=self.transport.subprocess.Popen
-        def spawn(argv,**kw):return original([sys.executable,'-c',"import os;os.write(1,b'x'*4096)"],**kw)
+        def spawn(argv,**kw):return original([sys.executable,'-c',"import os,sys;sys.stdin.buffer.read();os.write(1,b'x'*4096)"],**kw)
         with patch.object(self.transport.subprocess,'Popen',spawn),patch.object(self.transport,'MAX_BYTES',32):
             raw=self.transport.ssh_once(['fixture'],b'x')
+        self.assertEqual(raw,(b'',False))
         self.assertEqual(self.transport.read_host('staging',lambda a,d:raw),{'refusal':'transport-error'})
         base=json.loads((ROOT/'tests/rust_contract/phase10/host-dependencies.json').read_text())
         self.assertEqual(self.transport.collect_hosts(base,lambda a,d:raw),{'host_refusals':{'staging':{'refusal':'transport-error'},'production':{'refusal':'transport-error'}}})
