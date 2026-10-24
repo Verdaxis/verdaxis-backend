@@ -79,12 +79,14 @@ fn p4_t10_c18() {
     assert!(
         KeyRing::load_runtime(None, Some(std::path::Path::new("/nonexistent")), "test").is_err()
     );
-    assert!(KeyRing::load_runtime(
-        None,
-        Some(std::path::Path::new("/nonexistent")),
-        "production"
-    )
-    .is_err());
+    assert!(
+        KeyRing::load_runtime(
+            None,
+            Some(std::path::Path::new("/nonexistent")),
+            "production"
+        )
+        .is_err()
+    );
     assert_eq!(
         format!("{:?}", KeyRing::parse(b"invalid").unwrap_err()),
         "VaultError"
