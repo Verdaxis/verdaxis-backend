@@ -752,9 +752,11 @@ async fn compliance_overlay_authenticated_cases() {
         false,
     )
     .await;
+    // Python's own Decimal spelling for the 2035 limit: 91.16 * 0.855 keeps
+    // the product's scale, so the string has five decimal places.
     assert_eq!(
         json_body(response).await["assumptions"]["year_target"],
-        "77.9418"
+        "77.94180"
     );
 }
 
