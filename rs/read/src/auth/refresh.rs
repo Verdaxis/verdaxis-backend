@@ -273,7 +273,7 @@ async fn rotate(
         if live && row.rotation_grace_until.is_some_and(|t| t >= now) {
             return Ok(Outcome::Grace);
         }
-        store::revoke_family(&mut tx, row.family_id).await?;
+        store::revoke_refresh_family(&mut tx, row.family_id).await?;
         tx.commit().await?;
         return Ok(Outcome::Refused(AuthCode::RefreshTokenReplayed));
     }
@@ -282,7 +282,7 @@ async fn rotate(
     }
     let jti = generate_token();
     let digest = token_digest(&jti);
-    store::mark_rotated(&mut tx, &row.jti_hash, &digest, now).await?;
+    store::mark_refresh_rotated(&mut tx, &row.jti_hash, &digest, now).await?;
     store::insert_refresh(
         &mut tx,
         &NewRefreshRow {

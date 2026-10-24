@@ -170,17 +170,32 @@ async fn refresh_duplicate_within_grace_is_409() {
 #[ignore = "requires disposable PostgreSQL"]
 async fn refresh_replay_after_grace_revokes_family() {
     let f = Fixture::new().await;
-    assert_eq!(f.send(&f.token, &f.device).await.status(), 200);
+    let response = f.send(&f.token, &f.device).await;
+    assert_eq!(response.status(), 200);
+    let successor = response
+        .headers()
+        .get_all("set-cookie")
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find_map(|v| {
+            v.strip_prefix("refresh_token=")
+                .map(|v| v.split(';').next().unwrap().to_owned())
+        })
+        .unwrap();
     sqlx::query("UPDATE refresh_sessions SET rotation_grace_until=$2 WHERE jti_hash=$1")
         .bind(token_digest(&f.jti))
         .bind(Utc::now() - Duration::seconds(1))
         .execute(&f.owner)
         .await
         .unwrap();
-    assert_eq!(
-        response_code(f.send(&f.token, &f.device).await).await,
-        "REFRESH_TOKEN_REPLAYED"
-    );
+    let replay = f.send(&f.token, &f.device).await;
+    assert_eq!(replay.status(), 401);
+    assert_eq!(response_code(replay).await, "REFRESH_TOKEN_REPLAYED");
+    let before = f.rows().await;
+    let refused = f.send(&successor, &f.device).await;
+    assert_eq!(refused.status(), 401);
+    assert_eq!(response_code(refused).await, "REFRESH_SESSION_REVOKED");
+    assert_eq!(f.rows().await, before);
     assert_eq!(
         sqlx::query_scalar::<_, i64>(
             "SELECT count(*) FROM refresh_sessions WHERE user_id=$1 AND NOT revoked"
@@ -278,36 +293,51 @@ async fn refresh_issuance_range_vectors() {
 #[tokio::test]
 #[ignore = "requires disposable PostgreSQL"]
 async fn concurrent_refresh_same_token_yields_one_successor() {
-    let mut f = Fixture::new().await;
-    let barrier = std::sync::Arc::new(tokio::sync::Barrier::new(3));
-    f.state.hooks.before_device = Some(barrier.clone());
-    let a = tokio::spawn({
-        let state = f.state.clone();
-        let token = f.token.clone();
-        let device = f.device.clone();
-        async move { send(state, &token, &device).await }
-    });
-    let b = tokio::spawn({
-        let state = f.state.clone();
-        let token = f.token.clone();
-        let device = f.device.clone();
-        async move { send(state, &token, &device).await }
-    });
-    barrier.wait().await;
-    let statuses = [
-        a.await.unwrap().status().as_u16(),
-        b.await.unwrap().status().as_u16(),
-    ];
-    assert!(statuses == [200, 409] || statuses == [409, 200]);
-    assert_eq!(
-        sqlx::query_scalar::<_, i64>(
-            "SELECT count(*) FROM refresh_sessions WHERE user_id=$1 AND NOT revoked"
-        )
-        .bind(f.id)
-        .fetch_one(&f.owner)
-        .await
-        .unwrap(),
-        1
-    );
-    f.cleanup().await;
+    for first_label in ["A", "B"] {
+        let f = Fixture::new().await;
+        let held = std::sync::Arc::new(tokio::sync::Barrier::new(2));
+        let entering = std::sync::Arc::new(tokio::sync::Barrier::new(2));
+        let mut first = f.state.clone();
+        first.hooks.user_locked = Some(held.clone());
+        let winner = tokio::spawn({
+            let token = f.token.clone();
+            let device = f.device.clone();
+            async move { send(first, &token, &device).await }
+        });
+        held.wait().await;
+        let mut second = f.state.clone();
+        second.hooks.before_device = Some(entering.clone());
+        let waiter = tokio::spawn({
+            let token = f.token.clone();
+            let device = f.device.clone();
+            async move { send(second, &token, &device).await }
+        });
+        entering.wait().await;
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            loop {
+                let blocked: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND cardinality(pg_blocking_pids(pid))>0)").fetch_one(&f.owner).await.unwrap();
+                if blocked {break;}
+                tokio::task::yield_now().await;
+            }
+        }).await.unwrap();
+        held.wait().await;
+        let success = winner.await.unwrap();
+        let refused = waiter.await.unwrap();
+        assert_eq!(success.status(), 200, "{first_label}");
+        assert_eq!(success.headers().get_all("set-cookie").iter().count(), 2);
+        assert_eq!(refused.status(), 409);
+        assert!(!refused.headers().contains_key("set-cookie"));
+        assert_eq!(response_code(refused).await, "REFRESH_ROTATION_IN_PROGRESS");
+        let rows = f.rows().await;
+        let rows = rows.as_array().unwrap();
+        assert_eq!(rows.len(), 2);
+        let predecessor = rows
+            .iter()
+            .find(|r| r["jti_hash"] == token_digest(&f.jti))
+            .unwrap();
+        let successor = rows.iter().find(|r| r["revoked"] == false).unwrap();
+        assert_eq!(predecessor["replaced_by_jti_hash"], successor["jti_hash"]);
+        assert_eq!(successor["family_id"], serde_json::json!(f.family));
+        f.cleanup().await;
+    }
 }
