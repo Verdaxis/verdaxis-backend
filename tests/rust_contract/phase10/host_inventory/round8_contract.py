@@ -24,7 +24,7 @@ class Round8Contract(unittest.TestCase):
 
     def observations(self,paths,failed=(),unit_text='',drop_text=None,drop_fields=()):
         fields=[{'key':'unit','values':unit_text.split()}] if unit_text else []
-        rows=[observation('units',unit_text,fields,acquired='units' not in failed)]
+        rows=[observation('units','\n'.join(sorted(unit_text.splitlines())),fields,acquired='units' not in failed)]
         if unit_text:
             rows.append(observation('dropins',drop_text or '',drop_fields,acquired='dropins' not in failed))
         rows.extend([observation('timers','',acquired='timers' not in failed),observation('processes','',acquired='processes' not in failed),
@@ -130,7 +130,7 @@ class Round8Contract(unittest.TestCase):
                             script_expectations.append(dict(record(late),imports=[self.reader.unresolved('app.hidden')],credential_references=[self.reader.unresolved(denied)],truncations=[]))
                         else:script_expectations.append(dict(record(path),truncations=[]))
                     critical=[{'source':self.reader.resolved(late),'reference':self.reader.unresolved(denied),'status':'credential-denied'}, {'source':self.reader.resolved(late),'reference':self.reader.unresolved('app.hidden'),'status':'removed-package'}]
-                    expected_blocking=ordered(self.reader,critical+[self.reader.bound_row(status.split(':',1)[1]) for status in expected])
+                    expected_blocking=ordered(self.reader,critical+[self.reader.bound_row(status.split(':',1)[1]) for status in expected]+([{'source':self.reader.resolved(late),'reference':self.reader.unresolved('app.hidden'),'status':'unresolved'}] if bound=='visited' else []))
                     obs=self.observations(seeds,failed={'usr_local'})
                     if bound in ('graph-bytes','file'):
                         retained=set(expected_paths)
