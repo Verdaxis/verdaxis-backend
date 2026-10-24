@@ -135,8 +135,20 @@ impl KycSqlParty {
     };
 }
 
-/// Static composition markers are replaced by the market query constructor;
-/// request values must use `bind_eligibility_sql` instead.
+/// The strict arm of CF4_02 `KycSqlBinding.strict_sql`: current-organization
+/// approval or an unexpired organization-bound grace, after the shared
+/// known-status allowlist and the rejection refusal.
+const STRICT_BODY: &str = "{user}.kyc_status IN ('PENDING','SUBMITTED','APPROVED','REJECTED') AND {user}.kyc_status <> 'REJECTED' AND (({user}.kyc_status = 'APPROVED' AND {user}.kyc_organization_id = {user}.organization_id) OR EXISTS (SELECT 1 FROM kyc_execution_grace g WHERE g.user_id = {user}.id AND g.organization_id = {user}.organization_id AND g.expires_at > /*kyc_now*/::timestamptz))";
+
+/// The advisory arm of CF4_02 `KycSqlBinding.advisory_sql`.
+const ADVISORY_BODY: &str = "{user}.kyc_status IN ('PENDING','SUBMITTED','APPROVED','REJECTED') AND {user}.kyc_status <> 'REJECTED' AND ({user}.kyc_organization_id IS NULL OR {user}.kyc_organization_id = {user}.organization_id)";
+
+/// Render the CF4_02 `KycSqlBinding.combined` form: the advisory arm when the
+/// switch is false, the strict arm when it is true, both after the same known
+/// status allowlist. The outer parentheses keep the two arms together when a
+/// caller composes the predicate with `AND`. Static composition markers are
+/// replaced by the market query constructor; request values must use
+/// `bind_eligibility_sql` instead.
 pub fn eligibility_sql(party: KycSqlParty) -> String {
     let alias = match party.user_alias {
         KycUserAlias::User => "u",
@@ -144,14 +156,11 @@ pub fn eligibility_sql(party: KycSqlParty) -> String {
     };
     // Organization identity deliberately comes from current user membership,
     // not an outer organization which may be the assisted actor's tenant.
-    "({user}.kyc_status IN ('PENDING', 'SUBMITTED', 'APPROVED', 'REJECTED')
-      AND {user}.kyc_status <> 'REJECTED' AND CASE WHEN /*kyc_enabled*/::boolean THEN (
-        ({user}.kyc_status = 'APPROVED' AND {user}.kyc_organization_id = {user}.organization_id)
-        OR EXISTS (SELECT 1 FROM kyc_execution_grace g
-            WHERE g.user_id = {user}.id AND g.organization_id = {user}.organization_id
-              AND g.expires_at > /*kyc_now*/::timestamptz)
-      ) ELSE ({user}.kyc_organization_id IS NULL OR {user}.kyc_organization_id = {user}.organization_id) END)"
-        .replace("{user}", alias)
+    format!(
+        "(NOT /*kyc_enabled*/::boolean AND {advisory}) OR (/*kyc_enabled*/::boolean AND {strict})",
+        advisory = ADVISORY_BODY.replace("{user}", alias),
+        strict = STRICT_BODY.replace("{user}", alias),
+    )
 }
 
 pub fn bind_eligibility_sql(
@@ -164,9 +173,23 @@ pub fn bind_eligibility_sql(
     let (prefix, rest) = sql
         .split_once("/*kyc_enabled*/")
         .expect("static gate marker");
-    let (middle, suffix) = rest.split_once("/*kyc_now*/").expect("static clock marker");
     builder.push(prefix);
     builder.push_bind(policy.execution_gate_enabled);
+    // The combined form names the switch in both arms. Reuse the parameter the
+    // first bind just produced instead of binding the same value twice; the
+    // contract declares exactly two bound values, switch then instant.
+    let switch = builder
+        .sql()
+        .rsplit_once('$')
+        .expect("bound switch placeholder")
+        .1
+        .to_owned();
+    let (middle, rest) = rest
+        .split_once("/*kyc_enabled*/")
+        .expect("second gate marker");
+    builder.push(middle);
+    builder.push(format!("${switch}"));
+    let (middle, suffix) = rest.split_once("/*kyc_now*/").expect("static clock marker");
     builder.push(middle);
     builder.push_bind(now);
     builder.push(suffix);

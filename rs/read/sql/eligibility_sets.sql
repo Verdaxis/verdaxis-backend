@@ -19,7 +19,7 @@
       AND u.status = 'APPROVED'
       AND u.email_verified
       AND NOT u.must_change_password
-      AND /*kyc_u*/
+      AND (/*kyc_u*/)
 ),
 eligible_assisted AS MATERIALIZED (
     -- The member and organization checks key on the ORDER's organization, not
@@ -39,6 +39,6 @@ eligible_assisted AS MATERIALIZED (
             AND m.status = 'APPROVED'
             AND m.email_verified
             AND NOT m.must_change_password
-            AND /*kyc_m*/
+            AND (/*kyc_m*/)
       )
 )
