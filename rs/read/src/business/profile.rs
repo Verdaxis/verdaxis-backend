@@ -254,6 +254,24 @@ pub fn validate_update(body: Value) -> Result<ProfileUpdate, ApiError> {
     Ok(update)
 }
 
+/// The once-only role rule. It needs only the current role and the requested
+/// one, so the route can apply it before the quota (PD4-T8-1) and the command
+/// can apply the same rule again under the write locks.
+fn role_refusal(current: Option<&str>, requested: Option<&str>) -> Option<ApiError> {
+    let requested = requested?;
+    if requested == current.unwrap_or("\0") {
+        return None;
+    }
+    if current.is_some() || requested == "ADMIN" {
+        return Some(refusal(
+            StatusCode::FORBIDDEN,
+            "PROFILE_ROLE_CHANGE_NOT_ALLOWED",
+            "Profile role changes are not allowed.",
+        ));
+    }
+    None
+}
+
 /// The ordered write: revalidated under the actor's locks, one commit.
 struct UpdateProfile {
     actor: Uuid,
@@ -286,15 +304,8 @@ impl BusinessCommand for UpdateProfile {
             let organization: Option<Uuid> = row.get("organization_id");
             let role: Option<String> = row.get("role");
             // The once-only role rule, decided from values before any lock.
-            if let Some(requested) = self.update.role.as_deref()
-                && requested != role.as_deref().unwrap_or("\0")
-                && (role.is_some() || requested == "ADMIN")
-            {
-                return Err(AttemptError::Application(refusal(
-                    StatusCode::FORBIDDEN,
-                    "PROFILE_ROLE_CHANGE_NOT_ALLOWED",
-                    "Profile role changes are not allowed.",
-                )));
+            if let Some(denied) = role_refusal(role.as_deref(), self.update.role.as_deref()) {
+                return Err(AttemptError::Application(denied));
             }
             Ok(OrganizationWritePlan::new(
                 organization,
@@ -326,17 +337,11 @@ impl BusinessCommand for UpdateProfile {
             let role: Option<String> = row.get("role");
             let organization_id: Option<Uuid> = row.get("organization_id");
             let requested = update.role.as_deref();
-            // The role is assigned once, and never ADMIN. The preview decided
-            // the same rule from values; under the locks it holds here.
-            if let Some(requested) = requested
-                && requested != role.as_deref().unwrap_or("\0")
-                && (role.is_some() || requested == "ADMIN")
-            {
-                return Err(AttemptError::Application(refusal(
-                    StatusCode::FORBIDDEN,
-                    "PROFILE_ROLE_CHANGE_NOT_ALLOWED",
-                    "Profile role changes are not allowed.",
-                )));
+            // The role is assigned once, and never ADMIN. The route and the
+            // preview decided the same rule from values; under the locks it
+            // holds here.
+            if let Some(denied) = role_refusal(role.as_deref(), requested) {
+                return Err(AttemptError::Application(denied));
             }
             let first = update.first_name.as_deref();
             let last = update.last_name.as_deref();
@@ -526,20 +531,30 @@ async fn serve_update(
             .and_then(|value| value.to_str().ok()),
     );
     // Authority and typed input precede quota (PD4-T8-1); the pre-pass only
-    // revalidates the current account and counts the call, and commits nothing.
+    // revalidates the current account and applies the role authority before
+    // counting the call, and commits nothing.
     let limits = authority.limits.clone();
     let quota_client = client.clone();
+    let requested_role = update.role.clone();
     let denied = run_authenticated(
         &state,
         access,
         AuthenticatedRequest::new("PUT", ME_PATH, false),
         move |transaction| {
             Box::pin(async move {
+                let actor = transaction.actor();
+                // A refused role change is an authority refusal: it must not
+                // spend the caller's quota.
+                if let Some(denied) =
+                    role_refusal(actor.role.as_deref(), requested_role.as_deref())
+                {
+                    return Err(denied);
+                }
                 quota(
                     &limits,
                     "PUT",
                     &quota_client,
-                    transaction.actor(),
+                    actor,
                     now.timestamp().max(0) as u64,
                 )?;
                 Ok::<(), ApiError>(())
