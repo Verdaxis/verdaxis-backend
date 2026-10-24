@@ -416,8 +416,12 @@ fn scan_repository() -> Vec<String> {
 // CF4_04.integration_patch.order_write_mod_rs.add_exports is the sole
 // authority for these external business entry points. No file-level exemption.
 const BUSINESS_EXPORTS: &[&str] = &[
-    "InvalidateOrganization", "InvalidationResult", "InvalidationError",
-    "invalidate_organization", "BenchmarkRebuildKey", "BenchmarkRebuildResult",
+    "InvalidateOrganization",
+    "InvalidationResult",
+    "InvalidationError",
+    "invalidate_organization",
+    "BenchmarkRebuildKey",
+    "BenchmarkRebuildResult",
     "rebuild_live_slice_benchmarks_for_keys",
 ];
 
@@ -427,26 +431,42 @@ fn rust_tokens(text: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut i = 0;
     while i < bytes.len() {
-        if let Some((_, end)) = literals.iter().find(|(start, end)| i >= start.saturating_sub(1) && i <= *end) {
+        if let Some((_, end)) = literals
+            .iter()
+            .find(|(start, end)| i >= start.saturating_sub(1) && i <= *end)
+        {
             i = end + 1;
         } else if bytes[i..].starts_with(b"//") {
-            while i < bytes.len() && bytes[i] != b'\n' { i += 1; }
+            while i < bytes.len() && bytes[i] != b'\n' {
+                i += 1;
+            }
         } else if bytes[i..].starts_with(b"/*") {
             i += 2;
             let mut depth = 1;
             while i < bytes.len() && depth > 0 {
-                if bytes[i..].starts_with(b"/*") { depth += 1; i += 2; }
-                else if bytes[i..].starts_with(b"*/") { depth -= 1; i += 2; }
-                else { i += 1; }
+                if bytes[i..].starts_with(b"/*") {
+                    depth += 1;
+                    i += 2;
+                } else if bytes[i..].starts_with(b"*/") {
+                    depth -= 1;
+                    i += 2;
+                } else {
+                    i += 1;
+                }
             }
         } else if bytes[i].is_ascii_alphabetic() || bytes[i] == b'_' {
             let start = i;
-            while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') { i += 1; }
+            while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
+                i += 1;
+            }
             tokens.push(text[start..i].to_owned());
         } else if bytes[i..].starts_with(b"::") {
-            tokens.push("::".into()); i += 2;
+            tokens.push("::".into());
+            i += 2;
         } else {
-            if !bytes[i].is_ascii_whitespace() { tokens.push((bytes[i] as char).to_string()); }
+            if !bytes[i].is_ascii_whitespace() {
+                tokens.push((bytes[i] as char).to_string());
+            }
             i += 1;
         }
     }
@@ -456,48 +476,129 @@ fn rust_tokens(text: &str) -> Vec<String> {
 fn boundary_reference_allowed(text: &str) -> bool {
     let tokens = rust_tokens(text);
     for (index, token) in tokens.iter().enumerate() {
-        if token != "order_write" { continue; }
-        if tokens.get(index + 1).map(String::as_str) != Some("::") { return false; }
-        let Some(item) = tokens.get(index + 2) else { return false; };
+        if token != "order_write" {
+            continue;
+        }
+        if index > 0 && tokens[index - 1] == "mod" {
+            // Declaration-only consumer doubles expose the same narrow port.
+            // Their literals still pass every DML and lock check above.
+            let mut cursor = index + 1;
+            if tokens.get(cursor).map(String::as_str) != Some("{") {
+                return false;
+            }
+            let mut depth = 1;
+            cursor += 1;
+            while cursor < tokens.len() && depth > 0 {
+                if depth == 1 && tokens[cursor] == "pub" {
+                    cursor += 1;
+                    if tokens.get(cursor).map(String::as_str) == Some("async") {
+                        cursor += 1;
+                    }
+                    if !matches!(tokens.get(cursor).map(String::as_str), Some("struct" | "type" | "fn")) {
+                        return false;
+                    }
+                    cursor += 1;
+                    if !tokens.get(cursor).is_some_and(|name| BUSINESS_EXPORTS.contains(&name.as_str())) {
+                        return false;
+                    }
+                }
+                match tokens.get(cursor).map(String::as_str) {
+                    Some("{") => depth += 1,
+                    Some("}") => depth -= 1,
+                    _ => {}
+                }
+                cursor += 1;
+            }
+            if depth != 0 { return false; }
+            continue;
+        }
+        if tokens.get(index + 1).map(String::as_str) != Some("::") {
+            return false;
+        }
+        let Some(item) = tokens.get(index + 2) else {
+            return false;
+        };
         if item == "{" {
             let mut cursor = index + 3;
             let mut expect_item = true;
             while let Some(token) = tokens.get(cursor) {
-                if token == "}" { break; }
+                if token == "}" {
+                    break;
+                }
                 if expect_item {
-                    if !BUSINESS_EXPORTS.contains(&token.as_str()) { return false; }
+                    if !BUSINESS_EXPORTS.contains(&token.as_str()) {
+                        return false;
+                    }
                     expect_item = false;
                 } else if token == "as" {
                     cursor += 1;
-                    let Some(alias) = tokens.get(cursor) else { return false; };
-                    if !alias.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') { return false; }
+                    let Some(alias) = tokens.get(cursor) else {
+                        return false;
+                    };
+                    if !alias
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+                    {
+                        return false;
+                    }
                 } else if token == "," {
                     expect_item = true;
-                } else { return false; }
+                } else {
+                    return false;
+                }
                 cursor += 1;
             }
-            if tokens.get(cursor).map(String::as_str) != Some("}") { return false; }
+            if tokens.get(cursor).map(String::as_str) != Some("}") {
+                return false;
+            }
         } else if !BUSINESS_EXPORTS.contains(&item.as_str())
             || tokens.get(index + 3).map(String::as_str) == Some("::")
-        { return false; }
+        {
+            return false;
+        }
     }
     true
 }
 
 #[test]
 fn declared_business_exports_do_not_open_the_write_boundary() {
-    let contract: Value = serde_json::from_str(include_str!("../../../tests/rust_contract/phase4/contracts-v2.json")).unwrap();
-    let exports = contract["contracts"][3]["integration_patch"]["order_write_mod_rs"]["add_exports"].as_str().unwrap();
-    let declared: Vec<_> = rust_tokens(exports).into_iter().filter(|token| BUSINESS_EXPORTS.contains(&token.as_str())).collect();
+    let contract: Value = serde_json::from_str(include_str!(
+        "../../../tests/rust_contract/phase4/contracts-v2.json"
+    ))
+    .unwrap();
+    let exports =
+        contract["contracts"][3]["integration_patch"]["order_write_mod_rs"]["add_exports"]
+            .as_str()
+            .unwrap();
+    let declared: Vec<_> = rust_tokens(exports)
+        .into_iter()
+        .filter(|token| BUSINESS_EXPORTS.contains(&token.as_str()))
+        .collect();
     assert_eq!(declared, BUSINESS_EXPORTS);
     let business = "use crate::order_write::{InvalidateOrganization, invalidate_organization};";
-    assert!(boundary_reference_allowed(business), "declared business export");
-    assert!(boundary_reference_allowed("crate::order_write::invalidate_organization(conn, command)"));
-    assert!(!boundary_reference_allowed("use crate::order_write::execute_order_command;"));
-    assert!(!boundary_reference_allowed("use crate::order_write::{InvalidateOrganization, locks::SliceKey};"));
+    assert!(
+        boundary_reference_allowed(business),
+        "declared business export"
+    );
+    assert!(boundary_reference_allowed(
+        "crate::order_write::invalidate_organization(conn, command)"
+    ));
+    assert!(!boundary_reference_allowed(
+        "use crate::order_write::execute_order_command;"
+    ));
+    assert!(!boundary_reference_allowed(
+        "use crate::order_write::{InvalidateOrganization, locks::SliceKey};"
+    ));
     assert!(!boundary_reference_allowed("use crate::order_write::*;"));
+    assert!(boundary_reference_allowed("pub mod order_write { pub struct InvalidateOrganization { pub id: Uuid } pub type InvalidationError = Error; pub async fn invalidate_organization() {} }"));
+    assert!(!boundary_reference_allowed("pub mod order_write { pub fn execute_order_command() {} }"));
+    assert!(!boundary_reference_allowed("use crate::order_write as other;"));
+    assert!(!boundary_reference_allowed("use crate::order_write::{InvalidateOrganization, execute_order_command};"));
     let direct_write = ["UPDATE ", "order", "book_orders SET version=2"].concat();
-    assert_eq!(orderbook_dml(&normalized(&direct_write)), Some("order-book DML"));
+    assert_eq!(
+        orderbook_dml(&normalized(&direct_write)),
+        Some("order-book DML")
+    );
 }
 
 #[test]
