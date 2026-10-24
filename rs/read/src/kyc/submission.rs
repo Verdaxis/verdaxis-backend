@@ -80,18 +80,16 @@ impl fmt::Debug for Declarations {
 }
 
 fn identity(value: &str) -> String {
-    // Company declarations are compared as caseless, whitespace-normalized text.
-    value
+    // Python compares `" ".join(value.split()).casefold()`: split on Unicode
+    // whitespace, rejoin with single spaces, then full default (non-Turkic)
+    // case folding. ICU4X owns the folding tables; no exceptions are kept here.
+    let whitespace_normalized = value
         .split_whitespace()
         .collect::<Vec<_>>()
-        .join(" ")
-        .chars()
-        .flat_map(|c| match c {
-            'ß' | 'ẞ' => "ss".chars().collect::<Vec<_>>(),
-            'ς' => vec!['σ'],
-            _ => c.to_lowercase().collect(),
-        })
-        .collect()
+        .join(" ");
+    icu_casemap::CaseMapper::new()
+        .fold_string(&whitespace_normalized)
+        .into_owned()
 }
 
 impl Declarations {
