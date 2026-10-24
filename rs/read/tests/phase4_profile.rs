@@ -13,16 +13,27 @@ mod profile;
 #[path = "../src/business/survey.rs"]
 mod survey;
 
-use std::{collections::VecDeque, net::SocketAddr, sync::Arc, sync::Mutex};
+use std::net::SocketAddr;
+use std::sync::Arc;
+#[cfg(feature = "contract-tests")]
+use std::collections::VecDeque;
+#[cfg(feature = "contract-tests")]
+use std::sync::Mutex;
 
 use axum::{
     Router,
     body::{Body, to_bytes},
-    http::{HeaderMap, Request, StatusCode},
+    http::{Request, StatusCode},
 };
-use chrono::{DateTime, Duration, Utc};
+#[cfg(feature = "contract-tests")]
+use axum::http::HeaderMap;
+use chrono::{DateTime, Utc};
+#[cfg(feature = "contract-tests")]
+use chrono::Duration;
 use serde_json::{Value, json};
-use sqlx::{Connection, PgConnection, postgres::PgPoolOptions};
+use sqlx::{PgConnection, postgres::PgPoolOptions};
+#[cfg(feature = "contract-tests")]
+use sqlx::{Connection, Row};
 use tower::ServiceExt;
 use uuid::Uuid;
 use verdaxis_read::auth::AuthError;
@@ -43,6 +54,7 @@ fn verification() -> auth::VerificationSettings {
 }
 
 /// A token issued at `issued`, valid for the action clock.
+#[cfg(feature = "contract-tests")]
 fn token_at(id: Uuid, issued: DateTime<Utc>) -> String {
     jsonwebtoken::encode(
         &jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS256),
@@ -60,6 +72,7 @@ fn token_at(id: Uuid, issued: DateTime<Utc>) -> String {
     .unwrap()
 }
 
+#[cfg(feature = "contract-tests")]
 fn token(id: Uuid) -> String {
     token_at(id, Utc::now() - Duration::minutes(5))
 }
@@ -83,8 +96,10 @@ fn config(url: String, gate: bool) -> Config {
 
 struct Reply {
     status: StatusCode,
-    headers: HeaderMap,
     body: Value,
+    #[cfg(feature = "contract-tests")]
+    headers: HeaderMap,
+    #[cfg(feature = "contract-tests")]
     raw: Vec<u8>,
 }
 
@@ -111,6 +126,7 @@ async fn send(
         .insert(axum::extract::ConnectInfo(peer.parse::<SocketAddr>().unwrap()));
     let response = app.clone().oneshot(request).await.unwrap();
     let status = response.status();
+    #[cfg(feature = "contract-tests")]
     let headers = response.headers().clone();
     let raw = to_bytes(response.into_body(), 1 << 20)
         .await
@@ -123,16 +139,20 @@ async fn send(
     };
     Reply {
         status,
-        headers,
         body,
+        #[cfg(feature = "contract-tests")]
+        headers,
+        #[cfg(feature = "contract-tests")]
         raw,
     }
 }
 
+#[cfg(feature = "contract-tests")]
 async fn get(app: &Router, path: &str, bearer: Option<&str>) -> Reply {
     send(app, "GET", path, bearer, None, CLIENT).await
 }
 
+#[cfg(feature = "contract-tests")]
 async fn put(app: &Router, path: &str, bearer: &str, body: &Value) -> Reply {
     send(
         app,
@@ -145,6 +165,7 @@ async fn put(app: &Router, path: &str, bearer: &str, body: &Value) -> Reply {
     .await
 }
 
+#[cfg(feature = "contract-tests")]
 async fn survey(app: &Router, bearer: Option<&str>, body: &Value) -> Reply {
     send(
         app,
@@ -244,6 +265,7 @@ impl KycProfilePolicy for PolicyDouble {
     }
 }
 
+#[cfg(feature = "contract-tests")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct AppendCall {
     user: Uuid,
@@ -253,8 +275,11 @@ struct AppendCall {
 
 #[derive(Default)]
 struct RecordingEvents {
+    #[cfg(feature = "contract-tests")]
     visible: Mutex<VecDeque<bool>>,
+    #[cfg(feature = "contract-tests")]
     visible_calls: Mutex<Vec<Uuid>>,
+    #[cfg(feature = "contract-tests")]
     appends: Mutex<Vec<AppendCall>>,
 }
 
@@ -262,12 +287,15 @@ impl RecordingEvents {
     fn new() -> Arc<Self> {
         Arc::new(Self::default())
     }
+    #[cfg(feature = "contract-tests")]
     fn push_visible(&self, value: bool) {
         self.visible.lock().unwrap().push_back(value);
     }
+    #[cfg(feature = "contract-tests")]
     fn visible_calls(&self) -> Vec<Uuid> {
         self.visible_calls.lock().unwrap().clone()
     }
+    #[cfg(feature = "contract-tests")]
     fn appends(&self) -> Vec<AppendCall> {
         self.appends.lock().unwrap().clone()
     }
@@ -280,8 +308,18 @@ impl ProfileMarketEvents for RecordingEvents {
         user: Uuid,
     ) -> CommandFuture<'a, bool, AttemptError> {
         Box::pin(async move {
+            #[cfg(feature = "contract-tests")]
             self.visible_calls.lock().unwrap().push(user);
-            Ok(self.visible.lock().unwrap().pop_front().unwrap_or(false))
+            #[cfg(not(feature = "contract-tests"))]
+            let _ = user;
+            #[cfg(feature = "contract-tests")]
+            {
+                Ok(self.visible.lock().unwrap().pop_front().unwrap_or(false))
+            }
+            #[cfg(not(feature = "contract-tests"))]
+            {
+                Ok(false)
+            }
         })
     }
     fn append<'a>(
@@ -302,26 +340,35 @@ impl ProfileMarketEvents for RecordingEvents {
             .bind(json!({"schema_version":1,"user_id":user.to_string()}))
             .execute(conn)
             .await?;
+            #[cfg(feature = "contract-tests")]
             self.appends.lock().unwrap().push(AppendCall {
                 user,
                 organization,
                 public,
             });
+            #[cfg(not(feature = "contract-tests"))]
+            let _ = public;
             Ok(())
         })
     }
 }
 
+/// One fixture row: index, role, status, organization, KYC status, bound KYC
+/// organization, grace offset in days.
+#[cfg(feature = "contract-tests")]
+type ProfileRow = (usize, Option<&str>, &str, Option<Uuid>, &str, Option<Uuid>, Option<i64>);
+
+#[cfg(feature = "contract-tests")]
 struct Fixture {
     admin: PgConnection,
     pool: sqlx::PgPool,
     app: Router,
-    events: Arc<RecordingEvents>,
     schema: String,
     organizations: [Uuid; 2],
     users: [Uuid; 16],
 }
 
+#[cfg(feature = "contract-tests")]
 impl Fixture {
     async fn new(gate: bool, events: Arc<RecordingEvents>) -> Self {
         let migrator = std::env::var("RUST_TEST_MIGRATOR_DATABASE_URL")
@@ -393,7 +440,7 @@ impl Fixture {
         let users: [Uuid; 16] = std::array::from_fn(|_| Uuid::new_v4());
         let [o1, o2] = organizations;
         // index, role, status, org, kyc status, kyc org, grace offset in days.
-        let rows: [(usize, Option<&str>, &str, Option<Uuid>, &str, Option<Uuid>, Option<i64>); 12] = [
+        let rows: [ProfileRow; 12] = [
             (0, Some("BUYER"), "APPROVED", Some(o1), "APPROVED", Some(o1), None),
             (1, Some("SUPPLIER"), "APPROVED", Some(o1), "PENDING", Some(o1), Some(7)),
             (2, Some("BUYER"), "APPROVED", Some(o1), "REJECTED", Some(o1), Some(7)),
@@ -521,7 +568,6 @@ impl Fixture {
             admin,
             pool,
             app,
-            events,
             schema,
             organizations,
             users,

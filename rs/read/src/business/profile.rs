@@ -279,17 +279,16 @@ impl BusinessCommand for UpdateProfile {
             })?;
             let organization: Option<Uuid> = row.get("organization_id");
             let role: Option<String> = row.get("role");
-            let requested = self.update.role.as_deref();
-            if let Some(requested) = requested
+            // The once-only role rule, decided from values before any lock.
+            if let Some(requested) = self.update.role.as_deref()
                 && requested != role.as_deref().unwrap_or("\0")
+                && (role.is_some() || requested == "ADMIN")
             {
-                if role.is_some() || requested == "ADMIN" {
-                    return Err(AttemptError::Application(refusal(
-                        StatusCode::FORBIDDEN,
-                        "PROFILE_ROLE_CHANGE_NOT_ALLOWED",
-                        "Profile role changes are not allowed.",
-                    )));
-                }
+                return Err(AttemptError::Application(refusal(
+                    StatusCode::FORBIDDEN,
+                    "PROFILE_ROLE_CHANGE_NOT_ALLOWED",
+                    "Profile role changes are not allowed.",
+                )));
             }
             Ok(OrganizationWritePlan::new(
                 organization,
