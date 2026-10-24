@@ -282,8 +282,6 @@ fn preauth_refusal(path: &str, refusal: Refusal) -> Response {
         return refusal.auth_failure().into_response();
     }
     rate_limit_response()
-    )
-        .into_response()
 }
 
 /// Apply the two rules that sit just outside route dispatch: the Market Support
