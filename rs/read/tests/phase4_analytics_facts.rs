@@ -817,7 +817,7 @@ fn p4_t18_c10() {
     // loop that issued SQL would be the per-user query loop this forbids.
     let mut loops = 0_usize;
     let mut cursor = 0_usize;
-    while let Some(found) = code[cursor..].find(|c: char| c == 'f' || c == 'w' || c == 'l') {
+    while let Some(found) = code[cursor..].find(['f', 'w', 'l']) {
         let position = cursor + found;
         cursor = position + 1;
         if position > 0 && is_word_byte(code.as_bytes()[position - 1]) {
