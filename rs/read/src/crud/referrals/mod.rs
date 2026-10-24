@@ -54,7 +54,6 @@ pub struct ReferralSettings {
     pub mail: invite::MailClient,
     pub email_from: Arc<str>,
     pub limits: crate::auth::limits::SharedLimits,
-    started: std::time::Instant,
 }
 
 impl ReferralSettings {
@@ -65,7 +64,6 @@ impl ReferralSettings {
             mail: invite::MailClient::disabled(),
             email_from: "".into(),
             limits: crate::auth::limits::SharedLimits::default(),
-            started: std::time::Instant::now(),
         }
     }
 }
@@ -211,7 +209,7 @@ async fn send_invite(
             headers.get("x-forwarded-for").and_then(|v| v.to_str().ok()),
         ),
         path: "/api/referrals/invite".into(),
-        now_seconds: settings.started.elapsed().as_secs(),
+        now_seconds: chrono::Utc::now().timestamp() as u64,
         limits: settings.limits.clone(),
     };
     let frontend = settings.frontend_url.clone();

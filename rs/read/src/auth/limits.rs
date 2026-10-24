@@ -71,7 +71,15 @@ struct QuotaStore {
 }
 
 impl QuotaStore {
-    fn accept(&mut self, owner: &str, key: &str, limit: u32, window: u64, now: u64) -> bool {
+    fn accept(
+        &mut self,
+        owner: &str,
+        key: &str,
+        limit: u32,
+        window: u64,
+        now: u64,
+        evict: bool,
+    ) -> bool {
         while let Some((expires_at, _)) = self.expiration.first() {
             if *expires_at > now {
                 break;
@@ -82,6 +90,9 @@ impl QuotaStore {
         let identity = (owner.into(), key.into());
         if !self.buckets.contains_key(&identity) {
             if self.buckets.len() == MAX_BUCKETS {
+                if !evict {
+                    return false;
+                }
                 let (_, expired) = self.expiration.pop_first().expect("full quota index");
                 self.buckets.remove(&expired);
                 self.evictions = self.evictions.saturating_add(1);
@@ -131,14 +142,14 @@ impl Phase2Limits {
         !path.starts_with("/api/admin/")
             || self
                 .preauth_store
-                .accept(&network_identity(client), "/api/admin/", 300, 60, now)
+                .accept(&network_identity(client), "/api/admin/", 300, 60, now, true)
     }
     /// The owner is the current verified user ID, never a transport address.
     pub fn endpoint(&mut self, user: &str, path: &str, now: u64) -> bool {
         let Some((key, limit, window)) = endpoint_policy(path) else {
             return true;
         };
-        self.user_store.accept(user, key, limit, window, now)
+        self.user_store.accept(user, key, limit, window, now, false)
     }
 }
 
