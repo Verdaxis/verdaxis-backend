@@ -31,6 +31,12 @@ def scenario(name):
     return registry()[name]
 
 
+def run_context(size_name):
+    """The context a scenario's action builder reads during a run."""
+    return SimpleNamespace(environment={"JWT_SECRET": "test-secret-key-for-testing-minimum-32-chars"},
+                           root=ROOT, python_bin="python", size=sizes_module().profile(size_name))
+
+
 def test_both_declared_sizes_exist_and_scale_every_history():
     module = sizes_module()
     small, large = module.profile("small"), module.profile("large")
@@ -74,7 +80,7 @@ def test_histories_scale_with_the_selected_profile():
 def test_notifications_scenario_declares_its_history_and_page_actions():
     item = scenario("notification_scope_and_email_state")
     assert item.volume is not None, "the notification history must follow --phase2-size"
-    actions = item.actions(SimpleNamespace(size=sizes_module().profile("large")))
+    actions = item.actions(run_context("large"))
     names = {action.name for action in actions}
     assert {"list-empty", "page-full", "page-second", "page-beyond-end"} <= names
     assert {action.route_id for action in actions if action.name.startswith("page-")} == {"N01"}
@@ -83,7 +89,7 @@ def test_notifications_scenario_declares_its_history_and_page_actions():
 def test_watchlist_activity_scenario_covers_the_four_unscenaried_routes():
     item = scenario("watchlist-activity")
     assert item.volume is not None
-    actions = item.actions(SimpleNamespace(size=sizes_module().profile("large")))
+    actions = item.actions(run_context("large"))
     covered = {action.route_id for action in actions}
     assert {"W01", "W02", "W07", "W08", "W09", "W10"} <= covered
     names = {action.name for action in actions}
@@ -94,7 +100,7 @@ def test_watchlist_activity_scenario_covers_the_four_unscenaried_routes():
 def test_feedback_scenario_declares_the_admin_page_boundary():
     item = scenario("feedback-routes")
     assert item.volume is not None
-    actions = list(item.actions(SimpleNamespace(size=sizes_module().profile("large"))))
+    actions = list(item.actions(run_context("large")))
     queries = [action.path for action in actions if action.method == "GET"]
     assert "/api/admin/feedback?limit=200&offset=0" in queries
     assert "/api/admin/feedback?limit=200&offset=200" in queries
@@ -103,7 +109,7 @@ def test_feedback_scenario_declares_the_admin_page_boundary():
 def test_every_new_action_has_a_status_and_a_local_path():
     for name in ("notification_scope_and_email_state", "watchlist-activity", "feedback-routes"):
         item = scenario(name)
-        for action in item.actions(SimpleNamespace(size=sizes_module().profile("small"))):
+        for action in item.actions(run_context("small")):
             assert isinstance(action.expected_status, int)
             assert action.path.startswith("/api/")
 

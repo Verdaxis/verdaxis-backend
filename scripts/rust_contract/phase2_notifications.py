@@ -95,7 +95,7 @@ def scenario():
                       assert_after=check or assertion)
 
     def actions(context):
-        profile = context.size
+        profile = getattr(context, "size", None)
         visible = profile.notifications + 7 if profile is not None else 0
 
         def read_only(expected=None):

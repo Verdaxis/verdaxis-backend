@@ -100,7 +100,10 @@ def uuid_text(value, name):
 
 def instant(value, name):
     require(isinstance(value, str), f"{name} is not a string instant")
-    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise JourneyError(f"{name} is not an ISO-8601 instant") from error
     require(parsed.tzinfo is not None, f"{name} is not timezone aware")
     return parsed
 

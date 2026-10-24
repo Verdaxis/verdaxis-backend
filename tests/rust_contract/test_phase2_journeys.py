@@ -96,7 +96,7 @@ def test_watchlists_journey_follows_the_radar_hook():
     assert ("POST", "/api/watchlists") in paths
     assert ("POST", "/api/watchlists/{custom_id}/entries") in paths
     assert ("DELETE", "/api/watchlists/{custom_id}/entries/{entry_id}") in paths
-    assert ("DELETE", "/api/watchlists/{watchlist_id}") in paths
+    assert ("DELETE", "/api/watchlists/{custom_id}") in paths
     events = next(call for call in calls if call.path.endswith("/events"))
     assert events.query["limit"] == "25"
 

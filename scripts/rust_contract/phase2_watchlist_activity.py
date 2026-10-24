@@ -14,6 +14,7 @@ from scripts.rust_contract.phase2_scenarios import (
     ScenarioError,
     Server,
 )
+from scripts.rust_contract.phase2_sizes import profile as size_profile
 from scripts.rust_contract.phase2_watchlist_asserts import (
     Schedule,
     created,
@@ -170,7 +171,9 @@ def _event_read(before, after, response, mail):
 
 
 def actions(context):
-    profile = context.size
+    # The scenario inventory names actions without a run context, so the small
+    # profile stands in when no size was selected.
+    profile = getattr(context, "size", None) or size_profile("small")
     schedule = Schedule(SECRET, REQUEST_ID)
     auth = {"authorization": bearer(SECRET, OWNER), "x-request-id": REQUEST_ID}
     empty_auth = {"authorization": bearer(SECRET, EMPTY), "x-request-id": REQUEST_ID}
