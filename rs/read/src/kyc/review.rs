@@ -1,10 +1,10 @@
-use std::sync::Arc;
+use std::{net::SocketAddr, sync::Arc};
 
 use axum::{
     Json, Router,
     body::Bytes,
-    extract::{DefaultBodyLimit, Path, State},
-    http::{HeaderMap, StatusCode},
+    extract::{ConnectInfo, DefaultBodyLimit, Path, State},
+    http::{Extensions, HeaderMap, StatusCode},
     routing::put,
 };
 use chrono::{DateTime, Utc};
@@ -33,6 +33,12 @@ use crate::{
 
 // The review body contains bounded text only, never document content.
 const REVIEW_BODY_BYTES: usize = 16 * 1024;
+
+// Python's audit registry (`app/services/audit_actions.py`). The append-only
+// audit table stores these dotted values verbatim and compliance reads filter
+// on them, so they are a wire contract, not a label.
+const APPROVED_ACTION: &str = "kyc.approved";
+const REJECTED_ACTION: &str = "kyc.rejected";
 
 pub enum Decision {
     Approve {
@@ -154,6 +160,8 @@ impl ReviewService {
     async fn review(
         self,
         headers: HeaderMap,
+        client: String,
+        request_id: String,
         target: String,
         raw: Bytes,
         approve: bool,
@@ -208,13 +216,14 @@ impl ReviewService {
             "/api/kyc/admin/{user_id}/reject"
         };
         // These routes currently declare no route quota. Use the shared exact
-        // method/template policy so future integration cannot silently omit one.
+        // method/template policy so future integration cannot silently omit one,
+        // and pass the real caller identity so no future limit shares a bucket.
         self.limits.check_business(
             "PUT",
             template,
             BusinessLimitKeys {
-                client: "unknown",
-                user: None,
+                client: &client,
+                user: Some(&access.subject.to_string()),
                 organization: None,
                 token: None,
             },
@@ -231,6 +240,8 @@ impl ReviewService {
             user_id,
             decision,
             now: Utc::now(),
+            client: Some(client),
+            request_id: Some(request_id),
             events: self.events,
         };
         let committed = run_ordered_write(self.pool, self.permits, access, command).await?;
@@ -251,30 +262,57 @@ impl ReviewService {
 async fn approve(
     State(service): State<ReviewService>,
     Path(target): Path<String>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    extensions: Extensions,
     headers: HeaderMap,
     raw: Bytes,
 ) -> Result<Json<Value>, ApiError> {
-    owned_review(service, target, headers, raw, true).await
+    owned_review(service, peer, extensions, target, headers, raw, true).await
 }
 
 async fn reject(
     State(service): State<ReviewService>,
     Path(target): Path<String>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    extensions: Extensions,
     headers: HeaderMap,
     raw: Bytes,
 ) -> Result<Json<Value>, ApiError> {
-    owned_review(service, target, headers, raw, false).await
+    owned_review(service, peer, extensions, target, headers, raw, false).await
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn owned_review(
     service: ReviewService,
+    peer: SocketAddr,
+    extensions: Extensions,
     target: String,
     headers: HeaderMap,
     raw: Bytes,
     approve: bool,
 ) -> Result<Json<Value>, ApiError> {
+    // The same address rule the serving middleware applies, so the audit row
+    // carries the value Python's request context records. `client_ip` trusts a
+    // forwarded hop only from a loopback peer, exactly as `app/rate_limit.py`.
+    let client = crate::runtime::http::client_ip(
+        Some(peer.ip()),
+        headers
+            .get("x-forwarded-for")
+            .and_then(|value| value.to_str().ok()),
+    );
+    // Reuse the correlation id the middleware already minted for this request
+    // (it owns the log line and the response header). Deriving a second id here
+    // would split one request across two audit identities; the header fallback
+    // only serves the component router, which has no middleware.
+    let request_id = extensions.get::<String>().cloned().unwrap_or_else(|| {
+        crate::runtime::logging::request_id(
+            headers
+                .get("x-request-id")
+                .and_then(|value| value.to_str().ok()),
+        )
+    });
     // Retain ownership through caller cancellation, including the single send.
-    tokio::spawn(service.review(headers, target, raw, approve))
+    tokio::spawn(service.review(headers, client, request_id, target, raw, approve))
         .await
         .map_err(|_| database_failure(None))?
 }
@@ -283,6 +321,8 @@ pub struct ReviewCommand {
     pub user_id: Uuid,
     pub decision: Decision,
     pub now: DateTime<Utc>,
+    pub client: Option<String>,
+    pub request_id: Option<String>,
     pub events: Arc<dyn AdmissionEvents>,
 }
 
@@ -339,15 +379,12 @@ impl BusinessCommand for ReviewCommand {
                     )
                 })?;
             let previous: Option<String> = row.get("kyc_status");
-            let valid = matches!(
-                (&self.decision, previous.as_deref()),
-                (Decision::Approve { .. }, Some("SUBMITTED"))
-                    | (
-                        Decision::Reject { .. },
-                        Some("PENDING" | "SUBMITTED" | "APPROVED")
-                    )
-            );
-            if !valid {
+            // Python's approve path requires SUBMITTED; its reject path has no
+            // status precondition (PD4-T11b-1). Both still require the current
+            // organization binding above.
+            if matches!(self.decision, Decision::Approve { .. })
+                && previous.as_deref() != Some("SUBMITTED")
+            {
                 return Err(refusal(
                     StatusCode::CONFLICT,
                     "KYC_REVIEW_NOT_SUBMITTED",
@@ -370,9 +407,14 @@ impl BusinessCommand for ReviewCommand {
             sqlx::query("UPDATE users SET kyc_status=$2,kyc_rejection_reason=$3,kyc_external_evidence_reference=CASE WHEN $2='APPROVED' THEN $4 ELSE kyc_external_evidence_reference END,kyc_review_note=$5,kyc_reviewed_by=$6,kyc_reviewed_at=$7 WHERE id=$1")
                 .bind(self.user_id).bind(self.decision.status()).bind(reason).bind(reference).bind(note).bind(actor.id).bind(self.now).execute(&mut *conn).await?;
             let after = self.events.visible(conn, self.user_id).await?;
-            self.events
-                .append(conn, self.user_id, organization, before || after)
-                .await?;
+            // Python enqueues the admission event only on an actual change, so a
+            // repeated decision keeps its audit row and notification without a
+            // second event.
+            if previous.as_deref() != Some(self.decision.status()) {
+                self.events
+                    .append(conn, self.user_id, organization, before || after)
+                    .await?;
+            }
             let approved = matches!(self.decision, Decision::Approve { .. });
             let mut changes = json!({"kyc_status":{"from":previous,"to":self.decision.status()},"raw_documents_retained_in_platform":retained});
             if approved {
@@ -387,16 +429,16 @@ impl BusinessCommand for ReviewCommand {
                     id: Uuid::new_v4(),
                     actor_id: Some(actor.id),
                     action: if approved {
-                        "kyc_approved"
+                        APPROVED_ACTION
                     } else {
-                        "kyc_rejected"
+                        REJECTED_ACTION
                     }
                     .into(),
                     resource_type: "kyc".into(),
                     resource_id: Some(self.user_id.to_string()),
                     changes: Some(changes),
-                    ip_address: None,
-                    request_id: None,
+                    ip_address: self.client.clone(),
+                    request_id: self.request_id.clone(),
                     at: self.now,
                 },
             )
