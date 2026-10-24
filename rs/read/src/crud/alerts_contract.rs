@@ -135,13 +135,7 @@ pub async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     let pools = crate::runtime::db::Pools { read: pool, health };
     let policy: MarketPolicy =
         serde_json::from_str(include_str!("../../../../deploy/rust/market-policy.json"))?;
-    let state = AppState {
-        config: Arc::new(config),
-        pools,
-        policy: Arc::new(policy),
-        reads: Arc::new(tokio::sync::Semaphore::new(16)),
-        reference_cache: Arc::new(crate::runtime::cache::ReferenceCache::default()),
-    };
+    let state = AppState::new(config, pools, policy)?;
     let app = super::router(
         state,
         crate::auth::VerificationSettings::new(
