@@ -104,12 +104,7 @@ fn state(database_url: &str) -> AppState {
         .max_connections(1)
         .connect_lazy(database_url)
         .unwrap();
-    AppState::new(
-        config,
-        runtime::db::Pools { read, health },
-        policy(),
-    )
-    .unwrap()
+    AppState::new(config, runtime::db::Pools { read, health }, policy()).unwrap()
 }
 
 fn app(database_url: &str) -> Router {
@@ -307,10 +302,7 @@ async fn compliance_actor_cases() {
     .unwrap();
     assert_eq!(
         scenario_identity(&foreign_request, Some(&foreign), &user),
-        (
-            format!("Vessel {}", foreign.id),
-            None,
-        )
+        (format!("Vessel {}", foreign.id), None,)
     );
     assert_eq!(
         scenario_identity(&foreign_request, Some(&foreign), &admin),
@@ -404,6 +396,8 @@ fn compliance_fleet_limits() {
     ];
     let summary = fleet_summary(&rows).unwrap();
     assert_eq!(summary["total_vessels"], json!(2));
+    // Both vessels score below the good band: FuelEU 40 and unpriced ETS 50
+    // dominate, so the CII contribution only moves the amber score.
     assert_eq!(summary["green_count"], json!(0));
     assert_eq!(summary["amber_count"], json!(2));
     assert_eq!(summary["red_count"], json!(0));
@@ -468,10 +462,12 @@ fn compliance_score_snapshot_cases() {
     }))
     .unwrap_err();
     assert_eq!(code(&json!({"detail": year_error.detail})), "INVALID_INPUT");
-    assert!(year_error.detail["message"]
-        .as_str()
-        .unwrap()
-        .contains("year"));
+    assert!(
+        year_error.detail["message"]
+            .as_str()
+            .unwrap()
+            .contains("year")
+    );
     let mut entries = serde_json::Map::new();
     for index in 0..33 {
         entries.insert(format!("NotAFuel{index}"), json!("0"));
@@ -482,20 +478,24 @@ fn compliance_score_snapshot_cases() {
         "year": 2026,
     }))
     .unwrap_err();
-    assert!(container_error.detail["message"]
-        .as_str()
-        .unwrap()
-        .contains("32"));
+    assert!(
+        container_error.detail["message"]
+            .as_str()
+            .unwrap()
+            .contains("32")
+    );
     let unknown_fuel = ScenarioRequest::validate(json!({
         "vessel_id": "vessel",
         "fuel_mix": {"NotAFuel": "1"},
         "year": 2026,
     }))
     .unwrap_err();
-    assert!(unknown_fuel.detail["message"]
-        .as_str()
-        .unwrap()
-        .contains("unknown fuel"));
+    assert!(
+        unknown_fuel.detail["message"]
+            .as_str()
+            .unwrap()
+            .contains("unknown fuel")
+    );
     for body in [
         json!({"fuel_mix": {"VLSFO": "1"}}),
         json!({"vessel_id": "vessel"}),
@@ -520,9 +520,10 @@ fn compliance_score_snapshot_cases() {
     }
 }
 
-// The populated matrix needs the accepted tables. It is compiled only with the
-// contract-tests feature and refuses to guess a database: without both explicit
-// disposable URLs it records that the matrix did not run.
+// The populated matrix needs the accepted tables. It runs only against one
+// explicitly named disposable database, never an ambient URL: the fixture
+// seeds its own organizations, accounts and vessels and asserts nothing about
+// market data.
 #[cfg(feature = "contract-tests")]
 mod postgres {
     use super::*;
@@ -544,24 +545,23 @@ mod postgres {
         Some((application, writer))
     }
 
-    async fn writer(writer_url: &str) -> PgConnection {
-        PgConnection::connect(writer_url).await.unwrap()
-    }
-
     async fn reset(connection: &mut PgConnection) {
-        for statement in [
-            "DELETE FROM vessels WHERE organization_id = ANY($1) OR id = ANY($2) OR name LIKE 'Task 9 %'",
-            "DELETE FROM users WHERE id = ANY($3)",
-            "DELETE FROM organizations WHERE id = ANY($1)",
-        ] {
-            sqlx::query(statement)
-                .bind([ORGANIZATION_A, ORGANIZATION_B].as_slice())
-                .bind([VESSEL_A, VESSEL_B, VESSEL_UNOWNED].as_slice())
-                .bind([USER_A, USER_B, USER_NONE, USER_ADMIN].as_slice())
-                .execute(&mut *connection)
-                .await
-                .unwrap();
-        }
+        sqlx::query("DELETE FROM vessels WHERE id = ANY($1) OR organization_id = ANY($2)")
+            .bind([VESSEL_A, VESSEL_B, VESSEL_UNOWNED].as_slice())
+            .bind([ORGANIZATION_A, ORGANIZATION_B].as_slice())
+            .execute(&mut *connection)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM users WHERE id = ANY($1)")
+            .bind([USER_A, USER_B, USER_NONE, USER_ADMIN].as_slice())
+            .execute(&mut *connection)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM organizations WHERE id = ANY($1)")
+            .bind([ORGANIZATION_A, ORGANIZATION_B].as_slice())
+            .execute(&mut *connection)
+            .await
+            .unwrap();
     }
 
     async fn seed_actors(connection: &mut PgConnection) {
@@ -608,7 +608,7 @@ mod postgres {
         .unwrap();
     }
 
-    async fn seeded_application() -> Option<(String, String)> {
+    async fn seeded() -> Option<(String, String)> {
         let Some((application, writer_url)) = urls() else {
             eprintln!(
                 "compliance score database matrix not run: \
@@ -616,10 +616,27 @@ mod postgres {
             );
             return None;
         };
-        let mut connection = writer(&writer_url).await;
+        let mut connection = PgConnection::connect(&writer_url).await.unwrap();
         reset(&mut connection).await;
         seed_actors(&mut connection).await;
         Some((application, writer_url))
+    }
+
+    async fn business_counts(connection: &mut PgConnection) -> Vec<i64> {
+        let mut values = Vec::new();
+        for statement in [
+            "SELECT count(*) FROM audit_logs",
+            "SELECT count(*) FROM compliance_ledger",
+            "SELECT count(*) FROM market_event_outbox",
+        ] {
+            values.push(
+                sqlx::query_scalar::<_, i64>(statement)
+                    .fetch_one(&mut *connection)
+                    .await
+                    .unwrap(),
+            );
+        }
+        values
     }
 
     fn scenario_body(vessel_id: &str) -> Value {
@@ -628,7 +645,7 @@ mod postgres {
 
     #[tokio::test]
     async fn compliance_actor_postgres_matrix() {
-        let Some((application, writer_url)) = seeded_application().await else {
+        let Some((application, writer_url)) = seeded().await else {
             return;
         };
         let app = app(&application);
@@ -638,19 +655,13 @@ mod postgres {
         let admin = token(USER_ADMIN);
 
         // Own organization, another organization, no organization and admin.
-        let (status, _, body) = send(
-            &app,
-            request("GET", FLEET_PATH, Some(&user_a), false, None),
-        )
-        .await;
+        let (status, _, body) =
+            send(&app, request("GET", FLEET_PATH, Some(&user_a), false, None)).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["total_vessels"], json!(1));
         assert_eq!(body["vessels"][0]["vessel_id"], VESSEL_A.to_string());
-        let (status, _, body) = send(
-            &app,
-            request("GET", FLEET_PATH, Some(&user_b), false, None),
-        )
-        .await;
+        let (status, _, body) =
+            send(&app, request("GET", FLEET_PATH, Some(&user_b), false, None)).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["total_vessels"], json!(1));
         assert_eq!(body["vessels"][0]["vessel_id"], VESSEL_B.to_string());
@@ -662,11 +673,8 @@ mod postgres {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["total_vessels"], json!(0));
         assert_eq!(body["vessels"], json!([]));
-        let (status, _, body) = send(
-            &app,
-            request("GET", FLEET_PATH, Some(&admin), false, None),
-        )
-        .await;
+        let (status, _, body) =
+            send(&app, request("GET", FLEET_PATH, Some(&admin), false, None)).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["total_vessels"], json!(3));
 
@@ -778,6 +786,22 @@ mod postgres {
         )
         .await;
         assert_eq!(status, StatusCode::UNAUTHORIZED);
+        let (status, _, _) = send(
+            &app,
+            request(
+                "POST",
+                SCENARIO_PATH,
+                Some(&user_a),
+                false,
+                Some(json!({
+                    "vessel_id": VESSEL_A.to_string(),
+                    "fuel_mix": {"VLSFO": "1"},
+                    "year": 2024,
+                })),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
 
         // The generic scenario keeps the submitted identity exactly for a
         // non-UUID, a missing UUID and another organization's vessel.
@@ -801,6 +825,7 @@ mod postgres {
             assert_eq!(body["vessel_id"], label);
             assert_eq!(body["vessel_name"], expected_name);
             assert_eq!(body["eu_ets"]["calculation_status"], "UNPRICED");
+            assert_eq!(body["eu_ets"]["estimated_cost_eur"], Value::Null);
         }
         let (status, _, body) = send(
             &app,
@@ -818,38 +843,31 @@ mod postgres {
         assert_eq!(body["cii"]["rating"], "A");
 
         // The current-account update lock serializes with a concurrent change.
-        // The scoped 500 ms deadline refuses the waiting read; after the
-        // change commits, the same read succeeds.
-        let mut blocker = writer(&writer_url).await;
+        // The scoped 500 ms deadline refuses the waiting read as an ordinary
+        // authenticated-helper database failure, which never names the row.
+        let mut blocker = PgConnection::connect(&writer_url).await.unwrap();
         let mut transaction = blocker.begin().await.unwrap();
         sqlx::query("SELECT id FROM users WHERE id = $1 FOR UPDATE")
             .bind(USER_A)
             .execute(&mut *transaction)
             .await
             .unwrap();
-        let (status, headers, body) = send(
-            &app,
-            request("GET", FLEET_PATH, Some(&user_a), false, None),
-        )
-        .await;
-        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
-        assert_eq!(code(&body), "READ_UNAVAILABLE");
-        assert_eq!(headers["retry-after"], "1");
+        let (status, _, body) =
+            send(&app, request("GET", FLEET_PATH, Some(&user_a), false, None)).await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(body, json!({"detail": "Database operation failed."}));
         transaction.rollback().await.unwrap();
-        let (status, _, _) = send(
-            &app,
-            request("GET", FLEET_PATH, Some(&user_a), false, None),
-        )
-        .await;
+        let (status, _, _) =
+            send(&app, request("GET", FLEET_PATH, Some(&user_a), false, None)).await;
         assert_eq!(status, StatusCode::OK);
     }
 
     #[tokio::test]
     async fn compliance_fleet_postgres_limits() {
-        let Some((application, writer_url)) = seeded_application().await else {
+        let Some((application, writer_url)) = seeded().await else {
             return;
         };
-        let mut connection = writer(&writer_url).await;
+        let mut connection = PgConnection::connect(&writer_url).await.unwrap();
         sqlx::query("DELETE FROM vessels")
             .execute(&mut connection)
             .await
@@ -865,7 +883,7 @@ mod postgres {
         .await
         .unwrap();
 
-        // The accepted index is installed by the accepted migration.
+        // The accepted migration installed the tenant/vessel index.
         let definition: String = sqlx::query_scalar(
             "SELECT indexdef FROM pg_indexes WHERE schemaname = 'public' \
              AND indexname = 'ix_p5_vessels_org_id'",
@@ -899,7 +917,7 @@ mod postgres {
         sqlx::query(
             "INSERT INTO vessels (id, name, imo_number, organization_id) VALUES \
              ('9a000000-0000-0000-0000-0000000000ff', 'Task 9 Fleet 2001', \
-              'IMO-9F000201', $1)",
+              'IMO-9F999999', $1)",
         )
         .bind(ORGANIZATION_A)
         .execute(&mut connection)
@@ -916,29 +934,16 @@ mod postgres {
 
     #[tokio::test]
     async fn compliance_score_snapshot_postgres() {
-        let Some((application, writer_url)) = seeded_application().await else {
+        let Some((application, writer_url)) = seeded().await else {
             return;
         };
         let app = app(&application);
         let user_a = token(USER_A);
-        let count = |connection: &mut PgConnection, table: &'static str| async move {
-            sqlx::query_scalar::<_, i64>(&format!("SELECT count(*) FROM {table}"))
-                .fetch_one(&mut *connection)
-                .await
-                .unwrap()
-        };
-        let mut observer = writer(&writer_url).await;
-        let before = (
-            count(&mut observer, "audit_logs").await,
-            count(&mut observer, "compliance_ledger").await,
-            count(&mut observer, "market_event_outbox").await,
-        );
+        let mut observer = PgConnection::connect(&writer_url).await.unwrap();
+        let before = business_counts(&mut observer).await;
 
-        let (status, _, _) = send(
-            &app,
-            request("GET", FLEET_PATH, Some(&user_a), false, None),
-        )
-        .await;
+        let (status, _, _) =
+            send(&app, request("GET", FLEET_PATH, Some(&user_a), false, None)).await;
         assert_eq!(status, StatusCode::OK);
         let (status, _, _) = send(
             &app,
@@ -952,24 +957,21 @@ mod postgres {
         )
         .await;
         assert_eq!(status, StatusCode::OK);
-        let (status, _, _) = send(
-            &app,
-            request(
-                "POST",
-                SCENARIO_PATH,
-                Some(&user_a),
-                false,
-                Some(scenario_body(&VESSEL_A.to_string())),
-            ),
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK);
-
-        let after = (
-            count(&mut observer, "audit_logs").await,
-            count(&mut observer, "compliance_ledger").await,
-            count(&mut observer, "market_event_outbox").await,
+        for body in [
+            scenario_body(&VESSEL_A.to_string()),
+            scenario_body("not-a-uuid"),
+        ] {
+            let (status, _, _) = send(
+                &app,
+                request("POST", SCENARIO_PATH, Some(&user_a), false, Some(body)),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK);
+        }
+        assert_eq!(
+            before,
+            business_counts(&mut observer).await,
+            "the authenticated helper commit adds no business, audit or outbox row"
         );
-        assert_eq!(before, after, "the authenticated helper commit adds no business row");
     }
 }
