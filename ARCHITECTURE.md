@@ -71,6 +71,33 @@ not activated in the serving binary. Feedback stays on Python at cutover until
 Task 22 provides the shared Python–Rust quota counter across real processes.
 
 
+## Rust Phase 3 auth storage and lock primitives
+
+`rs/read/src/auth/store.rs` holds every statement on `refresh_sessions` and
+`password_reset_tokens`, plus the user-row locks credential routes take. It runs
+on the caller's transaction and never commits. `rs/read/src/auth/lock.rs` owns
+the device advisory key (the first eight bytes of the cookie's SHA-256 digest,
+big-endian, signed, the same key Python uses), the session lock order (device,
+user, then that user's session or reset rows), the organization-write order
+(after the admission-held actor, organizations, other users, join requests,
+each by ascending id) and the bounded retry: three attempts on 40001/40P01,
+then a 503 `ORGANIZATION_WRITE_BUSY`. Reset issuance touches only its user's
+row; bounded expired-row cleanup executes separately through the pool.
+`alembic/versions/p3_20261020_auth_tokens.py` adds `password_reset_tokens`
+(one row per user, Rust-owned; `app/models/password_reset_token.py` only declares
+it for `alembic check`). Its runtime grants are table-level SELECT and DELETE and
+column-level INSERT and UPDATE, so a later column gets no write authority.
+`tests/postgres/test_phase3_auth_store.py` proves the single head, the additive
+and reversible migration, the grants, the shared device key
+(`tests/rust_contract/phase3/device-lock-keys.json`) and drives
+`rs/read/tests/auth_store_postgres.rs` on the migrated database. No route uses
+these primitives yet. `store::revoke_user_authentication` locks the user, advances
+`authentication_revoked_at` monotonically at PostgreSQL microsecond precision,
+and revokes all user refresh families without committing. Missing users return
+`sqlx::Error::RowNotFound`. `auth_revocation_postgres.rs`, driven by
+`tests/postgres/test_phase3_auth_revocation.py`, covers concurrent updates and
+caller rollback on the migrated runtime role.
+
 ## Rust Phase 2 order-write boundary
 
 Task 20 adds `rs/read/src/order_write/` for Python-derived lock identities,
@@ -363,17 +390,6 @@ before the first artifact exists without weakening startup checks. See
 `docs/rust-phase1/progress-task12c.md` holds the unit digest, the artifact
 digest and the systemd 249/255 and staging-ABI start evidence.
 
-## Rust Phase 2 shared route runner
-
-`phase2_scenarios.py` owns lane registrations, per-action HTTP/state/effect checks,
-barrier races and mixed-writer schedules. `phase2_routes.py` adapts them to the
-existing `run_disposable.Runner` lifecycle and app-role cloned databases.
-`phase2_mail.py` owns the per-run loopback captured-send provider;
-`phase2_oracle.py` redirects Python email only in disposable tests. The complete
-synthetic registration is `phase2_example.py`, not CRUD qualification. Groups
-without real registrations refuse rather than execute harness smoke. See
-`docs/rust-phase2-runner.md` for lane adapters and acceptance boundaries.
-
 ## Phase 1 same-meaning successor
 
 The explicit `phase1-meaning-v1` profile reuses `phase2_meaning.py` and its single
@@ -394,6 +410,17 @@ owns the one budgeted listener connection. Nothing starts either yet. See
 Exact `market/amount.rs` operations retain intermediate economic rounding while
 removing wire-spelling emulation. See `docs/rust-phase1/same-meaning-contract.md`.
 
+## Rust Phase 2 shared route runner
+
+`phase2_scenarios.py` owns lane registrations, per-action HTTP/state/effect checks,
+barrier races and mixed-writer schedules. `phase2_routes.py` adapts them to the
+existing `run_disposable.Runner` lifecycle and app-role cloned databases.
+`phase2_mail.py` owns the per-run loopback captured-send provider;
+`phase2_oracle.py` redirects Python email only in disposable tests. The complete
+synthetic registration is `phase2_example.py`, not CRUD qualification. Groups
+without real registrations refuse rather than execute harness smoke. See
+`docs/rust-phase2-runner.md` for lane adapters and acceptance boundaries.
+
 ## Rust Phase 2 contract preparation
 
 `tests/rust_contract/phase2/routes.json` pins the 27 CRUD method/path pairs,
@@ -402,7 +429,6 @@ OpenAPI operations, DTO exports, effect classes and Python source digests.
 on the isolated test host. `evidence-manifest.json` declares required route and
 scenario coverage and separates disposable-artifact qualification from
 production-cutover acceptance. It contains no run results or cutover verdict.
-See `outputs/rust-phase2/source-checkpoint.md` for the oracle identity and checks.
 Authentication issuance, market writers, SSE and dispatch remain Python-owned.
 `compare.py::compare_responses` is the raw-response profile boundary. Its explicit
 `phase2-meaning-v1` branch delegates to private `phase2_meaning.py`, with a

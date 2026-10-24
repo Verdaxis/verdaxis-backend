@@ -428,7 +428,7 @@ async fn authentication_is_refused_before_any_database_work() {
     )
     .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
-    assert_eq!(body, json!({"detail": "Could not validate credentials"}));
+    assert_eq!(body, verdaxis_read::auth::AuthError::Credentials.body());
     assert_eq!(headers[header::WWW_AUTHENTICATE], "Bearer");
 }
 
@@ -748,7 +748,7 @@ async fn notification_scope_and_email_state() {
     )
     .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
-    assert_eq!(body, json!({"detail": "Could not validate credentials"}));
+    assert_eq!(body, verdaxis_read::auth::AuthError::Credentials.body());
     let (status, body, _) = send(
         &app,
         authenticated(

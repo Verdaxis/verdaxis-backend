@@ -334,6 +334,14 @@ fn scan_repository() -> Vec<String> {
     // The outbox sequencer shares Python's session lock, not an order-book key.
     // Only the test probe uses a blocking advisory-lock call.
     let stream_sequencer_lock = [root.join("rs/read/tests/streams_election.rs")];
+    // The browser-device session lock is shared with Python's login, refresh and
+    // logout, so both stacks wait on one key. The key comes from the device
+    // cookie digest and never names an order-book row. The session store and its
+    // test probe that proves the shared key are named exactly.
+    let device_session_lock = [
+        root.join("rs/read/src/auth/store.rs"),
+        root.join("rs/read/tests/auth_store_postgres.rs"),
+    ];
     let mut violations = Vec::new();
 
     let mut rust_files = Vec::new();
@@ -372,6 +380,7 @@ fn scan_repository() -> Vec<String> {
                 && !test_only
                 && !price_alert_cap.contains(path)
                 && !stream_sequencer_lock.contains(path)
+                && !device_session_lock.contains(path)
             {
                 violations.push(format!(
                     "{}: advisory lock outside order_write",

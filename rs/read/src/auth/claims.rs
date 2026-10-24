@@ -6,6 +6,7 @@ use uuid::Uuid;
 #[derive(Debug)]
 pub struct VerifiedAccess {
     pub subject: Uuid,
+    pub expires_at: DateTime<Utc>,
     pub issued_at: Option<DateTime<Utc>>,
     pub(crate) issuance_out_of_range: bool,
 }
@@ -140,7 +141,9 @@ impl AuthError {
     pub fn body(self) -> Value {
         let detail = match self {
             Self::MissingBearer => json!("Not authenticated"),
-            Self::Credentials => json!("Could not validate credentials"),
+            Self::Credentials => {
+                super::error::AuthFailure::new(super::error::AuthCode::CredentialsInvalid).detail()
+            }
             Self::PasswordChanged => {
                 json!({"code": "AUTH_PASSWORD_CHANGED", "message": "Password was changed; sign in again"})
             }

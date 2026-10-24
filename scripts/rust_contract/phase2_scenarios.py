@@ -336,7 +336,9 @@ from scripts.rust_contract.phase2_watchlists import (
 
 register(watchlist_reads_scenario())
 register(watchlist_reads_gate_off_scenario())
-from scripts.rust_contract.phase2_watchlist_containers import watchlist_containers_scenario
+from scripts.rust_contract.phase2_watchlist_containers import (
+    watchlist_containers_scenario,
+)
 
 register(watchlist_containers_scenario())
 from scripts.rust_contract.phase2_watchlist_targets import (
@@ -387,14 +389,22 @@ register(fault_scenario())
 from scripts.rust_contract.referral_mixed import scenario as mixed_referral_scenario
 
 register(mixed_referral_scenario())
-from scripts.rust_contract.referral_invite import failure_scenario as invite_failure_scenario
-from scripts.rust_contract.referral_invite import no_key_scenario as invite_no_key_scenario
-from scripts.rust_contract.referral_invite import timeout_scenario as invite_timeout_scenario
+from scripts.rust_contract.referral_invite import (
+    failure_scenario as invite_failure_scenario,
+)
+from scripts.rust_contract.referral_invite import (
+    no_key_scenario as invite_no_key_scenario,
+)
+from scripts.rust_contract.referral_invite import (
+    timeout_scenario as invite_timeout_scenario,
+)
 
 register(invite_failure_scenario())
 register(invite_timeout_scenario())
 register(invite_no_key_scenario())
-from scripts.rust_contract.referral_populated import scenario as populated_reads_scenario
+from scripts.rust_contract.referral_populated import (
+    scenario as populated_reads_scenario,
+)
 
 register(populated_reads_scenario())
 from scripts.rust_contract.referral_addresses import scenario as address_scenario

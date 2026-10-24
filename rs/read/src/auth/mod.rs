@@ -1,14 +1,17 @@
-//! Token verification, token issuance and password primitives.
+//! Token verification, token issuance and password primitives, plus the
+//! session storage and lock primitives that credential routes build on.
 mod actor;
 mod claims;
 pub mod cookies;
 pub mod error;
 pub mod issue;
 pub mod limits;
+pub mod lock;
 pub mod origin;
 pub mod password;
 pub mod request;
 pub mod scope;
+pub mod store;
 mod token;
 pub mod token_bytes;
 mod transaction;

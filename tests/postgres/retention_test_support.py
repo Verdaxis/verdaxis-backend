@@ -11,7 +11,7 @@ from __future__ import annotations
 from sqlalchemy import text
 
 REVISION = "sse_20261021_replay_floor"
-PARENT_REVISION = "prc_20261018_cache"
+PARENT_REVISION = "p3_20261020_auth_tokens"
 TEST_RELEASE_SHA = "a" * 40
 TEST_SELECTOR_DIGEST = "b" * 64
 

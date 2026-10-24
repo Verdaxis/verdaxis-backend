@@ -66,13 +66,9 @@ pub fn validate_bytes(password: &str) -> Result<(), PasswordError> {
     Ok(())
 }
 
-/// A cost-12 bcrypt hash that no password matches, built once per process.
+/// A process-wide cost-12 bcrypt hash used by the login path.
 ///
-/// Login verifies a missing account against this hash, so a missing account and
-/// a wrong password take the same bcrypt work. The hashed input is a fresh
-/// random token that is dropped at once, so no known password matches the hash.
-/// The hash is built lazily on first use, once for the process, and is never
-/// logged.
+/// Built lazily on first use, it matches no known password and is never logged.
 pub async fn dummy_hash() -> &'static str {
     static DUMMY: tokio::sync::OnceCell<String> = tokio::sync::OnceCell::const_new();
     DUMMY
