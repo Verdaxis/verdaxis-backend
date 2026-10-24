@@ -259,7 +259,8 @@ async fn register_attempt(
             .fetch_optional(&mut *tx)
             .await?;
     let mut mail = Vec::new();
-    if let Some((org_id, _kind, name)) = org.filter(|(_, kind, _)| matches_role(&input.role, kind)) {
+    if let Some((org_id, _kind, name)) = org.filter(|(_, kind, _)| matches_role(&input.role, kind))
+    {
         let id = Uuid::new_v4();
         insert_user(&mut tx, id, input, hash, &token).await?;
         if !suppressed {

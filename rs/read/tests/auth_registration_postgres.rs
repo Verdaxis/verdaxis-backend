@@ -5,10 +5,10 @@ pub use verdaxis_read::{ApiError, ApiErrorKind, auth, crud, runtime};
 pub mod email;
 #[path = "../src/auth/email_verification.rs"]
 pub mod email_verification;
-#[path = "../src/auth/registration.rs"]
-pub mod registration;
 #[path = "../src/auth/password_reset.rs"]
 pub mod password_reset;
+#[path = "../src/auth/registration.rs"]
+pub mod registration;
 use axum::{
     Json, Router,
     body::{Body, to_bytes},
@@ -328,7 +328,10 @@ async fn e6_pending_verification_and_single_consumption() {
     let body: Value =
         serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
     assert_eq!(body["requires_org"], true);
-    assert!(body["registration_token"] == token, "registration credential mismatch");
+    assert!(
+        body["registration_token"] == token,
+        "registration credential mismatch"
+    );
     assert_eq!(body["email"], email);
     let result = f
         .request("/api/auth/register-with-org", organization(&token))
@@ -336,13 +339,36 @@ async fn e6_pending_verification_and_single_consumption() {
     assert_eq!(result.0, StatusCode::OK);
     f.drain().await;
     {
-        let mail=f.mail.lock().await;
-        let alerts:Vec<_>=mail.iter().filter(|m|m["subject"].as_str().is_some_and(|s|s.contains("New Verdaxis account application"))).collect();
-        assert_eq!(alerts.len(),1);
-        assert_eq!(alerts[0]["to"][0],"admin@verdaxis.exchange");
-        assert!(alerts[0]["html"].as_str().unwrap().contains("Synthetic Company"));
-        assert!(alerts[0]["subject"].as_str().unwrap().contains("[development]"));
-        assert_eq!(alerts[0]["test_idempotency"],format!("signup-alert/development/{}",result.2["id"].as_str().unwrap()));
+        let mail = f.mail.lock().await;
+        let alerts: Vec<_> = mail
+            .iter()
+            .filter(|m| {
+                m["subject"]
+                    .as_str()
+                    .is_some_and(|s| s.contains("New Verdaxis account application"))
+            })
+            .collect();
+        assert_eq!(alerts.len(), 1);
+        assert_eq!(alerts[0]["to"][0], "admin@verdaxis.exchange");
+        assert!(
+            alerts[0]["html"]
+                .as_str()
+                .unwrap()
+                .contains("Synthetic Company")
+        );
+        assert!(
+            alerts[0]["subject"]
+                .as_str()
+                .unwrap()
+                .contains("[development]")
+        );
+        assert_eq!(
+            alerts[0]["test_idempotency"],
+            format!(
+                "signup-alert/development/{}",
+                result.2["id"].as_str().unwrap()
+            )
+        );
     }
 
     assert_eq!(result.2["email"], email);
@@ -632,7 +658,7 @@ async fn e5_failed_delivery_preserves_response() {
         .with_writer(captured.clone())
         .finish();
     let f = Fixture::new(true).await;
-    let domain=format!("{}.example",Uuid::new_v4());
+    let domain = format!("{}.example", Uuid::new_v4());
     sqlx::query("INSERT INTO organizations(id,name,type,domain) VALUES($1,'Delivery Company','FUEL_BUYER',$2)").bind(Uuid::new_v4()).bind(&domain).execute(&f.owner).await.unwrap();
     let email = format!("applicant@{domain}");
     let response = f
@@ -641,22 +667,50 @@ async fn e5_failed_delivery_preserves_response() {
         .await;
     assert_eq!(response.0, StatusCode::ACCEPTED);
     assert_eq!(response.2, json!({"status":"check_email"}));
-    let committed: Value=sqlx::query_scalar("SELECT to_jsonb(u) FROM users u WHERE email=$1").bind(&email).fetch_one(&f.owner).await.unwrap();
+    let committed: Value = sqlx::query_scalar("SELECT to_jsonb(u) FROM users u WHERE email=$1")
+        .bind(&email)
+        .fetch_one(&f.owner)
+        .await
+        .unwrap();
     f.drain().await;
-    let after: Value=sqlx::query_scalar("SELECT to_jsonb(u) FROM users u WHERE email=$1").bind(&email).fetch_one(&f.owner).await.unwrap();
-    assert_eq!(committed,after);
+    let after: Value = sqlx::query_scalar("SELECT to_jsonb(u) FROM users u WHERE email=$1")
+        .bind(&email)
+        .fetch_one(&f.owner)
+        .await
+        .unwrap();
+    assert_eq!(committed, after);
     {
-        let mail=f.mail.lock().await;
-        let alerts:Vec<_>=mail.iter().filter(|m|m["to"][0]=="admin@verdaxis.exchange").collect();
-        assert_eq!(alerts.len(),3);
-        let expected=format!("signup-alert/development/{}",committed["id"].as_str().unwrap());
-        assert!(alerts.iter().all(|m|m["test_idempotency"]==expected));
+        let mail = f.mail.lock().await;
+        let alerts: Vec<_> = mail
+            .iter()
+            .filter(|m| m["to"][0] == "admin@verdaxis.exchange")
+            .collect();
+        assert_eq!(alerts.len(), 3);
+        let expected = format!(
+            "signup-alert/development/{}",
+            committed["id"].as_str().unwrap()
+        );
+        assert!(alerts.iter().all(|m| m["test_idempotency"] == expected));
     }
-    let retry=f.request("/api/auth/register",signup(&email,None)).await;
-    assert_eq!(retry.0,response.0); assert_eq!(retry.2,response.2);
+    let retry = f.request("/api/auth/register", signup(&email, None)).await;
+    assert_eq!(retry.0, response.0);
+    assert_eq!(retry.2, response.2);
     f.drain().await;
-    assert_eq!(f.mail.lock().await.iter().filter(|m|m["to"][0]=="admin@verdaxis.exchange").count(),3);
-    for sql in ["SELECT count(*) FROM organization_join_requests j JOIN users u ON j.user_id=u.id WHERE u.email=$1","SELECT count(*) FROM user_status_transitions j JOIN users u ON j.user_id=u.id WHERE u.email=$1"] {assert_eq!(count(&f.owner,sql,&email).await,1);}
+    assert_eq!(
+        f.mail
+            .lock()
+            .await
+            .iter()
+            .filter(|m| m["to"][0] == "admin@verdaxis.exchange")
+            .count(),
+        3
+    );
+    for sql in [
+        "SELECT count(*) FROM organization_join_requests j JOIN users u ON j.user_id=u.id WHERE u.email=$1",
+        "SELECT count(*) FROM user_status_transitions j JOIN users u ON j.user_id=u.id WHERE u.email=$1",
+    ] {
+        assert_eq!(count(&f.owner, sql, &email).await, 1);
+    }
 
     let log = String::from_utf8(captured.0.lock().unwrap().clone()).unwrap();
     assert_eq!(log.matches("auth_mail_delivery_failed").count(), 2);
@@ -910,55 +964,124 @@ async fn e5_e6_monitor_admission_controls_cleanup() {
 #[tokio::test]
 #[ignore = "requires disposable PostgreSQL authority"]
 async fn e5_domain_monitor_cleanup() {
-    let f=Fixture::new(false).await;
-    let domain=format!("{}.canary.verdaxis.exchange",Uuid::new_v4());
+    let f = Fixture::new(false).await;
+    let domain = format!("{}.canary.verdaxis.exchange", Uuid::new_v4());
     sqlx::query("INSERT INTO organizations(id,name,type,domain) VALUES($1,'Canary Company','FUEL_BUYER',$2)").bind(Uuid::new_v4()).bind(&domain).execute(&f.owner).await.unwrap();
-    let address=format!("canary+probe@{domain}");
-    let app=router(f.settings.clone().with_monitor_token("synthetic-monitor".into()));
-    let response=app.oneshot(Request::post("/api/auth/register").header("content-type","application/json").header("x-monitor-token","synthetic-monitor").body(Body::from(signup(&address,None).to_string())).unwrap()).await.unwrap();
-    assert_eq!(response.status(),StatusCode::ACCEPTED);
-    assert_eq!(count(&f.owner,"SELECT count(*) FROM users WHERE email=$1",&address).await,1);
-    for sql in ["SELECT count(*) FROM pending_registrations WHERE email=$1","SELECT count(*) FROM audit_logs j JOIN users u ON j.user_id=u.id WHERE u.email=$1","SELECT count(*) FROM organization_join_requests j JOIN users u ON j.user_id=u.id WHERE u.email=$1"] {assert_eq!(count(&f.owner,sql,&address).await,0);}
-    f.drain().await; assert!(f.mail.lock().await.is_empty()); f.stop().await;
+    let address = format!("canary+probe@{domain}");
+    let app = router(
+        f.settings
+            .clone()
+            .with_monitor_token("synthetic-monitor".into()),
+    );
+    let response = app
+        .oneshot(
+            Request::post("/api/auth/register")
+                .header("content-type", "application/json")
+                .header("x-monitor-token", "synthetic-monitor")
+                .body(Body::from(signup(&address, None).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    assert_eq!(
+        count(
+            &f.owner,
+            "SELECT count(*) FROM users WHERE email=$1",
+            &address
+        )
+        .await,
+        1
+    );
+    for sql in [
+        "SELECT count(*) FROM pending_registrations WHERE email=$1",
+        "SELECT count(*) FROM audit_logs j JOIN users u ON j.user_id=u.id WHERE u.email=$1",
+        "SELECT count(*) FROM organization_join_requests j JOIN users u ON j.user_id=u.id WHERE u.email=$1",
+    ] {
+        assert_eq!(count(&f.owner, sql, &address).await, 0);
+    }
+    f.drain().await;
+    assert!(f.mail.lock().await.is_empty());
+    f.stop().await;
 }
 
 #[tokio::test]
 #[ignore = "requires disposable PostgreSQL authority"]
 async fn e3_e6_reset_errors_exclude_credentials() {
     use tracing::instrument::WithSubscriber;
-    let f=Fixture::new(false).await;
-    let captured=LogCapture(Arc::new(std::sync::Mutex::new(Vec::new())));
-    let subscriber=tracing_subscriber::fmt().without_time().with_ansi(false).with_writer(captured.clone()).finish();
-    let settings=email_verification::EmailSettings::new(f.settings.pool.clone(),f.settings.mail.clone());
-    let tokens:[String;3]=std::array::from_fn(|_|auth::token_bytes::generate_token());
-    let diagnostics=async {
-        let mut diagnostics=String::new();
+    let f = Fixture::new(false).await;
+    let captured = LogCapture(Arc::new(std::sync::Mutex::new(Vec::new())));
+    let subscriber = tracing_subscriber::fmt()
+        .without_time()
+        .with_ansi(false)
+        .with_writer(captured.clone())
+        .finish();
+    let settings =
+        email_verification::EmailSettings::new(f.settings.pool.clone(), f.settings.mail.clone());
+    let tokens: [String; 3] = std::array::from_fn(|_| auth::token_bytes::generate_token());
+    let diagnostics = async {
+        let mut diagnostics = String::new();
         for token in &tokens {
-            let error=email_verification::verify(&settings,token).await.unwrap_err();
-            diagnostics.push_str(&format!("{error:?}{}",error.detail));
-            let error=password_reset::reset(&settings,token,"valid-reset-password").await.unwrap_err();
-            diagnostics.push_str(&format!("{error:?}{}",error.detail));
-            let response=f.request("/api/auth/register-with-org",organization(token)).await;
-            assert_eq!(response.0,StatusCode::BAD_REQUEST);
-            diagnostics.push_str(&format!("{:?}{}",response.0,response.2));
+            let error = email_verification::verify(&settings, token)
+                .await
+                .unwrap_err();
+            diagnostics.push_str(&format!("{error:?}{}", error.detail));
+            let error = password_reset::reset(&settings, token, "valid-reset-password")
+                .await
+                .unwrap_err();
+            diagnostics.push_str(&format!("{error:?}{}", error.detail));
+            let response = f
+                .request("/api/auth/register-with-org", organization(token))
+                .await;
+            assert_eq!(response.0, StatusCode::BAD_REQUEST);
+            diagnostics.push_str(&format!("{:?}{}", response.0, response.2));
         }
         diagnostics
-    }.with_subscriber(subscriber).await;
-    let logs=String::from_utf8(captured.0.lock().unwrap().clone()).unwrap();
-    for token in &tokens {assert!(!diagnostics.contains(token),"credential in error diagnostics");assert!(!logs.contains(token),"credential in tracing");}
+    }
+    .with_subscriber(subscriber)
+    .await;
+    let logs = String::from_utf8(captured.0.lock().unwrap().clone()).unwrap();
+    for token in &tokens {
+        assert!(
+            !diagnostics.contains(token),
+            "credential in error diagnostics"
+        );
+        assert!(!logs.contains(token), "credential in tracing");
+    }
     // Capture actual test-runner output from an intentionally failing child.
-    let output=std::process::Command::new(std::env::current_exe().unwrap()).args(["--exact","e6_redacted_assertion_child","--ignored","--nocapture"]).env("REGISTRATION_ASSERTION_CHILD","1").env("REGISTRATION_ASSERTION_TOKEN",&tokens[0]).output().unwrap();
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "e6_redacted_assertion_child",
+            "--ignored",
+            "--nocapture",
+        ])
+        .env("REGISTRATION_ASSERTION_CHILD", "1")
+        .env("REGISTRATION_ASSERTION_TOKEN", &tokens[0])
+        .output()
+        .unwrap();
     assert!(!output.status.success());
-    let output=format!("{}{}",String::from_utf8_lossy(&output.stdout),String::from_utf8_lossy(&output.stderr));
+    let output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert!(output.contains("registration credential mismatch"));
-    for token in &tokens {assert!(!output.contains(token),"credential in test failure output");}
+    for token in &tokens {
+        assert!(!output.contains(token), "credential in test failure output");
+    }
     f.stop().await;
 }
 
 #[test]
 #[ignore = "child diagnostic fixture"]
 fn e6_redacted_assertion_child() {
-    if std::env::var_os("REGISTRATION_ASSERTION_CHILD").is_none() {return;}
-    let token=std::env::var("REGISTRATION_ASSERTION_TOKEN").unwrap();
-    assert!(serde_json::Value::Null == token,"registration credential mismatch");
+    if std::env::var_os("REGISTRATION_ASSERTION_CHILD").is_none() {
+        return;
+    }
+    let token = std::env::var("REGISTRATION_ASSERTION_TOKEN").unwrap();
+    assert!(
+        serde_json::Value::Null == token,
+        "registration credential mismatch"
+    );
 }
