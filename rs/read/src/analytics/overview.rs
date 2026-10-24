@@ -9,8 +9,8 @@
 use chrono::{DateTime, Utc};
 
 use super::aggregates::{
-    LoginFacts, OverviewFacts, QualityTracker, behavioral_coverage, behavioral_status,
-    behavioral_daily_series, behavioral_metric, date_window, dense_series, fact_coverage,
+    LoginFacts, OverviewFacts, QualityTracker, behavioral_coverage, behavioral_daily_series,
+    behavioral_metric, behavioral_status, date_window, dense_series, fact_coverage,
 };
 use super::types::{
     ActivityTrend, AnalyticsCoverage, AnalyticsMeta, AnalyticsQuery, AnalyticsSourceCoverage,

@@ -863,7 +863,10 @@ fn p4_t18_c10() {
     assert!(loops >= 3, "the shaping loops under test are still present");
     // A fixed statement budget for the whole fact layer.
     let statements = code.matches("sqlx::query").count();
-    assert!(statements <= 16, "fact layer must keep a small statement set");
+    assert!(
+        statements <= 16,
+        "fact layer must keep a small statement set"
+    );
     assert!(statements >= 12, "the fixture loaders are still present");
 }
 
