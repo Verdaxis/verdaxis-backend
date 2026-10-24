@@ -1,0 +1,200 @@
+#[path = "../src/subscriptions/fees.rs"]
+mod fees;
+#[path = "../src/subscriptions/store.rs"]
+mod store;
+#[path = "../src/subscriptions/routes.rs"]
+mod routes;
+
+use chrono::{TimeDelta, Utc};
+use rust_decimal::Decimal;
+use serde_json::json;
+use fees::{FeeConfig, SubscriptionTier};
+
+#[test]
+fn p4_t13_c05() {
+    for value in ["NaN", "Infinity", "-1", "100000.01", "1.001", "1e2"] {
+        assert!(store::SubscriptionUpdate::parse(json!({"tier":"enterprise","seller_fee_per_mt_usd":value})).is_err());
+    }
+    assert!(FeeConfig::new(Decimal::new(-1, 0), Decimal::ONE).is_err());
+    assert!(FeeConfig::new(Decimal::new(1001, 3), Decimal::ONE).is_err());
+}
+
+#[test]
+fn p4_t13_c07() {
+    let omitted = store::SubscriptionUpdate::parse(json!({"tier":"standard"})).unwrap();
+    let cleared = store::SubscriptionUpdate::parse(json!({"tier":"standard","seller_fee_per_mt_usd":null})).unwrap();
+    assert_ne!(omitted.fee, cleared.fee);
+    assert!(store::SubscriptionUpdate::parse(json!({"tier":"free","seller_fee_per_mt_usd":true})).is_err());
+    let schedule = serde_json::to_value(FeeConfig::default().schedule()).unwrap();
+    assert_eq!(schedule["currency"], "USD");
+    assert_eq!(schedule["buyer_fee_per_mt_usd"], "0");
+    assert_eq!(schedule["seller_fee_per_mt_usd"]["enterprise"], json!(null));
+    assert_eq!(schedule["seller_fee_per_mt_usd"]["free"], "2");
+}
+
+#[cfg(feature = "contract-tests")]
+mod postgres {
+    use super::*;
+    use std::sync::Arc;
+    use sqlx::{Connection, PgConnection, Row, postgres::PgPoolOptions};
+    use tokio::sync::Semaphore;
+    use uuid::Uuid;
+    use verdaxis_read::{auth::VerifiedAccess, business::transaction::run_ordered_write};
+
+    struct Fixture {
+        admin: PgConnection,
+        pool: sqlx::PgPool,
+        schema: String,
+        actor: Uuid,
+        org: Uuid,
+    }
+    impl Fixture {
+        async fn new() -> Self {
+            let admin_url = std::env::var("RUST_TEST_MIGRATOR_DATABASE_URL").expect("disposable migrator URL required");
+            let app_url = std::env::var("RUST_TEST_DATABASE_URL").expect("disposable runtime URL required");
+            let a = url::Url::parse(&admin_url).unwrap();
+            let b = url::Url::parse(&app_url).unwrap();
+            assert_eq!(a.host_str(), Some("127.0.0.1"));
+            assert_eq!(a.host_str(), b.host_str());
+            assert_eq!(a.port(), b.port());
+            assert_eq!(a.path(), b.path());
+            assert!(a.path().ends_with("_test"));
+            assert_eq!(b.username(), "rust_app");
+            assert_ne!(a.username(), b.username());
+            let mut admin = PgConnection::connect(&admin_url).await.unwrap();
+            let schema = format!("p4_t13_{}", Uuid::new_v4().simple());
+            sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}; SET search_path TO {schema};
+                CREATE TABLE organizations(id uuid PRIMARY KEY);
+                CREATE TABLE users(id uuid PRIMARY KEY,organization_id uuid REFERENCES organizations,role text,status text,email_verified boolean DEFAULT true,must_change_password boolean DEFAULT false,password_changed_at timestamptz,authentication_revoked_at timestamptz);
+                CREATE TABLE organization_join_requests(id uuid PRIMARY KEY);
+                CREATE TABLE subscriptions(id uuid PRIMARY KEY,org_id uuid NOT NULL UNIQUE REFERENCES organizations,tier text NOT NULL,started_at timestamptz DEFAULT now(),expires_at timestamptz,is_active boolean NOT NULL,seller_fee_per_mt_usd numeric CHECK(seller_fee_per_mt_usd IS NULL OR (seller_fee_per_mt_usd>=0 AND seller_fee_per_mt_usd<=100000 AND seller_fee_per_mt_usd*100=trunc(seller_fee_per_mt_usd*100))));
+                CREATE TABLE audit_logs(id uuid PRIMARY KEY,user_id uuid,action varchar(100),resource_type varchar(50),resource_id varchar(100),changes jsonb,ip_address varchar(45),request_id varchar(36),timestamp timestamptz);
+                GRANT USAGE ON SCHEMA {schema} TO rust_app;
+                GRANT SELECT,INSERT,UPDATE,DELETE ON subscriptions TO rust_app;
+                GRANT SELECT,UPDATE ON organizations,users,organization_join_requests TO rust_app;
+                GRANT SELECT,INSERT ON audit_logs TO rust_app;"))).execute(&mut admin).await.unwrap();
+            let actor = Uuid::new_v4();
+            let org = Uuid::new_v4();
+            sqlx::query("INSERT INTO organizations VALUES($1)").bind(org).execute(&mut admin).await.unwrap();
+            sqlx::query("INSERT INTO users(id,organization_id,role,status) VALUES($1,$2,'ADMIN','APPROVED')").bind(actor).bind(org).execute(&mut admin).await.unwrap();
+            let path = format!("SET search_path TO {schema}");
+            let pool = PgPoolOptions::new().max_connections(6).after_connect(move |c,_| {
+                let path=path.clone(); Box::pin(async move {sqlx::raw_sql(sqlx::AssertSqlSafe(path)).execute(c).await?; Ok(())})
+            }).connect(&app_url).await.unwrap();
+            Self {admin,pool,schema,actor,org}
+        }
+        fn access(&self) -> VerifiedAccess {
+            VerifiedAccess {subject:self.actor,issued_at:Some(Utc::now().timestamp()),expires_at:Utc::now().timestamp()+3600}
+        }
+        async fn command(&self, operation: routes::Operation) -> Result<routes::CommandOutput,verdaxis_read::ApiError> {
+            run_ordered_write(self.pool.clone(),Arc::new(Semaphore::new(6)),self.access(),routes::SubscriptionCommand::new(self.actor,operation,Utc::now())).await
+        }
+        async fn finish(mut self) {
+            self.pool.close().await;
+            sqlx::raw_sql(sqlx::AssertSqlSafe(format!("DROP SCHEMA {} CASCADE",self.schema))).execute(&mut self.admin).await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn p4_t13_c01() {
+        let mut f=Fixture::new().await;
+        sqlx::query("INSERT INTO organizations SELECT md5(i::text)::uuid FROM generate_series(1,502) i").execute(&mut f.admin).await.unwrap();
+        sqlx::query("INSERT INTO subscriptions(id,org_id,tier,is_active) SELECT id,id,'free',true FROM organizations WHERE id<>$1").bind(f.org).execute(&mut f.admin).await.unwrap();
+        let output=f.command(routes::Operation::List(store::Page::new(500,0).unwrap())).await.unwrap();
+        assert_eq!(output.body.as_array().unwrap().len(),500);
+        assert_eq!(output.truncated,Some(true));
+        let ids:Vec<_>=output.body.as_array().unwrap().iter().map(|v|v["org_id"].as_str().unwrap()).collect();
+        assert!(ids.windows(2).all(|w|w[0]<w[1]));
+        let tail=f.command(routes::Operation::List(store::Page::new(500,500).unwrap())).await.unwrap();
+        assert_eq!(tail.body.as_array().unwrap().len(),2);
+        assert_eq!(tail.truncated,Some(false));
+        assert!(store::Page::new(501,0).is_err());
+        assert!(store::Page::new(100,10001).is_err());
+        sqlx::query("UPDATE users SET role='BUYER' WHERE id=$1").bind(f.actor).execute(&mut f.admin).await.unwrap();
+        assert_eq!(f.command(routes::Operation::List(store::Page::default())).await.unwrap_err().status.as_u16(),403);
+        sqlx::query("UPDATE users SET status='REJECTED' WHERE id=$1").bind(f.actor).execute(&mut f.admin).await.unwrap();
+        assert!(f.command(routes::Operation::Mine).await.is_err());
+        f.finish().await;
+    }
+
+    #[tokio::test]
+    async fn p4_t13_c02() {
+        let f=Fixture::new().await;
+        let (a,b,c)=tokio::join!(f.command(routes::Operation::Mine),f.command(routes::Operation::Mine),f.command(routes::Operation::Update(f.org,store::SubscriptionUpdate::parse(json!({"tier":"enterprise","seller_fee_per_mt_usd":"0.75"})).unwrap())));
+        a.unwrap(); b.unwrap(); c.unwrap();
+        let mut conn=f.pool.acquire().await.unwrap();
+        assert_eq!(sqlx::query_scalar::<_,i64>("SELECT count(*) FROM subscriptions").fetch_one(&mut *conn).await.unwrap(),1);
+        let row=store::find(&mut conn,f.org).await.unwrap().unwrap();
+        assert_eq!(row.tier,SubscriptionTier::Enterprise);
+        assert_eq!(row.seller_fee_per_mt_usd,Some(Decimal::new(75,2)));
+        drop(conn);
+        f.finish().await;
+    }
+
+    #[tokio::test]
+    async fn p4_t13_c03() {
+        let f=Fixture::new().await;
+        let mut holder=f.pool.acquire().await.unwrap();
+        let mut tx=holder.begin().await.unwrap();
+        sqlx::query("SELECT id FROM organizations WHERE id=$1 FOR UPDATE").bind(f.org).fetch_one(&mut *tx).await.unwrap();
+        let pool=f.pool.clone(); let access=f.access(); let actor=f.actor;
+        let waiter=tokio::spawn(async move {run_ordered_write(pool,Arc::new(Semaphore::new(1)),access,routes::SubscriptionCommand::new(actor,routes::Operation::Mine,Utc::now())).await});
+        store::update(&mut tx,f.org,&store::SubscriptionUpdate::parse(json!({"tier":"enterprise","seller_fee_per_mt_usd":"1.25"})).unwrap()).await.unwrap();
+        tx.commit().await.unwrap();
+        let row=waiter.await.unwrap().unwrap();
+        assert_eq!(row.body["tier"],"enterprise");
+        drop(holder);
+        f.finish().await;
+    }
+
+    #[tokio::test]
+    async fn p4_t13_c04() {
+        let mut f=Fixture::new().await;
+        let absent=Uuid::new_v4();
+        let update=store::SubscriptionUpdate::parse(json!({"tier":"free"})).unwrap();
+        assert_eq!(f.command(routes::Operation::Update(absent,update)).await.unwrap_err().status.as_u16(),404);
+        sqlx::query("UPDATE users SET organization_id=NULL WHERE id=$1").bind(f.actor).execute(&mut f.admin).await.unwrap();
+        assert_eq!(f.command(routes::Operation::Mine).await.unwrap_err().status.as_u16(),403);
+        let count:i64=sqlx::query_scalar("SELECT count(*) FROM subscriptions").fetch_one(&mut f.admin).await.unwrap();
+        assert_eq!(count,0);
+        f.finish().await;
+    }
+
+    #[tokio::test]
+    async fn p4_t13_c06() {
+        let f=Fixture::new().await;
+        let now=Utc::now();
+        let mut conn=f.pool.acquire().await.unwrap();
+        let mut tx=conn.begin().await.unwrap();
+        let config=FeeConfig::default();
+        assert_eq!(fees::resolve_seller_fee(&mut tx,f.org,now,&config).await.unwrap().plan,SubscriptionTier::Free);
+        store::bootstrap(&mut tx,f.org).await.unwrap();
+        sqlx::query("UPDATE subscriptions SET tier='standard',expires_at=$1").bind(now).execute(&mut *tx).await.unwrap();
+        assert_eq!(fees::resolve_seller_fee(&mut tx,f.org,now,&config).await.unwrap().plan,SubscriptionTier::Free);
+        let before=fees::resolve_seller_fee(&mut tx,f.org,now-TimeDelta::microseconds(1),&config).await.unwrap();
+        assert_eq!(before.plan,SubscriptionTier::Standard);
+        assert_eq!(before.seller_fee_per_mt_usd,Decimal::new(150,2));
+        sqlx::query("UPDATE subscriptions SET is_active=false,expires_at=NULL").execute(&mut *tx).await.unwrap();
+        assert_eq!(fees::resolve_seller_fee(&mut tx,f.org,now,&config).await.unwrap().plan,SubscriptionTier::Free);
+        tx.rollback().await.unwrap();
+        assert_eq!(sqlx::query_scalar::<_,i64>("SELECT count(*) FROM subscriptions").fetch_one(&mut *conn).await.unwrap(),0);
+        drop(conn);
+        f.finish().await;
+    }
+
+    #[tokio::test]
+    async fn p4_t13_c08() {
+        let mut f=Fixture::new().await;
+        let set=||store::SubscriptionUpdate::parse(json!({"tier":"enterprise","seller_fee_per_mt_usd":"0.99"})).unwrap();
+        f.command(routes::Operation::Update(f.org,set())).await.unwrap();
+        let row=f.command(routes::Operation::Update(f.org,store::SubscriptionUpdate::parse(json!({"tier":"enterprise"})).unwrap())).await.unwrap();
+        assert_eq!(row.body["seller_fee_per_mt_usd"],"0.99");
+        assert_eq!(f.command(routes::Operation::Update(f.org,store::SubscriptionUpdate::parse(json!({"tier":"enterprise","seller_fee_per_mt_usd":null})).unwrap())).await.unwrap_err().status.as_u16(),422);
+        sqlx::raw_sql("ALTER TABLE audit_logs ADD CONSTRAINT audit_gate CHECK(false) NOT VALID").execute(&mut f.admin).await.unwrap();
+        assert!(f.command(routes::Operation::Update(f.org,store::SubscriptionUpdate::parse(json!({"tier":"standard","seller_fee_per_mt_usd":null})).unwrap())).await.is_err());
+        let stored=sqlx::query("SELECT tier,seller_fee_per_mt_usd FROM subscriptions").fetch_one(&mut f.admin).await.unwrap();
+        assert_eq!(stored.get::<String,_>("tier"),"enterprise");
+        assert_eq!(stored.get::<Decimal,_>("seller_fee_per_mt_usd"),Decimal::new(99,2));
+        f.finish().await;
+    }
+}
