@@ -42,63 +42,50 @@ fn listing_state() -> verdaxis_read::AppState {
     .unwrap()
 }
 
+async fn status(router: &axum::Router, method: &str, path: &str) -> u16 {
+    router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(method)
+                .uri(path)
+                .header("host", "localhost")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+        .status()
+        .as_u16()
+}
+
 #[tokio::test]
 async fn stated_mount_keeps_every_serving_route() {
     let state = listing_state();
-    let plain = verdaxis_read::runtime::http::router_with(
-        axum::Router::new(),
-        state.clone(),
-    );
-    let stated = verdaxis_read::runtime::http::router_with_stated(
-        axum::Router::new(),
-        state,
-    );
-    // The three health routes stay mounted in the composed router: their
-    // method answers on the plain router too, so any drop would surface here
-    // as a different status. No server is started; the pools connect lazily
-    // and the health handler never runs because the request is not sent.
+    let plain = verdaxis_read::runtime::http::router_with(axum::Router::new(), state.clone());
+    let stated = verdaxis_read::runtime::http::router_with_stated(axum::Router::new(), state);
+
+    // The three health routes stay mounted: each answers exactly as the plain
+    // serving router does, and none of them falls through to the 404 fallback.
     for path in ["/health/live", "/health/ready", "/health"] {
-        let response = stated
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .uri(path)
-                    .header("host", "localhost")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        // Liveness answers without a database; readiness needs one, so the
-        // proof here is that the route exists at all: a missing route answers
-        // 404 while a mounted one answers anything else.
-        let mounted_plain = plain
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .uri(path)
-                    .header("host", "localhost")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(
-            response.status(),
-            mounted_plain.status(),
-            "{path} must answer exactly as the plain serving router does"
-        );
-        assert_ne!(response.status(), 404, "{path} must stay mounted");
+        let composed = status(&stated, "GET", path).await;
+        assert_eq!(composed, status(&plain, "GET", path).await, "{path}");
+        assert_ne!(composed, 404, "{path} must stay mounted");
     }
-    // Route inventory: both routers expose exactly the same paths when the
-    // stated group is empty, so the function adds nothing by itself.
-    let collect = |router: axum::Router| {
-        let mut paths: Vec<String> = router
-            .routes()
-            .map(|(path, _)| format!("{:?}", path))
-            .collect();
-        paths.sort();
-        paths
-    };
-    assert_eq!(collect(stated), collect(plain));
+
+    // No Phase 4 component route is served by this round. The additive
+    // function only composes a group a caller supplies; with an empty group
+    // the KYC review and admission paths remain unowned.
+    for (method, path) in [
+        ("PUT", "/api/kyc/admin/00000000-0000-4000-8000-000000000001/approve"),
+        ("PUT", "/api/kyc/admin/00000000-0000-4000-8000-000000000001/reject"),
+        ("PUT", "/api/auth/approve/00000000-0000-4000-8000-000000000001"),
+        ("GET", "/api/auth/organization-joins"),
+    ] {
+        assert_eq!(
+            status(&stated, method, path).await,
+            status(&plain, method, path).await,
+            "{method} {path} must not change when no group is stated"
+        );
+    }
 }
