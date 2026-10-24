@@ -126,27 +126,27 @@ def test_referrals_journey_reads_code_stats_and_leaderboard_then_invites():
 def test_notification_projection_requires_frontend_types():
     check = module().check_notification_list
     check([notification()])
-    with pytest.raises(module.JourneyError):
+    with pytest.raises(module().JourneyError):
         check([notification(is_read="false")])
-    with pytest.raises(module.JourneyError):
+    with pytest.raises(module().JourneyError):
         check([notification(created_at="not-a-time")])
-    with pytest.raises(module.JourneyError):
+    with pytest.raises(module().JourneyError):
         check([{"id": "x"}])
-    with pytest.raises(module.JourneyError):
+    with pytest.raises(module().JourneyError):
         check({"count": 1})
     module().check_unread_count({"count": 3})
-    with pytest.raises(module.JourneyError):
+    with pytest.raises(module().JourneyError):
         module().check_unread_count({"count": "3"})
 
 
 def test_alert_projection_keeps_python_decimal_text_and_boolean_state():
     module().check_alert_list([alert()])
     module().check_alert(alert())
-    with pytest.raises(module.JourneyError):
+    with pytest.raises(module().JourneyError):
         module().check_alert(alert(is_active="true"))
-    with pytest.raises(module.JourneyError):
+    with pytest.raises(module().JourneyError):
         module().check_alert(alert(threshold_usd=812.5))
-    with pytest.raises(module.JourneyError):
+    with pytest.raises(module().JourneyError):
         module().check_alert(alert(direction="sideways"))
 
 
@@ -158,15 +158,15 @@ def test_leaderboard_requires_integer_rank_and_count():
         {"rank": 1, "user_name": "A", "organization_name": None, "referral_count": "2"},
         {"rank": 1, "user_name": 3, "organization_name": None, "referral_count": 2},
     ):
-        with pytest.raises(module.JourneyError):
+        with pytest.raises(module().JourneyError):
             check([bad])
 
 
 def test_watchlist_event_page_and_summary_require_the_rendered_fields():
     module().check_events_page({"items": [], "next_cursor": None})
-    with pytest.raises(module.JourneyError):
+    with pytest.raises(module().JourneyError):
         module().check_events_page({"items": [], "next_cursor": 3})
-    with pytest.raises(module.JourneyError):
+    with pytest.raises(module().JourneyError):
         module().check_events_page({"items": {}})
     module().check_watchlist_summary({
         "id": "10000000-0000-4000-8000-000000000001",
@@ -179,7 +179,7 @@ def test_watchlist_event_page_and_summary_require_the_rendered_fields():
         "slices": [],
         "created_at": "2026-10-19T10:00:00Z",
     })
-    with pytest.raises(module.JourneyError):
+    with pytest.raises(module().JourneyError):
         module().check_watchlist_summary({"id": "x"})
 
 
