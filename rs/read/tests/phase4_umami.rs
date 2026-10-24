@@ -121,15 +121,18 @@ pub mod analytics {
         }
     }
 
-    #[path = "../../src/analytics/events.rs"]
-    pub mod events;
-    #[path = "../../src/analytics/behavioral.rs"]
-    pub mod behavioral;
+    pub mod events {
+        include!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/analytics/events.rs"));
+    }
+    pub mod behavioral {
+        include!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/analytics/behavioral.rs"));
+    }
 }
 
 pub mod providers {
-    #[path = "../../src/providers/umami.rs"]
-    pub mod umami;
+    pub mod umami {
+        include!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/providers/umami.rs"));
+    }
 }
 
 #[path = "phase4_umami_suite/cases.rs"]
