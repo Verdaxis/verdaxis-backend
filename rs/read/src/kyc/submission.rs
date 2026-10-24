@@ -108,15 +108,14 @@ impl Declarations {
         if company.as_ref().is_some_and(|s| s.is_empty()) {
             return Err(invalid());
         }
-        if let Some(value) = &registration {
-            if value.len() < 2
+        if let Some(value) = &registration
+            && (value.len() < 2
                 || !value.as_bytes()[0].is_ascii_alphanumeric()
                 || !value
                     .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b" ./_-".contains(&b))
-            {
-                return Err(invalid());
-            }
+                    .all(|b| b.is_ascii_alphanumeric() || b" ./_-".contains(&b)))
+        {
+            return Err(invalid());
         }
         Ok(Self {
             company,
@@ -133,10 +132,9 @@ impl Declarations {
         }
         if let (Some(registration), Some(tax)) =
             (&self.registration, tax_id.filter(|s| !s.is_empty()))
+            && identity(registration) != identity(tax)
         {
-            if identity(registration) != identity(tax) {
-                return Err(invalid());
-            }
+            return Err(invalid());
         }
         Ok(())
     }
