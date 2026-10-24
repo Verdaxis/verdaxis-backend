@@ -253,18 +253,18 @@ async fn register_attempt(
     let token = generate_token();
     let now = Utc::now();
     let domain = settings.organization_domain(&input.email);
-    let org: Option<(Uuid, String)> =
-        sqlx::query_as("SELECT id,type::text FROM organizations WHERE domain=$1")
+    let org: Option<(Uuid, String, String)> =
+        sqlx::query_as("SELECT id,type::text,name FROM organizations WHERE domain=$1")
             .bind(domain)
             .fetch_optional(&mut *tx)
             .await?;
     let mut mail = Vec::new();
-    if let Some((org_id, kind)) = org.filter(|(_, kind)| matches_role(&input.role, kind)) {
+    if let Some((org_id, _kind, name)) = org.filter(|(_, kind, _)| matches_role(&input.role, kind)) {
         let id = Uuid::new_v4();
         insert_user(&mut tx, id, input, hash, &token).await?;
         if !suppressed {
             join_and_attribute(&mut tx, id, org_id, input).await?;
-            mail.push(settings.alert(id, input, &kind));
+            mail.push(settings.alert(id, input, &name));
         }
         let _ = kind;
     } else {
