@@ -22,8 +22,8 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::types::{AnalyticsActivity, AnalyticsAudience};
-use crate::business::error::refusal;
 use crate::ApiError;
+use crate::business::error::refusal;
 
 /// Longest accepted half-open period: 365 days.
 pub const MAX_RANGE_SECONDS: i64 = 365 * 24 * 60 * 60;

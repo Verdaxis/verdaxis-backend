@@ -6,7 +6,7 @@
 //! a patch, so the leaves stay reachable without a concurrent shared-file
 //! change.
 
-pub use verdaxis_read::{business, ApiError};
+pub use verdaxis_read::{ApiError, business};
 
 #[allow(dead_code)]
 #[path = "../src/analytics/facts.rs"]
@@ -28,19 +28,19 @@ use chrono::{DateTime, Duration, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde_json::json;
 
-use facts::{classify_order, classify_trade, MarketProvenance};
+use facts::{MarketProvenance, classify_order, classify_trade};
 use policy::{
-    allowed_event_properties, allowed_properties, check_property_value, property_domain,
-    ratio_from_counts, suppress, suppress_cell, PropertyValueCheck, MAX_COHORT_ROWS,
-    MAX_MATRIX_CELLS, MAX_RANKED_ROWS, MAX_SERIES_POINTS, SUPPRESSION_THRESHOLD,
+    MAX_COHORT_ROWS, MAX_MATRIX_CELLS, MAX_RANKED_ROWS, MAX_SERIES_POINTS, PropertyValueCheck,
+    SUPPRESSION_THRESHOLD, allowed_event_properties, allowed_properties, check_property_value,
+    property_domain, ratio_from_counts, suppress, suppress_cell,
 };
 use query::{
-    previous_window, validate_query, AnalyticsQuery, QueryInput, MAX_AVAILABILITY_WINDOW_CHARS,
-    MAX_RANGE_SECONDS, MIN_QUERY_INSTANT,
+    AnalyticsQuery, MAX_AVAILABILITY_WINDOW_CHARS, MAX_RANGE_SECONDS, MIN_QUERY_INSTANT,
+    QueryInput, previous_window, validate_query,
 };
 use retention::{
-    login_day_is_retained, login_retention_cutoff, AnalyticsFactFamily, MAX_SERIES_DATES,
-    RETAINED_DATES,
+    AnalyticsFactFamily, MAX_SERIES_DATES, RETAINED_DATES, login_day_is_retained,
+    login_retention_cutoff,
 };
 use types::{
     AggregateCell, AnalyticsActivity, AnalyticsAudience, AnalyticsDiagnostic,
@@ -208,11 +208,13 @@ fn p4_t15_c02() {
         .0,
         422
     );
-    assert!(validate_query(input(&[
-        ("start", "2026-01-01T00:00:00Z"),
-        ("end", "2027-01-01T00:00:00Z"),
-    ]))
-    .is_ok());
+    assert!(
+        validate_query(input(&[
+            ("start", "2026-01-01T00:00:00Z"),
+            ("end", "2027-01-01T00:00:00Z"),
+        ]))
+        .is_ok()
+    );
     let over = validate_query(input(&[
         ("start", "2026-01-01T00:00:00Z"),
         ("end", "2027-01-01T00:00:01Z"),
@@ -222,12 +224,14 @@ fn p4_t15_c02() {
 
     // A 16-character window is accepted, 17 is refused.
     let longest = "x".repeat(MAX_AVAILABILITY_WINDOW_CHARS);
-    assert!(validate_query(input(&[
-        ("start", "2026-06-01T00:00:00Z"),
-        ("end", "2026-06-02T00:00:00Z"),
-        ("availability_window", longest.as_str()),
-    ]))
-    .is_ok());
+    assert!(
+        validate_query(input(&[
+            ("start", "2026-06-01T00:00:00Z"),
+            ("end", "2026-06-02T00:00:00Z"),
+            ("availability_window", longest.as_str()),
+        ]))
+        .is_ok()
+    );
     let too_long = "x".repeat(MAX_AVAILABILITY_WINDOW_CHARS + 1);
     assert_eq!(
         refusal_code(
@@ -582,13 +586,13 @@ fn p4_t15_c08() {
     // The status fields are private, so absence cannot be paired with data by
     // a struct literal; only the constructors decide.
     assert_eq!(
+        serde_json::to_value(&unavailable).unwrap()["diagnostic"],
+        json!("timeout")
+    );
+    assert_eq!(
         unavailable.into_data(),
         None::<Vec<u64>>,
         "an unavailable component yields no data"
-    );
-    assert_eq!(
-        serde_json::to_value(&unavailable).unwrap()["diagnostic"],
-        json!("timeout")
     );
 
     // An available empty collection is a genuine empty response.
