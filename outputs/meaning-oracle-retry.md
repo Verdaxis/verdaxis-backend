@@ -39,3 +39,11 @@ polled directly over SSH until it writes its exit file. The wrapper's remote
 log/exit files were removed by the exited wrapper only if it stopped the unit;
 it did not (stop_remote_run succeeded only for units it could stop — here the
 poll exited without stopping, so log and unit survive).
+
+## Publication (24 Oct)
+
+Branch `fix/meaning-oracle-transient-retry` pushed; PR #125 to `staging` opened.
+CI: Backend CI (test, postgres-phase0, postgres-analytics) — all pass.
+Rust read CI: offline pass, contract pass (7m04s); `publish` correctly skipping
+(a feature-branch PR cannot publish; release publication requires a push to a
+live branch).
