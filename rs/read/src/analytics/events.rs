@@ -249,27 +249,28 @@ impl ReferrerCategory {
         Self::Other,
     ];
 
-    const SEARCH_HOSTS: [&str; 8] = [
-        "google",
-        "bing",
-        "duckduckgo",
-        "yahoo",
-        "yandex",
-        "baidu",
-        "ecosia",
-        "brave",
+    const SEARCH_HOSTS: [&str; 9] = [
+        "google.com",
+        "bing.com",
+        "duckduckgo.com",
+        "search.yahoo.com",
+        "yandex.com",
+        "baidu.com",
+        "ecosia.org",
+        "search.brave.com",
+        "startpage.com",
     ];
     const SOCIAL_HOSTS: [&str; 10] = [
-        "facebook",
-        "instagram",
-        "linkedin",
-        "twitter",
+        "facebook.com",
+        "instagram.com",
+        "linkedin.com",
+        "twitter.com",
         "x.com",
         "t.co",
-        "reddit",
-        "youtube",
-        "tiktok",
-        "telegram",
+        "reddit.com",
+        "youtube.com",
+        "tiktok.com",
+        "t.me",
     ];
 
     pub fn as_str(self) -> &'static str {

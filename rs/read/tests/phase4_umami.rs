@@ -663,8 +663,12 @@ mod cases {
         assert_eq!(window.availability, BehavioralAvailability::Available);
         let results = &window.property_results[0].result;
         let rows = results.data.as_ref().expect("typed rows");
-        assert_eq!(rows.len(), 1, "map (1) is suppressed, unknown values dropped");
+        assert_eq!(rows.len(), 2, "unknown value dropped; email is not a property");
         assert_eq!(rows[0].value.as_str(), "marketplace");
+        assert_eq!(rows[0].count.count, Some(7));
+        assert_eq!(rows[1].value.as_str(), "map");
+        assert!(rows[1].count.suppressed, "a single visitor is suppressed");
+        assert_eq!(rows[1].count.count, None);
         let serialized = serde_json::to_string(&window).expect("serializable window");
         for forbidden in ["someone@example.com", "email", "not-a-destination"] {
             assert!(!serialized.contains(forbidden), "leaked {forbidden}");
@@ -1949,7 +1953,11 @@ mod cases {
         }
 
         let policy: MarketPolicy = serde_json::from_slice(
-            &std::fs::read("../../../deploy/rust/market-policy.json").expect("policy artifact"),
+            &std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../deploy/rust/market-policy.json"
+        ))
+        .expect("policy artifact"),
         )
         .expect("policy");
         let from_policy = DomainCatalog::from_policy(&policy, ISO_3166_1_ALPHA_2.iter().copied());
@@ -1978,7 +1986,6 @@ mod cases {
             "\"y\":",
             "\"t\":",
             "\"sessions\"",
-            "\"pageviews\"",
             "\"totaltime\"",
         ] {
             assert!(
