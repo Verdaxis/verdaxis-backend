@@ -456,7 +456,7 @@ async fn read_body(request: Request) -> Result<Value, Response> {
             )
             .into_response()
         })?;
-    crate::auth::request::parse_json_body(&body).map_err(IntoResponse::into_response)
+    crate::auth::request::parse_json_body(&body).map_err(|error| error.into_response())
 }
 
 /// A04: eligible organizations, ordered by name and id, with a bounded read.

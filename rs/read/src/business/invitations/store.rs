@@ -369,7 +369,7 @@ impl BusinessCommand for CreateInvitationCommand {
                         .bind(self.now)
                         .execute(&mut *conn)
                         .await
-                        .map_err(|error| integrity_conflict(error))?;
+                        .map_err(integrity_conflict)?;
                     let name = organization.name.clone();
                     let kind = organization.kind.clone();
                     let country = Some(organization.country_code.clone());
@@ -436,7 +436,7 @@ impl BusinessCommand for CreateInvitationCommand {
                     .bind(self.now)
                     .execute(&mut *conn)
                     .await
-                    .map_err(|error| integrity_conflict(error))?;
+                    .map_err(integrity_conflict)?;
                     append_status_transition(
                         conn,
                         &StatusFact {

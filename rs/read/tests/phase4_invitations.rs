@@ -28,8 +28,8 @@ fn instant() -> DateTime<Utc> {
     "2026-10-24T09:00:00Z".parse().unwrap()
 }
 
-fn body(value: Value) -> CreateInvitation {
-    CreateInvitation::parse(&value).expect("valid invitation body")
+fn body(value: &Value) -> CreateInvitation {
+    CreateInvitation::parse(value).expect("valid invitation body")
 }
 
 fn existing_payload(organization: Uuid) -> Value {
@@ -59,6 +59,7 @@ fn new_organization_payload() -> Value {
 
 /// The release-owned domain policy Phase 3 registration supplies. The data
 /// lists are fixed here so no test reaches DNS or a network.
+#[cfg_attr(not(feature = "contract-tests"), allow(dead_code))]
 struct Domains {
     excluded: Vec<String>,
 }
@@ -80,6 +81,7 @@ impl OrganizationDomainPolicy for Domains {
     }
 }
 
+#[cfg_attr(not(feature = "contract-tests"), allow(dead_code))]
 fn domains() -> Arc<dyn OrganizationDomainPolicy> {
     Arc::new(Domains {
         excluded: vec!["gmail.com".into(), "disposable.example".into()],
@@ -99,7 +101,7 @@ fn p4_t5_c02() {
         let mut payload = new_organization_payload();
         payload["new_organization"]["country_code"] = json!(input);
         assert_eq!(
-            match body(payload).organization {
+            match body(&payload).organization {
                 OrganizationSource::New(organization) => organization.country_code,
                 OrganizationSource::Existing(_) => unreachable!("new organization"),
             },
@@ -147,7 +149,7 @@ fn p4_t5_c50() {
     payload["new_organization"] = json!({
         "name": "LNG Trader", "type": "FUEL_TRADER", "country_code": "NL"
     });
-    assert_eq!(body(payload).role, InvitationRole::Supplier);
+    assert_eq!(body(&payload).role, InvitationRole::Supplier);
 }
 
 #[test]
@@ -202,12 +204,12 @@ fn p4_t5_c56() {
     );
     let mut names = existing_payload(organization);
     names["last_name"] = json!("  Rahman  ");
-    assert_eq!(body(names).last_name.as_deref(), Some("Rahman"));
+    assert_eq!(body(&names).last_name.as_deref(), Some("Rahman"));
     // A blank tax id is stored as null, as Python's normalizer does.
     let mut tax = new_organization_payload();
     tax["new_organization"]["tax_id"] = json!("   ");
     assert!(matches!(
-        body(tax).organization,
+        body(&tax).organization,
         OrganizationSource::New(NewOrganization { tax_id: None, .. })
     ));
 }
@@ -219,7 +221,7 @@ fn p4_t5_c57() {
     payload["new_organization"] = json!({
         "name": "Wrong Side Fuels", "type": "FUEL_SUPPLIER", "country_code": "SG"
     });
-    let invitation = body(payload);
+    let invitation = body(&payload);
     assert!(!store::organization_type_matches_role(
         invitation.role.as_str(),
         match invitation.organization {
