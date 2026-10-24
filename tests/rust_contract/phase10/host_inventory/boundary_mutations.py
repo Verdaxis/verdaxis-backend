@@ -1,4 +1,6 @@
 """Temporary single-site mutations. Run only in a disposable test checkout."""
+import ast
+import json
 import subprocess
 import sys
 import tempfile
@@ -30,6 +32,7 @@ SITES=[
  ('command-bytes',R,'if total > MAX_OUTPUT_BYTES:','if False:','round8_contract.py','Round8Contract.test_command_prefix_and_collection'),
  ('command-wait',R,'except subprocess.TimeoutExpired:','except subprocess.CalledProcessError:','round8_contract.py','Round8Contract.test_deadline_wait_downstream'),
  ('entry-iterator',R,'if len(entries) >= MAX_ITEMS:','if False:','round10_contract.py','Round10Contract.test_surface_retention_matrix'),
+ ('entry-admission',R,'len(entry_blocks) < MAX_ITEMS','False','round10_contract.py','Round10Contract.test_surface_retention_matrix'),
  ('entry-shared',R,'if len(entry_blocks) >= MAX_ITEMS:','if False:','round10_contract.py','Round10Contract.test_surface_retention_matrix'),
  ('observation-bytes',R,'if budget > MAX_TOTAL_BYTES:','if False:','round7_contract.py','Round7Contract.test_observation_and_encoded_output_distinct'),
  ('unit-count',R,'if len(names) > MAX_ITEMS:','if False:','round10_contract.py','Round10Contract.test_surface_retention_matrix'),
@@ -43,27 +46,101 @@ SITES=[
 ]
 
 
+def scanned_sites():
+    """Independently discover resource comparisons and timeout handlers by AST.
+
+    Lexical arity checks are excluded; metadata/type/overflow guards are included
+    as defined by the accepted resource inventory. Compound guards split sites.
+    """
+    found=[]
+    for name in (R,T):
+        source=(ROOT/name).read_text()
+        tree=ast.parse(source)
+        for node in ast.walk(tree):
+            if isinstance(node,ast.Compare):
+                text=ast.get_source_segment(source,node)
+                resource=any(token in text for token in ('MAX_', 'self.capacity', 'deadline', 'max_depth', 'len(kept)'))
+                if resource:found.append((name,node.lineno,ast.dump(node,include_attributes=False)))
+            elif isinstance(node,ast.ExceptHandler) and isinstance(node.type,ast.Attribute) and node.type.attr=='TimeoutExpired':
+                found.append((name,node.lineno,'timeout-handler'))
+            elif isinstance(node,ast.UnaryOp) and isinstance(node.op,ast.Not) and isinstance(node.operand,ast.Call) and ast.get_source_segment(source,node.operand.func)=='stat.S_ISREG':
+                found.append((name,node.lineno,ast.dump(node,include_attributes=False)))
+            elif isinstance(node,ast.Compare) and False:pass
+        # Non-numeric independent guards from the established resource scope.
+        for node in ast.walk(tree):
+            if isinstance(node,ast.Compare):
+                text=ast.get_source_segment(source,node)
+                if text=="priority in (1, 2)" or 'before.st_size, before.st_mtime_ns' in text:
+                    found.append((name,node.lineno,ast.dump(node,include_attributes=False)))
+    return sorted(set(found))
+
+
+def manifest_sites():
+    found=[]
+    for site,name,old,new,test,method in SITES:
+        source=(ROOT/name).read_text();offset=source.index('def publish(') if site=='publish-bytes' else 0
+        index=source.index(old,offset);line=source[:index].count('\n')+1
+        # Find the smallest AST comparison/guard represented by this mutation.
+        nodes=[]
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node,(ast.Compare,ast.UnaryOp,ast.ExceptHandler)) and node.lineno==line:
+                text=ast.get_source_segment(source,node) or ''
+                if isinstance(node,ast.ExceptHandler):key='timeout-handler'
+                else:key=ast.dump(node,include_attributes=False)
+                if isinstance(node,ast.Compare) and any(t in text for t in ('MAX_','self.capacity','deadline','max_depth','len(kept)','before.st_size, before.st_mtime_ns','priority in (1, 2)')):nodes.append((len(text),key))
+                elif site=='file-type' and isinstance(node,ast.UnaryOp):nodes.append((len(text),key))
+                elif isinstance(node,ast.ExceptHandler):nodes.append((0,key))
+        # Disjunct mutation selects its own comparison, not its sibling.
+        if site in ('file-type','file-size','read-size','metadata','visited','popped-depth','reference-depth'):
+            needle={'file-type':'stat.S_ISREG','file-size':'before.st_size >','read-size':'len(raw) >','metadata':'before.st_mtime_ns','visited':'len(visited)','popped-depth':'depth >','reference-depth':'depth >='}[site]
+            nodes=[(len(ast.get_source_segment(source,n) or ''),ast.dump(n,include_attributes=False)) for n in ast.walk(ast.parse(source)) if isinstance(n,(ast.Compare,ast.UnaryOp)) and n.lineno==line and needle in (ast.get_source_segment(source,n) or '')]
+        if not nodes:raise ValueError('manifest site not found: '+site)
+        found.append((name,line,min(nodes)[1]))
+    return sorted(found)
+
+
+def classify(baseline,mutant):
+    if baseline.get('ran')!=1 or not baseline.get('success'):return 'INVALID'
+    if mutant.get('ran')!=1 or not mutant.get('reached'):return 'INVALID'
+    if mutant.get('success'):return 'SURVIVED'
+    details=mutant.get('details',[])
+    if details and all(d['kind']=='failure' and d['assertion'] and d['designated'] for d in details):return 'MUTANT_KILLED'
+    return 'INVALID'
+
+
+def probe(test,method,name,line):
+    with tempfile.TemporaryDirectory(prefix='w0-strict-probe-') as folder:
+        output=Path(folder)/'result.json'
+        result=subprocess.run([sys.executable,'-X','pycache_prefix='+folder,str(ROOT/B/'mutation_probe.py'),str(ROOT/B/test),method,str(ROOT/name),str(line),str(output)],cwd=ROOT,capture_output=True,timeout=30)
+        if result.returncode or not output.exists():return {'ran':0,'success':False,'reached':False,'details':[]}
+        return json.loads(output.read_text())
+
+
 def main():
+    scanned=scanned_sites();manifest=manifest_sites()
+    if scanned!=manifest or len(scanned)!=31:
+        print('INVENTORY_MISMATCH',len(scanned),len(manifest),flush=True)
+        print('missing',set(scanned)-set(manifest));print('extra',set(manifest)-set(scanned))
+        return 1
     failed=False
     originals={name:(ROOT/name).read_bytes() for name in (R,T)}
     for site,name,old,new,test,method in SITES:
         path=ROOT/name;source=originals[name].decode()
-        # publish and reply have the same check: select the intended function.
         offset=source.index('def publish(') if site=='publish-bytes' else 0
-        index=source.index(old,offset)
-        line=source[:index].count('\n')+1
-        mutated=source[:index]+source[index:].replace(old,new,1)
+        index=source.index(old,offset);line=source[:index].count('\n')+1
+        baseline=probe(test,method,name,line)
+        if baseline.get('ran')!=1 or not baseline.get('success'):
+            print(f'site={site} line={line} test={test}:{method} baseline=FAIL INVALID',flush=True)
+            return 1
         try:
-            path.write_text(mutated)
-            # Avoid stale timestamp/size-based pycache across rapid restoration.
-            with tempfile.TemporaryDirectory(prefix='w0-mut-cache-') as cache:
-                result=subprocess.run([sys.executable,'-X','pycache_prefix='+cache,str(ROOT/B/test),method],cwd=ROOT,capture_output=True,timeout=30)
-            killed=result.returncode!=0
-            print(f'site={site} line={line} test={test}:{method} '+('MUTANT_KILLED' if killed else 'SURVIVED'),flush=True)
-            failed |= not killed
+            path.write_text(source[:index]+source[index:].replace(old,new,1))
+            mutant=probe(test,method,name,line)
+            status=classify(baseline,mutant)
+            diagnostic=mutant.get('details',[{}])[0].get('first_line','') if mutant.get('details') else ''
+            print(f'site={site} line={line} test={test}:{method} baseline=PASS reached={mutant.get("reached",False)} {status} assertion={json.dumps(diagnostic)}',flush=True)
+            failed |= status!='MUTANT_KILLED'
         except subprocess.TimeoutExpired:
-            print(f'site={site} line={line} test={test}:{method} SURVIVED timeout',flush=True)
-            failed=True
+            print(f'site={site} line={line} test={test}:{method} baseline=PASS INVALID timeout',flush=True);failed=True
         finally:
             path.write_bytes(originals[name])
             if path.read_bytes()!=originals[name]:raise RuntimeError('restore failed')
