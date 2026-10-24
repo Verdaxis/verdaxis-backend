@@ -1,7 +1,7 @@
 {
   "version": 2,
   "status": "partial",
-  "source_sha": "f8627807a01cee35ddb9d43d1ce81fa5882b10cd",
+  "source_sha": "e2c7dcf5fbfedb9988205500022479a97f887321",
   "contracts": [
     {
       "id": "CF4_01",
@@ -135,9 +135,34 @@
             "execution_gate_enabled bool",
             "now timestamptz"
           ],
-          "strict_sql": "u.kyc_status <> 'REJECTED' AND ((u.kyc_status = 'APPROVED' AND u.kyc_organization_id = u.organization_id) OR EXISTS (SELECT 1 FROM kyc_execution_grace g WHERE g.user_id = u.id AND g.organization_id = u.organization_id AND g.expires_at > $now))",
-          "advisory_sql": "u.kyc_status <> 'REJECTED' AND (u.kyc_organization_id IS NULL OR u.kyc_organization_id = u.organization_id)",
-          "combined": "(NOT $enabled AND advisory_sql) OR ($enabled AND strict_sql)"
+          "strict_sql": "u.kyc_status IN ('PENDING','SUBMITTED','APPROVED','REJECTED') AND u.kyc_status <> 'REJECTED' AND ((u.kyc_status = 'APPROVED' AND u.kyc_organization_id = u.organization_id) OR EXISTS (SELECT 1 FROM kyc_execution_grace g WHERE g.user_id = u.id AND g.organization_id = u.organization_id AND g.expires_at > $now))",
+          "advisory_sql": "u.kyc_status IN ('PENDING','SUBMITTED','APPROVED','REJECTED') AND u.kyc_status <> 'REJECTED' AND (u.kyc_organization_id IS NULL OR u.kyc_organization_id = u.organization_id)",
+          "combined": "(NOT $enabled AND advisory_sql) OR ($enabled AND strict_sql)",
+          "known_status_values": [
+            "PENDING",
+            "SUBMITTED",
+            "APPROVED",
+            "REJECTED"
+          ],
+          "review_required_literal": {
+            "symbol": "KYC_REVIEW_REQUIRED",
+            "value": "SUBMITTED",
+            "source": "app/services/kyc.py:3"
+          },
+          "unknown_status": "false in both switch states, with or without matching unexpired grace; null never authorizes",
+          "release_gate": {
+            "operation": "read_only",
+            "sql": "SELECT count(*) FROM users WHERE kyc_status IS NULL OR kyc_status NOT IN ('PENDING','SUBMITTED','APPROVED','REJECTED')",
+            "required_count": 0,
+            "failure": "block cutover; no automatic coercion, repair or mutation",
+            "consumers": [
+              "3",
+              "8",
+              "9",
+              "10",
+              "11b"
+            ]
+          }
         }
       },
       "rules": {
@@ -1551,11 +1576,27 @@
         "phase9",
         "integration"
       ],
-      "signature_status": "delayed",
+      "signature_status": "declared_with_pending_producers",
       "signatures": [
         {
           "declaration": "pub async fn invalidate_organization(conn: &mut PgConnection, command: &InvalidateOrganization) -> Result<InvalidationResult, InvalidationError>",
           "sha256": "cb12bb3a4d1f965c7df41243eecf5470268e7968690d665f3e8765841bef57af"
+        },
+        {
+          "declaration": "pub async fn cleanup_context_for_trade(tx: &mut Tx, actor: &AuthenticatedActor, trade_id: Uuid) -> Result<WriteContext, MarketWriteError>",
+          "sha256": "a67ae8adb98b08155e9584cf0aa701be49bac4537b541d780c0ffd0efb616cbe"
+        },
+        {
+          "declaration": "pub async fn require_cleanup(tx: &mut Tx, ctx: &WriteContext, trade: &TradeRow, side: TradeSide) -> Result<(), MarketWriteError>",
+          "sha256": "98f8df17a12695fda7de88d80e1cae0881aa3444021b580061b9bbd51f1f5163"
+        },
+        {
+          "declaration": "pub async fn require_execution(tx: &mut Tx, ctx: &WriteContext, party: &PartyRef) -> Result<(), MarketWriteError>",
+          "sha256": "5127df39f0e2110b17646d3dbfe7e30bdaad97a937bb1cfa39adcf70078d7b77"
+        },
+        {
+          "declaration": "pub enum SettlementOwnership { RecordedUser { side: TradeSide, user_id: Uuid, organization_id: Uuid }, AssistedCustomerMember { side: TradeSide, actor_user_id: Uuid, organization_id: Uuid, expected_role: ActorRole, evidence: AssistedSideEvidence } }",
+          "sha256": "8bb9455598f483166ce28d746ec57661054083d383cc349088db4fcd8bfeea18"
         }
       ],
       "schemas": {
@@ -1569,18 +1610,6 @@
           "preserved_trade_ids": "Vec<Uuid>; max 100",
           "released_uncommitted_quantity": "Decimal",
           "outbox_ids": "Vec<Uuid>"
-        },
-        "FrozenTradeParticipants": {
-          "trade_id": "Uuid",
-          "buyer_user_id": "Uuid",
-          "seller_user_id": "Uuid",
-          "buyer_organization_id": "Uuid",
-          "seller_organization_id": "Uuid",
-          "initiator_user_id": "Uuid",
-          "state": "TradeState; all six persisted states",
-          "quantity": "Decimal",
-          "settlement_reservation": "immutable existing commitment",
-          "fee_snapshot": "immutable existing snapshot"
         },
         "SettlementAction": [
           "Confirm",
@@ -1614,32 +1643,159 @@
             "storage": "DECLINED"
           }
         },
-        "authority_interface_candidates": [
-          "pub async fn cleanup_context_for_trade(tx: &mut Tx, actor: &AuthenticatedActor, trade_id: Uuid) -> Result<WriteContext, MarketWriteError>",
-          "pub async fn require_cleanup(tx: &mut Tx, ctx: &WriteContext, trade: &TradeRow, side: TradeSide) -> Result<(), MarketWriteError>"
+        "CurrentActor": {
+          "producer": "Phase 3",
+          "status": "existing",
+          "source": "rs/read/src/auth/actor.rs:3-9",
+          "fields": {
+            "id": "Uuid",
+            "organization_id": "Option<Uuid>",
+            "role": "Option<String>",
+            "email_verified": "bool"
+          },
+          "authority": "database projection only; not a token or cutoff proof"
+        },
+        "VerifiedAccess": {
+          "producer": "Phase 3 required-expiry lane",
+          "status": "pending",
+          "existing_source": "rs/read/src/auth/claims.rs:6-11; rs/read/src/auth/token.rs:59-92,95-132",
+          "fields": {
+            "subject": "Uuid",
+            "issued_at": "Option<DateTime<Utc>>",
+            "expires_at": "DateTime<Utc>; required producer addition",
+            "issuance_out_of_range": "bool; crate-private existing parser evidence"
+          },
+          "construction": "existing signature/type/issuer/audience/subject verifier plus required exp validation; missing, malformed, expired exp refuses401 AUTH_CREDENTIALS_INVALID; only verifier constructs proof; no alternate verifier",
+          "existing_abi_delta": "existing VerifiedAccess lacks expires_at and existing verifier permits missing exp; required producer must land before use"
+        },
+        "ActorAccountState": [
+          "Pending",
+          "Approved",
+          "Rejected"
         ],
-        "authority_inputs_pending_owner_confirmation": {
-          "AuthenticatedActor": [
-            "verified access type=access",
-            "subject Uuid",
-            "issued_at Option<DateTime<Utc>>",
-            "account status Pending|Approved|Rejected",
-            "password_changed_at Option<DateTime<Utc>>",
-            "authentication_revoked_at Option<DateTime<Utc>>",
-            "role Buyer|Supplier|Admin",
-            "must_change_password bool",
-            "email_verified bool",
-            "current_organization_id Option<Uuid>"
-          ],
-          "recorded_side": [
-            "buyer_user_id Option<Uuid>",
-            "seller_user_id Option<Uuid>",
-            "buyer_organization_id Uuid",
-            "seller_organization_id Uuid",
-            "initiator_user_id Uuid",
-            "assisted-customer side evidence and current membership under locks"
-          ],
-          "WriteContext": "derive effective_organization_id from immutable recorded side; support_context_id=None for concrete cleanup; not caller-selected tenant"
+        "ActorRole": [
+          "Buyer",
+          "Supplier",
+          "Admin"
+        ],
+        "TradeSide": [
+          "Buyer",
+          "Seller"
+        ],
+        "InitiatingSide": {
+          "Buyer": "BUYER",
+          "Seller": "SELLER"
+        },
+        "LockedActorState": {
+          "producer": "Phases 8-9",
+          "status": "pending",
+          "fields": {
+            "current": "CurrentActor",
+            "status": "ActorAccountState",
+            "must_change_password": "bool",
+            "password_changed_at": "Option<DateTime<Utc>>",
+            "authentication_revoked_at": "Option<DateTime<Utc>>"
+          },
+          "construction": "private fields; read fresh under canonical organization/user locks; role parsed fallibly from CurrentActor optional string; never default to Buyer or Approved"
+        },
+        "AuthenticatedActor": {
+          "producer": "Phases 8-9",
+          "status": "pending",
+          "fields": {
+            "access": "VerifiedAccess (expiry-bearing producer required)",
+            "account": "LockedActorState"
+          },
+          "construction": "private; inside transaction from VerifiedAccess plus locked current database projection; account.current.id must equal access.subject; refresh projection each retry; no duplicate actor cache or cutoff booleans"
+        },
+        "RecordedSide": {
+          "side": "TradeSide",
+          "organization_id": "Uuid; trades.buyer_id/seller_id",
+          "concrete_user_id": "Option<Uuid>; historical nullable side user"
+        },
+        "AssistedSideEvidence": {
+          "producer": "Phases 8-9",
+          "status": "pending",
+          "constructor_visibility": "private",
+          "fields": {
+            "side": "TradeSide",
+            "organization_id": "Uuid",
+            "linked_order_id": "Uuid",
+            "owner_user_id": "Uuid",
+            "created_by_actor_user_id": "Uuid"
+          },
+          "proof": "linked order MARKET_SUPPORT, ASK->seller or BID->buyer; immutable trade order id/side/org match; trade side user=order owner; created_by_actor_user_id=owner_user_id nonnull; all read under locks"
+        },
+        "SettlementOwnership": {
+          "producer": "Phases 8-9",
+          "status": "pending",
+          "constructor_visibility": "private to authority module; no public field construction or deserialization",
+          "variants": {
+            "RecordedUser": {
+              "side": "TradeSide",
+              "user_id": "Uuid",
+              "organization_id": "Uuid"
+            },
+            "AssistedCustomerMember": {
+              "side": "TradeSide",
+              "actor_user_id": "Uuid",
+              "organization_id": "Uuid",
+              "expected_role": "ActorRole",
+              "evidence": "AssistedSideEvidence"
+            }
+          },
+          "construction": "verified access subject and locked trade/side/user/org evidence only; not request-body or header authority; revalidate each transaction attempt"
+        },
+        "TradeRow": {
+          "producer": "Phases 8-9",
+          "status": "pending",
+          "fields": {
+            "id": "Uuid",
+            "buyer": "RecordedSide",
+            "seller": "RecordedSide",
+            "initiated_by": "InitiatingSide",
+            "state": "TradeState",
+            "linked_bid_order_id": "Option<Uuid>",
+            "linked_ask_order_id": "Option<Uuid>",
+            "quantity": "Decimal",
+            "frozen_terms": "immutable typed persisted trade snapshot",
+            "fee_basis": "immutable persisted fee snapshot",
+            "commitment": "immutable existing settlement commitment"
+          },
+          "authority_projection": "other existing trade fields retained; not a replacement economic row schema"
+        },
+        "WriteContext": {
+          "producer": "Phases 8-9",
+          "status": "pending",
+          "fields": {
+            "actor": "AuthenticatedActor",
+            "settlement_trade_id": "Uuid",
+            "effective_organization_id": "Uuid",
+            "support_context_id": "Option<Uuid>; None for lifecycle",
+            "settlement_ownership": "SettlementOwnership",
+            "now": "DateTime<Utc>; transaction instant"
+          },
+          "construction": "private; cleanup_context_for_trade loads immutable trade under canonical locks; derive nonnull effective organization from authorized recorded side, not current/caller-selected organization; preserve other planned write-context fields; scope binds one trade and one side"
+        },
+        "PartyRef": {
+          "producer": "Phases 8-9",
+          "status": "pending",
+          "fields": {
+            "user_id": "Uuid",
+            "organization_id": "Uuid"
+          },
+          "scope": "execution party; nullable historical RecordedSide is not coerced into PartyRef"
+        },
+        "MarketWriteError": {
+          "producer": "Phases 8-9",
+          "status": "pending",
+          "fields": {
+            "status": "u16 HTTP status",
+            "code": "SettlementErrorCode from error_table",
+            "message": "String; clear free wording",
+            "extras": "typed optional KYC fields only",
+            "headers": "typed WWW-Authenticate, ETag/Retry-After as required"
+          },
+          "body": "{detail:{code,message,...typed_extras}}; never raw Python string/array or upstream body"
         }
       },
       "rules": {
@@ -1647,11 +1803,11 @@
         "bounds": "discover limit+1; >100 commitments or >100 active orders => atomic 409",
         "preserve": "all six persisted states; terminal PAID,CANCELLED,DECLINED rows unchanged; fresh lifecycle commands refused on terminal rows",
         "release": "withdraw executable uncommitted remainder only; return only its reserved stock",
-        "ownership": "not accepted; use delayed authority matrix and Phase8/9 interfaces only; no parallel authority API",
-        "authentication": "execution vs cleanup distinction is pending exact owner types/codes; no consumers released",
+        "ownership": "transaction-local SettlementOwnership with private constructors; exact recorded user or separately proven assisted customer member; no support admin authority",
+        "authentication": "existing verifier plus required-expiry producer; cleanup password and rejected-only revocation rule; full execution only for fresh confirmation",
         "freeze": "no trade freeze column or route",
         "coexistence": "actual Python deliver/pay proof mandatory at integration; mismatch blocks business group; do not modify Python",
-        "locks": "canonical slice and row keys reused; shared retry up to three full attempts only 40001/40P01; outward exhaustion 503 TRANSACTION_RETRY_EXHAUSTED with Retry-After:1 per CF4_06 proposal; 55P03 409 MARKET_BUSY; 57014 503 TRANSACTION_TIMEOUT; preserve stock/outbox/audit atomically"
+        "locks": "canonical slice and row keys reused; shared retry up to three full attempts only 40001/40P01; outward exhaustion 503 TRANSACTION_RETRY_EXHAUSTED with Retry-After:1 per CF4_06; 55P03 409 MARKET_BUSY; 57014 503 TRANSACTION_TIMEOUT; preserve stock/outbox/audit atomically"
       },
       "source_digests": [
         {
@@ -1669,108 +1825,1401 @@
         {
           "path": "app/routers/auth_simple.py",
           "sha256": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0"
+        },
+        {
+          "path": "rs/read/src/auth/actor.rs",
+          "sha256": "d68d361d841a603c75dfd2a0d331121cf1b2610b9583b036d31385718b9f8a74"
+        },
+        {
+          "path": "rs/read/src/auth/claims.rs",
+          "sha256": "0bec0a81a25ba61ce454cfff3c433d16999e6d8a86a36fe8e8895895809e87f5"
+        },
+        {
+          "path": "rs/read/src/auth/token.rs",
+          "sha256": "8f91f30df00456c33842f65b7b80269f33a7602a4d522defabaee02e63ffdbcc"
+        },
+        {
+          "path": "rs/read/src/auth/error.rs",
+          "sha256": "e972b50d0af365ff0b681644113246b8a4fe8e76f88549be04dc77cd68106f0d"
+        },
+        {
+          "path": "app/routers/trades.py",
+          "sha256": "a240cc908a84015a5cf3dd8f9cb6eb9f8af8466632c4183247e6aad59f6152bd"
+        },
+        {
+          "path": "app/services/market_support.py",
+          "sha256": "03da08a699fe3bde80871c374f69193641e4848ff77824670b83f1a30bb37652"
+        },
+        {
+          "path": "app/services/command_results.py",
+          "sha256": "a0b014426ddabff35747ff64ea11457aa6341242e3146f91bec213000baa1479"
         }
       ],
-      "status": "delayed",
-      "authority_matrix_pending_review": {
-        "confirm": {
-          "admission": "full execution: account APPROVED, verified email, current organization APPROVED, role compatible, must_change_password=false, KYC/grace eligible; all access/password/revocation cutoffs",
-          "ownership": "noninitiating recorded counterparty or admitted assisted customer member; current admission required",
-          "from": "PENDING_CONFIRMATION",
-          "to": "CONFIRMED"
-        },
-        "decline": {
-          "admission": "cleanup signed access + password cutoff; revocation skipped only while current status REJECTED, restored on reapproval",
-          "ownership": "noninitiating exact recorded side user or expressly authorized current assisted customer member; not arbitrary organization member or support admin",
-          "from": "PENDING_CONFIRMATION",
-          "to": "DECLINED"
-        },
-        "deliver": {
-          "admission": "same cleanup; no status,email,KYC,organization-approval check",
-          "ownership": "existing recorded-side delivery authority must be confirmed by Phase8/9 owner; no broadened current-org-only authority",
-          "from": "CONFIRMED",
-          "to": "DELIVERED"
-        },
-        "pay": {
-          "admission": "cleanup plus SUPPLIER role",
-          "ownership": "exact recorded seller or authorized assisted seller membership; recorded side organization must match trade",
-          "from": "DELIVERED",
-          "to": "PAID"
-        },
-        "terminal": {
-          "states": [
-            "PAID",
-            "CANCELLED",
-            "DECLINED"
-          ],
-          "invalidation": "leave rows and all commitments/history unchanged",
-          "fresh_commands": "refuse fresh confirm/decline/deliver/pay; no transition leaves terminal state",
-          "committed_replay": "separate authorized receipt replay before business admission; not fresh execution"
-        }
-      },
-      "refusals_pending_owner_confirmation": {
-        "invalid_token_or_password_cutoff": {
-          "status": 401,
-          "code": "must reconcile Phase8/9 MarketWriteError; not frozen"
-        },
-        "revocation_cutoff_after_reapproval": {
-          "status": 401,
-          "code": "must reconcile Phase8/9 MarketWriteError; not frozen"
-        },
-        "foreign_or_unadmitted_assisted_actor": {
-          "status": 403,
-          "code": "pending owner"
-        },
-        "pay_role": {
-          "status": 403,
-          "code": "pending owner"
-        },
-        "missing_trade": {
-          "status": 404,
-          "code": "pending owner"
-        },
-        "wrong_lifecycle_or_fresh_terminal": {
-          "status": 400,
-          "code": "pending owner"
-        },
-        "receipt_resource": {
-          "status": 409,
-          "code": "RECEIPT_RESOURCE_MISMATCH"
-        },
-        "Phase8_9_active_freeze": {
-          "status": 409,
-          "code": "TRADE_FROZEN",
-          "scope": "not implemented in Phase4"
-        }
-      },
-      "delay": {
-        "reason": "Exact cleanup actor/context types, assisted-side representation, delivery-side evidence and error codes remain unresolved; no parallel authority API.",
-        "consumers_blocked": [
-          "6",
-          "7",
-          "8",
-          "11b",
-          "21",
-          "22"
-        ],
-        "release": "blocked_pending_authority_contract",
-        "plan_references": [
-          "Phases 8-9 Plan \u00a77.4 lines353-365,378",
-          "Phases 8-9 Plan lines668-672,886-887,1063-1064,1760-1804",
-          "Phase4 Plan \u00a74.3, Tasks21/22"
-        ],
-        "coexistence": "Phase4 actual unchanged-Python deliver/pay success requirement stays blocking. Phase8/9 degraded rollback allowance does not waive it. No Python edit."
-      },
+      "status": "proposed_for_acceptance",
       "source_references": [
         {
-          "path": "app/models/orderbook.py",
-          "lines": "75-81"
+          "path": "app/routers/trades.py",
+          "lines": "438-585,666-690,1236-1295,1395-1480,1598-1670,1746-1796"
         },
         {
-          "path": "app/routers/auth_simple.py",
-          "lines": "758-783"
+          "path": "rs/read/src/auth/actor.rs",
+          "lines": "3-9"
+        },
+        {
+          "path": "rs/read/src/auth/claims.rs",
+          "lines": "6-11,40-104"
+        },
+        {
+          "path": "rs/read/src/auth/token.rs",
+          "lines": "59-92,95-132; required expiry pending producer"
+        },
+        {
+          "path": "app/services/market_support.py",
+          "lines": "75-98"
+        },
+        {
+          "path": "app/models/orderbook.py",
+          "lines": "75-86"
         }
-      ]
+      ],
+      "construction": {
+        "lock_order": [
+          "read-only preview closed",
+          "all affected organizations sorted",
+          "all affected users including actor sorted",
+          "keys/slices/resource rows",
+          "revalidate membership/trade/assisted evidence; restart entire attempt on set drift"
+        ],
+        "recorded_user": "exact nonnull side user; retained ownership after move/detach; current org need not equal historical org; proof organization must equal immutable side org",
+        "null_side_user": "no ordinary same-org fallback; cleanup403; fresh confirmation409; row preserved",
+        "ambiguous_sides": "409 TRADE_PARTIES_INVALID; never choose caller tenant",
+        "assisted_member": "current actor in customer organization, correct Buyer for BID/buyer or Supplier for ASK/seller; valid AssistedSideEvidence; not the recorded support-owner admin; no Market Support capability/header authority",
+        "evidence_missing": "409 TRADE_PARTIES_INVALID; immutable RESTRICT linked ownership evidence; no new attestation schema or reconstruction",
+        "same_org_stranger": "403 TRADE_PARTY_FORBIDDEN before receipt data",
+        "source_references": [
+          "app/routers/trades.py:438-585",
+          "app/routers/auth_simple.py:703-783"
+        ]
+      },
+      "admission": {
+        "token": "unexpired signed access token, type=access, required exp, valid UUID subject and existing actor; verifier-produced evidence only",
+        "issuance": "existing Phase3 read_issuance: nonnegative integer iat_us preferred (including existing bool-to0/1 behavior), negative falls back to numeric iat; out-of-i64 preferred value marks out_of_range without fallback; numeric iat rounded ties-even to microseconds; missing issuance=None. Required-expiry producer must preserve existing issuance parser behavior; malformed claims rejected per credential parser, not widened by contract",
+        "cutoffs": "UTC microsecond inclusive: missing/unusable issuance with active cutoff refuses; issue<=cutoff refuses; password before revocation; naive persisted cutoff interpreted UTC",
+        "cleanup": "password cutoff always; revocation skipped only when fresh locked status=Rejected; Pending/Approved enforce it; after reapproval exception ends immediately and retained cutoff stays; no must-change/email/KYC/account/org-approval gate",
+        "execution_confirm": "normal password/revocation and must_change_password=false; actor and both economic sides full role/APPROVED account/email/current membership/APPROVED org/shared KYC-or-grace; administrator never executes; moved/unlinked/rejected party cannot freshly confirm",
+        "replay": "cleanup authentication and authorized ownership before receipt lookup/body, including confirm; full confirm admission only after miss; actor/operation/key/resource/effective org/support context checks mandatory; do not strip stored support context",
+        "no_epoch": "no created-before-rejection timestamp comparison; immutable participation plus current cutoffs; no new role-transition gate",
+        "source_references": [
+          "rs/read/src/auth/claims.rs:40-104",
+          "app/routers/auth_simple.py:633-700,703-783",
+          "app/services/execution_policy.py:35-64,98-118"
+        ]
+      },
+      "action_matrix": {
+        "Confirm": {
+          "side": "opposite initiated_by; Buyer initiation->Seller, Seller initiation->Buyer",
+          "ownership": "exact recorded counterparty or admitted assisted customer member",
+          "admission": "full execution actor and both economic sides after replay miss",
+          "from": "PENDING_CONFIRMATION",
+          "to": "CONFIRMED",
+          "fresh_checks": [
+            "provenance",
+            "current parties",
+            "frozen compatible terms",
+            "If-Match required",
+            "reserved quantity consumed once",
+            "confirmed referral effect once"
+          ]
+        },
+        "Decline": {
+          "side": "opposite initiated_by",
+          "ownership": "recorded noninitiating user or assisted customer member",
+          "admission": "cleanup, no extra ordinary role gate",
+          "from": "PENDING_CONFIRMATION",
+          "to": "DECLINED",
+          "effects": "live order restores remainder/reservation; withdrawn/expired releases commitment without resurrecting liquidity"
+        },
+        "Deliver": {
+          "side": "either Buyer or Seller",
+          "ownership": "either exact recorded user or assisted customer member of either side",
+          "admission": "cleanup; no extra ordinary Buyer/Supplier role gate",
+          "from": "CONFIRMED",
+          "to": "DELIVERED",
+          "quantity": "finite Decimal >0 <=100000, max_digits12 scale<=2; <=trade quantity",
+          "price": "finite Decimal >0 <=1000000 max_digits10 scale<=2; deviation<=10%, equality passes; exact cross-multiplication",
+          "effects": "immutable final fields and frozen fee basis; no re-execution"
+        },
+        "Pay": {
+          "side": "Seller only",
+          "ownership": "exact recorded seller or assisted seller customer member",
+          "admission": "cleanup plus current Supplier role",
+          "from": "DELIVERED",
+          "to": "PAID",
+          "effects": "timestamp only; no payment provider"
+        },
+        "Terminal": {
+          "states": [
+            "PAID",
+            "DECLINED",
+            "CANCELLED"
+          ],
+          "invalidation": "unchanged rows, commitments, terms, participant evidence and fees",
+          "fresh_action": "action-specific400 error; no transition out",
+          "receipt": "authorized committed replay is not fresh lifecycle command"
+        }
+      },
+      "precedence": [
+        "token and cutoff verification",
+        "authorized transaction-local context and ownership",
+        "authorized receipt replay",
+        "full execution for Confirm after replay miss",
+        "action-side and role",
+        "state",
+        "Phase8-9 active freeze if applicable",
+        "remaining economic and ETag checks"
+      ],
+      "etag": {
+        "header": "If-Match",
+        "required_for": "fresh Confirm",
+        "mapping": "same shared order cancel mapping",
+        "syntax": "trimmed W/\"...\" weak ETag; missing428, malformed400, nonmatching412",
+        "value": "shared order_etag(order_id,version): W/\"order-{order_id}-v{version}\"; compare against locked linked-order identity/version; no alternate trade-specific token inferred",
+        "code_missing": "IF_MATCH_REQUIRED",
+        "code_malformed": "IF_MATCH_MALFORMED",
+        "code_stale": "ORDER_VERSION_STALE",
+        "serving_gate": "Rust confirm not served until frontend sends If-Match; Phase8-9 frontend task owns change",
+        "source": "app/services/market_support.py:75-98"
+      },
+      "error_table": [
+        {
+          "case": "missing_bearer",
+          "python_observation": {
+            "status": 401,
+            "body": {
+              "detail": "Not authenticated"
+            },
+            "source": "app/routers/auth_simple.py:326"
+          },
+          "rust": {
+            "status": 401,
+            "body": {
+              "detail": {
+                "code": "AUTH_REQUIRED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": "Bearer"
+            }
+          }
+        },
+        {
+          "case": "invalid_expired_malformed_claim_or_missing_exp",
+          "python_observation": {
+            "status": 401,
+            "body": {
+              "detail": "Could not validate credentials"
+            },
+            "source": "app/routers/auth_simple.py:708-727,752-753; rs/read/src/auth/error.rs:88"
+          },
+          "rust": {
+            "status": 401,
+            "body": {
+              "detail": {
+                "code": "AUTH_CREDENTIALS_INVALID",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": "Bearer"
+            }
+          }
+        },
+        {
+          "case": "password_cutoff",
+          "python_observation": {
+            "status": 401,
+            "body": {
+              "detail": {
+                "code": "AUTH_PASSWORD_CHANGED",
+                "message": "Password was changed; sign in again"
+              }
+            },
+            "source": "app/routers/auth_simple.py:661-673"
+          },
+          "rust": {
+            "status": 401,
+            "body": {
+              "detail": {
+                "code": "AUTH_PASSWORD_CHANGED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": "Bearer"
+            }
+          }
+        },
+        {
+          "case": "revocation_cutoff_except_current_rejected_cleanup",
+          "python_observation": {
+            "status": 401,
+            "body": {
+              "detail": {
+                "code": "AUTH_SESSION_REVOKED",
+                "message": "Session was revoked; sign in again"
+              }
+            },
+            "source": "app/routers/auth_simple.py:676-690,769-773"
+          },
+          "rust": {
+            "status": 401,
+            "body": {
+              "detail": {
+                "code": "AUTH_SESSION_REVOKED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": "Bearer"
+            }
+          }
+        },
+        {
+          "case": "confirm_account_not_approved",
+          "python_observation": {
+            "status": 403,
+            "body": {
+              "detail_alternatives": [
+                "Account is PENDING. Please wait for admin approval.",
+                "Account is REJECTED. Please wait for admin approval."
+              ]
+            },
+            "source": "app/routers/auth_simple.py:697-698"
+          },
+          "rust": {
+            "status": 403,
+            "body": {
+              "detail": {
+                "code": "ACCOUNT_NOT_APPROVED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "confirm_must_change_password",
+          "python_observation": {
+            "status": 403,
+            "body": {
+              "detail": "Password change required."
+            },
+            "source": "app/routers/auth_simple.py:699-700"
+          },
+          "rust": {
+            "status": 403,
+            "body": {
+              "detail": {
+                "code": "PASSWORD_CHANGE_REQUIRED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "administrator_execution",
+          "python_observation": {
+            "status": 403,
+            "body": {
+              "detail": "Administrators cannot execute market actions"
+            },
+            "source": "app/middleware/execution.py:21-27"
+          },
+          "rust": {
+            "status": 403,
+            "body": {
+              "detail": {
+                "code": "EXECUTION_ROLE_REQUIRED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "confirm_kyc",
+          "python_observation": {
+            "status": 403,
+            "body": {
+              "detail": {
+                "code": "KYC_REQUIRED",
+                "message": "Complete KYC verification to trade.",
+                "kyc_status": "actual status string",
+                "grace_expires_at": "ISO-8601 UTC string or null"
+              }
+            },
+            "source": "app/services/kyc_execution.py:119-127"
+          },
+          "rust": {
+            "status": 403,
+            "body": {
+              "detail": {
+                "code": "KYC_REQUIRED",
+                "message": "clear text; wording not frozen",
+                "kyc_status": "actual status string",
+                "grace_expires_at": "ISO-8601 UTC string or null"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "confirm_actor_execution_ineligible",
+          "python_observation": {
+            "status": 403,
+            "body": {
+              "detail": "Execution access is not available"
+            },
+            "source": "app/middleware/execution.py:29-37"
+          },
+          "rust": {
+            "status": 403,
+            "body": {
+              "detail": {
+                "code": "EXECUTION_NOT_AVAILABLE",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "locked_actor_disappeared",
+          "python_observation": {
+            "status": 409,
+            "body": {
+              "detail": "Market user no longer exists"
+            },
+            "source": "app/services/market_admission.py:80-130"
+          },
+          "rust": {
+            "status": 409,
+            "body": {
+              "detail": {
+                "code": "TRADE_PARTIES_INVALID",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "execution_membership_drift",
+          "python_observation": {
+            "status": 409,
+            "body": {
+              "detail": "Market user organization ownership changed"
+            },
+            "source": "app/services/market_admission.py:80-130"
+          },
+          "rust": {
+            "status": 409,
+            "body": {
+              "detail": {
+                "code": "TRADE_PARTIES_INVALID",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "recorded_organization_absent",
+          "python_observation": {
+            "status": 409,
+            "body": {
+              "detail": "Market organization no longer exists"
+            },
+            "source": "app/services/market_admission.py:80-130"
+          },
+          "rust": {
+            "status": 409,
+            "body": {
+              "detail": {
+                "code": "TRADE_PARTIES_INVALID",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "confirm_organization_not_approved",
+          "python_observation": {
+            "status": 409,
+            "body": {
+              "detail": "Organization is not approved for market activity"
+            },
+            "source": "app/services/market_admission.py:80-130"
+          },
+          "rust": {
+            "status": 409,
+            "body": {
+              "detail": {
+                "code": "TRADE_PARTIES_INVALID",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "confirm_locked_party_ineligible",
+          "python_observation": {
+            "status": 409,
+            "body": {
+              "detail": "User is not approved for market activity"
+            },
+            "source": "app/services/market_admission.py:80-130"
+          },
+          "rust": {
+            "status": 409,
+            "body": {
+              "detail": {
+                "code": "TRADE_PARTIES_INVALID",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "trade_absent",
+          "python_observation": {
+            "status": 404,
+            "body": {
+              "detail": "Trade not found"
+            },
+            "source": "app/routers/trades.py:438-455"
+          },
+          "rust": {
+            "status": 404,
+            "body": {
+              "detail": {
+                "code": "TRADE_NOT_FOUND",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "slice_drift",
+          "python_observation": {
+            "status": 409,
+            "body": {
+              "detail": "Trade slice changed; retry the request"
+            },
+            "source": "app/routers/trades.py:666-690,1480"
+          },
+          "rust": {
+            "status": 409,
+            "body": {
+              "detail": {
+                "code": "MARKET_SLICE_CHANGED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "slice_drift",
+          "python_observation": {
+            "status": 409,
+            "body": {
+              "detail": "Trade order slice changed; retry the request"
+            },
+            "source": "app/routers/trades.py:666-690,1480"
+          },
+          "rust": {
+            "status": 409,
+            "body": {
+              "detail": {
+                "code": "MARKET_SLICE_CHANGED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "slice_drift",
+          "python_observation": {
+            "status": 409,
+            "body": {
+              "detail": "Order slice changed; retry the decline"
+            },
+            "source": "app/routers/trades.py:666-690,1480"
+          },
+          "rust": {
+            "status": 409,
+            "body": {
+              "detail": {
+                "code": "MARKET_SLICE_CHANGED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "linked_order_absent",
+          "python_observation": {
+            "status": 409,
+            "body": {
+              "detail": "Trade order no longer exists"
+            },
+            "source": "app/routers/trades.py:681-683"
+          },
+          "rust": {
+            "status": 409,
+            "body": {
+              "detail": {
+                "code": "TRADE_PARTIES_INVALID",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "wrong_state_confirm_decline",
+          "python_observation": {
+            "status": 400,
+            "body": {
+              "detail": "Trade is not pending confirmation"
+            },
+            "source": "app/routers/trades.py:1264-1265,1406-1408,1636-1637,1781-1782"
+          },
+          "rust": {
+            "status": 400,
+            "body": {
+              "detail": {
+                "code": "TRADE_NOT_PENDING",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "wrong_state_deliver",
+          "python_observation": {
+            "status": 400,
+            "body": {
+              "detail": "Trade must be confirmed before delivery"
+            },
+            "source": "app/routers/trades.py:1264-1265,1406-1408,1636-1637,1781-1782"
+          },
+          "rust": {
+            "status": 400,
+            "body": {
+              "detail": {
+                "code": "TRADE_NOT_CONFIRMED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "wrong_state_pay",
+          "python_observation": {
+            "status": 400,
+            "body": {
+              "detail": "Trade must be delivered before payment"
+            },
+            "source": "app/routers/trades.py:1264-1265,1406-1408,1636-1637,1781-1782"
+          },
+          "rust": {
+            "status": 400,
+            "body": {
+              "detail": {
+                "code": "TRADE_NOT_DELIVERED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "wrong_confirm_seller",
+          "python_observation": {
+            "status": 403,
+            "body": {
+              "detail": "Only the seller can confirm this trade"
+            },
+            "source": "app/routers/trades.py:510-585,1286-1295,1438-1456,1646-1653,1792-1793"
+          },
+          "rust": {
+            "status": 403,
+            "body": {
+              "detail": {
+                "code": "TRADE_PARTY_FORBIDDEN",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "wrong_confirm_buyer",
+          "python_observation": {
+            "status": 403,
+            "body": {
+              "detail": "Only the buyer can confirm this trade"
+            },
+            "source": "app/routers/trades.py:510-585,1286-1295,1438-1456,1646-1653,1792-1793"
+          },
+          "rust": {
+            "status": 403,
+            "body": {
+              "detail": {
+                "code": "TRADE_PARTY_FORBIDDEN",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "wrong_decline_seller",
+          "python_observation": {
+            "status": 403,
+            "body": {
+              "detail": "Only the seller can decline this trade"
+            },
+            "source": "app/routers/trades.py:510-585,1286-1295,1438-1456,1646-1653,1792-1793"
+          },
+          "rust": {
+            "status": 403,
+            "body": {
+              "detail": {
+                "code": "TRADE_PARTY_FORBIDDEN",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "wrong_decline_buyer",
+          "python_observation": {
+            "status": 403,
+            "body": {
+              "detail": "Only the buyer can decline this trade"
+            },
+            "source": "app/routers/trades.py:510-585,1286-1295,1438-1456,1646-1653,1792-1793"
+          },
+          "rust": {
+            "status": 403,
+            "body": {
+              "detail": {
+                "code": "TRADE_PARTY_FORBIDDEN",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "foreign_delivery",
+          "python_observation": {
+            "status": 403,
+            "body": {
+              "detail": "Not authorized for this trade"
+            },
+            "source": "app/routers/trades.py:510-585,1286-1295,1438-1456,1646-1653,1792-1793"
+          },
+          "rust": {
+            "status": 403,
+            "body": {
+              "detail": {
+                "code": "TRADE_PARTY_FORBIDDEN",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "foreign_payment",
+          "python_observation": {
+            "status": 403,
+            "body": {
+              "detail": "Only the seller can mark a trade as paid"
+            },
+            "source": "app/routers/trades.py:510-585,1286-1295,1438-1456,1646-1653,1792-1793"
+          },
+          "rust": {
+            "status": 403,
+            "body": {
+              "detail": {
+                "code": "TRADE_PARTY_FORBIDDEN",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "invalid_assisted_linkage",
+          "python_observation": {
+            "status": 403,
+            "body": {
+              "detail": "Trade support ownership is not valid"
+            },
+            "source": "app/routers/trades.py:510-585,1286-1295,1438-1456,1646-1653,1792-1793"
+          },
+          "rust": {
+            "status": 403,
+            "body": {
+              "detail": {
+                "code": "TRADE_PARTY_FORBIDDEN",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "assisted_support_owner",
+          "python_observation": {
+            "status": 403,
+            "body": {
+              "detail": "Support administrators cannot change trade lifecycle"
+            },
+            "source": "app/routers/trades.py:510-585,1286-1295,1438-1456,1646-1653,1792-1793"
+          },
+          "rust": {
+            "status": 403,
+            "body": {
+              "detail": {
+                "code": "TRADE_PARTY_FORBIDDEN",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "assisted_wrong_side",
+          "python_observation": {
+            "status": 403,
+            "body": {
+              "detail": "Trade side is not authorized for this action"
+            },
+            "source": "app/routers/trades.py:510-585,1286-1295,1438-1456,1646-1653,1792-1793"
+          },
+          "rust": {
+            "status": 403,
+            "body": {
+              "detail": {
+                "code": "TRADE_PARTY_FORBIDDEN",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "pay_role",
+          "python_observation": {
+            "status": 403,
+            "body": {
+              "detail": "Only suppliers can mark trades as paid"
+            },
+            "source": "app/routers/trades.py:1795-1796"
+          },
+          "rust": {
+            "status": 403,
+            "body": {
+              "detail": {
+                "code": "TRADE_PAY_ROLE_REQUIRED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "assisted_actor_or_org_absent",
+          "python_observation": {
+            "status": 409,
+            "body": {
+              "detail": "Trade support ownership is no longer valid"
+            },
+            "source": "app/routers/trades.py:458-507,563-585"
+          },
+          "rust": {
+            "status": 409,
+            "body": {
+              "detail": {
+                "code": "TRADE_PARTIES_INVALID",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "confirm_assisted_ineligible",
+          "python_observation": {
+            "status": 409,
+            "body": {
+              "detail": "Trade parties are no longer execution-qualified"
+            },
+            "source": "app/routers/trades.py:458-507,563-585"
+          },
+          "rust": {
+            "status": 409,
+            "body": {
+              "detail": {
+                "code": "TRADE_PARTIES_INVALID",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "confirm_null_concrete_user",
+          "python_observation": {
+            "status": 409,
+            "body": {
+              "detail": "Trade parties require fresh admission review"
+            },
+            "source": "app/routers/trades.py:458-507,563-585"
+          },
+          "rust": {
+            "status": 409,
+            "body": {
+              "detail": {
+                "code": "TRADE_PARTIES_INVALID",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "confirm_economic_parties_ineligible",
+          "python_observation": {
+            "status": 409,
+            "body": {
+              "detail": "Trade parties are no longer execution-qualified"
+            },
+            "source": "app/routers/trades.py:458-507,563-585"
+          },
+          "rust": {
+            "status": 409,
+            "body": {
+              "detail": {
+                "code": "TRADE_PARTIES_INVALID",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "cleanup_null_concrete_identity",
+          "python_observation": {
+            "status": 403,
+            "body": {
+              "behavior": "Python decline may use same-org fallback; Rust forbids fallback"
+            },
+            "source": "app/routers/trades.py:1441-1454"
+          },
+          "rust": {
+            "status": 403,
+            "body": {
+              "detail": {
+                "code": "TRADE_PARTY_FORBIDDEN",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "ambiguous_historical_sides",
+          "python_observation": {
+            "status": null,
+            "body": null,
+            "source": null,
+            "observation": "no Python application equivalent at checkpoint"
+          },
+          "rust": {
+            "status": 409,
+            "body": {
+              "detail": {
+                "code": "TRADE_PARTIES_INVALID",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "confirm_provenance",
+          "python_observation": {
+            "status": 409,
+            "body": {
+              "detail": "Trade provenance is not eligible for execution"
+            },
+            "source": "app/routers/trades.py:1266-1275"
+          },
+          "rust": {
+            "status": 409,
+            "body": {
+              "detail": {
+                "code": "TRADE_PROVENANCE_INCOMPATIBLE",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "confirm_frozen_terms",
+          "python_observation": {
+            "status": 409,
+            "body": {
+              "detail": "Trade fuel terms are no longer eligible for confirmation"
+            },
+            "source": "app/routers/trades.py:238-283"
+          },
+          "rust": {
+            "status": 409,
+            "body": {
+              "detail": {
+                "code": "TRADE_TERMS_CHANGED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "confirm_frozen_terms",
+          "python_observation": {
+            "status": 409,
+            "body": {
+              "detail": "Trade order fuel terms changed; create a new trade request"
+            },
+            "source": "app/routers/trades.py:238-283"
+          },
+          "rust": {
+            "status": 409,
+            "body": {
+              "detail": {
+                "code": "TRADE_TERMS_CHANGED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "confirm_frozen_terms",
+          "python_observation": {
+            "status": 409,
+            "body": {
+              "detail": "Trade order is no longer eligible"
+            },
+            "source": "app/routers/trades.py:238-283"
+          },
+          "rust": {
+            "status": 409,
+            "body": {
+              "detail": {
+                "code": "TRADE_TERMS_CHANGED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "lng_validation",
+          "python_observation": {
+            "status": 422,
+            "body": {
+              "detail": "LNG snapshots are only valid for Bio-LNG"
+            },
+            "source": "app/services/lng_order.py:35-46,117-125"
+          },
+          "rust": {
+            "status": 422,
+            "body": {
+              "detail": {
+                "code": "VALIDATION_FAILED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "lng_validation",
+          "python_observation": {
+            "status": 422,
+            "body": {
+              "detail": "A complete Bio-LNG trade snapshot is required"
+            },
+            "source": "app/services/lng_order.py:35-46,117-125"
+          },
+          "rust": {
+            "status": 422,
+            "body": {
+              "detail": {
+                "code": "VALIDATION_FAILED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "lng_validation",
+          "python_observation": {
+            "status": 422,
+            "body": {
+              "detail": "LNG terms are only valid for Bio-LNG"
+            },
+            "source": "app/services/lng_order.py:35-46,117-125"
+          },
+          "rust": {
+            "status": 422,
+            "body": {
+              "detail": {
+                "code": "VALIDATION_FAILED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "lng_validation",
+          "python_observation": {
+            "status": 422,
+            "body": {
+              "detail": "Valid Bio-LNG requirements or declarations are required"
+            },
+            "source": "app/services/lng_order.py:35-46,117-125"
+          },
+          "rust": {
+            "status": 422,
+            "body": {
+              "detail": {
+                "code": "VALIDATION_FAILED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "lng_validation",
+          "python_observation": {
+            "status": 422,
+            "body": {
+              "detail": "LNG terms must match the order side"
+            },
+            "source": "app/services/lng_order.py:35-46,117-125"
+          },
+          "rust": {
+            "status": 422,
+            "body": {
+              "detail": {
+                "code": "VALIDATION_FAILED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "lng_incompatible",
+          "python_observation": {
+            "status": 409,
+            "body": {
+              "detail": {
+                "code": "LNG_TERMS_INCOMPATIBLE"
+              }
+            },
+            "source": "app/services/lng_order.py:104,126"
+          },
+          "rust": {
+            "status": 409,
+            "body": {
+              "detail": {
+                "code": "LNG_TERMS_INCOMPATIBLE",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "support_context_header",
+          "python_observation": {
+            "status": 403,
+            "body": {
+              "detail": {
+                "code": "MARKET_SUPPORT_MUTATION_NOT_ALLOWED",
+                "message": "This operation is not available in Market Support mode"
+              }
+            },
+            "source": "app/services/market_support_scope.py:29-42; app/services/request_party.py:263-279"
+          },
+          "rust": {
+            "status": 403,
+            "body": {
+              "detail": {
+                "code": "MARKET_SUPPORT_MUTATION_NOT_ALLOWED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "active_freeze_protected_transition",
+          "python_observation": {
+            "status": null,
+            "body": null,
+            "source": "Phases8-9 only; no Phase4 freeze API or flag",
+            "observation": "no Python application equivalent at checkpoint"
+          },
+          "rust": {
+            "status": 409,
+            "body": {
+              "detail": {
+                "code": "TRADE_FROZEN",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "delivery_decimal_schema",
+          "python_observation": {
+            "status": 422,
+            "body": {
+              "detail": "FastAPI validation array of loc,msg,type and optional context; not a Rust body"
+            },
+            "source": "app/schemas/orderbook.py:388-396"
+          },
+          "rust": {
+            "status": 422,
+            "body": {
+              "detail": {
+                "code": "VALIDATION_FAILED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "delivery_quantity_above_trade",
+          "python_observation": {
+            "status": 400,
+            "body": {
+              "detail": "final_quantity_mt cannot exceed originally traded quantity"
+            },
+            "source": "app/routers/trades.py:1654-1658"
+          },
+          "rust": {
+            "status": 400,
+            "body": {
+              "detail": {
+                "code": "DELIVERY_QUANTITY_INVALID",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "delivery_price_deviation_over_ten_percent",
+          "python_observation": {
+            "status": 400,
+            "body": {
+              "detail": "final_price_per_mt deviates more than 10% from the confirmed trade price"
+            },
+            "source": "app/routers/trades.py:1659-1670"
+          },
+          "rust": {
+            "status": 400,
+            "body": {
+              "detail": {
+                "code": "DELIVERY_PRICE_DEVIATION",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "receipt_context_or_hash",
+          "python_observation": {
+            "status": 409,
+            "body": {
+              "detail": "Idempotency-Key was reused with a different request or actor context"
+            },
+            "source": "app/services/command_results.py:113-123"
+          },
+          "rust": {
+            "status": 409,
+            "body": {
+              "detail": {
+                "code": "IDEMPOTENCY_CONFLICT",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "receipt_resource_mismatch",
+          "python_observation": {
+            "status": 409,
+            "body": {
+              "detail": "Idempotency-Key was reused with a different request or actor context"
+            },
+            "source": "app/services/command_results.py:113-123; foreign-resource lookup may first return404 TRADE_NOT_FOUND"
+          },
+          "rust": {
+            "status": 409,
+            "body": {
+              "detail": {
+                "code": "RECEIPT_RESOURCE_MISMATCH",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "confirm_etag_missing",
+          "python_observation": {
+            "status": 428,
+            "body": {
+              "order_cancel_body": {
+                "detail": {
+                  "code": "IF_MATCH_REQUIRED",
+                  "message": "If-Match is required"
+                }
+              },
+              "confirm_body": null
+            },
+            "source": "app/services/market_support.py:79-98; new confirm check uses same mapping"
+          },
+          "rust": {
+            "status": 428,
+            "body": {
+              "detail": {
+                "code": "IF_MATCH_REQUIRED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "confirm_etag_malformed",
+          "python_observation": {
+            "status": 400,
+            "body": {
+              "order_cancel_body": {
+                "detail": {
+                  "code": "IF_MATCH_MALFORMED",
+                  "message": "If-Match is malformed"
+                }
+              },
+              "confirm_body": null
+            },
+            "source": "app/services/market_support.py:79-98; new confirm check uses same mapping"
+          },
+          "rust": {
+            "status": 400,
+            "body": {
+              "detail": {
+                "code": "IF_MATCH_MALFORMED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "confirm_etag_stale",
+          "python_observation": {
+            "status": 412,
+            "body": {
+              "order_cancel_body": {
+                "detail": {
+                  "code": "ORDER_VERSION_STALE",
+                  "message": "Listing changed; reload and retry"
+                }
+              },
+              "confirm_body": null
+            },
+            "source": "app/services/market_support.py:79-98; new confirm check uses same mapping"
+          },
+          "rust": {
+            "status": 412,
+            "body": {
+              "detail": {
+                "code": "ORDER_VERSION_STALE",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        }
+      ],
+      "validation_envelope": {
+        "delivery_decimal_or_lng_shape": {
+          "status": 422,
+          "body": {
+            "detail": {
+              "code": "VALIDATION_FAILED",
+              "message": "clear description; no raw FastAPI errors"
+            }
+          }
+        },
+        "null_and_nonfinite": "422 VALIDATION_FAILED before economic400 checks",
+        "unknown_private_exceptions": "not reflected; database adapter only",
+        "messages": "not byte-frozen; no invented Python code"
+      },
+      "producer_requirements": {
+        "CurrentActor": "existing Phase3 ABI unchanged",
+        "VerifiedAccess.expires_at": "pending Phase3 required-expiry producer; security release and integration required",
+        "AuthenticatedActor": "pending Phases8-9 transaction constructor",
+        "WriteContext": "pending Phases8-9 cleanup context constructor",
+        "SettlementOwnership": "pending Phases8-9 private authority proof",
+        "MarketWriteError": "pending Phases8-9 adapter",
+        "acceptance_status": "proposal only; no consumer release from producer specification"
+      }
     },
     {
       "id": "CF4_05",
