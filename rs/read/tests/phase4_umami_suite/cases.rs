@@ -1010,7 +1010,7 @@ async fn p4_t16_c52() {
 fn p4_t16_c55() {
     static ROUTES: std::sync::LazyLock<Value> = std::sync::LazyLock::new(|| {
         serde_json::from_str(include_str!(
-            "../../../tests/rust_contract/phase4/routes.json"
+            "../../../../tests/rust_contract/phase4/routes.json"
         ))
         .expect("committed route inventory")
     });
@@ -1799,7 +1799,7 @@ fn p4_t16_c72() {
     }
 
     let policy: MarketPolicy = serde_json::from_slice(
-        &std::fs::read("../../../deploy/rust/market-policy.json").expect("policy artifact"),
+        &std::fs::read("../../../../deploy/rust/market-policy.json").expect("policy artifact"),
     )
     .expect("policy");
     let from_policy = DomainCatalog::from_policy(&policy, ISO_3166_1_ALPHA_2.iter().copied());

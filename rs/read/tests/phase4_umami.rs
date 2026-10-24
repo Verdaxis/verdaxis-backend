@@ -132,5 +132,5 @@ pub mod providers {
     pub mod umami;
 }
 
-#[path = "cases.rs"]
+#[path = "phase4_umami_suite/cases.rs"]
 mod cases;
