@@ -5,7 +5,7 @@
 //! approved live organization, with a hashed seven-day secret in the shared
 //! `users.password_reset_token_hash` column - then drives the real route.
 #![cfg(feature = "contract-tests")]
-pub use verdaxis_read::{ApiError, auth, crud, runtime};
+pub use verdaxis_read::{ApiError, ApiErrorKind, auth, crud, runtime};
 #[path = "../src/auth/email.rs"]
 pub mod email;
 #[path = "../src/auth/email_verification.rs"]

@@ -2,7 +2,7 @@
 //!
 //! The database behaviour - token consumption, family revocation, referral and
 //! audit writes - is covered by `auth_invitation_accept_postgres.rs`.
-pub use verdaxis_read::{ApiError, auth, crud, runtime};
+pub use verdaxis_read::{ApiError, ApiErrorKind, auth, crud, runtime};
 #[path = "../src/auth/email.rs"]
 pub mod email;
 #[path = "../src/auth/email_verification.rs"]
