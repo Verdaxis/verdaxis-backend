@@ -13,7 +13,6 @@
 // binary is expected, not dead code.
 #![cfg_attr(not(feature = "contract-tests"), allow(dead_code))]
 
-
 use std::collections::BTreeMap;
 
 use chrono::{DateTime, Datelike, NaiveDate, TimeDelta, Utc};
@@ -234,6 +233,22 @@ pub fn fact_coverage(
 // Behavioral (provider) composition helpers
 // ---------------------------------------------------------------------------
 
+/// The single status a tab reports for the behavioural provider.
+///
+/// The window's own status wins, except that a window claiming `available` with
+/// no core data is internally inconsistent: a tab must not report a healthy
+/// source while every headline metric is missing.
+pub fn behavioral_status(window: Option<&BehavioralWindow>) -> AnalyticsSourceStatus {
+    let Some(window) = window else {
+        return AnalyticsSourceStatus::Unavailable;
+    };
+    if window.availability == AnalyticsSourceStatus::Available && window.core.data().is_none() {
+        AnalyticsSourceStatus::Unavailable
+    } else {
+        window.availability
+    }
+}
+
 pub fn behavioral_coverage(window: Option<&BehavioralWindow>) -> AnalyticsSourceCoverage {
     let Some(window) = window else {
         return AnalyticsSourceCoverage {
@@ -244,17 +259,20 @@ pub fn behavioral_coverage(window: Option<&BehavioralWindow>) -> AnalyticsSource
             diagnostic: Some(AnalyticsDiagnostic::Upstream),
         };
     };
+    let status = behavioral_status(Some(window));
+    let diagnostic = window
+        .diagnostic
+        .or(window.core.diagnostic)
+        .or(Some(AnalyticsDiagnostic::Upstream));
     AnalyticsSourceCoverage {
         coverage_start: window.coverage.coverage_start,
         coverage_end: window.coverage.coverage_end,
         observed_at: Some(window.observed_at),
-        status: window.availability,
-        diagnostic: window.diagnostic,
+        status,
+        diagnostic: (status != AnalyticsSourceStatus::Available)
+            .then_some(diagnostic)
+            .flatten(),
     }
-}
-
-pub fn behavioral_available(window: Option<&BehavioralWindow>) -> bool {
-    window.is_some_and(|window| window.availability != AnalyticsSourceStatus::Unavailable)
 }
 
 /// Duplicate labels are aggregated before suppression. A registered event

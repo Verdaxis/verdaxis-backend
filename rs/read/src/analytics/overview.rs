@@ -9,7 +9,7 @@
 use chrono::{DateTime, Utc};
 
 use super::aggregates::{
-    LoginFacts, OverviewFacts, QualityTracker, behavioral_available, behavioral_coverage,
+    LoginFacts, OverviewFacts, QualityTracker, behavioral_coverage, behavioral_status,
     behavioral_daily_series, behavioral_metric, date_window, dense_series, fact_coverage,
 };
 use super::types::{
@@ -124,11 +124,7 @@ pub fn overview(
     };
 
     let visitors = behavioral_metric(behavioral, behavioral_previous, |core| core.visitors);
-    let behavioral_status = if behavioral_available(behavioral) {
-        AnalyticsSourceStatus::Available
-    } else {
-        AnalyticsSourceStatus::Unavailable
-    };
+    let behavioral_status = behavioral_status(behavioral);
     let login_coverage = fact_coverage(
         facts.login.coverage_start.map(super::aggregates::midnight),
         query,

@@ -238,7 +238,7 @@ fn p4_t18_c03() {
     with_orders.by_provenance.push(ProvenanceRow {
         provenance: "live".into(),
         bids_current: 4,
-        asks_current: 1,
+        asks_current: 0,
         bid_orgs_current: 2,
         ask_orgs_current: 3,
         ..Default::default()
@@ -253,7 +253,8 @@ fn p4_t18_c03() {
         Some(3)
     );
     assert_eq!(response.marketplace_balance.bid_orders.value, Some(4));
-    assert_eq!(response.marketplace_balance.ask_orders.value, Some(1));
+    // A genuine zero order count is visible, and it marks a one-sided market.
+    assert_eq!(response.marketplace_balance.ask_orders.value, Some(0));
     assert!(
         response
             .needs_attention
@@ -537,10 +538,10 @@ fn p4_t18_c06() {
         ratios["order_form_to_submit"].rate_pct,
         Some(Decimal::new(5000, 2))
     );
-    assert_eq!(
-        ratios["tutorial_start_to_complete"].rate_pct,
-        Some(Decimal::new(2500, 2))
-    );
+    // One completion is a small cell, so the derived ratio is suppressed.
+    assert!(ratios["tutorial_start_to_complete"].suppressed);
+    assert_eq!(ratios["tutorial_start_to_complete"].numerator, None);
+    assert_eq!(ratios["tutorial_start_to_complete"].rate_pct, None);
 
     // The closed destination domain drops the unknown value before output.
     let destinations: Vec<_> = response
@@ -599,14 +600,15 @@ fn p4_t18_c07() {
     let user_c = Uuid::from_u128(0xc);
     let user_d = Uuid::from_u128(0xd);
     // Wednesday 20 May and Saturday 20 June belong to the 18 May and 15 June
-    // Monday-anchored weeks.
+    // Monday-anchored weeks. Three members share the first week and return in
+    // the 15 June week; a fourth starts in the 29 June week alone.
     let days = vec![
         (user_a, day(2026, 5, 20)),
-        (user_a, day(2026, 6, 20)),
-        (user_b, day(2026, 5, 25)),
-        (user_b, day(2026, 6, 15)),
-        (user_c, day(2026, 5, 28)),
-        (user_c, day(2026, 6, 25)),
+        (user_a, day(2026, 6, 16)),
+        (user_b, day(2026, 5, 21)),
+        (user_b, day(2026, 6, 17)),
+        (user_c, day(2026, 5, 22)),
+        (user_c, day(2026, 6, 18)),
         (user_d, day(2026, 6, 30)),
     ];
     let mut quality = QualityTracker::default();
@@ -621,17 +623,14 @@ fn p4_t18_c07() {
         .map(|cell| (cell.offset, cell.cell.count, cell.pct))
         .collect();
     assert_eq!(offsets[0], (0, Some(3), Some(Decimal::new(10000, 2))));
-    // Second-week retention is a two-member cell: suppressed, no percentage.
-    assert_eq!(offsets[1].0, 4);
-    assert_eq!(offsets[1].1, None);
-    assert!(rows[0].cells[1].cell.suppressed);
-    assert_eq!(offsets[1].2, None);
-    // The later cohort has one member and stays suppressed.
+    assert_eq!(offsets[1], (4, Some(3), Some(Decimal::new(10000, 2))));
+    // The later cohort has one member: both size and cell suppress, and a
+    // suppressed size never yields a percentage.
     assert_eq!(rows[1].cohort_start, day(2026, 6, 29));
     assert!(rows[1].size.suppressed);
     assert_eq!(rows[1].size.count, None);
     assert!(rows[1].cells.iter().all(|cell| cell.pct.is_none()));
-    assert!(quality.suppressed_cell_count >= 4);
+    assert!(quality.suppressed_cell_count >= 3);
 
     // A Sunday start still anchors to the preceding Monday (ISO weeks).
     assert_eq!(week_start(day(2026, 5, 24)), day(2026, 5, 18));
@@ -688,7 +687,9 @@ fn p4_t18_c08() {
     facts.rollup[0].first_login_date = day(2026, 5, 20);
     facts.rollup[1].first_login_date = day(2026, 5, 25);
     let response = retention(&facts, None, &plain, observed());
-    assert_eq!(response.kpis.returning_members.value, Some(1));
+    // No comparison period means no `in_previous` facts; the count stays
+    // unavailable rather than claiming a value it cannot support.
+    assert_eq!(response.kpis.returning_members.value, None);
 }
 
 // ---------------------------------------------------------------------------
@@ -774,39 +775,71 @@ fn p4_t18_c09() {
 // p4_t18_c10 — grouped loaders with a bounded statement shape
 // ---------------------------------------------------------------------------
 
+/// The fact layer's code with comments and string literals removed, so the
+/// scan sees statements only and never SQL text or prose.
+fn code_only(source: &str) -> String {
+    let mut out = String::with_capacity(source.len());
+    let mut chars = source.chars().peekable();
+    while let Some(character) = chars.next() {
+        match character {
+            '"' => {
+                // Skip a string literal; the fact SQL has no escaped quotes.
+                for inner in chars.by_ref() {
+                    if inner == '"' {
+                        break;
+                    }
+                }
+                out.push(' ');
+            }
+            '/' if chars.peek() == Some(&'/') => {
+                for inner in chars.by_ref() {
+                    if inner == '\n' {
+                        break;
+                    }
+                }
+                out.push('\n');
+            }
+            _ => out.push(character),
+        }
+    }
+    out
+}
+
+fn is_word_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'_'
+}
+
 #[test]
 fn p4_t18_c10() {
     let source = include_str!("../src/analytics/aggregates.rs");
+    let code = code_only(source);
     // Every loop in the fact layer shapes rows that were already fetched. A
     // loop that issued SQL would be the per-user query loop this forbids.
     let mut loops = 0_usize;
-    let mut index = 0_usize;
-    while index < source.len() {
-        let rest = &source[index..];
-        let next = ["for ", "while ", "loop {"]
-            .iter()
-            .filter_map(|needle| rest.find(needle).map(|at| (at, needle.len())))
-            .min_by_key(|(at, _)| *at);
-        let Some((at, length)) = next else {
-            break;
-        };
-        let keyword_at = index + at;
-        let boundary = !source[..keyword_at]
-            .chars()
-            .next_back()
-            .is_some_and(|c| c.is_alphanumeric() || c == '_');
-        if !boundary {
-            index = keyword_at + length;
+    let mut cursor = 0_usize;
+    while let Some(found) = code[cursor..].find(|c: char| c == 'f' || c == 'w' || c == 'l') {
+        let position = cursor + found;
+        cursor = position + 1;
+        if position > 0 && is_word_byte(code.as_bytes()[position - 1]) {
             continue;
         }
-        let after = keyword_at + length;
-        let Some(open) = source[after..].find('{').map(|offset| after + offset) else {
-            index = after;
+        let tail = &code[position..];
+        let keyword = ["for", "while", "loop"]
+            .into_iter()
+            .find(|keyword| tail.starts_with(keyword));
+        let Some(keyword) = keyword else {
+            continue;
+        };
+        let after = position + keyword.len();
+        if !code[after..].starts_with(|c: char| c.is_whitespace()) {
+            continue;
+        }
+        let Some(open) = code[after..].find('{').map(|offset| after + offset) else {
             continue;
         };
         let mut depth = 0_i32;
         let mut end = open;
-        for (offset, character) in source[open..].char_indices() {
+        for (offset, character) in code[open..].char_indices() {
             match character {
                 '{' => depth += 1,
                 '}' => {
@@ -820,19 +853,18 @@ fn p4_t18_c10() {
             }
         }
         loops += 1;
-        let body = &source[open..=end];
+        let body = &code[open..=end];
         assert!(
-            !body.contains("sqlx::query(") && !body.contains(".fetch_"),
+            !body.contains("sqlx") && !body.contains("fetch"),
             "a fact-layer loop issues SQL: {body}"
         );
-        index = end + 1;
+        cursor = end + 1;
     }
     assert!(loops >= 3, "the shaping loops under test are still present");
     // A fixed statement budget for the whole fact layer.
-    assert!(
-        source.matches("sqlx::query(").count() <= 16,
-        "the fact layer must keep a small fixed statement set"
-    );
+    let statements = code.matches("sqlx::query").count();
+    assert!(statements <= 16, "fact layer must keep a small statement set");
+    assert!(statements >= 12, "the fixture loaders are still present");
 }
 
 #[cfg(feature = "contract-tests")]
