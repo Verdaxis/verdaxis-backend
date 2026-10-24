@@ -1,7 +1,7 @@
 //! Execution admission shared by scalar callers and SQL projections.
 
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sqlx::{Postgres, QueryBuilder};
 use uuid::Uuid;
 
@@ -20,7 +20,7 @@ impl Default for KycPolicy {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum KycStatus {
     Pending,
@@ -29,7 +29,7 @@ pub enum KycStatus {
     Rejected,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct KycParty {
     pub user_id: Uuid,
     pub organization_id: Option<Uuid>,
@@ -144,7 +144,8 @@ pub fn eligibility_sql(party: KycSqlParty) -> String {
     };
     // Organization identity deliberately comes from current user membership,
     // not an outer organization which may be the assisted actor's tenant.
-    "({user}.kyc_status <> 'REJECTED' AND CASE WHEN /*kyc_enabled*/::boolean THEN (
+    "({user}.kyc_status IN ('PENDING', 'SUBMITTED', 'APPROVED', 'REJECTED')
+      AND {user}.kyc_status <> 'REJECTED' AND CASE WHEN /*kyc_enabled*/::boolean THEN (
         ({user}.kyc_status = 'APPROVED' AND {user}.kyc_organization_id = {user}.organization_id)
         OR EXISTS (SELECT 1 FROM kyc_execution_grace g
             WHERE g.user_id = {user}.id AND g.organization_id = {user}.organization_id

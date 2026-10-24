@@ -103,14 +103,24 @@ fn p4_t9_c08() {
 
 #[test]
 fn p4_t9_c10() {
-    for value in [serde_json::json!("UNKNOWN"), serde_json::json!(""), serde_json::json!(null)] {
+    for value in [
+        serde_json::json!("UNKNOWN"),
+        serde_json::json!(""),
+        serde_json::json!(null),
+    ] {
         assert!(serde_json::from_value::<KycStatus>(value).is_err());
     }
-    assert!(serde_json::from_value::<KycParty>(serde_json::json!({
-        "user_id": Uuid::from_u128(1), "organization_id": null,
-        "kyc_organization_id": null
-    })).is_err());
-    assert_eq!(serde_json::from_str::<KycStatus>("\"SUBMITTED\"").unwrap(), KycStatus::Submitted);
+    assert!(
+        serde_json::from_value::<KycParty>(serde_json::json!({
+            "user_id": Uuid::from_u128(1), "organization_id": null,
+            "kyc_organization_id": null
+        }))
+        .is_err()
+    );
+    assert_eq!(
+        serde_json::from_str::<KycStatus>("\"SUBMITTED\"").unwrap(),
+        KycStatus::Submitted
+    );
 }
 
 #[test]
