@@ -50,3 +50,16 @@ CI: Backend CI (test, postgres-phase0, postgres-analytics) — all pass.
 Rust read CI: offline pass, contract pass (7m04s); `publish` correctly skipping
 (a feature-branch PR cannot publish; release publication requires a push to a
 live branch).
+
+## Review fixes (24 Oct, PR #125)
+
+Head `51aa7d139`. Fix 1: `Retry-After` is capped by the named
+`MAX_RETRY_AFTER_SECONDS` (30 s); a larger, non-finite, negative, non-numeric
+or HTTP-date value uses the cap instead of stalling or aborting the gate; a
+missing header still means no retry. Fix 2: `stable()` strips
+`response_headers`, so retired headers live only in memory. The Task 9 probe
+that produced the live retry is now named in the staging row above.
+Tests first: 6 intended assertion failures, 27 passed; then the focused file
+33 passed and the full `tests/rust_contract` suite 904 passed, 1 skipped.
+CI on `51aa7d139`: test, postgres-phase0, postgres-analytics, offline and
+contract all pass; publish skips (feature branch).
