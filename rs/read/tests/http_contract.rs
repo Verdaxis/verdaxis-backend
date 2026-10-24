@@ -62,6 +62,31 @@ async fn middleware_wraps_errors_and_preflight() {
 }
 
 #[test]
+fn browser_origins_are_bound_to_the_deployed_environment() {
+    use verdaxis_read::runtime::http::allowed_browser_origin;
+    assert!(allowed_browser_origin(
+        "production",
+        "https://app.verdaxis.exchange"
+    ));
+    assert!(!allowed_browser_origin(
+        "production",
+        "https://staging.verdaxis.exchange"
+    ));
+    assert!(!allowed_browser_origin(
+        "staging",
+        "https://app.verdaxis.exchange"
+    ));
+    assert!(allowed_browser_origin(
+        "staging",
+        "https://staging.verdaxis.exchange"
+    ));
+    assert!(!allowed_browser_origin(
+        "production",
+        "https://denied.invalid"
+    ));
+}
+
+#[test]
 fn forwarded_client_uses_final_hop_only_from_loopback() {
     use verdaxis_read::runtime::http::client_ip;
     assert_eq!(
@@ -133,6 +158,8 @@ async fn router_health_methods_and_empty_routes() {
         python_budget: 52,
         configured_max_connections: 100,
         prepared_budget: None,
+        compliance_eur_usd_rate: None,
+        fleet_artifact_path: "data/fleet_demand.json".into(),
     };
     let pools = verdaxis_read::runtime::db::Pools {
         read: sqlx::postgres::PgPoolOptions::new()
@@ -295,6 +322,8 @@ async fn post_orderbook_answers_python_auth_boundary() {
         python_budget: 52,
         configured_max_connections: 100,
         prepared_budget: None,
+        compliance_eur_usd_rate: None,
+        fleet_artifact_path: "data/fleet_demand.json".into(),
     };
     let pools = verdaxis_read::runtime::db::Pools {
         read: sqlx::postgres::PgPoolOptions::new()
@@ -734,6 +763,8 @@ async fn cors_wraps_saturated_admission() {
         python_budget: 52,
         configured_max_connections: 100,
         prepared_budget: None,
+        compliance_eur_usd_rate: None,
+        fleet_artifact_path: "data/fleet_demand.json".into(),
     };
     let pools = verdaxis_read::runtime::db::Pools {
         read: sqlx::postgres::PgPoolOptions::new()
@@ -788,4 +819,320 @@ async fn cors_wraps_saturated_admission() {
     let released = held.pop();
     drop(released);
     assert_eq!(state.reads.available_permits(), 1);
+}
+
+/// The four public market reads that answer with the typed market-data envelope.
+const MARKET_DATA_READS: [&str; 4] = [
+    "/api/availability",
+    "/api/benchmarks",
+    "/api/demand",
+    "/api/producers",
+];
+
+/// Application state on a lazy pool whose database never answers, so a test
+/// reaches admission and pool acquisition without a server. The returned pool
+/// is the state's read pool.
+fn unreachable_database_state(
+    slots: u32,
+    acquire_timeout: std::time::Duration,
+) -> (verdaxis_read::AppState, sqlx::PgPool) {
+    let config = verdaxis_read::Config {
+        kyc_execution_gate_enabled: true,
+        db_session_time_zone: "UTC".into(),
+        environment: "test".into(),
+        release_sha: verdaxis_read::compiled_sha().into(),
+        migration_revision: "kycg_20261014_staging".into(),
+        database_url: "postgres://fixture:fixture_pw@127.0.0.1:1/fixture_test".into(),
+        bind: "127.0.0.1:0".parse().unwrap(),
+        read_admission_slots: slots,
+        pool_max: slots + 1,
+        python_budget: 52,
+        configured_max_connections: 100,
+        prepared_budget: None,
+        compliance_eur_usd_rate: None,
+        fleet_artifact_path: "data/fleet_demand.json".into(),
+    };
+    let read = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(slots)
+        .acquire_timeout(acquire_timeout)
+        .connect_lazy(&config.database_url)
+        .unwrap();
+    let pools = verdaxis_read::runtime::db::Pools {
+        read: read.clone(),
+        health: sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect_lazy(&config.database_url)
+            .unwrap(),
+    };
+    let state = verdaxis_read::AppState::new(
+        config,
+        pools,
+        verdaxis_read::MarketPolicy {
+            source_sha: verdaxis_read::compiled_sha().into(),
+            products: vec![],
+            points: vec![],
+        },
+    )
+    .unwrap();
+    (state, read)
+}
+
+#[tokio::test]
+async fn market_data_reads_answer_saturated_admission_with_the_typed_envelope() {
+    use verdaxis_read::runtime::http::middleware_with_state;
+    let (state, _read) = unreachable_database_state(1, std::time::Duration::from_secs(30));
+    let existing_reads = ["/api/ports", "/api/listings"];
+    let mut routes = Router::new();
+    for path in MARKET_DATA_READS.into_iter().chain(existing_reads) {
+        routes = routes.route(path, get(|| async { "admitted" }));
+    }
+    let app = middleware_with_state(routes, state.clone());
+    let send = |path: &'static str| {
+        app.clone().oneshot(
+            Request::builder()
+                .uri(path)
+                .header("origin", "https://staging.verdaxis.exchange")
+                .body(Body::empty())
+                .unwrap(),
+        )
+    };
+
+    let held = state.reads.clone().try_acquire_owned().unwrap();
+    for path in MARKET_DATA_READS {
+        let response = send(path).await.unwrap();
+        assert_eq!(response.status(), 503, "{path}");
+        assert_eq!(response.headers()["retry-after"], "1", "{path}");
+        assert_eq!(
+            response.headers()["access-control-allow-origin"],
+            "https://staging.verdaxis.exchange"
+        );
+        let body = to_bytes(response.into_body(), 1024).await.unwrap();
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
+            serde_json::json!({"detail": {
+                "code": "READ_UNAVAILABLE",
+                "message": "Market data is temporarily unavailable; retry shortly."
+            }}),
+            "{path}"
+        );
+    }
+    // The existing public reads keep their string detail.
+    for path in existing_reads {
+        let response = send(path).await.unwrap();
+        assert_eq!(response.status(), 503, "{path}");
+        assert_eq!(
+            to_bytes(response.into_body(), 1024).await.unwrap(),
+            r#"{"detail":"Public market data is temporarily busy; retry shortly."}"#
+        );
+    }
+    // Released capacity admits every read again.
+    drop(held);
+    for path in MARKET_DATA_READS.into_iter().chain(existing_reads) {
+        let response = send(path).await.unwrap();
+        assert_eq!(response.status(), 200, "{path}");
+    }
+    assert_eq!(state.reads.available_permits(), 1);
+}
+
+#[test]
+fn market_data_reads_are_exact_get_paths() {
+    use verdaxis_read::runtime::admission::market_data_read;
+    for path in MARKET_DATA_READS {
+        assert!(market_data_read("GET", path), "{path}");
+        assert!(selected_read("GET", path), "{path} must be admitted");
+        for method in ["POST", "HEAD", "OPTIONS"] {
+            assert!(!market_data_read(method, path), "{method} {path}");
+        }
+        assert!(!market_data_read("GET", &format!("{path}/")), "{path}/");
+        assert!(!market_data_read("GET", &format!("{path}/extra")));
+    }
+    for path in [
+        "/api/ports",
+        "/api/prices",
+        "/api/fleet-intelligence",
+        "/api/compliance/fuels",
+        "/availability",
+    ] {
+        assert!(!market_data_read("GET", path), "{path}");
+    }
+}
+
+/// Check one typed market-data failure: status, code, retry hint and class.
+fn assert_market_read_error(
+    error: &verdaxis_read::ApiError,
+    status: u16,
+    code: &str,
+    kind: verdaxis_read::ApiErrorKind,
+) {
+    assert_eq!(error.status, status);
+    assert_eq!(error.detail["code"], code);
+    assert!(
+        error.detail["message"]
+            .as_str()
+            .is_some_and(|message| !message.is_empty())
+    );
+    assert_eq!(error.retry_after, (status == 503).then_some(1));
+    assert_eq!(error.kind, kind);
+}
+
+#[derive(Clone, Default)]
+struct LogCapture(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+impl std::io::Write for LogCapture {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn market_read_refusal_and_acquisition_failures_are_typed() {
+    use verdaxis_read::{ApiErrorKind, run_admitted, run_market_read};
+    let capture = LogCapture::default();
+    let writer = capture.clone();
+    let subscriber = tracing_subscriber::fmt()
+        .json()
+        .without_time()
+        .with_writer(move || writer.clone())
+        .finish();
+    let _guard = tracing::subscriber::set_default(subscriber);
+    let (state, read) = unreachable_database_state(1, std::time::Duration::from_millis(200));
+
+    // Saturated admission refuses before any connection is requested.
+    let held = state.reads.clone().try_acquire_owned().unwrap();
+    let refused = run_market_read(&state, |_| Box::pin(async { Ok(()) }))
+        .await
+        .unwrap_err();
+    assert_market_read_error(&refused, 503, "READ_UNAVAILABLE", ApiErrorKind::Expected);
+    let existing = run_admitted(&state, |_| Box::pin(async { Ok(()) }))
+        .await
+        .unwrap_err();
+    assert_eq!(existing.detail, busy().detail);
+    drop(held);
+
+    // A database that does not answer within the pool wait is transient.
+    let timed_out = run_market_read(&state, |_| Box::pin(async { Ok(()) }))
+        .await
+        .unwrap_err();
+    assert_market_read_error(&timed_out, 503, "READ_UNAVAILABLE", ApiErrorKind::Database);
+    assert_eq!(state.reads.available_permits(), 1);
+
+    // A closed pool is transient too; the existing helper keeps its generic 500.
+    read.close().await;
+    let closed = run_market_read(&state, |_| Box::pin(async { Ok(()) }))
+        .await
+        .unwrap_err();
+    assert_market_read_error(&closed, 503, "READ_UNAVAILABLE", ApiErrorKind::Database);
+    let existing = run_admitted(&state, |_| Box::pin(async { Ok(()) }))
+        .await
+        .unwrap_err();
+    assert_eq!(existing.status, 500);
+    assert_eq!(existing.detail, "Database operation failed.");
+    assert_eq!(state.reads.available_permits(), 1);
+
+    // Each acquisition failure logged one bounded event and no error text.
+    let logs = String::from_utf8(capture.0.lock().unwrap().clone()).unwrap();
+    let failures: Vec<(String, String)> = logs
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .filter(|event| event["fields"]["message"] == "admitted_database_failure")
+        .map(|event| {
+            let fields = &event["fields"];
+            assert_eq!(fields["sqlstate"], "");
+            (
+                fields["stage"].as_str().unwrap().to_owned(),
+                fields["error_class"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        failures,
+        [
+            ("acquire".to_owned(), "pool_timeout".to_owned()),
+            ("acquire".to_owned(), "pool_closed".to_owned()),
+            ("acquire".to_owned(), "pool_closed".to_owned()),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn phase5_composed_public_get_method_rules() {
+    use verdaxis_read::runtime::http::MOUNTED_GET_PATHS;
+    let (state, _read) = unreachable_database_state(1, std::time::Duration::from_secs(1));
+    let assembled = verdaxis_read::router(state);
+    for path in [
+        "/api/benchmarks",
+        "/api/availability",
+        "/api/demand",
+        "/api/producers",
+        "/api/fleet-intelligence",
+    ] {
+        assert!(MOUNTED_GET_PATHS.contains(&path));
+        for method in ["HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"] {
+            let response = assembled
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method(method)
+                        .uri(path)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), 405, "{method} {path}");
+            assert_eq!(response.headers()["allow"], "GET");
+        }
+        let response = assembled
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("{path}/?probe=1&limit=2"))
+                    .header("host", "localhost")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 307, "{path}");
+        assert_eq!(
+            response.headers()["location"],
+            format!("http://localhost{path}?probe=1&limit=2")
+        );
+    }
+}
+
+#[tokio::test]
+async fn compliance_fuels_follows_the_public_get_method_rules() {
+    const PATH: &str = "/api/compliance/fuels";
+    let (state, _read) = unreachable_database_state(1, std::time::Duration::from_secs(1));
+    let assembled = verdaxis_read::router(state);
+    let send = |method: &str, uri: String| {
+        assembled.clone().oneshot(
+            Request::builder()
+                .method(method)
+                .uri(uri)
+                .header("host", "localhost")
+                .body(Body::empty())
+                .unwrap(),
+        )
+    };
+
+    let response = send("GET", PATH.to_owned()).await.unwrap();
+    assert_eq!(response.status(), 200);
+    for method in ["HEAD", "OPTIONS"] {
+        let response = send(method, PATH.to_owned()).await.unwrap();
+        assert_eq!(response.status(), 405, "{method}");
+        assert_eq!(response.headers()["allow"], "GET", "{method}");
+        assert_eq!(response.headers()["content-type"], "application/json");
+    }
+    let response = send("GET", format!("{PATH}/?probe=1")).await.unwrap();
+    assert_eq!(response.status(), 307);
+    assert_eq!(
+        response.headers()["location"],
+        format!("http://localhost{PATH}?probe=1")
+    );
 }

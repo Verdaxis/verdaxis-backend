@@ -4,6 +4,7 @@
 //! provenance, terms, decimal, and window helpers that every route uses, so
 //! no route forks a predicate.
 
+pub mod amount;
 pub mod decimal;
 pub mod fueleu;
 pub mod legacy_curve;

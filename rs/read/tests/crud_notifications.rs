@@ -297,6 +297,8 @@ fn test_config(database_url: String) -> Config {
         database_url,
         db_session_time_zone: "Asia/Singapore".into(),
         prepared_budget: None,
+        compliance_eur_usd_rate: None,
+        fleet_artifact_path: "data/fleet_demand.json".into(),
         bind: "127.0.0.1:0".parse().unwrap(),
         read_admission_slots: 4,
         pool_max: 5,

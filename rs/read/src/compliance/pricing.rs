@@ -1,5 +1,7 @@
 //! Pure declared-lifecycle comparison and response assumptions.
-use crate::market::fueleu::{FUELEU_REFERENCE_GHG, YearError, fueleu_target};
+use crate::market::fueleu::{
+    FUELEU_PENALTY_EUR_PER_TONNE, FUELEU_REFERENCE_GHG, YearError, fueleu_target,
+};
 use rust_decimal::{Decimal, RoundingStrategy};
 use serde::Serialize;
 use std::fmt;
@@ -7,7 +9,6 @@ use std::fmt;
 const METHANOL_LCV_MJ_KG: Decimal = Decimal::from_parts(199, 0, 0, false, 1);
 const ETHANOL_LCV_MJ_KG: Decimal = Decimal::from_parts(268, 0, 0, false, 1);
 const DEFAULT_EUR_USD_RATE: Decimal = Decimal::from_parts(108, 0, 0, false, 2);
-const FUELEU_PENALTY_EUR_PER_TONNE: Decimal = Decimal::from_parts(2400, 0, 0, false, 0);
 const GRAMS_PER_KG_TO_TONNES_PER_MT: Decimal = Decimal::from_parts(1, 0, 0, false, 3);
 
 pub struct LifecycleOverlayCore;

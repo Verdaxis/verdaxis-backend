@@ -313,6 +313,14 @@
       "owner": "I"
     },
     {
+      "path": "app/models/port.py",
+      "owner": "I"
+    },
+    {
+      "path": "app/models/producer.py",
+      "owner": "I"
+    },
+    {
       "path": "deploy/caddy/rust-public-staging.caddy",
       "owner": "I"
     },
@@ -541,6 +549,10 @@
       "owner": "I"
     },
     {
+      "path": "rs/read/src/runtime/artifact.rs",
+      "owner": "I"
+    },
+    {
       "path": "rs/read/src/runtime/config.rs",
       "owner": "I"
     },
@@ -681,7 +693,27 @@
       "owner": "I"
     },
     {
+      "path": "tests/postgres/test_market_migrations.py",
+      "owner": "I"
+    },
+    {
+      "path": "tests/postgres/test_phase5_read_indexes.py",
+      "owner": "I"
+    },
+    {
+      "path": "tests/postgres/test_public_read_cache_events.py",
+      "owner": "I"
+    },
+    {
       "path": "tests/rust_contract/Caddyfile",
+      "owner": "I"
+    },
+    {
+      "path": "tests/rust_contract/phase2/evidence-manifest.json",
+      "owner": "I"
+    },
+    {
+      "path": "tests/rust_contract/phase2/routes.json",
       "owner": "I"
     },
     {
@@ -706,6 +738,10 @@
     },
     {
       "path": "tests/rust_contract/phase5/routes.json",
+      "owner": "I"
+    },
+    {
+      "path": "tests/rust_contract/test_phase2_auth_vectors.py",
       "owner": "I"
     },
     {

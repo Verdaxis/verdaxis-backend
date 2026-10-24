@@ -29,6 +29,17 @@ impl AuthenticatedRequest {
             support_context_present,
         }
     }
+    /// Apply the compliance read deadlines before taking the current-user lock.
+    pub fn scoped_read_timeouts(&self) -> bool {
+        matches!(
+            (self.method.as_str(), self.route_template.as_str()),
+            ("GET", "/api/compliance/fleet")
+                | ("GET", "/api/compliance/vessels/{vessel_id}/score")
+                | ("POST", "/api/compliance/scenario")
+                | ("POST", "/api/compliance/pricing-overlay")
+        )
+    }
+
     pub fn lock_mode(&self) -> UserLockMode {
         if self.method == "GET"
             && !self.support_context_present

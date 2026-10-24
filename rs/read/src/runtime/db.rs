@@ -21,7 +21,7 @@ pub struct Pools {
 
 pub async fn connect(config: &Config) -> Result<Pools, ApiError> {
     validate_config(config).map_err(|_| ApiError::internal())?;
-    if config.environment == "staging" {
+    if matches!(config.environment.as_str(), "staging" | "production") {
         // Trusted runtime preparation supplies this non-secret artifact text:
         // the deploy transaction writes `budget.json` and the unit passes its
         // path, or the harness carries the document in `RUST_CONFIG`. The

@@ -32,7 +32,7 @@
     "app/middleware/preauth_rate_limit.py": "59ce20b3f01c4ea95a18da5406768012245326b9a94d8bb6cfe33daf25e51e00",
     "app/rate_limit.py": "ba5dfc2f3d225dc651b61863581c47d64811dc2492ef005e0cc574f9dce11988",
     "requirements.txt": "b22fac2e46173d2ed2fe020de4e7c2931b94232c13b44bd1835644f4bde1b437",
-    "deploy/migration-checkpoints.tsv": "b840a03ce47add08fe3e89e40aeb7fd92ceb17985a15aa43c7eb16984d0b4713"
+    "deploy/migration-checkpoints.tsv": "9d7f8272cabe0d6046383071142b5745e47124a5b136d0c19570f5ff4027587f"
   },
   "exclusions": {
     "auth_issuance": "Python-owned: login, refresh, logout, password and session writes",

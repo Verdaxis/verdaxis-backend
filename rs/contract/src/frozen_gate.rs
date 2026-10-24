@@ -177,6 +177,24 @@ pub fn frozen_performance_gate(
     config: &str,
     run: &RustMeasurement,
 ) -> PerformanceVerdict {
+    performance_gate(bytes, config, run, false)
+}
+
+/// Explicit same-meaning successor; the first-cutover policy stays unchanged.
+pub fn meaning_performance_gate(
+    bytes: &[u8],
+    config: &str,
+    run: &RustMeasurement,
+) -> PerformanceVerdict {
+    performance_gate(bytes, config, run, true)
+}
+
+fn performance_gate(
+    bytes: &[u8],
+    config: &str,
+    run: &RustMeasurement,
+    successor: bool,
+) -> PerformanceVerdict {
     let invalid = || PerformanceVerdict {
         outcome: GateOutcome::Inconclusive,
         fix_items: vec![],
@@ -194,6 +212,8 @@ pub fn frozen_performance_gate(
     if config.rust_successful_samples_per_route < 1000
         || !hex(&config.python_baseline_sha256, 64)
         || digest != config.python_baseline_sha256
+        || (successor
+            && digest != "3c74f7960add211757198149241f1633ef90a165ec89a902ac40bf79c1f8ea5e")
     {
         return invalid();
     }
@@ -239,7 +259,7 @@ pub fn frozen_performance_gate(
     if run
         .routes
         .iter()
-        .any(|r| r.successful < floors[&r.route_id])
+        .any(|r| r.successful < if successor { 1000 } else { floors[&r.route_id] })
     {
         return invalid();
     }
@@ -252,7 +272,7 @@ pub fn frozen_performance_gate(
         || run
             .offered_rates
             .iter()
-            .any(|r| !positive(*r) || *r < minimum_rate)
+            .any(|r| !positive(*r) || (!successor && *r < minimum_rate))
     {
         return invalid();
     }
@@ -292,8 +312,9 @@ pub fn frozen_performance_gate(
     }
     let mix_regressed = mixed / weights.values().sum::<f64>() > base.mix_p95;
     let errors_rise = errors * u128::from(base.offered) > u128::from(base.errors_5xx) * offered;
-    let blocks = run.size == WorkloadSize::Small
-        && (mix_regressed || errors_rise || !blocking_routes.is_empty());
+    let blocks = (successor && errors_rise)
+        || (run.size == WorkloadSize::Small
+            && (mix_regressed || errors_rise || !blocking_routes.is_empty()));
     PerformanceVerdict {
         outcome: if blocks {
             GateOutcome::NoGo

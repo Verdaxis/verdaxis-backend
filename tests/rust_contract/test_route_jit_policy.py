@@ -20,6 +20,7 @@ SHARED_AGGREGATE_HANDLERS = (
     "orderbook_map.rs",
     "listings.rs",
     "prices.rs",
+    "curves_legacy.rs",
 )
 
 

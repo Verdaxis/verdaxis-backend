@@ -25,7 +25,15 @@ async fn main() {
 }
 
 async fn serve() -> Result<(), ()> {
-    let config = load_config().map_err(|_| ())?;
+    let mut config = load_config().map_err(|_| ())?;
+    verdaxis_read::validate_config(&config).map_err(|_| ())?;
+    let working_directory = std::env::current_dir().map_err(|_| ())?;
+    config.fleet_artifact_path = verdaxis_read::runtime::config::resolve_fleet_artifact_path(
+        &config.fleet_artifact_path,
+        &working_directory,
+    )
+    .map_err(|_| ())?;
+    verdaxis_read::runtime::config::fleet_startup_probe(&config.fleet_artifact_path).await;
     let pools = connect(&config).await.map_err(|_| ())?;
     let bind = config.bind;
     let policy = committed_policy().map_err(|_| ())?;
@@ -44,14 +52,16 @@ async fn serve() -> Result<(), ()> {
 /// `--budget-file` path the deploy transaction wrote. Both routes are built by
 /// the same validated `Config` constructor.
 fn load_config() -> Result<Config, String> {
+    // Check raw environment encoding before any optional value can default.
+    if std::env::var_os("FLEET_ARTIFACT_PATH").is_some_and(|value| value.into_string().is_err()) {
+        return Err("invalid FLEET_ARTIFACT_PATH".into());
+    }
     if let Ok(document) = std::env::var("RUST_CONFIG") {
         return serde_json::from_str(&document).map_err(|_| "invalid RUST_CONFIG".to_owned());
     }
     let arguments: Vec<String> = std::env::args().skip(1).collect();
     let (bind, budget_file) = deployed_arguments(&arguments)?;
     let budget = read_prepared_budget(&budget_file)?;
-    // A non-UTF-8 value cannot name any required key; dropping it makes the
-    // missing-key error report it instead of aborting the process.
     let environment: HashMap<String, String> = std::env::vars_os()
         .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))
         .collect();

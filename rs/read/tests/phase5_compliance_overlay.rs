@@ -170,6 +170,8 @@ async fn compliance_overlay_postgres_cases() {
         python_budget: 52,
         configured_max_connections: 100,
         prepared_budget: None,
+        compliance_eur_usd_rate: None,
+        fleet_artifact_path: "data/fleet_demand.json".into(),
     };
     verdaxis_read::validate_config(&config).unwrap();
     let clock = market::visibility::VisibilityClock::at(

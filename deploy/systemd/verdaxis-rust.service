@@ -1,0 +1,49 @@
+[Unit]
+Description=Verdaxis Rust public reads (production)
+Wants=network-online.target
+Requires=postgresql.service
+After=network-online.target postgresql.service
+RequiresMountsFor=/home/verdaxis-prod/verdaxis/prod/be
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=verdaxis-prod
+Group=verdaxis-prod
+WorkingDirectory=/home/verdaxis-prod/verdaxis/prod/be
+# Only deploy-written identity and app database credentials reach the process.
+# Migrator-backed revision and budget checks remain short-lived prestarts.
+EnvironmentFile=/home/verdaxis-prod/verdaxis/prod/be/.runtime-release.env
+EnvironmentFile=/home/verdaxis-prod/verdaxis/prod/be/.runtime-rust/runtime.env
+ExecStartPre=/usr/bin/env -i /usr/bin/python3 -I -S -B /home/verdaxis-prod/verdaxis/prod/be/scripts/verify_deploy_start_guard.py --environment production --expected-release-sha ${RELEASE_SHA}
+ExecStartPre=/usr/bin/env -i /usr/bin/python3 -I -S -B /home/verdaxis-prod/verdaxis/prod/be/scripts/verify_rust_start.py --expected-release-sha ${RELEASE_SHA} --budget-file /home/verdaxis-prod/verdaxis/prod/be/.runtime-rust/budget.json --expected-revision ${MIGRATION_REVISION} --revision-file /home/verdaxis-prod/verdaxis/prod/be/.runtime-rust/revision.json
+# The OS launcher permits pre-artifact unit verification; env execs in the same PID.
+ExecStart=/usr/bin/env /home/verdaxis-prod/verdaxis/prod/be/.runtime-rust/verdaxis-read --bind 127.0.0.1:8010 --budget-file /home/verdaxis-prod/verdaxis/prod/be/.runtime-rust/budget.json
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=30
+TimeoutStartSec=120
+LimitNOFILE=65536
+TasksMax=256
+MemoryHigh=192M
+MemoryMax=256M
+# At most one of the EU host's four CPUs; Python and PostgreSQL keep priority.
+CPUQuota=100%
+CPUWeight=50
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=read-only
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target

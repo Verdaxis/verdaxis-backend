@@ -18,13 +18,121 @@ source documentation. The shared-host marker is
 
 ## Shared FuelEU reference values
 
-`rs/read/src/market/fueleu.rs` owns the lifecycle GHG reference and the
-regulation's reduction steps; every reporting-year limit is derived from both.
-Voyage calculations use its exact-decimal adapter; order-book CI projections use
-the same reference for arithmetic and response fields. The shared schedule
-accepts 2025–9999; the MCP request retains its 2025–2050 reporting-year range.
+`rs/read/src/market/fueleu.rs` owns the lifecycle GHG reference, the
+regulation's reduction steps and the deficit penalty per tonne; every
+reporting-year limit is derived from the reference and the steps. Voyage
+calculations use its exact-decimal adapters; order-book CI projections use the
+same reference for arithmetic and response fields. The shared schedule accepts
+2025–9999; the MCP request retains its 2025–2050 reporting-year range.
 `rs/read/tests/phase5_fueleu.rs` checks the boundaries, adapters and consumer
 sources.
+
+`rs/read/src/compliance/pricing.rs` provides the pure declared-lifecycle
+comparison and overlay assumptions. It uses the shared reference, penalty and
+reporting-year limit; missing declarations remain null, physical differences
+round to 0.001 tonnes CO2e/MT, and financial benefits remain unpriced. The
+optional `COMPLIANCE_EUR_USD_RATE` setting (`Config::compliance_eur_usd_rate`)
+replaces the default exchange rate; startup refuses a value that is not
+positive. `rs/read/tests/phase5_compliance_pricing_core.rs` covers the core and
+its serialized client fields.
+
+`rs/read/src/compliance/validation.rs` holds the pure fuel-mix and
+reporting-year rules, and `rs/read/src/compliance/scoring.rs` the pure checked
+score calculation; both use `market::fueleu` for the reference, the penalty and
+the reporting-year limits. `rs/read/src/routes/compliance_fuels.rs` serves the
+constant illustrative fuel-intensity table at `GET /api/compliance/fuels`, with
+no database read or authentication. The other compliance routes reach the pure
+cores through their authenticated adapters.
+`rs/read/tests/phase5_compliance_scores_core.rs` and
+`rs/read/tests/phase5_compliance_fuels.rs` cover them.
+
+## Phase 5 public market reads
+
+`routes::benchmark_quotes` serves `GET /api/benchmarks` through the shared
+admitted read owner. `sql/benchmark_quote.sql` selects one active canonical
+product/point lane and its optional stored quote in one statement; fallback
+prices use the existing shared benchmark policy and window calculation.
+`rs/read/tests/phase5_benchmarks.rs` covers query, catalog and quote behavior.
+
+`runtime::admission::run_market_read` runs the work of one public market read
+in the shared admitted owner task: one READ ONLY transaction with a
+transaction-local five-second statement limit, committed by the owner, with the
+permit and connection held through cleanup. `routes::market_data_error`
+supplies the typed `{"detail": {"code", "message"}}` errors and the result-cap
+helpers. Saturated admission, pool, transaction and owner failures of
+`/api/availability`, `/api/benchmarks`, `/api/demand` and `/api/producers` use
+that envelope; every other admitted read keeps its string detail.
+`rs/read/tests/phase5_public_boundary.rs`, `rs/read/tests/http_contract.rs` and
+`rs/read/tests/admission_postgres.rs` check the boundary.
+
+`routes::availability` serves `GET /api/availability` through the shared
+admitted read helper. `rs/read/sql/availability.sql` selects canonical active
+inventory lanes and aggregates each evidence class in one statement snapshot.
+It prefers REAL, then disclosed DEMO evidence, retains unknown supplier counts,
+and sends exact NUMERIC totals and rounded means as decimal strings. It refuses
+more than 512 groups before omitting coordinate-less map entries; zero
+coordinates remain valid. The result is not cached.
+`rs/read/tests/phase5_availability.rs` covers the response, map coordinates,
+result bound, public admission and populated PostgreSQL cases.
+
+`rs/read/src/routes/demand.rs` serves anonymous demand groups from one SQL
+statement in `rs/read/sql/demand.sql`. The statement applies the shared current
+order policy, counts at most 32,769 candidate group identities, refuses more
+than 32,768 groups, and ranks complete aggregates before the requested output
+limit. UNKNOWN groups retain counts but no economic values. The route uses
+the shared admitted read transaction and structured market errors.
+`rs/read/tests/phase5_demand.rs` checks query limits, urgency, ordering,
+provenance, current owners and PostgreSQL group bounds.
+
+`rs/read/src/routes/producers.rs` provides the public producer read. It uses
+the shared admitted read transaction and one ordered SELECT from
+`rs/read/sql/producers.sql`. Filters validate project status and inclusive COD
+bounds. Coordinates are selected without changing geography; NUMERIC metadata
+remains exact decimal strings. The response accepts at most 5000 projects and
+refuses overflow without returning a partial list.
+`rs/read/tests/phase5_producers.rs` covers filters, fields and populated limits.
+
+## Optional fleet artifact configuration
+
+`Config.fleet_artifact_path` accepts `FLEET_ARTIFACT_PATH` and defaults to
+`data/fleet_demand.json`. Relative paths resolve under the backend unit's
+WorkingDirectory. Relative and absolute paths must stay within its trusted
+`data` directory, canonicalised once at startup. Startup preserves raw syntax
+until validation and refuses empty paths, invalid encoding, trailing separators,
+traversal and proven symlink escapes. Internal links resolve to an in-root target;
+connection and state validation retain that representation without filesystem
+resolution. Missing, inaccessible and non-directory storage remains optional. `runtime::config` provides the
+resolver and one bounded two-second, 256 KiB JSON startup probe. The binary logs
+only available/unavailable; missing or invalid optional data does not affect
+process startup or the unchanged four-field database readiness response.
+Link targets are expanded in filesystem order under held directory descriptors;
+parent steps cannot erase an unchecked link. `runtime::safe_fs` supplies the shared
+rustix no-follow descriptor walker, with nonblocking final opens and regular-file
+checks. The startup probe uses only that opener before its bounded read.
+Full document validation and the fleet route remain the fleet reader's concern.
+`rs/read/tests/runtime.rs` and `runtime_postgres.rs` cover this boundary.
+
+`routes/fleet_intelligence.rs` serves `GET /api/fleet-intelligence` through its
+route-local `market/fleet_snapshot.rs`. The reader validates bounded UTF-8
+observations with descriptor-relative no-follow opens, before/after file metadata
+checks and a two-second deadline, retaining admission through cleanup. Unavailable
+data returns structured 503 without fallback; database readiness is unchanged.
+`tests/phase5_fleet.rs` covers the contract.
+The fleet document must be published only by atomic rename; same-size in-place
+rewrites inside timestamp resolution can escape the metadata stability check.
+
+## Phase 5 read lookup indexes
+
+`alembic/versions/p5_20261020_read_indexes.py` (parent `prc_20261018_cache`)
+adds three non-unique B-tree indexes for the Phase 5 reads:
+`vessels(organization_id, id)`, `producer_projects(cod_year, name, id)` and
+`producer_projects(status, cod_year, id)`. It takes SHARE locks on both tables
+with NOWAIT and builds all three in one transaction. The models declare the
+same indexes. `deploy/migration-checkpoints.tsv` adds the transition and its
+pause; the Rust allowlist accepts both `prc_20261018_cache` and the new
+revision. `tests/unit/test_phase5_indexes.py`,
+`tests/unit/test_phase5_checkpoints.py` and
+`tests/postgres/test_phase5_read_indexes.py` check it.
 
 ## Rust Phase 2 feedback
 
@@ -289,16 +397,82 @@ Task 12c adds the reviewed staging unit
 staging manifest now selects the backend, the Rust reads and the singleton
 maintenance units. The unit loads `.runtime-release.env` and the deploy-written
 `.runtime-rust/runtime.env` (never the secret-rich `.env`) and runs the deploy
-start guard, the migrator-backed revision check and the budget drift check
-before `ExecStart`; it serves `127.0.0.1:8011` with a 256 MiB cap on the same
-sandbox directives as the running backend unit. Task 14b enables staging-only policy in
-`deploy/rust/staging-policy.json`; this source approval is not an activation
-command. The independent candidate activation path remains a PM gate. The
-canonical Rust-enabled staging deploy restarts both units in one call and
-requires both readiness documents before state clears. Production
-carries neither record and reads no Rust path.
+start guard and isolated stdlib `verify_rust_start.py` before `ExecStart`.
+The deploy verifies migration authority and budget drift under its lock, then
+freezes the exact revision with the release SHA in private `revision.json`;
+startup checks that record and budget identity without application imports,
+`.env` or a migrator secret. Budget preparation uses atomic replacement, so
+repeat deploys and retries do not fail on an existing artifact. It it serves `127.0.0.1:8011` with a 256 MiB cap on the same
+sandbox directives as the running backend unit. The first staging release keeps
+`deploy/rust/staging-policy.json` disabled. Deploy that bootstrap release, then
+install its immutable unit bundle as root from the exact clean fixed checkout.
+Only a later reviewed staging activation release enables the policy. Its
+canonical deploy refuses an unloaded/masked Rust unit before source mutation,
+verifies the signed artifact before state publication and preflights exact
+noninteractive sudo service commands against reviewed environment sudoers.
+Python restarts and passes exact readiness first; Rust restarts separately.
+Rust-only start/readiness failure stops and disables Rust while retaining
+exact-ready Python at the new SHA, with durable `rust-failed` state for canonical
+retry. Python failures remain fail-closed. Both readiness documents are required
+before successful deploy state clears. Decisions
+99 and 101–103 use normal staging publication and one shared Python/Rust release
+SHA; there is no independent candidate activation path. Production
+now has a separate policy-off bootstrap record and unit; no production Rust
+activation occurs merely by promoting this source. `deploy/rust/production-policy.json`
+selects `verdaxis-rust.service` at `127.0.0.1:8010`. The shared transaction selects
+only its own environment policy, verifies production provenance against
+`refs/heads/staging`, prepares app-only runtime credentials, and requires the same
+Python/Rust release SHA and both readiness documents. Production startup requires
+`verdaxis_app` on `127.0.0.1:5432/verdaxis_prod` and exact checkpoint
+`p0_20261016_union`. Production browser CORS follows the Python production origin
+set, not staging's origin. The production unit caps Rust at 256 MiB and one CPU;
+Python retains four workers. Conservative default connection accounting is 69
+including the 20-connection reserve and Rust's 16 reads plus readiness.
+Production needs its own B' policy-off deploy, root manifest install, then S'
+policy-on prod-push artifact; neither staging artifacts nor an independent SHA
+are accepted. `scripts/rust_caddy_candidate.py` prepares private per-group Caddy
+candidates and exact rollback bytes without touching live config. It reuses Task
+13's exact matchers and refuses production MCP activation. Production uses the
+single EU Caddyfile: P0 adds a bounded redacted API access log, then each group
+inserts its handle after analytics and before the unchanged Python fallback,
+retaining client-IP forwarding, flush and keepalive policy. Each read group lists
+Rust first and the Python process second with `lb_policy first`, a ten-second
+`lb_try_duration`, a 250 ms `lb_try_interval`, and passive health
+(`fail_duration 30s`, `max_fails 1`), so a stopped Rust service answers from
+Python. The `fallback` candidate adds a 15-second retry window to the Python
+catch-all so a request waits out a Python restart. MCP keeps one upstream because
+it carries writes: Caddy retries any method after a dial error, but a non-GET
+request after a successful connection is not retried. Staging keeps snippet
+imports and takes the same options from `deploy/caddy/rust-public-staging.caddy`.
+`scripts/rust_passive_no_harm.py` evaluates equal ordinary-traffic log
+windows and journal error classes; it performs no requests or measurements. An
+empty or missing journal window is invalid evidence (exit 2 with a reason), never
+"no new error classes".
+Both Rust units launch through `/usr/bin/env` so real systemd verification works
+before the first artifact exists without weakening startup checks. See
+`docs/plans/2026-10-19-rust-phase-1-production.md`; host acceptance remains separate.
 `docs/rust-phase1/progress-task12c.md` holds the unit digest, the artifact
 digest and the systemd 249/255 and staging-ABI start evidence.
+
+## Phase 1 same-meaning successor
+
+The explicit `phase1-meaning-v1` profile reuses `phase2_meaning.py` and its single
+raw-response comparator. The default byte path remains historical and unchanged.
+The successor CI runner supplies the reviewed ledger digest explicitly.
+`phase1_meaning/corpus/{enabled,disabled}` retains all 487 requests per KYC state,
+recorded twice on disposable data. Canonical tape pages come from the complete
+Python-filtered relation before full-UUID pagination, not a sorted Python page.
+`runtime/cache.rs` stores only bounded public reference payloads for 60 seconds;
+request headers are rebuilt. Trading caches remain unimplemented and disabled.
+Their infrastructure is prepared: migration `prc_20261018_cache` adds the
+generation, event and incarnation tables and an always-enabled statement trigger
+on each trading dependency. `runtime/cache_authority.rs` grants a hit only under an
+owner record outside the database (`scripts/rust_cache_authority.py` writes it),
+a lease, a matching database identity and a bound listener; `runtime/cache_events.rs`
+owns the one budgeted listener connection. Nothing starts either yet. See
+`docs/rust-phase1/cache-dependencies.md`.
+Exact `market/amount.rs` operations retain intermediate economic rounding while
+removing wire-spelling emulation. See `docs/rust-phase1/same-meaning-contract.md`.
 
 ## Rust Phase 2 shared route runner
 
@@ -373,6 +547,16 @@ identity, successful-sample floor, frozen p95 thresholds and error-rate rule.
 `measure.py --rust-only` starts no Python service and records baseline, manifest,
 source and harness identities. Python remains the differential correctness oracle
 at both sizes. Historical paired evidence cannot satisfy the new Rust-only gate.
+
+## Shared same-meaning comparator
+
+The successor branch reuses Phase 2's reviewed comparator commit `64179cd1`.
+Authentication issuance, market writers, SSE and dispatch remain Python-owned.
+`compare.py::compare_responses` is the raw-response profile boundary. Its explicit
+`phase2-meaning-v1` branch delegates to private `phase2_meaning.py`, with a
+SHA-256-pinned `normalization.json` ledger. It uses exact tagged JSON values,
+schema-local decimal/timestamp rules and complete-item multisets inside approved
+ties only. The Phase 1 default and existing recording comparator stay unchanged.
 
 ## File Map
 

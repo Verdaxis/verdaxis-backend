@@ -57,6 +57,17 @@ pub async fn run_authenticated<T: Send + 'static>(
             .await
             .map_err(|_| AuthenticatedError::Database(ApiError::database()))?;
         let result = async {
+            if request.scoped_read_timeouts() {
+                for statement in [
+                    "SET LOCAL lock_timeout = '500ms'",
+                    "SET LOCAL statement_timeout = '5s'",
+                ] {
+                    sqlx::query(statement)
+                        .execute(&mut *transaction)
+                        .await
+                        .map_err(|_| AuthenticatedError::Database(ApiError::database()))?;
+                }
+            }
             let query = match request.lock_mode() {
                 UserLockMode::Share => "SELECT id,organization_id,role::text AS role,status::text AS status,email_verified,must_change_password,password_changed_at,authentication_revoked_at FROM users WHERE id=$1 FOR SHARE",
                 UserLockMode::Update => "SELECT id,organization_id,role::text AS role,status::text AS status,email_verified,must_change_password,password_changed_at,authentication_revoked_at FROM users WHERE id=$1 FOR UPDATE",

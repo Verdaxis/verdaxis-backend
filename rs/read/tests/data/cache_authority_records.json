@@ -1,0 +1,213 @@
+{
+  "cases": [
+    {
+      "name": "active record",
+      "record": {
+        "version": 1,
+        "state": "active",
+        "database_epoch": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "primary_identity": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+        "authority_revision": 3
+      },
+      "accept": true,
+      "authority": {
+        "database_epoch": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "primary_identity": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+        "revision": 3
+      }
+    },
+    {
+      "name": "shortest accepted identities",
+      "record": {
+        "version": 1,
+        "state": "active",
+        "database_epoch": "00000000000000000000000000000000",
+        "primary_identity": "ffffffffffffffffffffffffffffffff",
+        "authority_revision": 1
+      },
+      "accept": true,
+      "authority": {
+        "database_epoch": "00000000000000000000000000000000",
+        "primary_identity": "ffffffffffffffffffffffffffffffff",
+        "revision": 1
+      }
+    },
+    {
+      "name": "longest accepted identities",
+      "record": {
+        "version": 1,
+        "state": "active",
+        "database_epoch": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "primary_identity": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "authority_revision": 18446744073709551615
+      },
+      "accept": true,
+      "authority": {
+        "database_epoch": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "primary_identity": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "revision": 18446744073709551615
+      }
+    },
+    {
+      "name": "deliberate revocation",
+      "record": {
+        "version": 1,
+        "state": "revoked",
+        "authority_revision": 4
+      },
+      "accept": true,
+      "authority": null
+    },
+    {
+      "name": "unknown version",
+      "record": {
+        "version": 2,
+        "state": "revoked",
+        "authority_revision": 4
+      },
+      "accept": false
+    },
+    {
+      "name": "unknown state",
+      "record": {
+        "version": 1,
+        "state": "pending",
+        "authority_revision": 4
+      },
+      "accept": false
+    },
+    {
+      "name": "extra field",
+      "record": {
+        "version": 1,
+        "state": "revoked",
+        "authority_revision": 4,
+        "note": "x"
+      },
+      "accept": false
+    },
+    {
+      "name": "active without epoch",
+      "record": {
+        "version": 1,
+        "state": "active",
+        "primary_identity": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+        "authority_revision": 3
+      },
+      "accept": false
+    },
+    {
+      "name": "active without primary",
+      "record": {
+        "version": 1,
+        "state": "active",
+        "database_epoch": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "authority_revision": 3
+      },
+      "accept": false
+    },
+    {
+      "name": "revoked carrying identities",
+      "record": {
+        "version": 1,
+        "state": "revoked",
+        "database_epoch": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "primary_identity": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+        "authority_revision": 4
+      },
+      "accept": false
+    },
+    {
+      "name": "revision zero",
+      "record": {
+        "version": 1,
+        "state": "active",
+        "database_epoch": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "primary_identity": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+        "authority_revision": 0
+      },
+      "accept": false
+    },
+    {
+      "name": "negative revision",
+      "record": {
+        "version": 1,
+        "state": "active",
+        "database_epoch": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "primary_identity": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+        "authority_revision": -1
+      },
+      "accept": false
+    },
+    {
+      "name": "short identity",
+      "record": {
+        "version": 1,
+        "state": "active",
+        "database_epoch": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "primary_identity": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+        "authority_revision": 3
+      },
+      "accept": false
+    },
+    {
+      "name": "overlong identity",
+      "record": {
+        "version": 1,
+        "state": "active",
+        "database_epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "primary_identity": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+        "authority_revision": 3
+      },
+      "accept": false
+    },
+    {
+      "name": "uppercase identity",
+      "record": {
+        "version": 1,
+        "state": "active",
+        "database_epoch": "A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1",
+        "primary_identity": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+        "authority_revision": 3
+      },
+      "accept": false
+    },
+    {
+      "name": "non hex identity",
+      "record": {
+        "version": 1,
+        "state": "active",
+        "database_epoch": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+        "primary_identity": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+        "authority_revision": 3
+      },
+      "accept": false
+    },
+    {
+      "name": "string revision",
+      "record": {
+        "version": 1,
+        "state": "active",
+        "database_epoch": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "primary_identity": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+        "authority_revision": "3"
+      },
+      "accept": false
+    },
+    {
+      "name": "not json",
+      "raw": "not json",
+      "accept": false
+    },
+    {
+      "name": "empty file",
+      "raw": "",
+      "accept": false
+    },
+    {
+      "name": "json array",
+      "raw": "[]",
+      "accept": false
+    }
+  ]
+}

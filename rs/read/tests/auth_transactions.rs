@@ -31,6 +31,8 @@ async fn postgres_authentication_ownership_and_revocation() {
         database_url: url,
         db_session_time_zone: "UTC".into(),
         prepared_budget: None,
+        compliance_eur_usd_rate: None,
+        fleet_artifact_path: "data/fleet_demand.json".into(),
         bind: "127.0.0.1:0".parse().unwrap(),
         read_admission_slots: 16,
         pool_max: 17,
@@ -52,6 +54,43 @@ async fn postgres_authentication_ownership_and_revocation() {
         )
         .unwrap(),
     );
+    // Exercise the actual public composition against the migrated disposable DB.
+    {
+        use axum::{body::Body, http::Request};
+        use tower::ServiceExt;
+        let root = std::env::temp_dir().join(format!("composed-fleet-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("data")).unwrap();
+        let root = std::fs::canonicalize(root).unwrap();
+        std::fs::write(
+            root.join("data/fleet.json"),
+            br#"{"entries":[],"last_updated":"2024-01-01","sources":[]}"#,
+        )
+        .unwrap();
+        let mut composed = (*state).clone();
+        let mut config = (*composed.config).clone();
+        config.fleet_artifact_path = verdaxis_read::runtime::config::resolve_fleet_artifact_path(
+            std::path::Path::new("data/fleet.json"),
+            &root,
+        )
+        .unwrap();
+        composed.config = Arc::new(config);
+        let app = verdaxis_read::router(composed);
+        for path in [
+            "/api/benchmarks",
+            "/api/availability",
+            "/api/demand",
+            "/api/producers",
+            "/api/fleet-intelligence",
+        ] {
+            let response = app
+                .clone()
+                .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(response.status(), 200, "{path}");
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
     assert_eq!(health.options().get_max_connections(), 1);
     assert_eq!(read_pool.options().get_max_connections(), 16);
     let fixture: serde_json::Value = serde_json::from_str(include_str!(
@@ -82,6 +121,71 @@ async fn postgres_authentication_ownership_and_revocation() {
         .execute(&admin)
         .await
         .unwrap();
+    // Compliance limits are transaction-local and do not change other reads.
+    for (method, path, expected_lock, expected_statement) in [
+        ("GET", "/api/compliance/fleet", "500ms", "5s"),
+        (
+            "GET",
+            "/api/compliance/vessels/{vessel_id}/score",
+            "500ms",
+            "5s",
+        ),
+        ("POST", "/api/compliance/scenario", "500ms", "5s"),
+        ("POST", "/api/compliance/pricing-overlay", "500ms", "5s"),
+        ("GET", "/api/notifications", "3s", "30s"),
+        ("GET", "/api/compliance/scenario", "3s", "30s"),
+        ("POST", "/api/compliance/scenario/extra", "3s", "30s"),
+    ] {
+        run_authenticated(
+            &state,
+            access(),
+            AuthenticatedRequest::new(method, path, false),
+            move |tx| {
+                Box::pin(async move {
+                    let lock: String = sqlx::query_scalar("SHOW lock_timeout")
+                        .fetch_one(tx.connection())
+                        .await
+                        .unwrap();
+                    let statement: String = sqlx::query_scalar("SHOW statement_timeout")
+                        .fetch_one(tx.connection())
+                        .await
+                        .unwrap();
+                    assert_eq!(lock, expected_lock, "{method} {path}");
+                    assert_eq!(statement, expected_statement, "{method} {path}");
+                    Ok(())
+                })
+            },
+        )
+        .await
+        .unwrap();
+    }
+    // A held actor row must expire before the ordinary three-second lock
+    // deadline. The callback must not run before current-account admission.
+    let mut actor_lock = admin.begin().await.unwrap();
+    sqlx::query("SELECT id FROM users WHERE id=$1 FOR UPDATE")
+        .bind(subject)
+        .execute(&mut *actor_lock)
+        .await
+        .unwrap();
+    let refused = tokio::time::timeout(
+        Duration::from_secs(2),
+        run_authenticated(
+            &state,
+            access(),
+            AuthenticatedRequest::new("GET", "/api/compliance/fleet", false),
+            |_| {
+                Box::pin(async {
+                    panic!("locked actor reached compliance work");
+                    #[allow(unreachable_code)]
+                    Ok(())
+                })
+            },
+        ),
+    )
+    .await
+    .expect("compliance lock deadline was not set before actor lookup");
+    assert!(matches!(refused, Err(AuthenticatedError::Database(_))));
+    actor_lock.rollback().await.unwrap();
     // Two Rust shared reads enter together. PostgreSQL confirms an independent
     // account UPDATE is blocked until both authenticated owners finish.
     let barrier = Arc::new(Barrier::new(3));
@@ -269,6 +373,29 @@ async fn postgres_authentication_ownership_and_revocation() {
     read_pool.close().await;
     health.close().await;
     admin.close().await;
+}
+
+#[test]
+fn compliance_timeouts_select_only_exact_method_and_template_pairs() {
+    for (method, path) in [
+        ("GET", "/api/compliance/fleet"),
+        ("GET", "/api/compliance/vessels/{vessel_id}/score"),
+        ("POST", "/api/compliance/scenario"),
+        ("POST", "/api/compliance/pricing-overlay"),
+    ] {
+        for support in [false, true] {
+            let request = AuthenticatedRequest::new(method, path, support);
+            assert!(request.scoped_read_timeouts(), "{method} {path}");
+            assert_eq!(request.lock_mode(), UserLockMode::Update);
+        }
+        let other_method = if method == "GET" { "POST" } else { "GET" };
+        assert!(!AuthenticatedRequest::new(other_method, path, false).scoped_read_timeouts());
+        assert!(
+            !AuthenticatedRequest::new(method, &format!("{path}/extra"), false)
+                .scoped_read_timeouts()
+        );
+    }
+    assert!(!AuthenticatedRequest::new("GET", "/api/notifications", false).scoped_read_timeouts());
 }
 
 #[test]

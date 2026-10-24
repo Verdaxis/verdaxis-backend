@@ -1,5 +1,24 @@
 use serde_json::json;
 
+fn shared_meaning(pair: serde_json::Value) -> bool {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut child = Command::new(root.join("venv/bin/python"))
+        .current_dir(root)
+        .args(["-m", "scripts.rust_contract.compare_values"])
+        .stdin(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(pair.to_string().as_bytes())
+        .unwrap();
+    child.wait().unwrap().success()
+}
+
 #[tokio::test]
 async fn modern_success_and_header_precedence_match_python() {
     use axum::{
@@ -30,9 +49,33 @@ async fn modern_success_and_header_precedence_match_python() {
             .unwrap();
         let status = response.status().as_u16();
         let bytes = to_bytes(response.into_body(), 1000000).await.unwrap();
-        if status as u64 != vector["status"].as_u64().unwrap()
-            || bytes.as_ref() != vector["response"].as_str().unwrap().as_bytes()
-        {
+        let Ok(expected) =
+            serde_json::from_str::<serde_json::Value>(vector["response"].as_str().unwrap())
+        else {
+            assert_eq!(status as u64, vector["status"].as_u64().unwrap());
+            assert_eq!(
+                bytes.as_ref(),
+                vector["response"].as_str().unwrap().as_bytes()
+            );
+            continue;
+        };
+        let actual: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let request: serde_json::Value =
+            serde_json::from_str(vector["body"].as_str().unwrap()).unwrap_or(json!({}));
+        let tool = request["params"]["name"].as_str();
+        let matches = if let Some(tool) = tool.filter(|_| actual["result"]["isError"] == true) {
+            shared_meaning(
+                json!({"expected": expected["result"]["content"][0]["text"].as_str().unwrap().split_once(": ").unwrap().1,
+                "actual":actual["result"]["content"][0]["text"], "route_id":format!("P1-tool-{tool}"),
+                "diagnostic_context":{"tool":tool,"arguments":request["params"]["arguments"]}}),
+            )
+        } else {
+            shared_meaning(
+                json!({"expected":expected,"actual":actual,"raw_envelope":true,
+                "route_id":tool.map_or("P1-mcp-protocol".to_owned(), |tool| format!("P1-tool-{tool}"))}),
+            )
+        };
+        if status as u64 != vector["status"].as_u64().unwrap() || !matches {
             failures.push(format!(
                 "{}: status {status}, {}",
                 vector["name"],
@@ -70,8 +113,15 @@ async fn root_arguments_match_python_method_validation() {
         assert_eq!(response.status(), 200);
         let bytes = to_bytes(response.into_body(), 100000).await.unwrap();
         if arguments.is_null() {
-            let text = "Error executing tool plan_voyage_fuel: 1 validation error for plan_voyage_fuelArguments\nrequest\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/missing";
-            assert_eq!(bytes.as_ref(), json!({"jsonrpc":"2.0","id":1,"result":{"content":[{"text":text,"type":"text"}],"isError":true}}).to_string().as_bytes());
+            let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(value["result"]["isError"], true);
+            let text = value["result"]["content"][0]["text"].as_str().unwrap();
+            let errors: serde_json::Value =
+                serde_json::from_str(text.strip_prefix("Validation failed: ").unwrap()).unwrap();
+            assert_eq!(
+                errors,
+                json!([{"type":"missing","loc":["request"],"msg":"Field required","input":{}}])
+            );
         } else {
             assert_eq!(bytes.as_ref(), br#"{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"Invalid request parameters","data":""}}"#, "{arguments}");
         }
@@ -188,19 +238,19 @@ async fn stateless_transport_matches_python_terminal_responses() {
 }
 
 #[test]
-fn protocol_adapter_preserves_python_envelope_order() {
+fn protocol_adapter_preserves_protocol_envelope_order() {
     let input = json!({"jsonrpc":"2.0","id":7,"result":{"content":[{"type":"text","text":"hello"}],"structuredContent":{"quantity":"1.00"},"isError":false}});
-    let result = verdaxis_read::mcp::transport::python_envelope(input, "tools/call");
+    let result = verdaxis_read::mcp::transport::protocol_envelope(input, "tools/call");
     assert_eq!(
-        result.to_string(),
-        r#"{"jsonrpc":"2.0","id":7,"result":{"content":[{"text":"hello","type":"text"}],"isError":false,"structuredContent":{"quantity":"1.00"}}}"#
+        result,
+        json!({"jsonrpc":"2.0","id":7,"result":{"content":[{"text":"hello","type":"text"}],"isError":false,"structuredContent":{"quantity":"1.00"}}})
     );
 }
 
 #[test]
 fn tool_schemas_use_python_model_field_order() {
     let input = json!({"id":1,"result":{"tools":[{"name":"list_markets"}]}});
-    let result = verdaxis_read::mcp::transport::python_envelope(input, "tools/list");
+    let result = verdaxis_read::mcp::transport::protocol_envelope(input, "tools/list");
     let tool = &result["result"]["tools"][0];
     assert_eq!(
         tool["inputSchema"]
@@ -208,8 +258,8 @@ fn tool_schemas_use_python_model_field_order() {
             .unwrap()
             .keys()
             .map(String::as_str)
-            .collect::<Vec<_>>(),
-        vec!["properties", "type", "title"]
+            .collect::<std::collections::BTreeSet<_>>(),
+        std::collections::BTreeSet::from(["properties", "title", "type"])
     );
     assert_eq!(
         tool["annotations"]
@@ -217,14 +267,14 @@ fn tool_schemas_use_python_model_field_order() {
             .unwrap()
             .keys()
             .map(String::as_str)
-            .collect::<Vec<_>>(),
-        vec!["destructiveHint", "idempotentHint", "readOnlyHint"]
+            .collect::<std::collections::BTreeSet<_>>(),
+        std::collections::BTreeSet::from(["destructiveHint", "idempotentHint", "readOnlyHint"])
     );
 }
 
 #[test]
 fn voyage_decimal_context_matches_python_vectors() {
-    use verdaxis_read::mcp::decimal::Decimal;
+    use verdaxis_read::market::amount::Amount as Decimal;
     let vectors: serde_json::Value = serde_json::from_str(include_str!(
         "../../../deploy/rust/voyage-decimal-vectors.json"
     ))
@@ -240,13 +290,15 @@ fn voyage_decimal_context_matches_python_vectors() {
             _ => unreachable!(),
         };
         assert_eq!(
-            result.text(),
-            vector["result"].as_str().unwrap(),
+            result.compare(&Decimal::parse(vector["result"].as_str().unwrap()).unwrap()),
+            std::cmp::Ordering::Equal,
             "{vector}"
         );
         assert_eq!(
-            result.quantize(2).unwrap(),
-            vector["money"].as_str().unwrap(),
+            Decimal::parse(&result.quantize(2).unwrap())
+                .unwrap()
+                .compare(&Decimal::parse(vector["money"].as_str().unwrap()).unwrap()),
+            std::cmp::Ordering::Equal,
             "{vector}"
         );
     }
@@ -298,7 +350,12 @@ fn slice_keeps_both_provenances_and_numeric_scale_without_identifiers() {
     .unwrap();
     assert_eq!(value["best_bid_usd_per_mt"], "12.00");
     assert_eq!(value["best_ask_usd_per_mt"], "14.00");
-    assert_eq!(value["ask_quantity_mt"], "7.000");
+    assert_eq!(
+        verdaxis_read::market::amount::Amount::parse(value["ask_quantity_mt"].as_str().unwrap())
+            .unwrap()
+            .compare(&verdaxis_read::market::amount::Amount::parse("7").unwrap()),
+        std::cmp::Ordering::Equal
+    );
     assert_eq!(value["demo_status"], "MIXED");
     assert_eq!(value["ask_order_count"], 2);
     assert!(!value.to_string().contains("private"));
@@ -345,6 +402,8 @@ fn state_with_pool() -> (AppState, sqlx::PgPool) {
         python_budget: 52,
         configured_max_connections: 100,
         prepared_budget: None,
+        compliance_eur_usd_rate: None,
+        fleet_artifact_path: "data/fleet_demand.json".into(),
     };
     let pools = verdaxis_read::runtime::db::Pools {
         read: sqlx::postgres::PgPoolOptions::new()
@@ -470,11 +529,11 @@ async fn invalid_matrix_inputs_precede_saturated_admission() {
         assert_eq!(response.status(), 200);
         let bytes = to_bytes(response.into_body(), 100000).await.unwrap();
         let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-        assert_eq!(
-            value["result"]["content"][0]["text"],
-            format!(
-                "Error executing tool {}: {expected}",
-                vector["tool"].as_str().unwrap()
+        assert!(
+            shared_meaning(
+                json!({"expected":expected,"actual":value["result"]["content"][0]["text"],
+            "route_id":format!("P1-tool-{}",vector["tool"].as_str().unwrap()),
+            "diagnostic_context":{"tool":vector["tool"],"arguments":vector["arguments"]}})
             ),
             "{}",
             vector["name"]

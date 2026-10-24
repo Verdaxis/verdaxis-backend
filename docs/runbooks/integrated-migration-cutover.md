@@ -304,6 +304,37 @@ Alembic revision and critical row counts, validate constraints, and run a
 read-only application smoke test. Structural dump verification alone is not a
 restore proof.
 
+## Public read cache authority after a restore or promotion
+
+Applies once `prc_20261018_cache` is deployed. The Rust read service may serve a
+cached trading payload only while an owner record outside every database names
+the active database. A restored or promoted database keeps its old epoch,
+identity and generation numbers, so a restore is never self-evident to the
+service. The record is `.runtime-rust/cache-authority.json`; trading caching is
+disabled by default, and an ordinary deploy neither creates nor rotates it.
+
+Around any restore, promotion or database replacement, in this order, from the
+environment's checkout as the service account:
+
+1. Before stopping or replacing the database:
+   `./venv/bin/python scripts/rust_cache_authority.py revoke --runtime-dir .runtime-rust`.
+   It publishes a revoked record and waits 10 seconds (twice the Rust lease), so
+   every Rust process has re-read it or stopped serving hits by itself.
+2. Restore or promote the database, then confirm it is a primary and passes the
+   restore proof above. Keep Python and Rust traffic closed as that proof requires.
+3. Before traffic returns:
+   `./venv/bin/python scripts/rust_cache_authority.py activate --runtime-dir .runtime-rust --environment-file .env --source-root .`.
+   It revokes and drains again, binds the database to a fresh random epoch,
+   primary identity and higher revision through the migrator role, and only then
+   publishes the matching active record. It refuses a replica.
+4. `scripts/rust_cache_authority.py status --runtime-dir .runtime-rust` prints the
+   state and revision with identity fingerprints, never the full identities.
+
+If any step fails, the record stays revoked and the service serves no cached
+trading data; fix the cause and run step 3 again. Do not copy a record or the
+incarnation row between environments or from a backup. No DNS change, healthy
+listener or matching generation number is activation proof.
+
 ## Shared SSE transport checkpoint
 
 `mi -> sse_20260720_market_event_stream` requires the backup gate (the head

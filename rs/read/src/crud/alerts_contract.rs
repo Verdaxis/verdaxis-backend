@@ -102,6 +102,8 @@ pub async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         database_url: std::env::var("PHASE2_DATABASE_URL")?,
         db_session_time_zone: "UTC".into(),
         prepared_budget: None,
+        compliance_eur_usd_rate: None,
+        fleet_artifact_path: "data/fleet_demand.json".into(),
         bind,
         read_admission_slots: 16,
         pool_max: 17,
@@ -138,6 +140,7 @@ pub async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         pools,
         policy: Arc::new(policy),
         reads: Arc::new(tokio::sync::Semaphore::new(16)),
+        reference_cache: Arc::new(crate::runtime::cache::ReferenceCache::default()),
     };
     let app = super::router(
         state,

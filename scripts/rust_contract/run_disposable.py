@@ -597,6 +597,9 @@ CREATE EXTENSION IF NOT EXISTS postgis;
         """Write the machine-readable contract-gate report and echo it."""
         report = {
             "source_sha": self.sha,
+            "profile": os.environ.get("RUST_CONTRACT_PROFILE", "byte"),
+            "rules_sha256": os.environ.get("MEANING_RULES_SHA256"),
+            "kyc_execution_gate_enabled": self.gate,
             "group": self.group,
             "rust_target": self.rust_target,
             "mixed_caddy": self.mixed_caddy,
@@ -648,6 +651,8 @@ CREATE EXTENSION IF NOT EXISTS postgis;
             **{f"{group}_UPSTREAM": f"127.0.0.1:{rust_port}"
                for group in ("SIMPLE", "ORDERBOOK", "PRICES", "CURVES", "MCP")},
         }
+        # One shared config owns forwarding options for both route groups and
+        # Python fallback; do not synthesize a plain-proxy variant here.
         config = str(ROOT / "tests/rust_contract/Caddyfile")
         subprocess.run([caddy, "adapt", "--config", config, "--validate"],
                        cwd=ROOT, env=caddy_env, check=True)
@@ -693,7 +698,7 @@ CREATE EXTENSION IF NOT EXISTS postgis;
             raise TimeoutError("recording deadline exceeded (stream did not close)")
 
         for group, requests in cases.items():
-            if group == "mcp":
+            if group == "mcp" and os.environ.get("RUST_CONTRACT_PROFILE") != "phase1-meaning-v1":
                 print("RECORD_EXCLUDED mcp: decision 19; Task 11", flush=True)
                 continue
             previous = signal.signal(signal.SIGALRM, deadline)
@@ -708,6 +713,20 @@ CREATE EXTENSION IF NOT EXISTS postgis;
             finally:
                 signal.alarm(0)
                 signal.signal(signal.SIGALRM, previous)
+            if os.environ.get("RUST_CONTRACT_PROFILE") == "phase1-meaning-v1":
+                import asyncio
+
+                from scripts.rust_contract.meaning_runner import (
+                    canonical_response,
+                    raw_response,
+                    route_id,
+                )
+                for entries in (first, second):
+                    for entry in entries:
+                        if route_id(entry["request"]) == "P1-R06" and entry["exchange"]["status"] == 200:
+                            response, proof = asyncio.run(canonical_response(entry["request"], raw_response(entry)))
+                            entry["raw_body"] = response["body"]
+                            entry["canonical_tape_proof"] = proof
             problems = differences(first, second)
             unstable.extend(problems)
             print(
@@ -746,6 +765,15 @@ CREATE EXTENSION IF NOT EXISTS postgis;
                 entries = [
                     {**entry, "id": entry["id"] + "--kyc-off"} for entry in entries
                 ]
+            if os.environ.get("RUST_CONTRACT_PROFILE") == "phase1-meaning-v1":
+                from scripts.rust_contract.record import stable
+                document = {"profile": "phase1-meaning-v1", "rules_sha256": os.environ["MEANING_RULES_SHA256"],
+                            "source_sha": self.sha, "clock": CORPUS_CLOCK, "group": group,
+                            "kyc_gate": self.gate, "entries": stable(entries)}
+                destination = ROOT / "tests/rust_contract/phase1_meaning/corpus" / ("enabled" if self.gate else "disabled")
+                destination.mkdir(parents=True, exist_ok=True)
+                (destination / (group + ".json")).write_text(json.dumps(document, indent=2, default=str) + "\n")
+                continue
             write_golden(
                 ROOT / "tests/rust_contract",
                 self.sha,
@@ -852,8 +880,23 @@ CREATE EXTENSION IF NOT EXISTS postgis;
         if selected not in (["harness-smoke"], ["auth-state-matrix"], ["watchlist-reads"]):
             raise RunnerError("select one implemented Phase 2 scenario")
         port = self.start_database()
+        policy_dir = "/tmp/phase2-role-policy"
+        docker("exec", self.container, "mkdir", "-p", policy_dir)
+        for name in ("app_acl_policy.sql", "converge_runtime_object_acls.sql", "bootstrap_roles.sql", "validate_roles.sql"):
+            docker("cp", str(ROOT / "deploy/postgres" / name), f"{self.container}:{policy_dir}/{name}")
+        # Create the roles and move schema ownership to the migrator before the
+        # migration, exactly as production does. Metadata functions declared
+        # SECURITY DEFINER then run with migrator authority; migrating as the
+        # app role left them unable to bump the cache generation.
+        docker("exec", self.container, "psql", "-X", "-U", "postgres", "-d", DB_NAME,
+            "-v", f"database_name={DB_NAME}", "-v", f"app_role={role}", "-v", f"migrator_role={MIGRATOR_ROLE}",
+            "-v", f"backup_role={BACKUP_ROLE}", "-f", f"{policy_dir}/bootstrap_roles.sql")
+        docker("exec", self.container, "psql", "-X", "-U", "postgres", "-d", DB_NAME,
+            "-c", f"ALTER ROLE {identifier(MIGRATOR_ROLE)} PASSWORD '{PASSWORD}'")
+        migrator_url = f"postgresql+asyncpg://{MIGRATOR_ROLE}:{PASSWORD}@127.0.0.1:{port}/{DB_NAME}"
         env = {**os.environ, "ENVIRONMENT": "test", "RELEASE_SHA": self.sha,
-               "JWT_SECRET": "test-secret-key-for-testing-minimum-32-chars", **self.urls(port)}
+               "JWT_SECRET": "test-secret-key-for-testing-minimum-32-chars", **self.urls(port),
+               "DATABASE_URL": migrator_url, "MIGRATOR_DATABASE_URL": migrator_url}
         self.seed = False
         self.migrate_and_seed(env)
         # Seed one immutable source schema before cloning. Neither request cell
@@ -864,10 +907,6 @@ CREATE EXTENSION IF NOT EXISTS postgis;
         with connect(port, "postgres", autocommit=True) as admin:
             for database in DATABASES:
                 admin.execute(f"CREATE DATABASE {identifier(database)} TEMPLATE {identifier(DB_NAME)}")
-        policy_dir = "/tmp/phase2-role-policy"
-        docker("exec", self.container, "mkdir", "-p", policy_dir)
-        for name in ("app_acl_policy.sql", "converge_runtime_object_acls.sql", "bootstrap_roles.sql", "validate_roles.sql"):
-            docker("cp", str(ROOT / "deploy/postgres" / name), f"{self.container}:{policy_dir}/{name}")
         for database in DATABASES:
             for script in ("bootstrap_roles.sql", "validate_roles.sql"):
                 docker("exec", self.container, "psql", "-X", "-U", "postgres", "-d", database,
@@ -1078,7 +1117,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--phase2-measure", action="store_true")
     parser.add_argument("--phase2-order-write-benchmark", action="store_true")
     parser.add_argument("--release-binary", type=Path)
+    parser.add_argument("--profile", choices=("phase1-meaning-v1",))
+    parser.add_argument("--rules-sha256")
     args = parser.parse_args(argv)
+    if args.profile:
+        from scripts.rust_contract.phase2_meaning import PHASE1_RULES_SHA256
+        if args.rules_sha256 != PHASE1_RULES_SHA256:
+            parser.error("reviewed successor rules digest is required")
+        os.environ["RUST_CONTRACT_PROFILE"] = args.profile
+        os.environ["MEANING_RULES_SHA256"] = args.rules_sha256
+    elif args.rules_sha256:
+        parser.error("rules digest requires an explicit profile")
     if args.phase2:
         scenarios = json.loads((ROOT / "tests/rust_contract/phase2/scenarios.json").read_text())["scenarios"]
         from scripts.rust_contract.phase2_scenarios import REGISTRY

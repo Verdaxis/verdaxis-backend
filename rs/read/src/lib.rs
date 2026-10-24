@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod compliance;
 pub mod crud;
 pub mod market;
 pub mod mcp;
@@ -29,7 +30,9 @@ pub use market::visibility::{
 pub use market::windows::{
     normalize_window, window_display_label, window_sort_key, window_start_date,
 };
-pub use runtime::admission::{DEFAULT_READ_ADMISSION_SLOTS, run_admitted, selected_read, try_read};
+pub use runtime::admission::{
+    DEFAULT_READ_ADMISSION_SLOTS, run_admitted, run_market_read, selected_read, try_read,
+};
 pub use runtime::artifact::{
     ARTIFACT_VERSION, LIBC_MIN, verify_artifact_identity, verify_compiled_identity, version_json,
 };
@@ -68,6 +71,8 @@ pub struct AppState {
     pub(crate) pools: runtime::db::Pools,
     pub policy: std::sync::Arc<MarketPolicy>,
     pub reads: std::sync::Arc<tokio::sync::Semaphore>,
+    pub reference_cache:
+        std::sync::Arc<runtime::cache::ReferenceCache<runtime::cache::ReferenceKey>>,
 }
 
 impl AppState {
@@ -90,6 +95,7 @@ impl AppState {
             pools,
             policy: std::sync::Arc::new(policy),
             reads,
+            reference_cache: std::sync::Arc::new(runtime::cache::ReferenceCache::default()),
         })
     }
 }
@@ -133,6 +139,18 @@ pub struct Config {
     pub pool_max: u32,
     pub python_budget: u32,
     pub configured_max_connections: u32,
+    /// Optional EUR/USD rate for the compliance pricing assumptions
+    /// (`COMPLIANCE_EUR_USD_RATE`, a decimal string). Absent means the pricing
+    /// core's published default; startup refuses a value that is not positive.
+    #[serde(default, alias = "COMPLIANCE_EUR_USD_RATE")]
+    pub compliance_eur_usd_rate: Option<rust_decimal::Decimal>,
+    /// Operator configuration only; relative paths use the unit WorkingDirectory.
+    #[serde(default = "fleet_artifact_default", alias = "FLEET_ARTIFACT_PATH")]
+    pub fleet_artifact_path: std::path::PathBuf,
+}
+
+fn fleet_artifact_default() -> std::path::PathBuf {
+    "data/fleet_demand.json".into()
 }
 
 fn read_admission_default() -> u32 {
