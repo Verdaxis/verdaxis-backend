@@ -147,6 +147,34 @@ def test_approved_difference_does_not_parse_a_non_json_response():
     assert seen==[[left,right]]
 
 
+def test_invalid_bearer_actions_pin_the_reviewed_credential_envelope():
+    """PD89-CF4-1/-11: Rust answers an invalid bearer with the coded detail;
+    Python keeps its legacy string (decisions 47 and 113). Every bad-bearer
+    action must name the rule and pin both wires exactly, so the twins cannot
+    silently drift while the envelopes differ."""
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    module = runner_module()
+    root = Path(__file__).resolve().parents[2]
+    context = SimpleNamespace(environment={"JWT_SECRET": "test-secret-key-for-testing-minimum-32-chars"},
+                              root=root, python_bin="python")
+    expected = {
+        "watchlist-http-reads": ["bad-bearer-before-uuid"],
+        "watchlist-http-reads-gate-off": ["bad-bearer-before-uuid"],
+        "watchlist-containers": ["create-bad-bearer", "create-bad-bearer-before-validation"],
+        "watchlist-targets": ["bad-bearer-before-validation", "delete-bad-bearer"],
+        "watchlist-targets-gate-off": ["bad-bearer-before-validation", "delete-bad-bearer"],
+    }
+    for name, bad_bearers in expected.items():
+        scenario = module.REGISTRY[name]
+        marked = {action.name: action for action in scenario.actions(context) if action.name in bad_bearers}
+        assert set(marked) == set(bad_bearers), name
+        for action_name, item in marked.items():
+            assert item.approved_difference == "PD89-CF4-11", (name, action_name)
+            assert item.assert_http_difference is not None, (name, action_name)
+
+
 def test_state_difference_needs_a_named_rule_and_is_not_silent():
     module=runner_module()
 
