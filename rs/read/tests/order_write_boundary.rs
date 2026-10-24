@@ -331,6 +331,11 @@ fn scan_repository() -> Vec<String> {
     // the price-alert cap serializes organization creators in its own namespace.
     // It does not touch order-book rows, so the boundary rule names it exactly.
     let price_alert_cap = [root.join("rs/read/src/crud/alerts.rs")];
+    // Staging's trading-cache integration test mutates an order row to prove
+    // that a committed generation invalidates the cached route. That file is an
+    // integration test target: it never compiles into the release binary, and
+    // the exception is asserted below to stay inside `rs/read/tests/`.
+    let cache_invalidation_fixture = [root.join("rs/read/tests/trading_cache_postgres.rs")];
     let mut violations = Vec::new();
 
     let mut rust_files = Vec::new();
@@ -352,7 +357,9 @@ fn scan_repository() -> Vec<String> {
                 }
                 continue;
             }
-            if let Some(rule) = orderbook_dml(&literal) {
+            if !cache_invalidation_fixture.contains(path)
+                && let Some(rule) = orderbook_dml(&literal)
+            {
                 violations.push(format!("{}: {rule}", path.display()));
             }
             if orderbook_row_lock(&literal) {
@@ -399,6 +406,18 @@ fn scan_repository() -> Vec<String> {
         }
     }
     violations
+}
+
+/// The one DML exception is an integration test target, never release source.
+#[test]
+fn the_dml_exception_is_an_integration_test() {
+    let root = repository_root();
+    let fixture = root.join("rs/read/tests/trading_cache_postgres.rs");
+    assert!(fixture.exists(), "the excepted fixture must exist");
+    assert!(
+        fixture.starts_with(root.join("rs/read/tests")),
+        "a DML exception must not name production source"
+    );
 }
 
 #[test]
