@@ -81,6 +81,10 @@ async fn p4_t10_c12() {
 
 #[test]
 fn p4_t10_c13() {
+    for (declared, organization) in [("FFI Marine", "ﬃ Marine"), ("STRASSE", "Straße"), ("i\u{0307} Marine", "İ Marine")] {
+        assert!(Declarations::new(Some(declared.into()),None).expect("synthetic declaration").validate_organization(organization,None).is_ok(),"full caseless comparison");
+    }
+    assert!(Declarations::new(Some("I Marine".into()),None).expect("synthetic declaration").validate_organization("İ Marine",None).is_err());
     assert!(Declarations::new(Some(" ".into()), None).is_err());
     assert!(Declarations::new(Some("x".repeat(201)), None).is_err());
     assert!(Declarations::new(None, Some("x".into())).is_err());
@@ -301,6 +305,23 @@ mod postgres {
             )
             .await
         }
+        fn state(&self) -> verdaxis_read::AppState {
+            let config = verdaxis_read::Config {
+                kyc_execution_gate_enabled:true, environment:"test".into(),
+                release_sha:verdaxis_read::compiled_sha().into(), migration_revision:"kycg_20261014_staging".into(),
+                database_url:std::env::var("RUST_TEST_DATABASE_URL").expect("runtime URL"),
+                db_session_time_zone:"UTC".into(),prepared_budget:None,bind:"127.0.0.1:0".parse().expect("bind"),
+                read_admission_slots:3,pool_max:4,python_budget:52,configured_max_connections:100,
+            };
+            let health=PgPoolOptions::new().max_connections(1).connect_lazy(&config.database_url).expect("health pool");
+            verdaxis_read::AppState::new(config,verdaxis_read::runtime::db::Pools { read:self.pool.clone(),health },verdaxis_read::MarketPolicy { source_sha:verdaxis_read::compiled_sha().into(),products:vec![],points:vec![] }).expect("state")
+        }
+        fn context(&self, keys:bool)->Arc<documents::EvidenceContext> {
+            Arc::new(documents::EvidenceContext { settings:Arc::new(verdaxis_read::auth::VerificationSettings::new("test-secret-key-for-testing-minimum-32-chars".into(),None,"test".into(),"test".into())),limits:SharedLimits::default(),keys:keys.then(||self.keys()),upload_limits:UploadLimits::default() })
+        }
+        async fn snapshot(&mut self)->serde_json::Value {
+            sqlx::query_scalar("SELECT jsonb_build_object('users',(SELECT jsonb_agg(to_jsonb(u) ORDER BY id) FROM users u),'documents',(SELECT coalesce(jsonb_agg(to_jsonb(d) ORDER BY id),'[]'::jsonb) FROM kyc_documents d),'audit',(SELECT coalesce(jsonb_agg(to_jsonb(a) ORDER BY id),'[]'::jsonb) FROM audit_logs a))").fetch_one(&mut self.admin).await.expect("state snapshot")
+        }
         async fn finish(mut self) {
             self.pool.close().await;
             sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
@@ -496,6 +517,127 @@ mod postgres {
             .await
             .expect("count");
         assert_eq!(n, 0);
+        f.finish().await;
+    }
+
+    fn headers(user:Uuid,expires:chrono::DateTime<chrono::Utc>)->axum::http::HeaderMap {
+        let key="test-secret-key-for-testing-minimum-32-chars";
+        let token=jsonwebtoken::encode(&jsonwebtoken::Header::default(),&serde_json::json!({"sub":user,"iat":chrono::Utc::now().timestamp(),"exp":expires.timestamp(),"type":"access","iss":"test","aud":"test"}),&jsonwebtoken::EncodingKey::from_secret(key.as_bytes())).expect("fixture token");
+        let mut headers=axum::http::HeaderMap::new();
+        headers.insert("authorization",format!("Bearer {token}").parse().expect("header"));
+        headers.insert("content-type","multipart/form-data; boundary=fixture".parse().expect("header")); headers
+    }
+    async fn submit_handler(f:&Fixture,context:Arc<documents::EvidenceContext>)->Result<axum::Json<documents::Submitted>,verdaxis_read::ApiError> {
+        verdaxis_read::kyc::submission::handle_submit(&f.state(),context,headers(f.user,chrono::Utc::now()+chrono::Duration::minutes(5)),"fixture".into(),Body::from(payload(b"%PDF-synthetic","application/pdf",None))).await
+    }
+
+    #[tokio::test]
+    async fn p4_t10_c22() {
+        let mut f=Fixture::new().await; let state=f.state(); let context=f.context(true);
+        let expires=chrono::Utc::now()+chrono::Duration::seconds(3);
+        let before=f.snapshot().await;
+        let raw=payload(b"%PDF-synthetic","application/pdf",None);
+        let body=Body::from_stream(futures_util::stream::once(async move {
+            let until=(expires+chrono::Duration::seconds(1)-chrono::Utc::now()).to_std().expect("future expiry");
+            tokio::time::sleep(until).await;
+            Ok::<_,std::io::Error>(raw)
+        }));
+        let result=verdaxis_read::kyc::submission::handle_submit(&state,context,headers(f.user,expires),"fixture".into(),body).await;
+        assert!(result.is_err(),"credential admission must refuse after body completion");
+        let error=result.expect_err("expired credential");
+        assert_eq!(error.status,StatusCode::UNAUTHORIZED);
+        assert_eq!(error.detail["code"],"AUTH_CREDENTIALS_INVALID");
+        assert!(before==f.snapshot().await,"all state must remain unchanged");
+        drop(state); f.finish().await;
+    }
+
+    #[tokio::test]
+    async fn p4_t10_c23() {
+        let mut f=Fixture::new().await; let state=f.state(); let context=f.context(true);
+        let other=Uuid::new_v4(); let org=Uuid::new_v4();
+        sqlx::query("INSERT INTO organizations VALUES($1,'Other',NULL)").bind(org).execute(&mut f.admin).await.expect("org");
+        sqlx::query("INSERT INTO users(id,organization_id,role,status,kyc_status,kyc_organization_id) VALUES($1,$2,'BUYER','APPROVED','REJECTED',$2)").bind(other).bind(org).execute(&mut f.admin).await.expect("other user");
+        let now=chrono::Utc::now()+chrono::Duration::minutes(5);
+        let own=documents::handle_status(&state,context.clone(),headers(f.user,now)).await.expect("own status").0;
+        let foreign=documents::handle_status(&state,context.clone(),headers(other,now)).await.expect("other own status").0;
+        assert_eq!(own.kyc_status,"PENDING"); assert_eq!(foreign.kyc_status,"REJECTED"); assert_eq!(foreign.kyc_organization_id,Some(org));
+        let error=documents::handle_status(&state,context.clone(),axum::http::HeaderMap::new()).await.err().expect("anonymous refusal"); assert_eq!(error.status,StatusCode::UNAUTHORIZED);
+        for target in [f.user,other] {
+            let error=documents::handle_list(&state,context.clone(),headers(other,now),"fixture".into(),&target.to_string()).await.err().expect("nonadmin metadata refusal");
+            assert_eq!(error.status,StatusCode::FORBIDDEN);
+        }
+        assert!(submit_handler(&f,context.clone()).await.is_ok());
+        let own=documents::handle_list(&state,context.clone(),headers(f.user,now),"fixture".into(),&f.user.to_string()).await.expect("admin list").0;
+        assert_eq!(own.len(),2);
+        assert!(documents::handle_list(&state,context.clone(),headers(f.user,now),"fixture".into(),&other.to_string()).await.expect("filtered list").0.is_empty());
+        let error=documents::handle_list(&state,context.clone(),headers(f.user,now),"fixture".into(),&Uuid::new_v4().to_string()).await.err().expect("missing user"); assert_eq!(error.status,StatusCode::NOT_FOUND);
+        let id=own[0].id.to_string();
+        let error=documents::handle_download(&state,context,headers(other,now),"fixture".into(),&id).await.err().expect("foreign nonadmin download"); assert_eq!(error.status,StatusCode::FORBIDDEN);
+        drop(state); f.finish().await;
+    }
+
+    #[tokio::test]
+    async fn p4_t10_c24() {
+        let mut f=Fixture::new().await; let state=f.state(); let context=f.context(true);
+        for _ in 0..5 { assert!(submit_handler(&f,context.clone()).await.is_ok()); }
+        let error=submit_handler(&f,context.clone()).await.expect_err("submit quota"); assert_eq!(error.status,StatusCode::TOO_MANY_REQUESTS); assert!(error.retry_after.is_some());
+        let now=chrono::Utc::now()+chrono::Duration::minutes(5);
+        for _ in 0..30 { assert!(documents::handle_list(&state,context.clone(),headers(f.user,now),"fixture".into(),&f.user.to_string()).await.is_ok()); }
+        let error=documents::handle_list(&state,context.clone(),headers(f.user,now),"fixture".into(),&f.user.to_string()).await.err().expect("list quota"); assert_eq!(error.status,StatusCode::TOO_MANY_REQUESTS); assert!(error.retry_after.is_some());
+        let id:Uuid=sqlx::query_scalar("SELECT id FROM kyc_documents LIMIT 1").fetch_one(&mut f.admin).await.expect("id");
+        for _ in 0..30 { assert!(documents::handle_download(&state,context.clone(),headers(f.user,now),"fixture".into(),&id.to_string()).await.is_ok()); }
+        let error=documents::handle_download(&state,context,headers(f.user,now),"fixture".into(),&id.to_string()).await.err().expect("download quota"); assert_eq!(error.status,StatusCode::TOO_MANY_REQUESTS); assert!(error.retry_after.is_some());
+        drop(state); f.finish().await;
+    }
+
+    #[tokio::test]
+    async fn p4_t10_c25() {
+        let mut f=Fixture::new().await; let state=f.state(); let disabled=f.context(false);
+        let before=f.snapshot().await;
+        let error=submit_handler(&f,disabled.clone()).await.expect_err("storage disabled"); assert_eq!(error.status,StatusCode::SERVICE_UNAVAILABLE); assert_eq!(error.detail["code"],"KYC_DOCUMENT_STORAGE_UNAVAILABLE");
+        assert!(before==f.snapshot().await,"disabled storage must not mutate state");
+        assert!(submit_handler(&f,f.context(true)).await.is_ok());
+        let id:Uuid=sqlx::query_scalar("SELECT id FROM kyc_documents LIMIT 1").fetch_one(&mut f.admin).await.expect("id");
+        let before=f.snapshot().await;
+        let error=documents::handle_download(&state,disabled,headers(f.user,chrono::Utc::now()+chrono::Duration::minutes(5)),"fixture".into(),&id.to_string()).await.err().expect("missing decryption key"); assert_eq!(error.status,StatusCode::INTERNAL_SERVER_ERROR); assert_eq!(error.detail["code"],"KYC_DOCUMENT_DECRYPTION_FAILED");
+        assert!(before==f.snapshot().await,"failed download must not append audit");
+        let response=verdaxis_read::runtime::health::ready(axum::extract::State(state.clone())).await; assert_eq!(response.status(),StatusCode::OK);
+        drop(state); f.finish().await;
+    }
+
+    #[tokio::test]
+    async fn p4_t10_c27() {
+        let mut f=Fixture::new().await; let state=f.state(); let context=f.context(true);
+        let expires=chrono::Utc::now()+chrono::Duration::seconds(4);
+        let before=f.snapshot().await;
+        let (entered,ready)=tokio::sync::oneshot::channel();
+        let (release,wait)=tokio::sync::oneshot::channel();
+        let raw=payload(b"%PDF-synthetic","application/pdf",None);
+        let body=Body::from_stream(futures_util::stream::once(async move { let _=entered.send(()); wait.await.expect("body release"); Ok::<_,std::io::Error>(raw) }));
+        let request_headers=headers(f.user,expires); let owner_state=state.clone();
+        let writer=tokio::spawn(async move { verdaxis_read::kyc::submission::handle_submit(&owner_state,context,request_headers,"fixture".into(),body).await });
+        ready.await.expect("upload admitted");
+        let mut blocker=f.admin.begin().await.expect("lock barrier");
+        sqlx::query("SELECT id FROM organizations WHERE id=$1 FOR UPDATE").bind(f.org).execute(&mut *blocker).await.expect("organization lock");
+        release.send(()).expect("release body");
+        let until=(expires+chrono::Duration::seconds(1)-chrono::Utc::now()).to_std().expect("expiry barrier"); tokio::time::sleep(until).await;
+        blocker.commit().await.expect("release locks");
+        let result=writer.await.expect("handler owner");
+        assert!(result.is_err(),"final lock admission must refuse expired credentials");
+        let error=result.expect_err("expired credential"); assert_eq!(error.status,StatusCode::UNAUTHORIZED); assert_eq!(error.detail["code"],"AUTH_CREDENTIALS_INVALID");
+        assert!(before==f.snapshot().await,"expired request must leave no state");
+        drop(state); f.finish().await;
+    }
+
+    #[tokio::test]
+    async fn p4_t10_c26() {
+        let mut f=Fixture::new().await; let context=f.context(true);
+        assert!(submit_handler(&f,context.clone()).await.is_ok());
+        sqlx::query("UPDATE users SET kyc_status='APPROVED',kyc_organization_id=$2,kyc_rejection_reason='synthetic',kyc_external_evidence_reference='synthetic',kyc_review_note='synthetic',kyc_reviewed_by=$1,kyc_reviewed_at=now() WHERE id=$1").bind(f.user).bind(f.org).execute(&mut f.admin).await.expect("review state");
+        let before=f.snapshot().await;
+        sqlx::raw_sql("ALTER TABLE audit_logs ADD CHECK(action <> 'kyc.submitted') NOT VALID").execute(&mut f.admin).await.expect("failure injection");
+        assert!(submit_handler(&f,context).await.is_err());
+        assert!(before==f.snapshot().await,"review fields, rows, ciphertext and audit must roll back together");
         f.finish().await;
     }
 
