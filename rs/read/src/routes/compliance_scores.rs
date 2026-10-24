@@ -180,17 +180,12 @@ impl ScenarioRequest {
     /// then the reporting year, then the fuel mix. The mix container bound is
     /// part of the mix rule and precedes the known-fuel rule.
     pub fn validate(value: Value) -> Result<Self, ApiError> {
+        // Unknown fields are ignored, as the client contract's serde/Pydantic
+        // default does. `year` is read as a JSON integer only; Python's string
+        // coercion is not copied (decision 112).
         let object = value
             .as_object()
             .ok_or_else(|| invalid_input("Request body must be a JSON object.".to_owned()))?;
-        if object
-            .keys()
-            .any(|key| !matches!(key.as_str(), "vessel_id" | "fuel_mix" | "year"))
-        {
-            return Err(invalid_input(
-                "Request body has an unexpected field.".to_owned(),
-            ));
-        }
         let vessel_id = object
             .get("vessel_id")
             .and_then(Value::as_str)
@@ -219,6 +214,12 @@ impl ScenarioRequest {
     }
 }
 
+/// A stored CII rating, treating the empty string as absent so it takes the
+/// neutral C band, as Python's `(cii_rating or "C")` does.
+fn stored_rating(vessel: &VesselRow) -> Option<&str> {
+    vessel.cii_rating.as_deref().filter(|rating| !rating.is_empty())
+}
+
 /// The vessel label and CII rating a scenario reports.
 ///
 /// A vessel the actor cannot read keeps the generic identity: the submitted
@@ -230,7 +231,10 @@ pub fn scenario_identity(
     actor: &CurrentActor,
 ) -> (String, Option<String>) {
     match vessel.filter(|vessel| vessel_accessible(actor, vessel)) {
-        Some(vessel) => (vessel.name.clone(), vessel.cii_rating.clone()),
+        Some(vessel) => (
+            vessel.name.clone(),
+            stored_rating(vessel).map(str::to_owned),
+        ),
         None => (format!("Vessel {}", request.vessel_id), None),
     }
 }
@@ -305,7 +309,7 @@ fn score_vessel(row: &VesselRow) -> Result<(Json, u8, &'static str), ApiError> {
         vessel_id: &row.id.to_string(),
         vessel_name: &row.name,
         fuel_mix: &mix,
-        cii_rating: row.cii_rating.as_deref(),
+        cii_rating: stored_rating(row),
         total_co2_tonnes: None,
         year: ReportingYear::default(),
         total_energy_mj: None,
