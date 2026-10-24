@@ -9,6 +9,65 @@ below. The final review's F1/F2 gate repairs are committed and qualified in
 the "Review fix round" section. No staging or production deployment was
 attempted. Task 24 has not started. No measurement was run (decision 110).
 
+## PD2-M1 — single unchanged rerun, 24 October
+
+PM classified the preceding cancelled-order setup failure as Python database
+contention, not a Rust meaning regression, and authorized one unchanged rerun.
+No source, test, deadline, tolerance or retry policy was changed.
+
+- Load-wait check at 02:39:03Z: `load average: 15.60, 33.82, 57.54`.
+  The first reading met the below-16 condition, so no five-minute poll was
+  needed. Immediately before execution at 02:39:44Z it had risen to
+  `16.00, 31.67, 55.81`; this boundary reading is disclosed, not rounded down.
+- Executed unchanged `bash opus-r2-meaning.sh` at exact `2b719ad5`, under
+  `heavy run 7200`, 02:39:44–03:33:38Z. Gate and wrapper exit **1**.
+- After execution: `load average: 17.61, 19.22, 19.23` at 03:33:38Z.
+- Before/after `lslocks --notruncate --output PID,COMMAND,PATH` filtered for
+  `runs/.lock-` returned no matching rows. This is the observed output, not
+  proof that no other session held a lock (lock visibility may be limited).
+
+The failed group was `live_benchmarks`; all ten other groups passed. The
+cancelled-order integration failure did not recur. Exact retained failure
+excerpts (full private log: `work/pd2-m1-meaning-detail-recovered.log`):
+
+```text
+contract_server ready group=live_benchmarks addr=127.0.0.1:59637
+{"event": "KYC execution gate: enabled", "level": "info", "timestamp": "2026-10-24T02:59:24.015394Z"}
+ERROR:    Exception in ASGI application
+asyncpg.exceptions.QueryCanceledError: canceling statement due to statement timeout
+```
+
+The Python traceback is in `tests/rust_contract/live_benchmarks.py:50`
+(`project`) → `app/services/live_benchmarks.py:144`
+(`_calculate_live_slice_benchmarks`). Its SQL is a SELECT over eligible
+orderbook rows joined to products/delivery points, not a write or a recorded
+lock-holder statement. The subsequent capture and Rust test lines are:
+
+```text
+contract group live_benchmarks OK: 4 case(s)
+test live_benchmarks_match_python ... FAILED
+thread 'live_benchmarks_match_python' (888231) panicked at contract/tests/live_benchmarks.rs:14:5:
+live benchmark matrix differs
+TimeoutError: timed out
+scripts.rust_contract.compare.ContractError: case acceptance-true-base could not be sent
+error: test failed, to rerun pass `-p verdaxis-contract --test live_benchmarks`
+contract target live_benchmarks: FAILED
+```
+
+**Failing response:** none completed for `acceptance-true-base`; the Python
+HTTP read timed out. No exact status, body or headers for that failed capture
+exist in the retained log. There is no matching Rust HTTP response line for
+that case; the Rust contract-test failure above is the matching retained
+consumer evidence. No contention-503 response or message was observed in this
+failure sequence. The logs do not establish a blocking session, and no new
+instrumentation was added. Do not infer a lock holder or claim a matching
+response that was not captured.
+
+Logs: `work/pd2-m1-load-wait.log`, `work/pd2-m1-meaning-rerun.log`, and the
+recovered detail log above. No further rerun or push is authorized after this
+failure; stop for PM disposition. Task 24 remains unstarted; local `rs/target`
+remains absent.
+
 ## Staging merge qualification — 24 October
 
 Merged exact staging `539fe2a2e7735a301955e71d6797e3c565a11112` with
