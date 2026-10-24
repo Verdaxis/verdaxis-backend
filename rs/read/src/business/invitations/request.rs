@@ -29,6 +29,7 @@ use crate::{
     ApiError, AppState,
     auth::{
         AuthenticatedError, AuthenticatedRequest, CurrentActor, VerificationSettings,
+        error::{AUTH_BODY_LIMIT_BYTES, AuthCode, AuthFailure},
         limits::{BusinessLimitKeys, SharedLimits},
         run_authenticated, verify_authorization,
     },
@@ -50,9 +51,6 @@ pub const RESOLVE_PATH: &str = "/api/auth/invitations/resolve";
 
 /// The invitation lifetime: seven days from creation or rotation.
 pub const INVITATION_TTL_DAYS: i64 = 7;
-
-/// The route body cap shared by the three auth routes.
-const AUTH_BODY_LIMIT_BYTES: usize = 131_072;
 
 /// The closed organization domain for a new invitation organization.
 const ORGANIZATION_TYPES: [&str; 11] = [
@@ -446,16 +444,11 @@ fn request_id_of(request: &Request) -> Option<String> {
 }
 
 async fn read_body(request: Request) -> Result<Value, Response> {
+    // The shared auth body cap and its frozen refusal, so the three routes
+    // report an oversized body exactly as every other auth route does.
     let body = axum::body::to_bytes(request.into_body(), AUTH_BODY_LIMIT_BYTES)
         .await
-        .map_err(|_| {
-            refusal(
-                StatusCode::PAYLOAD_TOO_LARGE,
-                "BODY_TOO_LARGE",
-                "The invitation body is too large.",
-            )
-            .into_response()
-        })?;
+        .map_err(|_| AuthFailure::new(AuthCode::RequestTooLarge).into_response())?;
     crate::auth::request::parse_json_body(&body).map_err(|error| error.into_response())
 }
 
