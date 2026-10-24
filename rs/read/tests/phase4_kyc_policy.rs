@@ -465,6 +465,7 @@ mod postgres {
             let market: MarketPolicy =
                 serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json"))
                     .unwrap();
+            let _ = tracing_subscriber::fmt().with_test_writer().try_init();
             let state = AppState::new(config, pools, market).unwrap();
             let app = verdaxis_read::routes::orderbook_lists::routes().with_state(state);
             let response = app
@@ -531,7 +532,7 @@ mod postgres {
                     .await
                     .unwrap();
                 if let Some(offset) = grace_offset {
-                    sqlx::query("INSERT INTO kyc_execution_grace(id,user_id,organization_id,expires_at) VALUES($1,$2,CASE WHEN $3 THEN $4 ELSE (SELECT id FROM organizations WHERE id<>$4 LIMIT 1) END,$5)")
+                    sqlx::query("INSERT INTO kyc_execution_grace(id,user_id,organization_id,expires_at,kyc_status_at_enrollment,enrolled_at,created_by) VALUES($1,$2,CASE WHEN $3 THEN $4 ELSE (SELECT id FROM organizations WHERE id<>$4 LIMIT 1) END,$5,'PENDING',$5 - interval '1 day','fixture')")
                         .bind(Uuid::new_v4()).bind(member).bind(grace_bound).bind(org).bind(clock + Duration::microseconds(offset)).execute(&mut admin).await.unwrap();
                 }
                 let response = app
@@ -570,7 +571,7 @@ mod postgres {
                 .execute(&mut admin)
                 .await
                 .unwrap();
-            sqlx::query("INSERT INTO kyc_execution_grace(id,user_id,organization_id,expires_at) VALUES($1,$2,$3,$4)")
+            sqlx::query("INSERT INTO kyc_execution_grace(id,user_id,organization_id,expires_at,kyc_status_at_enrollment,enrolled_at,created_by) VALUES($1,$2,$3,$4,'PENDING',$4 - interval '1 day','fixture')")
                 .bind(Uuid::new_v4()).bind(member).bind(org).bind(clock + Duration::hours(1)).execute(&mut admin).await.unwrap();
         }
     }
