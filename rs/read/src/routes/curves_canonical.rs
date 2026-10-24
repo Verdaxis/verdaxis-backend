@@ -89,14 +89,30 @@ async fn request(
     }
     // Route identity is not a caller-controlled query parameter.
     query["shape"] = json!(shape);
-    let now = super::prices::captured_now(&state)?;
+    let clock = crate::runtime::trading_routes::capture(&state)?;
+    let now = clock.wall.into();
     validate(&state, &query)?;
     if shape == "board"
         && let Some(response) = board_window_error(&query, now)
     {
         return Ok(response);
     }
-    Ok(axum::Json(load_curve(&state, &query, now).await?).into_response())
+    let copy = state.clone();
+    let key = query.to_string();
+    let mut value = crate::runtime::trading_routes::read(
+        &state,
+        "/api/curves/forward",
+        key,
+        "curves",
+        clock,
+        None,
+        move |connection| {
+            Box::pin(async move { load_curve_on(connection, &copy, &query, now).await })
+        },
+    )
+    .await?;
+    crate::runtime::trading_routes::generated_at(&mut value, now, false);
+    Ok(axum::Json(value).into_response())
 }
 fn board_window_error(query: &Json, now: DateTime<Utc>) -> Option<axum::response::Response> {
     // Unlike table/slice, Python leaves the board's ValueError unhandled.
@@ -206,27 +222,32 @@ pub async fn load_curve(
     let state_copy = state.clone();
     let query = query.clone();
     run_admitted(state, move |connection| {
-        Box::pin(async move {
-            // Python disables JIT for these admission-heavy aggregates. Scope
-            // the setting to this read, so a pooled connection cannot leak it.
-            use sqlx::Connection;
-            let mut transaction = connection
-                .begin()
-                .await
-                .map_err(|e| super::ports::query_error("/api/curves/forward/table", &e))?;
-            sqlx::query("SET LOCAL jit = off")
-                .execute(&mut *transaction)
-                .await
-                .map_err(|e| super::ports::query_error("/api/curves/forward/table", &e))?;
-            let result = load(&mut transaction, &state_copy, &query, now).await?;
-            transaction
-                .commit()
-                .await
-                .map_err(|e| super::ports::query_error("/api/curves/forward/table", &e))?;
-            Ok(result)
-        })
+        Box::pin(async move { load_curve_on(connection, &state_copy, &query, now).await })
     })
     .await
+}
+
+async fn load_curve_on(
+    connection: &mut PgConnection,
+    state: &AppState,
+    query: &Json,
+    now: DateTime<Utc>,
+) -> Result<Json, ApiError> {
+    use sqlx::Connection;
+    let mut transaction = connection
+        .begin()
+        .await
+        .map_err(|e| super::ports::query_error("/api/curves/forward/table", &e))?;
+    sqlx::query("SET LOCAL jit = off")
+        .execute(&mut *transaction)
+        .await
+        .map_err(|e| super::ports::query_error("/api/curves/forward/table", &e))?;
+    let result = load(&mut transaction, state, query, now).await?;
+    transaction
+        .commit()
+        .await
+        .map_err(|e| super::ports::query_error("/api/curves/forward/table", &e))?;
+    Ok(result)
 }
 
 #[derive(Clone)]

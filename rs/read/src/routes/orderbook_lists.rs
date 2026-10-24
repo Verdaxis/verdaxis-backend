@@ -1,7 +1,7 @@
 //! Paginated public orders and the two legacy list shapes.
 use super::{
     ports::query_error,
-    prices::{captured_now, fields, integer, uuid},
+    prices::{fields, integer, uuid},
 };
 use crate::market::{
     live_benchmarks::LiveBenchmarkCache,
@@ -11,7 +11,7 @@ use crate::market::{
     },
     windows::normalize_window,
 };
-use crate::{ApiError, ApiResult, AppState, Json, run_admitted};
+use crate::{ApiError, ApiResult, AppState, Json};
 use axum::{
     Router,
     extract::{RawQuery, State},
@@ -274,13 +274,25 @@ async fn with_ci(State(s): State<AppState>, RawQuery(q): RawQuery) -> ApiResult 
 }
 
 async fn serve(state: AppState, raw: Option<String>, surface: Surface) -> ApiResult {
-    let now = captured_now(&state)?;
-    let query = parse(raw.as_deref().unwrap_or_default(), surface, now)?;
+    let clock = crate::runtime::trading_routes::capture(&state)?;
+    let now = clock.wall.into();
+    let raw = raw.unwrap_or_default();
+    let query = parse(&raw, surface, now)?;
     let policy = state.policy.clone();
     let config = state.config.clone();
-    let body = run_admitted(&state, move |connection| {
-        Box::pin(async move { load_list(connection, &policy, &config, query, surface, now).await })
-    })
+    let body = crate::runtime::trading_routes::read(
+        &state,
+        surface.path(),
+        raw,
+        "orderbook",
+        clock,
+        None,
+        move |connection| {
+            Box::pin(
+                async move { load_list(connection, &policy, &config, query, surface, now).await },
+            )
+        },
+    )
     .await?;
     Ok(axum::Json(body).into_response())
 }

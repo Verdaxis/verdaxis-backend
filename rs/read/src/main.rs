@@ -30,6 +30,9 @@ async fn serve() -> Result<(), ()> {
     let bind = config.bind;
     let policy = committed_policy().map_err(|_| ())?;
     let state = AppState::new(config, pools, policy).map_err(|_| ())?;
+    // Disabled caching starts no task; an enabled cache starts the authority
+    // refresh and invalidation loop before the service accepts traffic.
+    state.start_trading_cache();
     let listener = tokio::net::TcpListener::bind(bind).await.map_err(|_| ())?;
     axum::serve(
         listener,
