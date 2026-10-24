@@ -205,25 +205,27 @@ mod tests {
             let address = Ipv4Addr::from(client).to_string();
             assert!(limits.preauth(&address, "/api/admin/users", 100));
         }
-        // A late client spends most of its minute budget.
+        assert_eq!(limits.preauth_evictions(), 0);
+        // A late client spends its whole minute budget. Its first request is a
+        // new identity in a full table, so it evicts exactly one entry.
         for _ in 0..299 {
             assert!(limits.preauth("203.0.113.7", "/api/admin/users", 100));
         }
         assert!(!limits.preauth("203.0.113.7", "/api/admin/users", 100));
+        assert_eq!(limits.preauth_evictions(), 1);
         let evicted = ("0.0.0.0".to_string(), "/api/admin/".to_string());
-        // The flood displaces the earliest-inserted entry, not the spent client.
+        // Ten more new addresses displace the next ten oldest entries, not the
+        // spent client, which keeps its refusal.
         for client in MAX_BUCKETS as u32..MAX_BUCKETS as u32 + 10 {
             let address = Ipv4Addr::from(client).to_string();
             assert!(limits.preauth(&address, "/api/admin/users", 100));
         }
-        assert_eq!(limits.preauth_evictions(), 10);
+        assert_eq!(limits.preauth_evictions(), 11);
         assert!(!limits.preauth_store.buckets.contains_key(&evicted));
-        assert!(
-            limits
-                .preauth_store
-                .buckets
-                .contains_key(&("203.0.113.7".to_string(), "/api/admin/".to_string()))
-        );
+        assert!(limits
+            .preauth_store
+            .buckets
+            .contains_key(&("203.0.113.7".to_string(), "/api/admin/".to_string())));
         assert!(!limits.preauth("203.0.113.7", "/api/admin/users", 100));
     }
 
