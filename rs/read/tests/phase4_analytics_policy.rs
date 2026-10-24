@@ -6,7 +6,7 @@
 //! a patch, so the leaves stay reachable without a concurrent shared-file
 //! change.
 
-pub use verdaxis_read::{business, ApiError};
+pub use verdaxis_read::{ApiError, business};
 
 #[allow(dead_code)]
 #[path = "../src/analytics/facts.rs"]
@@ -28,18 +28,18 @@ use chrono::{DateTime, Duration, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde_json::json;
 
-use facts::{classify_order, classify_trade, MarketProvenance};
+use facts::{MarketProvenance, classify_order, classify_trade};
 use policy::{
-    allowed_event_properties, allowed_properties, check_property_value, property_domain,
-    ratio_from_counts, suppress, suppress_cell, PropertyValueCheck, MAX_COHORT_ROWS,
-    MAX_MATRIX_CELLS, MAX_RANKED_ROWS, MAX_SERIES_POINTS, SUPPRESSION_THRESHOLD,
+    MAX_COHORT_ROWS, MAX_MATRIX_CELLS, MAX_RANKED_ROWS, MAX_SERIES_POINTS, PropertyValueCheck,
+    SUPPRESSION_THRESHOLD, allowed_event_properties, allowed_properties, check_property_value,
+    property_domain, ratio_from_counts, suppress, suppress_cell,
 };
 use query::{
-    validate_query, AnalyticsQuery, QueryInput, MAX_AVAILABILITY_WINDOW_CHARS, MAX_RANGE_SECONDS,
+    AnalyticsQuery, MAX_AVAILABILITY_WINDOW_CHARS, MAX_RANGE_SECONDS, QueryInput, validate_query,
 };
 use retention::{
-    login_day_is_retained, login_retention_cutoff, AnalyticsFactFamily, MAX_SERIES_DATES,
-    RETAINED_DATES,
+    AnalyticsFactFamily, MAX_SERIES_DATES, RETAINED_DATES, login_day_is_retained,
+    login_retention_cutoff,
 };
 use types::{
     AggregateCell, AnalyticsActivity, AnalyticsAudience, AnalyticsDiagnostic,
@@ -77,7 +77,10 @@ fn p4_t15_c01() {
     assert_eq!(status, 422);
     assert_eq!(code, "ANALYTICS_QUERY_INVALID");
     // The refusal is the checked comparison window, not a malformed input.
-    assert_eq!(message, "the comparison period is outside the supported range");
+    assert_eq!(
+        message,
+        "the comparison period is outside the supported range"
+    );
 
     // The same period is valid when no comparison is asked for: the refusal
     // is the checked arithmetic, not the range.
@@ -165,11 +168,13 @@ fn p4_t15_c02() {
         .0,
         422
     );
-    assert!(validate_query(input(&[
-        ("start", "2026-01-01T00:00:00Z"),
-        ("end", "2027-01-01T00:00:00Z"),
-    ]))
-    .is_ok());
+    assert!(
+        validate_query(input(&[
+            ("start", "2026-01-01T00:00:00Z"),
+            ("end", "2027-01-01T00:00:00Z"),
+        ]))
+        .is_ok()
+    );
     let over = validate_query(input(&[
         ("start", "2026-01-01T00:00:00Z"),
         ("end", "2027-01-01T00:00:01Z"),
@@ -179,12 +184,14 @@ fn p4_t15_c02() {
 
     // A 16-character window is accepted, 17 is refused.
     let longest = "x".repeat(MAX_AVAILABILITY_WINDOW_CHARS);
-    assert!(validate_query(input(&[
-        ("start", "2026-06-01T00:00:00Z"),
-        ("end", "2026-06-02T00:00:00Z"),
-        ("availability_window", longest.as_str()),
-    ]))
-    .is_ok());
+    assert!(
+        validate_query(input(&[
+            ("start", "2026-06-01T00:00:00Z"),
+            ("end", "2026-06-02T00:00:00Z"),
+            ("availability_window", longest.as_str()),
+        ]))
+        .is_ok()
+    );
     let too_long = "x".repeat(MAX_AVAILABILITY_WINDOW_CHARS + 1);
     assert_eq!(
         refusal_code(
@@ -899,12 +906,8 @@ fn p4_t15_c12() {
 fn p4_t15_c13() {
     let start: DateTime<Utc> = "2026-06-01T00:00:00Z".parse().unwrap();
     let end: DateTime<Utc> = "2026-07-01T00:00:00Z".parse().unwrap();
-    let window = types::BehavioralWindow::unavailable(
-        start,
-        end,
-        end,
-        AnalyticsDiagnostic::Authentication,
-    );
+    let window =
+        types::BehavioralWindow::unavailable(start, end, end, AnalyticsDiagnostic::Authentication);
     assert_eq!(window.start, start);
     assert_eq!(window.end, end);
     assert_eq!(
