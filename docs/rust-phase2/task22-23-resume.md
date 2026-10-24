@@ -58,6 +58,15 @@ Evidence: `work/pd2-m3-m1.log`, `work/pd2-m3-prod.log`,
 `work/pd2-m3-python.log`, `work/pd2-m3-python-bad-env.log`,
 `work/pd2-m3-meaning.log`.
 
+Pushed as a fast-forward to `6af28cc22`. PR #88 CI then passed: `offline`,
+`contract`, `test`, `postgres-analytics` and `postgres-phase0`; `publish` skips
+on a feature branch, as before. The first `postgres-phase0` run failed one case,
+`test_host_assertions_postgres.py::test_assertion_cli_runs_all_database_checks`
+(`rollback-safe: refused`); neither merge parent changed that test or
+`scripts/phase0/assert_host.py`, and staging's own CI passed at `b1106280`. The
+failed job passed on rerun, so the first failure was a runner fault, not a code
+defect, and no source changed for it.
+
 ## PD2-SEC-1 — pre-auth quota cannot lock out new clients, 24 October 2026
 
 The automated review of `373dc817` found that one 50,000-bucket map, keyed by
