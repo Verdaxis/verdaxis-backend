@@ -80,7 +80,7 @@ class Round8Contract(unittest.TestCase):
                     # Visited cap is exercised after late critical acquisition; fourth seed is dropped.
                     seeds=[first,late] if bound!='visited' else [first,late,late[:-3]+'1.py',late[:-3]+'2.py']
                     def acquisition(path):
-                        if path.startswith(late) and path!=late: return record(path)
+                        if path in seeds[2:]: return record(path)
                         return reader(path)
                     def command(argv): return ('\n'.join(seeds)+'\n',True) if argv[0]=='find' else ('',True)
                     with patch.object(self.reader,'inspect_graph',graph):
@@ -137,6 +137,35 @@ class Round8Contract(unittest.TestCase):
         self.assertEqual(result['observations'][1]['fields'],[{'key':'User','values':['kept']}])
         self.assertEqual(self.markers(result),{'bound-exceeded:dropins'})
         self.assertFalse(result['acquired']['dropins']); self.installed(result)
+
+    def test_deadline_wait_downstream(self):
+        import subprocess
+        for branch in ('deadline','wait'):
+            with self.subTest(branch=branch):
+                original=self.reader.subprocess.Popen
+                def spawn(argv,**kw):
+                    child=original([sys.executable,'-c','import time;time.sleep(60)'],**kw)
+                    if branch=='wait':
+                        real_wait=child.wait; calls=[0]
+                        def wait(*a,**k):
+                            calls[0]+=1
+                            if calls[0]==1: raise subprocess.TimeoutExpired('fixture',.1)
+                            return real_wait(*a,**k)
+                        child.wait=wait
+                    return child
+                class EmptySelector:
+                    def __enter__(self):return self
+                    def __exit__(self,*a):pass
+                    def register(self,*a):pass
+                    def get_map(self):return {}
+                clock=patch.object(self.reader.time,'monotonic',side_effect=[0,10000,10000,10000]) if branch=='deadline' else patch.object(self.reader.selectors,'DefaultSelector',EmptySelector)
+                with patch.object(self.reader.subprocess,'Popen',spawn),clock:
+                    raw=self.reader.run_command(self.reader.COMMANDS['units'])
+                result=self.reader.collect(lambda argv:raw,cron_files=[])
+                self.assertEqual(result['scripts'],[])
+                self.assertEqual(self.markers(result),{'bound-exceeded:'+x for x in ('units','timers','processes','usr_local','packages','cron')})
+                self.assertTrue(all(not flag for flag in result['acquired'].values()))
+                self.installed(result)
 
     def test_transport_and_publisher_downstream(self):
         original=self.transport.subprocess.Popen
