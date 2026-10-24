@@ -26,8 +26,8 @@ use axum::{
 use chrono::Utc;
 
 use crate::auth::{
-    AuthenticatedError, CurrentActor, VerificationSettings, limits::SharedLimits, request::RequestError,
-    run_authenticated, verify_authorization,
+    AuthenticatedError, CurrentActor, VerificationSettings, limits::SharedLimits,
+    request::RequestError, run_authenticated, verify_authorization,
 };
 use crate::compliance::http::{
     CompliancePost, OVERLAY_PATH, authenticated_request, bounded_body, parse_post_body,

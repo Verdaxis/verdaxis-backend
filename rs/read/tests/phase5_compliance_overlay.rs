@@ -13,7 +13,7 @@
 //! which is recorded in the lane report rather than reported as a pass.
 
 pub use verdaxis_read::{
-    ApiError, AppState, Config, MarketPolicy, auth, market, routes, runtime,
+    ApiError, ApiErrorKind, AppState, Config, MarketPolicy, auth, market, routes, runtime,
 };
 
 #[path = "../src/compliance/pricing.rs"]
@@ -24,9 +24,6 @@ mod compliance {
 }
 #[path = "../src/routes/compliance_overlay.rs"]
 mod overlay;
-
-#[path = "support/phase5/public_fixture.rs"]
-mod public_fixture;
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode, header};
@@ -93,7 +90,12 @@ fn offline_state() -> AppState {
         .max_connections(1)
         .connect_lazy(&config.database_url)
         .unwrap();
-    AppState::new(config, runtime::db::Pools { read, health }, fixture_policy()).unwrap()
+    AppState::new(
+        config,
+        runtime::db::Pools { read, health },
+        fixture_policy(),
+    )
+    .unwrap()
 }
 
 fn authority() -> OverlayAuthority {
@@ -279,12 +281,24 @@ async fn compliance_overlay_http_cases() {
     // The raw 101-ID bound is a semantic rule: an anonymous caller is refused
     // by authentication, not by the body's contents.
     let too_many = serde_json::to_vec(&json!({"order_ids": vec![Uuid::new_v4(); 101]})).unwrap();
-    let response = post(overlay_app(offline_state()), Body::from(too_many), None, false).await;
+    let response = post(
+        overlay_app(offline_state()),
+        Body::from(too_many),
+        None,
+        false,
+    )
+    .await;
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 
     // Size and syntax may precede authentication; neither reaches a domain rule.
     let oversized = vec![b'x'; compliance::http::POST_BODY_MAX_BYTES + 1];
-    let response = post(overlay_app(offline_state()), Body::from(oversized), None, false).await;
+    let response = post(
+        overlay_app(offline_state()),
+        Body::from(oversized),
+        None,
+        false,
+    )
+    .await;
     assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
     let body = json_body(response).await;
     assert_eq!(body["detail"]["code"], "INVALID_INPUT");
@@ -299,10 +313,7 @@ async fn compliance_overlay_http_cases() {
     for body in [Body::from("{not json"), Body::empty()] {
         let response = post(overlay_app(offline_state()), body, None, false).await;
         assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
-        assert_eq!(
-            json_body(response).await["detail"]["code"],
-            "INVALID_INPUT"
-        );
+        assert_eq!(json_body(response).await["detail"]["code"], "INVALID_INPUT");
     }
 
     // The body bound is inclusive: exactly 65536 bytes passes the syntax stage
@@ -321,6 +332,48 @@ async fn compliance_overlay_http_cases() {
     let response = get(overlay_app(offline_state()), compliance::http::OVERLAY_PATH).await;
     assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
     assert_eq!(response.headers()["allow"], "POST");
+}
+
+/// A database failure supplied through SQLx's public error interface.
+#[cfg(feature = "contract-tests")]
+#[derive(Debug)]
+struct DatabaseFailure(&'static str);
+
+#[cfg(feature = "contract-tests")]
+impl std::fmt::Display for DatabaseFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("Database operation failed.")
+    }
+}
+
+#[cfg(feature = "contract-tests")]
+impl std::error::Error for DatabaseFailure {}
+
+#[cfg(feature = "contract-tests")]
+impl sqlx::error::DatabaseError for DatabaseFailure {
+    fn message(&self) -> &str {
+        "Database operation failed."
+    }
+
+    fn code(&self) -> Option<std::borrow::Cow<'_, str>> {
+        Some(std::borrow::Cow::Borrowed(self.0))
+    }
+
+    fn as_error(&self) -> &(dyn std::error::Error + Send + Sync + 'static) {
+        self
+    }
+
+    fn as_error_mut(&mut self) -> &mut (dyn std::error::Error + Send + Sync + 'static) {
+        self
+    }
+
+    fn into_error(self: Box<Self>) -> Box<dyn std::error::Error + Send + Sync + 'static> {
+        self
+    }
+
+    fn kind(&self) -> sqlx::error::ErrorKind {
+        sqlx::error::ErrorKind::Other
+    }
 }
 
 #[cfg(feature = "contract-tests")]
@@ -524,10 +577,7 @@ async fn compliance_overlay_authenticated_cases() {
     )
     .await;
     assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
-    assert_eq!(
-        json_body(response).await["detail"]["code"],
-        "INVALID_INPUT"
-    );
+    assert_eq!(json_body(response).await["detail"]["code"], "INVALID_INPUT");
     let response = post(
         overlay_app(state.clone()),
         Body::from(too_many.clone()),
@@ -558,7 +608,10 @@ async fn compliance_overlay_authenticated_cases() {
             body["assumptions"]["fleet_vessel_count"],
             json!(scope_count(&manifest, scope))
         );
-        assert_eq!(body["assumptions"]["fleet_intensity_basis"], "DEFAULT_VLSFO");
+        assert_eq!(
+            body["assumptions"]["fleet_intensity_basis"],
+            "DEFAULT_VLSFO"
+        );
         assert_eq!(body["assumptions"]["year"], 2026);
         assert_eq!(body["assumptions"]["year_target"], "89.3368");
         assert_eq!(body["assumptions"]["eur_usd_rate"], "1.08");
@@ -567,7 +620,11 @@ async fn compliance_overlay_authenticated_cases() {
         assert_eq!(body["assumptions"]["penalty_eur_per_tonne"], "2400");
         assert_eq!(
             body["assumptions"]["excluded_factors"],
-            json!(["RFNBO_MULTIPLIER", "DEFICIT_ESCALATION", "EXTRA_EU_VOYAGE_SCOPE"])
+            json!([
+                "RFNBO_MULTIPLIER",
+                "DEFICIT_ESCALATION",
+                "EXTRA_EU_VOYAGE_SCOPE"
+            ])
         );
     }
 
@@ -684,6 +741,7 @@ async fn compliance_overlay_authenticated_cases() {
 #[cfg(feature = "contract-tests")]
 #[tokio::test]
 async fn compliance_overlay_timeout_cases() {
+    use axum::response::IntoResponse as _;
     use std::time::{Duration, Instant};
 
     let Some(url) = fixture_url() else { return };
@@ -758,12 +816,10 @@ async fn compliance_overlay_timeout_cases() {
 
     // A domain statement that reaches the shared deadline is a typed
     // read-unavailable answer with one retry hint, not a generic 500.
-    let timeout = sqlx::Error::Database(Box::new(public_fixture::DatabaseFailure("57014")));
-    let mapped = routes::market_data_error::database_failure(
-        compliance::http::OVERLAY_PATH,
-        &timeout,
-    )
-    .into_response();
+    let timeout = sqlx::Error::Database(Box::new(DatabaseFailure("57014")));
+    let mapped =
+        routes::market_data_error::database_failure(compliance::http::OVERLAY_PATH, &timeout)
+            .into_response();
     assert_eq!(mapped.status(), StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(mapped.headers()["retry-after"], "1");
     assert_eq!(
@@ -790,20 +846,19 @@ async fn compliance_overlay_snapshot_cases() {
     let token = signed_token(member);
     let order = uuids(&manifest, "visible_ids")[0];
     let member_count = scope_count(&manifest, "member");
-    let organization: Option<Uuid> = sqlx::query_scalar("SELECT organization_id FROM users WHERE id=$1")
-        .bind(member)
-        .fetch_one(&writer)
-        .await
-        .expect("member organization");
+    let organization: Option<Uuid> =
+        sqlx::query_scalar("SELECT organization_id FROM users WHERE id=$1")
+            .bind(member)
+            .fetch_one(&writer)
+            .await
+            .expect("member organization");
     let original_ci: Option<Decimal> =
         sqlx::query_scalar("SELECT carbon_intensity_gco2_mj FROM orderbook_orders WHERE id=$1")
             .bind(order)
             .fetch_one(&writer)
             .await
             .expect("fixture ASK row");
-    let ask_body = || {
-        Body::from(serde_json::to_vec(&json!({"order_ids": [order]})).unwrap())
-    };
+    let ask_body = || Body::from(serde_json::to_vec(&json!({"order_ids": [order]})).unwrap());
 
     let before = json_body(
         post(
@@ -865,16 +920,14 @@ async fn compliance_overlay_snapshot_cases() {
         .await
         .expect("change the ASK CI");
     let snapshot_vessel = Uuid::new_v4();
-    sqlx::query(
-        "INSERT INTO vessels (id,organization_id,name,imo_number) VALUES ($1,$2,$3,$4)",
-    )
-    .bind(snapshot_vessel)
-    .bind(organization)
-    .bind(format!("Snapshot {snapshot_vessel}"))
-    .bind(snapshot_vessel.to_string())
-    .execute(&writer)
-    .await
-    .expect("insert a member vessel");
+    sqlx::query("INSERT INTO vessels (id,organization_id,name,imo_number) VALUES ($1,$2,$3,$4)")
+        .bind(snapshot_vessel)
+        .bind(organization)
+        .bind(format!("Snapshot {snapshot_vessel}"))
+        .bind(snapshot_vessel.to_string())
+        .execute(&writer)
+        .await
+        .expect("insert a member vessel");
     park.rollback().await.expect("release the catalog relation");
 
     let (status, body) = tokio::time::timeout(Duration::from_secs(15), task)
@@ -897,9 +950,7 @@ async fn compliance_overlay_snapshot_cases() {
     let after = json_body(
         post(
             overlay_app(state.clone()),
-            Body::from(
-                serde_json::to_vec(&json!({"order_ids": [order]})).unwrap(),
-            ),
+            Body::from(serde_json::to_vec(&json!({"order_ids": [order]})).unwrap()),
             Some(token.as_str()),
             false,
         )
