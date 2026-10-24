@@ -1,6 +1,6 @@
 //! Phase 10 Task 3: private state files, job gates, bounded retry and mail audit.
 use serde::{Deserialize, Serialize};
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
