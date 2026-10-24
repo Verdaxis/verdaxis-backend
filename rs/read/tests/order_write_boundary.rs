@@ -345,8 +345,11 @@ fn scan_repository() -> Vec<String> {
     collect(&root.join("rs"), "rs", &mut rust_files);
     rust_files.sort();
     for path in &rust_files {
-        // This exact integration fixture writes only to its attested disposable schema.
-        if path == &root.join("rs/read/tests/phase4_market_invalidation.rs") {
+        // These exact integration fixtures write only to their attested
+        // disposable schema.
+        if path == &root.join("rs/read/tests/phase4_market_invalidation.rs")
+            || path == &root.join("rs/read/tests/integration_i1.rs")
+        {
             continue;
         }
         let text = std::fs::read_to_string(path).expect("readable Rust source");
@@ -358,8 +361,8 @@ fn scan_repository() -> Vec<String> {
                 // Inside the boundary the only reviewed insert targets are the
                 // receipt and the outbox; every other insert belongs elsewhere.
                 for target in insert_targets(&literal) {
-                    let approved_leaf =
-                        (path == &boundary.join("benchmarks.rs") && target == "LIVE_SLICE_BENCHMARKS")
+                    let approved_leaf = (path == &boundary.join("benchmarks.rs")
+                        && target == "LIVE_SLICE_BENCHMARKS")
                         || (path == &boundary.join("events.rs") && target == "WATCHLIST_EVENTS");
                     if !WRITE_TABLES.contains(&target.as_str()) && !approved_leaf {
                         violations.push(format!("{}: INSERT INTO {target}", path.display()));
