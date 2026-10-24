@@ -208,6 +208,26 @@ pub async fn revoke_device_families(
     Ok(revoked.rows_affected())
 }
 
+/// Revoke every session in a locked user's refresh family.
+pub async fn revoke_family(conn: &mut PgConnection, family: Uuid) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE refresh_sessions SET revoked=true WHERE family_id=$1")
+        .bind(family)
+        .execute(conn)
+        .await?;
+    Ok(())
+}
+
+/// Link a locked predecessor to its successor and record the rotation grace.
+pub async fn mark_rotated(
+    conn: &mut PgConnection,
+    jti: &str,
+    next: &str,
+    now: DateTime<Utc>,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE refresh_sessions SET revoked=true,replaced_by_jti_hash=$2,rotation_grace_until=$3,last_used_at=$4 WHERE jti_hash=$1").bind(jti).bind(next).bind(now+TimeDelta::seconds(5)).bind(now).execute(conn).await?;
+    Ok(())
+}
+
 /// Revoke every live refresh session of one user. Returns the number of rows
 /// newly revoked. The caller holds the user row lock.
 pub async fn revoke_user_families(
