@@ -57,7 +57,8 @@ Head `51aa7d139`. Fix 1: `Retry-After` is capped by the named
 `MAX_RETRY_AFTER_SECONDS` (30 s); a larger, non-finite, negative, non-numeric
 or HTTP-date value uses the cap instead of stalling or aborting the gate; a
 missing header still means no retry. Fix 2: `stable()` strips
-`response_headers`, so retired headers live only in memory. The Task 9 probe
+`response_headers`, so those headers live only in memory for the retry
+decision and never reach persisted evidence. The Task 9 probe
 that produced the live retry is now named in the staging row above.
 Tests first: 6 intended assertion failures, 27 passed; then the focused file
 33 passed and the full `tests/rust_contract` suite 904 passed, 1 skipped.
