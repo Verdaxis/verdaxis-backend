@@ -84,7 +84,7 @@ def scanned_sites():
 def manifest_sites():
     found=[]
     for site,name,old,new,test,method in SITES:
-        source=(ROOT/name).read_text();offset=source.index('def publish(') if site=='publish-bytes' else 0
+        source=(ROOT/name).read_text();offset=source.index('def publish(') if site=='publish-bytes' else source.index('def scan_script(') if site=='parser-class' else 0
         index=source.index(old,offset);line=source[:index].count('\n')+1
         # Find the smallest AST comparison/guard represented by this mutation.
         nodes=[]
@@ -132,7 +132,7 @@ def main():
     originals={name:(ROOT/name).read_bytes() for name in (R,T)}
     for site,name,old,new,test,method in SITES:
         path=ROOT/name;source=originals[name].decode()
-        offset=source.index('def publish(') if site=='publish-bytes' else 0
+        offset=source.index('def publish(') if site=='publish-bytes' else source.index('def scan_script(') if site=='parser-class' else 0
         index=source.index(old,offset);line=source[:index].count('\n')+1
         baseline=probe(test,method,name,line)
         if baseline.get('ran')!=1 or not baseline.get('success'):
