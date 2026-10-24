@@ -32,6 +32,9 @@ pub use crate::crud::alerts::router as alerts_router;
 pub use crate::crud::referrals::routes as referral_routes;
 // Phase 2 Task 17: referral reads and public resolution (end)
 
+pub use crate::auth::logout::router as logout_router;
+pub use crate::auth::password_change::router as password_change_router;
+
 pub use crate::auth::login::router as login_router;
 
 pub use crate::auth::refresh::router as refresh_router;

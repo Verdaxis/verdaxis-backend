@@ -29,6 +29,9 @@ pub use claims::{
 pub use issue::TokenIssuer;
 pub use token::{VerificationSettings, verify_access, verify_authorization};
 
+pub mod logout;
+pub mod password_change;
+
 pub mod login;
 
 pub mod refresh;
