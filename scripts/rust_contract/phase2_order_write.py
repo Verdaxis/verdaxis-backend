@@ -1,5 +1,11 @@
 """Task 20 database schedules. These qualify the boundary, not a market route."""
+import copy
 import json
+
+from scripts.rust_contract.phase2_state import (
+    CACHE_INVALIDATION_TABLES,
+    expect_cache_invalidations,
+)
 
 
 def order_write_scenario():
@@ -18,6 +24,7 @@ def order_write_scenario():
             result = json.loads(response["body"])
             assert result == {"id":identifier,"status":500 if mode == "rollback" else 503 if mode == "lost-response" else 503 if mode=="retry-40P01-bound" else 409 if mode=="timeout" else 200,
                               "replayed":replayed,"attempts":2 if mode.startswith("retry-") else 1,"lock_observed":mode=="ordered"}, result
+                              "replayed":replayed,"attempts":2 if mode.startswith("retry-") else 1,"lock_observed":mode=="ordered"}, (name, result)
             assert not mail
             outbox = [r for r in after["market_event_outbox"]["rows"].values() if r["id"]==identifier]
             receipts = [r for r in after["market_command_results"]["rows"].values() if r["id"]==identifier]
@@ -37,6 +44,11 @@ def order_write_scenario():
                 if table not in {"market_event_outbox", "market_command_results",
                                  "public_read_cache_events", "public_read_cache_generations"}:
                     assert before[table] == after[table], table
+            changed = expected == 1 and not replayed
+            expected_state = copy.deepcopy(before)
+            expect_cache_invalidations(expected_state, int(changed))
+            for table in CACHE_INVALIDATION_TABLES:
+                assert expected_state[table] == after[table], table
         return Action(name, "N02", "POST", "/__contract__/order-write", 200,
             body={"id":identifier,"mode":mode}, outcome="rolled-back" if mode in {"rollback","timeout","retry-40P01-bound"} else "ambiguous" if mode=="lost-response" else "committed",
             assert_after=check)

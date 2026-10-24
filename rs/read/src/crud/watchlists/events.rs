@@ -28,6 +28,20 @@ const MINIMUM_LIMIT: i64 = 1;
 const MAXIMUM_LIMIT: i64 = 100;
 const BEST_PRICE_EVENT: &str = "SLICE_BEST_PRICE_MOVED";
 
+/// The one rule that reads an event's source order from its payload: the
+/// `order_id` text as PostgreSQL reads a UUID, else no source order. The feed,
+/// the read state and the container counts all select this expression, so a
+/// spelling that one parser reads and another does not cannot make them
+/// disagree. `pg_input_is_valid` gates the cast so a bad value never fails a
+/// read.
+macro_rules! source_order_sql {
+    () => {
+        "CASE WHEN pg_input_is_valid(e.event_payload->>'order_id','uuid') \
+         THEN (e.event_payload->>'order_id')::uuid END AS source_order"
+    };
+}
+pub(super) use source_order_sql;
+
 const SOURCE_KINDS: &[&str] = &[
     "CONFIRMED_TRADE",
     "LIVE_ORDER",
@@ -300,7 +314,8 @@ impl StoredEvent {
             availability_window_code: text(payload, "availability_window_code")
                 .map(str::to_owned)
                 .or_else(|| target.window.clone()),
-            order_id: payload_uuid(payload, "order_id").or(target.order),
+            // The order the guard checked, never a second reading of the text.
+            order_id: self.source_order.or(target.order),
             is_read: self.is_read,
             created_at: self.created_at,
         })
@@ -309,9 +324,8 @@ impl StoredEvent {
 
 // ----------------------------------------------------------------------- reads
 
-// A source order is the payload `order_id` only when it is a valid UUID; the
-// cast must not fail the feed, so `pg_input_is_valid` gates both uses. The
-// guard runs inside the query, before `LIMIT`, so pages stay full.
+// Both reads select the shared source-order rule above. The guard runs inside
+// the query, before `LIMIT`, so pages stay full.
 const FEED_SQL: &str = concat!(
     "SELECT * FROM (",
     "SELECT e.id,e.watchlist_id,e.watchlist_target_id,",
@@ -321,8 +335,8 @@ const FEED_SQL: &str = concat!(
     "t.availability_window_code AS target_window,",
     "t.snapshot_delivery_point_name AS snapshot_point_name,",
     "p.name AS live_point_name,",
-    "CASE WHEN pg_input_is_valid(e.event_payload->>'order_id','uuid') ",
-    "THEN (e.event_payload->>'order_id')::uuid END AS source_order ",
+    source_order_sql!(),
+    " ",
     "FROM watchlist_events e ",
     "JOIN watchlist_targets t ON t.id=e.watchlist_target_id ",
     "LEFT JOIN delivery_points p ON p.id=t.delivery_point_id ",
@@ -343,8 +357,8 @@ const SINGLE_SQL: &str = concat!(
     "t.availability_window_code AS target_window,",
     "t.snapshot_delivery_point_name AS snapshot_point_name,",
     "p.name AS live_point_name,",
-    "CASE WHEN pg_input_is_valid(e.event_payload->>'order_id','uuid') ",
-    "THEN (e.event_payload->>'order_id')::uuid END AS source_order ",
+    source_order_sql!(),
+    " ",
     "FROM watchlist_events e ",
     "LEFT JOIN watchlist_targets t ON t.id=e.watchlist_target_id ",
     "LEFT JOIN delivery_points p ON p.id=t.delivery_point_id ",
@@ -469,7 +483,9 @@ pub async fn acknowledge(
         return Err(not_found("Event not found"));
     }
     if !event.is_read {
-        sqlx::query("UPDATE watchlist_events SET is_read=true WHERE id=$1")
+        // `AND is_read=false` re-checks the row after a concurrent reader's
+        // lock is released: under READ COMMITTED the loser writes nothing.
+        sqlx::query("UPDATE watchlist_events SET is_read=true WHERE id=$1 AND is_read=false")
             .bind(event_id)
             .execute(&mut *connection)
             .await

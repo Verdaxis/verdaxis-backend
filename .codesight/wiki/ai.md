@@ -2,11 +2,11 @@
 
 > **Navigation aid.** Route list and file locations extracted via AST. Read the source files listed below before implementing or modifying this subsystem.
 
-The Ai subsystem handles **1 routes** and touches: auth.
+The Ai subsystem handles **1 routes**.
 
 ## Routes
 
-- `POST` `/ai/chat` [auth]
+- `POST` `/ai/chat`
   `app/routers/ai.py`
 
 ## Source Files

@@ -40,6 +40,13 @@ REVIEWED_EXCLUSIONS = {
     "refresh_sessions": "private session rows of the credential store; never cached",
     "password_reset_tokens": "private reset-token rows of the credential store; never cached",
     "organization_join_requests": "organization-write row locks only; never cached",
+    "watchlist_targets": "private authenticated path; never cached",
+    "watchlist_events": "private authenticated path; never cached",
+    "watchlist_entries": "private authenticated path; never cached",
+    "price_alerts": "private authenticated path; never cached",
+    "user_preferences": "private authenticated path; never cached",
+    "feedback_entries": "private authenticated path; never cached",
+    "market_command_results": "order-write idempotency record; written, never a cached read",
     "alembic_version": "revision attestation at startup, not a response dependency",
     **{table: "cache infrastructure itself" for table in CACHE_TABLES},
 }

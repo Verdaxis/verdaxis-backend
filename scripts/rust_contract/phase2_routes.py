@@ -36,6 +36,7 @@ class Context:
     environment: dict
     database_url: str = ""
     mail: MailStub | None = None
+    race_databases: tuple[str, str] = ()
 
 
 def run_registered(runner, args, selected):
@@ -102,6 +103,7 @@ def run_registered(runner, args, selected):
             with connect(port, template) as source:
                 scenario.setup(source)
             databases = [f"phase2_route_{index}_{label}_test" for label in ("python", "rust", "mixed")]
+            context.race_databases = (databases[0], databases[1])
             for database in databases:
                 clone(template, database)
                 prepare(database)

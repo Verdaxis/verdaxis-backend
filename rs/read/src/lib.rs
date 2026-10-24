@@ -71,6 +71,9 @@ pub struct AppState {
     pub reads: std::sync::Arc<tokio::sync::Semaphore>,
     pub reference_cache:
         std::sync::Arc<runtime::cache::ReferenceCache<runtime::cache::ReferenceKey>>,
+    /// Verified Phase 2 settings; `None` means this composition does not mount
+    /// the Phase 2 groups and Caddy keeps them on Python.
+    pub(crate) phase2: Option<runtime::phase2::Phase2Settings>,
 }
 
 impl AppState {
@@ -88,12 +91,14 @@ impl AppState {
         let reads = std::sync::Arc::new(tokio::sync::Semaphore::new(
             config.read_admission_slots as usize,
         ));
+        let phase2 = runtime::phase2::Phase2Settings::from_options(&config.phase2)?;
         Ok(Self {
             config: std::sync::Arc::new(config),
             pools,
             policy: std::sync::Arc::new(policy),
             reads,
             reference_cache: std::sync::Arc::new(runtime::cache::ReferenceCache::default()),
+            phase2,
         })
     }
 }
@@ -137,6 +142,27 @@ pub struct Config {
     pub pool_max: u32,
     pub python_budget: u32,
     pub configured_max_connections: u32,
+    /// Phase 2 private runtime settings. The deploy transaction projects them
+    /// into the Rust runtime file only. Absent in the contract harness, where
+    /// the Phase 2 groups are not mounted and Caddy keeps them on Python.
+    #[serde(default)]
+    pub phase2: Phase2Options,
+}
+
+/// The minimal Phase 2 verification, invite and public-link settings.
+#[derive(Clone, Default, serde::Deserialize)]
+#[serde(default)]
+pub struct Phase2Options {
+    pub jwt_secret: Option<String>,
+    pub jwt_secret_previous: Option<String>,
+    pub jwt_issuer: Option<String>,
+    pub jwt_audience: Option<String>,
+    pub frontend_url: Option<String>,
+    pub email_from: Option<String>,
+    pub resend_api_key: Option<String>,
+    /// The watchlist producer activation instant from the release metadata
+    /// file (PD5), as written there. Absent until a release records one.
+    pub watchlist_producer_activated_at: Option<String>,
 }
 
 fn read_admission_default() -> u32 {

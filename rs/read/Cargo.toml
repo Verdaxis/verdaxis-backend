@@ -63,6 +63,9 @@ required-features = ["contract-tests"]
 
 [[test]]
 name = "streams_watchlist_guard"
+
+[[example]]
+name = "preauth_server"
 required-features = ["contract-tests"]
 
 [features]

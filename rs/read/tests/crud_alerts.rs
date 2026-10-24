@@ -217,6 +217,7 @@ async fn postgres_http_admission(url: &str, organization: Uuid, product: Uuid, p
         pool_max: 17,
         python_budget: 52,
         configured_max_connections: 100,
+        phase2: Default::default(),
     };
     let pools = verdaxis_read::connect(&config).await.unwrap();
     let state = AppState::new(

@@ -6,7 +6,8 @@
 //! prefix shares one counter. Endpoint buckets are checked by the route after
 //! authentication and validation; an auth route's bucket ignores one trailing
 //! slash, so both slash forms share one counter.
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
+use std::net::{IpAddr, Ipv6Addr};
 
 use super::error::{AuthCode, AuthFailure};
 
@@ -37,10 +38,29 @@ impl SharedLimits {
 
     /// The pre-auth check with the time until a refused window resets.
     pub fn preauth_check(&self, client: &str, path: &str, now: u64) -> Result<(), Refusal> {
+        let Some((_, limit, window)) = preauth_policy(path) else {
+            return Ok(());
+        };
+        let owner = network_identity(client);
+        let key = preauth_key(path);
+        let accepted = self
+            .0
+            .lock()
+            .expect("quota authority lock")
+            .preauth_store_accept(&owner, key, limit, window, now);
+        if accepted {
+            Ok(())
+        } else {
+            Err(Refusal { retry_after_seconds: window })
+        }
+    }
+
+    /// The one `/api/admin/` authority every ingress path draws from.
+    pub fn admit_admin(&self, client: &str, now: u64) -> bool {
         self.0
             .lock()
             .expect("quota authority lock")
-            .preauth_check(client, path, now)
+            .preauth_store_accept(&network_identity(client), "/api/admin/", 300, 60, now)
     }
 
     /// Route adapters call this after bearer/current-account admission and
@@ -50,86 +70,171 @@ impl SharedLimits {
     /// Phase 2 routes keep their existing refusal body.
     pub fn check_endpoint(
         &self,
-        client: &str,
+        user: &str,
         path: &str,
         now: u64,
     ) -> Result<(), crate::ApiError> {
-        let Err(refusal) = self
-            .0
-            .lock()
-            .expect("quota authority lock")
-            .endpoint_check(client, path, now)
-        else {
+        if self.endpoint_check(user, path, now).is_ok() {
             return Ok(());
-        };
+        }
         if auth_endpoint_policy(path).is_some() {
-            return Err(refusal.auth_failure().into());
+            return Err(Refusal {
+                retry_after_seconds: AUTH_ENDPOINT_WINDOW_SECONDS,
+            }
+            .auth_failure()
+            .into());
         }
         let (_, limit, window) = endpoint_policy(path).expect("limited endpoint");
         let unit = if window == 3600 { "hour" } else { "minute" };
         Err(crate::ApiError {
             status: axum::http::StatusCode::TOO_MANY_REQUESTS,
-            detail: serde_json::json!(format!("Rate limit exceeded: {limit} per 1 {unit}")),
+            detail: serde_json::json!({
+                "code": "RATE_LIMITED",
+                "message": format!("Rate limit exceeded: {limit} per 1 {unit}"),
+            }),
             retry_after: None,
             kind: crate::ApiErrorKind::Expected,
         })
+    }
+
+    fn endpoint_check(&self, user: &str, path: &str, now: u64) -> Result<(), ()> {
+        let Some((key, limit, window)) = endpoint_policy(path) else {
+            return Ok(());
+        };
+        if self
+            .0
+            .lock()
+            .expect("quota authority lock")
+            .user_store_accept(user, key, limit, window, now)
+        {
+            Ok(())
+        } else {
+            Err(())
+        }
+    }
+}
+
+// Each authority has its own cap. The ordered expiration index keeps eviction
+// and expiry bounded without scanning the client map on each request.
+const MAX_BUCKETS: usize = 50_000;
+
+type Identity = (String, String);
+
+struct Bucket {
+    expires_at: u64,
+    count: u32,
+}
+
+#[derive(Default)]
+struct QuotaStore {
+    buckets: HashMap<Identity, Bucket>,
+    expiration: BTreeSet<(u64, Identity)>,
+    evictions: u64,
+}
+
+impl QuotaStore {
+    fn accept(
+        &mut self,
+        owner: &str,
+        key: &str,
+        limit: u32,
+        window: u64,
+        now: u64,
+        evict: bool,
+    ) -> bool {
+        while let Some((expires_at, _)) = self.expiration.first() {
+            if *expires_at > now {
+                break;
+            }
+            let (_, identity) = self.expiration.pop_first().expect("expiration entry");
+            self.buckets.remove(&identity);
+        }
+        let identity = (owner.into(), key.into());
+        if !self.buckets.contains_key(&identity) {
+            if self.buckets.len() >= MAX_BUCKETS {
+                if !evict {
+                    return false;
+                }
+                // Only the pre-auth store evicts (PM decision PD2-SEC-1). Every
+                // entry shares one window length, so the soonest-expiring entry
+                // is the oldest accounting. Refusing the new client instead
+                // would let a flood of fresh addresses lock out every
+                // legitimate client, administrators included. The trade is
+                // deliberate: under sustained churn a client can be evicted and
+                // regain budget. A warn-level count makes such a flood visible;
+                // it never names the evicted client.
+                let (_, expired) = self.expiration.pop_first().expect("full quota index");
+                self.buckets.remove(&expired);
+                self.evictions = self.evictions.saturating_add(1);
+                tracing::warn!(evictions = self.evictions, "preauth quota eviction");
+            }
+            let expires_at = now.saturating_add(window);
+            self.expiration.insert((expires_at, identity.clone()));
+            self.buckets.insert(
+                identity.clone(),
+                Bucket {
+                    expires_at,
+                    count: 0,
+                },
+            );
+        }
+        let bucket = self.buckets.get_mut(&identity).expect("quota entry");
+        debug_assert!(bucket.expires_at > now);
+        if bucket.count >= limit {
+            return false;
+        }
+        bucket.count += 1;
+        true
     }
 }
 
 #[derive(Default)]
 pub struct Phase2Limits {
-    buckets: HashMap<(String, String), (u64, u32)>,
+    preauth_store: QuotaStore,
+    user_store: QuotaStore,
+}
+
+fn network_identity(client: &str) -> String {
+    match client.parse::<IpAddr>() {
+        Ok(IpAddr::V6(address)) => {
+            if let Some(ipv4) = address.to_ipv4_mapped() {
+                return ipv4.to_string();
+            }
+            let prefix = u128::from(address) & (u128::MAX << 64);
+            Ipv6Addr::from(prefix).to_string()
+        }
+        Ok(IpAddr::V4(address)) => address.to_string(),
+        Err(_) => "unknown".into(),
+    }
 }
 
 impl Phase2Limits {
-    fn admit(
+    fn preauth_store_accept(
         &mut self,
-        client: &str,
+        owner: &str,
         key: &str,
         limit: u32,
         window: u64,
         now: u64,
-    ) -> Result<(), Refusal> {
-        self.buckets
-            .retain(|_, (started, _)| now.saturating_sub(*started) < BUCKET_RETENTION_SECONDS);
-        let bucket = self
-            .buckets
-            .entry((client.into(), key.into()))
-            .or_insert((now, 0));
-        if now.saturating_sub(bucket.0) >= window {
-            *bucket = (now, 0);
-        }
-        if bucket.1 >= limit {
-            let elapsed = now.saturating_sub(bucket.0);
-            return Err(Refusal {
-                retry_after_seconds: window.saturating_sub(elapsed).max(1),
-            });
-        }
-        bucket.1 += 1;
-        Ok(())
+    ) -> bool {
+        self.preauth_store.accept(owner, key, limit, window, now, true)
     }
 
-    pub fn preauth(&mut self, client: &str, path: &str, now: u64) -> bool {
-        self.preauth_check(client, path, now).is_ok()
+    /// Pre-auth evictions since start. A plain number: it names no client.
+    pub fn preauth_evictions(&self) -> u64 {
+        self.preauth_store.evictions
     }
 
-    pub fn preauth_check(&mut self, client: &str, path: &str, now: u64) -> Result<(), Refusal> {
-        match preauth_policy(path) {
-            Some((prefix, limit, window)) => self.admit(client, prefix, limit, window, now),
-            None => Ok(()),
-        }
-    }
-
-    /// Call only after authentication and typed request validation succeeded.
-    pub fn endpoint(&mut self, client: &str, path: &str, now: u64) -> bool {
-        self.endpoint_check(client, path, now).is_ok()
-    }
-
-    pub fn endpoint_check(&mut self, client: &str, path: &str, now: u64) -> Result<(), Refusal> {
-        match endpoint_policy(path) {
-            Some((key, limit, window)) => self.admit(client, key, limit, window, now),
-            None => Ok(()),
-        }
+    /// The owner is the current verified user ID, never a transport address.
+    fn user_store_accept(
+        &mut self,
+        user: &str,
+        key: &str,
+        limit: u32,
+        window: u64,
+        now: u64,
+    ) -> bool {
+        self.user_store.accept(user, key, limit, window, now, false)
     }
 }
 
@@ -143,6 +248,12 @@ const PREAUTH_POLICIES: &[(&str, u32, u64)] = &[
     ("/api/auth/forgot-password", 15, 60),
     ("/api/auth/register", 30, 60),
 ];
+
+fn preauth_key(path: &str) -> &str {
+    preauth_policy(path)
+        .map(|(prefix, _, _)| prefix)
+        .unwrap_or("")
+}
 
 pub fn preauth_policy(path: &str) -> Option<(&'static str, u32, u64)> {
     PREAUTH_POLICIES

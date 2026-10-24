@@ -10,7 +10,7 @@ use chrono::{DateTime, TimeZone, Utc};
 use serde_json::{Map, Value, json};
 use uuid::Uuid;
 use verdaxis_read::crud::watchlists::{
-    EventCursor, EventQuery, StoredEvent, TargetColumns, VisibleSnapshot, acknowledge,
+    EventCursor, EventQuery, EventsPage, StoredEvent, TargetColumns, VisibleSnapshot, acknowledge,
     decode_cursor, encode_cursor, event_visible, feed_page, parse_event_query,
 };
 
@@ -213,7 +213,7 @@ fn record(payload: Value, target: TargetColumns) -> StoredEvent {
 
 #[test]
 fn payload_fields_fall_back_independently() {
-    let event = record(
+    let mut event = record(
         json!({
             "market_product_code": "VLSFO",
             "delivery_point_id": "65000000-0000-0000-0000-000000000005",
@@ -222,6 +222,8 @@ fn payload_fields_fall_back_independently() {
         }),
         target("SLICE", None, None),
     );
+    // The feed query reads the source order; a canonical payload value is it.
+    event.source_order = Some(uuid(0x6500_0000_0000_0000_0000_0000_0000_0006));
     let response = event.project().unwrap();
     assert_eq!(response.market_product_code.as_deref(), Some("VLSFO"));
     assert_eq!(
@@ -251,6 +253,28 @@ fn payload_fields_fall_back_independently() {
     assert_eq!(response.market_product_code.as_deref(), Some("B30"));
     assert_eq!(response.delivery_point_id, Some(uuid(900)));
     assert_eq!(response.availability_window_code.as_deref(), Some("SPOT"));
+    assert_eq!(response.order_id, Some(uuid(3)));
+}
+
+#[test]
+fn the_response_order_is_the_source_order_the_guard_checked() {
+    // The guard reads a payload order only through the database UUID rule. A
+    // spelling that rule does not read is no source order, so the response
+    // must not name the order either; it falls back to the target's order.
+    let spelled = format!(
+        "urn:uuid:{}",
+        uuid(0x6400_0000_0000_0000_0000_0000_0000_0002)
+    );
+    let response = record(json!({"order_id": spelled}), target("SLICE", None, None))
+        .project()
+        .unwrap();
+    assert_eq!(response.order_id, None);
+    let response = record(
+        json!({"order_id": spelled}),
+        target("PIN", Some(uuid(3)), None),
+    )
+    .project()
+    .unwrap();
     assert_eq!(response.order_id, Some(uuid(3)));
 }
 
@@ -343,6 +367,93 @@ fn the_point_name_prefers_payload_then_live_then_snapshot() {
             .delivery_point_name
             .as_deref(),
         Some("Snapshot Point")
+    );
+}
+
+// ------------------------------------------------------------ client contract
+
+const CONTRACT: &str = include_str!("../../../tests/rust_contract/phase2/watchlist-events.json");
+
+/// The exact field set `src/types.ts` declares. A field renamed or dropped here
+/// breaks the frontend feed silently, so the fixture pins every key and its
+/// nullability.
+#[test]
+fn the_serialized_event_has_exactly_the_frontend_fields() {
+    let contract: Value = serde_json::from_str(CONTRACT).unwrap();
+    let expected = contract["event_fields"].as_object().unwrap();
+    let value = serde_json::to_value(
+        record(json!({}), target("SLICE", None, None))
+            .project()
+            .unwrap(),
+    )
+    .unwrap();
+    let actual = value.as_object().unwrap();
+
+    let mut wanted: Vec<&str> = expected.keys().map(String::as_str).collect();
+    let mut found: Vec<&str> = actual.keys().map(String::as_str).collect();
+    wanted.sort_unstable();
+    found.sort_unstable();
+    assert_eq!(
+        found, wanted,
+        "the event field set differs from the frontend contract"
+    );
+
+    for (field, kind) in expected {
+        let present = actual.get(field).unwrap();
+        let matches = match kind.as_str().unwrap() {
+            "uuid" => present.is_string(),
+            "string" => present.is_string(),
+            "boolean" => present.is_boolean(),
+            "object" => present.is_object(),
+            "array" => present.is_array(),
+            "SLICE|PIN" => matches!(present.as_str(), Some("SLICE" | "PIN")),
+            "instant" => present.is_string(),
+            "instant|null" => present.is_null() || present.is_string(),
+            "uuid|null" => present.is_null() || present.is_string(),
+            "string|null" => present.is_null() || present.is_string(),
+            other => panic!("unknown contract kind {other}"),
+        };
+        assert!(matches, "{field} does not match {kind:?}");
+    }
+}
+
+#[test]
+fn the_serialized_page_and_bounds_match_the_contract() {
+    let contract: Value = serde_json::from_str(CONTRACT).unwrap();
+    let page = EventsPage {
+        items: vec![
+            record(json!({}), target("SLICE", None, None))
+                .project()
+                .unwrap(),
+        ],
+        next_cursor: None,
+    };
+    let value = serde_json::to_value(&page).unwrap();
+    let mut keys: Vec<&str> = value
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort_unstable();
+    assert_eq!(keys, vec!["items", "next_cursor"]);
+    assert!(value["next_cursor"].is_null());
+
+    assert_eq!(
+        parse_event_query("").unwrap(),
+        EventQuery {
+            limit: contract["page"]["default_limit"].as_i64().unwrap(),
+            cursor: None
+        }
+    );
+    // The declared bounds are the ones the query validates.
+    assert_eq!(
+        parse_event_query("limit=0").unwrap_err().detail[0]["ctx"]["ge"],
+        contract["page"]["minimum_limit"].as_i64().unwrap()
+    );
+    assert_eq!(
+        parse_event_query("limit=101").unwrap_err().detail[0]["ctx"]["le"],
+        contract["page"]["maximum_limit"].as_i64().unwrap()
     );
 }
 
@@ -870,6 +981,83 @@ mod postgres {
         }
     }
 
+    /// Two readers acknowledge the same unread event at once. The row lock
+    /// serializes them; the loser's conditional update matches no row, so the
+    /// event is written exactly once and both readers succeed.
+    #[tokio::test]
+    async fn concurrent_acknowledgements_write_the_event_once() {
+        let Some(migrator) = harness().await else {
+            return;
+        };
+        install_ack_counter(&migrator).await;
+        let id = 0x7c00_0000_0000_0000_0000_0000_0000_0001u128;
+        insert_event(
+            &migrator,
+            id,
+            SLICE,
+            "SLICE_NEW_ORDER",
+            json!({}),
+            instant(1_792_378_000),
+            false,
+        )
+        .await;
+
+        let mut first = migrator.begin().await.unwrap();
+        let ack = acknowledge(&mut first, uuid(CONTAINER), uuid(id), &visible())
+            .await
+            .unwrap();
+        assert!(ack.is_some_and(|event| event.is_read));
+
+        // The second reader starts while the first still holds the row lock.
+        let pool = migrator.clone();
+        let second = tokio::spawn(async move {
+            let mut transaction = pool.begin().await.unwrap();
+            let ack = acknowledge(&mut transaction, uuid(CONTAINER), uuid(id), &visible())
+                .await
+                .unwrap();
+            transaction.commit().await.unwrap();
+            ack.is_some_and(|event| event.is_read)
+        });
+
+        first.commit().await.unwrap();
+        assert!(
+            second.await.unwrap(),
+            "the blocked reader must still succeed"
+        );
+
+        assert!(is_read(&migrator, id).await);
+        assert_eq!(
+            ack_writes(&migrator).await,
+            1,
+            "the loser must not write the row"
+        );
+    }
+
+    async fn install_ack_counter(migrator: &PgPool) {
+        for statement in [
+            "CREATE TABLE IF NOT EXISTS watchlist_event_ack_writes (writes bigint NOT NULL)",
+            "CREATE OR REPLACE FUNCTION watchlist_event_ack_count() RETURNS trigger LANGUAGE plpgsql AS $$
+             BEGIN UPDATE watchlist_event_ack_writes SET writes = writes + 1; RETURN NEW; END $$",
+            "DROP TRIGGER IF EXISTS watchlist_event_ack_count ON watchlist_events",
+            "CREATE TRIGGER watchlist_event_ack_count AFTER UPDATE ON watchlist_events \
+             FOR EACH ROW EXECUTE FUNCTION watchlist_event_ack_count()",
+            "DELETE FROM watchlist_event_ack_writes",
+            "INSERT INTO watchlist_event_ack_writes VALUES (0)",
+        ] {
+            sqlx::query(statement)
+                .execute(migrator)
+                .await
+                .unwrap_or_else(|error| panic!("ack counter failed: {error}\n{statement}"));
+        }
+    }
+
+    async fn ack_writes(migrator: &PgPool) -> i64 {
+        sqlx::query_scalar("SELECT writes FROM watchlist_event_ack_writes")
+            .fetch_one(migrator)
+            .await
+            .unwrap()
+    }
+
     #[tokio::test]
     async fn an_event_of_another_container_is_not_found() {
         let Some(migrator) = harness().await else {
@@ -997,5 +1185,73 @@ mod postgres {
             Some("Snapshot Point")
         );
         assert_eq!(page.items[0].delivery_point_id, None);
+    }
+
+    /// The feed, the read state and the container counts read a payload's
+    /// order with one rule, so a non-canonical spelling cannot make them
+    /// disagree or put a non-public order into a response.
+    #[tokio::test]
+    async fn feed_and_counts_read_one_payload_order_rule() {
+        let Some(migrator) = harness().await else {
+            return;
+        };
+        let at = instant(1_792_378_000);
+        // A URN spelling that only one of two parsers would read.
+        let urn = format!("urn:uuid:{}", uuid(HIDDEN_ORDER));
+        // A hyphen after every group of four digits, which only the other
+        // parser would read.
+        let simple = uuid(HIDDEN_ORDER).simple().to_string();
+        let grouped = simple
+            .as_bytes()
+            .chunks(4)
+            .map(|group| std::str::from_utf8(group).unwrap())
+            .collect::<Vec<_>>()
+            .join("-");
+        const URN_EVENT: u128 = 0x7c00_0000_0000_0000_0000_0000_0000_0001;
+        const GROUPED_EVENT: u128 = 0x7c00_0000_0000_0000_0000_0000_0000_0002;
+        insert_event(
+            &migrator,
+            URN_EVENT,
+            SLICE,
+            "SLICE_NEW_ORDER",
+            json!({"order_id": urn}),
+            at + chrono::Duration::seconds(2),
+            false,
+        )
+        .await;
+        insert_event(
+            &migrator,
+            GROUPED_EVENT,
+            SLICE,
+            "SLICE_NEW_ORDER",
+            json!({"order_id": grouped}),
+            at + chrono::Duration::seconds(1),
+            false,
+        )
+        .await;
+        let mut connection = migrator.acquire().await.unwrap();
+
+        let page = feed_page(
+            &mut connection,
+            uuid(CONTAINER),
+            &visible(),
+            query(20, None),
+        )
+        .await
+        .unwrap();
+        let ids: Vec<Uuid> = page.items.iter().map(|item| item.id).collect();
+        assert_eq!(ids, vec![uuid(URN_EVENT)]);
+        assert_eq!(page.items[0].order_id, None);
+
+        let summary = visible()
+            .detail(&mut connection, uuid(OWNER), uuid(CONTAINER), at)
+            .await
+            .unwrap()
+            .expect("the owner's container");
+        assert_eq!(summary.unread_event_count, ids.len() as i64);
+        assert_eq!(
+            summary.latest_event_at,
+            Some(at + chrono::Duration::seconds(2))
+        );
     }
 }

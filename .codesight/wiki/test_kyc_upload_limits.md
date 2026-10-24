@@ -2,11 +2,11 @@
 
 > **Navigation aid.** Route list and file locations extracted via AST. Read the source files listed below before implementing or modifying this subsystem.
 
-The Test_kyc_upload_limits subsystem handles **1 routes** and touches: auth, db.
+The Test_kyc_upload_limits subsystem handles **1 routes** and touches: auth.
 
 ## Routes
 
-- `POST` `/upload` → in: UploadFile [auth, db, upload]
+- `POST` `/upload` → in: UploadFile [auth, upload]
   `tests/unit/test_kyc_upload_limits.py`
 
 ## Source Files

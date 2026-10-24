@@ -7,6 +7,7 @@ use uuid::Uuid;
 
 use super::{AuthError, TokenIssuance, VerifiedAccess};
 
+#[derive(Clone)]
 pub struct VerificationSettings {
     current: DecodingKey,
     previous: Option<DecodingKey>,
