@@ -157,6 +157,7 @@ async fn router_health_methods_and_empty_routes() {
         pool_max: 17,
         python_budget: 52,
         configured_max_connections: 100,
+        phase2: Default::default(),
         prepared_budget: None,
     };
     let pools = verdaxis_read::runtime::db::Pools {
@@ -319,6 +320,7 @@ async fn post_orderbook_answers_python_auth_boundary() {
         pool_max: 17,
         python_budget: 52,
         configured_max_connections: 100,
+        phase2: Default::default(),
         prepared_budget: None,
     };
     let pools = verdaxis_read::runtime::db::Pools {
@@ -758,6 +760,7 @@ async fn cors_wraps_saturated_admission() {
         pool_max: 17,
         python_budget: 52,
         configured_max_connections: 100,
+        phase2: Default::default(),
         prepared_budget: None,
     };
     let pools = verdaxis_read::runtime::db::Pools {

@@ -5,134 +5,219 @@
 - **``** GET | POST | GET/:id | PUT/:id | DELETE/:id
 - **`/inventory`** GET | POST | GET/:id | PATCH/:id | DELETE/:id → Inventory
 - **`/admin/subscriptions`** GET | GET/:id | PUT/:id → Subscription
+- **`/api/alerts`** GET | POST | GET/:id | DELETE/:id → Alert
+- **`/api/watchlists`** GET | POST | GET/:id | DELETE/:id → Watchlist
 
 ## Other Routes
 
-- `GET` `/` params() [auth, db, cache] ✓
-- `GET` `/health` params() [auth, db, cache] ✓
-- `GET` `/health/live` params() [auth, db, cache] ✓
-- `GET` `/health/ready` params() [auth, db, cache] ✓
-- `POST` `/endpoint` → in: Annotated [auth]
-- `GET` `/premium-feature` → in: Subscriptio [auth, db]
-- `GET` `/activity` params() [auth, db, cache, queue]
+### fastapi
+
+- `GET` `/` params() ✓
+- `GET` `/health` params() ✓
+- `GET` `/health/live` params() ✓
+- `GET` `/health/ready` params() [db] ✓
+- `POST` `/endpoint` → in: Annotated
+- `GET` `/premium-feature` → in: Subscriptio [db]
+- `GET` `/activity` params() [auth, cache]
 - `GET` `/api/product-usage` params() → out: ProductUsageResponse [auth, db]
-- `GET` `/api/overview` params() → out: ProductUsageResponse [auth, db]
-- `GET` `/api/daily` params() → out: ProductUsageResponse [auth, db]
-- `GET` `/api/users` params() → out: ProductUsageResponse [auth, db] ✓
-- `PUT` `/api/users/{user_id}/reject` params(user_id) → out: ProductUsageResponse [auth, db]
-- `GET` `/api/product-analytics/overview` params() → out: ProductUsageResponse [auth, db]
-- `GET` `/api/product-analytics/acquisition` params() → out: ProductUsageResponse [auth, db]
-- `GET` `/api/product-analytics/activation` params() → out: ProductUsageResponse [auth, db]
-- `GET` `/api/product-analytics/engagement` params() → out: ProductUsageResponse [auth, db]
-- `GET` `/api/product-analytics/marketplace` params() → out: ProductUsageResponse [auth, db]
-- `GET` `/api/product-analytics/retention` params() → out: ProductUsageResponse [auth, db]
-- `GET` `/api/product-analytics/reliability` params() → out: ProductUsageResponse [auth, db]
-- `POST` `/ai/chat` params() [auth]
-- `GET` `/admin/audit-logs` params() → in: Annotated, out: list [auth, db]
-- `POST` `/api/login` params() → in: _Request, out: RegistrationResponse [auth, db, cache, queue, email]
-- `POST` `/api/refresh` params() → in: _Request, out: RegistrationResponse [auth, db, cache, queue, email]
-- `POST` `/api/logout` params() → in: _Request, out: RegistrationResponse [auth, db, cache, queue, email]
-- `GET` `/api/stream-token` params() → out: RegistrationResponse [auth, db, cache, queue, email]
-- `POST` `/api/register` params() → in: _Request, out: RegistrationResponse [auth, db, cache, queue, email]
-- `POST` `/api/register-with-org` params() → in: _Request, out: RegistrationResponse [auth, db, cache, queue, email]
-- `GET` `/api/verify-email` params() → out: RegistrationResponse [auth, db, cache, queue, email]
-- `POST` `/api/resend-verification-email` params() → in: _Request, out: RegistrationResponse [auth, db, cache, queue, email]
-- `GET` `/api/me` params() → out: RegistrationResponse [auth, db, cache, queue, email]
-- `PUT` `/api/me` params() → in: UserUpdate, out: RegistrationResponse [auth, db, cache, queue, email]
-- `PUT` `/api/me/password` params() → in: UserUpdate, out: RegistrationResponse [auth, db, cache, queue, email]
-- `POST` `/api/forgot-password` params() → in: _Request, out: RegistrationResponse [auth, db, cache, queue, email]
-- `POST` `/api/reset-password` params() → in: _Request, out: RegistrationResponse [auth, db, cache, queue, email]
-- `PUT` `/api/approve/{user_id}` params(user_id) → in: UserUpdate, out: RegistrationResponse [auth, db, cache, queue, email]
-- `PUT` `/api/organization/{organization_id}/approve` params(organization_id) → in: UserUpdate, out: RegistrationResponse [auth, db, cache, queue, email]
-- `PUT` `/api/organization/{organization_id}/reject` params(organization_id) → in: UserUpdate, out: RegistrationResponse [auth, db, cache, queue, email]
-- `PUT` `/api/reject/{user_id}` params(user_id) → in: UserUpdate, out: RegistrationResponse [auth, db, cache, queue, email]
-- `GET` `/api/admin/review-queue` params() → out: RegistrationResponse [auth, db, cache, queue, email]
-- `GET` `/api/admin/review-queue/{user_id}` params(user_id) → out: RegistrationResponse [auth, db, cache, queue, email]
-- `GET` `/api/organization-joins` params() → out: RegistrationResponse [auth, db, cache, queue, email]
-- `PUT` `/api/organization-joins/{join_request_id}/approve` params(join_request_id) → in: UserUpdate, out: RegistrationResponse [auth, db, cache, queue, email]
-- `PUT` `/api/organization-joins/{join_request_id}/reject` params(join_request_id) → in: UserUpdate, out: RegistrationResponse [auth, db, cache, queue, email]
-- `POST` `/api/survey` params() → in: _Request, out: RegistrationResponse [auth, db, cache, queue, email]
-- `GET` `/products` params() → in: AsyncSessio, out: list [auth, db]
-- `GET` `/delivery-points` params() → in: AsyncSessio, out: list [auth, db]
+- `GET` `/api/overview` params() → out: ProductUsageResponse [db]
+- `GET` `/api/daily` params() → out: ProductUsageResponse [db]
+- `GET` `/api/users` params() → out: ProductUsageResponse [db] ✓
+- `PUT` `/api/users/{user_id}/reject` params(user_id) → out: ProductUsageResponse [db]
+- `GET` `/api/product-analytics/overview` params() → out: ProductUsageResponse
+- `GET` `/api/product-analytics/acquisition` params() → out: ProductUsageResponse
+- `GET` `/api/product-analytics/activation` params() → out: ProductUsageResponse
+- `GET` `/api/product-analytics/engagement` params() → out: ProductUsageResponse
+- `GET` `/api/product-analytics/marketplace` params() → out: ProductUsageResponse
+- `GET` `/api/product-analytics/retention` params() → out: ProductUsageResponse
+- `GET` `/api/product-analytics/reliability` params() → out: ProductUsageResponse [db]
+- `GET` `/api/admin/onboarding-attention` params() → out: AttentionResponse ✓
+- `POST` `/ai/chat` params()
+- `GET` `/admin/audit-logs` params() → in: Annotated, out: list [db]
+- `POST` `/api/login` params() → in: _Request, out: LoginResponse [auth, db]
+- `POST` `/api/refresh` params() → in: _Request, out: LoginResponse [auth, db]
+- `POST` `/api/logout` params() → in: _Request, out: LoginResponse [auth]
+- `GET` `/api/stream-token` params() → in: Annotated, out: LoginResponse [auth]
+- `GET` `/api/admin/invitations/organizations` params() → in: Annotated, out: LoginResponse [db]
+- `POST` `/api/admin/invitations` params() → in: _Request, out: LoginResponse [db]
+- `POST` `/api/invitations/resolve` params() → in: _Request, out: LoginResponse [auth, db]
+- `POST` `/api/invitations/accept` params() → in: _Request, out: LoginResponse [auth, db]
+- `POST` `/api/register` params() → in: _Request, out: LoginResponse [auth, db]
+- `POST` `/api/register-with-org` params() → in: _Request, out: LoginResponse [auth, db]
+- `POST` `/api/verify-email` params() → in: _Request, out: LoginResponse [auth, db]
+- `POST` `/api/resend-verification-email` params() → in: _Request, out: LoginResponse [db, email]
+- `GET` `/api/me` params() → in: Annotated, out: LoginResponse
+- `PUT` `/api/me` params() → in: UserUpdate, out: LoginResponse
+- `PUT` `/api/me/password` params() → in: UserUpdate, out: LoginResponse [auth, db]
+- `POST` `/api/forgot-password` params() → in: _Request, out: LoginResponse [auth, db]
+- `POST` `/api/reset-password` params() → in: _Request, out: LoginResponse [auth, db]
+- `PUT` `/api/approve/{user_id}` params(user_id) → in: UserUpdate, out: LoginResponse [db]
+- `PUT` `/api/organization/{organization_id}/approve` params(organization_id) → in: UserUpdate, out: LoginResponse [db]
+- `PUT` `/api/organization/{organization_id}/reject` params(organization_id) → in: UserUpdate, out: LoginResponse [db]
+- `PUT` `/api/reject/{user_id}` params(user_id) → in: UserUpdate, out: LoginResponse [db]
+- `GET` `/api/admin/review-queue` params() → in: Annotated, out: LoginResponse [db, queue]
+- `GET` `/api/admin/review-queue/{user_id}` params(user_id) → in: Annotated, out: LoginResponse [queue]
+- `GET` `/api/organization-joins` params() → in: Annotated, out: LoginResponse [db]
+- `PUT` `/api/organization-joins/{join_request_id}/approve` params(join_request_id) → in: UserUpdate, out: LoginResponse [db]
+- `PUT` `/api/organization-joins/{join_request_id}/reject` params(join_request_id) → in: UserUpdate, out: LoginResponse
+- `POST` `/api/survey` params() → in: _Request, out: LoginResponse [auth]
+- `GET` `/products` params() → in: AsyncSessio, out: list [db] ✓
+- `GET` `/delivery-points` params() → in: AsyncSessio, out: list [db]
 - `GET` `/api/vessels/{vessel_id}/score` params(vessel_id) → out: ComplianceScoreResponse [auth, db]
-- `GET` `/api/fleet` params() → out: ComplianceScoreResponse [auth, db]
-- `POST` `/api/scenario` params() → in: ScenarioInput, out: ComplianceScoreResponse [auth, db]
-- `POST` `/api/pricing-overlay` params() → in: ScenarioInput, out: ComplianceScoreResponse [auth, db]
-- `GET` `/api/fuels` params() → out: ComplianceScoreResponse [auth, db]
-- `GET` `/api/v1/table` params() → in: Optional, out: ForwardCurveTableResponse [auth, db]
-- `GET` `/api/v1/slice` params() → in: Optional, out: ForwardCurveTableResponse [auth, db]
-- `GET` `/api/v1/board` params() → in: Optional, out: ForwardCurveTableResponse [auth, db]
-- `GET` `/api/v1` params() → in: Optional, out: ForwardCurveTableResponse [auth, db] ✓
-- `GET` `/api/v1/export` params() → in: Optional, out: ForwardCurveTableResponse [auth, db]
-- `POST` `/inventory/{item_id}/publish` params(item_id) → out: List [auth, db, queue]
-- `GET` `/listings` params() → in: Annotated, out: List [auth, db, queue]
-- `GET` `/listings/my` params() → in: Annotated, out: List [auth, db, queue]
+- `GET` `/api/fleet` params() → out: ComplianceScoreResponse [db]
+- `POST` `/api/scenario` params() → in: ScenarioInput, out: ComplianceScoreResponse [db]
+- `POST` `/api/pricing-overlay` params() → in: ScenarioInput, out: ComplianceScoreResponse [db]
+- `GET` `/api/fuels` params() → out: ComplianceScoreResponse
+- `GET` `/api/v1/table` params() → in: Optional, out: ForwardCurveTableResponse
+- `GET` `/api/v1/slice` params() → in: Optional, out: ForwardCurveTableResponse
+- `GET` `/api/v1/board` params() → in: Optional, out: ForwardCurveTableResponse
+- `GET` `/api/v1` params() → in: Optional, out: ForwardCurveTableResponse ✓
+- `GET` `/api/v1/export` params() → in: Optional, out: ForwardCurveTableResponse
+- `POST` `/api/feedback` params() → out: FeedbackCreated ✓
+- `GET` `/api/admin/feedback` params() → out: FeedbackCreated [db] ✓
+- `POST` `/inventory/{item_id}/publish` params(item_id) → out: List [db]
+- `GET` `/listings` params() → in: Annotated, out: List [db]
+- `GET` `/listings/my` params() → in: Annotated, out: List [db]
 - `POST` `/submit` params() [auth, db, upload]
-- `GET` `/status` params() → in: Annotated [auth, db, upload]
-- `PUT` `/admin/{user_id}/approve` params(user_id) → in: uuid [auth, db, upload]
-- `PUT` `/admin/{user_id}/reject` params(user_id) → in: uuid [auth, db, upload]
-- `GET` `/capabilities` params() → in: Annotated, out: list [auth, db, queue]
-- `POST` `/capability-assignments` params() → out: list [auth, db, queue]
-- `POST` `/capability-assignments/{assignment_id}/revoke` params(assignment_id) → out: list [auth, db, queue]
-- `GET` `/organizations` params() → in: Annotated, out: list [auth, db, queue]
-- `POST` `/organizations/{organization_id}/authorizations` params(organization_id) → out: list [auth, db, queue]
-- `GET` `/organizations/{organization_id}/authorizations` params(organization_id) → in: Annotated, out: list [auth, db, queue]
-- `POST` `/organizations/{organization_id}/listings` params(organization_id) → out: list [auth, db, queue]
-- `GET` `/organizations/{organization_id}/listings` params(organization_id) → in: Annotated, out: list [auth, db, queue]
-- `POST` `/organizations/{organization_id}/listings/{order_id}/cancel` params(organization_id, order_id) → out: list [auth, db, queue] ✓
-- `POST` `/organizations/{organization_id}/authorizations/{authorization_id}/revoke` params(organization_id, authorization_id) → out: list [auth, db, queue]
-- `GET` `/organizations/{organization_id}/context` params(organization_id) → in: Annotated, out: list [auth, db, queue]
-- `GET` `/suggestions` params() → in: Annotated [auth, db]
-- `PATCH` `/suggestions/{order_id}/dismiss` params(order_id) → in: UUID [auth, db]
-- `POST` `/signup-canary-cleanup` params() → in: CanaryCleanupRequest, out: CanaryCleanupResponse [auth, db]
-- `POST` `/{negotiation_id}/counter` params(negotiation_id) → out: NegotiationResponse [auth, db, queue]
-- `POST` `/{negotiation_id}/accept` params(negotiation_id) → out: NegotiationResponse [auth, db, queue]
-- `POST` `/{negotiation_id}/decline` params(negotiation_id) → out: NegotiationResponse [auth, db, queue]
-- `GET` `/unread-count` params() → in: in, out: List [auth, db]
-- `PATCH` `/{notification_id}/read` params(notification_id) → in: uuid, out: List [auth, db]
-- `PATCH` `/read-all` params() → in: uuid, out: List [auth, db]
-- `GET` `/bids` params() → in: Optional, out: PaginatedResponse [auth, db, cache, queue]
-- `GET` `/asks` params() → in: Optional, out: PaginatedResponse [auth, db, cache, queue]
-- `GET` `/with-ci` params() → in: Optional, out: PaginatedResponse [auth, db, cache, queue]
-- `GET` `/my` params() → in: Optional, out: PaginatedResponse [auth, db, cache, queue]
-- `GET` `/my/latest-ask-template` params() → in: Optional, out: PaginatedResponse [auth, db, cache, queue]
-- `GET` `/aggregated` params() → in: Optional, out: PaginatedResponse [auth, db, cache, queue]
-- `GET` `/regions` params() → in: Optional, out: PaginatedResponse [auth, db, cache, queue]
-- `GET` `/fuel-types` params() → in: Optional, out: PaginatedResponse [auth, db, cache, queue]
-- `GET` `/admin/commissions` params() → in: Use, out: list [auth, db]
-- `GET` `/admin/commissions/summary` params() → in: Use, out: list [auth, db]
-- `PUT` `/admin/commissions/{commission_id}` params(commission_id) → in: UUID, out: list [auth, db]
-- `GET` `/ports` params() → in: Annotated, out: List [auth, db]
-- `GET` `/ports/{port_id}` params(port_id) → in: Annotated, out: List [auth, db]
-- `GET` `/api` params() → in: Use [auth, db] ✓
-- `PUT` `/api/{namespace}` params(namespace) [auth, db]
-- `GET` `/reference` params() → out: PriceDiscoveryResponse [auth, db]
-- `GET` `/reference/export` params() → out: PriceDiscoveryResponse [auth, db]
-- `GET` `/my-code` params() → in: Annotated, out: ReferralCodeResponse [auth, db]
-- `GET` `/my-referrals` params() → in: Annotated, out: ReferralCodeResponse [auth, db]
-- `GET` `/leaderboard` params() → in: Annotated, out: ReferralCodeResponse [auth, db]
-- `POST` `/invite` params() → out: ReferralCodeResponse [auth, db]
-- `GET` `/resolve/{code}` params(code) → in: Annotated, out: ReferralCodeResponse [auth, db]
-- `POST` `/{rfq_id}/quote` params(rfq_id) → out: RFQResponse [auth, db, queue]
-- `POST` `/{rfq_id}/accept/{quote_id}` params(rfq_id, quote_id) → out: RFQResponse [auth, db, queue]
-- `POST` `/{rfq_id}/cancel` params(rfq_id) → out: RFQResponse [auth, db, queue]
-- `GET` `/api/prices` params() [auth, db, cache, queue] ✓
-- `GET` `/api/orderbook` params() [auth, db, cache, queue] ✓
-- `GET` `/api/trades` params() [auth, db, cache, queue] ✓
-- `GET` `/subscriptions/me` params() → in: Annotated, out: SubscriptionResponse [auth, db]
-- `POST` `/` params() → out: TradeResponse [auth, db, queue] ✓
-- `PUT` `/{trade_id}/confirm` params(trade_id) → out: TradeResponse [auth, db, queue]
-- `PUT` `/{trade_id}/decline` params(trade_id) → out: TradeResponse [auth, db, queue]
-- `PUT` `/{trade_id}/deliver` params(trade_id) → out: TradeResponse [auth, db, queue]
-- `POST` `/{trade_id}/pay` params(trade_id) → out: TradeResponse [auth, db, queue]
-- `GET` `/vessels` params() → in: Annotated, out: List [auth, db]
-- `GET` `/vessels/{vessel_id}` params(vessel_id) → in: Annotated, out: List [auth, db]
-- `GET` `/me` params() → in: Annotated, out: list [auth, db]
-- `POST` `/{watchlist_id}/targets` params(watchlist_id) → in: WatchlistCreateRequest, out: list [auth, db]
-- `DELETE` `/{watchlist_id}/targets/{target_id}` params(watchlist_id, target_id) → in: UUID, out: list [auth, db]
-- `GET` `/{watchlist_id}/events` params(watchlist_id) → in: Annotated, out: list [auth, db]
-- `PATCH` `/{watchlist_id}/events/{event_id}` params(watchlist_id, event_id) → in: UUID, out: list [auth, db]
-- `POST` `/{watchlist_id}/entries` params(watchlist_id) → in: WatchlistCreateRequest, out: list [auth, db]
-- `DELETE` `/{watchlist_id}/entries/{entry_id}` params(watchlist_id, entry_id) → in: UUID, out: list [auth, db]
-- `POST` `/upload` params() → in: UploadFile [auth, db, upload] ✓
-- `GET` `/api/admin/analytics/overview` params() [auth, db] ✓
+- `GET` `/admin/{user_id}/documents` params(user_id) → in: Annotated [db]
+- `GET` `/admin/documents/{document_id}` params(document_id) → in: Annotated [cache]
+- `GET` `/status` params() → in: Annotated ✓
+- `PUT` `/admin/{user_id}/approve` params(user_id) → in: uuid [db]
+- `PUT` `/admin/{user_id}/reject` params(user_id) → in: uuid [db]
+- `GET` `/capabilities` params() → in: Annotated, out: list
+- `POST` `/capability-assignments` params() → out: list [db]
+- `POST` `/capability-assignments/{assignment_id}/revoke` params(assignment_id) → out: list [db]
+- `GET` `/organizations` params() → in: Annotated, out: list [db]
+- `GET` `/organizations/{organization_id}/entry` params(organization_id) → in: Annotated, out: list
+- `POST` `/contexts` params() → out: list [db]
+- `GET` `/contexts/active` params() → in: Annotated, out: list [db]
+- `GET` `/contexts/{context_id}` params(context_id) → in: Annotated, out: list
+- `POST` `/contexts/{context_id}/exit` params(context_id) → out: list
+- `POST` `/organizations/{organization_id}/authorizations` params(organization_id) → out: list [auth, db]
+- `GET` `/organizations/{organization_id}/authorizations` params(organization_id) → in: Annotated, out: list [auth, db]
+- `POST` `/organizations/{organization_id}/listings` params(organization_id) → out: list [auth, db]
+- `GET` `/organizations/{organization_id}/listings` params(organization_id) → in: Annotated, out: list [db]
+- `POST` `/organizations/{organization_id}/listings/{order_id}/cancel` params(organization_id, order_id) → out: list ✓
+- `POST` `/organizations/{organization_id}/authorizations/{authorization_id}/revoke` params(organization_id, authorization_id) → out: list [auth, db]
+- `GET` `/organizations/{organization_id}/context` params(organization_id) → in: Annotated, out: list [auth, db]
+- `GET` `/api/suggestions` params() → in: Annotated [db]
+- `PATCH` `/api/suggestions/{order_id}/dismiss` params(order_id) → in: UUID [db]
+- `POST` `/signup-canary-cleanup` params() → in: CanaryCleanupRequest, out: CanaryCleanupResponse [db]
+- `POST` `/{negotiation_id}/counter` params(negotiation_id) → out: NegotiationResponse
+- `POST` `/{negotiation_id}/accept` params(negotiation_id) → out: NegotiationResponse
+- `POST` `/{negotiation_id}/decline` params(negotiation_id) → out: NegotiationResponse
+- `GET` `/unread-count` params() → in: in, out: list [db]
+- `PATCH` `/{notification_id}/read` params(notification_id) → in: uuid, out: list [db]
+- `PATCH` `/read-all` params() → in: uuid, out: list [db]
+- `GET` `/snapshot` params() → in: MarketProduc, out: OrderBookSnapshotResponse [db] ✓
+- `GET` `/bids` params() → in: MarketProduc, out: OrderBookSnapshotResponse [db] ✓
+- `GET` `/asks` params() → in: MarketProduc, out: OrderBookSnapshotResponse [db] ✓
+- `GET` `/with-ci` params() → in: MarketProduc, out: OrderBookSnapshotResponse [db] ✓
+- `GET` `/my` params() → in: MarketProduc, out: OrderBookSnapshotResponse [db]
+- `GET` `/my/latest-ask-template` params() → in: MarketProduc, out: OrderBookSnapshotResponse [db]
+- `GET` `/aggregated` params() → in: MarketProduc, out: OrderBookSnapshotResponse ✓
+- `GET` `/product-counts` params() → in: MarketProduc, out: OrderBookSnapshotResponse [db] ✓
+- `GET` `/map-summary` params() → in: MarketProduc, out: OrderBookSnapshotResponse ✓
+- `GET` `/map-summary/compact` params() → in: MarketProduc, out: OrderBookSnapshotResponse ✓
+- `GET` `/regions` params() → in: MarketProduc, out: OrderBookSnapshotResponse [db] ✓
+- `GET` `/fuel-types` params() → in: MarketProduc, out: OrderBookSnapshotResponse [db] ✓
+- `POST` `/{order_id}/cancel` params(order_id) → out: OrderBookSnapshotResponse [auth, db]
+- `GET` `/admin/commissions` params() → in: Use, out: list [db]
+- `GET` `/admin/commissions/summary` params() → in: Use, out: list [db]
+- `PUT` `/admin/commissions/{commission_id}` params(commission_id) → in: UUID, out: list [db]
+- `GET` `/ports` params() → in: Annotated, out: List [db]
+- `GET` `/ports/{port_id}` params(port_id) → in: Annotated, out: List [db]
+- `GET` `/api` params() → in: Use [db] ✓
+- `PUT` `/api/{namespace}` params(namespace) [db]
+- `GET` `/reference` params() → out: PriceDiscoveryResponse [auth]
+- `GET` `/reference/export` params() → out: PriceDiscoveryResponse [auth]
+- `POST` `/my-code` params() → in: Annotated, out: ReferralCodeResponse
+- `GET` `/my-referrals` params() → in: Annotated, out: ReferralCodeResponse [db]
+- `GET` `/leaderboard` params() → in: Annotated, out: ReferralCodeResponse [db]
+- `POST` `/invite` params() → in: Annotated, out: ReferralCodeResponse [db]
+- `GET` `/resolve/{code}` params(code) → in: Annotated, out: ReferralCodeResponse [db]
+- `POST` `/{rfq_id}/quote` params(rfq_id) → out: RFQResponse
+- `PUT` `/{rfq_id}/quotes/{quote_id}` params(rfq_id, quote_id) → out: RFQResponse
+- `POST` `/{rfq_id}/quotes/{quote_id}/withdraw` params(rfq_id, quote_id) → out: RFQResponse
+- `POST` `/{rfq_id}/accept/{quote_id}` params(rfq_id, quote_id) → out: RFQResponse
+- `POST` `/{rfq_id}/cancel` params(rfq_id) → out: RFQResponse [db]
+- `GET` `/api/prices` params() [auth, cache] ✓
+- `GET` `/api/orderbook` params() [cache] ✓
+- `GET` `/api/trades` params() [auth, db, cache] ✓
+- `GET` `/subscriptions/fees` params() → in: Annotated, out: FeeScheduleResponse
+- `GET` `/subscriptions/me` params() → in: Annotated, out: FeeScheduleResponse
+- `POST` `/{offer_id}/withdraw` params(offer_id) → out: SupplierOfferList
+- `POST` `/` params() → out: TradeResponse [db] ✓
+- `GET` `/summary` params() → out: TradeResponse [db]
+- `PUT` `/{trade_id}/confirm` params(trade_id) → out: TradeResponse [db]
+- `PUT` `/{trade_id}/decline` params(trade_id) → out: TradeResponse
+- `PUT` `/{trade_id}/deliver` params(trade_id) → out: TradeResponse [auth]
+- `POST` `/{trade_id}/pay` params(trade_id) → out: TradeResponse
+- `GET` `/vessels` params() → in: Annotated, out: List [db]
+- `GET` `/vessels/{vessel_id}` params(vessel_id) → in: Annotated, out: List [db]
+- `POST` `/me` params() → in: Annotated, out: list
+- `POST` `/{watchlist_id}/targets` params(watchlist_id) → in: Annotated, out: list [db]
+- `DELETE` `/{watchlist_id}/targets/{target_id}` params(watchlist_id, target_id) → in: UUID, out: list [db]
+- `GET` `/{watchlist_id}/events` params(watchlist_id) → in: Annotated, out: list
+- `PATCH` `/{watchlist_id}/events/{event_id}` params(watchlist_id, event_id) → in: UUID, out: list
+- `POST` `/{watchlist_id}/entries` params(watchlist_id) → in: Annotated, out: list [db]
+- `DELETE` `/{watchlist_id}/entries/{entry_id}` params(watchlist_id, entry_id) → in: UUID, out: list [db]
+- `GET` `/.well-known/verdaxis-disposable-test` params() [auth] ✓
+- `POST` `/__contract__/order-write` params() [auth, db]
+- `GET` `/owner-cleanup-proof` params() → in: Annotated ✓
+- `GET` `/one` params() → out: AlertResponse ✓
+- `GET` `/many` params() → out: AlertResponse ✓
+- `POST` `/upload` params() → in: UploadFile [auth, upload] ✓
+- `GET` `/api/admin/analytics/overview` ✓
+
+### axum
+
+- `GET` `/__contract__/live-benchmarks` [auth, cache] ✓
+- `POST` `/__contract__/phase2/write` [auth, db] ✓
+- `GET` `/api/users/me/preferences` [auth, db] ✓
+- `PUT` `/api/users/me/preferences/{namespace}` params(namespace) [auth, db] ✓
+- `POST` `/api/referrals/my-code` [auth] ✓
+- `POST` `/api/referrals/invite` [auth] ✓
+- `GET` `/api/referrals/my-referrals` [auth] ✓
+- `HEAD` `/api/referrals/my-referrals` [auth] ✓
+- `GET` `/api/referrals/leaderboard` [auth] ✓
+- `HEAD` `/api/referrals/leaderboard` [auth] ✓
+- `GET` `/api/referrals/resolve/{code}` params(code) [auth] ✓
+- `HEAD` `/api/referrals/resolve/{code}` params(code) [auth] ✓
+- `POST` `/api/watchlists/me` [auth, db] ✓
+- `POST` `/api/watchlists/{watchlist_id}/targets` params(watchlist_id) [auth, db] ✓
+- `DELETE` `/api/watchlists/{watchlist_id}/targets/{target_id}` params(watchlist_id, target_id) [auth, db] ✓
+- `GET` `/api/watchlists/{watchlist_id}/events` params(watchlist_id) [auth, db] ✓
+- `PATCH` `/api/watchlists/{watchlist_id}/events/{event_id}` params(watchlist_id, event_id) [auth, db] ✓
+- `GET` `/api/catalog/products` [db, cache] ✓
+- `GET` `/api/catalog/delivery-points` [db, cache] ✓
+- `GET` `/api/curves/forward/table` [db] ✓
+- `GET` `/api/curves/forward/slice` [db] ✓
+- `GET` `/api/curves/forward/board` [db] ✓
+- `GET` `/api/curves/forward` [db] ✓
+- `GET` `/api/curves/forward/export` [db] ✓
+- `GET` `/api/news` [db, cache] ✓
+- `GET` `/api/orderbook/bids` [auth, db, cache] ✓
+- `GET` `/api/orderbook/asks` [auth, db, cache] ✓
+- `POST` `/api/orderbook` [auth, db, cache] ✓
+- `GET` `/api/orderbook/with-ci` [auth, db, cache] ✓
+- `GET` `/api/orderbook/aggregated` [db] ✓
+- `GET` `/api/orderbook/product-counts` [db] ✓
+- `GET` `/api/orderbook/map-summary` [db] ✓
+- `GET` `/api/orderbook/map-summary/compact` [db] ✓
+- `GET` `/api/orderbook/products` [db] ✓
+- `GET` `/api/orderbook/regions` [db] ✓
+- `GET` `/api/orderbook/fuel-types` [db] ✓
+- `GET` `/api/ports` [db, cache] ✓
+- `GET` `/api/ports/{port_id}` params(port_id) [db, cache] ✓
+- `GET` `/api/prices/reference` [db] ✓
+- `GET` `/api/prices/reference/export` [db] ✓
+- `GET` `/api/trade-tape` [db] ✓
+- `GET` `/api/notifications/unread-count` [auth, db] ✓
+- `POST` `/emails` [auth, email] ✓
+- `GET` `/fixture` [auth, db] ✓
+- `GET` `/ok` [auth, db] ✓
+- `GET` `/api/admin/analytics` [auth] ✓
+- `GET` `/unhandled` ✓
+- `GET` `/handled` ✓
+- `GET` `/busy` ✓

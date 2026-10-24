@@ -36,11 +36,15 @@ async fn postgres_authentication_ownership_and_revocation() {
         pool_max: 17,
         python_budget: 52,
         configured_max_connections: 100,
+        phase2: Default::default(),
     };
+    let pools = verdaxis_read::connect(&config).await.unwrap();
+    let health = pools.health.clone();
+    let read_pool = pools.read.clone();
     let state = Arc::new(
         AppState::new(
             config.clone(),
-            verdaxis_read::connect(&config).await.unwrap(),
+            pools,
             MarketPolicy {
                 source_sha: config.release_sha.clone(),
                 products: vec![],
@@ -49,11 +53,8 @@ async fn postgres_authentication_ownership_and_revocation() {
         )
         .unwrap(),
     );
-    let health = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(1)
-        .connect(&config.database_url)
-        .await
-        .unwrap();
+    assert_eq!(health.options().get_max_connections(), 1);
+    assert_eq!(read_pool.options().get_max_connections(), 16);
     let fixture: serde_json::Value = serde_json::from_str(include_str!(
         "../../../tests/rust_contract/phase2/auth-vectors.json"
     ))
@@ -116,6 +117,21 @@ async fn postgres_authentication_ownership_and_revocation() {
     tokio::time::timeout(Duration::from_secs(10), barrier.wait())
         .await
         .unwrap();
+    let python_blocked = tokio::process::Command::new(
+        std::env::var("RUST_TEST_PYTHON").unwrap_or("venv/bin/python".into()),
+    )
+    .args(["-m", "tests.rust_contract.phase2.auth_writer"])
+    .current_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+    .env("AUTH_INTEROP_SUBJECT", subject.to_string())
+    .env("AUTH_INTEROP_EXPECT_BLOCKED", "true")
+    .output()
+    .await
+    .unwrap();
+    assert!(python_blocked.status.success());
+    assert_eq!(
+        std::str::from_utf8(&python_blocked.stdout).unwrap().trim(),
+        "BLOCKED"
+    );
     let mut writer = admin.begin().await.unwrap();
     sqlx::query("SET LOCAL lock_timeout='100ms'")
         .execute(&mut *writer)
@@ -166,6 +182,16 @@ async fn postgres_authentication_ownership_and_revocation() {
         )
         .await
     });
+    // Observe PostgreSQL waiting on the current-user lock before releasing
+    // Python; spawning a future alone would not prove the second lock order.
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let waiting: i64 = sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity WHERE usename='verdaxis_phase2_app_test' AND wait_event_type='Lock' AND query LIKE '%FROM users WHERE id=$1 FOR UPDATE%'")
+                .fetch_one(&admin).await.unwrap();
+            if waiting > 0 { break; }
+            tokio::task::yield_now().await;
+        }
+    }).await.unwrap();
     python
         .stdin
         .as_mut()
@@ -235,6 +261,13 @@ async fn postgres_authentication_ownership_and_revocation() {
     })
     .await
     .unwrap();
+    // Every returned data connection retains the public-read session default.
+    let default_mode: String = sqlx::query_scalar("SHOW default_transaction_read_only")
+        .fetch_one(&read_pool)
+        .await
+        .unwrap();
+    assert_eq!(default_mode, "on");
+    read_pool.close().await;
     health.close().await;
     admin.close().await;
 }
