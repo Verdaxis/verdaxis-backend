@@ -36,6 +36,7 @@ required-features = ["contract-tests"]
 contract-tests = []
 
 [dev-dependencies]
+tokio = { version = "1.53.3", features = ["test-util"] }
 verdaxis-contract = { path = "../contract" }
 
 [dependencies]
