@@ -166,6 +166,7 @@ async fn e5_response_and_delivery_boundary() {
     .await
     .unwrap();
     let mut responses = Vec::new();
+    let mut recipients = Vec::new();
     for (index, verified) in [None, Some(true), Some(false), None]
         .into_iter()
         .enumerate()
@@ -178,7 +179,20 @@ async fn e5_response_and_delivery_boundary() {
         if let Some(verified) = verified {
             sqlx::query("INSERT INTO users(id,email,password_hash,status,email_verified) VALUES($1,$2,'unchanged','PENDING',$3)").bind(Uuid::new_v4()).bind(&email).bind(verified).execute(&f.owner).await.unwrap();
         }
+        let before: Option<Value> = sqlx::query_scalar("SELECT to_jsonb(u) FROM users u WHERE email=$1").bind(&email).fetch_optional(&f.owner).await.unwrap();
         let response = f.request("/api/auth/register", signup(&email, None)).await;
+        recipients.push((email.clone(), verified.is_some()));
+        if let Some(before) = before {
+            let after: Value = sqlx::query_scalar("SELECT to_jsonb(u) FROM users u WHERE email=$1").bind(&email).fetch_one(&f.owner).await.unwrap();
+            assert_eq!(before, after);
+            for sql in [
+                "SELECT count(*) FROM organization_join_requests j JOIN users u ON j.user_id=u.id WHERE u.email=$1",
+                "SELECT count(*) FROM referrals r JOIN users u ON r.referred_user_id=u.id WHERE u.email=$1",
+                "SELECT count(*) FROM user_status_transitions s JOIN users u ON s.user_id=u.id WHERE u.email=$1",
+                "SELECT count(*) FROM user_login_days s JOIN users u ON s.user_id=u.id WHERE u.email=$1",
+                "SELECT count(*) FROM refresh_sessions s JOIN users u ON s.user_id=u.id WHERE u.email=$1",
+            ] { assert_eq!(count(&f.owner, sql, &email).await, 0); }
+        }
         assert_eq!(response.0, StatusCode::ACCEPTED);
         assert_eq!(response.2, json!({"status":"check_email"}));
         assert!(!response.1.contains_key("set-cookie"));
@@ -209,7 +223,16 @@ async fn e5_response_and_delivery_boundary() {
     // Provider completion requires permits that no request has released.
     assert_eq!(f.release.available_permits(), 0);
     f.drain().await;
-    assert_eq!(f.mail.lock().await.len(), 4);
+    {
+        let mail = f.mail.lock().await;
+        for (address, existing) in recipients {
+            let messages: Vec<_> = mail.iter().filter(|message| message["to"][0] == address).collect();
+            assert_eq!(messages.len(), 1);
+            let html = messages[0]["html"].as_str().unwrap();
+            if existing { assert!(html.contains("/login")); assert!(!html.contains("token=")); }
+            else { assert!(html.contains("/verify-email?token=")); }
+        }
+    }
     let joined: (Option<Uuid>,String,i64) = sqlx::query_as("SELECT u.organization_id,u.status::text,(SELECT count(*) FROM organization_join_requests j WHERE j.user_id=u.id AND j.organization_id=$2) FROM users u WHERE email=$1").bind(format!("user0@{domain}")).bind(org).fetch_one(&f.owner).await.unwrap();
     assert_eq!(joined, (None, "PENDING".into(), 1));
     f.stop().await;
@@ -227,6 +250,8 @@ async fn e6_pending_verification_and_single_consumption() {
         StatusCode::ACCEPTED
     );
     let token = f.token(&email).await;
+    let lifetime: i64 = sqlx::query_scalar("SELECT extract(epoch FROM expires_at-created_at)::bigint FROM pending_registrations WHERE email=$1").bind(&email).fetch_one(&f.owner).await.unwrap();
+    assert_eq!(lifetime, 1800);
     let verify_settings =
         email_verification::EmailSettings::new(f.settings.pool.clone(), f.settings.mail.clone());
     let response = email_verification::router(verify_settings)
@@ -305,6 +330,29 @@ async fn e5_e6_atomic_referral_registration() {
         assert_eq!(count(&f.owner, sql, &email).await, 0);
     }
     assert!(f.mail.lock().await.is_empty());
+    let pending_email = format!("rollback@{}.example",Uuid::new_v4());
+    assert_eq!(f.request("/api/auth/register", signup(&pending_email,Some(&code))).await.0,StatusCode::ACCEPTED);
+    let token = f.token(&pending_email).await;
+    let before:Value=sqlx::query_scalar("SELECT to_jsonb(p) FROM pending_registrations p WHERE email=$1").bind(&pending_email).fetch_one(&f.owner).await.unwrap();
+    let mail_before=f.mail.lock().await.len();
+    let org_before:i64=sqlx::query_scalar("SELECT count(*) FROM organizations").fetch_one(&f.owner).await.unwrap();
+    sqlx::query("CREATE TRIGGER registration_test_reject_audit BEFORE INSERT ON audit_logs FOR EACH ROW EXECUTE FUNCTION registration_test_reject_audit()").execute(&f.owner).await.unwrap();
+    let result=f.request("/api/auth/register-with-org",organization(&token)).await;
+    sqlx::query("DROP TRIGGER registration_test_reject_audit ON audit_logs").execute(&f.owner).await.unwrap();
+    assert_eq!(result.0,StatusCode::SERVICE_UNAVAILABLE);
+    let after:Value=sqlx::query_scalar("SELECT to_jsonb(p) FROM pending_registrations p WHERE email=$1").bind(&pending_email).fetch_one(&f.owner).await.unwrap();
+    assert_eq!(before,after);
+    let org_after:i64=sqlx::query_scalar("SELECT count(*) FROM organizations").fetch_one(&f.owner).await.unwrap();
+    assert_eq!(org_before,org_after);
+    for sql in [
+        "SELECT count(*) FROM users WHERE email=$1",
+        "SELECT count(*) FROM referrals r JOIN users u ON r.referred_user_id=u.id WHERE u.email=$1",
+        "SELECT count(*) FROM organization_join_requests j JOIN users u ON j.user_id=u.id WHERE u.email=$1",
+        "SELECT count(*) FROM user_status_transitions s JOIN users u ON s.user_id=u.id WHERE u.email=$1",
+        "SELECT count(*) FROM audit_logs WHERE changes->>'email'=$1",
+        "SELECT count(*) FROM refresh_sessions s JOIN users u ON s.user_id=u.id WHERE u.email=$1",
+    ] {assert_eq!(count(&f.owner,sql,&pending_email).await,0);}
+    f.drain().await; assert_eq!(f.mail.lock().await.len(),mail_before);
     f.stop().await;
 }
 
@@ -324,18 +372,28 @@ async fn e5_duplicate_registration_counts_referral_once() {
     .await
     .unwrap();
     let email = format!("duplicate@{domain}");
-    let barrier = Arc::new(tokio::sync::Barrier::new(3));
+    let mut holder = f.owner.begin().await.unwrap();
+    sqlx::query("SELECT id FROM users WHERE referral_code=$1 FOR UPDATE").bind(&code).execute(&mut *holder).await.unwrap();
     let mut tasks = Vec::new();
+    let mut pids = Vec::new();
     for _ in 0..2 {
-        let app = router(f.settings.clone());
+        let pool = sqlx::postgres::PgPoolOptions::new().max_connections(1).connect(&std::env::var("AUTH_EMAIL_TEST_DATABASE_URL").unwrap()).await.unwrap();
+        sqlx::query("SET lock_timeout='15s'").execute(&pool).await.unwrap();
+        let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()").fetch_one(&pool).await.unwrap();
+        pids.push(pid);
+        let mut settings = f.settings.clone(); settings.pool = pool;
+        let app = router(settings);
         let body = signup(&email, Some(&code));
-        let barrier = barrier.clone();
-        tasks.push(tokio::spawn(async move {
-            barrier.wait().await;
-            request(app, "/api/auth/register", body).await
-        }));
+        tasks.push(tokio::spawn(async move { request(app,"/api/auth/register",body).await }));
     }
-    barrier.wait().await;
+    tokio::time::timeout(std::time::Duration::from_secs(8),async {
+        loop {
+            let waiting:i64=sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity WHERE pid=ANY($1) AND cardinality(pg_blocking_pids(pid))>0").bind(&pids).fetch_one(&f.owner).await.unwrap();
+            if waiting==2 {break;}
+            tokio::task::yield_now().await;
+        }
+    }).await.unwrap();
+    holder.commit().await.unwrap();
     for task in tasks {
         assert_eq!(task.await.unwrap().0, StatusCode::ACCEPTED);
     }
@@ -468,5 +526,54 @@ async fn e5_failed_delivery_preserves_response() {
     assert_eq!(log.matches("auth_mail_delivery_failed").count(), 1);
     assert!(log.contains(&auth::token_bytes::token_digest(&email)[..12]));
     assert!(!log.contains(&email));
+    f.stop().await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL authority"]
+async fn e3_e6_pending_expiry_boundaries() {
+    let f = Fixture::new(false).await;
+    for offset in [-1i64, 0, 60] {
+        let email = format!("{}@gmail.com", Uuid::new_v4());
+        assert_eq!(f.request("/api/auth/register", signup(&email, None)).await.0, StatusCode::ACCEPTED);
+        let token = f.token(&email).await;
+        sqlx::query("UPDATE pending_registrations SET expires_at=clock_timestamp()+make_interval(secs => $2) WHERE email=$1").bind(&email).bind(offset as f64).execute(&f.owner).await.unwrap();
+        let before: Value = sqlx::query_scalar("SELECT to_jsonb(p) FROM pending_registrations p WHERE email=$1").bind(&email).fetch_one(&f.owner).await.unwrap();
+        let mail_before = f.mail.lock().await.len();
+        let verification = email_verification::EmailSettings::new(f.settings.pool.clone(), f.settings.mail.clone());
+        let response = email_verification::router(verification).oneshot(Request::post(format!("/api/auth/verify-email?token={token}")).body(Body::empty()).unwrap()).await.unwrap();
+        assert_eq!(response.status(), if offset > 0 {StatusCode::OK} else {StatusCode::BAD_REQUEST});
+        let body: Value = serde_json::from_slice(&to_bytes(response.into_body(),4096).await.unwrap()).unwrap();
+        if offset <= 0 { assert_eq!(body["detail"]["code"], "EMAIL_TOKEN_INVALID"); }
+        let result = f.request("/api/auth/register-with-org", organization(&token)).await;
+        if offset > 0 { assert_eq!(result.0,StatusCode::OK); }
+        else {
+            assert_eq!(result.0,StatusCode::BAD_REQUEST);
+            assert_eq!(result.2["detail"]["code"],"REGISTRATION_TOKEN_INVALID");
+            let after: Value = sqlx::query_scalar("SELECT to_jsonb(p) FROM pending_registrations p WHERE email=$1").bind(&email).fetch_one(&f.owner).await.unwrap();
+            assert_eq!(before,after);
+            assert_eq!(count(&f.owner,"SELECT count(*) FROM users WHERE email=$1",&email).await,0);
+            f.drain().await;
+            assert_eq!(f.mail.lock().await.len(),mail_before);
+        }
+    }
+    f.stop().await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL authority"]
+async fn e5_e6_http_limits() {
+    let f = Fixture::new(false).await;
+    for path in ["/api/auth/register", "/api/auth/register-with-org"] {
+        let mut settings = f.settings.clone();
+        settings.limits = auth::limits::SharedLimits::default();
+        let app = router(settings);
+        for index in 0..6 {
+            let body = if path.ends_with("register") {signup(&format!("{}@gmail.com",Uuid::new_v4()),None)} else {organization("invalid")};
+            let response = request(app.clone(),path,body).await;
+            assert_eq!(response.0, if index==5 {StatusCode::TOO_MANY_REQUESTS} else if path.ends_with("register") {StatusCode::ACCEPTED} else {StatusCode::BAD_REQUEST});
+            if index==5 { assert!(response.1.contains_key("retry-after")); assert_eq!(response.2["detail"]["code"],"RATE_LIMITED"); }
+        }
+    }
     f.stop().await;
 }

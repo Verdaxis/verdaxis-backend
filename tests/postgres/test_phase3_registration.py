@@ -26,5 +26,7 @@ def test_e5_e6_postgres(analytics_pg_url):
         "e5_duplicate_registration_counts_referral_once",
         "e5_failed_delivery_preserves_response",
         "e6_concurrent_consumption_has_one_result",
+        "e3_e6_pending_expiry_boundaries",
+        "e5_e6_http_limits",
     ):
         assert f"test {name} ... ok" in run.stdout, run.stdout
