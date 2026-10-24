@@ -133,7 +133,13 @@ pub async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     let pools = crate::runtime::db::Pools { read: pool, health };
     let policy: MarketPolicy =
         serde_json::from_str(include_str!("../../../../deploy/rust/market-policy.json"))?;
+    let policy_identity = crate::market::cache_dependencies::policy_identity(&config, &policy);
     let state = AppState {
+        policy_identity,
+        trading_caches: Arc::new(crate::runtime::cache::TradingCaches::default()),
+        trading_cache: None,
+        public_trading_cache: Arc::new(crate::runtime::cache::TradingCache::default()),
+        trading_read_observer: Arc::new(crate::runtime::admission::RealtimeTradingRead),
         config: Arc::new(config),
         pools,
         policy: Arc::new(policy),
