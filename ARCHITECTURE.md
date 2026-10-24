@@ -37,10 +37,16 @@ external quota marks are removed and only CORS preflights bypass counting. An
 owner is reached only after the authority answers 204 with its admission mark;
 an unmarked success is refused. Group proxies forward the trusted client
 address, and a group on Python uses the site's fallback without passive-health
-quarantine. The quota map is capped at 50,000 identities and is pruned at most
-once a minute; refusals use `RATE_LIMITED` with `Retry-After`. The operator
-order and rollback are in `docs/rust-phase2/release-runbook.md`. Actual cutover
-remains unapproved until the separate Task 24 operator window.
+quarantine. Quota lives in two independent stores, each capped at 50,000
+buckets. The pre-auth store is keyed by the trusted client address, with IPv4
+kept per address and IPv6 grouped to its /64; authenticated endpoint quotas are
+keyed by verified user ID, never by address, so an unauthenticated flood cannot
+spend them. A full pre-auth store evicts its soonest-expiring bucket and counts
+the eviction in a number-only counter instead of refusing the new client.
+Buckets expire on their own windows; refusals use `RATE_LIMITED` with
+`Retry-After`. The operator order and rollback are in
+`docs/rust-phase2/release-runbook.md`. Actual cutover remains unapproved until
+the separate Task 24 operator window.
 
 
 ## Rust Phase 2 order-write boundary
