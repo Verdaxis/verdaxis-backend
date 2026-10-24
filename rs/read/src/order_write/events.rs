@@ -94,13 +94,18 @@ pub(super) async fn withdrawal_effects(
                 let provenance: String = row.try_get("provenance")?;
                 let price: Option<Decimal> = row.try_get("price")?;
                 let observed: Option<DateTime<Utc>> = row.try_get("observed")?;
-                let count: i64 = row.try_get("count")?;
+                let counts = |kind: &str| -> Result<i64,sqlx::Error> {
+                    rows.iter().find(|r|r.get::<String,_>("provenance")==kind)
+                        .map(|r|r.try_get("count")).transpose().map(|v|v.unwrap_or(0))
+                };
+                let real_count=counts("REAL")?;
+                let demo_count=counts("DEMO")?;
                 let (source, demo) = if provenance == "REAL" {
                     ("LIVE_ORDER", "REAL_ONLY")
                 } else {
                     ("DEMO_SEED", "DEMO_ONLY")
                 };
-                let slice_payload = json!({"source_kind":source,"demo_status":demo,"scope":"DELIVERY_POINT","observed_at":observed,"market_product_code":product,"delivery_point_id":point,"availability_window_code":order.availability_window,"side":order.side,"old_price_per_mt_usd":null,"new_price_per_mt_usd":price,"real_count":if provenance=="REAL" {count} else {0},"demo_count":if provenance=="DEMO" {count} else {0},"unknown_count":0});
+                let slice_payload = json!({"source_kind":source,"demo_status":demo,"scope":"DELIVERY_POINT","observed_at":observed,"market_product_code":product,"delivery_point_id":point,"availability_window_code":order.availability_window,"side":order.side,"old_price_per_mt_usd":null,"new_price_per_mt_usd":price,"real_count":real_count,"demo_count":demo_count,"unknown_count":0});
                 sqlx::query("INSERT INTO watchlist_events(id,watchlist_id,watchlist_target_id,event_type,event_payload,is_read,created_at) SELECT gen_random_uuid(),watchlist_id,id,'SLICE_BEST_PRICE_MOVED',$4::jsonb,false,$5 FROM watchlist_targets WHERE target_type='SLICE' AND market_product_code=$1 AND delivery_point_id=$2 AND availability_window_code=$3")
                     .bind(product).bind(point).bind(&order.availability_window).bind(slice_payload).bind(command.now).execute(&mut *conn).await?;
             }

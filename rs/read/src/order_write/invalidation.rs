@@ -5,7 +5,7 @@ use std::{
 
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
-use sqlx::{PgConnection, Row};
+use sqlx::PgConnection;
 use uuid::Uuid;
 
 use super::{
@@ -234,8 +234,8 @@ pub async fn invalidate_organization(
     let mut releases = BTreeMap::<Uuid, Decimal>::new();
     let mut total = Decimal::ZERO;
     for order in &before.orders {
-        if let Some(item) = order.inventory_item_id {
-            if order.remaining_quantity_mt > Decimal::ZERO {
+        if let Some(item) = order.inventory_item_id
+            && order.remaining_quantity_mt > Decimal::ZERO {
                 let value = releases.entry(item).or_default();
                 *value = value
                     .checked_add(order.remaining_quantity_mt)
@@ -253,7 +253,6 @@ pub async fn invalidate_organization(
                             "Reservation sum is out of range.",
                         )
                     })?;
-            }
         }
     }
     release_uncommitted(conn, &releases).await?;
