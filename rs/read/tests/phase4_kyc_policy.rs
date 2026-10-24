@@ -90,6 +90,7 @@ fn p4_t9_c08() {
         let mut builder = sqlx::QueryBuilder::<sqlx::Postgres>::new("SELECT ");
         bind_eligibility_sql(&mut builder, &policy(true), sql_party, now());
         let sql = builder.sql();
+        let sql = sql.as_str();
         assert!(sql.contains("$1::boolean"));
         assert!(sql.contains("$2::timestamptz"));
         assert!(!sql.contains("2026"));
