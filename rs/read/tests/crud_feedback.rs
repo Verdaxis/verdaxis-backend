@@ -659,7 +659,7 @@ async fn admin_role_and_account_state_are_enforced() {
         .unwrap();
     let (status, body, headers) = send(&harness.app(), get_admin(&harness.token, "")).await;
     assert_eq!(status, 401, "{body}");
-    assert_eq!(body, json!({"detail": "Could not validate credentials"}));
+    assert_eq!(body, verdaxis_read::auth::AuthError::Credentials.body());
     assert_eq!(headers["www-authenticate"], "Bearer");
 
     for (status_value, expected) in [

@@ -455,8 +455,8 @@ fn d1_non_string_subject_is_401() {
             .expect_err("a non-string subject is not a credential");
         assert_eq!(refused.status(), 401, "access {name}");
         assert_eq!(
-            refused.body()["detail"],
-            "Could not validate credentials",
+            refused.body()["detail"]["code"],
+            "AUTH_CREDENTIALS_INVALID",
             "access {name}"
         );
 
@@ -475,8 +475,8 @@ fn d1_non_string_subject_is_401() {
             .expect_err("a non-string refresh subject is not a credential");
         assert_eq!(refused.status(), 401, "refresh {name}");
         assert_eq!(
-            refused.body()["detail"],
-            "Could not validate credentials",
+            refused.body()["detail"]["code"],
+            "AUTH_CREDENTIALS_INVALID",
             "refresh {name}"
         );
     }

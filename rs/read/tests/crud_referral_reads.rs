@@ -680,7 +680,7 @@ async fn postgres_referral_reads_and_public_resolution() {
         assert_eq!(body["detail"], "Not authenticated");
         let (status, body) = send(&app, "GET", path, Some("not-a-jwt"), false).await;
         assert_eq!(status, 401, "{body}");
-        assert_eq!(body["detail"], "Could not validate credentials");
+        assert_eq!(body["detail"]["code"], "AUTH_CREDENTIALS_INVALID");
     }
     // A token whose subject does not exist is refused the same way.
     let (status, body) = send(
