@@ -1,22 +1,139 @@
-pub use verdaxis_read::{Config, MarketPolicy, auth, market};
+//! Pricing-overlay route: pure projection, HTTP order and populated PostgreSQL.
+//!
+//! `compliance_overlay_cases`, `compliance_overlay_limits` and the catalog case
+//! are pure. `compliance_overlay_http_cases` drives the real route through its
+//! middleware without a database: the body bound, the bearer, the Market
+//! Support refusal and the method answers are decided before any domain work.
+//! The `#[cfg(feature = "contract-tests")]` cases use the disposable market
+//! fixture that `run_market_contract.sh` seeds: the authenticated order and
+//! scoped fleet counts, the 500 ms actor-lock and 5 s statement deadlines, the
+//! deterministic statement snapshot, and the accepted read index. That runner
+//! is the only one that sets the fixture URL and manifest; `run_postgres.sh`
+//! reaches the same cases without either and they return before any assertion,
+//! which is recorded in the lane report rather than reported as a pass.
+
+pub use verdaxis_read::{
+    ApiError, AppState, Config, MarketPolicy, auth, market, routes, runtime,
+};
 
 #[path = "../src/compliance/pricing.rs"]
 pub mod pricing;
 mod compliance {
     pub use crate::pricing;
+    pub use verdaxis_read::compliance::http;
 }
 #[path = "../src/routes/compliance_overlay.rs"]
 mod overlay;
 
-use overlay::{OverlayRequest, alcohol_family};
+#[path = "support/phase5/public_fixture.rs"]
+mod public_fixture;
+
+use axum::body::Body;
+use axum::http::{Request, StatusCode, header};
+use axum::response::Response;
+use overlay::{OverlayAuthority, OverlayRequest, alcohol_family, routes as overlay_routes};
 use pricing::AlcoholFamily;
-use serde_json::json;
+use serde_json::{Value, json};
+use tower::ServiceExt;
 use uuid::Uuid;
 
-fn fixture_policy() -> verdaxis_read::MarketPolicy {
+const TEST_SECRET: &str = "phase5-overlay-http-test-secret-minimum-32-chars";
+const TEST_ISSUER: &str = "verdaxis-test-api";
+const TEST_AUDIENCE: &str = "verdaxis-test-web";
+
+fn fixture_policy() -> MarketPolicy {
     let bytes = include_bytes!("../../../deploy/rust/market-policy.json");
-    let document: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+    let document: Value = serde_json::from_slice(bytes).unwrap();
     market::policy::load_policy(bytes, document["source_sha"].as_str().unwrap()).unwrap()
+}
+
+fn settings() -> auth::VerificationSettings {
+    auth::VerificationSettings::new(
+        TEST_SECRET.into(),
+        None,
+        TEST_ISSUER.into(),
+        TEST_AUDIENCE.into(),
+    )
+}
+
+fn test_config(
+    database_url: String,
+    compliance_eur_usd_rate: Option<rust_decimal::Decimal>,
+) -> Config {
+    Config {
+        kyc_execution_gate_enabled: true,
+        environment: "test".into(),
+        release_sha: verdaxis_read::compiled_sha().into(),
+        migration_revision: "kycg_20261014_staging".into(),
+        database_url,
+        db_session_time_zone: "Asia/Singapore".into(),
+        prepared_budget: None,
+        bind: "127.0.0.1:0".parse().unwrap(),
+        read_admission_slots: 4,
+        pool_max: 5,
+        python_budget: 52,
+        configured_max_connections: 100,
+        compliance_eur_usd_rate,
+        fleet_artifact_path: "data/fleet_demand.json".into(),
+    }
+}
+
+/// A state whose read pool never connects: every request must be refused by
+/// the HTTP order before it can reach a domain statement.
+fn offline_state() -> AppState {
+    let config = test_config(
+        "postgres://offline_app:offline_password@127.0.0.1:5432/offline_test".into(),
+        None,
+    );
+    let read = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(config.read_admission_slots)
+        .connect_lazy(&config.database_url)
+        .unwrap();
+    let health = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .connect_lazy(&config.database_url)
+        .unwrap();
+    AppState::new(config, runtime::db::Pools { read, health }, fixture_policy()).unwrap()
+}
+
+fn authority() -> OverlayAuthority {
+    OverlayAuthority::new(settings(), auth::limits::SharedLimits::default())
+}
+
+fn overlay_app(state: AppState) -> axum::Router {
+    overlay_routes(authority()).with_state(state)
+}
+
+async fn post(app: axum::Router, body: Body, bearer: Option<&str>, support: bool) -> Response {
+    let mut builder = Request::builder()
+        .method("POST")
+        .uri(compliance::http::OVERLAY_PATH);
+    if let Some(token) = bearer {
+        builder = builder.header(header::AUTHORIZATION, format!("Bearer {token}"));
+    }
+    if support {
+        builder = builder.header("x-verdaxis-market-support-context", "overlay-case");
+    }
+    app.oneshot(builder.body(body).unwrap()).await.unwrap()
+}
+
+async fn get(app: axum::Router, uri: &str) -> Response {
+    app.oneshot(
+        Request::builder()
+            .method("GET")
+            .uri(uri)
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await
+    .unwrap()
+}
+
+async fn json_body(response: Response) -> Value {
+    let bytes = axum::body::to_bytes(response.into_body(), 65536)
+        .await
+        .unwrap();
+    serde_json::from_slice(&bytes).unwrap()
 }
 
 #[test]
@@ -122,28 +239,743 @@ fn compliance_overlay_statement_shape() {
     assert_eq!(sql.matches(';').count(), 0);
 }
 
-#[test]
-#[ignore = "Task 10 integration: deterministic concurrent statement snapshot fixture"]
-fn compliance_overlay_snapshot_cases() {
-    panic!("A deterministic writer barrier must prove the domain statement snapshot");
+/// The HTTP order the client sees, with no database reachable.
+#[tokio::test]
+async fn compliance_overlay_http_cases() {
+    let invalid = serde_json::to_vec(&json!({"order_ids": ["not-a-uuid"], "year": 1999})).unwrap();
+
+    // A syntactically valid body with invalid semantics is a 401 without a
+    // bearer: no typed rule runs first.
+    let response = post(
+        overlay_app(offline_state()),
+        Body::from(invalid.clone()),
+        None,
+        false,
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(response.headers()["www-authenticate"], "Bearer");
+    assert_eq!(json_body(response).await["detail"], "Not authenticated");
+
+    // The accepted middleware refuses a Market Support POST at the boundary;
+    // the route never runs, and the refusal keeps the typed envelope.
+    let response = runtime::http::middleware(overlay_app(offline_state()))
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(compliance::http::OVERLAY_PATH)
+                .header("x-verdaxis-market-support-context", "overlay-case")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        json_body(response).await["detail"]["code"],
+        "MARKET_SUPPORT_MUTATION_NOT_ALLOWED"
+    );
+
+    // The raw 101-ID bound is a semantic rule: an anonymous caller is refused
+    // by authentication, not by the body's contents.
+    let too_many = serde_json::to_vec(&json!({"order_ids": vec![Uuid::new_v4(); 101]})).unwrap();
+    let response = post(overlay_app(offline_state()), Body::from(too_many), None, false).await;
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+    // Size and syntax may precede authentication; neither reaches a domain rule.
+    let oversized = vec![b'x'; compliance::http::POST_BODY_MAX_BYTES + 1];
+    let response = post(overlay_app(offline_state()), Body::from(oversized), None, false).await;
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let body = json_body(response).await;
+    assert_eq!(body["detail"]["code"], "INVALID_INPUT");
+    assert_eq!(
+        body["detail"]["message"],
+        format!(
+            "Request body is larger than {} bytes.",
+            compliance::http::POST_BODY_MAX_BYTES
+        )
+    );
+
+    for body in [Body::from("{not json"), Body::empty()] {
+        let response = post(overlay_app(offline_state()), body, None, false).await;
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(
+            json_body(response).await["detail"]["code"],
+            "INVALID_INPUT"
+        );
+    }
+
+    // The body bound is inclusive: exactly 65536 bytes passes the syntax stage
+    // and is then refused by authentication, never by size.
+    let prefix = "{\"order_ids\":[],\"pad\":\"";
+    let suffix = "\"}";
+    let padding = compliance::http::POST_BODY_MAX_BYTES - prefix.len() - suffix.len();
+    let exact = format!("{prefix}{}{suffix}", "x".repeat(padding));
+    assert_eq!(exact.len(), compliance::http::POST_BODY_MAX_BYTES);
+    let response = post(overlay_app(offline_state()), Body::from(exact), None, false).await;
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+    // The route is POST-only. The composed serving router owns the exact
+    // method-and-slash policy for the group (Task 14); here the module's own
+    // answer is asserted.
+    let response = get(overlay_app(offline_state()), compliance::http::OVERLAY_PATH).await;
+    assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
+    assert_eq!(response.headers()["allow"], "POST");
+}
+
+#[cfg(feature = "contract-tests")]
+fn signed_token(subject: Uuid) -> String {
+    use chrono::{Duration, Utc};
+    let now = Utc::now();
+    let claims = json!({
+        "sub": subject,
+        "type": "access",
+        "iss": TEST_ISSUER,
+        "aud": TEST_AUDIENCE,
+        "jti": Uuid::new_v4().to_string(),
+        "iat": now.timestamp(),
+        "exp": (now + Duration::hours(1)).timestamp(),
+    });
+    jsonwebtoken::encode(
+        &jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS256),
+        &claims,
+        &jsonwebtoken::EncodingKey::from_secret(TEST_SECRET.as_bytes()),
+    )
+    .unwrap()
+}
+
+/// The populated fixture URL, or `None` in the foundation runner.
+#[cfg(feature = "contract-tests")]
+fn fixture_url() -> Option<String> {
+    match std::env::var("RUST_MARKET_TEST_DATABASE_URL") {
+        Ok(url) => Some(url),
+        Err(_) => {
+            // `run_market_contract.sh` seeds the market fixture and always
+            // sets both values; a manifest without its URL is a broken
+            // invocation, not a runner that does not carry this matrix.
+            assert!(
+                std::env::var("RUST_OVERLAY_TEST_CASES").is_err(),
+                "the overlay fixture URL is required when its manifest is set"
+            );
+            None
+        }
+    }
+}
+
+#[cfg(feature = "contract-tests")]
+async fn writer_pool() -> sqlx::PgPool {
+    let url = std::env::var("RUST_MARKET_WRITER_URL")
+        .expect("disposable market writer URL")
+        .replace("postgresql+asyncpg://", "postgres://");
+    sqlx::postgres::PgPoolOptions::new()
+        .max_connections(4)
+        .connect(&url)
+        .await
+        .expect("writer pool")
+}
+
+#[cfg(feature = "contract-tests")]
+async fn user_id(pool: &sqlx::PgPool, email: &str) -> Uuid {
+    sqlx::query_scalar("SELECT id FROM users WHERE email=$1")
+        .bind(email)
+        .fetch_one(pool)
+        .await
+        .expect("seeded fixture account")
+}
+
+/// A current account that belongs to no organization. The disposable database
+/// is discarded after the run, so the row is not removed.
+#[cfg(feature = "contract-tests")]
+async fn no_organization_user(pool: &sqlx::PgPool) -> Uuid {
+    let id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO users (id,email,password_hash,role,status,organization_id, \
+         email_verified,must_change_password,kyc_status) \
+         VALUES ($1,$2,'fixture-hash','BUYER','APPROVED',NULL,true,false,'APPROVED')",
+    )
+    .bind(id)
+    .bind(format!("overlay-no-org-{id}@rust-market.test"))
+    .execute(pool)
+    .await
+    .expect("no-organization account");
+    id
+}
+
+#[cfg(feature = "contract-tests")]
+async fn authenticated_state(config: &Config) -> AppState {
+    let pools = verdaxis_read::connect(config).await.expect("read pools");
+    AppState::new(config.clone(), pools, fixture_policy()).expect("app state")
+}
+
+#[cfg(feature = "contract-tests")]
+fn manifest() -> Value {
+    serde_json::from_slice(
+        &std::fs::read(
+            std::env::var("RUST_OVERLAY_TEST_CASES").expect("overlay fixture manifest path"),
+        )
+        .expect("overlay fixture manifest must exist"),
+    )
+    .expect("valid overlay fixture manifest")
+}
+
+#[cfg(feature = "contract-tests")]
+fn scope_count(manifest: &Value, name: &str) -> u64 {
+    manifest["scopes"]
+        .as_array()
+        .expect("required actor scopes")
+        .iter()
+        .find(|scope| scope["name"] == name)
+        .unwrap_or_else(|| panic!("required scope {name}"))["count"]
+        .as_u64()
+        .expect("exact fixture count")
+}
+
+#[cfg(feature = "contract-tests")]
+fn uuids(manifest: &Value, key: &str) -> Vec<Uuid> {
+    manifest[key]
+        .as_array()
+        .expect("required fixture ID list")
+        .iter()
+        .map(|value| value.as_str().unwrap().parse().unwrap())
+        .collect()
+}
+
+#[cfg(feature = "contract-tests")]
+fn decimal(value: &Value) -> rust_decimal::Decimal {
+    value
+        .as_str()
+        .expect("decimal as a string")
+        .parse()
+        .expect("a decimal")
+}
+
+/// The authenticated route against the populated market fixture: the account
+/// and support order, the scoped fleet count, every requested key, the
+/// eligible-ASK map and the reporting-year assumptions.
+#[cfg(feature = "contract-tests")]
+#[tokio::test]
+async fn compliance_overlay_authenticated_cases() {
+    use rust_decimal::Decimal;
+
+    let Some(url) = fixture_url() else { return };
+    let writer = writer_pool().await;
+    let config = test_config(url, None);
+    let state = authenticated_state(&config).await;
+    let manifest = manifest();
+    let member = user_id(&writer, "fixture-real@rust-market.test").await;
+    let admin = user_id(&writer, "fixture-admin@rust-market.test").await;
+    let pending = user_id(&writer, "fixture-pending@rust-market.test").await;
+    let no_organization = no_organization_user(&writer).await;
+    let member_token = signed_token(member);
+    let admin_token = signed_token(admin);
+    let pending_token = signed_token(pending);
+    let no_organization_token = signed_token(no_organization);
+    let visible = uuids(&manifest, "visible_ids");
+    let hidden = uuids(&manifest, "hidden_ids");
+    assert!(visible.len() >= 2, "two qualified fixture orders required");
+    assert!(hidden.len() >= 4, "hidden fixture orders required");
+    let mixed: Vec<Uuid> = visible.iter().chain(&hidden).copied().collect();
+    let mixed_body = serde_json::to_vec(&json!({"order_ids": mixed})).unwrap();
+    let empty_body = serde_json::to_vec(&json!({"order_ids": []})).unwrap();
+    let invalid = serde_json::to_vec(&json!({"order_ids": ["not-a-uuid"], "year": 1999})).unwrap();
+    let too_many = serde_json::to_vec(&json!({"order_ids": vec![Uuid::new_v4(); 101]})).unwrap();
+
+    // Authentication precedes every semantic refusal, and a current account
+    // that the accepted policy denies never reaches the typed rules.
+    for (token, status) in [
+        (None, StatusCode::UNAUTHORIZED),
+        (Some(&pending_token), StatusCode::FORBIDDEN),
+    ] {
+        for body in [invalid.clone(), too_many.clone(), empty_body.clone()] {
+            let response = post(
+                overlay_app(state.clone()),
+                Body::from(body),
+                token.map(String::as_str),
+                false,
+            )
+            .await;
+            assert_eq!(response.status(), status);
+        }
+    }
+
+    // A Market Support request is refused before the typed rules, for every
+    // body, including an empty one.
+    for body in [invalid.clone(), too_many.clone(), empty_body.clone()] {
+        let response = post(
+            overlay_app(state.clone()),
+            Body::from(body),
+            Some(member_token.as_str()),
+            true,
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert_eq!(
+            json_body(response).await["detail"]["code"],
+            "MARKET_SUPPORT_MUTATION_NOT_ALLOWED"
+        );
+    }
+
+    // Authenticated, outside Market Support mode: the typed input rules decide.
+    let response = post(
+        overlay_app(state.clone()),
+        Body::from(invalid.clone()),
+        Some(member_token.as_str()),
+        false,
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        json_body(response).await["detail"]["code"],
+        "INVALID_INPUT"
+    );
+    let response = post(
+        overlay_app(state.clone()),
+        Body::from(too_many.clone()),
+        Some(member_token.as_str()),
+        false,
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(json_body(response).await["detail"]["code"], "INVALID_INPUT");
+
+    // An empty request still carries the exact actor-scoped fleet count.
+    for (token, scope) in [
+        (&member_token, "member"),
+        (&admin_token, "administrator"),
+        (&no_organization_token, "no_organization"),
+    ] {
+        let response = post(
+            overlay_app(state.clone()),
+            Body::from(empty_body.clone()),
+            Some(token.as_str()),
+            false,
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK, "{scope}");
+        let body = json_body(response).await;
+        assert_eq!(body["overlays"].as_object().unwrap().len(), 0);
+        assert_eq!(
+            body["assumptions"]["fleet_vessel_count"],
+            json!(scope_count(&manifest, scope))
+        );
+        assert_eq!(body["assumptions"]["fleet_intensity_basis"], "DEFAULT_VLSFO");
+        assert_eq!(body["assumptions"]["year"], 2026);
+        assert_eq!(body["assumptions"]["year_target"], "89.3368");
+        assert_eq!(body["assumptions"]["eur_usd_rate"], "1.08");
+        assert_eq!(body["assumptions"]["ghgie_actual_gco2_mj"], "91.16");
+        assert_eq!(body["assumptions"]["vlsfo_baseline_gco2_mj"], "91.16");
+        assert_eq!(body["assumptions"]["penalty_eur_per_tonne"], "2400");
+        assert_eq!(
+            body["assumptions"]["excluded_factors"],
+            json!(["RFNBO_MULTIPLIER", "DEFICIT_ESCALATION", "EXTRA_EU_VOYAGE_SCOPE"])
+        );
+    }
+
+    // Every requested key is present, hidden rows are indistinguishable from a
+    // missing id, and the two qualified rows keep distinct lifecycle values.
+    let response = post(
+        overlay_app(state.clone()),
+        Body::from(mixed_body.clone()),
+        Some(member_token.as_str()),
+        false,
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    let overlays = body["overlays"].as_object().unwrap();
+    assert_eq!(overlays.len(), mixed.len());
+    for id in &hidden {
+        assert!(overlays[&id.to_string()].is_null(), "hidden {id}");
+    }
+    for id in &visible {
+        let overlay = &overlays[&id.to_string()];
+        assert!(!overlay.is_null(), "visible {id}");
+        assert_eq!(overlay["financial_benefit_status"], "UNPRICED");
+        assert_eq!(
+            decimal(&overlay["penalty_avoided_eur_per_mt"]),
+            Decimal::ZERO
+        );
+        assert_eq!(
+            decimal(&overlay["penalty_avoided_usd_per_mt"]),
+            Decimal::ZERO
+        );
+        assert_eq!(overlay["ci_basis"], "LISTING");
+        let (fuel, ci, lcv): (String, Option<Decimal>, Option<Decimal>) = sqlx::query_as(
+            "SELECT p.fuel_type, o.carbon_intensity_gco2_mj, o.energy_density_mj_kg \
+             FROM orderbook_orders o JOIN products p ON p.id=o.product_id WHERE o.id=$1",
+        )
+        .bind(id)
+        .fetch_one(&writer)
+        .await
+        .expect("qualified fixture row");
+        let expected = pricing::LifecycleOverlayCore::compute(alcohol_family(&fuel), ci, lcv)
+            .unwrap()
+            .unwrap();
+        assert_eq!(decimal(&overlay["ci_gco2_mj"]), expected.ci_gco2_mj);
+        assert_eq!(decimal(&overlay["lcv_mj_kg"]), expected.lcv_mj_kg);
+        assert_eq!(
+            decimal(&overlay["tco2e_avoided_per_mt"]),
+            expected.tco2e_avoided_per_mt
+        );
+        assert_eq!(
+            overlay["lcv_basis"],
+            serde_json::to_value(expected.lcv_basis).unwrap()
+        );
+    }
+    assert_ne!(
+        overlays[&visible[0].to_string()],
+        overlays[&visible[1].to_string()],
+        "qualified fixtures must have distinct lifecycle values"
+    );
+
+    // The administrator reads the same marketplace ASK map with the global
+    // count; the count is context, not a different projection.
+    let admin_body = json_body(
+        post(
+            overlay_app(state.clone()),
+            Body::from(mixed_body.clone()),
+            Some(admin_token.as_str()),
+            false,
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(
+        admin_body["assumptions"]["fleet_vessel_count"],
+        json!(scope_count(&manifest, "administrator"))
+    );
+    assert_eq!(admin_body["overlays"], body["overlays"]);
+
+    // Duplicates collapse in the response and still consume the raw 100 bound.
+    let duplicate = serde_json::to_vec(&json!({"order_ids": vec![visible[0]; 100]})).unwrap();
+    let duplicate_body = json_body(
+        post(
+            overlay_app(state.clone()),
+            Body::from(duplicate),
+            Some(member_token.as_str()),
+            false,
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(duplicate_body["overlays"].as_object().unwrap().len(), 1);
+    assert_eq!(
+        duplicate_body["assumptions"]["fleet_vessel_count"],
+        json!(scope_count(&manifest, "member"))
+    );
+
+    // The reporting year reaches the one shared schedule.
+    let response = post(
+        overlay_app(state.clone()),
+        Body::from(serde_json::to_vec(&json!({"order_ids": [], "year": 2035})).unwrap()),
+        Some(member_token.as_str()),
+        false,
+    )
+    .await;
+    assert_eq!(
+        json_body(response).await["assumptions"]["year_target"],
+        "77.9418"
+    );
+}
+
+/// The scoped deadlines are applied before the actor lock; a held account row
+/// is refused inside the 500 ms lock wait, and a domain timeout maps to the
+/// typed read envelope.
+#[cfg(feature = "contract-tests")]
+#[tokio::test]
+async fn compliance_overlay_timeout_cases() {
+    use std::time::{Duration, Instant};
+
+    let Some(url) = fixture_url() else { return };
+    let writer = writer_pool().await;
+    let config = test_config(url, None);
+    let state = authenticated_state(&config).await;
+    let member = user_id(&writer, "fixture-real@rust-market.test").await;
+    let token = signed_token(member);
+
+    let access =
+        auth::verify_access(&token, &settings(), chrono::Utc::now()).expect("signed access token");
+    let (lock_wait, deadline) = auth::run_authenticated(
+        &state,
+        access,
+        auth::AuthenticatedRequest::new("POST", compliance::http::OVERLAY_PATH, false),
+        |transaction| {
+            Box::pin(async move {
+                let lock_wait: String = sqlx::query_scalar("SHOW lock_timeout")
+                    .fetch_one(&mut *transaction.connection())
+                    .await
+                    .expect("lock timeout");
+                let deadline: String = sqlx::query_scalar("SHOW statement_timeout")
+                    .fetch_one(&mut *transaction.connection())
+                    .await
+                    .expect("statement timeout");
+                Ok::<_, ApiError>((lock_wait, deadline))
+            })
+        },
+    )
+    .await
+    .expect("the overlay helper transaction");
+    assert_eq!(lock_wait, "500ms");
+    assert_eq!(deadline, "5s");
+
+    // Warm the pool, then hold the actor row from an independent connection.
+    let empty = || Body::from(b"{\"order_ids\":[]}".to_vec());
+    let response = post(
+        overlay_app(state.clone()),
+        empty(),
+        Some(token.as_str()),
+        false,
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let mut holder = writer.begin().await.expect("actor holder");
+    sqlx::query("SELECT id FROM users WHERE id=$1 FOR UPDATE")
+        .bind(member)
+        .fetch_one(&mut *holder)
+        .await
+        .expect("hold the actor row");
+    let started = Instant::now();
+    let response = post(
+        overlay_app(state.clone()),
+        empty(),
+        Some(token.as_str()),
+        false,
+    )
+    .await;
+    let elapsed = started.elapsed();
+    // The accepted helper owns this refusal; it answers with its generic
+    // database error, and the 500 ms wait bounds how long the client waits.
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(
+        json_body(response).await["detail"],
+        "Database operation failed."
+    );
+    assert!(
+        elapsed < Duration::from_secs(2),
+        "the 500 ms lock wait must refuse before two seconds: {elapsed:?}"
+    );
+    holder.rollback().await.expect("release the actor row");
+
+    // A domain statement that reaches the shared deadline is a typed
+    // read-unavailable answer with one retry hint, not a generic 500.
+    let timeout = sqlx::Error::Database(Box::new(public_fixture::DatabaseFailure("57014")));
+    let mapped = routes::market_data_error::database_failure(
+        compliance::http::OVERLAY_PATH,
+        &timeout,
+    )
+    .into_response();
+    assert_eq!(mapped.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(mapped.headers()["retry-after"], "1");
+    assert_eq!(
+        json_body(mapped).await["detail"]["code"],
+        "READ_UNAVAILABLE"
+    );
+}
+
+/// One statement sees one snapshot of the ASK map and the fleet count: a
+/// concurrent writer that changes an order's CI and inserts a vessel while the
+/// request's statement is parked cannot split the answer.
+#[cfg(feature = "contract-tests")]
+#[tokio::test]
+async fn compliance_overlay_snapshot_cases() {
+    use rust_decimal::Decimal;
+    use std::time::{Duration, Instant};
+
+    let Some(url) = fixture_url() else { return };
+    let writer = writer_pool().await;
+    let config = test_config(url, None);
+    let state = authenticated_state(&config).await;
+    let manifest = manifest();
+    let member = user_id(&writer, "fixture-real@rust-market.test").await;
+    let token = signed_token(member);
+    let order = uuids(&manifest, "visible_ids")[0];
+    let member_count = scope_count(&manifest, "member");
+    let organization: Option<Uuid> = sqlx::query_scalar("SELECT organization_id FROM users WHERE id=$1")
+        .bind(member)
+        .fetch_one(&writer)
+        .await
+        .expect("member organization");
+    let original_ci: Option<Decimal> =
+        sqlx::query_scalar("SELECT carbon_intensity_gco2_mj FROM orderbook_orders WHERE id=$1")
+            .bind(order)
+            .fetch_one(&writer)
+            .await
+            .expect("fixture ASK row");
+    let ask_body = || {
+        Body::from(serde_json::to_vec(&json!({"order_ids": [order]})).unwrap())
+    };
+
+    let before = json_body(
+        post(
+            overlay_app(state.clone()),
+            Body::from(b"{\"order_ids\":[]}".to_vec()),
+            Some(token.as_str()),
+            false,
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(
+        before["assumptions"]["fleet_vessel_count"],
+        json!(member_count)
+    );
+
+    // Park every reader of the catalog relation, then start the request: its
+    // one statement waits there with its READ COMMITTED snapshot already taken.
+    let mut park = writer.begin().await.expect("parking transaction");
+    sqlx::query("LOCK TABLE products IN ACCESS EXCLUSIVE MODE")
+        .execute(&mut *park)
+        .await
+        .expect("park readers on the catalog relation");
+    let task = tokio::spawn({
+        let app = overlay_app(state.clone());
+        let token = token.clone();
+        let body = ask_body();
+        async move {
+            let response = post(app, body, Some(token.as_str()), false).await;
+            (response.status(), json_body(response).await)
+        }
+    });
+    let started = Instant::now();
+    loop {
+        let waiting: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pg_locks AS l \
+             JOIN pg_class AS c ON c.oid = l.relation \
+             WHERE c.relname = 'products' AND c.relnamespace = 'public'::regnamespace \
+               AND NOT l.granted",
+        )
+        .fetch_one(&writer)
+        .await
+        .expect("waiting reader count");
+        if waiting > 0 {
+            break;
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "the request's statement must park on the catalog relation"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+
+    // Commit both changes from independent connections while the statement is
+    // parked. Neither write conflicts with the parked reader.
+    sqlx::query("UPDATE orderbook_orders SET carbon_intensity_gco2_mj='12.5' WHERE id=$1")
+        .bind(order)
+        .execute(&writer)
+        .await
+        .expect("change the ASK CI");
+    let snapshot_vessel = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO vessels (id,organization_id,name,imo_number) VALUES ($1,$2,$3,$4)",
+    )
+    .bind(snapshot_vessel)
+    .bind(organization)
+    .bind(format!("Snapshot {snapshot_vessel}"))
+    .bind(snapshot_vessel.to_string())
+    .execute(&writer)
+    .await
+    .expect("insert a member vessel");
+    park.rollback().await.expect("release the catalog relation");
+
+    let (status, body) = tokio::time::timeout(Duration::from_secs(15), task)
+        .await
+        .expect("the parked statement must resolve")
+        .expect("the request task");
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        body["assumptions"]["fleet_vessel_count"],
+        json!(member_count),
+        "the statement must not see the concurrent insert"
+    );
+    assert_eq!(
+        decimal(&body["overlays"][&order.to_string()]["ci_gco2_mj"]),
+        original_ci.expect("the fixture ASK declares a CI"),
+        "the statement must not see the concurrent update"
+    );
+
+    // A later request observes both committed changes.
+    let after = json_body(
+        post(
+            overlay_app(state.clone()),
+            Body::from(
+                serde_json::to_vec(&json!({"order_ids": [order]})).unwrap(),
+            ),
+            Some(token.as_str()),
+            false,
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(
+        after["assumptions"]["fleet_vessel_count"],
+        json!(member_count + 1)
+    );
+    assert_eq!(
+        decimal(&after["overlays"][&order.to_string()]["ci_gco2_mj"]),
+        Decimal::new(125, 1)
+    );
+
+    // Restore the fixture so the other populated cases see the seeded values.
+    sqlx::query("DELETE FROM vessels WHERE id=$1")
+        .bind(snapshot_vessel)
+        .execute(&writer)
+        .await
+        .expect("remove the snapshot vessel");
+    sqlx::query("UPDATE orderbook_orders SET carbon_intensity_gco2_mj=$1 WHERE id=$2")
+        .bind(original_ci)
+        .bind(order)
+        .execute(&writer)
+        .await
+        .expect("restore the ASK CI");
+    let restored: Option<Decimal> =
+        sqlx::query_scalar("SELECT carbon_intensity_gco2_mj FROM orderbook_orders WHERE id=$1")
+            .bind(order)
+            .fetch_one(&writer)
+            .await
+            .expect("restored ASK row");
+    assert_eq!(restored, original_ci);
+}
+
+/// The accepted read index exists and is not unique.
+#[cfg(feature = "contract-tests")]
+#[tokio::test]
+async fn compliance_overlay_index_cases() {
+    let Some(_url) = fixture_url() else { return };
+    let writer = writer_pool().await;
+    let rows: Vec<(String, String)> = sqlx::query_as(
+        "SELECT indexname, indexdef FROM pg_indexes WHERE schemaname='public' \
+         AND indexname IN ('ix_p5_vessels_org_id','ix_p5_producers_cod_name_id', \
+         'ix_p5_producers_status_cod_id') ORDER BY indexname",
+    )
+    .fetch_all(&writer)
+    .await
+    .expect("index catalog");
+    assert_eq!(
+        rows.len(),
+        3,
+        "the accepted read indexes must exist: {rows:?}"
+    );
+    let definition = |name: &str| {
+        rows.iter()
+            .find(|(candidate, _)| candidate == name)
+            .map(|(_, definition)| definition.as_str())
+            .unwrap_or_else(|| panic!("missing index {name}"))
+    };
+    assert!(definition("ix_p5_vessels_org_id").contains("(organization_id, id)"));
+    assert!(definition("ix_p5_producers_cod_name_id").contains("(cod_year, name, id)"));
+    assert!(definition("ix_p5_producers_status_cod_id").contains("(status, cod_year, id)"));
+    for (_, definition) in &rows {
+        assert!(
+            !definition.contains("UNIQUE"),
+            "an additive index is never unique"
+        );
+    }
 }
 
 #[test]
-#[ignore = "Task 2b: authenticated adapter, account/support ordering and scoped timeouts"]
-fn compliance_overlay_authenticated_cases() {
-    panic!("Task 2b must supply the authenticated compliance adapter before HTTP acceptance");
-}
-
-#[test]
-#[ignore = "Task 2c: accepted vessel index migration and catalog gate"]
-fn compliance_overlay_index_cases() {
-    panic!("Task 2c must supply the accepted vessel index before route acceptance");
-}
-
-#[test]
-#[ignore = "Tasks 2b and 8a: composed HTTP route and actual frontend feature fixture"]
+#[ignore = "Task 11: actual frontend feature fixture after the composed route"]
 fn compliance_overlay_client_cases() {
-    panic!("Tasks 2b and 8a must land before the composed client gate");
+    panic!("Task 11 must supply the coordinated client fixture before client acceptance");
 }
 
 #[cfg(feature = "contract-tests")]
@@ -157,22 +989,7 @@ async fn compliance_overlay_postgres_cases() {
     let mut connection = sqlx::PgConnection::connect(&url).await.unwrap();
     use sqlx::Connection;
     let policy = fixture_policy();
-    let config = Config {
-        environment: "test".into(),
-        release_sha: std::env::var("RELEASE_SHA").unwrap(),
-        database_url: url,
-        kyc_execution_gate_enabled: true,
-        db_session_time_zone: "Asia/Singapore".into(),
-        migration_revision: "kycg_20261014_staging".into(),
-        bind: "127.0.0.1:0".parse().unwrap(),
-        read_admission_slots: 16,
-        pool_max: 17,
-        python_budget: 52,
-        configured_max_connections: 100,
-        prepared_budget: None,
-        compliance_eur_usd_rate: None,
-        fleet_artifact_path: "data/fleet_demand.json".into(),
-    };
+    let config = test_config(url, None);
     verdaxis_read::validate_config(&config).unwrap();
     let clock = market::visibility::VisibilityClock::at(
         std::env::var("RUST_MARKET_TEST_CLOCK")
@@ -220,28 +1037,14 @@ async fn compliance_overlay_postgres_cases() {
         .unwrap();
         assert_eq!(response.overlays[id], expected);
     }
-    let fixture: serde_json::Value = serde_json::from_slice(
-        &std::fs::read(
-            std::env::var("RUST_OVERLAY_TEST_CASES").expect("overlay fixture manifest path"),
-        )
-        .expect("overlay fixture manifest must exist"),
-    )
-    .expect("valid overlay fixture manifest");
-    let ids = |key: &str| -> Vec<Uuid> {
-        fixture[key]
-            .as_array()
-            .expect("required fixture ID list")
-            .iter()
-            .map(|value| value.as_str().unwrap().parse().unwrap())
-            .collect()
-    };
-    let qualified = ids("visible_ids");
-    let hidden = ids("hidden_ids");
+    let fixture = manifest();
+    let qualified = uuids(&fixture, "visible_ids");
+    let hidden = uuids(&fixture, "hidden_ids");
     assert!(
         qualified.len() >= 2,
         "two qualified fixture orders required"
     );
-    assert!(hidden.len() >= 2, "hidden ASK and BID fixtures required");
+    assert!(hidden.len() >= 4, "hidden ASK and BID fixtures required");
     let mut hidden_ask = false;
     let mut hidden_bid = false;
     for id in &hidden {
