@@ -23,11 +23,11 @@ All tests run through the existing isolated test-host wrappers. No tests or buil
 | Startup-report RED then local fix | prod test host | 1 assertion failure (`groups` lost prior results); fixed in worktree | `work/oracle-report-red.log` |
 | Full suite after the report fix | prod test host | 899 passed, 1 skipped; CALL_EXIT=0 (includes the previously failing report test) | `work/oracle-green3.log` |
 | Final suite after `gate_passed` default init | prod test host | 899 passed, 1 skipped; CALL_EXIT=0 — exact bytes of the commit candidate | `work/oracle-green4.log` |
-| Staging meaning gate | staging test host | live (run 5): load-wait loop admitted only below 8; readings 9.33→8.18→10.91→14.37→13.18→14.84 in the first minutes; hard deadline 10:27:20Z | `work/oracle-staging-meaning5.log` |
+| Staging meaning gate | staging test host | one authorized run (run 5): load-waited 08:27–09:34Z (readings 9.3→220→…), admitted at 09:34:41Z load1=7.42; 9 of 11 groups OK; **one live `ORACLE_RETRY` recorded** (`prices/fixture-11`, 503 temporarily busy, attempt 1, delay 1.0 s) and that group passed; run aborted spawning group 10: `FileNotFoundError` for `rs/target/debug/examples/contract_server` — the shared build artifact (symlinked to the `rust-phase2` lane's target) disappeared mid-run under concurrent host load; MEANING_EXIT=1; no meaning difference and no `ORACLE_UNAVAILABLE`; environment race, not a harness or comparison result | `work/oracle-staging-meaning5-full.log` |
 
 ## Resume point
 
-Staging meaning gate in flight (second attempt; the first was cut off by the GPT Sol usage limit mid load-wait, not by any harness failure — no `CALL_EXIT=` marker, and both the local wrapper and the detached remote unit were confirmed stopped before relaunch). When it ends: record `MEANING_EXIT` and the report outcome, then commit, push branch `fix/meaning-oracle-transient-retry`, open PR to `staging`, and record CI. No live deployment is authorized or attempted.
+All gates are done. The single authorized staging meaning-gate run was spent with the result recorded above (environment race after 9/11 groups; the new retry behaviour demonstrably fired and recovered). Next: push branch `fix/meaning-oracle-transient-retry`, open the PR to `staging`, record CI. No live deployment is authorized or attempted.
 
 ## Local-poll interruption note (24 Oct, 09:07Z)
 
