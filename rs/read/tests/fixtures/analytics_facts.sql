@@ -86,7 +86,8 @@ INSERT INTO organizations (id, name, type, provenance, created_at) VALUES
     ('00000000-0000-4000-8000-000000000002', 'Live Supplier Fuels', 'FUEL_SUPPLIER', 'REAL', '2026-03-10T00:00:00Z'),
     ('00000000-0000-4000-8000-000000000003', 'Returning Trader', 'FUEL_TRADER', 'REAL', '2026-03-15T00:00:00Z'),
     ('00000000-0000-4000-8000-000000000004', 'Pending Prospect', 'FUEL_BUYER', 'UNKNOWN', '2026-06-04T00:00:00Z'),
-    ('7cc77115-0a9f-4ec4-8c74-05aa10050111', 'Demo Activity Buyer', 'FUEL_BUYER', 'DEMO', '2026-06-01T00:00:00Z');
+    ('7cc77115-0a9f-4ec4-8c74-05aa10050111', 'Demo Activity Buyer', 'FUEL_BUYER', 'DEMO', '2026-06-01T00:00:00Z'),
+    ('d1e43e55-3fb0-4b5e-9f0b-93aa10050222', 'Demo Activity Supplier', 'FUEL_SUPPLIER', 'DEMO', '2026-06-01T00:00:00Z');
 
 INSERT INTO users (id, email, password_hash, role, status, organization_id, last_login, created_at, email_verified) VALUES
     ('00000000-0000-4000-8000-000000000011', 'buyer-active@fixture.test', 'x', 'BUYER', 'APPROVED', '00000000-0000-4000-8000-000000000001', '2026-06-20T08:00:00Z', '2026-05-10T09:00:00Z', true),

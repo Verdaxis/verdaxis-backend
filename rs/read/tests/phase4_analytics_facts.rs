@@ -954,7 +954,9 @@ mod postgres {
             .await
             .unwrap();
 
-        assert_eq!(facts.registered.buyer_current, 1);
+        // A pending buyer registered inside the period still counts, as the
+        // source statement counts role and demo exclusion only.
+        assert_eq!(facts.registered.buyer_current, 2);
         assert_eq!(facts.registered.buyer_previous, 1);
         assert_eq!(facts.registered.supplier_current, 0);
         assert_eq!(facts.registered.supplier_previous, 1);
@@ -1065,7 +1067,7 @@ mod postgres {
                 .find(|stage| stage.key == key)
                 .expect("declared journey stage")
         };
-        assert_eq!(stage("registered").total.count, Some(1));
+        assert_eq!(stage("registered").total.count, Some(2));
         assert!(stage("registered").buyer.as_ref().unwrap().suppressed);
         assert_eq!(
             stage("registered").supplier.as_ref().unwrap().count,
@@ -1194,7 +1196,7 @@ mod postgres {
         let facts = aggregates::load_overview_facts(&mut f.app, &query())
             .await
             .unwrap();
-        assert_eq!(facts.registered.buyer_current, 151);
+        assert_eq!(facts.registered.buyer_current, 152);
         assert_eq!(facts.registered.supplier_current, 150);
         // Every bulk member is counted once, on one grouped statement.
         assert_eq!(facts.drop_off.never_logged_in, 301);

@@ -1127,10 +1127,10 @@ pub async fn load_login_rollup(
                     min(first_login_at) AS first_login_at,
                     min(activity_date) AS first_login_date,
                     max(CASE WHEN activity_date >= $1::date AND activity_date < $2::date
-                        THEN 1 ELSE 0 END) AS in_current,
+                        THEN 1 ELSE 0 END)::bigint AS in_current,
                     max(CASE WHEN $3::date IS NOT NULL
                         AND activity_date >= $3::date AND activity_date < $4::date
-                        THEN 1 ELSE 0 END) AS in_previous
+                        THEN 1 ELSE 0 END)::bigint AS in_previous
              FROM user_login_days
              WHERE role IN ('BUYER','SUPPLIER')
                AND (organization_id IS NULL OR organization_id <> ALL($5::uuid[]))
