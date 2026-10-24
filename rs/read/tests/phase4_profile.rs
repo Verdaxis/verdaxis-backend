@@ -47,7 +47,14 @@ use survey::SurveyAuthority;
 
 const SECRET: &str = "profile-component-test-secret-at-least-32-characters";
 const ISSUER: &str = "profile-test";
-const CLIENT: &str = "203.0.113.7";
+const CLIENT: &str = "203.0.113.7:40000";
+
+/// Each fixture account arrives from its own address. The declared `/me` and
+/// survey limits are keyed by client, so one account must not spend another
+/// account's quota.
+fn peer(index: usize) -> String {
+    format!("198.51.100.{}:40000", index + 1)
+}
 
 fn verification() -> auth::VerificationSettings {
     auth::VerificationSettings::new(SECRET.into(), None, ISSUER.into(), ISSUER.into())
@@ -153,27 +160,27 @@ async fn get(app: &Router, path: &str, bearer: Option<&str>) -> Reply {
 }
 
 #[cfg(feature = "contract-tests")]
-async fn put(app: &Router, path: &str, bearer: &str, body: &Value) -> Reply {
+async fn put(app: &Router, peer: &str, path: &str, bearer: &str, body: &Value) -> Reply {
     send(
         app,
         "PUT",
         path,
         Some(bearer),
         Some(body.to_string().as_bytes()),
-        CLIENT,
+        peer,
     )
     .await
 }
 
 #[cfg(feature = "contract-tests")]
-async fn survey(app: &Router, bearer: Option<&str>, body: &Value) -> Reply {
+async fn survey(app: &Router, peer: &str, bearer: Option<&str>, body: &Value) -> Reply {
     send(
         app,
         "POST",
         "/api/auth/survey",
         bearer,
         Some(body.to_string().as_bytes()),
-        CLIENT,
+        peer,
     )
     .await
 }
@@ -888,7 +895,7 @@ mod postgres {
                 "/api/auth/me",
                 Some(&bearer),
                 None,
-                "198.51.100.9"
+                "198.51.100.9:40000"
             )
             .await
             .status,
@@ -898,6 +905,7 @@ mod postgres {
         for index in 0..10 {
             let reply = put(
                 &f.app,
+                CLIENT,
                 "/api/auth/me",
                 &bearer,
                 &json!({"first_name": format!("Name{index}")}),
@@ -907,6 +915,7 @@ mod postgres {
         }
         let refused = put(
             &f.app,
+            CLIENT,
             "/api/auth/me",
             &bearer,
             &json!({"first_name": "Refused"}),
@@ -932,7 +941,7 @@ mod postgres {
                     "/api/auth/me",
                     Some("bad"),
                     None,
-                    "192.0.2.44"
+                    "192.0.2.44:40000"
                 )
                 .await
                 .status,
@@ -946,7 +955,7 @@ mod postgres {
                 "/api/auth/me",
                 Some(&bearer),
                 None,
-                "192.0.2.44"
+                "192.0.2.44:40000"
             )
             .await
             .status,
@@ -960,7 +969,7 @@ mod postgres {
                     "/api/auth/me",
                     Some("bad"),
                     Some(br#"{"first_name":"Nope"}"#),
-                    "192.0.2.45"
+                    "192.0.2.45:40000"
                 )
                 .await
                 .status,
@@ -974,7 +983,7 @@ mod postgres {
                 "/api/auth/me",
                 Some(&bearer),
                 Some(br#"{"first_name":"Allowed"}"#),
-                "192.0.2.45"
+                "192.0.2.45:40000"
             )
             .await
             .status,
@@ -994,7 +1003,13 @@ mod postgres {
         // A role that is already assigned cannot change, for the user themselves
         // or across tenants.
         assert_eq!(
-            put(&f.app, "/api/auth/me", &other, &json!({"role": "SUPPLIER"}))
+            put(
+                &f.app,
+                &peer(15),
+                "/api/auth/me",
+                &other,
+                &json!({"role": "SUPPLIER"})
+            )
                 .await
                 .status,
             StatusCode::FORBIDDEN
@@ -1009,7 +1024,14 @@ mod postgres {
             Some("BUYER")
         );
         // ADMIN is never assignable, even from an empty role.
-        let reply = put(&f.app, "/api/auth/me", &plain, &json!({"role": "ADMIN"})).await;
+        let reply = put(
+            &f.app,
+            &peer(14),
+            "/api/auth/me",
+            &plain,
+            &json!({"role": "ADMIN"}),
+        )
+        .await;
         assert_eq!(reply.status, StatusCode::FORBIDDEN);
         assert_eq!(
             reply.body["detail"]["code"],
@@ -1025,13 +1047,25 @@ mod postgres {
         );
         // Unknown role labels are a typed refusal, not a value.
         assert_eq!(
-            put(&f.app, "/api/auth/me", &plain, &json!({"role": "admin"}))
+            put(
+                &f.app,
+                &peer(14),
+                "/api/auth/me",
+                &plain,
+                &json!({"role": "admin"})
+            )
                 .await
                 .status,
             StatusCode::UNPROCESSABLE_ENTITY
         );
         assert_eq!(
-            put(&f.app, "/api/auth/me", &plain, &json!({"role": "OWNER"}))
+            put(
+                &f.app,
+                &peer(14),
+                "/api/auth/me",
+                &plain,
+                &json!({"role": "OWNER"})
+            )
                 .await
                 .status,
             StatusCode::UNPROCESSABLE_ENTITY
@@ -1080,13 +1114,25 @@ mod postgres {
         assert_eq!(events.appends().len(), appends);
         assert_eq!(events.visible_calls().len(), 2);
         assert_eq!(
-            put(&f.app, "/api/auth/me", &plain, &json!({"role": "ADMIN"}))
+            put(
+                &f.app,
+                &peer(14),
+                "/api/auth/me",
+                &plain,
+                &json!({"role": "ADMIN"})
+            )
                 .await
                 .status,
             StatusCode::FORBIDDEN
         );
         assert_eq!(
-            put(&f.app, "/api/auth/me", &plain, &json!({"role": "SUPPLIER"}))
+            put(
+                &f.app,
+                &peer(14),
+                "/api/auth/me",
+                &plain,
+                &json!({"role": "SUPPLIER"})
+            )
                 .await
                 .status,
             StatusCode::FORBIDDEN
@@ -1108,7 +1154,14 @@ mod postgres {
         assert_eq!(events.visible_calls().len(), 4);
         // An orgless profile takes the role without a projection probe.
         let orgless = token(f.users[6]);
-        let reply = put(&f.app, "/api/auth/me", &orgless, &json!({"role": "BUYER"})).await;
+        let reply = put(
+            &f.app,
+            &peer(6),
+            "/api/auth/me",
+            &orgless,
+            &json!({"role": "BUYER"}),
+        )
+        .await;
         assert_eq!(reply.status, StatusCode::OK);
         assert_eq!(reply.body["role"], "BUYER");
         assert_eq!(events.visible_calls().len(), 4);
@@ -1135,8 +1188,8 @@ mod postgres {
         let b = token(second);
         let app = f.app.clone();
         let (left, right) = tokio::join!(
-            async { put(&app, "/api/auth/me", &a, &json!({"role": "BUYER"})).await },
-            async { put(&app, "/api/auth/me", &b, &json!({"role": "SUPPLIER"})).await }
+            async { put(&app, &peer(20), "/api/auth/me", &a, &json!({"role": "BUYER"})).await },
+            async { put(&app, &peer(21), "/api/auth/me", &b, &json!({"role": "SUPPLIER"})).await }
         );
         assert_eq!(left.status, StatusCode::OK);
         assert_eq!(right.status, StatusCode::OK);
@@ -1160,19 +1213,16 @@ mod postgres {
         let a = token(third);
         let b = token(third);
         let (left, right) = tokio::join!(
-            async { put(&app, "/api/auth/me", &a, &json!({"role": "BUYER"})).await },
-            async { put(&app, "/api/auth/me", &b, &json!({"role": "SUPPLIER"})).await }
+            async { put(&app, &peer(22), "/api/auth/me", &a, &json!({"role": "BUYER"})).await },
+            async { put(&app, &peer(22), "/api/auth/me", &b, &json!({"role": "SUPPLIER"})).await }
         );
         // Both attempts are admitted by a valid token; the row lock serializes
-        // the two ordered writes, so one commits BUYER first and the other is
-        // then a domain refusal (or, if it wins instead, the mirror image).
+        // the two ordered writes, so one commits its role and the other then
+        // loses the once-only rule. Two accepted writes would mean the second
+        // overwrote the first.
         let mut statuses = [left.status, right.status];
         statuses.sort_by_key(|status| status.as_u16());
-        assert!(
-            statuses == [StatusCode::OK, StatusCode::FORBIDDEN]
-                || statuses == [StatusCode::OK, StatusCode::OK],
-            "{statuses:?}"
-        );
+        assert_eq!(statuses, [StatusCode::OK, StatusCode::FORBIDDEN]);
         assert!(matches!(
             sqlx::query_scalar::<_, Option<String>>("SELECT role FROM users WHERE id=$1")
                 .bind(third)
@@ -1182,6 +1232,54 @@ mod postgres {
                 .as_deref(),
             Some("BUYER" | "SUPPLIER")
         ));
+        f.finish().await;
+    }
+
+    /// A02: a refused role change is an authority refusal (PD4-T8-1); it must
+    /// not spend the caller's quota, and the accepted writes then still fit.
+    #[tokio::test]
+    async fn p4_t3_c10() {
+        let f = Fixture::new(true, RecordingEvents::new()).await;
+        let bearer = token(f.users[14]);
+        // The account already has BUYER, so every one of these is refused.
+        for _ in 0..20 {
+            let reply = put(
+                &f.app,
+                CLIENT,
+                "/api/auth/me",
+                &bearer,
+                &json!({"role": "SUPPLIER"}),
+            )
+            .await;
+            assert_eq!(reply.status, StatusCode::FORBIDDEN);
+            assert_eq!(
+                reply.body["detail"]["code"],
+                "PROFILE_ROLE_CHANGE_NOT_ALLOWED"
+            );
+        }
+        // The 10/minute bucket is still whole, and the next call is the one
+        // that exhausts it.
+        for index in 0..10 {
+            let reply = put(
+                &f.app,
+                CLIENT,
+                "/api/auth/me",
+                &bearer,
+                &json!({"first_name": format!("Name{index}")}),
+            )
+            .await;
+            assert_eq!(reply.status, StatusCode::OK, "accepted write {index}");
+        }
+        let refused = put(
+            &f.app,
+            CLIENT,
+            "/api/auth/me",
+            &bearer,
+            &json!({"first_name": "Over"}),
+        )
+        .await;
+        assert_eq!(refused.status, StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(refused.body["detail"]["code"], "RATE_LIMITED");
         f.finish().await;
     }
 
@@ -1201,6 +1299,7 @@ mod postgres {
         events.push_visible(true);
         let reply = put(
             &f.app,
+            &peer(14),
             "/api/auth/me",
             &token(f.users[14]),
             &json!({"role": "BUYER", "first_name": "Never"}),
@@ -1243,6 +1342,7 @@ mod postgres {
         let long: String = "é".repeat(501);
         let reply = survey(
             &f.app,
+            CLIENT,
             Some(&bearer),
             &json!({"use_case": "buyer", "referral_source": long}),
         )
@@ -1252,10 +1352,18 @@ mod postgres {
             reply.body["detail"]["code"],
             "SURVEY_REFERRAL_SOURCE_TOO_LONG"
         );
+        // The refusal happens before any write: the account is still empty.
+        let row = stored().await;
+        assert_eq!(row.get::<Option<String>, _>("onboarding_use_case"), None);
+        assert_eq!(
+            row.get::<Option<String>, _>("onboarding_referral_source"),
+            None
+        );
         // Character count, not byte count: 500 non-ASCII characters fit.
         let exact: String = "é".repeat(500);
         let reply = survey(
             &f.app,
+            CLIENT,
             Some(&bearer),
             &json!({"use_case": "buyer", "referral_source": exact}),
         )
@@ -1283,7 +1391,7 @@ mod postgres {
             json!({}),
             json!([1, 2]),
         ] {
-            let reply = survey(&f.app, Some(&bearer), &body).await;
+            let reply = survey(&f.app, CLIENT, Some(&bearer), &body).await;
             assert!(
                 matches!(
                     reply.status,
@@ -1306,7 +1414,12 @@ mod postgres {
         .await
         .unwrap();
         assert_eq!(
-            survey(&f.app, Some(&token(fresh)), &json!({"use_case": "pirate"}))
+            survey(
+                &f.app,
+                CLIENT,
+                Some(&token(fresh)),
+                &json!({"use_case": "pirate"})
+            )
                 .await
                 .status,
             StatusCode::BAD_REQUEST
@@ -1325,8 +1438,13 @@ mod postgres {
         // authenticated caller is required.
         let reply = survey(
             &f.app,
+            CLIENT,
             Some(&token(fresh)),
-            &json!({"email": "user15@example.test", "use_case": "supplier", "referral_source": "web"}),
+            &json!({
+                "email": "user15@example.test",
+                "use_case": "supplier",
+                "referral_source": "web"
+            }),
         )
         .await;
         assert_eq!(reply.status, StatusCode::NO_CONTENT);
@@ -1359,7 +1477,7 @@ mod postgres {
             .await
             .unwrap();
         assert_eq!(
-            survey(&f.app, None, &json!({"use_case": "buyer"}))
+            survey(&f.app, CLIENT, None, &json!({"use_case": "buyer"}))
                 .await
                 .status,
             StatusCode::UNAUTHORIZED
@@ -1422,6 +1540,7 @@ mod postgres {
         let bearer = token(f.users[14]);
         let reply = survey(
             &f.app,
+            CLIENT,
             Some(&bearer),
             &json!({"use_case": "buyer", "referral_source": "conference"}),
         )
@@ -1429,6 +1548,7 @@ mod postgres {
         assert_eq!(reply.status, StatusCode::NO_CONTENT);
         let reply = survey(
             &f.app,
+            CLIENT,
             Some(&bearer),
             &json!({"use_case": "supplier", "referral_source": "search"}),
         )
@@ -1467,7 +1587,7 @@ mod postgres {
         );
         // Independent requests on independent pool connections race the first
         // submit. Each accepted request is its own transaction and socket.
-        for _ in 0..5 {
+        for iteration in 0..5 {
             let user = Uuid::new_v4();
             sqlx::query(
                 "INSERT INTO users(id,email,status,organization_id) VALUES($1,$2,'APPROVED',$3)",
@@ -1485,10 +1605,13 @@ mod postgres {
             let app = f.app.clone();
             let a = token(user);
             let b = token(user);
+            // Both requests arrive from one address, which has its own bucket.
+            let client = peer(30 + iteration);
             let (left, right) = tokio::join!(
                 async {
                     survey(
                         &app,
+                        &client,
                         Some(&a),
                         &json!({"use_case": "buyer", "referral_source": "left"}),
                     )
@@ -1497,6 +1620,7 @@ mod postgres {
                 async {
                     survey(
                         &app,
+                        &client,
                         Some(&b),
                         &json!({"use_case": "supplier", "referral_source": "right"}),
                     )
