@@ -235,24 +235,25 @@ pub async fn invalidate_organization(
     let mut total = Decimal::ZERO;
     for order in &before.orders {
         if let Some(item) = order.inventory_item_id
-            && order.remaining_quantity_mt > Decimal::ZERO {
-                let value = releases.entry(item).or_default();
-                *value = value
-                    .checked_add(order.remaining_quantity_mt)
-                    .ok_or_else(|| {
-                        refusal(
-                            "INVENTORY_RESERVATION_INVALID",
-                            "Reservation sum is out of range.",
-                        )
-                    })?;
-                total = total
-                    .checked_add(order.remaining_quantity_mt)
-                    .ok_or_else(|| {
-                        refusal(
-                            "INVENTORY_RESERVATION_INVALID",
-                            "Reservation sum is out of range.",
-                        )
-                    })?;
+            && order.remaining_quantity_mt > Decimal::ZERO
+        {
+            let value = releases.entry(item).or_default();
+            *value = value
+                .checked_add(order.remaining_quantity_mt)
+                .ok_or_else(|| {
+                    refusal(
+                        "INVENTORY_RESERVATION_INVALID",
+                        "Reservation sum is out of range.",
+                    )
+                })?;
+            total = total
+                .checked_add(order.remaining_quantity_mt)
+                .ok_or_else(|| {
+                    refusal(
+                        "INVENTORY_RESERVATION_INVALID",
+                        "Reservation sum is out of range.",
+                    )
+                })?;
         }
     }
     release_uncommitted(conn, &releases).await?;

@@ -182,9 +182,18 @@ fn p4_t7_c06() {
     ))
     .unwrap();
     for vector in vectors["slice_lock_keys"].as_array().unwrap() {
-        let product=vector["product_id"].as_str().unwrap().parse().unwrap();
-        let point=vector["delivery_point_id"].as_str().map(|v|v.parse().unwrap());
-        assert_eq!(market_slice_lock_key(product,point,vector["normalized_window"].as_str().unwrap()),vector["lock_key"].as_i64().unwrap());
+        let product = vector["product_id"].as_str().unwrap().parse().unwrap();
+        let point = vector["delivery_point_id"]
+            .as_str()
+            .map(|v| v.parse().unwrap());
+        assert_eq!(
+            market_slice_lock_key(
+                product,
+                point,
+                vector["normalized_window"].as_str().unwrap()
+            ),
+            vector["lock_key"].as_i64().unwrap()
+        );
     }
 }
 
@@ -525,96 +534,240 @@ struct OrderedInvalidation {
 
 impl verdaxis_read::business::transaction::BusinessCommand for OrderedInvalidation {
     type Output = verdaxis_read::order_write::InvalidationResult;
-    fn preview<'a>(&'a self, _conn: &'a mut PgConnection) -> verdaxis_read::business::transaction::CommandFuture<'a,verdaxis_read::business::transaction::OrganizationWritePlan,verdaxis_read::business::transaction::AttemptError> {
-        Box::pin(async move { Ok(verdaxis_read::business::transaction::OrganizationWritePlan::new([self.command.organization_id],[self.command.actor_id],[],serde_json::json!({"organization":self.command.organization_id}))) })
+    fn preview<'a>(
+        &'a self,
+        _conn: &'a mut PgConnection,
+    ) -> verdaxis_read::business::transaction::CommandFuture<
+        'a,
+        verdaxis_read::business::transaction::OrganizationWritePlan,
+        verdaxis_read::business::transaction::AttemptError,
+    > {
+        Box::pin(async move {
+            Ok(
+                verdaxis_read::business::transaction::OrganizationWritePlan::new(
+                    [self.command.organization_id],
+                    [self.command.actor_id],
+                    [],
+                    serde_json::json!({"organization":self.command.organization_id}),
+                ),
+            )
+        })
     }
-    fn execute<'a>(&'a self, conn: &'a mut PgConnection, actor: &'a verdaxis_read::auth::CurrentActor) -> verdaxis_read::business::transaction::CommandFuture<'a,Self::Output,verdaxis_read::business::transaction::AttemptError> {
-        Box::pin(async move { assert_eq!(actor.id,self.command.actor_id); Ok(invalidate_organization(conn,&self.command).await?) })
+    fn execute<'a>(
+        &'a self,
+        conn: &'a mut PgConnection,
+        actor: &'a verdaxis_read::auth::CurrentActor,
+    ) -> verdaxis_read::business::transaction::CommandFuture<
+        'a,
+        Self::Output,
+        verdaxis_read::business::transaction::AttemptError,
+    > {
+        Box::pin(async move {
+            assert_eq!(actor.id, self.command.actor_id);
+            Ok(invalidate_organization(conn, &self.command).await?)
+        })
     }
 }
 
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL authority"]
 async fn p4_t7_c10() {
-    use verdaxis_read::{auth::{VerificationSettings,verify_access},business::transaction::run_ordered_write};
-    let mut f=Fixture::new().await;
-    f.order(true,60,true).await;
+    use verdaxis_read::{
+        auth::{VerificationSettings, verify_access},
+        business::transaction::run_ordered_write,
+    };
+    let mut f = Fixture::new().await;
+    f.order(true, 60, true).await;
     sqlx::raw_sql(sqlx::AssertSqlSafe(format!("GRANT USAGE ON SCHEMA {} TO rust_app; GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA {} TO rust_app; CREATE SEQUENCE attempt_number; GRANT USAGE ON SEQUENCE attempt_number TO rust_app; CREATE FUNCTION retry_effect() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF nextval('attempt_number')<3 THEN RAISE EXCEPTION 'retry fixture' USING ERRCODE='40001'; END IF; RETURN NEW; END $$; CREATE TRIGGER retry_effect BEFORE INSERT ON market_event_outbox FOR EACH ROW EXECUTE FUNCTION retry_effect()",f.schema,f.schema))).execute(&mut f.conn).await.unwrap();
-    let runtime=std::env::var("RUST_TEST_DATABASE_URL").expect("explicit disposable runtime URL required");
-    let url=url::Url::parse(&runtime).unwrap();
-    assert_eq!(url.username(),"rust_app");assert_eq!(url.host_str(),Some("127.0.0.1"));
+    let runtime =
+        std::env::var("RUST_TEST_DATABASE_URL").expect("explicit disposable runtime URL required");
+    let url = url::Url::parse(&runtime).unwrap();
+    assert_eq!(url.username(), "rust_app");
+    assert_eq!(url.host_str(), Some("127.0.0.1"));
     assert!(url.path().ends_with("_test"));
-    let search=format!("SET search_path TO {}",f.schema);
-    let pool=sqlx::postgres::PgPoolOptions::new().max_connections(3).after_connect(move |conn,_| {let sql=search.clone(); Box::pin(async move {sqlx::raw_sql(sqlx::AssertSqlSafe(sql)).execute(conn).await?;Ok(())})}).connect(&runtime).await.unwrap();
-    let secret="test-secret-key-for-testing-minimum-32-chars";
-    let claims=serde_json::json!({"sub":f.command.actor_id,"iat":Utc::now().timestamp(),"exp":Utc::now().timestamp()+3600,"type":"access","iss":"test","aud":"test"});
-    let token=jsonwebtoken::encode(&jsonwebtoken::Header::default(),&claims,&jsonwebtoken::EncodingKey::from_secret(secret.as_bytes())).unwrap();
-    let access=verify_access(&token,&VerificationSettings::new(secret.into(),None,"test".into(),"test".into()),Utc::now()).unwrap();
-    let command=InvalidateOrganization{organization_id:f.command.organization_id,actor_id:f.command.actor_id,now:f.command.now,policy:f.command.policy.clone(),config:f.command.config.clone()};
-    let result=run_ordered_write(pool.clone(),Arc::new(tokio::sync::Semaphore::new(1)),access,OrderedInvalidation{command}).await.unwrap();
-    assert_eq!(result.withdrawn_orders.len(),1);
+    let search = format!("SET search_path TO {}", f.schema);
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(3)
+        .after_connect(move |conn, _| {
+            let sql = search.clone();
+            Box::pin(async move {
+                sqlx::raw_sql(sqlx::AssertSqlSafe(sql))
+                    .execute(conn)
+                    .await?;
+                Ok(())
+            })
+        })
+        .connect(&runtime)
+        .await
+        .unwrap();
+    let secret = "test-secret-key-for-testing-minimum-32-chars";
+    let claims = serde_json::json!({"sub":f.command.actor_id,"iat":Utc::now().timestamp(),"exp":Utc::now().timestamp()+3600,"type":"access","iss":"test","aud":"test"});
+    let token = jsonwebtoken::encode(
+        &jsonwebtoken::Header::default(),
+        &claims,
+        &jsonwebtoken::EncodingKey::from_secret(secret.as_bytes()),
+    )
+    .unwrap();
+    let access = verify_access(
+        &token,
+        &VerificationSettings::new(secret.into(), None, "test".into(), "test".into()),
+        Utc::now(),
+    )
+    .unwrap();
+    let command = InvalidateOrganization {
+        organization_id: f.command.organization_id,
+        actor_id: f.command.actor_id,
+        now: f.command.now,
+        policy: f.command.policy.clone(),
+        config: f.command.config.clone(),
+    };
+    let result = run_ordered_write(
+        pool.clone(),
+        Arc::new(tokio::sync::Semaphore::new(1)),
+        access,
+        OrderedInvalidation { command },
+    )
+    .await
+    .unwrap();
+    assert_eq!(result.withdrawn_orders.len(), 1);
     let row=sqlx::query("SELECT (SELECT last_value FROM attempt_number) AS attempts,(SELECT count(*) FROM market_event_outbox) AS events,(SELECT count(*) FROM audit_logs) AS audits").fetch_one(&mut f.conn).await.unwrap();
-    assert_eq!(row.get::<i64,_>("attempts"),3); assert_eq!(row.get::<i64,_>("events"),1); assert_eq!(row.get::<i64,_>("audits"),2);
-    let stock:Decimal=sqlx::query_scalar("SELECT reserved_stock_mt FROM inventory_items").fetch_one(&mut f.conn).await.unwrap();assert_eq!(stock,Decimal::from(20));
-    pool.close().await;f.finish().await;
+    assert_eq!(row.get::<i64, _>("attempts"), 3);
+    assert_eq!(row.get::<i64, _>("events"), 1);
+    assert_eq!(row.get::<i64, _>("audits"), 2);
+    let stock: Decimal = sqlx::query_scalar("SELECT reserved_stock_mt FROM inventory_items")
+        .fetch_one(&mut f.conn)
+        .await
+        .unwrap();
+    assert_eq!(stock, Decimal::from(20));
+    pool.close().await;
+    f.finish().await;
 }
 
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL authority"]
 async fn p4_t7_c11() {
-    let mut f=Fixture::new().await;
-    f.order(true,60,true).await;
-    let before=f.snapshot().await;
-    let url=std::env::var("RUST_TEST_MIGRATOR_DATABASE_URL").unwrap();
-    let mut contender=PgConnection::connect(&url).await.unwrap();
-    let mut held=contender.begin().await.unwrap();
-    let key=market_slice_lock_key(f.product,Some(f.point),"SPOT");
-    sqlx::query("SELECT pg_advisory_xact_lock($1)").bind(key).execute(&mut *held).await.unwrap();
-    let mut tx=f.conn.begin().await.unwrap();
-    sqlx::query("SELECT id FROM organizations WHERE id=$1 FOR UPDATE").bind(f.command.organization_id).execute(&mut *tx).await.unwrap();
-    let error=invalidate_organization(&mut tx,&f.command).await.unwrap_err();
-    assert!(matches!(error,InvalidationError::Database(ref e) if e.as_database_error().and_then(|e|e.code()).as_deref()==Some("55P03")));
-    tx.rollback().await.unwrap();held.rollback().await.unwrap();
-    assert_eq!(before,f.snapshot().await);
-    let mut tx=f.conn.begin().await.unwrap();
-    invalidate_organization(&mut tx,&f.command).await.unwrap();tx.commit().await.unwrap();
-    let reserved:Decimal=sqlx::query_scalar("SELECT reserved_stock_mt FROM inventory_items").fetch_one(&mut f.conn).await.unwrap();assert_eq!(reserved,Decimal::from(20));
+    let mut f = Fixture::new().await;
+    f.order(true, 60, true).await;
+    let before = f.snapshot().await;
+    let url = std::env::var("RUST_TEST_MIGRATOR_DATABASE_URL").unwrap();
+    let mut contender = PgConnection::connect(&url).await.unwrap();
+    let mut held = contender.begin().await.unwrap();
+    let key = market_slice_lock_key(f.product, Some(f.point), "SPOT");
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(key)
+        .execute(&mut *held)
+        .await
+        .unwrap();
+    let mut tx = f.conn.begin().await.unwrap();
+    sqlx::query("SELECT id FROM organizations WHERE id=$1 FOR UPDATE")
+        .bind(f.command.organization_id)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let error = invalidate_organization(&mut tx, &f.command)
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(error,InvalidationError::Database(ref e) if e.as_database_error().and_then(|e|e.code()).as_deref()==Some("55P03"))
+    );
+    tx.rollback().await.unwrap();
+    held.rollback().await.unwrap();
+    assert_eq!(before, f.snapshot().await);
+    let mut tx = f.conn.begin().await.unwrap();
+    invalidate_organization(&mut tx, &f.command).await.unwrap();
+    tx.commit().await.unwrap();
+    let reserved: Decimal = sqlx::query_scalar("SELECT reserved_stock_mt FROM inventory_items")
+        .fetch_one(&mut f.conn)
+        .await
+        .unwrap();
+    assert_eq!(reserved, Decimal::from(20));
     f.finish().await;
 }
 
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL authority"]
 async fn p4_t7_c12() {
-    let mut f=Fixture::new().await;
-    let owned=f.order(true,60,false).await;
-    f.order(false,40,false).await;
-    let demo=f.order(false,40,false).await;
-    sqlx::query("UPDATE orderbook_orders SET provenance='DEMO',expires_at=$1 WHERE id=$2").bind(now()+chrono::Duration::days(1)).bind(demo).execute(&mut f.conn).await.unwrap();
+    let mut f = Fixture::new().await;
+    let owned = f.order(true, 60, false).await;
+    f.order(false, 40, false).await;
+    let demo = f.order(false, 40, false).await;
+    sqlx::query("UPDATE orderbook_orders SET provenance='DEMO',expires_at=$1 WHERE id=$2")
+        .bind(now() + chrono::Duration::days(1))
+        .bind(demo)
+        .execute(&mut f.conn)
+        .await
+        .unwrap();
     sqlx::query("INSERT INTO watchlist_targets(id,watchlist_id,target_type,order_id,market_product_code,delivery_point_id,availability_window_code) VALUES($1,$2,'SLICE',NULL,'fixture-product',$3,'SPOT'),($4,$2,'PIN',$5,'fixture-product',$3,'SPOT')").bind(Uuid::new_v4()).bind(Uuid::new_v4()).bind(f.point).bind(Uuid::new_v4()).bind(owned).execute(&mut f.conn).await.unwrap();
-    let mut tx=f.conn.begin().await.unwrap();
-    invalidate_organization(&mut tx,&f.command).await.unwrap();
-    let payload:serde_json::Value=sqlx::query_scalar("SELECT event_payload FROM watchlist_events WHERE event_type='SLICE_BEST_PRICE_MOVED'").fetch_one(&mut *tx).await.unwrap();
-    assert_eq!(payload["real_count"],1);
-    assert_eq!(payload["demo_count"],1);
-    assert_eq!(payload["demo_status"],"REAL_ONLY");
-    let pin:serde_json::Value=sqlx::query_scalar("SELECT event_payload FROM watchlist_events WHERE event_type='PIN_WITHDRAWN'").fetch_one(&mut *tx).await.unwrap();
-    assert_eq!(pin["demo_status"],"REAL_ONLY");
-    tx.rollback().await.unwrap();f.finish().await;
+    let mut tx = f.conn.begin().await.unwrap();
+    invalidate_organization(&mut tx, &f.command).await.unwrap();
+    let payload: serde_json::Value = sqlx::query_scalar(
+        "SELECT event_payload FROM watchlist_events WHERE event_type='SLICE_BEST_PRICE_MOVED'",
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    assert_eq!(payload["real_count"], 1);
+    assert_eq!(payload["demo_count"], 1);
+    assert_eq!(payload["demo_status"], "REAL_ONLY");
+    let pin: serde_json::Value = sqlx::query_scalar(
+        "SELECT event_payload FROM watchlist_events WHERE event_type='PIN_WITHDRAWN'",
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    assert_eq!(pin["demo_status"], "REAL_ONLY");
+    tx.rollback().await.unwrap();
+    f.finish().await;
 }
 
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL authority"]
 async fn p4_t7_c13() {
-    let mut f=Fixture::new().await;
-    let order=f.order(false,40,false).await;
-    sqlx::query("UPDATE users SET role='SUPPLIER' WHERE id=$1").bind(f.command.actor_id).execute(&mut f.conn).await.unwrap();
-    sqlx::query("UPDATE orderbook_orders SET organization_id=$1,owner_user_id=$2 WHERE id=$3").bind(f.command.organization_id).bind(f.command.actor_id).bind(order).execute(&mut f.conn).await.unwrap();
-    let key=f.key();
-    let mut strict=(*f.command.config).clone();strict.kyc_execution_gate_enabled=true;
-    let mut tx=f.conn.begin().await.unwrap();
-    let strict_result=rebuild_live_slice_benchmarks_for_keys(&mut tx,&f.command.policy,&strict,std::slice::from_ref(&key),now()).await.unwrap();assert_eq!(strict_result.deleted.len(),1);
-    let advisory=rebuild_live_slice_benchmarks_for_keys(&mut tx,&f.command.policy,&f.command.config,std::slice::from_ref(&key),now()).await.unwrap();assert_eq!(advisory.rebuilt.len(),1);
-    let mut policy=(*f.command.policy).clone();policy.products[0].lanes.clear();
-    let excluded=rebuild_live_slice_benchmarks_for_keys(&mut tx,&policy,&f.command.config,&[key],now()).await.unwrap();assert_eq!(excluded.deleted.len(),1);
-    tx.rollback().await.unwrap();f.finish().await;
+    let mut f = Fixture::new().await;
+    let order = f.order(false, 40, false).await;
+    sqlx::query("UPDATE users SET role='SUPPLIER' WHERE id=$1")
+        .bind(f.command.actor_id)
+        .execute(&mut f.conn)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE orderbook_orders SET organization_id=$1,owner_user_id=$2 WHERE id=$3")
+        .bind(f.command.organization_id)
+        .bind(f.command.actor_id)
+        .bind(order)
+        .execute(&mut f.conn)
+        .await
+        .unwrap();
+    let key = f.key();
+    let mut strict = (*f.command.config).clone();
+    strict.kyc_execution_gate_enabled = true;
+    let mut tx = f.conn.begin().await.unwrap();
+    let strict_result = rebuild_live_slice_benchmarks_for_keys(
+        &mut tx,
+        &f.command.policy,
+        &strict,
+        std::slice::from_ref(&key),
+        now(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(strict_result.deleted.len(), 1);
+    let advisory = rebuild_live_slice_benchmarks_for_keys(
+        &mut tx,
+        &f.command.policy,
+        &f.command.config,
+        std::slice::from_ref(&key),
+        now(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(advisory.rebuilt.len(), 1);
+    let mut policy = (*f.command.policy).clone();
+    policy.products[0].lanes.clear();
+    let excluded =
+        rebuild_live_slice_benchmarks_for_keys(&mut tx, &policy, &f.command.config, &[key], now())
+            .await
+            .unwrap();
+    assert_eq!(excluded.deleted.len(), 1);
+    tx.rollback().await.unwrap();
+    f.finish().await;
 }

@@ -94,12 +94,15 @@ pub(super) async fn withdrawal_effects(
                 let provenance: String = row.try_get("provenance")?;
                 let price: Option<Decimal> = row.try_get("price")?;
                 let observed: Option<DateTime<Utc>> = row.try_get("observed")?;
-                let counts = |kind: &str| -> Result<i64,sqlx::Error> {
-                    rows.iter().find(|r|r.get::<String,_>("provenance")==kind)
-                        .map(|r|r.try_get("count")).transpose().map(|v|v.unwrap_or(0))
+                let counts = |kind: &str| -> Result<i64, sqlx::Error> {
+                    rows.iter()
+                        .find(|r| r.get::<String, _>("provenance") == kind)
+                        .map(|r| r.try_get("count"))
+                        .transpose()
+                        .map(|v| v.unwrap_or(0))
                 };
-                let real_count=counts("REAL")?;
-                let demo_count=counts("DEMO")?;
+                let real_count = counts("REAL")?;
+                let demo_count = counts("DEMO")?;
                 let (source, demo) = if provenance == "REAL" {
                     ("LIVE_ORDER", "REAL_ONLY")
                 } else {
