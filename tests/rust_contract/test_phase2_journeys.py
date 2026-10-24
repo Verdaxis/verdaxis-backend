@@ -73,7 +73,7 @@ def test_preferences_journey_reads_before_writing_each_namespace():
     calls = module().journeys()["preferences"]
     assert (calls[0].method, calls[0].path) == ("GET", "/api/users/me/preferences")
     writes = [call for call in calls if call.method == "PUT"]
-    assert [call.path for call in writes] == ["/api/users/me/preferences/{namespace}"]
+    assert [call.path for call in writes] == ["/api/users/me/preferences/tutorial"]
     assert calls[-1].method == "GET"
 
 
@@ -94,8 +94,8 @@ def test_watchlists_journey_follows_the_radar_hook():
     assert ("POST", "/api/watchlists/{watchlist_id}/targets") in paths
     assert ("DELETE", "/api/watchlists/{watchlist_id}/targets/{target_id}") in paths
     assert ("POST", "/api/watchlists") in paths
-    assert ("POST", "/api/watchlists/{watchlist_id}/entries") in paths
-    assert ("DELETE", "/api/watchlists/{watchlist_id}/entries/{entry_id}") in paths
+    assert ("POST", "/api/watchlists/{custom_id}/entries") in paths
+    assert ("DELETE", "/api/watchlists/{custom_id}/entries/{entry_id}") in paths
     assert ("DELETE", "/api/watchlists/{watchlist_id}") in paths
     events = next(call for call in calls if call.path.endswith("/events"))
     assert events.query["limit"] == "25"
