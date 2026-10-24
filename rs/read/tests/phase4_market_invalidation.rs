@@ -777,8 +777,16 @@ async fn evidence_mix(real: i64, demo: i64, unknown: i64) {
         let mut f = Fixture::new().await;
         let owned = f.order(true, 60, false).await;
         sqlx::query("UPDATE orderbook_orders SET side=$1 WHERE id=$2")
-            .bind(side).bind(owned).execute(&mut f.conn).await.unwrap();
-        for (provenance, count, price) in [("REAL", real, 300), ("DEMO", demo, 200), ("UNKNOWN", unknown, 1)] {
+            .bind(side)
+            .bind(owned)
+            .execute(&mut f.conn)
+            .await
+            .unwrap();
+        for (provenance, count, price) in [
+            ("REAL", real, 300),
+            ("DEMO", demo, 200),
+            ("UNKNOWN", unknown, 1),
+        ] {
             for _ in 0..count {
                 let id = f.order(false, 40, false).await;
                 sqlx::query("UPDATE orderbook_orders SET side=$1,provenance=$2,price_per_mt_usd=$3,expires_at=$4 WHERE id=$5")
@@ -790,8 +798,12 @@ async fn evidence_mix(real: i64, demo: i64, unknown: i64) {
         let before = f.snapshot().await;
         let mut tx = f.conn.begin().await.unwrap();
         invalidate_organization(&mut tx, &f.command).await.unwrap();
-        let payload: Option<serde_json::Value> = sqlx::query_scalar("SELECT event_payload FROM watchlist_events WHERE event_type='SLICE_BEST_PRICE_MOVED'")
-            .fetch_optional(&mut *tx).await.unwrap();
+        let payload: Option<serde_json::Value> = sqlx::query_scalar(
+            "SELECT event_payload FROM watchlist_events WHERE event_type='SLICE_BEST_PRICE_MOVED'",
+        )
+        .fetch_optional(&mut *tx)
+        .await
+        .unwrap();
         if real + demo == 0 {
             // Python has no selected price and emits no price-moved event.
             assert!(payload.is_none());
@@ -800,9 +812,22 @@ async fn evidence_mix(real: i64, demo: i64, unknown: i64) {
             assert_eq!(payload["real_count"], real);
             assert_eq!(payload["demo_count"], demo);
             assert_eq!(payload["unknown_count"], unknown);
-            assert_eq!(payload["source_kind"], if real > 0 { "LIVE_ORDER" } else { "DEMO_SEED" });
-            assert_eq!(payload["demo_status"], if real > 0 { "REAL_ONLY" } else { "DEMO_ONLY" });
-            assert_eq!(payload["new_price_per_mt_usd"].as_str().unwrap().parse::<Decimal>().unwrap(), Decimal::from(if real > 0 { 300 } else { 200 }));
+            assert_eq!(
+                payload["source_kind"],
+                if real > 0 { "LIVE_ORDER" } else { "DEMO_SEED" }
+            );
+            assert_eq!(
+                payload["demo_status"],
+                if real > 0 { "REAL_ONLY" } else { "DEMO_ONLY" }
+            );
+            assert_eq!(
+                payload["new_price_per_mt_usd"]
+                    .as_str()
+                    .unwrap()
+                    .parse::<Decimal>()
+                    .unwrap(),
+                Decimal::from(if real > 0 { 300 } else { 200 })
+            );
         }
         tx.rollback().await.unwrap();
         assert_eq!(before, f.snapshot().await);
@@ -812,37 +837,60 @@ async fn evidence_mix(real: i64, demo: i64, unknown: i64) {
 
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL authority"]
-async fn p4_t7_c14() { evidence_mix(2, 0, 0).await; }
+async fn p4_t7_c14() {
+    evidence_mix(2, 0, 0).await;
+}
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL authority"]
-async fn p4_t7_c15() { evidence_mix(0, 3, 0).await; }
+async fn p4_t7_c15() {
+    evidence_mix(0, 3, 0).await;
+}
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL authority"]
-async fn p4_t7_c16() { evidence_mix(0, 0, 4).await; }
+async fn p4_t7_c16() {
+    evidence_mix(0, 0, 4).await;
+}
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL authority"]
-async fn p4_t7_c17() { evidence_mix(2, 3, 0).await; }
+async fn p4_t7_c17() {
+    evidence_mix(2, 3, 0).await;
+}
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL authority"]
-async fn p4_t7_c18() { evidence_mix(2, 0, 4).await; }
+async fn p4_t7_c18() {
+    evidence_mix(2, 0, 4).await;
+}
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL authority"]
-async fn p4_t7_c19() { evidence_mix(0, 3, 4).await; }
+async fn p4_t7_c19() {
+    evidence_mix(0, 3, 4).await;
+}
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL authority"]
-async fn p4_t7_c20() { evidence_mix(2, 3, 4).await; }
+async fn p4_t7_c20() {
+    evidence_mix(2, 3, 4).await;
+}
 
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL authority"]
 async fn p4_t7_c21() {
     let mut f = Fixture::new().await;
     let owned = f.order(true, 60, false).await;
-    sqlx::query("UPDATE orderbook_orders SET delivery_point_id=NULL WHERE id=$1").bind(owned).execute(&mut f.conn).await.unwrap();
+    sqlx::query("UPDATE orderbook_orders SET delivery_point_id=NULL WHERE id=$1")
+        .bind(owned)
+        .execute(&mut f.conn)
+        .await
+        .unwrap();
     sqlx::query("INSERT INTO watchlist_targets(id,watchlist_id,target_type,order_id,market_product_code,availability_window_code) VALUES($1,$2,'PIN',$3,'fixture-product','SPOT')")
         .bind(Uuid::new_v4()).bind(Uuid::new_v4()).bind(owned).execute(&mut f.conn).await.unwrap();
     let mut tx = f.conn.begin().await.unwrap();
     invalidate_organization(&mut tx, &f.command).await.unwrap();
-    let payload: serde_json::Value = sqlx::query_scalar("SELECT event_payload FROM watchlist_events WHERE event_type='PIN_WITHDRAWN'").fetch_one(&mut *tx).await.unwrap();
+    let payload: serde_json::Value = sqlx::query_scalar(
+        "SELECT event_payload FROM watchlist_events WHERE event_type='PIN_WITHDRAWN'",
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
     assert_eq!(payload["scope"], "UNKNOWN");
     assert!(payload["delivery_point_id"].is_null());
     tx.rollback().await.unwrap();

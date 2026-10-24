@@ -7,9 +7,7 @@ use uuid::Uuid;
 use super::invalidation::{InvalidateOrganization, InvalidationError, Order};
 use crate::{
     business::audit::{AuditFact, append_audit},
-    market::visibility::{
-        VisibilityClock, public_order_sql,
-    },
+    market::visibility::{VisibilityClock, public_order_sql},
 };
 
 async fn audit(
@@ -61,7 +59,11 @@ pub(super) async fn withdrawal_effects(
             "DEMO" => ("DEMO_SEED", "DEMO_ONLY"),
             _ => ("UNKNOWN", "UNKNOWN"),
         };
-        let scope = if order.delivery_point_id.is_some() { "DELIVERY_POINT" } else { "UNKNOWN" };
+        let scope = if order.delivery_point_id.is_some() {
+            "DELIVERY_POINT"
+        } else {
+            "UNKNOWN"
+        };
         let payload = json!({"source_kind":source,"demo_status":demo,"scope":scope,"observed_at":command.now,"market_product_code":product,"delivery_point_id":order.delivery_point_id,"delivery_point_name":point_name,"availability_window_code":order.availability_window,"order_id":order.id,"status":"CANCELLED"});
         sqlx::query("INSERT INTO watchlist_events(id,watchlist_id,watchlist_target_id,event_type,event_payload,is_read,created_at) SELECT gen_random_uuid(),watchlist_id,id,'PIN_WITHDRAWN',$2::jsonb,false,$3 FROM watchlist_targets WHERE target_type='PIN' AND order_id=$1")
             .bind(order.id).bind(&payload).bind(command.now).execute(&mut *conn).await?;
