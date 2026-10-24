@@ -38,14 +38,18 @@ async fn access_vectors_match_python_http_outcomes() {
         let user: AccountState = serde_json::from_value(vector["user"].clone()).unwrap();
         let outcome = verify_authorization(first, &config, now)
             .and_then(|access| validate_account(&access, &user).map(|()| access));
-        let mut expected_wire = vector.get("rust_expected").unwrap_or(&vector["python"]).clone();
+        let mut expected_wire = vector
+            .get("rust_expected")
+            .unwrap_or(&vector["python"])
+            .clone();
         let credentials = verdaxis_read::auth::AuthError::Credentials.body();
         if id == "exp-absent" {
             expected_wire["status"] = serde_json::json!(401);
             expected_wire["www_authenticate"] = serde_json::json!("Bearer");
             expected_wire["body"] = serde_json::json!(credentials.to_string());
         } else if serde_json::from_str::<Value>(expected_wire["body"].as_str().unwrap()).ok()
-            == Some(serde_json::json!({"detail":"Could not validate credentials"})) {
+            == Some(serde_json::json!({"detail":"Could not validate credentials"}))
+        {
             expected_wire["body"] = serde_json::json!(credentials.to_string());
         }
         if vector.get("rust_expected").is_some() {

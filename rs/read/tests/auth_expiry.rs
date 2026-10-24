@@ -1,8 +1,8 @@
 use chrono::{DateTime, TimeZone, Utc};
-use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
-use serde_json::{json, Value};
+use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
+use serde_json::{Value, json};
 use verdaxis_read::auth::{
-    verify_access, verify_authorization, AuthError, TokenIssuer, VerificationSettings,
+    AuthError, TokenIssuer, VerificationSettings, verify_access, verify_authorization,
 };
 
 const SECRET: &str = "synthetic-expiry-key-at-least-32-characters";

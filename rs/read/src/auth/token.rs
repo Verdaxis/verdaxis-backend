@@ -1,7 +1,7 @@
 use std::fmt;
 
 use chrono::{DateTime, Utc};
-use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
+use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode};
 use serde_json::Value;
 use uuid::Uuid;
 
