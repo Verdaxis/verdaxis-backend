@@ -163,7 +163,7 @@ mod cases {
 
     use axum::{
         Router,
-        body::{Body, Bytes, to_bytes},
+        body::{Body, Bytes},
         response::{IntoResponse, Response},
     };
     use chrono::{DateTime, Utc};
@@ -249,7 +249,6 @@ mod cases {
         path: String,
         query: Vec<(String, String)>,
         headers: Vec<(String, String)>,
-        body: Vec<u8>,
     }
 
     impl RecordedRequest {
@@ -344,8 +343,7 @@ mod cases {
         }
 
         async fn respond(&self, request: axum::extract::Request) -> Response {
-            let (parts, body) = request.into_parts();
-            let bytes = to_bytes(body, 2 * 1024 * 1024).await.unwrap_or_default();
+            let (parts, _body) = request.into_parts();
             let recorded = RecordedRequest {
                 method: parts.method.to_string(),
                 path: parts.uri.path().to_string(),
@@ -368,7 +366,6 @@ mod cases {
                         )
                     })
                     .collect(),
-                body: bytes.to_vec(),
             };
             self.seen.lock().expect("stub log").push(recorded.clone());
             let reply = (self.handler)(recorded).await;
