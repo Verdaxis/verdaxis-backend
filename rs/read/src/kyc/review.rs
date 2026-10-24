@@ -208,11 +208,11 @@ impl BusinessCommand for ReviewCommand {
             let binding: Option<Uuid> = row.get("kyc_organization_id");
             let organization = organization.filter(|id| Some(*id) == binding).ok_or_else(|| refusal(StatusCode::CONFLICT,"KYC_ORGANIZATION_MISMATCH","KYC evidence must match the current organization."))?;
             let previous: Option<String> = row.get("kyc_status");
-            let valid = match (&self.decision, previous.as_deref()) {
-                (Decision::Approve { .. }, Some("SUBMITTED")) => true,
-                (Decision::Reject { .. }, Some("PENDING" | "SUBMITTED" | "APPROVED")) => true,
-                _ => false,
-            };
+            let valid = matches!(
+                (&self.decision, previous.as_deref()),
+                (Decision::Approve { .. }, Some("SUBMITTED"))
+                    | (Decision::Reject { .. }, Some("PENDING" | "SUBMITTED" | "APPROVED"))
+            );
             if !valid { return Err(refusal(StatusCode::CONFLICT,"KYC_REVIEW_NOT_SUBMITTED","The current case cannot receive this review decision.").into()); }
             let retained: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM kyc_documents WHERE user_id=$1 AND organization_id=$2)")
                 .bind(self.user_id).bind(organization).fetch_one(&mut *conn).await?;

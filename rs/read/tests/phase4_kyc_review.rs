@@ -5,15 +5,13 @@ mod review;
 
 use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
 use axum::{Router, extract::State, http::StatusCode, routing::post};
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use serde_json::{Value, json};
 use sqlx::{Connection, PgConnection, postgres::PgPoolOptions};
 use tokio::sync::Semaphore;
 use uuid::Uuid;
 use business::{admission::AdmissionEvents, transaction::{AttemptError, CommandFuture}};
 use crud::referrals::invite::MailClient;
-
-fn now() -> DateTime<Utc> { "2026-10-24T10:00:00Z".parse().unwrap() }
 
 #[test]
 fn p4_t11b_c01() {
