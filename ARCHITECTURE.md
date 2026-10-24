@@ -91,6 +91,15 @@ and revokes all user refresh families without committing. Missing users return
 `tests/postgres/test_phase3_auth_revocation.py`, covers concurrent updates and
 caller rollback on the migrated runtime role.
 
+## Rust bounded organization invalidation
+
+`order_write::{invalidation,benchmarks,reservations,events}` borrows the ordered
+business owner's connection. It withdraws bounded executable order remainder,
+preserves existing trades and settlement reservations, and appends benchmark,
+watchlist, audit and outbox effects without commit or dispatch. Read and write
+benchmark callers share `market::live_benchmarks::calculate_live_benchmarks`;
+the read wrapper retains its existing error mapping. No new route is mounted.
+
 ## Rust Phase 2 order-write boundary
 
 Task 20 adds `rs/read/src/order_write/` for Python-derived lock identities,
