@@ -356,12 +356,12 @@ impl ProfileMarketEvents for RecordingEvents {
 /// One fixture row: index, role, status, organization, KYC status, bound KYC
 /// organization, grace offset in days.
 #[cfg(feature = "contract-tests")]
-type ProfileRow = (
+type ProfileRow<'a> = (
     usize,
-    Option<&str>,
-    &str,
+    Option<&'a str>,
+    &'a str,
     Option<Uuid>,
-    &str,
+    &'a str,
     Option<Uuid>,
     Option<i64>,
 );
@@ -448,7 +448,7 @@ impl Fixture {
         let users: [Uuid; 16] = std::array::from_fn(|_| Uuid::new_v4());
         let [o1, o2] = organizations;
         // index, role, status, org, kyc status, kyc org, grace offset in days.
-        let rows: [ProfileRow; 12] = [
+        let rows: [ProfileRow<'_>; 12] = [
             (
                 0,
                 Some("BUYER"),
@@ -664,6 +664,7 @@ impl Fixture {
     }
 }
 
+#[cfg(feature = "contract-tests")]
 fn eligibility(body: &Value) -> (bool, &str, Option<&str>) {
     let eligibility = &body["execution_eligibility"];
     (
