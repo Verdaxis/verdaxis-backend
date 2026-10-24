@@ -123,7 +123,7 @@ impl Fixture {
             CREATE TABLE market_event_outbox(id uuid PRIMARY KEY,user_id uuid,organization_id uuid,public boolean); \
             CREATE TABLE trades(id uuid PRIMARY KEY,state text,quantity numeric,participant uuid); \
             CREATE TABLE inventory_items(id uuid PRIMARY KEY,reserved numeric); \
-            CREATE TABLE orderbook_orders(id uuid PRIMARY KEY,status text,quantity numeric)")
+            CREATE TABLE open_order_rows(id uuid PRIMARY KEY,status text,quantity numeric)")
             .execute(&mut admin).await.unwrap();
         let actor = Uuid::new_v4();
         let target = Uuid::new_v4();
@@ -166,7 +166,7 @@ impl Fixture {
             .execute(&mut admin)
             .await
             .unwrap();
-        sqlx::query("INSERT INTO orderbook_orders VALUES($1,'OPEN',29)")
+        sqlx::query("INSERT INTO open_order_rows VALUES($1,'OPEN',29)")
             .bind(Uuid::new_v4())
             .execute(&mut admin)
             .await
@@ -397,7 +397,7 @@ async fn p4_t11b_c03() {
         .unwrap();
     assert!(reserved);
     let open: bool =
-        sqlx::query_scalar("SELECT status='OPEN' AND quantity=29 FROM orderbook_orders")
+        sqlx::query_scalar("SELECT status='OPEN' AND quantity=29 FROM open_order_rows")
             .fetch_one(&mut f.admin)
             .await
             .unwrap();
