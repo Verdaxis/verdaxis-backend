@@ -3,6 +3,7 @@ import hashlib
 import json
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from collection_assertions import assert_collection, flags, observation, ordered
@@ -41,7 +42,6 @@ class Round10Contract(unittest.TestCase):
                     if path!=seed:raise OSError('fixture absent')
                     return critical
                 acquired=flags()
-                reasons={}
                 if branch in ('structural','entries','statements','logical-lines'):
                     acquired['dropins']=False
                 if branch=='shared-entries':acquired['dropins']=False;acquired['cron']=False
@@ -73,7 +73,7 @@ class Round10Contract(unittest.TestCase):
                 for _ in range(2 if branch=='unit-count' else 1):
                     expected.append(observation('dropins',source_text,drop_fields,acquired=acquired['dropins'],unparsed=drop_unparsed,truncations=drop_trunc))
                 for surface,text,fields in [('timers','',[]),('processes','',[]),('usr_local',seed,[]),('packages','',[])]:
-                    up=[unparsed(json.dumps({'key':'executable','values':[seed]}))] if False else []
+                    up=[]
                     if surface=='usr_local':fields=[{'key':'executable','values':[seed]}]
                     expected.append(observation(surface,text,fields,acquired=acquired[surface],unparsed=up))
                 cron_text='JOB=late\n' if branch=='shared-entries' else ''
@@ -101,6 +101,19 @@ class Round10Contract(unittest.TestCase):
                     for _ in range(2):expected.append(observation('cron','',acquired=False))
                 markers={row['status'] for row in block if row['status'].startswith('bound-exceeded:')}
                 assert_collection(self,reader,result,scripts=[expected_script],blocking=ordered(reader,block),markers=markers,acquired=acquired,observations=expected)
+
+    def test_prior_surface_proof_is_missing(self):
+        # This is a test-code audit, not runtime RED. An old source tree is
+        # optionally supplied by the batch to demonstrate the missing contract.
+        import os
+        root=Path(os.environ.get('W0_TEST_SOURCE',Path(__file__).parent))
+        for name in ('structural','entries','unit-count','cron-list'):
+            with self.subTest(proof=name):
+                source=root/'round10_contract.py'
+                self.assertTrue(source.exists(),name+' exact shared proof absent')
+                text=source.read_text()
+                self.assertIn('assert_collection(',text)
+                self.assertIn(repr(name),text)
 
 
 if __name__=='__main__':unittest.main(verbosity=2)

@@ -59,11 +59,11 @@ class Round9Contract(unittest.TestCase):
                 self.installed(result,expected_false=set(),scripts=expected_scripts,blocking=expected_rows,observations=self.observations([parent,late]))
 
     def test_changed_and_overflow_files_collection(self):
-        for kind in ('changed','read-overflow'):
+        for kind in ('size','changed','read-overflow'):
             with self.subTest(kind=kind):
                 with tempfile.TemporaryDirectory(prefix='w0-r9-') as temp:
                     first=str(Path(temp)/'a.sh'); late=str(Path(temp)/'z.py')
-                    Path(first).write_bytes(b'abc')
+                    Path(first).write_bytes(b'x'*40 if kind=='size' else b'abc')
                     original=self.reader.os.fstat
                     calls=[0]
                     def fstat(fd):

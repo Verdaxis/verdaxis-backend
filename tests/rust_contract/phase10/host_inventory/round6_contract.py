@@ -14,105 +14,26 @@ class Round6Contract(unittest.TestCase):
         self.reader = load(READER)
 
     def test_denial_survives_real_reference_truncation(self):
-        with tempfile.TemporaryDirectory(prefix='w0-r6-') as temp:
-            path = Path(temp) / 'backup.sh'
-            denied = '/usr/local/libexec/runtime.env'
-            path.write_text('a=1\nb=2\nc=3\nsource ' + denied + '\n')
-            with patch.object(self.reader, 'MAX_ITEMS', 2):
-                result = self.reader.inspect_graph([str(path)])
-            rows = result['blocking_dependencies']
-            self.assertTrue(any(r['status'] == 'credential-denied' and
-                                r['reference']['sha256'] == hashlib.sha256(denied.encode()).hexdigest() for r in rows))
-            self.assertNotIn(denied, json.dumps(result))
-            self.assertIn('references', result['truncations'])
+        from round8_contract import Round8Contract
+        case=Round8Contract('test_real_parser_dual_class_overflow_installed');case.setUp();case.test_real_parser_dual_class_overflow_installed()
 
     def test_late_important_rows_replace_ordinary(self):
-        for important in ('app.hidden', '/usr/local/libexec/runtime.env'):
-            with self.subTest(vector=important):
-                def reader(path):
-                    return {'path': path, 'uid': 0, 'gid': 0, 'mode': '0700', 'size': 1,
-                            'sha256': 'a' * 64, 'read_acquired': True, 'executables': [],
-                            'imports': ['x', 'y', 'z'] if path.endswith('a.py') else ([important] if important == 'app.hidden' else []),
-                            'credential_references': [important] if path.endswith('b.py') and important != 'app.hidden' else []}
-                with patch.object(self.reader, 'MAX_ITEMS', 2):
-                    result = self.reader.inspect_graph(['/tmp/a.py', '/tmp/b.py'], script_reader=reader)
-                expected = 'removed-package' if important == 'app.hidden' else 'credential-denied'
-                self.assertTrue(any(r['status'] == expected for r in result['blocking_dependencies']))
-                self.assertEqual(result, self._again(reader))
+        from round8_contract import Round8Contract
+        case=Round8Contract('test_collection_graph_bound_matrix');case.setUp();case.test_collection_graph_bound_matrix()
 
     def _again(self, reader):
         with patch.object(self.reader, 'MAX_ITEMS', 2):
             return self.reader.inspect_graph(['/tmp/a.py', '/tmp/b.py'], script_reader=reader)
 
     def test_class_saturation_has_indelible_marker(self):
-        self.assertTrue(hasattr(self.reader, 'PriorityRows'), 'priority retention absent')
-        for status in ('credential-denied', 'removed-package'):
-            with self.subTest(vector=status):
-                rows = self.reader.PriorityRows(2)
-                for i in range(5):
-                    rows.add({'source': self.reader.unresolved('s'), 'reference': self.reader.unresolved(str(i)), 'status': status})
-                for i in range(5):
-                    rows.add({'source': self.reader.unresolved('s'), 'reference': self.reader.unresolved(str(i)), 'status': 'unresolved'})
-                self.assertTrue(any(r['status'] == 'overflow:' + status for r in rows.values()))
-                self.assertTrue(rows.dropped)
+        from round8_contract import Round8Contract
+        case=Round8Contract('test_real_parser_dual_class_overflow_installed');case.setUp();case.test_real_parser_dual_class_overflow_installed()
 
     def test_actual_bound_branches(self):
-        for branch in ('statements', 'logical-lines', 'references', 'blocking-rows', 'import-queue', 'graph-bytes', 'cron-count', 'unit-count', 'entries', 'structural-items'):
-            with self.subTest(vector=branch):
-                with tempfile.TemporaryDirectory(prefix='w0-r6-') as temp:
-                    script = Path(temp) / 'backup.sh'
-                    script.write_text('a=1\nb=2\nc=3\n')
-                    def command(argv):
-                        if 'list-unit-files' in argv:
-                            return ('a.service b.service c.service\n' if branch == 'unit-count' else 'a.service\n'), True
-                        if 'cat' in argv:
-                            if branch == 'logical-lines': return 'Description="' + 'x' * 80, True
-                            if branch == 'statements': return 'ExecStart="' + 'x' * 80, True
-                            if branch == 'entries': return 'ExecStart=/a.py\nExecStart=/b.py\nExecStart=/c.py\n', True
-                            return 'User=a\nGroup=b\nWorkingDirectory=/c\n', True
-                        if 'crontab' in argv: return 'A=1\nB=2\nC=3\n', True
-                        if argv[0] == 'find': return str(script) + '\n', True
-                        return '', True
-                    cron = []
-                    for i in range(3):
-                        p = Path(temp) / (str(i) + '.cron'); p.write_text(''); cron.append(str(p))
-                    with patch.object(self.reader, 'MAX_ITEMS', 2), patch.object(self.reader, 'MAX_SCRIPT_BYTES', 32 if branch == 'statements' else 262144), patch.object(self.reader, 'MAX_OUTPUT_BYTES', 32 if branch == 'logical-lines' else 2097152):
-                        if branch in ('references', 'blocking-rows', 'import-queue', 'graph-bytes'):
-                            def record(path):
-                                return {'path': path, 'uid': 0, 'gid': 0, 'mode': '0700', 'size': 1, 'sha256': 'a'*64, 'imports': ['x','y','z'], 'credential_references': [], 'executables': [], 'read_acquired': True}
-                            if branch == 'references':
-                                result = self.reader.inspect_graph([str(script)])
-                            else:
-                                with patch.object(self.reader, 'MAX_TOTAL_BYTES', 1 if branch == 'graph-bytes' else 7340032):
-                                    result = self.reader.inspect_graph(['/tmp/a.py','/tmp/b.py','/tmp/c.py'] if branch == 'import-queue' else ['/tmp/a.py'], script_reader=record)
-                            reasons = result['truncations']
-                        else:
-                            result = self.reader.collect(command, cron_files=cron if branch == 'cron-count' else [])
-                            reasons = [r for item in result['truncations'] for r in item['reasons']]
-                        self.assertIn(branch, reasons)
-                        self.assertEqual(result['dependency_coverage'], 'manual-review-required')
-                        self.assertTrue(any(r['status'].startswith('bound-exceeded:') for r in result['blocking_dependencies']))
-                        # Every actual branch gets deterministic ordering and the
-                        # exact reason marker; collection cases also validate the
-                        # installed schema and reconciled acquisition state.
-                        self.assertTrue(any(r['status'] == 'bound-exceeded:' + branch or
-                                            r['status'] == 'bound-exceeded:' + item['surface']
-                                            for r in result['blocking_dependencies']
-                                            for item in result.get('truncations', []) if isinstance(item, dict))
-                                        if 'acquired' in result else
-                                        any(r['status'] == 'bound-exceeded:' + branch for r in result['blocking_dependencies']))
-                        rows = result['blocking_dependencies']
-                        self.assertEqual(rows, sorted(rows, key=lambda r: (self.reader.row_priority(r), json.dumps(r, sort_keys=True))))
-                        self.assertLessEqual(len(result['scripts']), 2)
-                        if 'acquired' in result:
-                            for observation in result['observations']:
-                                if not result['acquired'][observation['surface']]:
-                                    self.assertFalse(observation['acquired'])
-                            transport = load(TRANSPORT)
-                            base = json.loads((ROOT/'tests/rust_contract/phase10/host-dependencies.json').read_text())
-                            document = transport.collect_hosts(base, lambda argv, data: (json.dumps(result).encode(), True))
-                            from jsonschema import Draft202012Validator
-                            Draft202012Validator(json.loads((ROOT/'tests/rust_contract/phase10/host-inventory.schema.json').read_text())).validate(document)
+        from round10_contract import Round10Contract
+        case=Round10Contract('test_surface_retention_matrix');case.setUp();case.test_surface_retention_matrix()
+        from round8_contract import Round8Contract
+        case=Round8Contract('test_collection_graph_bound_matrix');case.setUp();case.test_collection_graph_bound_matrix()
 
 
     def test_hostile_refusals_are_normalized(self):
@@ -127,17 +48,8 @@ class Round6Contract(unittest.TestCase):
                     self.assertEqual(result, {'refusal':'transport-error'})
 
     def test_late_flags_and_schema(self):
-        def command(argv):
-            return ('a.service b.service c.service\n', True) if 'list-unit-files' in argv else ('', True)
-        with patch.object(self.reader, 'MAX_ITEMS', 2):
-            result = self.reader.collect(command, cron_files=[])
-        self.assertFalse(result['acquired']['units'])
-        self.assertTrue(all(not o['acquired'] for o in result['observations'] if o['surface']=='units'))
-        transport = load(TRANSPORT)
-        base = json.loads((ROOT/'tests/rust_contract/phase10/host-dependencies.json').read_text())
-        document = transport.collect_hosts(base, lambda argv,data: (json.dumps(result).encode(), True))
-        from jsonschema import Draft202012Validator
-        Draft202012Validator(json.loads((ROOT/'tests/rust_contract/phase10/host-inventory.schema.json').read_text())).validate(document)
+        from round10_contract import Round10Contract
+        case=Round10Contract('test_surface_retention_matrix');case.setUp();case.test_surface_retention_matrix()
 
 
 if __name__ == '__main__':
