@@ -55,6 +55,7 @@ class Round10Contract(unittest.TestCase):
                        reader.bound_row('blocking-rows'),reader.bound_row('usr_local')]
                 if branch in ('structural','entries','statements','logical-lines','shared-entries','unit-count'):block.append(reader.bound_row('dropins')) if branch!='unit-count' else None
                 if branch=='unit-count':block.append(reader.bound_row('units'))
+                if branch=='entries':block.append(reader.bound_row('import-queue'))
                 if branch.startswith('cron-') or branch=='shared-entries':block.append(reader.bound_row('cron'))
                 expected_script=dict(critical,imports=[reader.unresolved('app.hidden')],credential_references=[reader.unresolved(denied)],truncations=[])
                 expected=[]

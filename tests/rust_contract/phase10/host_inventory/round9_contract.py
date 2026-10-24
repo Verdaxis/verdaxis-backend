@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from reader_contract import READER, ROOT, TRANSPORT, load
 from round7_contract import record
+from collection_assertions import assert_collection, flags, observation, ordered
 
 
 class Round9Contract(unittest.TestCase):
@@ -14,20 +15,15 @@ class Round9Contract(unittest.TestCase):
         self.reader=load(READER)
         self.transport=load(TRANSPORT)
 
-    def installed(self,result,expected_false):
-        surfaces={'units','timers','dropins','cron','processes','usr_local','packages'}
-        self.assertEqual(result['acquired'],{name:name not in expected_false for name in surfaces})
-        for observation in result['observations']:
-            self.assertEqual(observation['acquired'],observation['surface'] not in expected_false)
-        self.assertEqual(result['dependency_coverage'],'manual-review-required')
-        rows=result['blocking_dependencies']
-        self.assertEqual(rows,sorted(rows,key=lambda r:(self.reader.row_priority(r),json.dumps(r,sort_keys=True))))
-        wire=json.dumps(result,sort_keys=True).encode()
-        base=json.loads((ROOT/'tests/rust_contract/phase10/host-dependencies.json').read_text())
-        doc=self.transport.collect_hosts(base,lambda argv,data:(wire,True))
-        from jsonschema import Draft202012Validator
-        Draft202012Validator(json.loads((ROOT/'tests/rust_contract/phase10/host-inventory.schema.json').read_text())).validate(doc)
-        return doc
+    def installed(self,result,expected_false,*,scripts,blocking,observations):
+        return assert_collection(self,self.reader,result,scripts=scripts,blocking=blocking,
+                                 markers=set(),acquired=flags(*expected_false),observations=observations)
+
+    def observations(self,paths):
+        text='\n'.join(sorted(paths))
+        return [observation('units',''),observation('timers',''),observation('processes',''),
+                observation('usr_local',text,[{'key':'executable','values':[p]} for p in sorted(paths)]),
+                observation('packages',''),*[observation('cron','') for _ in range(3)]]
 
     def test_readable_absolute_child_depth(self):
         for depth in (0,1):
@@ -57,7 +53,10 @@ class Round9Contract(unittest.TestCase):
                 expected_rows.sort(key=lambda r:(self.reader.row_priority(r),json.dumps(r,sort_keys=True)))
                 self.assertEqual(result['blocking_dependencies'],expected_rows)
                 self.assertEqual(result['truncations'],[])
-                self.installed(result,expected_false=set())
+                expected_scripts=[dict(record(parent),executables=[expected],truncations=[]),
+                                  dict(record(late),imports=[self.reader.unresolved('app.hidden')],credential_references=[self.reader.unresolved(denied)],truncations=[])]
+                if depth:expected_scripts.append(dict(record(child),truncations=[]))
+                self.installed(result,expected_false=set(),scripts=expected_scripts,blocking=expected_rows,observations=self.observations([parent,late]))
 
     def test_changed_and_overflow_files_collection(self):
         for kind in ('changed','read-overflow'):
@@ -86,11 +85,16 @@ class Round9Contract(unittest.TestCase):
                     expected.sort(key=lambda r:(self.reader.row_priority(r),json.dumps(r,sort_keys=True)))
                     self.assertEqual(result['blocking_dependencies'],expected)
                     self.assertEqual(result['truncations'],[])
-                    self.installed(result,expected_false=set())
+                    expected_script=dict(record(late),imports=[self.reader.unresolved('app.hidden')],credential_references=[self.reader.unresolved('/usr/local/libexec/runtime.env')],truncations=[])
+                    expected_observations=self.observations([first,late])
+                    expected_observations[3]['fields']=[{'key':'executable','values':[late]}]
+                    from round10_contract import unparsed
+                    expected_observations[3]['unparsed']=[unparsed(json.dumps({'key':'executable','values':[first]}))]
+                    self.installed(result,expected_false=set(),scripts=[expected_script],blocking=expected,observations=expected_observations)
 
     def test_publisher_size_precedes_helper_entry(self):
         result=self.reader.collect(lambda argv:('',True),cron_files=[])
-        doc=self.installed(result,expected_false=set())
+        doc=self.installed(result,expected_false=set(),scripts=[],blocking=[],observations=self.observations([]))
         original=self.transport.importlib.util.module_from_spec
         guards=[]
         def module_from_spec(spec):
