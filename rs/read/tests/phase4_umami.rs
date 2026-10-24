@@ -1544,7 +1544,7 @@ mod cases {
         let window = client(address).window(&query(), destination_set()).await;
         server.abort();
 
-        let entries = window.top_entries.data.expect("entries");
+        let entries = window.top_entries.data.clone().expect("entries");
         assert_eq!(entries.len(), 3);
         assert_eq!(entries[0].entry, EntryPage::Platform);
         assert_eq!(entries[0].rank, 1);
@@ -1554,7 +1554,7 @@ mod cases {
         assert_eq!(entries[2].entry, EntryPage::Landing);
         assert!(entries[2].count.suppressed);
 
-        let referrers = window.top_referrers.data.expect("referrers");
+        let referrers = window.top_referrers.data.clone().expect("referrers");
         assert_eq!(referrers[0].referrer, ReferrerCategory::Search);
         assert_eq!(referrers[1].referrer, ReferrerCategory::Other);
 
