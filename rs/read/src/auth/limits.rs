@@ -1,6 +1,7 @@
 //! Exact correctness counters, not load measurement. One instance must be
 //! shared by ingress before Python/Rust splitting for the admin prefix.
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
+use std::net::{IpAddr, Ipv6Addr};
 
 #[derive(Clone, Default)]
 pub struct SharedLimits(std::sync::Arc<std::sync::Mutex<Phase2Limits>>);
@@ -51,10 +52,11 @@ impl SharedLimits {
     }
 }
 
-// Match the bounded Python backstop. Maintenance runs at most once per
-// shortest policy window, never once per request under the shared mutex.
+// Each authority has its own cap. The ordered expiration index keeps eviction
+// and expiry bounded without scanning the client map on each request.
 const MAX_BUCKETS: usize = 50_000;
-const PRUNE_INTERVAL_SECONDS: u64 = 60;
+
+type Identity = (String, String);
 
 struct Bucket {
     expires_at: u64,
@@ -62,46 +64,81 @@ struct Bucket {
 }
 
 #[derive(Default)]
-pub struct Phase2Limits {
-    buckets: HashMap<(String, String), Bucket>,
-    next_prune_at: u64,
+struct QuotaStore {
+    buckets: HashMap<Identity, Bucket>,
+    expiration: BTreeSet<(u64, Identity)>,
+    evictions: u64,
 }
 
-impl Phase2Limits {
-    fn accept(&mut self, client: &str, key: &str, limit: u32, window: u64, now: u64) -> bool {
-        if now >= self.next_prune_at {
-            self.buckets.retain(|_, bucket| now < bucket.expires_at);
-            self.next_prune_at = now.saturating_add(PRUNE_INTERVAL_SECONDS);
+impl QuotaStore {
+    fn accept(&mut self, owner: &str, key: &str, limit: u32, window: u64, now: u64) -> bool {
+        while let Some((expires_at, _)) = self.expiration.first() {
+            if *expires_at > now {
+                break;
+            }
+            let (_, identity) = self.expiration.pop_first().expect("expiration entry");
+            self.buckets.remove(&identity);
         }
-        let identity = (client.into(), key.into());
-        if self.buckets.len() >= MAX_BUCKETS && !self.buckets.contains_key(&identity) {
-            // Keep active accounting intact. New identities wait for the next
-            // bounded maintenance pass rather than evicting another quota.
-            return false;
+        let identity = (owner.into(), key.into());
+        if !self.buckets.contains_key(&identity) {
+            if self.buckets.len() == MAX_BUCKETS {
+                let (_, expired) = self.expiration.pop_first().expect("full quota index");
+                self.buckets.remove(&expired);
+                self.evictions = self.evictions.saturating_add(1);
+            }
+            let expires_at = now.saturating_add(window);
+            self.expiration.insert((expires_at, identity.clone()));
+            self.buckets.insert(
+                identity.clone(),
+                Bucket {
+                    expires_at,
+                    count: 0,
+                },
+            );
         }
-        let bucket = self.buckets.entry(identity).or_insert(Bucket {
-            expires_at: now.saturating_add(window),
-            count: 0,
-        });
-        if now >= bucket.expires_at {
-            bucket.expires_at = now.saturating_add(window);
-            bucket.count = 0;
-        }
+        let bucket = self.buckets.get_mut(&identity).expect("quota entry");
+        debug_assert!(bucket.expires_at > now);
         if bucket.count >= limit {
             return false;
         }
         bucket.count += 1;
         true
     }
-    pub fn preauth(&mut self, client: &str, path: &str, now: u64) -> bool {
-        !path.starts_with("/api/admin/") || self.accept(client, "/api/admin/", 300, 60, now)
+}
+
+#[derive(Default)]
+pub struct Phase2Limits {
+    preauth_store: QuotaStore,
+    user_store: QuotaStore,
+}
+
+fn network_identity(client: &str) -> String {
+    match client.parse::<IpAddr>() {
+        Ok(IpAddr::V6(address)) => {
+            if let Some(ipv4) = address.to_ipv4_mapped() {
+                return ipv4.to_string();
+            }
+            let prefix = u128::from(address) & (u128::MAX << 64);
+            Ipv6Addr::from(prefix).to_string()
+        }
+        Ok(IpAddr::V4(address)) => address.to_string(),
+        Err(_) => "unknown".into(),
     }
-    /// Call only after authentication and typed request validation succeeded.
-    pub fn endpoint(&mut self, client: &str, path: &str, now: u64) -> bool {
+}
+
+impl Phase2Limits {
+    pub fn preauth(&mut self, client: &str, path: &str, now: u64) -> bool {
+        !path.starts_with("/api/admin/")
+            || self
+                .preauth_store
+                .accept(&network_identity(client), "/api/admin/", 300, 60, now)
+    }
+    /// The owner is the current verified user ID, never a transport address.
+    pub fn endpoint(&mut self, user: &str, path: &str, now: u64) -> bool {
         let Some((key, limit, window)) = endpoint_policy(path) else {
             return true;
         };
-        self.accept(client, key, limit, window, now)
+        self.user_store.accept(user, key, limit, window, now)
     }
 }
 
@@ -134,7 +171,7 @@ mod tests {
         for client in 0..50_100 {
             let _ = limits.preauth(&format!("client-{client}"), "/api/admin/users", 100);
         }
-        assert!(limits.buckets.len() <= 50_000);
+        assert!(limits.preauth_store.buckets.len() <= 50_000);
     }
 
     #[test]
@@ -161,6 +198,9 @@ mod tests {
             assert!(limits.preauth(&address, "/api/admin/users", 100));
         }
         assert!(limits.preauth("203.0.113.99", "/api/admin/users", 100));
+        assert_eq!(limits.preauth_store.buckets.len(), MAX_BUCKETS);
+        assert_eq!(limits.preauth_store.expiration.len(), MAX_BUCKETS);
+        assert_eq!(limits.preauth_store.evictions, 101);
     }
 
     #[test]
@@ -196,11 +236,13 @@ mod tests {
         let mut limits = Phase2Limits::default();
         assert!(limits.preauth("admin", "/api/admin/users", 100));
         assert!(limits.endpoint("inviter", "/api/referrals/invite", 100));
-        assert!(limits.preauth("next", "/api/admin/users", 160));
+        assert!(limits.preauth("192.0.2.2", "/api/admin/users", 160));
         assert!(!limits
+            .preauth_store
             .buckets
-            .contains_key(&("admin".into(), "/api/admin/".into())));
+            .contains_key(&("unknown".into(), "/api/admin/".into())));
         assert!(limits
+            .user_store
             .buckets
             .contains_key(&("inviter".into(), "invite".into())));
     }

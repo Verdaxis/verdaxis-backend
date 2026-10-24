@@ -257,7 +257,7 @@ async fn request_pipeline_enforces_syntax_auth_validation_quota_order() {
         let calls = calls.clone();
         let result=admit_request(raw.as_bytes(), &context, move || async move {
             calls.fetch_add(1,Ordering::SeqCst);
-            if authenticated {Ok(())}else{Err(verdaxis_read::auth::AuthError::Credentials)}
+            if authenticated {Ok(uuid::Uuid::nil())}else{Err(verdaxis_read::auth::AuthError::Credentials)}
         }, |body| {
             if body.get("message").and_then(serde_json::Value::as_str).is_some() {Ok(body)} else {
                 Err(verdaxis_read::ApiError { status:axum::http::StatusCode::UNPROCESSABLE_ENTITY,
@@ -274,15 +274,18 @@ async fn request_pipeline_enforces_syntax_auth_validation_quota_order() {
     );
     for _ in 0..5 {
         assert!(
-            admit_request(b"{\"message\":\"ok\"}", &context, || async { Ok(()) }, Ok)
+            admit_request(b"{\"message\":\"ok\"}", &context, || async { Ok(uuid::Uuid::nil()) }, Ok)
                 .await
                 .is_ok()
         );
     }
-    let rejected = admit_request(b"{\"message\":\"ok\"}", &context, || async { Ok(()) }, Ok)
+    let rejected = admit_request(b"{\"message\":\"ok\"}", &context, || async { Ok(uuid::Uuid::nil()) }, Ok)
         .await
         .unwrap_err();
     assert_eq!(rejected.status(), 429);
+    let moved = RequestAdmission { client: "different-address".into(), ..context };
+    assert_eq!(admit_request(b"{}", &moved, || async { Ok(uuid::Uuid::nil()) }, Ok).await.unwrap_err().status(), 429);
+    assert!(admit_request(b"{}", &moved, || async { Ok(uuid::Uuid::from_u128(1)) }, Ok).await.is_ok());
 }
 
 #[tokio::test]
@@ -314,7 +317,7 @@ async fn admission_order_is_observed_through_http_and_early_cors() {
                     &context,
                     || async move {
                         if authorized {
-                            Ok(())
+                            Ok(uuid::Uuid::nil())
                         } else {
                             Err(verdaxis_read::auth::AuthError::Credentials)
                         }
