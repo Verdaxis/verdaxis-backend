@@ -224,11 +224,11 @@ chmod 0755 "$fixture/.runtime-deploy"
 fixture=$(new_fixture locks)
 state_dir=$fixture/.runtime-deploy
 write_state "$fixture" staging "$sha_a"
-expect_denied 'stale authorization' 'restart authorization is not held' \
+expect_denied 'stale authorization' 'main lock is missing' \
     "$fixture" --environment staging --expected-release-sha "$sha_a"
 hold_lock "$state_dir/staging.lock"
 main_holder=$holder_pid
-expect_denied 'main lock only' 'restart authorization is not held' \
+expect_denied 'main lock only' 'restart lock is missing' \
     "$fixture" --environment staging --expected-release-sha "$sha_a"
 hold_lock "$state_dir/staging.restart.lock"
 expect_allowed 'both locks held' "$fixture" \
@@ -330,7 +330,7 @@ mkdir -- "$state_dir/staging.restart.lock"
 expect_denied 'replaced restart lock' 'restart lock is not a regular file' \
     "$fixture" --environment staging --expected-release-sha "$sha_a"
 rmdir -- "$state_dir/staging.restart.lock"
-expect_denied 'missing restart lock' 'restart lock is not a regular file' \
+expect_denied 'missing restart lock' 'restart lock is missing' \
     "$fixture" --environment staging --expected-release-sha "$sha_a"
 
 mv -- "$state_dir" "$fixture/real-deploy"

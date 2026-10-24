@@ -170,14 +170,16 @@ lock_state() (
     local path=$1 descriptor=$fd_root/8 status
     exec 8<"$path" || exit 20
     if [[ ! -f $descriptor ]] || [[ -L $path ]]; then
-        exit 20
+        exit 23
     fi
     opened=$(fd_identity 8) || exit 22
     current=$(stat_identity "$path") || exit 22
     [[ $opened == "$current" ]] || exit 22
     IFS=: read -r _device _inode owner mode links <<< "$opened"
     [[ $owner == "$EUID" && $links == 1 ]] || exit 21
-    (( (8#$mode & 8#022) == 0 )) || exit 21
+    # Deploy creates each lock 0600; anything group- or other-accessible could be
+    # substituted, so the stricter mask applies to locks.
+    (( (8#$mode & 8#077) == 0 )) || exit 21
     if flock -n -E 75 8; then
         exit 1
     else
@@ -196,8 +198,9 @@ require_lock() {
     case $status in
         0) return 0 ;;
         1) return 1 ;;
-        20) deny "$label is not a regular file" ;;
+        20) deny "$label is missing" ;;
         21) deny "$label is not owner-controlled" ;;
+        23) deny "$label is not a regular file" ;;
         *) deny "$label check failed" ;;
     esac
 }

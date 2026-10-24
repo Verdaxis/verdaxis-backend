@@ -319,14 +319,14 @@ fn deploy_guard_requires_both_locks_for_restart_authorization() {
     assert_denied(
         &run_for(&fixture, environment, SHA_A),
         "stale authorization",
-        "restart authorization is not held",
+        "main lock is missing",
     );
 
     fixture.hold(&main);
     assert_denied(
         &run_for(&fixture, environment, SHA_A),
         "main lock only",
-        "restart authorization is not held",
+        "restart lock is missing",
     );
 
     fixture.hold(&restart);
@@ -481,7 +481,7 @@ fn deploy_guard_rejects_dangling_state_and_wrong_sha() {
     assert_denied(
         &run_for(&fixture, environment, SHA_A),
         "missing restart lock",
-        "restart lock is not a regular file",
+        "restart lock is missing",
     );
 
     // A linked or writable deploy directory is not deploy authority.
