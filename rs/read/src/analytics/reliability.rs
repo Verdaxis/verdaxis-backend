@@ -172,8 +172,11 @@ fn navigation_latency(
     window: &BehavioralWindow,
     quality: &mut Quality,
 ) -> Vec<NavigationLatencyRow> {
-    let Some(rows) = property_rows(window, Event::NavigationPerformance, Property::LatencyBucket)
-    else {
+    let Some(rows) = property_rows(
+        window,
+        Event::NavigationPerformance,
+        Property::LatencyBucket,
+    ) else {
         return Vec::new();
     };
     if rows.is_empty() {
@@ -223,7 +226,13 @@ pub fn compose(
     let login_failures = match window {
         Some(window) => LoginFailurePanel {
             total: event_metric(current, previous, Event::LoginFailed, quality),
-            categories: cells(window, Event::LoginFailed, Property::ReasonCategory, 8, quality),
+            categories: cells(
+                window,
+                Event::LoginFailed,
+                Property::ReasonCategory,
+                8,
+                quality,
+            ),
             trend: event_trend(window, Event::LoginFailed, query, quality),
         },
         None => LoginFailurePanel {
@@ -237,7 +246,13 @@ pub fn compose(
     let frontend_errors = match window {
         Some(window) => FrontendErrorPanel {
             total: event_metric(current, previous, Event::FrontendError, quality),
-            by_route_family: cells(window, Event::FrontendError, Property::RouteFamily, 4, quality),
+            by_route_family: cells(
+                window,
+                Event::FrontendError,
+                Property::RouteFamily,
+                4,
+                quality,
+            ),
             by_category: cells(window, Event::FrontendError, Property::Category, 4, quality),
         },
         None => FrontendErrorPanel {

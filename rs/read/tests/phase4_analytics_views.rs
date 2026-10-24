@@ -17,17 +17,17 @@ pub use verdaxis_read::{
 };
 
 #[allow(dead_code)]
-#[path = "../src/analytics/marketplace.rs"]
-pub mod marketplace;
-#[allow(dead_code)]
-#[path = "../src/analytics/liquidity.rs"]
-pub mod liquidity;
+#[path = "../src/analytics/acquisition.rs"]
+pub mod acquisition;
 #[allow(dead_code)]
 #[path = "../src/analytics/commercial.rs"]
 pub mod commercial;
 #[allow(dead_code)]
-#[path = "../src/analytics/acquisition.rs"]
-pub mod acquisition;
+#[path = "../src/analytics/liquidity.rs"]
+pub mod liquidity;
+#[allow(dead_code)]
+#[path = "../src/analytics/marketplace.rs"]
+pub mod marketplace;
 #[allow(dead_code)]
 #[path = "../src/analytics/reliability.rs"]
 pub mod reliability;
@@ -41,11 +41,11 @@ use serde_json::json;
 use uuid::Uuid;
 
 use marketplace::{
-    Activity, AllowedPropertySet, AnalyticsQuery, AnalyticsRoute, Audience,
-    BehavioralRead, BehavioralWindow, ComponentStatus, CoreMetrics, DailyEvent, DailyVisitor,
-    Diagnostic, EntryPage, EntryRanking, Event, MetaOptions, Property, PropertyResult,
-    PropertyValueCount, ProviderComponent, ProviderFuture, Quality, QueryInput, ReferenceFuture,
-    ReferenceQuote, ReferenceRead, ReferenceRequest, Source, SourceStatus, parse_query,
+    Activity, AllowedPropertySet, AnalyticsQuery, AnalyticsRoute, Audience, BehavioralRead,
+    BehavioralWindow, ComponentStatus, CoreMetrics, DailyEvent, DailyVisitor, Diagnostic,
+    EntryPage, EntryRanking, Event, MetaOptions, Property, PropertyResult, PropertyValueCount,
+    ProviderComponent, ProviderFuture, Quality, QueryInput, ReferenceFuture, ReferenceQuote,
+    ReferenceRead, ReferenceRequest, Source, SourceStatus, parse_query,
 };
 
 // ---------------------------------------------------------------------------
@@ -297,14 +297,18 @@ fn p4_t19_c01() {
     assert!(Activity::Live.wants_live() && !Activity::Live.wants_demo());
     assert!(Activity::Demo.wants_demo() && !Activity::Demo.wants_live());
     assert!(!Activity::Live.wants_unknown());
-    assert!(Activity::All.wants_live() && Activity::All.wants_demo() && Activity::All.wants_unknown());
+    assert!(
+        Activity::All.wants_live() && Activity::All.wants_demo() && Activity::All.wants_unknown()
+    );
     assert!(Activity::Reference.wants_reference() && !Activity::Reference.wants_activity());
 
     // The live/demo/unknown labels the response and the SQL share are distinct
     // strings, and the demo identity list is the seeded set.
     assert_eq!(marketplace::demo_market_org_ids().len(), 14);
-    assert!(marketplace::demo_market_org_ids()
-        .contains(&Uuid::from_u128(0x7cc77115_0a9f_4ec4_8c74_05aa10050111)));
+    assert!(
+        marketplace::demo_market_org_ids()
+            .contains(&Uuid::from_u128(0x7cc77115_0a9f_4ec4_8c74_05aa10050111))
+    );
     // An order whose provenance is REAL but whose organization is a seeded
     // demo organization stays demo: the two predicates are OR-ed, never
     // averaged.
@@ -340,7 +344,10 @@ fn p4_t19_c02() {
         missing_paid_at_current: 0,
     };
     let summary = commercial::summarize(Some(&trades), &commissions);
-    assert_eq!(summary.realized_gmv_usd.value.unwrap().to_string(), "316000.00");
+    assert_eq!(
+        summary.realized_gmv_usd.value.unwrap().to_string(),
+        "316000.00"
+    );
     assert_eq!(
         summary.realized_revenue_usd.value.unwrap().to_string(),
         "1580.00"
@@ -389,7 +396,10 @@ fn p4_t19_c03() {
     ])
     .unwrap();
     assert_eq!(set.pairs().len(), 2);
-    assert_eq!(set.pairs()[0], (Event::FrontendError, Property::RouteFamily));
+    assert_eq!(
+        set.pairs()[0],
+        (Event::FrontendError, Property::RouteFamily)
+    );
 
     // More than twelve distinct events in one window is refused.
     let too_many: Vec<(Event, Property)> = Event::ALL
@@ -532,9 +542,13 @@ fn p4_t19_c06() {
         "start=2026-06-01T00:00:00Z&end=2026-07-01T00:00:00Z&product_id=not-a-uuid",
         "start=2026-06-01T00:00:00Z&end=2026-07-01T00:00:00Z&availability_window=THIS-IS-TOO-LONG-X",
     ] {
-        let error = parse_query(QueryInput::from_query_string(raw))
-            .expect_err("the query must be refused");
-        assert_eq!(error.status, axum::http::StatusCode::UNPROCESSABLE_ENTITY, "{raw}");
+        let error =
+            parse_query(QueryInput::from_query_string(raw)).expect_err("the query must be refused");
+        assert_eq!(
+            error.status,
+            axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+            "{raw}"
+        );
         assert_eq!(error.detail["code"], "ANALYTICS_QUERY_INVALID", "{raw}");
     }
 
@@ -598,7 +612,11 @@ fn p4_t19_c09() {
     // The declared method/template pairs are the ones the route manifest owns.
     for route in AnalyticsRoute::ALL {
         assert_eq!(route.method(), "GET");
-        assert!(route.template().starts_with("/api/admin/analytics/product-analytics/"));
+        assert!(
+            route
+                .template()
+                .starts_with("/api/admin/analytics/product-analytics/")
+        );
     }
 }
 
@@ -638,13 +656,7 @@ fn p4_t19_c10() {
     );
     assert_eq!(meta.coverage.reference.status, SourceStatus::NotApplicable);
 
-    let response = acquisition::compose(
-        &query(),
-        meta,
-        Some(&degraded),
-        None,
-        &mut quality,
-    );
+    let response = acquisition::compose(&query(), meta, Some(&degraded), None, &mut quality);
     // Every behavioral value is null; a zero here would be a fabricated count.
     assert_eq!(response.kpis.visitors.value, None);
     assert_eq!(response.kpis.visits.value, None);
@@ -733,7 +745,11 @@ fn p4_t19_c11() {
         .find(|row| row.key == "direct")
         .unwrap();
     assert!(!landing.suppressed);
-    let signup = response.entry_pages.iter().find(|row| row.key == "landing").unwrap();
+    let signup = response
+        .entry_pages
+        .iter()
+        .find(|row| row.key == "landing")
+        .unwrap();
     assert!(signup.suppressed);
     assert_eq!(signup.count, None);
 
@@ -750,15 +766,33 @@ fn p4_t19_c11() {
     assert_eq!(pilot.share_pct.unwrap().to_string(), "48.00");
     assert_eq!(marketplace::rate_pct(1, 0), None);
     assert_eq!(marketplace::rate_pct(3, 7).unwrap().to_string(), "42.86");
-    assert_eq!(marketplace::share_pct(25, 25).unwrap().to_string(), "100.00");
+    assert_eq!(
+        marketplace::share_pct(25, 25).unwrap().to_string(),
+        "100.00"
+    );
 
     // Suppression thresholds: 0 stays visible, 1 and 2 suppress, 3 stays.
     let mut quality = Quality::default();
-    assert_eq!(marketplace::suppress_cell(Some(0), Some(0), &mut quality), (Some(0), false));
-    assert_eq!(marketplace::suppress_cell(Some(1), None, &mut quality), (None, true));
-    assert_eq!(marketplace::suppress_cell(Some(2), None, &mut quality), (None, true));
-    assert_eq!(marketplace::suppress_cell(Some(3), None, &mut quality), (Some(3), false));
-    assert_eq!(marketplace::suppress_cell(None, None, &mut quality), (None, false));
+    assert_eq!(
+        marketplace::suppress_cell(Some(0), Some(0), &mut quality),
+        (Some(0), false)
+    );
+    assert_eq!(
+        marketplace::suppress_cell(Some(1), None, &mut quality),
+        (None, true)
+    );
+    assert_eq!(
+        marketplace::suppress_cell(Some(2), None, &mut quality),
+        (None, true)
+    );
+    assert_eq!(
+        marketplace::suppress_cell(Some(3), None, &mut quality),
+        (Some(3), false)
+    );
+    assert_eq!(
+        marketplace::suppress_cell(None, None, &mut quality),
+        (None, false)
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -853,8 +887,9 @@ fn p4_t19_c15() {
     // a thousand refusals must leave the administrator's window untouched.
     for role in [None, Some("BUYER"), Some("SUPPLIER")] {
         for _ in 0..1000 {
-            let error = marketplace::admit_analytics(&actor(role), &limits, route, "1.2.3.4", token, 1_000)
-                .expect_err("a non-administrator must be refused");
+            let error =
+                marketplace::admit_analytics(&actor(role), &limits, route, "1.2.3.4", token, 1_000)
+                    .expect_err("a non-administrator must be refused");
             assert_eq!(error.status, StatusCode::FORBIDDEN);
             assert_eq!(error.detail["code"], "ADMIN_REQUIRED");
             // A refusal carries no Retry-After: it is not a quota answer.
@@ -866,16 +901,32 @@ fn p4_t19_c15() {
     // 31st request is a 429 with a Retry-After of at most one window.
     for attempt in 0..30 {
         assert!(
-            marketplace::admit_analytics(&actor(Some("ADMIN")), &limits, route, "1.2.3.4", token, 1_000)
-                .is_ok(),
+            marketplace::admit_analytics(
+                &actor(Some("ADMIN")),
+                &limits,
+                route,
+                "1.2.3.4",
+                token,
+                1_000
+            )
+            .is_ok(),
             "attempt {attempt} must be admitted"
         );
     }
-    let error = marketplace::admit_analytics(&actor(Some("ADMIN")), &limits, route, "1.2.3.4", token, 1_000)
-        .expect_err("the 31st request must be refused");
+    let error = marketplace::admit_analytics(
+        &actor(Some("ADMIN")),
+        &limits,
+        route,
+        "1.2.3.4",
+        token,
+        1_000,
+    )
+    .expect_err("the 31st request must be refused");
     assert_eq!(error.status, StatusCode::TOO_MANY_REQUESTS);
     assert_eq!(error.detail["code"], "RATE_LIMITED");
-    let retry_after = error.retry_after.expect("a quota refusal carries Retry-After");
+    let retry_after = error
+        .retry_after
+        .expect("a quota refusal carries Retry-After");
     assert!((1..=60).contains(&retry_after));
 
     // A malformed query is a 422 that also spends no quota: the administrator
@@ -920,15 +971,29 @@ fn p4_t19_c15() {
         .is_ok()
     );
     assert!(
-        marketplace::admit_analytics(&actor(Some("ADMIN")), &limits, route, "1.2.3.4", token, 1_060)
-            .is_ok()
+        marketplace::admit_analytics(
+            &actor(Some("ADMIN")),
+            &limits,
+            route,
+            "1.2.3.4",
+            token,
+            1_060
+        )
+        .is_ok()
     );
 
     // Each tab is its own bucket, so exhausting one never refuses another.
     let limits = auth::limits::SharedLimits::default();
     for _ in 0..30 {
-        marketplace::admit_analytics(&actor(Some("ADMIN")), &limits, route, "5.6.7.8", "t3", 2_000)
-            .unwrap();
+        marketplace::admit_analytics(
+            &actor(Some("ADMIN")),
+            &limits,
+            route,
+            "5.6.7.8",
+            "t3",
+            2_000,
+        )
+        .unwrap();
     }
     assert!(
         marketplace::admit_analytics(
@@ -956,8 +1021,7 @@ fn p4_t19_c15() {
     // The anonymous path never reaches admission at all: dispatch refuses a
     // missing or malformed bearer with 401 before any database work. The
     // verifier is the shared one, so this is the same refusal every route uses.
-    let settings =
-        auth::VerificationSettings::new(KEY.into(), None, "test".into(), "test".into());
+    let settings = auth::VerificationSettings::new(KEY.into(), None, "test".into(), "test".into());
     for header in [None, Some("Basic abc"), Some("Bearer not-a-jwt")] {
         let error = auth::verify_authorization(header, &settings, Utc::now())
             .expect_err("anonymous access must be refused");
@@ -988,8 +1052,10 @@ fn p4_t19_c15() {
 
 #[test]
 fn p4_t19_c16() {
-    let manifest: serde_json::Value =
-        serde_json::from_str(include_str!("../../../tests/rust_contract/phase4/routes.json")).unwrap();
+    let manifest: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../tests/rust_contract/phase4/routes.json"
+    ))
+    .unwrap();
     let routes = manifest["routes"].as_array().unwrap();
     for route in AnalyticsRoute::ALL {
         let entry = routes
@@ -1007,7 +1073,6 @@ fn p4_t19_c16() {
     // The tabs this lane owns are exactly three of the eleven P routes.
     assert_eq!(AnalyticsRoute::ALL.len(), 3);
 }
-
 
 // ---------------------------------------------------------------------------
 // c04 / c07 / c08: PostgreSQL cases
@@ -1038,8 +1103,8 @@ mod postgres {
         async fn new() -> Self {
             let migrator_url = std::env::var("RUST_TEST_MIGRATOR_DATABASE_URL")
                 .expect("explicit disposable migrator URL");
-            let app_url = std::env::var("RUST_TEST_DATABASE_URL")
-                .expect("explicit disposable runtime URL");
+            let app_url =
+                std::env::var("RUST_TEST_DATABASE_URL").expect("explicit disposable runtime URL");
             let parsed = url::Url::parse(&migrator_url).unwrap();
             let runtime = url::Url::parse(&app_url).unwrap();
             assert_eq!(parsed.host_str(), Some("127.0.0.1"));
@@ -1207,7 +1272,9 @@ mod postgres {
     async fn p4_t19_c04() {
         let mut fixture = Fixture::new().await;
         fixture.audit("2026-05-31T23:59:59Z", "before_window").await;
-        fixture.audit("2026-06-01T00:00:00Z", "at_window_start").await;
+        fixture
+            .audit("2026-06-01T00:00:00Z", "at_window_start")
+            .await;
         fixture.audit("2026-06-15T12:00:00Z", "inside_window").await;
         fixture.audit("2026-07-01T00:00:00Z", "at_window_end").await;
         fixture.audit("2026-07-02T00:00:00Z", "after_window").await;
@@ -1221,7 +1288,10 @@ mod postgres {
         assert_eq!(actions, vec!["inside_window", "at_window_start"]);
 
         // Newest first, and the actor role is published without an identity.
-        assert_eq!(rows[0].occurred_at, "2026-06-15T12:00:00Z".parse::<DateTime<Utc>>().unwrap());
+        assert_eq!(
+            rows[0].occurred_at,
+            "2026-06-15T12:00:00Z".parse::<DateTime<Utc>>().unwrap()
+        );
         assert_eq!(rows[0].actor_role.as_deref(), Some("ADMIN"));
         let body = serde_json::to_string(&rows).unwrap();
         assert!(!body.contains("fixtures.verdaxis.test"));
@@ -1251,18 +1321,33 @@ mod postgres {
             fixture.demo_org,
             fixture.unknown_org,
         );
-        fixture.order(buyer, "BID", 780, "2026-06-04T12:00:00Z").await;
-        fixture.order(buyer, "BID", 770, "2026-06-07T12:00:00Z").await;
-        fixture.order(supplier, "ASK", 800, "2026-06-03T12:00:00Z").await;
-        fixture.order(demo, "BID", 500, "2026-06-05T12:00:00Z").await;
-        fixture.order(unknown, "ASK", 400, "2026-06-06T12:00:00Z").await;
+        fixture
+            .order(buyer, "BID", 780, "2026-06-04T12:00:00Z")
+            .await;
+        fixture
+            .order(buyer, "BID", 770, "2026-06-07T12:00:00Z")
+            .await;
+        fixture
+            .order(supplier, "ASK", 800, "2026-06-03T12:00:00Z")
+            .await;
+        fixture
+            .order(demo, "BID", 500, "2026-06-05T12:00:00Z")
+            .await;
+        fixture
+            .order(unknown, "ASK", 400, "2026-06-06T12:00:00Z")
+            .await;
 
         let mut conn = fixture.connect().await;
         let query = query();
-        let orders = marketplace::aggregate_orders(&mut conn, &query).await.unwrap();
+        let orders = marketplace::aggregate_orders(&mut conn, &query)
+            .await
+            .unwrap();
         let live = orders.iter().find(|row| row.provenance == "live").unwrap();
         let demo_row = orders.iter().find(|row| row.provenance == "demo").unwrap();
-        let unknown_row = orders.iter().find(|row| row.provenance == "unknown").unwrap();
+        let unknown_row = orders
+            .iter()
+            .find(|row| row.provenance == "unknown")
+            .unwrap();
 
         // Each provenance counts only its own rows; live holds the two buyer
         // orders and the supplier order, and never the demo or unknown row.
@@ -1280,15 +1365,9 @@ mod postgres {
         };
         let mut all = query.clone();
         all.activity = Activity::All;
-        let response = marketplace::compose(
-            &mut conn,
-            &policy(),
-            &all,
-            &reference,
-            Utc::now(),
-        )
-        .await
-        .unwrap();
+        let response = marketplace::compose(&mut conn, &policy(), &all, &reference, Utc::now())
+            .await
+            .unwrap();
         let live_section = response.live.unwrap();
         let demo_section = response.demo.unwrap();
         let unknown_section = response.unknown.unwrap();
@@ -1300,7 +1379,10 @@ mod postgres {
         let reference_section = response.reference.unwrap();
         assert_eq!(reference_section.rows.len(), 1);
         assert_eq!(
-            reference_section.rows[0].benchmark_price_usd_per_mt.unwrap().to_string(),
+            reference_section.rows[0]
+                .benchmark_price_usd_per_mt
+                .unwrap()
+                .to_string(),
             "795.00"
         );
         assert_eq!(
@@ -1309,15 +1391,17 @@ mod postgres {
         );
 
         // A LIVE-only request has no demo, unknown or reference section.
-        let response =
-            marketplace::compose(&mut conn, &policy(), &query, &reference, Utc::now())
-                .await
-                .unwrap();
+        let response = marketplace::compose(&mut conn, &policy(), &query, &reference, Utc::now())
+            .await
+            .unwrap();
         assert!(response.live.is_some());
         assert!(response.demo.is_none());
         assert!(response.unknown.is_none());
         assert!(response.reference.is_none());
-        assert_eq!(response.meta.coverage.reference.status, SourceStatus::NotApplicable);
+        assert_eq!(
+            response.meta.coverage.reference.status,
+            SourceStatus::NotApplicable
+        );
 
         // The live commercial summary reads only live rows.
         assert!(response.commercial.is_some());
@@ -1383,10 +1467,14 @@ mod postgres {
     #[ignore = "requires explicit disposable PostgreSQL authority"]
     async fn p4_t19_c13() {
         let mut fixture = Fixture::new().await;
-        fixture.order(fixture.buyer_org, "BID", 780, "2026-06-04T12:00:00Z").await;
+        fixture
+            .order(fixture.buyer_org, "BID", 780, "2026-06-04T12:00:00Z")
+            .await;
         let mut conn = fixture.connect().await;
         let service = service(ComponentStatus::Available);
-        let readings = service.provider_read(AnalyticsRoute::Marketplace, &query()).await;
+        let readings = service
+            .provider_read(AnalyticsRoute::Marketplace, &query())
+            .await;
         let body = service
             .compose(
                 &mut conn,
@@ -1413,7 +1501,9 @@ mod postgres {
         fixture.audit("2026-05-01T12:00:00Z", "outside").await;
         let mut conn = fixture.connect().await;
         let service = service(ComponentStatus::Available);
-        let readings = service.provider_read(AnalyticsRoute::Reliability, &query()).await;
+        let readings = service
+            .provider_read(AnalyticsRoute::Reliability, &query())
+            .await;
         let body = service
             .compose(
                 &mut conn,
@@ -1432,5 +1522,4 @@ mod postgres {
         assert_eq!(body["collector"]["status"], json!("available"));
         fixture.finish().await;
     }
-
 }

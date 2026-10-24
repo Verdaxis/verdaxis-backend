@@ -18,8 +18,8 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use super::marketplace::{
-    derive_product_code, money, rate_pct, slugify, window_label, wire, Quality, QuoteRow,
-    MAX_RANKED_ROWS, SUPPRESSION_THRESHOLD,
+    MAX_RANKED_ROWS, Quality, QuoteRow, SUPPRESSION_THRESHOLD, derive_product_code, money,
+    rate_pct, slugify, window_label, wire,
 };
 use crate::MarketPolicy;
 

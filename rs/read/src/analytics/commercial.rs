@@ -11,7 +11,7 @@
 use rust_decimal::Decimal;
 use serde::Serialize;
 
-use super::marketplace::{money, wire, CommissionAggregate, DecimalMetricValue, TradeAggregate};
+use super::marketplace::{CommissionAggregate, DecimalMetricValue, TradeAggregate, money, wire};
 
 #[derive(Clone, Debug, Serialize)]
 pub struct CommercialSummary {

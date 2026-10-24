@@ -20,10 +20,10 @@ use rust_decimal::Decimal;
 use serde::Serialize;
 
 use super::marketplace::{
-    cell, daily_series, metric, one_decimal, share_pct, suppress_cell, wire, AggregateCell,
-    AllowedPropertySet, AnalyticsQuery, BehavioralWindow, ComponentStatus, DecimalMetricValue,
-    Diagnostic, Event, Meta, MetricValue, Property, Quality, RankedRow, SeriesPoint, SourceStatus,
-    MAX_RANKED_ROWS,
+    AggregateCell, AllowedPropertySet, AnalyticsQuery, BehavioralWindow, ComponentStatus,
+    DecimalMetricValue, Diagnostic, Event, MAX_RANKED_ROWS, Meta, MetricValue, Property, Quality,
+    RankedRow, SeriesPoint, SourceStatus, cell, daily_series, metric, one_decimal, share_pct,
+    suppress_cell, wire,
 };
 
 /// Behavioral events this tab requests property breakdowns for.

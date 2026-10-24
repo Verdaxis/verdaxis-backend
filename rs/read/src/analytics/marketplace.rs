@@ -341,7 +341,11 @@ impl Quality {
 /// `0 < basis < 3` suppresses; a genuine zero stays visible; an unknown count
 /// stays unknown and is never suppressed. `entities` falls back to the event
 /// count when no distinct-entity count exists.
-pub fn suppress_cell(count: Option<i64>, entities: Option<i64>, quality: &mut Quality) -> (Option<i64>, bool) {
+pub fn suppress_cell(
+    count: Option<i64>,
+    entities: Option<i64>,
+    quality: &mut Quality,
+) -> (Option<i64>, bool) {
     let Some(count) = count else {
         return (None, false);
     };
@@ -522,7 +526,11 @@ pub fn median_hours(deltas: &[TimeDelta]) -> Option<Decimal> {
 
 /// One dense UTC point. A day with no recorded rows is a genuine zero when the
 /// source answered for the whole period; a one- or two-event day is suppressed.
-fn series_point(date: NaiveDate, values: &BTreeMap<NaiveDate, i64>, quality: &mut Quality) -> SeriesPoint {
+fn series_point(
+    date: NaiveDate,
+    values: &BTreeMap<NaiveDate, i64>,
+    quality: &mut Quality,
+) -> SeriesPoint {
     let raw = values.get(&date).copied().unwrap_or(0);
     let (value, _) = suppress_cell(Some(raw), Some(raw), quality);
     SeriesPoint { date, value }
@@ -991,9 +999,7 @@ pub struct AllowedPropertySet {
 pub const MAX_PROPERTY_EVENTS: usize = 12;
 
 impl AllowedPropertySet {
-    pub fn new(
-        requests: impl IntoIterator<Item = (Event, Property)>,
-    ) -> Result<Self, ApiError> {
+    pub fn new(requests: impl IntoIterator<Item = (Event, Property)>) -> Result<Self, ApiError> {
         let mut pairs: Vec<(Event, Property)> = requests.into_iter().collect();
         pairs.sort();
         pairs.dedup();
@@ -1260,15 +1266,13 @@ impl BehavioralWindow {
     }
 
     pub fn event_total(&self, event: Event) -> Option<i64> {
-        self.event_totals
-            .data()
-            .map(|totals| {
-                totals
-                    .iter()
-                    .filter(|(name, _)| *name == event)
-                    .map(|(_, count)| *count as i64)
-                    .sum()
-            })
+        self.event_totals.data().map(|totals| {
+            totals
+                .iter()
+                .filter(|(name, _)| *name == event)
+                .map(|(_, count)| *count as i64)
+                .sum()
+        })
     }
 
     pub fn daily_value(&self, date: NaiveDate) -> Option<i64> {
@@ -1573,7 +1577,8 @@ pub async fn aggregate_commissions(
         Some((start, end)) => date_window(Some(start), Some(end)),
         None => None,
     };
-    let (current_start, current_end) = current.unwrap_or((query_ref.start.date_naive(), query_ref.start.date_naive()));
+    let (current_start, current_end) =
+        current.unwrap_or((query_ref.start.date_naive(), query_ref.start.date_naive()));
     let row = sqlx::query(
         "SELECT\n    COALESCE(sum(c.amount_usd) FILTER (WHERE c.status = 'PAID' AND c.payment_date IS NOT NULL AND c.payment_date >= $6 AND c.payment_date < $7), 0) AS revenue_current,\n    COALESCE(sum(c.amount_usd) FILTER (WHERE c.status = 'PAID' AND c.payment_date IS NOT NULL AND $8::date IS NOT NULL AND c.payment_date >= $8 AND c.payment_date < $9), 0) AS revenue_previous,\n    count(*) FILTER (WHERE c.status = 'PAID' AND c.payment_date IS NULL) AS missing_payment_date,\n    COALESCE(sum(c.amount_usd) FILTER (WHERE c.status = 'PENDING'), 0) AS pending_total,\n    COALESCE(sum(c.amount_usd) FILTER (WHERE c.status = 'INVOICED'), 0) AS invoiced_total\nFROM commissions c\nLEFT JOIN trades t ON t.id = c.trade_id\nWHERE NOT (t.id IS NOT NULL AND (t.buyer_id = ANY($1::uuid[]) OR t.seller_id = ANY($1::uuid[])))\n  AND (NOT $2::boolean OR (t.id IS NOT NULL AND EXISTS (\n        SELECT 1 FROM orderbook_orders f\n        WHERE f.id IN (t.bid_order_id, t.ask_order_id)\n          AND ($3::uuid IS NULL OR f.product_id = $3)\n          AND ($4::uuid IS NULL OR f.delivery_point_id = $4)\n          AND ($5::text IS NULL OR f.availability_window = $5)\n      )))",
     )
@@ -1763,7 +1768,9 @@ fn activity_section(
         .map(|trades| money(trades.volume_previous))
         .unwrap_or_else(|| money(Decimal::ZERO));
 
-    let executed = orders.map(|orders| orders.executed_current).unwrap_or_default();
+    let executed = orders
+        .map(|orders| orders.executed_current)
+        .unwrap_or_default();
     let created = orders.map(|orders| orders.current).unwrap_or_default();
     let still_open = orders
         .map(|orders| orders.still_open_current)
@@ -1834,7 +1841,12 @@ fn activity_section(
         .iter()
         .filter(|row| row.provenance == provenance)
     {
-        let cell = cell(row.status.clone(), Some(row.count), row.organizations, quality);
+        let cell = cell(
+            row.status.clone(),
+            Some(row.count),
+            row.organizations,
+            quality,
+        );
         if row.kind == "order" {
             order_statuses.push(cell);
         } else {
@@ -2035,12 +2047,11 @@ async fn reference_catalog(
     policy: &MarketPolicy,
     query_ref: &AnalyticsQuery,
 ) -> Result<Vec<CatalogCell>, ApiError> {
-    let products = sqlx::query(
-        "SELECT id, name, fuel_type, fuel_grade, is_active FROM products ORDER BY id",
-    )
-    .fetch_all(&mut *conn)
-    .await
-    .map_err(database)?;
+    let products =
+        sqlx::query("SELECT id, name, fuel_type, fuel_grade, is_active FROM products ORDER BY id")
+            .fetch_all(&mut *conn)
+            .await
+            .map_err(database)?;
     let points = sqlx::query("SELECT id, name, region, is_active FROM delivery_points ORDER BY id")
         .fetch_all(&mut *conn)
         .await
@@ -2141,16 +2152,15 @@ async fn reference_section(
 
     let mut rows = Vec::new();
     for key in keys {
-        let Some(cell) = cells.iter().find(|cell| {
-            cell.product_code == key.0 && cell.delivery_point_id == key.1
-        }) else {
+        let Some(cell) = cells
+            .iter()
+            .find(|cell| cell.product_code == key.0 && cell.delivery_point_id == key.1)
+        else {
             continue;
         };
         let base_window = window_label(&key.2);
         let quote = quotes.iter().find(|quote| {
-            quote.product_code == key.0
-                && quote.delivery_point_id == key.1
-                && quote.window == key.2
+            quote.product_code == key.0 && quote.delivery_point_id == key.1 && quote.window == key.2
         });
         let base = |product_key: &str,
                     product_label: &str,
@@ -2238,7 +2248,8 @@ pub async fn compose(
         let live_trades = provenance_row(&trades, "live", |row| row.provenance.as_str());
         quality.missing_commission_payment_date_count = commissions.missing_payment_date;
         if let Some(trades) = live_trades {
-            quality.legacy_timestamp_fallback_count = trades.legacy_current + trades.legacy_previous;
+            quality.legacy_timestamp_fallback_count =
+                trades.legacy_current + trades.legacy_previous;
             quality.missing_paid_at_count = trades.missing_paid_at_current;
         }
 
@@ -2277,10 +2288,7 @@ pub async fn compose(
             unknown = sections.get("unknown").cloned();
         }
         if query_ref.activity.wants_live() {
-            commercial = Some(super::commercial::summarize(
-                live_trades,
-                &commissions,
-            ));
+            commercial = Some(super::commercial::summarize(live_trades, &commissions));
         }
     }
 
@@ -2380,7 +2388,12 @@ pub fn fact_coverage(
             .previous()
             .is_none_or(|(previous_start, _)| coverage_start <= previous_start.date_naive());
     SourceCoverage {
-        coverage_start: Some(coverage_start.and_hms_opt(0, 0, 0).expect("midnight").and_utc()),
+        coverage_start: Some(
+            coverage_start
+                .and_hms_opt(0, 0, 0)
+                .expect("midnight")
+                .and_utc(),
+        ),
         coverage_end: None,
         observed_at: Some(now),
         status: if fully_covered {
@@ -2597,10 +2610,9 @@ pub fn parse_query(input: QueryInput) -> Result<AnalyticsQuery, ApiError> {
     };
     let product_id = match input.product_id.as_deref() {
         None => None,
-        Some(value) => Some(
-            Uuid::parse_str(value)
-                .map_err(|_| invalid_query("product_id must be a UUID"))?,
-        ),
+        Some(value) => {
+            Some(Uuid::parse_str(value).map_err(|_| invalid_query("product_id must be a UUID"))?)
+        }
     };
     let delivery_point_id = match input.delivery_point_id.as_deref() {
         None => None,
@@ -2646,7 +2658,6 @@ pub fn check_previous(query_ref: &AnalyticsQuery) -> Result<(), ApiError> {
     }
     Ok(())
 }
-
 
 // ---------------------------------------------------------------------------
 // Route adapters
@@ -2888,7 +2899,8 @@ impl AnalyticsService {
             AnalyticsRoute::Reliability => {
                 // Provider readings are already in hand, so the connection is
                 // used for the bounded audit sample and nothing else.
-                let audit = super::reliability::audit_activity(conn, query.start, query.end).await?;
+                let audit =
+                    super::reliability::audit_activity(conn, query.start, query.end).await?;
                 let meta = meta(
                     query,
                     now,
@@ -2961,11 +2973,11 @@ pub async fn dispatch(
         .get("authorization")
         .and_then(|value| value.to_str().ok())
         .map(str::to_owned);
-    let access = match crate::auth::verify_authorization(authorization.as_deref(), verification, now)
-    {
-        Ok(value) => value,
-        Err(error) => return crate::business::error::authentication(error).into_response(),
-    };
+    let access =
+        match crate::auth::verify_authorization(authorization.as_deref(), verification, now) {
+            Ok(value) => value,
+            Err(error) => return crate::business::error::authentication(error).into_response(),
+        };
     let peer = request
         .extensions()
         .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
@@ -3068,9 +3080,18 @@ pub fn router(
 ) -> axum::Router {
     use axum::{Router, routing::get};
     Router::new()
-        .route(AnalyticsRoute::Acquisition.template(), get(acquisition_route))
-        .route(AnalyticsRoute::Marketplace.template(), get(marketplace_route))
-        .route(AnalyticsRoute::Reliability.template(), get(reliability_route))
+        .route(
+            AnalyticsRoute::Acquisition.template(),
+            get(acquisition_route),
+        )
+        .route(
+            AnalyticsRoute::Marketplace.template(),
+            get(marketplace_route),
+        )
+        .route(
+            AnalyticsRoute::Reliability.template(),
+            get(reliability_route),
+        )
         .with_state(RouteState {
             app,
             verification: Arc::new(verification),
