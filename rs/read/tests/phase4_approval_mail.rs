@@ -541,7 +541,7 @@ mod postgres {
             |payload, key| async move {
                 assert_eq!(key, format!("account-approval/{transition}"));
                 let payload = serde_json::to_value(payload).unwrap();
-                client.send(&payload).await
+                client.send_with_idempotency(&payload, Some(&key)).await
             },
         )
         .await
