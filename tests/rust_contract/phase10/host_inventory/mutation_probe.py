@@ -10,10 +10,15 @@ from pathlib import Path
 def main():
     test_path, method, source, line, output = sys.argv[1:]
     reached=[]
+    vector_reach=set()
+    active=[None]
     target=Path(source).resolve()
     def trace(frame,event,arg):
         if event=='line' and frame.f_lineno==int(line) and Path(frame.f_code.co_filename).resolve()==target:
             reached.append(True)
+            if active[0] is not None:
+                vector=getattr(active[0],'_subtest',None) or active[0]
+                vector_reach.add(vector.id())
         return trace
     try:
         spec=importlib.util.spec_from_file_location('designated_mutation_test',test_path)
@@ -23,13 +28,17 @@ def main():
         class Result(unittest.TestResult):
             def __init__(self):
                 super().__init__();self.details=[]
+            def startTest(self,test):
+                active[0]=test;super().startTest(test)
+            def stopTest(self,test):
+                super().stopTest(test);active[0]=None
             def save(self,test,err,kind):
                 # Keep only structured assertion diagnostic, never raw child output.
                 assertion=isinstance(err[1],AssertionError)
                 frames=traceback.extract_tb(err[2])
                 designated=any(f.name==method.split('.')[-1] for f in frames)
                 self.details.append({'test':test.id(),'kind':kind,'assertion':assertion,
-                                     'designated':designated,'first_line':str(err[1]).splitlines()[0][:300] if str(err[1]).splitlines() else type(err[1]).__name__})
+                                     'designated':designated,'vector_reached':test.id() in vector_reach,'first_line':str(err[1]).splitlines()[0][:300] if str(err[1]).splitlines() else type(err[1]).__name__})
             def addFailure(self,test,err):
                 super().addFailure(test,err);self.save(test,err,'failure')
             def addError(self,test,err):

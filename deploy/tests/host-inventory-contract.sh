@@ -18,3 +18,4 @@ python=${HOST_INVENTORY_TEST_PYTHON:-python3}
 "$python" tests/rust_contract/phase10/host_inventory/round10_contract.py
 "$python" tests/rust_contract/phase10/host_inventory/round11_contract.py
 "$python" tests/rust_contract/phase10/host_inventory/round12_contract.py
+"$python" tests/rust_contract/phase10/host_inventory/round13_contract.py

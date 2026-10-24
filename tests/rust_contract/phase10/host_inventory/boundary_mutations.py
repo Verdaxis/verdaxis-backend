@@ -13,6 +13,12 @@ B='tests/rust_contract/phase10/host_inventory/'
 # exact source, exact replacement, targeted test; each comparison is independent.
 SITES=[
  ('priority',R,'if sum(len(items) for items in self.rows.values()) > self.capacity:','if False:', 'round8_contract.py','Round8Contract.test_real_parser_dual_class_overflow_installed'),
+ ('critical-overflow',R,'if worst_priority in (1, 2):','if False:','round13_contract.py','Round13Contract.test_eviction_overflow_guard'),
+ ('priority-credential',R,"if status == 'credential-denied':",'if False:','round8_contract.py','Round8Contract.test_real_parser_dual_class_overflow_installed'),
+ ('priority-removed',R,"if status == 'removed-package':",'if False:','round8_contract.py','Round8Contract.test_real_parser_dual_class_overflow_installed'),
+ ('priority-marker',R,'if priority == 3:','if False:','round8_contract.py','Round8Contract.test_real_parser_dual_class_overflow_installed'),
+ ('evicted-class',R,"worst_priority == 1",'False','round13_contract.py','Round13Contract.test_eviction_overflow_guard'),
+ ('parser-class',R,"priority == 1",'False','round8_contract.py','Round8Contract.test_real_parser_dual_class_overflow_installed'),
  ('encoded',R,'if size > MAX_TOTAL_BYTES:','if False:','round7_contract.py','Round7Contract.test_observation_and_encoded_output_distinct'),
  ('file-type',R,'not stat.S_ISREG(before.st_mode) or before.st_size > MAX_SCRIPT_BYTES','False or before.st_size > MAX_SCRIPT_BYTES','round10_contract.py','Round10Contract.test_nonregular_and_popped_depth_collection'),
  ('file-size',R,'not stat.S_ISREG(before.st_mode) or before.st_size > MAX_SCRIPT_BYTES','not stat.S_ISREG(before.st_mode) or False','round9_contract.py','Round9Contract.test_changed_and_overflow_files_collection'),
@@ -70,7 +76,7 @@ def scanned_sites():
         for node in ast.walk(tree):
             if isinstance(node,ast.Compare):
                 text=ast.get_source_segment(source,node)
-                if text=="priority in (1, 2)" or 'before.st_size, before.st_mtime_ns' in text:
+                if any(isinstance(n,ast.Name) and ('priority' in n.id or n.id=='status') for n in ast.walk(node)) and any(isinstance(n,(ast.Tuple,ast.Set)) or isinstance(n,ast.Constant) and n.value in (1,2,3,'credential-denied','removed-package') for n in ast.walk(node)) or 'before.st_size, before.st_mtime_ns' in text:
                     found.append((name,node.lineno,ast.dump(node,include_attributes=False)))
     return sorted(set(found))
 
@@ -87,7 +93,7 @@ def manifest_sites():
                 text=ast.get_source_segment(source,node) or ''
                 if isinstance(node,ast.ExceptHandler):key='timeout-handler'
                 else:key=ast.dump(node,include_attributes=False)
-                if isinstance(node,ast.Compare) and any(t in text for t in ('MAX_','self.capacity','deadline','max_depth','len(kept)','before.st_size, before.st_mtime_ns','priority in (1, 2)')):nodes.append((len(text),key))
+                if isinstance(node,ast.Compare) and any(t in text for t in ('MAX_','self.capacity','deadline','max_depth','len(kept)','before.st_size, before.st_mtime_ns','priority','status')):nodes.append((len(text),key))
                 elif site=='file-type' and isinstance(node,ast.UnaryOp):nodes.append((len(text),key))
                 elif isinstance(node,ast.ExceptHandler):nodes.append((0,key))
         # Disjunct mutation selects its own comparison, not its sibling.
@@ -104,7 +110,7 @@ def classify(baseline,mutant):
     if mutant.get('ran')!=1 or not mutant.get('reached'):return 'INVALID'
     if mutant.get('success'):return 'SURVIVED'
     details=mutant.get('details',[])
-    if details and all(d['kind']=='failure' and d['assertion'] and d['designated'] for d in details):return 'MUTANT_KILLED'
+    if details and all(d['kind']=='failure' and d['assertion'] and d['designated'] and d.get('vector_reached',False) for d in details):return 'MUTANT_KILLED'
     return 'INVALID'
 
 
@@ -118,7 +124,7 @@ def probe(test,method,name,line):
 
 def main():
     scanned=scanned_sites();manifest=manifest_sites()
-    if scanned!=manifest or len(scanned)!=31:
+    if scanned!=manifest or len(scanned)!=37:
         print('INVENTORY_MISMATCH',len(scanned),len(manifest),flush=True)
         print('missing',set(scanned)-set(manifest));print('extra',set(manifest)-set(scanned))
         return 1
