@@ -462,14 +462,36 @@ The successor CI runner supplies the reviewed ledger digest explicitly.
 `phase1_meaning/corpus/{enabled,disabled}` retains all 487 requests per KYC state,
 recorded twice on disposable data. Canonical tape pages come from the complete
 Python-filtered relation before full-UUID pagination, not a sorted Python page.
-`runtime/cache.rs` stores only bounded public reference payloads for 60 seconds;
-request headers are rebuilt. Trading caches remain unimplemented and disabled.
-Their infrastructure is prepared: migration `prc_20261018_cache` adds the
-generation, event and incarnation tables and an always-enabled statement trigger
-on each trading dependency. `runtime/cache_authority.rs` grants a hit only under an
-owner record outside the database (`scripts/rust_cache_authority.py` writes it),
-a lease, a matching database identity and a bound listener; `runtime/cache_events.rs`
-owns the one budgeted listener connection. Nothing starts either yet. See
+`runtime/cache.rs` stores bounded public reference payloads for 60 seconds;
+request headers are rebuilt. It also supplies bounded trading entries tied to
+an authority/fence token, generation, policy identity and derived time boundary.
+Migration `prc_20261018_cache` adds the generation, event and incarnation tables
+and an always-enabled statement trigger on each trading dependency.
+`runtime/cache_authority.rs` grants a hit only under an owner record outside the
+database (`scripts/rust_cache_authority.py` writes it), a lease, a matching database
+identity and a bound listener. `runtime/cache_events.rs::TradingCacheRuntime`
+refreshes that authority, owns the budgeted listener and clears registered caches
+on invalidation or a fence change. The explicit `AppState::start_trading_cache`
+hook starts its loop only with `cache_listener=1` in the prepared budget; otherwise
+no cache runtime or extra connection is created. `runtime/admission.rs::run_trading_read`
+checks identity and generation in one admitted read-only REPEATABLE READ snapshot
+and checks the fence again before insertion and before publication. With the
+runtime on, a read on a connection that is not admitted returns the database
+error, also when it would not cache. Overlapping snapshots each answer at their
+own generation; an older fill never replaces a newer entry. Restore detection
+belongs to the external activation protocol. `AppState::trading_read_observer`
+supplies the read clock and lifecycle checkpoints: serving uses the real clock,
+and disposable schedules hold a read at an exact checkpoint.
+`market/cache_dependencies.rs` derives each reviewed family's time boundary;
+moving price summaries (`prices`) need rolling-window facts, explicit fixed
+ranges use `prices_fixed`, and an unknown required fact bypasses storage.
+`runtime/trading_routes.rs` adapts the accepted public snapshot/list/map, price
+and canonical-curve handlers to that helper, sharing one bounded AppState cache.
+It derives conservative global temporal minima in the same snapshot, includes
+UTC date in request keys and rebuilds generated timestamps after lookup. With
+the prepared-budget switch off, handlers retain the uncached admitted SQL path;
+no activation or deployment is implied by the wrappers. Personal, write, MCP,
+listings and tape surfaces are not wrapped by this step. See
 `docs/rust-phase1/cache-dependencies.md`.
 Exact `market/amount.rs` operations retain intermediate economic rounding while
 removing wire-spelling emulation. See `docs/rust-phase1/same-meaning-contract.md`.

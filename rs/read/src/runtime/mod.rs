@@ -11,3 +11,4 @@ pub mod http;
 pub mod logging;
 pub mod policy;
 pub mod safe_fs;
+pub mod trading_routes;

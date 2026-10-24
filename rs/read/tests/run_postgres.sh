@@ -58,12 +58,13 @@ export RELEASE_SHA=$(git rev-parse HEAD)
 
 log=$(mktemp "${TMPDIR:-/tmp}/rust-postgres-tests.XXXXXX")
 set +e
-# The Task 6 visibility, trade-evidence and market-policy matrices need the
-# seeded fixture catalog and the Python oracle, which this database does not
-# carry. The Phase 5 compliance overlay populated-fixture case needs that
-# seeded market database plus the overlay vessel/order fixture manifest. They
-# are named here rather than silently skipped: rs/read/tests/run_market_contract.sh
-# runs them against their own disposable database.
+# The Task 6 visibility, trade-evidence and market-policy matrices, the
+# Task 9/10 old-shape/new-shape equivalence proofs, and the Phase 5 compliance
+# overlay populated-fixture case need the seeded fixture catalog and the Python
+# oracle, which this database does not carry. They are named here rather than
+# silently skipped: rs/read/tests/run_market_contract.sh runs them against
+# their own disposable database. `--skip` matches test function names, not
+# test file names, so every test is listed by its name.
 cargo test --manifest-path rs/Cargo.toml --locked --workspace --features contract-tests \
   -- --test-threads=1 --skip public_visibility_matrix_matches_python \
   --skip trade_evidence_matrix_matches_python \
@@ -71,7 +72,21 @@ cargo test --manifest-path rs/Cargo.toml --locked --workspace --features contrac
   --skip biofuel_supplier_metadata_clause_hides_only_failing_asks \
   --skip eligibility_sets_match_legacy_for_the_curve_relation \
   --skip eligibility_sets_match_legacy_predicate_for_every_order \
-  --skip compliance_overlay_postgres_cases 2>&1 | tee "$log"
+  --skip compliance_overlay_postgres_cases \
+  --skip curve_table_keyed_candidates_match_the_full_relation \
+  --skip curve_table_equivalence_detects_a_dropped_key \
+  --skip curve_slice_keyed_candidates_match_the_full_relation \
+  --skip curve_board_keyed_candidates_keep_null_window_keys \
+  --skip mcp_market_slice_keyed_candidates_match_the_full_relation \
+  --skip keyed_join_would_duplicate_rows \
+  --skip corpus_clock_maps_to_the_pinned_singapore_date \
+  --skip orderbook_aggregate_narrow_projection_keeps_every_group \
+  --skip orderbook_product_counts_narrow_projection_keeps_every_count \
+  --skip orderbook_distinct_labels_keep_order_and_nulls \
+  --skip orderbook_map_recent_asks_keep_one_row_per_point \
+  --skip orderbook_listings_pages_match_the_full_ranking \
+  --skip corpus_carries_the_rows_these_cases_compare \
+  --skip aggregate_groups_null_region_and_counts_duplicates 2>&1 | tee "$log"
 cargo_status=${PIPESTATUS[0]}
 set -e
 if (( cargo_status != 0 )); then
