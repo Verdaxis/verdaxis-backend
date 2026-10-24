@@ -38,6 +38,7 @@ verdaxis-contract = { path = "../contract" }
 aes-gcm = { version = "=0.11.1", features = ["zeroize"] }
 multer = "=3.1.0"
 zeroize = "=1.9.1"
+icu_casemap = "=2.3.0"
 # Phase 2 Task 19: bounded invite provider and EmailStr NFC normalization (start)
 reqwest = { version = "=0.13.5", features = ["json"] }
 unicode-normalization = "=0.1.25"
