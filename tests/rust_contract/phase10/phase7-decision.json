@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "decision": {
+    "id": "122",
+    "date": "2026-10-22",
+    "authority": "founder",
+    "statement": "Retire",
+    "selected": "B",
+    "selected_name": "retire-routes-preserve-tables"
+  },
+  "merge_only_is_acceptance": false,
+  "paths": {
+    "A": {
+      "name": "port",
+      "selected": false,
+      "accepted": false,
+      "merge_only_is_acceptance": false,
+      "acceptance_requires": [
+        "live-native-acceptance",
+        "schema-producer-closure",
+        "http-and-rollback-corpus"
+      ]
+    },
+    "B": {
+      "name": "retire",
+      "selected": true,
+      "retirement": {
+        "acceptance_source": "merged-plan"
+      },
+      "retention": {},
+      "rollback": {},
+      "live_acceptance": {}
+    }
+  },
+  "schema_producers": {
+    "closed": false,
+    "task_20_acceptance_requires_closure": true
+  },
+  "acceptance": {
+    "state": "candidate",
+    "blockers": [
+      "merged plan is not live acceptance"
+    ]
+  }
+}
