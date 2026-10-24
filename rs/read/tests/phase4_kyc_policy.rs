@@ -452,7 +452,7 @@ mod postgres {
             };
             let pools = verdaxis_read::runtime::db::Pools {
                 read: sqlx::postgres::PgPoolOptions::new()
-                    .max_connections(4)
+                    .max_connections(16)
                     .connect(&url)
                     .await
                     .unwrap(),
