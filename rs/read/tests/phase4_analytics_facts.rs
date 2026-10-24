@@ -9,22 +9,22 @@
 #[path = "support/analytics_contract_double.rs"]
 mod types;
 
-#[path = "../src/analytics/aggregates.rs"]
-mod aggregates;
-#[path = "../src/analytics/overview.rs"]
-mod overview;
 #[path = "../src/analytics/activation.rs"]
 mod activation;
-#[path = "../src/analytics/engagement.rs"]
-mod engagement;
+#[path = "../src/analytics/aggregates.rs"]
+mod aggregates;
 #[path = "../src/analytics/cohorts.rs"]
 mod cohorts;
+#[path = "../src/analytics/engagement.rs"]
+mod engagement;
+#[path = "../src/analytics/overview.rs"]
+mod overview;
 
 use std::collections::BTreeMap;
 
 use activation::{activation, aggregate_ratio};
 use aggregates::{
-    ActivityFacts, ActivationFacts, DropOffFacts, EngagementFacts, LoginFacts, LoginRollupRow,
+    ActivationFacts, ActivityFacts, DropOffFacts, EngagementFacts, LoginFacts, LoginRollupRow,
     OverviewFacts, ProvenanceRow, QualityTracker, RetentionFacts, RoleCounts, StatusFacts,
     date_window, dense_series, fact_coverage, median_hours, rate_pct, week_start,
 };
@@ -116,10 +116,16 @@ fn p4_t18_c02() {
     values.insert(day(2026, 6, 7), 1);
     let series = dense_series(utc(2026, 6, 1), utc(2026, 7, 1), &values);
     assert_eq!(series.len(), 30, "every UTC day in the period is present");
-    let by_date: BTreeMap<NaiveDate, Option<u64>> =
-        series.iter().map(|point| (point.date, point.value)).collect();
+    let by_date: BTreeMap<NaiveDate, Option<u64>> = series
+        .iter()
+        .map(|point| (point.date, point.value))
+        .collect();
     assert_eq!(by_date[&day(2026, 6, 7)], Some(1));
-    assert_eq!(by_date[&day(2026, 6, 2)], Some(0), "dense zeros are not gaps");
+    assert_eq!(
+        by_date[&day(2026, 6, 2)],
+        Some(0),
+        "dense zeros are not gaps"
+    );
 
     // A midday start excludes that date; a midday end includes it.
     assert_eq!(
@@ -137,7 +143,10 @@ fn p4_t18_c02() {
     let mut plain = query();
     plain.previous = None;
     plain.compare = false;
-    assert_eq!(date_window(plain.previous_start(), plain.previous_end()), None);
+    assert_eq!(
+        date_window(plain.previous_start(), plain.previous_end()),
+        None
+    );
 
     // Ratios refuse a non-positive denominator and never render zero.
     assert_eq!(rate_pct(3, 0), None);
@@ -298,7 +307,10 @@ fn p4_t18_c04() {
     assert_eq!(response.kpis.qualified_organizations.previous, Some(2));
     // Dense member trend starts at coverage and keeps covered zeros visible.
     assert_eq!(response.activity_trend.active_members.len(), 30);
-    assert_eq!(response.activity_trend.active_members[0].date, day(2026, 6, 1));
+    assert_eq!(
+        response.activity_trend.active_members[0].date,
+        day(2026, 6, 1)
+    );
     assert_eq!(response.activity_trend.active_members[0].value, Some(0));
 
     // A window that starts before coverage is partial, and its member count is
@@ -328,14 +340,13 @@ fn p4_t18_c04() {
 
 #[test]
 fn p4_t18_c05() {
-    let window = BehavioralWindow::empty(utc(2026, 6, 1), utc(2026, 7, 1), observed()).with_events(
-        &[
+    let window =
+        BehavioralWindow::empty(utc(2026, 6, 1), utc(2026, 7, 1), observed()).with_events(&[
             ("signup_started", 10),
             ("signup_role_selected", 8),
             ("signup_submitted", 0),
             ("signup_organization_required", 2),
-        ],
-    );
+        ]);
 
     let facts = ActivationFacts {
         registered: RoleCounts {
@@ -379,10 +390,7 @@ fn p4_t18_c05() {
         .map(|stage| (stage.key.as_str(), stage))
         .collect();
     assert_eq!(stages["signup_started"].total.count, Some(10));
-    assert_eq!(
-        stages["signup_started"].source,
-        JourneySource::Behavioral
-    );
+    assert_eq!(stages["signup_started"].source, JourneySource::Behavioral);
     assert_eq!(stages["signup_submitted"].total.count, Some(0));
     // One or two events suppress; the key stays.
     assert!(stages["signup_organization_required"].total.suppressed);
@@ -712,7 +720,11 @@ fn p4_t18_c09() {
         Some(0),
         "a genuine zero stays visible"
     );
-    assert_eq!(by_date[&day(2026, 6, 3)], None, "two visitors are suppressed");
+    assert_eq!(
+        by_date[&day(2026, 6, 3)],
+        None,
+        "two visitors are suppressed"
+    );
     assert_eq!(by_date[&day(2026, 6, 4)], Some(5));
     // The headline visitor metric is suppressed at one visitor.
     let stage = response
@@ -878,11 +890,7 @@ mod postgres {
                 .unwrap();
             // The fixture rows are created by the migrator role, so the runtime
             // role must be able to read them through the granted schema.
-            Self {
-                app,
-                admin,
-                schema,
-            }
+            Self { app, admin, schema }
         }
 
         async fn finish(mut self) {
@@ -964,7 +972,10 @@ mod postgres {
         assert_eq!(response.kpis.confirmed_trades.value, Some(4));
         assert_eq!(response.kpis.active_members.value, Some(4));
         assert_eq!(response.kpis.active_members.previous, None);
-        assert_eq!(response.meta.data_quality.legacy_timestamp_fallback_count, 1);
+        assert_eq!(
+            response.meta.data_quality.legacy_timestamp_fallback_count,
+            1
+        );
         assert_eq!(response.meta.data_quality.missing_paid_at_count, 1);
         assert_eq!(response.activity_trend.orders.len(), 30);
         assert_eq!(
@@ -995,7 +1006,12 @@ mod postgres {
         assert_eq!(in_period.len(), 2);
         assert_eq!(facts.logins.len(), 4);
         // Demo and admin logins are excluded from the member rollup.
-        assert!(facts.logins.iter().all(|row| row.first_login_date >= day(2026, 5, 20)));
+        assert!(
+            facts
+                .logins
+                .iter()
+                .all(|row| row.first_login_date >= day(2026, 5, 20))
+        );
         assert_eq!(facts.status.approved_current, 1);
 
         let response = activation(&facts, None, &query(), observed());

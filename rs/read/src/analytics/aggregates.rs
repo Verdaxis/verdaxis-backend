@@ -17,8 +17,8 @@ use sqlx::{PgConnection, Row};
 use uuid::Uuid;
 
 use super::types::{
-    AggregateCell, AnalyticsDataQuality, AnalyticsDiagnostic, AnalyticsSourceCoverage,
-    AnalyticsSourceStatus, AnalyticsQuery, BehavioralWindow, MetricValue,
+    AggregateCell, AnalyticsDataQuality, AnalyticsDiagnostic, AnalyticsQuery,
+    AnalyticsSourceCoverage, AnalyticsSourceStatus, BehavioralWindow, MetricValue,
 };
 
 /// Synthetic market organizations (`app/demo_identities.py`). Stored provenance
@@ -129,7 +129,10 @@ pub fn median_hours(durations: &[TimeDelta]) -> Option<Decimal> {
     if durations.is_empty() {
         return None;
     }
-    let mut seconds: Vec<i64> = durations.iter().filter_map(TimeDelta::num_microseconds).collect();
+    let mut seconds: Vec<i64> = durations
+        .iter()
+        .filter_map(TimeDelta::num_microseconds)
+        .collect();
     seconds.sort_unstable();
     let middle = seconds.len() / 2;
     let micros = if seconds.len() % 2 == 0 {
@@ -287,7 +290,9 @@ pub fn behavioral_metric(
     field: fn(&super::types::CoreMetrics) -> Option<u64>,
 ) -> MetricValue {
     let current = window.and_then(|window| window.core.data()).and_then(field);
-    let before = previous.and_then(|window| window.core.data()).and_then(field);
+    let before = previous
+        .and_then(|window| window.core.data())
+        .and_then(field);
     let current_cell = super::types::suppress(current, None);
     let previous_cell = super::types::suppress(before, None);
     MetricValue {
@@ -339,10 +344,7 @@ pub fn behavioral_property_rows<'a>(
         .property_results
         .iter()
         .find(|item| item.event == event && item.property == property)?;
-    availability
-        .result
-        .data()
-        .map(|rows| rows.as_slice())
+    availability.result.data().map(|rows| rows.as_slice())
 }
 
 // ---------------------------------------------------------------------------
@@ -504,11 +506,25 @@ pub struct RetentionFacts {
 // Loaders
 // ---------------------------------------------------------------------------
 
-fn window_bounds(query: &AnalyticsQuery) -> (Option<NaiveDate>, Option<NaiveDate>, Option<NaiveDate>, Option<NaiveDate>) {
+fn window_bounds(
+    query: &AnalyticsQuery,
+) -> (
+    Option<NaiveDate>,
+    Option<NaiveDate>,
+    Option<NaiveDate>,
+    Option<NaiveDate>,
+) {
     let (current_lower, current_upper) = date_window(Some(query.start), Some(query.end))
         .unwrap_or((query.start.date_naive(), query.end.date_naive()));
-    match (query.previous_start(), query.previous_end()).and_then(|(start, end)| date_window(Some(start), Some(end))) {
-        Some((lower, upper)) => (Some(current_lower), Some(current_upper), Some(lower), Some(upper)),
+    match (query.previous_start(), query.previous_end())
+        .and_then(|(start, end)| date_window(Some(start), Some(end)))
+    {
+        Some((lower, upper)) => (
+            Some(current_lower),
+            Some(current_upper),
+            Some(lower),
+            Some(upper),
+        ),
         None => (Some(current_lower), Some(current_upper), None, None),
     }
 }
@@ -771,7 +787,12 @@ pub async fn load_trades_facts(
 
 fn daily_map(rows: &[sqlx::postgres::PgRow], value: &str) -> BTreeMap<NaiveDate, u64> {
     rows.iter()
-        .map(|row| (row.get::<NaiveDate, _>("day"), count(row.get::<i64, _>(value))))
+        .map(|row| {
+            (
+                row.get::<NaiveDate, _>("day"),
+                count(row.get::<i64, _>(value)),
+            )
+        })
         .collect()
 }
 
@@ -1127,9 +1148,12 @@ pub async fn load_member_days(
     end: DateTime<Utc>,
 ) -> Result<Vec<(Uuid, NaiveDate)>, sqlx::Error> {
     let demo = demo_ids();
-    let upper = date_window(Some(midnight(NaiveDate::from_ymd_opt(1970, 1, 1).unwrap())), Some(end))
-        .map(|(_, upper)| upper)
-        .unwrap_or(end.date_naive());
+    let upper = date_window(
+        Some(midnight(NaiveDate::from_ymd_opt(1970, 1, 1).unwrap())),
+        Some(end),
+    )
+    .map(|(_, upper)| upper)
+    .unwrap_or(end.date_naive());
     let floor = upper - TimeDelta::days(799);
     let rows = sqlx::query(
         "SELECT DISTINCT user_id, activity_date

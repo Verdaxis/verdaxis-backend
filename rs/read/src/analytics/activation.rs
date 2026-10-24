@@ -9,8 +9,8 @@
 use chrono::{DateTime, Utc};
 
 use super::aggregates::{
-    behavioral_coverage, behavioral_event_cell, date_window, fact_coverage, median_hours, rate_pct,
-    ActivationFacts, QualityTracker,
+    ActivationFacts, QualityTracker, behavioral_coverage, behavioral_event_cell, date_window,
+    fact_coverage, median_hours, rate_pct,
 };
 use super::types::{
     ActivationResponse, AggregateCell, AnalyticsCoverage, AnalyticsMeta, AnalyticsQuery,

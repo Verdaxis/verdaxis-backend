@@ -8,8 +8,8 @@
 use chrono::{DateTime, TimeDelta, Utc};
 
 use super::aggregates::{
-    behavioral_coverage, behavioral_event_cell, behavioral_property_rows, date_window,
-    fact_coverage, rate_pct, EngagementFacts, QualityTracker,
+    EngagementFacts, QualityTracker, behavioral_coverage, behavioral_event_cell,
+    behavioral_property_rows, date_window, fact_coverage, rate_pct,
 };
 use super::types::{
     AggregateCell, AnalyticsCoverage, AnalyticsMeta, AnalyticsQuery, AnalyticsSourceCoverage,
@@ -236,4 +236,3 @@ fn workflow_ratio(
         super::overview::raw_event_total(behavioral, denominator_event),
     )
 }
-
