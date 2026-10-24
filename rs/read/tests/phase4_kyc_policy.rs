@@ -86,6 +86,10 @@ fn p4_t9_c05() {
 #[test]
 fn p4_t9_c08() {
     assert!(KycPolicy::default().execution_gate_enabled);
+    assert_eq!(
+        serde_json::to_value(KycStatus::Submitted).unwrap(),
+        "SUBMITTED"
+    );
     for sql_party in [KycSqlParty::USER, KycSqlParty::MEMBER] {
         let mut builder = sqlx::QueryBuilder::<sqlx::Postgres>::new("SELECT ");
         bind_eligibility_sql(&mut builder, &policy(true), sql_party, now());
