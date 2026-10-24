@@ -32,6 +32,8 @@ struct Fixture {
     org: Uuid,
     member: Uuid,
     order: Uuid,
+    product: Uuid,
+    point: Uuid,
 }
 
 impl Fixture {
@@ -155,6 +157,8 @@ impl Fixture {
             org,
             member,
             order,
+            product,
+            point,
         }
     }
 
@@ -173,14 +177,6 @@ impl Fixture {
             Utc::now(),
         )
         .unwrap()
-    }
-
-    fn policy() -> Arc<MarketPolicy> {
-        Arc::new(MarketPolicy {
-            source_sha: "integration-i1-policy".into(),
-            products: vec![],
-            points: vec![],
-        })
     }
 
     fn config() -> Arc<Config> {
@@ -232,7 +228,28 @@ async fn i1_t8_rejection_with_real_t7_and_t9() {
         approve: false,
         reason: None,
         now: now(),
-        policy: Fixture::policy(),
+        policy: Arc::new(MarketPolicy {
+            source_sha: "integration-i1-policy".into(),
+            products: vec![verdaxis_read::ProductPolicy {
+                id: fixture.product,
+                code: "fixture-product".into(),
+                name: "fixture-product".into(),
+                fuel_type: "Methanol".into(),
+                fuel_grade: "fixture".into(),
+                execution_mode: "ORDERBOOK".into(),
+                lanes: vec![fixture.point],
+                qualification_profile: "scalar".into(),
+                specification_standard: None,
+                display_order: 1,
+            }],
+            points: vec![verdaxis_read::PointPolicy {
+                id: fixture.point,
+                name: "fixture-point".into(),
+                region: "fixture-region".into(),
+                timezone: "UTC".into(),
+                display_order: 1,
+            }],
+        }),
         config: Fixture::config(),
     };
     let decision = transaction::run_ordered_write(

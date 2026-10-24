@@ -373,8 +373,7 @@ fn scan_repository() -> Vec<String> {
             // to that file, and no other file may copy this spelling.
             // Built from parts so this scanner's own source cannot contain the
             // full statement the rule refuses.
-            let orders_insert =
-                ["INSERT INTO ", "ORDERBOOK", "_ORDERS("].concat();
+            let orders_insert = ["INSERT INTO ", "ORDERBOOK", "_ORDERS("].concat();
             let approved_fixture_insert = path == &root.join("rs/read/tests/integration_i1.rs")
                 && literal.starts_with(&orders_insert);
             if let Some(rule) = orderbook_dml(&literal)
