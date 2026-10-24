@@ -422,83 +422,130 @@ pub async fn load_page(
     // is NULL for a NULL role, so that row is dropped too. Pending
     // registrations are classified separately and keep their own rule.
     let fetch = query.limit + 1;
-    const SQL: &str = "WITH candidates AS (\
-           SELECT 'user:'||u.id AS candidate_key, u.email,\
-                  nullif(concat_ws(' ', nullif(u.first_name,''), nullif(u.last_name,'')), '') AS name,\
-                  u.role::text AS role, u.created_at, u.email_verified, u.email_verification_token_expires_at,\
-                  u.status::text AS user_status, o.name AS organization_name,\
-                  o.verification_status AS organization_status, o.provenance AS organization_provenance,\
-                  m.status::text AS membership_status, m.reviewed_at AS membership_reviewed_at,\
-                  (SELECT max(t.effective_at) FROM user_status_transitions t\
-                    WHERE t.user_id=u.id AND t.to_status='APPROVED') AS user_approved_at,\
-                  (SELECT max(l.timestamp) FROM audit_logs l\
-                    WHERE l.action=$3 AND l.resource_id=o.id::text) AS organization_approved_at,\
-                  u.last_login, NULL::timestamptz AS pending_registration_expires_at, \
-                  (COALESCE(o.provenance IN ('DEMO','TEST','CANARY'), false)\
-                   OR (split_part(u.email,'@',1) LIKE 'canary+%'\
-                       AND split_part(u.email,'@',2) LIKE '%.canary.verdaxis.exchange')) AS excluded\
-           FROM users u\
-           LEFT JOIN organizations o ON o.id=u.organization_id\
-           LEFT JOIN organization_join_requests m ON m.user_id=u.id AND m.organization_id=u.organization_id\
-           WHERE u.role::text <> 'ADMIN'\
-           UNION ALL\
-           SELECT 'pending:'||p.id, p.email,\
-                  nullif(concat_ws(' ', nullif(p.first_name,''), nullif(p.last_name,'')), ''),\
-                  p.role::text, p.created_at, false, NULL::timestamptz, NULL, NULL, NULL, NULL, NULL, NULL,\
-                  NULL::timestamptz, NULL::timestamptz, NULL, p.expires_at,\
-                  (p.role IS NOT DISTINCT FROM 'ADMIN'\
-                   OR (split_part(p.email,'@',1) LIKE 'canary+%'\
-                       AND split_part(p.email,'@',2) LIKE '%.canary.verdaxis.exchange'))\
-           FROM pending_registrations p WHERE p.used_at IS NULL\
-         ), classified AS (\
-           SELECT c.email, c.name, c.role, c.organization_name, c.last_login, s.stage, s.since, c.candidate_key\
-           FROM candidates c\
-           LEFT JOIN LATERAL (\
-             SELECT stage, since, priority FROM (\
-               SELECT 'rejected' AS stage, c.created_at AS since, 1 AS priority\
-                 WHERE c.user_status='REJECTED' OR c.organization_status='REJECTED' OR c.membership_status='REJECTED'\
-               UNION ALL\
-               SELECT 'organization_setup_expiring', c.pending_registration_expires_at, 2\
-                 WHERE c.pending_registration_expires_at IS NOT NULL\
-                   AND c.pending_registration_expires_at <= $1 + interval '5 minutes'\
-               UNION ALL\
-               SELECT 'verification_stalled',\
-                      COALESCE(c.email_verification_token_expires_at, c.created_at + interval '24 hours'), 3\
-                 WHERE c.pending_registration_expires_at IS NULL AND NOT c.email_verified\
-                   AND COALESCE(c.email_verification_token_expires_at, c.created_at + interval '24 hours') <= $1\
-               UNION ALL\
-               SELECT 'approval_required', c.created_at, 4\
-                 WHERE c.pending_registration_expires_at IS NULL AND c.email_verified\
-                   AND NOT (COALESCE(c.user_status,'')='APPROVED' AND COALESCE(c.organization_status,'')='APPROVED'\
-                            AND COALESCE(c.membership_status,'')='APPROVED')\
-               UNION ALL\
-               SELECT 'first_login_overdue',\
-                      GREATEST(c.created_at, COALESCE(c.user_approved_at, c.created_at),\
-                               COALESCE(c.organization_approved_at, c.created_at),\
-                               COALESCE(c.membership_reviewed_at, c.created_at)), 5\
-                 WHERE c.pending_registration_expires_at IS NULL AND c.email_verified\
-                   AND COALESCE(c.user_status,'')='APPROVED' AND COALESCE(c.organization_status,'')='APPROVED'\
-                   AND COALESCE(c.membership_status,'')='APPROVED' AND c.last_login IS NULL\
-                   AND GREATEST(c.created_at, COALESCE(c.user_approved_at, c.created_at),\
-                                COALESCE(c.organization_approved_at, c.created_at),\
-                                COALESCE(c.membership_reviewed_at, c.created_at)) <= $1 - interval '2 hours'\
-             ) attention ORDER BY priority LIMIT 1\
-           ) s ON NOT c.excluded\
-         )\
-         SELECT email,name,role,stage,since,organization_name,last_login\
-         FROM classified WHERE stage IS NOT NULL\
-         ORDER BY since, candidate_key\
-         LIMIT $2";
+    const SQL: &str = r#"
+WITH candidates AS (
+    SELECT 'user:' || u.id AS candidate_key,
+           u.email,
+           nullif(concat_ws(' ', nullif(u.first_name, ''), nullif(u.last_name, '')), '') AS name,
+           u.role::text AS role,
+           u.created_at,
+           u.email_verified,
+           u.email_verification_token_expires_at,
+           u.status::text AS user_status,
+           o.name AS organization_name,
+           o.verification_status AS organization_status,
+           o.provenance AS organization_provenance,
+           m.status::text AS membership_status,
+           m.reviewed_at AS membership_reviewed_at,
+           (SELECT max(t.effective_at)
+              FROM user_status_transitions t
+             WHERE t.user_id = u.id AND t.to_status = 'APPROVED') AS user_approved_at,
+           (SELECT max(l.timestamp)
+              FROM audit_logs l
+             WHERE l.action = $3 AND l.resource_id = o.id::text) AS organization_approved_at,
+           u.last_login,
+           NULL::timestamptz AS pending_registration_expires_at,
+           (COALESCE(o.provenance IN ('DEMO', 'TEST', 'CANARY'), false)
+            OR (split_part(u.email, '@', 1) LIKE 'canary+%'
+                AND split_part(u.email, '@', 2) LIKE '%.canary.verdaxis.exchange')) AS excluded
+      FROM users u
+      LEFT JOIN organizations o ON o.id = u.organization_id
+      LEFT JOIN organization_join_requests m
+             ON m.user_id = u.id AND m.organization_id = u.organization_id
+     WHERE u.role::text <> 'ADMIN'
+    UNION ALL
+    SELECT 'pending:' || p.id,
+           p.email,
+           nullif(concat_ws(' ', nullif(p.first_name, ''), nullif(p.last_name, '')), ''),
+           p.role::text,
+           p.created_at,
+           false,
+           NULL::timestamptz,
+           NULL,
+           NULL,
+           NULL,
+           NULL,
+           NULL,
+           NULL,
+           NULL::timestamptz,
+           NULL::timestamptz,
+           NULL,
+           p.expires_at,
+           (p.role IS NOT DISTINCT FROM 'ADMIN'
+            OR (split_part(p.email, '@', 1) LIKE 'canary+%'
+                AND split_part(p.email, '@', 2) LIKE '%.canary.verdaxis.exchange'))
+      FROM pending_registrations p
+     WHERE p.used_at IS NULL
+),
+classified AS (
+    SELECT c.email, c.name, c.role, c.organization_name, c.last_login,
+           s.stage, s.since, c.candidate_key
+      FROM candidates c
+      LEFT JOIN LATERAL (
+          SELECT stage, since, priority
+            FROM (
+              SELECT 'rejected' AS stage, c.created_at AS since, 1 AS priority
+               WHERE c.user_status = 'REJECTED'
+                  OR c.organization_status = 'REJECTED'
+                  OR c.membership_status = 'REJECTED'
+              UNION ALL
+              SELECT 'organization_setup_expiring', c.pending_registration_expires_at, 2
+               WHERE c.pending_registration_expires_at IS NOT NULL
+                 AND c.pending_registration_expires_at <= $1 + interval '5 minutes'
+              UNION ALL
+              SELECT 'verification_stalled',
+                     COALESCE(c.email_verification_token_expires_at,
+                              c.created_at + interval '24 hours'),
+                     3
+               WHERE c.pending_registration_expires_at IS NULL
+                 AND NOT c.email_verified
+                 AND COALESCE(c.email_verification_token_expires_at,
+                              c.created_at + interval '24 hours') <= $1
+              UNION ALL
+              SELECT 'approval_required', c.created_at, 4
+               WHERE c.pending_registration_expires_at IS NULL
+                 AND c.email_verified
+                 AND NOT (COALESCE(c.user_status, '') = 'APPROVED'
+                          AND COALESCE(c.organization_status, '') = 'APPROVED'
+                          AND COALESCE(c.membership_status, '') = 'APPROVED')
+              UNION ALL
+              SELECT 'first_login_overdue',
+                     GREATEST(c.created_at,
+                              COALESCE(c.user_approved_at, c.created_at),
+                              COALESCE(c.organization_approved_at, c.created_at),
+                              COALESCE(c.membership_reviewed_at, c.created_at)),
+                     5
+               WHERE c.pending_registration_expires_at IS NULL
+                 AND c.email_verified
+                 AND COALESCE(c.user_status, '') = 'APPROVED'
+                 AND COALESCE(c.organization_status, '') = 'APPROVED'
+                 AND COALESCE(c.membership_status, '') = 'APPROVED'
+                 AND c.last_login IS NULL
+                 AND GREATEST(c.created_at,
+                              COALESCE(c.user_approved_at, c.created_at),
+                              COALESCE(c.organization_approved_at, c.created_at),
+                              COALESCE(c.membership_reviewed_at, c.created_at))
+                     <= $1 - interval '2 hours'
+            ) attention
+           ORDER BY priority
+           LIMIT 1
+      ) s ON NOT c.excluded
+)
+SELECT email, name, role, stage, since, organization_name, last_login
+  FROM classified
+ WHERE stage IS NOT NULL
+ ORDER BY since, candidate_key
+ LIMIT $2
+OFFSET $4
+"#;
     let rows: Vec<AttentionRow> = sqlx::query_as::<_, AttentionRow>(SQL)
-    .bind(now)
-    .bind(fetch)
-    .bind(ORGANIZATION_APPROVED_ACTION)
-    .fetch_all(connection)
-    .await
-    .map_err(|error| {
-        eprintln!("SQL_DEBUG attention {error}\nSQL_TEXT attention <<{SQL}>>");
-        database_failure(None)
-    })?;
+        .bind(now)
+        .bind(fetch)
+        .bind(ORGANIZATION_APPROVED_ACTION)
+        .bind(query.offset)
+        .fetch_all(connection)
+        .await
+        .map_err(|_| database_failure(None))?;
     let truncated = rows.len() as i64 > query.limit;
     let items = rows
         .into_iter()

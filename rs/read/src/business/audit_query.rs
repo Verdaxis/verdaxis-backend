@@ -211,28 +211,25 @@ pub async fn load_page(
     connection: &mut PgConnection,
     query: &AuditQuery,
 ) -> Result<Vec<Value>, ApiError> {
-    const SQL: &str = "SELECT id,user_id,action,resource_type,resource_id,changes::text AS changes,\
-                ip_address,request_id,timestamp\
-         FROM audit_logs\
-         WHERE ($1::text IS NULL OR action=$1)\
-           AND ($2::text IS NULL OR resource_type=$2)\
-           AND ($3::uuid IS NULL OR user_id=$3)\
-         ORDER BY timestamp DESC, id\
-         OFFSET $4 LIMIT $5";
+    const SQL: &str = r#"
+SELECT id, user_id, action, resource_type, resource_id, changes::text AS changes,
+       ip_address, request_id, timestamp
+  FROM audit_logs
+ WHERE ($1::text IS NULL OR action = $1)
+   AND ($2::text IS NULL OR resource_type = $2)
+   AND ($3::uuid IS NULL OR user_id = $3)
+ ORDER BY timestamp DESC, id
+ OFFSET $4 LIMIT $5
+"#;
     let rows: Vec<AuditRow> = sqlx::query_as::<_, AuditRow>(SQL)
-    .bind(&query.action)
-    .bind(&query.resource_type)
-    .bind(query.user_id)
-    .bind(query.offset)
-    .bind(query.limit)
-    // The prepared text is printed only on failure, and only in this debug
-    // round; it contains no bound value.
-    .fetch_all(connection)
-    .await
-    .map_err(|error| {
-        eprintln!("SQL_DEBUG audit {error}\nSQL_TEXT audit <<{SQL}>>");
-        database_failure(None)
-    })?;
+        .bind(&query.action)
+        .bind(&query.resource_type)
+        .bind(query.user_id)
+        .bind(query.offset)
+        .bind(query.limit)
+        .fetch_all(connection)
+        .await
+        .map_err(|_| database_failure(None))?;
     rows.iter().map(AuditRow::response).collect()
 }
 
