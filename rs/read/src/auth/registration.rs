@@ -42,14 +42,32 @@ impl RegistrationSettings {
         }
     }
     pub fn with_monitor_token(mut self, token: String) -> Self {
-        self.monitor_token = (!token.is_empty()).then(|| token.into()); self
+        self.monitor_token = (!token.is_empty()).then(|| token.into());
+        self
     }
-    pub fn with_environment(mut self, environment: String) -> Self { self.environment = environment.into(); self }
+    pub fn with_environment(mut self, environment: String) -> Self {
+        self.environment = environment.into();
+        self
+    }
     fn suppressed(&self, headers: &HeaderMap, address: &str) -> bool {
-        super::email::suppress_verification(super::email::monitor_admitted(self.monitor_token.as_deref(), headers), address)
+        super::email::suppress_verification(
+            super::email::monitor_admitted(self.monitor_token.as_deref(), headers),
+            address,
+        )
     }
     fn alert(&self, id: Uuid, input: &Registration, organization: &str) -> AuthMail {
-        AuthMail::SignupAlert {user_id:id,environment:self.environment.to_string(),email:input.email.clone(),name:format!("{} {}",input.first_name.as_deref().unwrap_or(""),input.last_name.as_deref().unwrap_or("")),role:input.role.clone(),organization:organization.into()}
+        AuthMail::SignupAlert {
+            user_id: id,
+            environment: self.environment.to_string(),
+            email: input.email.clone(),
+            name: format!(
+                "{} {}",
+                input.first_name.as_deref().unwrap_or(""),
+                input.last_name.as_deref().unwrap_or("")
+            ),
+            role: input.role.clone(),
+            organization: organization.into(),
+        }
     }
     /// Composition supplies both release-owned domain lists. Missing data disables matching.
     pub fn with_domain_lists(
@@ -183,9 +201,18 @@ async fn register_route(
         .await
         .map_err(|_| validation())?;
     for attempt in 0..3 {
-        match register_attempt(&settings, &input, &hash, settings.suppressed(&headers, &input.email)).await {
+        match register_attempt(
+            &settings,
+            &input,
+            &hash,
+            settings.suppressed(&headers, &input.email),
+        )
+        .await
+        {
             Ok(mail) => {
-                for mail in mail { settings.mail.dispatch(mail); }
+                for mail in mail {
+                    settings.mail.dispatch(mail);
+                }
                 return Ok((StatusCode::ACCEPTED, Json(json!({"status":"check_email"}))));
             }
             Err(error)
@@ -215,7 +242,13 @@ async fn register_attempt(
         .await?;
     if exists.is_some() {
         tx.commit().await?;
-        return Ok(if suppressed {vec![]} else {vec![AuthMail::AccountExists { to: input.email.clone() }]});
+        return Ok(if suppressed {
+            vec![]
+        } else {
+            vec![AuthMail::AccountExists {
+                to: input.email.clone(),
+            }]
+        });
     }
     let token = generate_token();
     let now = Utc::now();
@@ -231,7 +264,7 @@ async fn register_attempt(
         insert_user(&mut tx, id, input, hash, &token).await?;
         if !suppressed {
             join_and_attribute(&mut tx, id, org_id, input).await?;
-            mail.push(settings.alert(id,input,&kind));
+            mail.push(settings.alert(id, input, &kind));
         }
         let _ = kind;
     } else {
@@ -246,12 +279,14 @@ async fn register_attempt(
             .bind(Uuid::new_v4()).bind(token_digest(&token)).bind(&input.email).bind(hash).bind(&input.first_name).bind(&input.last_name).bind(&input.role).bind(&input.referral_code).bind(now+Duration::minutes(30)).bind(now).execute(&mut *tx).await?;
     }
     tx.commit().await?;
-    if !suppressed { mail.push(AuthMail::Verification {
-        to: input.email.clone(),
-        name: input.first_name.clone().unwrap_or_else(|| "there".into()),
-        token,
-        pending: None,
-    }); }
+    if !suppressed {
+        mail.push(AuthMail::Verification {
+            to: input.email.clone(),
+            name: input.first_name.clone().unwrap_or_else(|| "there".into()),
+            token,
+            pending: None,
+        });
+    }
     Ok(mail)
 }
 async fn insert_user(
@@ -402,7 +437,9 @@ async fn with_org_attempt(
     )
     .await?;
     let suppressed = settings.suppressed(headers, &registration.email);
-    if !suppressed { join_and_attribute(&mut tx, id, org, &registration).await?; }
+    if !suppressed {
+        join_and_attribute(&mut tx, id, org, &registration).await?;
+    }
     sqlx::query("UPDATE pending_registrations SET used_at=$2 WHERE id=$1")
         .bind(pending.id)
         .bind(Utc::now())
@@ -410,16 +447,18 @@ async fn with_org_attempt(
         .await?;
     tx.commit().await?;
     if !suppressed {
-    settings.mail.dispatch(settings.alert(id,&registration,&input.organization.name));
-    settings.mail.dispatch(AuthMail::Verification {
-        to: registration.email.clone(),
-        name: registration
-            .first_name
-            .clone()
-            .unwrap_or_else(|| "there".into()),
-        token: verification,
-        pending: None,
-    });
+        settings
+            .mail
+            .dispatch(settings.alert(id, &registration, &input.organization.name));
+        settings.mail.dispatch(AuthMail::Verification {
+            to: registration.email.clone(),
+            name: registration
+                .first_name
+                .clone()
+                .unwrap_or_else(|| "there".into()),
+            token: verification,
+            pending: None,
+        });
     }
     Ok(Ok(
         json!({"id":id,"email":registration.email,"first_name":registration.first_name,"last_name":registration.last_name,"role":registration.role,"status":"PENDING","organization_id":null,"referral_code":null,"must_change_password":false,"kyc_status":"PENDING","execution_eligibility":{"eligible":false,"reason":"KYC_REQUIRED","grace_expires_at":null}}),

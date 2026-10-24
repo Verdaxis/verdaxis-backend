@@ -7,7 +7,14 @@ use std::time::Duration;
 use tokio::sync::{Notify, Semaphore};
 
 pub enum AuthMail {
-    SignupAlert { user_id: uuid::Uuid, environment: String, email: String, name: String, role: String, organization: String },
+    SignupAlert {
+        user_id: uuid::Uuid,
+        environment: String,
+        email: String,
+        name: String,
+        role: String,
+        organization: String,
+    },
     Verification {
         to: String,
         name: String,
@@ -74,7 +81,11 @@ impl MailDispatcher {
             async move {
                 let payload = render(&mail, &dispatcher.sender, &dispatcher.frontend);
                 let idempotency = match &mail {
-                    AuthMail::SignupAlert { user_id, environment, .. } => Some(format!("signup-alert/{environment}/{user_id}")),
+                    AuthMail::SignupAlert {
+                        user_id,
+                        environment,
+                        ..
+                    } => Some(format!("signup-alert/{environment}/{user_id}")),
                     _ => None,
                 };
                 let mut sent = false;
@@ -84,7 +95,9 @@ impl MailDispatcher {
                     }
                     if tokio::time::timeout(
                         Duration::from_secs(10),
-                        dispatcher.client.send_with_idempotency(&payload, idempotency.as_deref()),
+                        dispatcher
+                            .client
+                            .send_with_idempotency(&payload, idempotency.as_deref()),
                     )
                     .await
                     .unwrap_or(false)
@@ -137,7 +150,15 @@ fn encode(value: &str) -> String {
     url::form_urlencoded::byte_serialize(value.as_bytes()).collect()
 }
 pub fn render(mail: &AuthMail, sender: &str, frontend: &str) -> Value {
-    if let AuthMail::SignupAlert { environment, email, name, role, organization, .. } = mail {
+    if let AuthMail::SignupAlert {
+        environment,
+        email,
+        name,
+        role,
+        organization,
+        ..
+    } = mail
+    {
         return json!({"from":sender,"to":[mail.recipient()],"subject":format!("[{environment}] New Verdaxis account application"),"html":format!("<p>ADMIN REVIEW [{}]</p><p>{}</p><p>{}</p><p>{}</p><p>{}</p><a href=\"{}/app/admin/users\">Review application</a>",escape(environment),escape(name),escape(email),escape(role),escape(organization),escape(frontend.trim_end_matches('/')))});
     }
     let (title, template, name, link) = match mail {
@@ -193,8 +214,12 @@ pub fn render(mail: &AuthMail, sender: &str, frontend: &str) -> Value {
 /// Shared authenticated monitor admission; an address alone never grants authority.
 pub(crate) fn monitor_admitted(expected: Option<&str>, headers: &axum::http::HeaderMap) -> bool {
     use sha2::{Digest, Sha256, digest::CtOutput};
-    let Some(expected) = expected else { return false; };
-    let Some(presented) = headers.get("x-monitor-token") else { return false; };
+    let Some(expected) = expected else {
+        return false;
+    };
+    let Some(presented) = headers.get("x-monitor-token") else {
+        return false;
+    };
     CtOutput::<Sha256>::new(Sha256::digest(expected.as_bytes()))
         == CtOutput::<Sha256>::new(Sha256::digest(presented.as_bytes()))
 }

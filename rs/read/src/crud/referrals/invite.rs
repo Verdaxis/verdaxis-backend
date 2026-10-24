@@ -156,10 +156,12 @@ impl MailClient {
             .post(&self.endpoint)
             .bearer_auth(key)
             .json(payload);
-        let request = if let Some(key) = idempotency { request.header("Idempotency-Key", key) } else { request };
-        let Ok(mut response) = request.send()
-            .await
-        else {
+        let request = if let Some(key) = idempotency {
+            request.header("Idempotency-Key", key)
+        } else {
+            request
+        };
+        let Ok(mut response) = request.send().await else {
             return false;
         };
         let accepted = matches!(response.status().as_u16(), 200 | 201);
