@@ -49,6 +49,13 @@ activated in the serving router by this module.
 
 ## Rust Phase 2 feedback
 
+Task 8 adds organization verification, explicit membership review and bounded
+join projections under rs/read/src/business/{organizations,joins,membership}.rs.
+Writes use the ordered business owner and rejection calls the market invalidator
+on its borrowed connection. Retained KYC evidence and grace are not changed.
+These leaf components are not mounted; real invalidator/policy composition,
+route acceptance and dependency audit remain integration gates.
+
 `rs/read/src/crud/feedback.rs` provides the Task 10 feedback submission and
 administrator listing routers. Both use the shared authenticated transaction;
 submission and pagination validation precede endpoint quota consumption through

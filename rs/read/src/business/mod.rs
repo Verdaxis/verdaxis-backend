@@ -2,6 +2,9 @@
 pub mod admission;
 pub mod audit;
 pub mod error;
+pub mod joins;
+pub mod membership;
+pub mod organizations;
 pub mod status;
 pub mod transaction;
 pub mod vessels;
