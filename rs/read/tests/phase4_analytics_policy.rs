@@ -418,7 +418,7 @@ fn p4_t15_c06() {
     let start: DateTime<Utc> = "2026-01-01T12:00:00Z".parse().unwrap();
     let end: DateTime<Utc> = "2027-01-01T12:00:00Z".parse().unwrap();
     assert_eq!((end - start).num_seconds(), MAX_RANGE_SECONDS);
-    let days = (end.date() - start.date()).num_days() + 1;
+    let days = (end.date_naive() - start.date_naive()).num_days() + 1;
     assert_eq!(days, MAX_SERIES_POINTS as i64);
 }
 
