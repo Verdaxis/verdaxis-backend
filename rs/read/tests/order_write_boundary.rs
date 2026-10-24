@@ -395,7 +395,7 @@ fn scan_repository() -> Vec<String> {
             && !is_manifest
             && path != &owned_test
             && path != &root.join("rs/read/examples/order_write.rs")
-            && !boundary_reference_allowed(&text, path.starts_with(&root.join("rs/read/tests")))
+            && !boundary_reference_allowed(&text, path.starts_with(root.join("rs/read/tests")))
         {
             violations.push(format!("{}: names the write boundary", path.display()));
         }
@@ -737,7 +737,7 @@ fn only_the_registration_line_names_the_boundary() {
             continue;
         }
         let text = std::fs::read_to_string(&path).expect("readable source");
-        if !boundary_reference_allowed(&text, path.starts_with(&root.join("rs/read/tests"))) {
+        if !boundary_reference_allowed(&text, path.starts_with(root.join("rs/read/tests"))) {
             mentions.push(path.display().to_string());
         }
     }
