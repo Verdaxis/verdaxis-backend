@@ -156,8 +156,8 @@ pub async fn review(
     } else {
         "/api/auth/organization-joins/{join_request_id}/reject"
     };
-    let access=super::membership::admit(state,access,limits,client,"PUT",template).await?;
-    super::transaction::run_organization_write(state,access,command).await
+    let access = super::membership::admit(state, access, limits, client, "PUT", template).await?;
+    super::transaction::run_organization_write(state, access, command).await
 }
 
 pub async fn read(
@@ -167,7 +167,15 @@ pub async fn read(
     client: String,
     query: JoinListQuery,
 ) -> Result<JoinPage, ApiError> {
-    let access=super::membership::admit(state,access,&limits,&client,"GET","/api/auth/organization-joins").await?;
+    let access = super::membership::admit(
+        state,
+        access,
+        &limits,
+        &client,
+        "GET",
+        "/api/auth/organization-joins",
+    )
+    .await?;
     use crate::auth::{AuthenticatedError, AuthenticatedRequest, run_authenticated};
     run_authenticated(
         state,

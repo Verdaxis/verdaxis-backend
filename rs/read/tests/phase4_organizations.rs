@@ -869,67 +869,178 @@ async fn p4_t8_c12() {
     f.finish().await;
 }
 
-
 #[derive(Clone, Copy)]
-enum TaskRoute { JoinList, JoinApprove, JoinReject, OrganizationApprove, OrganizationReject }
-async fn task_request(f:&Fixture,app:&AppState,limits:auth::limits::SharedLimits,bearer:Option<&str>,route:TaskRoute,missing:bool)->axum::response::Response {
+enum TaskRoute {
+    JoinList,
+    JoinApprove,
+    JoinReject,
+    OrganizationApprove,
+    OrganizationReject,
+}
+async fn task_request(
+    f: &Fixture,
+    app: &AppState,
+    limits: auth::limits::SharedLimits,
+    bearer: Option<&str>,
+    route: TaskRoute,
+    missing: bool,
+) -> axum::response::Response {
     use axum::response::IntoResponse;
-    let verification=auth::VerificationSettings::new("test-secret-key-for-testing-minimum-32-chars".into(),None,"test".into(),"test".into());
-    let access=match auth::verify_authorization(bearer,&verification,Utc::now()) {Ok(access)=>access,Err(error)=>return error::authentication(error).into_response()};
+    let verification = auth::VerificationSettings::new(
+        "test-secret-key-for-testing-minimum-32-chars".into(),
+        None,
+        "test".into(),
+        "test".into(),
+    );
+    let access = match auth::verify_authorization(bearer, &verification, Utc::now()) {
+        Ok(access) => access,
+        Err(error) => return error::authentication(error).into_response(),
+    };
     match route {
-        TaskRoute::JoinList => match joins::read(app,access,limits,"round2".into(),joins::JoinListQuery::parse(None,100,0).unwrap()).await {
-            Ok(page)=>([("X-Result-Truncated",page.truncated.to_string())],axum::Json(page.items)).into_response(),Err(error)=>error.into_response(),
+        TaskRoute::JoinList => match joins::read(
+            app,
+            access,
+            limits,
+            "round2".into(),
+            joins::JoinListQuery::parse(None, 100, 0).unwrap(),
+        )
+        .await
+        {
+            Ok(page) => (
+                [("X-Result-Truncated", page.truncated.to_string())],
+                axum::Json(page.items),
+            )
+                .into_response(),
+            Err(error) => error.into_response(),
         },
-        TaskRoute::JoinApprove|TaskRoute::JoinReject => {
-            let mut command=f.review(matches!(route,TaskRoute::JoinApprove));
-            if missing {command.join_request_id=Uuid::nil();}
-            match joins::review(app,access,&limits,"round2",command).await {Ok(value)=>axum::Json(value).into_response(),Err(error)=>error.into_response()}
-        },
-        TaskRoute::OrganizationApprove|TaskRoute::OrganizationReject => {
-            let mut command=f.organization(matches!(route,TaskRoute::OrganizationApprove));
-            if missing {command.organization_id=Uuid::nil();}
-            match organizations::review(app,access,&limits,"round2",command).await {Ok(value)=>axum::Json(value).into_response(),Err(error)=>error.into_response()}
-        },
+        TaskRoute::JoinApprove | TaskRoute::JoinReject => {
+            let mut command = f.review(matches!(route, TaskRoute::JoinApprove));
+            if missing {
+                command.join_request_id = Uuid::nil();
+            }
+            match joins::review(app, access, &limits, "round2", command).await {
+                Ok(value) => axum::Json(value).into_response(),
+                Err(error) => error.into_response(),
+            }
+        }
+        TaskRoute::OrganizationApprove | TaskRoute::OrganizationReject => {
+            let mut command = f.organization(matches!(route, TaskRoute::OrganizationApprove));
+            if missing {
+                command.organization_id = Uuid::nil();
+            }
+            match organizations::review(app, access, &limits, "round2", command).await {
+                Ok(value) => axum::Json(value).into_response(),
+                Err(error) => error.into_response(),
+            }
+        }
     }
 }
-async fn response_bytes(response:axum::response::Response)->(u16,Vec<u8>) {
-    (response.status().as_u16(),axum::body::to_bytes(response.into_body(),65536).await.unwrap().to_vec())
+async fn response_bytes(response: axum::response::Response) -> (u16, Vec<u8>) {
+    (
+        response.status().as_u16(),
+        axum::body::to_bytes(response.into_body(), 65536)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
 }
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL authority"]
 async fn p4_t8_c13() {
-    let mut f=Fixture::new().await; let app=f.app().await;
-    let admin=f.bearer(f.actor); let wrong=f.bearer(f.user);
-    for route in [TaskRoute::JoinList,TaskRoute::JoinApprove,TaskRoute::JoinReject,TaskRoute::OrganizationApprove,TaskRoute::OrganizationReject] {
-        let limits=auth::limits::SharedLimits::default();
-        for bearer in [None,Some("Bearer invalid"),Some(wrong.as_str())] {
+    let mut f = Fixture::new().await;
+    let app = f.app().await;
+    let admin = f.bearer(f.actor);
+    let wrong = f.bearer(f.user);
+    for route in [
+        TaskRoute::JoinList,
+        TaskRoute::JoinApprove,
+        TaskRoute::JoinReject,
+        TaskRoute::OrganizationApprove,
+        TaskRoute::OrganizationReject,
+    ] {
+        let limits = auth::limits::SharedLimits::default();
+        for bearer in [None, Some("Bearer invalid"), Some(wrong.as_str())] {
             for _ in 0..60 {
-                let existing=response_bytes(task_request(&f,&app,limits.clone(),bearer,route,false).await).await;
-                let missing=response_bytes(task_request(&f,&app,limits.clone(),bearer,route,true).await).await;
-                assert_eq!(existing,missing,"authority must precede resource discovery");
-                assert_eq!(existing.0,if bearer==Some(wrong.as_str()){403}else{401});
-                let value:serde_json::Value=serde_json::from_slice(&existing.1).unwrap();
-                assert_eq!(value["detail"]["code"],if bearer==Some(wrong.as_str()){"ADMIN_REQUIRED"}else{"INVALID_CREDENTIALS"});
+                let existing = response_bytes(
+                    task_request(&f, &app, limits.clone(), bearer, route, false).await,
+                )
+                .await;
+                let missing = response_bytes(
+                    task_request(&f, &app, limits.clone(), bearer, route, true).await,
+                )
+                .await;
+                assert_eq!(
+                    existing, missing,
+                    "authority must precede resource discovery"
+                );
+                assert_eq!(
+                    existing.0,
+                    if bearer == Some(wrong.as_str()) {
+                        403
+                    } else {
+                        401
+                    }
+                );
+                let value: serde_json::Value = serde_json::from_slice(&existing.1).unwrap();
+                assert_eq!(
+                    value["detail"]["code"],
+                    if bearer == Some(wrong.as_str()) {
+                        "ADMIN_REQUIRED"
+                    } else {
+                        "INVALID_CREDENTIALS"
+                    }
+                );
             }
         }
         // A signed administrator token with invalid current account authority.
-        sqlx::query("UPDATE users SET authentication_revoked_at=now()+interval '1 hour' WHERE id=$1").bind(f.actor).execute(&mut f.admin).await.unwrap();
+        sqlx::query(
+            "UPDATE users SET authentication_revoked_at=now()+interval '1 hour' WHERE id=$1",
+        )
+        .bind(f.actor)
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
         for _ in 0..60 {
-            let a=response_bytes(task_request(&f,&app,limits.clone(),Some(&admin),route,false).await).await;
-            let b=response_bytes(task_request(&f,&app,limits.clone(),Some(&admin),route,true).await).await;
-            assert_eq!(a,b); assert_eq!(a.0,401);
-            let value:serde_json::Value=serde_json::from_slice(&a.1).unwrap();assert_eq!(value["detail"]["code"],"AUTH_SESSION_REVOKED");
+            let a = response_bytes(
+                task_request(&f, &app, limits.clone(), Some(&admin), route, false).await,
+            )
+            .await;
+            let b = response_bytes(
+                task_request(&f, &app, limits.clone(), Some(&admin), route, true).await,
+            )
+            .await;
+            assert_eq!(a, b);
+            assert_eq!(a.0, 401);
+            let value: serde_json::Value = serde_json::from_slice(&a.1).unwrap();
+            assert_eq!(value["detail"]["code"], "AUTH_SESSION_REVOKED");
         }
-        sqlx::query("UPDATE users SET authentication_revoked_at=NULL WHERE id=$1").bind(f.actor).execute(&mut f.admin).await.unwrap();
+        sqlx::query("UPDATE users SET authentication_revoked_at=NULL WHERE id=$1")
+            .bind(f.actor)
+            .execute(&mut f.admin)
+            .await
+            .unwrap();
         for _ in 0..60 {
             sqlx::raw_sql("UPDATE organizations SET verification_status='APPROVED'; UPDATE users SET organization_id=NULL; UPDATE organization_join_requests SET status='PENDING'").execute(&mut f.admin).await.unwrap();
-            let response=task_request(&f,&app,limits.clone(),Some(&admin),route,false).await;
-            assert_eq!(response.status().as_u16(),200,"refused calls must preserve quota");
+            let response = task_request(&f, &app, limits.clone(), Some(&admin), route, false).await;
+            assert_eq!(
+                response.status().as_u16(),
+                200,
+                "refused calls must preserve quota"
+            );
         }
-        let response=task_request(&f,&app,limits,Some(&admin),route,true).await;
-        assert_eq!(response.status().as_u16(),429);
-        assert!((1..=60).contains(&response.headers()["Retry-After"].to_str().unwrap().parse::<u32>().unwrap()));
-        response_code(response,429,"RATE_LIMITED").await;
+        let response = task_request(&f, &app, limits, Some(&admin), route, true).await;
+        assert_eq!(response.status().as_u16(), 429);
+        assert!(
+            (1..=60).contains(
+                &response.headers()["Retry-After"]
+                    .to_str()
+                    .unwrap()
+                    .parse::<u32>()
+                    .unwrap()
+            )
+        );
+        response_code(response, 429, "RATE_LIMITED").await;
     }
-    drop(app); f.finish().await;
+    drop(app);
+    f.finish().await;
 }

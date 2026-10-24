@@ -59,7 +59,7 @@ pub async fn review(
     } else {
         "/api/auth/organization/{organization_id}/reject"
     };
-    let access=super::membership::admit(state,access,limits,client,"PUT",template).await?;
+    let access = super::membership::admit(state, access, limits, client, "PUT", template).await?;
     super::transaction::run_organization_write(state, access, command).await
 }
 

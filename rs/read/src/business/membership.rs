@@ -75,18 +75,17 @@ pub async fn invalidate_review(
     Ok(true)
 }
 
-
 /// One admission path for every organization-review component. This read-only
 /// phase holds no row locks; the ordered write owner still revalidates authority
 /// under canonical locks before mutation. Quota is charged once, not per retry.
 pub async fn admit(
-    state:&crate::AppState,
-    access:crate::auth::VerifiedAccess,
-    limits:&crate::auth::limits::SharedLimits,
-    client:&str,
-    method:&'static str,
-    template:&'static str,
-)->Result<crate::auth::VerifiedAccess,ApiError> {
+    state: &crate::AppState,
+    access: crate::auth::VerifiedAccess,
+    limits: &crate::auth::limits::SharedLimits,
+    client: &str,
+    method: &'static str,
+    template: &'static str,
+) -> Result<crate::auth::VerifiedAccess, ApiError> {
     let access=crate::runtime::admission::run_admitted(state,move |conn|Box::pin(async move {
         let row=sqlx::query("SELECT status::text AS status,must_change_password,password_changed_at,authentication_revoked_at,role::text AS role FROM users WHERE id=$1")
             .bind(access.subject).fetch_optional(conn).await.map_err(|_|super::error::database_failure(None))?
@@ -102,6 +101,16 @@ pub async fn admit(
         }
         Ok(access)
     })).await?;
-    limits.check_business(method,template,crate::auth::limits::BusinessLimitKeys {client,user:None,organization:None,token:None},Utc::now().timestamp().max(0) as u64)?;
+    limits.check_business(
+        method,
+        template,
+        crate::auth::limits::BusinessLimitKeys {
+            client,
+            user: None,
+            organization: None,
+            token: None,
+        },
+        Utc::now().timestamp().max(0) as u64,
+    )?;
     Ok(access)
 }
