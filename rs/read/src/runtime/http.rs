@@ -453,6 +453,27 @@ pub fn router_with(extra: Router<crate::AppState>, state: crate::AppState) -> Ro
     middleware_with_state(routes, state)
 }
 
+/// Compose the serving router with a route group that already carries its own
+/// state (for example a component router built with `Router::with_state`).
+///
+/// Every serving route stays mounted: the three health routes and the public
+/// routes are composed exactly as `router_with` builds them, and the stated
+/// group is merged before the shared middleware and fallbacks are applied.
+/// Extra routes are only added; no serving route is replaced or removed.
+pub fn router_with_stated(stated: Router, state: crate::AppState) -> Router {
+    // The dispatch boundary overrides axum's implicit HEAD handler.
+    let routes = Router::new()
+        .route("/health/live", axum::routing::get(crate::live))
+        .route("/health/ready", axum::routing::get(crate::ready))
+        .route("/health", axum::routing::get(crate::ready))
+        .merge(public_routes())
+        .fallback(fallback)
+        .with_state(state.clone())
+        .merge(stated)
+        .method_not_allowed_fallback(method_not_allowed);
+    middleware_with_state(routes, state)
+}
+
 async fn method_not_allowed() -> Response {
     (
         StatusCode::METHOD_NOT_ALLOWED,
