@@ -52,8 +52,13 @@ column-level INSERT and UPDATE, so a later column gets no write authority.
 `tests/postgres/test_phase3_auth_store.py` proves the single head, the additive
 and reversible migration, the grants, the shared device key
 (`tests/rust_contract/phase3/device-lock-keys.json`) and drives
-`rs/read/tests/auth_store_postgres.rs` on the migrated database. No route uses
-these primitives yet. `store::revoke_user_authentication` locks the user, advances
+`rs/read/tests/auth_store_postgres.rs` on the migrated database. Unmounted
+session and recovery components use these primitives. Registration reuses the
+shared verification-mail dispatcher and monitor-canary policy; new applicants
+queue environment-labelled signup alerts only after commit. Existing-account
+mail uses `auth/templates/account_exists.html`. Release datasets, monitor settings
+and serving composition remain integration-owned.
+`store::revoke_user_authentication` locks the user, advances
 `authentication_revoked_at` monotonically at PostgreSQL microsecond precision,
 and revokes all user refresh families without committing. Missing users return
 `sqlx::Error::RowNotFound`. `auth_revocation_postgres.rs`, driven by

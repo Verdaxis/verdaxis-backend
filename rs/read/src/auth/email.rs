@@ -190,7 +190,7 @@ pub fn render(mail: &AuthMail, sender: &str, frontend: &str) -> Value {
         ),
         AuthMail::AccountExists { .. } => (
             "Your Verdaxis account",
-            "<p>You have a Verdaxis account.</p><p><a href=\"{{URL}}\">Sign in</a></p>",
+            include_str!("templates/account_exists.html"),
             "",
             format!("{}/login", frontend.trim_end_matches('/')),
         ),

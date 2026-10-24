@@ -36,3 +36,5 @@ pub mod password_change;
 pub mod login;
 
 pub mod refresh;
+
+pub mod registration;
