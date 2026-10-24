@@ -89,13 +89,19 @@ impl QuotaStore {
         }
         let identity = (owner.into(), key.into());
         if !self.buckets.contains_key(&identity) {
-            if self.buckets.len() == MAX_BUCKETS {
+            if self.buckets.len() >= MAX_BUCKETS {
                 if !evict {
                     return false;
                 }
+                // The parenthetical pre-auth store evicts the soonest-expiring
+                // entry: every entry shares one window length, so the oldest
+                // accounting is the least valuable to keep. Refusing instead
+                // would lock out every new client while the table is full.
                 let (_, expired) = self.expiration.pop_first().expect("full quota index");
                 self.buckets.remove(&expired);
                 self.evictions = self.evictions.saturating_add(1);
+                // The count only. An eviction log must never name its client.
+                tracing::debug!(evictions = self.evictions, "preauth quota eviction");
             }
             let expires_at = now.saturating_add(window);
             self.expiration.insert((expires_at, identity.clone()));
@@ -149,6 +155,10 @@ impl Phase2Limits {
                 true,
             )
     }
+    /// Pre-auth evictions since start. A plain number: it names no client.
+    pub fn preauth_evictions(&self) -> u64 {
+        self.preauth_store.evictions
+    }
     /// The owner is the current verified user ID, never a transport address.
     pub fn endpoint(&mut self, user: &str, path: &str, now: u64) -> bool {
         let Some((key, limit, window)) = endpoint_policy(path) else {
@@ -177,3 +187,26 @@ pub fn sample_floor(limit_per_minute: f64, window_seconds: f64) -> u64 {
         .clamp(0.0, 1000.0) as u64
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::Ipv4Addr;
+
+    /// Both stores keep every bucket and every expiration index entry under the
+    /// same cap; an eviction replaces one entry instead of growing the map.
+    #[test]
+    fn both_stores_stay_bounded() {
+        let mut limits = Phase2Limits::default();
+        for client in 0..50_100_u32 {
+            let address = Ipv4Addr::from(client).to_string();
+            let _ = limits.preauth(&address, "/api/admin/users", 100);
+        }
+        for user in 0..50_100_u32 {
+            let _ = limits.endpoint(&format!("user-{user}"), "/api/feedback", 100);
+        }
+        assert_eq!(limits.preauth_store.buckets.len(), MAX_BUCKETS);
+        assert_eq!(limits.preauth_store.expiration.len(), MAX_BUCKETS);
+        assert_eq!(limits.user_store.buckets.len(), MAX_BUCKETS);
+        assert_eq!(limits.user_store.expiration.len(), MAX_BUCKETS);
+    }
+}

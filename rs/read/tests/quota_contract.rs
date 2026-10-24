@@ -118,6 +118,19 @@ fn endpoint_refusal_keeps_the_rate_limited_code_and_retry_after() {
     assert_eq!(error.retry_after, Some(60));
 }
 
+/// Every eviction is counted. The counter is a number, so it carries no client
+/// address, path, user or other identifying data.
+#[test]
+fn evictions_are_counted_and_carry_no_client_data() {
+    let mut limits = Phase2Limits::default();
+    for client in 0..50_100_u32 {
+        let address = std::net::Ipv4Addr::from(client).to_string();
+        assert!(limits.preauth(&address, "/api/admin/users", 100));
+    }
+    // 50,000 fill the table; the next 100 and the final new client each evict.
+    assert_eq!(limits.preauth_evictions(), 101);
+}
+
 /// A bucket is released when its own window ends, independently of the other
 /// store's window.
 #[test]
