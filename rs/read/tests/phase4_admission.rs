@@ -698,3 +698,315 @@ async fn p4_t6_c12() {
     assert_ne!(first, new);
     f.finish().await;
 }
+
+/// A route call with explicit headers, body and peer address, so the audit
+/// correlation fields and the decision body limit can be asserted exactly.
+struct Call<'a> {
+    route: admission::AdmissionRoute,
+    user: Uuid,
+    token: Option<&'a str>,
+    headers: &'a [(&'a str, &'a str)],
+    body: &'a str,
+    peer: bool,
+}
+
+async fn call(app: &axum::Router, call: Call<'_>) -> (u16, Value) {
+    let path = call
+        .route
+        .template()
+        .replace("{user_id}", &call.user.to_string());
+    let mut builder = axum::http::Request::builder()
+        .method(call.route.method())
+        .uri(path)
+        .header("content-type", "application/json");
+    for (name, value) in call.headers {
+        builder = builder.header(*name, *value);
+    }
+    if let Some(token) = call.token {
+        builder = builder.header("authorization", format!("Bearer {token}"));
+    }
+    let mut request = builder
+        .body(axum::body::Body::from(call.body))
+        .unwrap();
+    if call.peer {
+        request
+            .extensions_mut()
+            .insert(axum::extract::ConnectInfo(std::net::SocketAddr::from((
+                [127, 0, 0, 1],
+                43100,
+            ))));
+    }
+    let response = app.clone().oneshot(request).await.unwrap();
+    let status = response.status().as_u16();
+    let body = axum::body::to_bytes(response.into_body(), 200_000)
+        .await
+        .unwrap();
+    (status, serde_json::from_slice(&body).unwrap())
+}
+
+async fn audit_row(f: &Fixture, user: Uuid) -> sqlx::postgres::PgRow {
+    sqlx::query(
+        "SELECT action,resource_type,resource_id,changes,ip_address,request_id FROM audit_logs WHERE resource_id=$1",
+    )
+    .bind(user.to_string())
+    .fetch_one(&f.pool)
+    .await
+    .unwrap()
+}
+
+/// A07 returns Python's full `UserResponse`, including the schema default
+/// eligibility object, and writes Python's canonical audit action and context.
+#[tokio::test]
+#[ignore = "requires explicit disposable PostgreSQL authority"]
+async fn p4_t6_c13() {
+    let f = Fixture::new().await;
+    let app = app(&f, Default::default());
+    let admin = token(f.actor);
+    let (status, body) = call(
+        &app,
+        Call {
+            route: admission::AdmissionRoute::Approve,
+            user: f.user,
+            token: Some(&admin),
+            headers: &[
+                ("x-request-id", "approve-req-1"),
+                ("x-forwarded-for", "203.0.113.9"),
+            ],
+            body: "{}",
+            peer: true,
+        },
+    )
+    .await;
+    assert_eq!(status, 200, "{body:?}");
+    let keys: std::collections::BTreeSet<String> = body
+        .as_object()
+        .expect("user object")
+        .keys()
+        .cloned()
+        .collect();
+    let expected: std::collections::BTreeSet<String> = [
+        "email",
+        "first_name",
+        "last_name",
+        "role",
+        "id",
+        "status",
+        "organization_id",
+        "referral_code",
+        "must_change_password",
+        "kyc_status",
+        "execution_eligibility",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect();
+    assert_eq!(keys, expected);
+    assert_eq!(
+        body["execution_eligibility"],
+        json!({"eligible": false, "reason": "KYC_REQUIRED", "grace_expires_at": null})
+    );
+    assert_eq!(body["status"], "APPROVED");
+    let row = audit_row(&f, f.user).await;
+    assert_eq!(row.get::<String, _>("action"), "admin.user_approved");
+    assert_eq!(row.get::<String, _>("resource_type"), "user");
+    assert_eq!(
+        row.get::<Option<String>, _>("ip_address").as_deref(),
+        Some("203.0.113.9")
+    );
+    assert_eq!(
+        row.get::<Option<String>, _>("request_id").as_deref(),
+        Some("approve-req-1")
+    );
+    assert_eq!(
+        row.get::<Value, _>("changes"),
+        json!({"status": {"from": "PENDING", "to": "APPROVED"}})
+    );
+    f.finish().await;
+}
+
+/// Both reject routes write Python's canonical action with its request context,
+/// and A08 stores a null reason when the body omits it.
+#[tokio::test]
+#[ignore = "requires explicit disposable PostgreSQL authority"]
+async fn p4_t6_c14() {
+    let f = Fixture::new().await;
+    let app = app(&f, Default::default());
+    let admin = token(f.actor);
+    let (status, body) = call(
+        &app,
+        Call {
+            route: admission::AdmissionRoute::Reject,
+            user: f.user,
+            token: Some(&admin),
+            headers: &[
+                ("x-request-id", "reject-req-1"),
+                ("x-forwarded-for", "198.51.100.7"),
+            ],
+            body: "{}",
+            peer: true,
+        },
+    )
+    .await;
+    assert_eq!(status, 200, "{body:?}");
+    let row = audit_row(&f, f.user).await;
+    assert_eq!(row.get::<String, _>("action"), "admin.user_rejected");
+    assert_eq!(
+        row.get::<Option<String>, _>("ip_address").as_deref(),
+        Some("198.51.100.7")
+    );
+    assert_eq!(
+        row.get::<Option<String>, _>("request_id").as_deref(),
+        Some("reject-req-1")
+    );
+    assert_eq!(
+        row.get::<Value, _>("changes"),
+        json!({"status": {"from": "PENDING", "to": "REJECTED"}, "reason": null})
+    );
+    assert_eq!(f.count("audit_logs").await, 1);
+    f.finish().await;
+
+    let g = Fixture::new().await;
+    let analytics = app(&g, Default::default());
+    let admin = token(g.actor);
+    let (status, body) = call(
+        &analytics,
+        Call {
+            route: admission::AdmissionRoute::AnalyticsReject,
+            user: g.user,
+            token: Some(&admin),
+            headers: &[
+                ("x-request-id", "analytics-reject-1"),
+                ("x-forwarded-for", "198.51.100.8"),
+            ],
+            body: "",
+            peer: true,
+        },
+    )
+    .await;
+    assert_eq!(status, 200, "{body:?}");
+    let row = audit_row(&g, g.user).await;
+    assert_eq!(row.get::<String, _>("action"), "admin.user_rejected");
+    assert_eq!(
+        row.get::<Option<String>, _>("ip_address").as_deref(),
+        Some("198.51.100.8")
+    );
+    assert_eq!(
+        row.get::<Option<String>, _>("request_id").as_deref(),
+        Some("analytics-reject-1")
+    );
+    assert_eq!(
+        row.get::<Value, _>("changes"),
+        json!({
+            "status": {"from": "PENDING", "to": "REJECTED"},
+            "reason": "admin_analytics_user_rejected"
+        })
+    );
+    assert_eq!(g.count("audit_logs").await, 1);
+    g.finish().await;
+}
+
+/// N01 returns Python's `AdminUserEntry`: a legacy null role is the empty
+/// string, never JSON null.
+#[tokio::test]
+#[ignore = "requires explicit disposable PostgreSQL authority"]
+async fn p4_t6_c15() {
+    let f = Fixture::new().await;
+    let legacy = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO users(id,organization_id,role,status,email) VALUES($1,$2,NULL,'PENDING','legacy@example.test')",
+    )
+    .bind(legacy)
+    .bind(f.org)
+    .execute(&f.pool)
+    .await
+    .unwrap();
+    let app = app(&f, Default::default());
+    let admin = token(f.actor);
+    let (status, body) = call(
+        &app,
+        Call {
+            route: admission::AdmissionRoute::AnalyticsReject,
+            user: legacy,
+            token: Some(&admin),
+            headers: &[("x-request-id", "legacy-reject-1")],
+            body: "",
+            peer: true,
+        },
+    )
+    .await;
+    assert_eq!(status, 200, "{body:?}");
+    let keys: std::collections::BTreeSet<String> = body
+        .as_object()
+        .expect("admin user entry")
+        .keys()
+        .cloned()
+        .collect();
+    let expected: std::collections::BTreeSet<String> = [
+        "id",
+        "email",
+        "first_name",
+        "last_name",
+        "role",
+        "status",
+        "created_at",
+        "organization_id",
+        "org_name",
+        "org_type",
+        "org_provenance",
+        "email_verified",
+        "must_change_password",
+        "last_login",
+        "org_has_orders",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect();
+    assert_eq!(keys, expected);
+    assert_eq!(body["role"], "");
+    assert_eq!(body["status"], "REJECTED");
+    assert_eq!(body["email"], "legacy@example.test");
+    assert_eq!(body["org_name"], "Synthetic");
+    assert_eq!(body["org_has_orders"], false);
+    f.finish().await;
+}
+
+/// A08 accepts Python's pinned body limit: a reason past 16 KiB is decided,
+/// not refused as an oversized body.
+#[tokio::test]
+#[ignore = "requires explicit disposable PostgreSQL authority"]
+async fn p4_t6_c16() {
+    let f = Fixture::new().await;
+    let app = app(&f, Default::default());
+    let admin = token(f.actor);
+    let reason = "x".repeat(33_000);
+    let body = json!({"reason": reason}).to_string();
+    let (status, response) = call(
+        &app,
+        Call {
+            route: admission::AdmissionRoute::Reject,
+            user: f.user,
+            token: Some(&admin),
+            headers: &[("x-request-id", "long-reason-1")],
+            body: &body,
+            peer: true,
+        },
+    )
+    .await;
+    assert_eq!(status, 200, "{response:?}");
+    let row = audit_row(&f, f.user).await;
+    assert_eq!(
+        row.get::<Value, _>("changes")["reason"],
+        Value::String("x".repeat(33_000))
+    );
+    f.finish().await;
+}
+
+/// The seam's Debug never prints a recipient or message content, matching the
+/// Task 11a producer's redaction.
+#[test]
+fn p4_t6_c17() {
+    let text = format!("{:?}", payload());
+    assert!(!text.contains("recipient@example.test"), "{text}");
+    assert!(!text.contains("Approved"), "{text}");
+    assert!(!text.contains("team@example.test"), "{text}");
+}
