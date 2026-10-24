@@ -10,6 +10,7 @@ from scripts.rust_contract.phase2_scenarios import (
     Scenario,
     ScenarioError,
     Server,
+    invalid_bearer_pair,
 )
 from scripts.rust_contract.phase2_watchlist_asserts import (
     Schedule,
@@ -174,11 +175,12 @@ def _actions(context):
     schedule = Schedule(context.environment["JWT_SECRET"], REQUEST_ID)
 
     def write(name, route, method, path, status, user, *, ids=(), body=None, raw=None,
-              check=None, outcome="committed", fail_summary=False, token=None, clock_check=None):
+              check=None, outcome="committed", fail_summary=False, token=None, clock_check=None,
+              **pair):
         headers, clock = schedule.headers(user, ids, fail_summary=fail_summary, token=token)
         return Action(name, route, method, path, status, body=body, raw_body=raw, headers=headers,
                       actor_id=user, outcome=outcome,
-                      assert_after=clock_check(clock) if clock_check else check)
+                      assert_after=clock_check(clock) if clock_check else check, **pair)
 
     def create(name, status, user, body=None, raw=None, *, ids=(), created=None, **options):
         if created is not None:
@@ -213,8 +215,10 @@ def _actions(context):
     yield create("create-string-body", 422, ACTOR, "name")
     yield create("create-null-body", 422, ACTOR, raw=b"null")
     yield create("create-empty-body", 422, ACTOR, raw=b"")
-    yield create("create-bad-bearer", 401, ACTOR, {"name": "refused"}, token="Bearer invalid")
-    yield create("create-bad-bearer-before-validation", 401, ACTOR, {}, token="Bearer invalid")
+    yield create("create-bad-bearer", 401, ACTOR, {"name": "refused"}, token="Bearer invalid",
+                 approved_difference="PD89-CF4-11", assert_http_difference=invalid_bearer_pair())
+    yield create("create-bad-bearer-before-validation", 401, ACTOR, {}, token="Bearer invalid",
+                 approved_difference="PD89-CF4-11", assert_http_difference=invalid_bearer_pair())
     yield create("create-tenth-container", 201, CAPPED, {"name": "Tenth"}, ids=[uid(81, 5)], created="Tenth")
     yield create("create-eleventh-container", 400, CAPPED, {"name": "Eleventh"})
     yield create("create-database-failure", 500, ACTOR, {"name": "rollback-create"}, ids=[uid(81, 6)],

@@ -66,7 +66,7 @@ observed values; every other response field, header and status stays strict.
 | totals-before-truncation | 101 slices | equal (100 returned, totals of 101) |
 | foreign-detail, missing-detail | other user's container; unknown id | equal 404 |
 | malformed-uuid-length, -simple, -hyphenated | valid bearer, bad path id | equal 422 (FastAPI shape) |
-| bad-bearer-before-uuid | invalid bearer, bad path id | equal 401 |
+| bad-bearer-before-uuid | invalid bearer, bad path id | PD89-CF4-11 (both 401, Bearer challenge) |
 
 Fixture note: a disposable run may only hold a market-visible order through an
 allowlisted DEMO organization (a database trigger fixes REAL and DEMO
@@ -107,9 +107,13 @@ clock and identifier sequence. Python runs through
 `tests/rust_contract/phase2/watchlist_server.py`, which patches only column
 defaults and one summary call, behind the disposable-target token. Every action
 asserts the exact committed change. Cases and the evidence for each are listed in
-`tests/rust_contract/phase2/watchlist-containers.json`. There are no approved
-differences. A concurrent pair at the container cap is not scheduled: the runner
-pairs one expected status per actor, and both stacks serialize on the user row.
+`tests/rust_contract/phase2/watchlist-containers.json`. The only approved
+difference is PD89-CF4-11 on the two invalid-bearer actions: Python keeps its
+legacy `detail` string, while Rust returns the reviewed
+`{"code": "AUTH_CREDENTIALS_INVALID", "message": ...}` envelope. Both statuses
+and the Bearer challenge are pinned. A concurrent pair at the container cap is
+not scheduled: the runner pairs one expected status per actor, and both stacks
+serialize on the user row.
 
 Not modeled: a non-JSON `Content-Type` on a body route (FastAPI then validates
 raw bytes). The frontend always sends JSON.
@@ -169,7 +173,9 @@ of one user. No order row is read for update, locked or changed.
 `watchlist-targets` runs the visible-order, validation and delete actions on
 twin databases with the same action clock and identifier sequence, and a
 concurrent duplicate pair that repeats three times at one barrier. Every action
-asserts the exact committed change; equal twins alone would not prove it.
+asserts the exact committed change; equal twins alone would not prove it. Its
+two invalid-bearer actions carry the same PD89-CF4-11 pair assertion as the
+read and container scenarios.
 
 The PD1 pairs leave the twins apart by design, so they run in a separate
 scenario, `watchlist-targets-hidden-orders`, after every twin-state-comparing

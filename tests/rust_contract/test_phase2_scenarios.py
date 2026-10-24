@@ -175,6 +175,36 @@ def test_invalid_bearer_actions_pin_the_reviewed_credential_envelope():
             assert item.assert_http_difference is not None, (name, action_name)
 
 
+def test_invalid_bearer_pair_pins_both_reviewed_envelopes():
+    module = runner_module()
+    check = module.invalid_bearer_pair()
+    python = {"status": 401, "headers": {"www-authenticate": "Bearer", "content-type": "application/json",
+                                         "content-length": "42"},
+              "body": b'{"detail":"Could not validate credentials"}'}
+    rust = {"status": 401, "headers": {"www-authenticate": "Bearer", "content-type": "application/json"},
+            "body": b'{"detail":{"code":"AUTH_CREDENTIALS_INVALID","message":"Incorrect email or password"}}'}
+    check([python, rust])
+    # Wording is free; a changed message must not fail the reviewed pair.
+    check([python, {**rust, "body": b'{"detail":{"code":"AUTH_CREDENTIALS_INVALID","message":"Sign in"}}'}])
+    with pytest.raises(module.ScenarioError, match="headers differ"):
+        check([python, {**rust, "headers": {**rust["headers"], "cache-control": "no-store"}}])
+    with pytest.raises(module.ScenarioError, match="must be JSON"):
+        check([python, {**rust, "headers": {"www-authenticate": "Bearer", "content-type": "text/plain"}}])
+    with pytest.raises(module.ScenarioError, match="code differs"):
+        check([python, {**rust, "body": b'{"detail":{"code":"AUTH_INVALID","message":"x"}}'}])
+    with pytest.raises(module.ScenarioError, match="Python invalid-bearer body"):
+        check([{**python, "body": b'{"detail":"Not authenticated"}'}, rust])
+    with pytest.raises(module.ScenarioError, match="must be refused with 401"):
+        check([python, {**rust, "status": 403}])
+    with pytest.raises(module.ScenarioError, match="challenge"):
+        check([python, {**rust, "headers": {}}])
+    with pytest.raises(module.ScenarioError, match="reviewed object"):
+        check([python, {**rust, "body": b'{"detail":{"code":"AUTH_CREDENTIALS_INVALID"}}'}])
+    with pytest.raises(module.ScenarioError, match="non-empty string"):
+        check([python, {**rust, "body": b'{"detail":{"code":"AUTH_CREDENTIALS_INVALID","message":""}}'}])
+    assert "PD89-CF4-11" in module.APPROVED_DIFFERENCES
+
+
 def test_state_difference_needs_a_named_rule_and_is_not_silent():
     module=runner_module()
 
