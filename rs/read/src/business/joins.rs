@@ -156,17 +156,8 @@ pub async fn review(
     } else {
         "/api/auth/organization-joins/{join_request_id}/reject"
     };
-    super::transaction::run_organization_write(
-        state,
-        access,
-        LimitedReview {
-            command,
-            limits: limits.clone(),
-            client: client.into(),
-            template,
-        },
-    )
-    .await
+    let access=super::membership::admit(state,access,limits,client,"PUT",template).await?;
+    super::transaction::run_organization_write(state,access,command).await
 }
 
 pub async fn read(
@@ -176,6 +167,7 @@ pub async fn read(
     client: String,
     query: JoinListQuery,
 ) -> Result<JoinPage, ApiError> {
+    let access=super::membership::admit(state,access,&limits,&client,"GET","/api/auth/organization-joins").await?;
     use crate::auth::{AuthenticatedError, AuthenticatedRequest, run_authenticated};
     run_authenticated(
         state,
@@ -184,17 +176,6 @@ pub async fn read(
         move |tx| {
             Box::pin(async move {
                 require_admin(tx.actor())?;
-                limits.check_business(
-                    "GET",
-                    "/api/auth/organization-joins",
-                    crate::auth::limits::BusinessLimitKeys {
-                        client: &client,
-                        user: None,
-                        organization: None,
-                        token: None,
-                    },
-                    Utc::now().timestamp().max(0) as u64,
-                )?;
                 let actor = tx.actor().clone();
                 list(tx.connection(), &actor, &query).await
             })
@@ -206,43 +187,6 @@ pub async fn read(
         AuthenticatedError::Database(error) => error,
         AuthenticatedError::AmbiguousCommit => super::error::database_failure(None),
     })
-}
-
-struct LimitedReview {
-    command: ReviewJoin,
-    limits: crate::auth::limits::SharedLimits,
-    client: String,
-    template: &'static str,
-}
-impl BusinessCommand for LimitedReview {
-    type Output = JoinDecision;
-    fn preview<'a>(
-        &'a self,
-        conn: &'a mut PgConnection,
-    ) -> CommandFuture<'a, OrganizationWritePlan, AttemptError> {
-        self.command.preview(conn)
-    }
-    fn execute<'a>(
-        &'a self,
-        conn: &'a mut PgConnection,
-        actor: &'a CurrentActor,
-    ) -> CommandFuture<'a, Self::Output, AttemptError> {
-        Box::pin(async move {
-            require_admin(actor)?;
-            self.limits.check_business(
-                "PUT",
-                self.template,
-                crate::auth::limits::BusinessLimitKeys {
-                    client: &self.client,
-                    user: None,
-                    organization: None,
-                    token: None,
-                },
-                Utc::now().timestamp().max(0) as u64,
-            )?;
-            self.command.execute(conn, actor).await
-        })
-    }
 }
 
 pub struct ReviewJoin {

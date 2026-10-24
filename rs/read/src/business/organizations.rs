@@ -59,17 +59,7 @@ pub async fn review(
     } else {
         "/api/auth/organization/{organization_id}/reject"
     };
-    limits.check_business(
-        "PUT",
-        template,
-        crate::auth::limits::BusinessLimitKeys {
-            client,
-            user: None,
-            organization: None,
-            token: None,
-        },
-        Utc::now().timestamp().max(0) as u64,
-    )?;
+    let access=super::membership::admit(state,access,limits,client,"PUT",template).await?;
     super::transaction::run_organization_write(state, access, command).await
 }
 
