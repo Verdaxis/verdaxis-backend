@@ -40,6 +40,23 @@ class Context:
     size: object | None = None
 
 
+def race_selection(selected, enabled):
+    """Split the selection into the scenarios that race and those that do not.
+
+    A group-wide run (`--phase2-group all`) selects scenarios with and without
+    race schedules, so a scenario that registers none is skipped and named in
+    the report.  Asking for races when the whole selection registers none is a
+    caller mistake and stays refused.
+    """
+    if not enabled:
+        return [], []
+    racing = [scenario for scenario in selected if scenario.races is not None]
+    skipped = [scenario.name for scenario in selected if scenario.races is None]
+    if not racing:
+        raise ScenarioError("selected scenarios register no race schedules")
+    return racing, skipped
+
+
 def run_registered(runner, args, selected):
     from scripts.rust_contract.run_disposable import (
         DB_NAME,
@@ -50,8 +67,8 @@ def run_registered(runner, args, selected):
         wait_for_port,
     )
 
-    if args.phase2_races and any(scenario.races is None for scenario in selected):
-        raise ScenarioError("selected scenario has no registered races")
+    racing, race_skipped = race_selection(selected, args.phase2_races)
+    racing_names = {scenario.name for scenario in racing}
     port = runner.start_database()
     environment = {**os.environ, "ENVIRONMENT": "test", "RELEASE_SHA": runner.sha,
                    "JWT_SECRET": "test-secret-key-for-testing-minimum-32-chars", **runner.urls(port),
@@ -151,7 +168,7 @@ def run_registered(runner, args, selected):
                 mail.respond(status=action.mail_status, body=action.mail_body)
                 actions.extend(run_actions([action], cells))
             races = []
-            if args.phase2_races:
+            if scenario.name in racing_names:
                 schedules = scenario.races(context)
                 if not schedules:
                     raise ScenarioError("race mode has no schedules")
@@ -188,4 +205,5 @@ def run_registered(runner, args, selected):
     if args.report:
         args.report.parent.mkdir(parents=True, exist_ok=True)
         args.report.write_text(json.dumps({"source_sha": runner.sha, "scenarios": reports,
+                                          "race_skipped_no_schedules": race_skipped,
                                           "measurements": False}, indent=2) + "\n")

@@ -360,3 +360,34 @@ def test_loopback_mail_records_failures_and_closes():
             assert response.status == 201
         assert len(stub.ledger("python")) == 2
     assert not stub.thread.is_alive()
+
+
+def test_group_wide_race_run_skips_scenarios_without_schedules():
+    """The plan runs every group with races; only scheduled scenarios race."""
+    from types import SimpleNamespace
+
+    from scripts.rust_contract import phase2_routes
+
+    racing = SimpleNamespace(name="racing", races=lambda _context: [])
+    plain = SimpleNamespace(name="plain", races=None)
+    selected, skipped = phase2_routes.race_selection([racing, plain], True)
+    assert selected == [racing]
+    assert skipped == ["plain"]
+    assert phase2_routes.race_selection([racing, plain], False) == ([], [])
+    with pytest.raises(phase2_routes.ScenarioError, match="no race schedules"):
+        phase2_routes.race_selection([plain], True)
+
+
+def test_race_selection_is_decided_before_the_database_starts(monkeypatch):
+    from types import SimpleNamespace
+
+    from scripts.rust_contract import phase2_routes, run_disposable
+
+    def refuse(_selected, _enabled):
+        raise phase2_routes.ScenarioError("selected scenarios register no race schedules")
+
+    monkeypatch.setattr(phase2_routes, "race_selection", refuse)
+    runner = SimpleNamespace(start_database=lambda: pytest.fail("database started before race selection"))
+    scenario = SimpleNamespace(name="plain", races=None)
+    with pytest.raises(phase2_routes.ScenarioError, match="no race schedules"):
+        phase2_routes.run_registered(runner, SimpleNamespace(phase2_races=True), [scenario])
