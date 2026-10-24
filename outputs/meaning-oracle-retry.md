@@ -28,3 +28,14 @@ All tests run through the existing isolated test-host wrappers. No tests or buil
 ## Resume point
 
 Staging meaning gate in flight (second attempt; the first was cut off by the GPT Sol usage limit mid load-wait, not by any harness failure — no `CALL_EXIT=` marker, and both the local wrapper and the detached remote unit were confirmed stopped before relaunch). When it ends: record `MEANING_EXIT` and the report outcome, then commit, push branch `fix/meaning-oracle-transient-retry`, open PR to `staging`, and record CI. No live deployment is authorized or attempted.
+
+## Local-poll interruption note (24 Oct, 09:07Z)
+
+The run-5 wrapper's local poll falsely reported GONE (CALL_EXIT=70) while the
+remote unit kept running; three GONE polls under heavy load were not proof of
+death. Direct host inspection confirmed the unit active and still load-waiting
+(readings up to 220.11). The remote run remains the authority; it is being
+polled directly over SSH until it writes its exit file. The wrapper's remote
+log/exit files were removed by the exited wrapper only if it stopped the unit;
+it did not (stop_remote_run succeeded only for units it could stop — here the
+poll exited without stopping, so log and unit survive).
