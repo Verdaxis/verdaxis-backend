@@ -98,7 +98,7 @@ pub fn engagement(
         .collect();
     // Descending by value; a suppressed or unavailable row sorts last but is
     // never rewritten to zero.
-    adoption.sort_by(|left, right| right.events.unwrap_or(0).cmp(&left.events.unwrap_or(0)));
+    adoption.sort_by_key(|row| std::cmp::Reverse(row.events.unwrap_or(0)));
 
     let ratios = vec![
         workflow_ratio(

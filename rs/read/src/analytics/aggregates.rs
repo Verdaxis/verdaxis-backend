@@ -50,10 +50,6 @@ pub const DEMO_MARKET_ORG_IDS: [Uuid; 14] = [
 /// The decision itself lives in `types::suppress`.
 pub const MAX_COHORTS: usize = 54;
 
-fn demo_ids() -> Vec<Uuid> {
-    DEMO_MARKET_ORG_IDS.to_vec()
-}
-
 fn count(value: i64) -> u64 {
     u64::try_from(value).unwrap_or(0)
 }
@@ -140,7 +136,7 @@ pub fn median_hours(durations: &[TimeDelta]) -> Option<Decimal> {
         .collect();
     seconds.sort_unstable();
     let middle = seconds.len() / 2;
-    let micros = if seconds.len() % 2 == 0 {
+    let micros = if seconds.len().is_multiple_of(2) {
         Decimal::from(seconds[middle - 1] + seconds[middle]) / Decimal::TWO
     } else {
         Decimal::from(seconds[middle])
@@ -540,7 +536,7 @@ pub async fn load_users_facts(
     conn: &mut PgConnection,
     query: &AnalyticsQuery,
 ) -> Result<(RoleCounts, DropOffFacts), sqlx::Error> {
-    let demo = demo_ids();
+    let demo = DEMO_MARKET_ORG_IDS.to_vec();
     let rows = sqlx::query(
         "WITH member_users AS (
              SELECT role, status, email_verified, organization_id, created_at, last_login
@@ -588,7 +584,7 @@ pub async fn load_users_facts(
     .bind(query.end)
     .bind(query.previous_start())
     .bind(query.previous_end())
-    .bind(&demo)
+    .bind(demo)
     .fetch_all(&mut *conn)
     .await?;
     let mut registered = RoleCounts::default();
@@ -619,7 +615,7 @@ pub async fn load_users_facts(
 }
 
 pub async fn load_drop_off(conn: &mut PgConnection) -> Result<DropOffFacts, sqlx::Error> {
-    let demo = demo_ids();
+    let demo = DEMO_MARKET_ORG_IDS.to_vec();
     let row = sqlx::query(
         "SELECT
             COUNT(*) FILTER (WHERE status = 'REJECTED')::bigint AS rejected,
@@ -638,7 +634,7 @@ pub async fn load_drop_off(conn: &mut PgConnection) -> Result<DropOffFacts, sqlx
          WHERE role IN ('BUYER','SUPPLIER')
            AND (organization_id IS NULL OR organization_id <> ALL($1::uuid[]))",
     )
-    .bind(&demo)
+    .bind(demo)
     .fetch_one(&mut *conn)
     .await?;
     Ok(DropOffFacts {
@@ -654,7 +650,7 @@ pub async fn load_orders_facts(
     conn: &mut PgConnection,
     query: &AnalyticsQuery,
 ) -> Result<Vec<ProvenanceRow>, sqlx::Error> {
-    let demo = demo_ids();
+    let demo = DEMO_MARKET_ORG_IDS.to_vec();
     let rows = sqlx::query(
         "SELECT CASE WHEN o.provenance = 'DEMO' OR o.organization_id = ANY($5::uuid[]) THEN 'demo'
                      WHEN o.provenance = 'REAL' THEN 'live' ELSE 'unknown' END AS provenance,
@@ -701,7 +697,7 @@ pub async fn load_orders_facts(
     .bind(query.end)
     .bind(query.previous_start())
     .bind(query.previous_end())
-    .bind(&demo)
+    .bind(demo)
     .fetch_all(&mut *conn)
     .await?;
     Ok(rows
@@ -727,7 +723,7 @@ pub async fn load_trades_facts(
     conn: &mut PgConnection,
     query: &AnalyticsQuery,
 ) -> Result<Vec<TradeFacts>, sqlx::Error> {
-    let demo = demo_ids();
+    let demo = DEMO_MARKET_ORG_IDS.to_vec();
     let rows = sqlx::query(
         "SELECT CASE WHEN t.buyer_provenance = 'DEMO' OR t.buyer_id = ANY($5::uuid[])
                           OR t.seller_provenance = 'DEMO' OR t.seller_id = ANY($5::uuid[]) THEN 'demo'
@@ -771,7 +767,7 @@ pub async fn load_trades_facts(
     .bind(query.end)
     .bind(query.previous_start())
     .bind(query.previous_end())
-    .bind(&demo)
+    .bind(demo)
     .fetch_all(&mut *conn)
     .await?;
     Ok(rows
@@ -807,7 +803,7 @@ pub async fn load_daily_orders(
     conn: &mut PgConnection,
     query: &AnalyticsQuery,
 ) -> Result<BTreeMap<NaiveDate, u64>, sqlx::Error> {
-    let demo = demo_ids();
+    let demo = DEMO_MARKET_ORG_IDS.to_vec();
     let rows = sqlx::query(
         "SELECT (o.created_at AT TIME ZONE 'UTC')::date AS day, COUNT(*)::bigint AS orders
          FROM orderbook_orders o
@@ -820,7 +816,7 @@ pub async fn load_daily_orders(
     )
     .bind(query.start)
     .bind(query.end)
-    .bind(&demo)
+    .bind(demo)
     .fetch_all(&mut *conn)
     .await?;
     Ok(daily_map(&rows, "orders"))
@@ -843,7 +839,7 @@ pub async fn load_daily_trades(
     )
     .bind(query.start)
     .bind(query.end)
-    .bind(&demo_ids())
+    .bind(DEMO_MARKET_ORG_IDS.to_vec())
     .fetch_all(&mut *conn)
     .await?;
     Ok(daily_map(&rows, "trades"))
@@ -930,7 +926,7 @@ pub async fn load_activity_facts(
     conn: &mut PgConnection,
     query: &AnalyticsQuery,
 ) -> Result<ActivityFacts, sqlx::Error> {
-    let demo = demo_ids();
+    let demo = DEMO_MARKET_ORG_IDS.to_vec();
     let previous_start = query.previous_start();
     let previous_end = query.previous_end();
     let previous_previous_start = match (previous_start, previous_end) {
@@ -945,7 +941,7 @@ pub async fn load_activity_facts(
         .bind(query.end)
         .bind(previous_start)
         .bind(previous_end)
-        .bind(&demo)
+        .bind(demo)
         .bind(previous_previous_start)
         .bind(earlier_bound)
         .fetch_one(&mut *conn)
@@ -967,7 +963,7 @@ pub async fn load_login_facts(
     conn: &mut PgConnection,
     query: &AnalyticsQuery,
 ) -> Result<LoginFacts, sqlx::Error> {
-    let demo = demo_ids();
+    let demo = DEMO_MARKET_ORG_IDS.to_vec();
     let (current_lower, current_upper, previous_lower, previous_upper) = window_bounds(query);
     let rows = sqlx::query(
         "WITH member_days AS (
@@ -999,7 +995,7 @@ pub async fn load_login_facts(
     .bind(current_upper)
     .bind(previous_lower)
     .bind(previous_upper)
-    .bind(&demo)
+    .bind(demo)
     .fetch_all(&mut *conn)
     .await?;
     let mut facts = LoginFacts::default();
@@ -1026,7 +1022,7 @@ pub async fn load_status_facts(
     conn: &mut PgConnection,
     query: &AnalyticsQuery,
 ) -> Result<StatusFacts, sqlx::Error> {
-    let demo = demo_ids();
+    let demo = DEMO_MARKET_ORG_IDS.to_vec();
     let row = sqlx::query(
         "SELECT
             (SELECT COUNT(*) FROM user_status_transitions t
@@ -1064,7 +1060,7 @@ pub async fn load_status_facts(
     .bind(query.end)
     .bind(query.previous_start())
     .bind(query.previous_end())
-    .bind(&demo)
+    .bind(demo)
     .fetch_one(&mut *conn)
     .await?;
     Ok(StatusFacts {
@@ -1081,7 +1077,7 @@ pub async fn load_status_facts(
 pub async fn load_first_live_orders(
     conn: &mut PgConnection,
 ) -> Result<Vec<(DateTime<Utc>, DateTime<Utc>)>, sqlx::Error> {
-    let demo = demo_ids();
+    let demo = DEMO_MARKET_ORG_IDS.to_vec();
     let rows = sqlx::query(
         "SELECT min(o.created_at) AS first_order_at, org.created_at AS org_created_at
          FROM orderbook_orders o
@@ -1092,7 +1088,7 @@ pub async fn load_first_live_orders(
                AND u.status = 'APPROVED' AND u.organization_id <> ALL($1::uuid[]))
          GROUP BY o.organization_id, org.created_at",
     )
-    .bind(&demo)
+    .bind(demo)
     .fetch_all(&mut *conn)
     .await?;
     Ok(rows
@@ -1105,7 +1101,7 @@ pub async fn load_login_rollup(
     conn: &mut PgConnection,
     query: &AnalyticsQuery,
 ) -> Result<Vec<LoginRollupRow>, sqlx::Error> {
-    let demo = demo_ids();
+    let demo = DEMO_MARKET_ORG_IDS.to_vec();
     let (current_lower, current_upper, previous_lower, previous_upper) = window_bounds(query);
     let rows = sqlx::query(
         "WITH per_user AS (
@@ -1130,7 +1126,7 @@ pub async fn load_login_rollup(
     .bind(current_upper)
     .bind(previous_lower)
     .bind(previous_upper)
-    .bind(&demo)
+    .bind(demo)
     .fetch_all(&mut *conn)
     .await?;
     Ok(rows
@@ -1154,7 +1150,7 @@ pub async fn load_member_days(
     conn: &mut PgConnection,
     end: DateTime<Utc>,
 ) -> Result<Vec<(Uuid, NaiveDate)>, sqlx::Error> {
-    let demo = demo_ids();
+    let demo = DEMO_MARKET_ORG_IDS.to_vec();
     let upper = date_window(
         Some(midnight(NaiveDate::from_ymd_opt(1970, 1, 1).unwrap())),
         Some(end),
@@ -1171,7 +1167,7 @@ pub async fn load_member_days(
            AND activity_date >= $3",
     )
     .bind(upper)
-    .bind(&demo)
+    .bind(demo)
     .bind(floor)
     .fetch_all(&mut *conn)
     .await?;
@@ -1185,10 +1181,10 @@ pub async fn load_organization_days(
     conn: &mut PgConnection,
     end: DateTime<Utc>,
 ) -> Result<Vec<(Uuid, NaiveDate)>, sqlx::Error> {
-    let demo = demo_ids();
+    let demo = DEMO_MARKET_ORG_IDS.to_vec();
     let rows = sqlx::query(ORGANIZATION_DAYS_SQL)
         .bind(end)
-        .bind(&demo)
+        .bind(demo)
         .fetch_all(&mut *conn)
         .await?;
     Ok(rows

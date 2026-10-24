@@ -383,7 +383,6 @@ fn p4_t18_c05() {
             in_previous: false,
             registered_at: utc(2026, 6, 10),
         }],
-        ..Default::default()
     };
 
     let response = activation(&facts, Some(&window), &query(), observed());
