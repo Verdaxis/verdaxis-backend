@@ -173,10 +173,8 @@ async fn submit(
             Err(error) => return error.into_response(),
         }
     };
-    let submission = match validate_submission(payload) {
-        Ok(submission) => submission,
-        Err(error) => return error.into_response(),
-    };
+    // Authentication precedes typed validation, as FastAPI resolves the
+    // security dependency before it validates the body model.
     let now = Utc::now();
     let access = match verify_authorization(
         parts.headers.get("authorization").and_then(|value| value.to_str().ok()),
@@ -185,6 +183,10 @@ async fn submit(
     ) {
         Ok(access) => access,
         Err(error) => return authentication(error).into_response(),
+    };
+    let submission = match validate_submission(payload) {
+        Ok(submission) => submission,
+        Err(error) => return error.into_response(),
     };
     let peer = parts
         .extensions

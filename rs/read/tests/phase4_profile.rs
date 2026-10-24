@@ -22,7 +22,7 @@ use axum::{
 };
 use chrono::{DateTime, Duration, Utc};
 use serde_json::{Value, json};
-use sqlx::{Connection, PgConnection, Row, postgres::PgPoolOptions};
+use sqlx::{Connection, PgConnection, postgres::PgPoolOptions};
 use tower::ServiceExt;
 use uuid::Uuid;
 use verdaxis_read::auth::AuthError;
@@ -504,7 +504,7 @@ impl Fixture {
             },
         )
         .unwrap();
-        let limits = SharedLimits::default();
+        let limits = auth::limits::SharedLimits::default();
         let app = Router::new()
             .merge(profile::routes(ProfileAuthority::new(
                 verification(),
@@ -567,7 +567,6 @@ mod postgres {
     async fn p4_t3_c01() {
         for gate in [true, false] {
             let f = Fixture::new(gate, RecordingEvents::new()).await;
-            let user = |index: usize| token(f.users[index]);
             let read = |index: usize, path: &'static str| {
                 let bearer = token(f.users[index]);
                 let app = f.app.clone();
@@ -650,7 +649,7 @@ mod postgres {
                     }
                 } else {
                     match index {
-                        0 | 1 => {
+                        0 | 1 | 3 => {
                             assert!(eligible);
                             assert_eq!(reason, "KYC_NOT_ENFORCED");
                             assert_eq!(grace, None);
@@ -1017,7 +1016,7 @@ mod postgres {
     #[tokio::test]
     async fn p4_t3_c07() {
         let events = RecordingEvents::new();
-        let f = Fixture::new(true, events.clone()).await;
+        let mut f = Fixture::new(true, events.clone()).await;
         sqlx::raw_sql(
             "CREATE OR REPLACE FUNCTION refuse_event() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic event failure' USING ERRCODE='23514'; END $$; \
              CREATE CONSTRAINT TRIGGER refuse_event AFTER INSERT ON market_event_outbox DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION refuse_event()",
@@ -1295,7 +1294,7 @@ async fn p4_t3_c08() {
         },
     )
     .unwrap();
-    let limits = SharedLimits::default();
+    let limits = auth::limits::SharedLimits::default();
     let app = Router::new()
         .merge(profile::routes(ProfileAuthority::new(
             verification(),
@@ -1336,8 +1335,8 @@ async fn p4_t3_c08() {
 /// frozen inventory; the Task 2 counter is the authority for them.
 #[test]
 fn p4_t3_c09() {
-    let limits = SharedLimits::default();
-    let keys = BusinessLimitKeys {
+    let limits = auth::limits::SharedLimits::default();
+    let keys = auth::limits::BusinessLimitKeys {
         client: CLIENT,
         user: Some("user"),
         organization: Some("org"),

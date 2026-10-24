@@ -117,7 +117,7 @@ impl ProfileAuthority {
 }
 
 /// Exactly the fields the client contract reads, with Python's defaults.
-#[derive(Debug, Serialize, sqlx::FromRow)]
+#[derive(Debug, Serialize)]
 pub struct ProfileResponse {
     pub email: String,
     pub first_name: Option<String>,
@@ -132,8 +132,11 @@ pub struct ProfileResponse {
     pub execution_eligibility: KycEligibilityView,
 }
 
-const PROFILE_COLUMNS: &str = "id,email,first_name,last_name,role::text AS role,status::text AS status,\
-    organization_id,referral_code,must_change_password,kyc_status,kyc_organization_id";
+/// One literal projection; a static statement keeps the SQL auditable and
+/// lets `sqlx::query` accept it without a runtime injection audit.
+const PROFILE_SELECT: &str = "SELECT id,email,first_name,last_name,role::text AS role,\
+    status::text AS status,organization_id,referral_code,must_change_password,\
+    kyc_status,kyc_organization_id FROM users WHERE id=$1";
 
 /// The presentation rule Python applies before the policy is read: a role
 /// outside the executing pair, or no organization, is not applicable.
@@ -154,12 +157,10 @@ pub async fn select_profile(
     policy: &dyn KycProfilePolicy,
     now: DateTime<Utc>,
 ) -> Result<ProfileResponse, sqlx::Error> {
-    let row = sqlx::query(&format!(
-        "SELECT {PROFILE_COLUMNS} FROM users WHERE id=$1"
-    ))
-    .bind(user)
-    .fetch_one(&mut *connection)
-    .await?;
+    let row = sqlx::query(PROFILE_SELECT)
+        .bind(user)
+        .fetch_one(&mut *connection)
+        .await?;
     let role: Option<String> = row.get("role");
     let organization_id: Option<Uuid> = row.get("organization_id");
     let kyc_organization_id: Option<Uuid> = row.get("kyc_organization_id");
@@ -267,9 +268,9 @@ impl BusinessCommand for UpdateProfile {
     ) -> CommandFuture<'a, OrganizationWritePlan, AttemptError> {
         Box::pin(async move {
             // Values only: no lock may be held across the preview boundary.
-            let row = sqlx::query(&format!(
-                "SELECT organization_id,role::text AS role FROM users WHERE id=$1"
-            ))
+            let row = sqlx::query(
+                "SELECT organization_id,role::text AS role FROM users WHERE id=$1",
+            )
             .bind(self.actor)
             .fetch_optional(&mut *conn)
             .await?
@@ -310,15 +311,15 @@ impl BusinessCommand for UpdateProfile {
         let now = self.now;
         let gate = self.execution_gate_enabled;
         Box::pin(async move {
-            let row = sqlx::query(&format!(
-                "SELECT {PROFILE_COLUMNS} FROM users WHERE id=$1"
-            ))
-            .bind(actor.id)
-            .fetch_optional(&mut *conn)
-            .await?
-            .ok_or_else(|| {
-                AttemptError::Application(authentication(crate::auth::AuthError::Credentials))
-            })?;
+            let row = sqlx::query(PROFILE_SELECT)
+                .bind(actor.id)
+                .fetch_optional(&mut *conn)
+                .await?
+                .ok_or_else(|| {
+                    AttemptError::Application(authentication(
+                        crate::auth::AuthError::Credentials,
+                    ))
+                })?;
             let role: Option<String> = row.get("role");
             let organization_id: Option<Uuid> = row.get("organization_id");
             let requested = update.role.as_deref();
@@ -337,6 +338,13 @@ impl BusinessCommand for UpdateProfile {
             let first = update.first_name.as_deref();
             let last = update.last_name.as_deref();
             let assigns_role = requested.is_some_and(|value| role.as_deref() != Some(value));
+            // Python evaluates the public projection before the role changes
+            // and again after the flush. Only a profile bound to an
+            // organization has one; both probes sit inside this transaction.
+            let public_before = match organization_id.filter(|_| assigns_role) {
+                Some(_) => events.visible(conn, actor.id).await?,
+                None => false,
+            };
             sqlx::query("UPDATE users SET first_name=COALESCE($2,first_name),last_name=COALESCE($3,last_name),role=COALESCE($4,role) WHERE id=$1")
                 .bind(actor.id)
                 .bind(first)
@@ -344,17 +352,14 @@ impl BusinessCommand for UpdateProfile {
                 .bind(update.role.as_deref())
                 .execute(&mut *conn)
                 .await?;
-            if assigns_role {
+            if assigns_role && let Some(organization) = organization_id {
                 // The first role assignment changes public admission only when
                 // the profile already has or gains a public projection.
-                if let Some(organization) = organization_id {
-                    let before = events.visible(conn, actor.id).await?;
-                    let after = events.visible(conn, actor.id).await?;
-                    if before || after {
-                        events
-                            .append(conn, actor.id, organization, before || after)
-                            .await?;
-                    }
+                let public_after = events.visible(conn, actor.id).await?;
+                if public_before || public_after {
+                    events
+                        .append(conn, actor.id, organization, public_before || public_after)
+                        .await?;
                 }
             }
             let profile = select_profile(conn, actor.id, gate, policy.as_ref(), now).await?;
@@ -493,17 +498,21 @@ async fn serve_update(
             Err(error) => return error.into_response(),
         }
     };
+    let authorization = parts
+        .headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    // Authentication precedes typed validation, as FastAPI resolves the
+    // security dependency before it validates the body model.
+    let access = match verify_authorization(authorization.as_deref(), &authority.verification, now)
+    {
+        Ok(access) => access,
+        Err(error) => return authentication(error).into_response(),
+    };
     let update = match validate_update(payload) {
         Ok(update) => update,
         Err(error) => return error.into_response(),
-    };
-    let access = match verify_authorization(
-        parts.headers.get("authorization").and_then(|value| value.to_str().ok()),
-        &authority.verification,
-        now,
-    ) {
-        Ok(access) => access,
-        Err(error) => return authentication(error).into_response(),
     };
     let peer = parts
         .extensions
@@ -516,11 +525,11 @@ async fn serve_update(
             .get("x-forwarded-for")
             .and_then(|value| value.to_str().ok()),
     );
-    // Quota is taken once, after the body is known valid, under the account
-    // admission the write owner performs anyway.
+    // Authority and typed input precede quota (PD4-T8-1); the pre-pass only
+    // revalidates the current account and counts the call, and commits nothing.
     let limits = authority.limits.clone();
     let quota_client = client.clone();
-    let result = run_authenticated(
+    let denied = run_authenticated(
         &state,
         access,
         AuthenticatedRequest::new("PUT", ME_PATH, false),
@@ -538,9 +547,16 @@ async fn serve_update(
         },
     )
     .await;
-    if let Err(error) = result {
+    if let Err(error) = denied {
         return authenticated_error(error).into_response();
     }
+    // The write owner revalidates the same token, account and preview under
+    // the sorted locks; the token was already verified above.
+    let access = match verify_authorization(authorization.as_deref(), &authority.verification, now)
+    {
+        Ok(access) => access,
+        Err(error) => return authentication(error).into_response(),
+    };
     let command = UpdateProfile {
         actor: access.subject,
         update,
