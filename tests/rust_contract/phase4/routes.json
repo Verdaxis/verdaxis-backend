@@ -1739,7 +1739,7 @@
     },
     {
       "path": "deploy/postgres/app_acl_policy.sql",
-      "sha256": "b097b2b2fe2925d4031c4fa6f6158247204b3cee18cd74433102b1cd6ef2d38c"
+      "sha256": 5a035c8dc7354150fcbb27ea038df2f1ddaf199173d26e05904c09160014e9a0
     }
   ]
 }
