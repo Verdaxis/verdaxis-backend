@@ -90,78 +90,124 @@ impl<E: AdmissionEvents> BusinessCommand for RejectAccount<E> {
         conn: &'a mut PgConnection,
         actor: &'a CurrentActor,
     ) -> CommandFuture<'a, RejectionResult, AttemptError> {
+        // The standalone command has no request; routed rejections supply the
+        // optional wire reason and correlation through `AccountRejection`.
+        let audit = AuditContext::default();
         Box::pin(async move {
-            if actor.role.as_deref() != Some("ADMIN") {
-                return Err(refusal(
-                    StatusCode::FORBIDDEN,
-                    "ADMIN_REQUIRED",
-                    "Administrator access is required.",
-                )
-                .into());
-            }
-            let row = sqlx::query("SELECT status::text AS status,role::text AS role,organization_id FROM users WHERE id=$1")
-                .bind(self.user_id).fetch_optional(&mut *conn).await?.ok_or_else(missing)?;
-            let role: Option<String> = row.get("role");
-            if role.as_deref() == Some("ADMIN") {
-                return Err(missing());
-            }
-            let previous = match row.get::<String, _>("status").as_str() {
-                "PENDING" => AccountStatus::Pending,
-                "APPROVED" => AccountStatus::Approved,
-                "REJECTED" => AccountStatus::Rejected,
-                _ => {
-                    return Err(refusal(
-                        StatusCode::CONFLICT,
-                        "ACCOUNT_STATE_INVALID",
-                        "The account state cannot be changed.",
-                    )
-                    .into());
-                }
-            };
-            let organization: Option<Uuid> = row.get("organization_id");
-            let before = self.events.visible(conn, self.user_id).await?;
-            sqlx::query("UPDATE users SET status='REJECTED',pending_approval_email_transition_id=NULL,pending_approval_email_payload=NULL,pending_approval_email_retry_at=NULL WHERE id=$1")
-                .bind(self.user_id).execute(&mut *conn).await?;
-            let cutoff = revoke_user_authentication(conn, self.user_id, self.now)
-                .await
-                .map_err(revocation_failure)?;
-            append_status_transition(
+            execute_rejection(
                 conn,
-                &StatusFact {
-                    id: Uuid::new_v4(),
-                    user_id: self.user_id,
-                    organization_id: organization,
-                    role,
-                    from: Some(previous),
-                    to: AccountStatus::Rejected,
-                    at: self.now,
-                },
+                actor,
+                self.user_id,
+                self.now,
+                Some(&self.reason),
+                &audit,
+                &self.events,
             )
-            .await?;
-            let after = self.events.visible(conn, self.user_id).await?;
-            if previous != AccountStatus::Rejected
-                && let Some(organization) = organization
-            {
-                self.events
-                    .append(conn, self.user_id, organization, before || after)
-                    .await?;
-            }
-            append_audit(conn, &AuditFact {
-                id: Uuid::new_v4(), actor_id: Some(actor.id), action: "admin_user_rejected".into(),
-                resource_type: "user".into(), resource_id: Some(self.user_id.to_string()),
-                changes: Some(json!({"status":{"from":previous.as_str(),"to":"REJECTED"},"reason":self.reason})),
-                ip_address: None, request_id: None, at: self.now,
-            }).await?;
-            Ok(RejectionResult {
-                user_id: self.user_id,
-                cutoff,
-            })
+            .await
         })
     }
 }
 
+/// Python's `record_audit(..., **request_audit_context(request))` inputs.
+/// The client address is always a string; an absent address is `"unknown"`.
+#[derive(Debug, Clone, Default)]
+pub struct AuditContext {
+    pub ip_address: Option<String>,
+    pub request_id: Option<String>,
+}
+
+async fn execute_rejection<E: AdmissionEvents>(
+    conn: &mut PgConnection,
+    actor: &CurrentActor,
+    user_id: Uuid,
+    now: DateTime<Utc>,
+    reason: Option<&str>,
+    audit: &AuditContext,
+    events: &E,
+) -> Result<RejectionResult, AttemptError> {
+    if actor.role.as_deref() != Some("ADMIN") {
+        return Err(refusal(
+            StatusCode::FORBIDDEN,
+            "ADMIN_REQUIRED",
+            "Administrator access is required.",
+        )
+        .into());
+    }
+    let row = sqlx::query(
+        "SELECT status::text AS status,role::text AS role,organization_id FROM users WHERE id=$1",
+    )
+    .bind(user_id)
+    .fetch_optional(&mut *conn)
+    .await?
+    .ok_or_else(missing)?;
+    let role: Option<String> = row.get("role");
+    if role.as_deref() == Some("ADMIN") {
+        return Err(missing());
+    }
+    let previous = match row.get::<String, _>("status").as_str() {
+        "PENDING" => AccountStatus::Pending,
+        "APPROVED" => AccountStatus::Approved,
+        "REJECTED" => AccountStatus::Rejected,
+        _ => {
+            return Err(refusal(
+                StatusCode::CONFLICT,
+                "ACCOUNT_STATE_INVALID",
+                "The account state cannot be changed.",
+            )
+            .into());
+        }
+    };
+    let organization: Option<Uuid> = row.get("organization_id");
+    let before = events.visible(conn, user_id).await?;
+    sqlx::query("UPDATE users SET status='REJECTED',pending_approval_email_transition_id=NULL,pending_approval_email_payload=NULL,pending_approval_email_retry_at=NULL WHERE id=$1")
+        .bind(user_id).execute(&mut *conn).await?;
+    let cutoff = revoke_user_authentication(conn, user_id, now)
+        .await
+        .map_err(revocation_failure)?;
+    append_status_transition(
+        conn,
+        &StatusFact {
+            id: Uuid::new_v4(),
+            user_id,
+            organization_id: organization,
+            role,
+            from: Some(previous),
+            to: AccountStatus::Rejected,
+            at: now,
+        },
+    )
+    .await?;
+    let after = events.visible(conn, user_id).await?;
+    if previous != AccountStatus::Rejected
+        && let Some(organization) = organization
+    {
+        events
+            .append(conn, user_id, organization, before || after)
+            .await?;
+    }
+    append_audit(
+        conn,
+        &AuditFact {
+            id: Uuid::new_v4(),
+            actor_id: Some(actor.id),
+            action: "admin.user_rejected".into(),
+            resource_type: "user".into(),
+            resource_id: Some(user_id.to_string()),
+            changes: Some(json!({
+                "status":{"from":previous.as_str(),"to":"REJECTED"},
+                "reason":reason
+            })),
+            ip_address: audit.ip_address.clone(),
+            request_id: audit.request_id.clone(),
+            at: now,
+        },
+    )
+    .await?;
+    Ok(RejectionResult { user_id, cutoff })
+}
+
 /// Frozen payload fields are the CF4_01 mail producer boundary.
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Clone, serde::Serialize)]
 pub struct FrozenApprovalPayload {
     pub from: String,
     pub to: [String; 1],
@@ -169,6 +215,13 @@ pub struct FrozenApprovalPayload {
     pub html: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reply_to: Option<String>,
+}
+
+/// Match the CF4_01 producer: never print an address or message content.
+impl std::fmt::Debug for FrozenApprovalPayload {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("FrozenApprovalPayload(REDACTED)")
+    }
 }
 
 pub struct ApprovalMailMarker {
@@ -192,6 +245,7 @@ pub struct ApproveAccount<M, E> {
     pub user_id: Uuid,
     pub now: DateTime<Utc>,
     pub payload: FrozenApprovalPayload,
+    pub audit: AuditContext,
     pub mail: M,
     pub events: E,
 }
@@ -314,12 +368,12 @@ impl<M: ApprovalMail, E: AdmissionEvents> BusinessCommand for ApproveAccount<M, 
                 &AuditFact {
                     id: Uuid::new_v4(),
                     actor_id: Some(actor.id),
-                    action: "admin_user_approved".into(),
+                    action: "admin.user_approved".into(),
                     resource_type: "user".into(),
                     resource_id: Some(self.user_id.to_string()),
                     changes: Some(json!({"status":{"from":previous.as_str(),"to":"APPROVED"}})),
-                    ip_address: None,
-                    request_id: None,
+                    ip_address: self.audit.ip_address.clone(),
+                    request_id: self.audit.request_id.clone(),
                     at: self.now,
                 },
             )
@@ -341,6 +395,11 @@ pub enum RejectionRoute {
 pub struct AccountRejection<E> {
     pub command: RejectAccount<E>,
     pub route: RejectionRoute,
+    /// The client-supplied decision reason; `None` when the body omitted it,
+    /// which Python records as JSON null. The standalone command's own `reason`
+    /// cannot represent "omitted", so this field is authoritative here.
+    pub reason: Option<String>,
+    pub audit: AuditContext,
 }
 
 impl<E: AdmissionEvents> BusinessCommand for AccountRejection<E> {
@@ -383,7 +442,16 @@ impl<E: AdmissionEvents> BusinessCommand for AccountRejection<E> {
                     .into());
                 }
             }
-            self.command.execute(conn, actor).await
+            execute_rejection(
+                conn,
+                actor,
+                self.command.user_id,
+                self.command.now,
+                self.reason.as_deref(),
+                &self.audit,
+                &self.command.events,
+            )
+            .await
         })
     }
 }
@@ -615,6 +683,7 @@ async fn dispatch<M: ApprovalMail, E: AdmissionEvents, T: ApprovalTemplate>(
     // Account and administrator authority precede quota and all target reads.
     let limits = state.limits.clone();
     let token = authorization.clone().unwrap_or_default();
+    let quota_client = client.clone();
     let admission = crate::auth::run_authenticated(
         &state.app,
         access,
@@ -625,7 +694,7 @@ async fn dispatch<M: ApprovalMail, E: AdmissionEvents, T: ApprovalTemplate>(
                     tx.actor(),
                     &limits,
                     route,
-                    &client,
+                    &quota_client,
                     &token,
                     now.timestamp().max(0) as u64,
                 )
@@ -644,14 +713,29 @@ async fn dispatch<M: ApprovalMail, E: AdmissionEvents, T: ApprovalTemplate>(
             }
         };
     }
+    // Python's `request_audit_context`: the middleware correlation id when the
+    // request carries one, else the supplied header; the client address always.
+    let audit = AuditContext {
+        ip_address: Some(client),
+        request_id: request.extensions().get::<String>().cloned().or_else(|| {
+            request
+                .headers()
+                .get("x-request-id")
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_owned)
+        }),
+    };
     let result = dispatch_admitted(
         &state,
-        authorization.as_deref(),
         request,
         route,
-        path,
-        query,
-        now,
+        Admitted {
+            authorization: authorization.as_deref(),
+            path,
+            query,
+            audit,
+            now,
+        },
     )
     .await;
     match result {
@@ -660,15 +744,28 @@ async fn dispatch<M: ApprovalMail, E: AdmissionEvents, T: ApprovalTemplate>(
     }
 }
 
-async fn dispatch_admitted<M: ApprovalMail, E: AdmissionEvents, T: ApprovalTemplate>(
-    state: &RouteState<M, E, T>,
-    authorization: Option<&str>,
-    request: axum::extract::Request,
-    route: AdmissionRoute,
+/// The parts of one admitted request that the route bodies read.
+struct Admitted<'a> {
+    authorization: Option<&'a str>,
     path: String,
     query: String,
+    audit: AuditContext,
     now: DateTime<Utc>,
+}
+
+async fn dispatch_admitted<M: ApprovalMail, E: AdmissionEvents, T: ApprovalTemplate>(
+    state: &RouteState<M, E, T>,
+    request: axum::extract::Request,
+    route: AdmissionRoute,
+    admitted: Admitted<'_>,
 ) -> Result<serde_json::Value, crate::ApiError> {
+    let Admitted {
+        authorization,
+        path,
+        query,
+        audit,
+        now,
+    } = admitted;
     let user = if matches!(route, AdmissionRoute::Queue) {
         None
     } else {
@@ -764,6 +861,7 @@ async fn dispatch_admitted<M: ApprovalMail, E: AdmissionEvents, T: ApprovalTempl
                 user_id: user,
                 now,
                 payload,
+                audit: audit.clone(),
                 mail: state.service.mail.clone(),
                 events: state.service.events.clone(),
             },
@@ -772,9 +870,10 @@ async fn dispatch_admitted<M: ApprovalMail, E: AdmissionEvents, T: ApprovalTempl
         return user_response(&state.app, user, false).await;
     }
     let reason = if matches!(route, AdmissionRoute::AnalyticsReject) {
-        "admin_analytics_user_rejected".to_owned()
+        Some("admin_analytics_user_rejected".to_owned())
     } else {
-        let body = axum::body::to_bytes(request.into_body(), 16 * 1024)
+        // A08's pinned `body_limit_bytes`, not a smaller route-local cap.
+        let body = axum::body::to_bytes(request.into_body(), 131_072)
             .await
             .map_err(|_| {
                 refusal(
@@ -794,7 +893,9 @@ async fn dispatch_admitted<M: ApprovalMail, E: AdmissionEvents, T: ApprovalTempl
                 "A decision object is required.",
             )
         })?;
-        decision.reason.unwrap_or_default()
+        // Python's AdminDecisionBody.reason is optional; an omitted reason is
+        // stored as JSON null, never the empty string.
+        decision.reason
     };
     let analytics = matches!(route, AdmissionRoute::AnalyticsReject);
     super::transaction::run_organization_write(
@@ -804,7 +905,7 @@ async fn dispatch_admitted<M: ApprovalMail, E: AdmissionEvents, T: ApprovalTempl
             command: RejectAccount {
                 user_id: user,
                 now,
-                reason,
+                reason: reason.clone().unwrap_or_default(),
                 events: state.service.events.clone(),
             },
             route: if analytics {
@@ -812,6 +913,8 @@ async fn dispatch_admitted<M: ApprovalMail, E: AdmissionEvents, T: ApprovalTempl
             } else {
                 RejectionRoute::Auth
             },
+            reason,
+            audit,
         },
     )
     .await?;
@@ -828,9 +931,11 @@ async fn user_response(
     analytics: bool,
 ) -> Result<serde_json::Value, crate::ApiError> {
     let sql = if analytics {
-        "SELECT jsonb_build_object('id',u.id,'email',u.email,'first_name',u.first_name,'last_name',u.last_name,'role',u.role,'status',u.status,'created_at',u.created_at,'organization_id',u.organization_id,'org_name',o.name,'org_type',o.type,'org_provenance',o.provenance,'email_verified',u.email_verified,'must_change_password',u.must_change_password,'last_login',u.last_login,'org_has_orders',EXISTS(SELECT 1 FROM orderbook_orders x WHERE x.organization_id=u.organization_id)) FROM users u LEFT JOIN organizations o ON o.id=u.organization_id WHERE u.id=$1"
+        "SELECT jsonb_build_object('id',u.id,'email',u.email,'first_name',u.first_name,'last_name',u.last_name,'role',COALESCE(u.role::text,''),'status',COALESCE(u.status::text,''),'created_at',u.created_at,'organization_id',u.organization_id,'org_name',o.name,'org_type',o.type,'org_provenance',o.provenance,'email_verified',u.email_verified,'must_change_password',u.must_change_password,'last_login',u.last_login,'org_has_orders',EXISTS(SELECT 1 FROM orderbook_orders x WHERE x.organization_id=u.organization_id)) FROM users u LEFT JOIN organizations o ON o.id=u.organization_id WHERE u.id=$1"
     } else {
-        "SELECT jsonb_build_object('id',id,'email',email,'first_name',first_name,'last_name',last_name,'role',role,'status',status,'organization_id',organization_id,'referral_code',referral_code,'must_change_password',must_change_password,'kyc_status',kyc_status) FROM users WHERE id=$1"
+        // Python's A07 emits the `UserResponse` schema default for
+        // `execution_eligibility`; it does not compute eligibility here.
+        "SELECT jsonb_build_object('id',id,'email',email,'first_name',first_name,'last_name',last_name,'role',role,'status',status,'organization_id',organization_id,'referral_code',referral_code,'must_change_password',must_change_password,'kyc_status',kyc_status,'execution_eligibility',jsonb_build_object('eligible',false,'reason','KYC_REQUIRED','grace_expires_at',NULL)) FROM users WHERE id=$1"
     };
     sqlx::query_scalar(sql)
         .bind(user)

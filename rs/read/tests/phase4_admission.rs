@@ -198,6 +198,7 @@ impl Fixture {
                 user_id: self.user,
                 now: Utc::now(),
                 payload: payload(),
+                audit: Default::default(),
                 mail: Mail,
                 events: Events,
             },
@@ -221,6 +222,8 @@ impl Fixture {
                     events: Events,
                 },
                 route,
+                reason: Some("review".into()),
+                audit: Default::default(),
             },
         )
         .await
@@ -412,6 +415,7 @@ async fn p4_t6_c05() {
                 user_id: f.user,
                 now: Utc::now(),
                 payload: payload(),
+                audit: Default::default(),
                 mail: Mail,
                 events: Events,
             },
@@ -548,7 +552,7 @@ impl admission::ApprovalTemplate for Template {
         value
     }
 }
-fn app(f: &Fixture, limits: verdaxis_read::auth::limits::SharedLimits) -> axum::Router {
+fn build(f: &Fixture, limits: verdaxis_read::auth::limits::SharedLimits) -> axum::Router {
     // Readiness is a dedicated one-connection pool; the fixture pool serves reads.
     let health = sqlx::postgres::PgPoolOptions::new()
         .max_connections(1)
@@ -645,7 +649,7 @@ async fn p4_t6_c11() {
     .execute(&f.pool)
     .await
     .unwrap();
-    let app = app(&f, Default::default());
+    let app = build(&f, Default::default());
     let member = token(member_user);
     let admin = token(f.actor);
     for route in admission::AdmissionRoute::ALL {
@@ -726,7 +730,7 @@ async fn call(app: &axum::Router, call: Call<'_>) -> (u16, Value) {
         builder = builder.header("authorization", format!("Bearer {token}"));
     }
     let mut request = builder
-        .body(axum::body::Body::from(call.body))
+        .body(axum::body::Body::from(call.body.to_owned()))
         .unwrap();
     if call.peer {
         request
@@ -760,7 +764,7 @@ async fn audit_row(f: &Fixture, user: Uuid) -> sqlx::postgres::PgRow {
 #[ignore = "requires explicit disposable PostgreSQL authority"]
 async fn p4_t6_c13() {
     let f = Fixture::new().await;
-    let app = app(&f, Default::default());
+    let app = build(&f, Default::default());
     let admin = token(f.actor);
     let (status, body) = call(
         &app,
@@ -830,7 +834,7 @@ async fn p4_t6_c13() {
 #[ignore = "requires explicit disposable PostgreSQL authority"]
 async fn p4_t6_c14() {
     let f = Fixture::new().await;
-    let app = app(&f, Default::default());
+    let app = build(&f, Default::default());
     let admin = token(f.actor);
     let (status, body) = call(
         &app,
@@ -866,7 +870,7 @@ async fn p4_t6_c14() {
     f.finish().await;
 
     let g = Fixture::new().await;
-    let analytics = app(&g, Default::default());
+    let analytics = build(&g, Default::default());
     let admin = token(g.actor);
     let (status, body) = call(
         &analytics,
@@ -920,7 +924,7 @@ async fn p4_t6_c15() {
     .execute(&f.pool)
     .await
     .unwrap();
-    let app = app(&f, Default::default());
+    let app = build(&f, Default::default());
     let admin = token(f.actor);
     let (status, body) = call(
         &app,
@@ -976,7 +980,7 @@ async fn p4_t6_c15() {
 #[ignore = "requires explicit disposable PostgreSQL authority"]
 async fn p4_t6_c16() {
     let f = Fixture::new().await;
-    let app = app(&f, Default::default());
+    let app = build(&f, Default::default());
     let admin = token(f.actor);
     let reason = "x".repeat(33_000);
     let body = json!({"reason": reason}).to_string();
