@@ -6,7 +6,8 @@
 //! `compliance_label_cases` (generic label bounds and exact echo),
 //! `compliance_fleet_limits` (2000 accepted, 2001 refused, complete counts)
 //! and `compliance_score_snapshot_cases` (one vessel statement, validated year
-//! and mix order, and the helper commit without business state).
+//! and mix order, and the stored-value projections). The helper-commit and
+//! no-DML assertion lives in `compliance_score_helper_commit_postgres`.
 //!
 //! The populated tenant matrix runs only against an explicit disposable
 //! PostgreSQL database; it seeds the accepted `vessels`, `users` and
@@ -453,6 +454,20 @@ fn compliance_score_snapshot_cases() {
     assert_eq!(foreign_score["vessel_name"], format!("Vessel {}", own.id));
     assert_eq!(foreign_score["cii"]["rating"], "C");
 
+    // An empty stored rating is no rating, so it takes the neutral C band.
+    let empty_rating = vessel(Some(organization), "Empty Rating", Some(""));
+    let empty_request = ScenarioRequest::validate(json!({
+        "vessel_id": empty_rating.id.to_string(),
+        "fuel_mix": {"VLSFO": "1"},
+    }))
+    .unwrap();
+    let empty_score = scores::score_scenario(&empty_request, Some(&empty_rating), &owner).unwrap();
+    assert_eq!(empty_score["cii"]["rating"], "C");
+    assert_eq!(empty_score["cii"]["score"], json!(60));
+    let empty_fleet = fleet_summary(&[empty_rating]).unwrap();
+    assert_eq!(empty_fleet["vessels"][0]["cii"]["rating"], "C");
+    assert_eq!(empty_fleet["vessels"][0]["cii"]["score"], json!(60));
+
     // Year and mix validation order: the year is settled before the mix
     // coefficients, and the mix container bound precedes known-fuel rules.
     let year_error = ScenarioRequest::validate(json!({
@@ -496,10 +511,19 @@ fn compliance_score_snapshot_cases() {
             .unwrap()
             .contains("unknown fuel")
     );
+    // An unknown field is ignored, not refused.
+    let extra = ScenarioRequest::validate(json!({
+        "vessel_id": "vessel",
+        "fuel_mix": {"VLSFO": "1"},
+        "unknown_field": {"nested": true},
+    }))
+    .unwrap();
+    assert_eq!(extra.vessel_id(), "vessel");
+    // A string year is not coerced; only a JSON integer is accepted.
     for body in [
         json!({"fuel_mix": {"VLSFO": "1"}}),
         json!({"vessel_id": "vessel"}),
-        json!({"vessel_id": "vessel", "fuel_mix": {"VLSFO": "1"}, "extra": true}),
+        json!({"vessel_id": "vessel", "fuel_mix": {"VLSFO": "1"}, "year": "2026"}),
         json!({"vessel_id": 7, "fuel_mix": {"VLSFO": "1"}}),
         json!({"vessel_id": "vessel", "fuel_mix": {"VLSFO": "1"}, "year": 2026.5}),
         json!({"vessel_id": "vessel", "fuel_mix": {"VLSFO": "1"}, "year": null}),
@@ -610,6 +634,14 @@ mod postgres {
 
     async fn seeded() -> Option<(String, String)> {
         let Some((application, writer_url)) = urls() else {
+            // The lane runner sets this so a missing database can never turn a
+            // skipped matrix into a green gate.
+            assert!(
+                std::env::var_os("RUST_COMPLIANCE_REQUIRED").is_none(),
+                "RUST_COMPLIANCE_REQUIRED is set but RUST_COMPLIANCE_TEST_DATABASE_URL and \
+                 RUST_COMPLIANCE_TEST_WRITER_URL are not both set; the compliance score \
+                 database matrix did not run"
+            );
             eprintln!(
                 "compliance score database matrix not run: \
                  RUST_COMPLIANCE_TEST_DATABASE_URL and RUST_COMPLIANCE_TEST_WRITER_URL are required"
@@ -843,8 +875,8 @@ mod postgres {
         assert_eq!(body["cii"]["rating"], "A");
 
         // The current-account update lock serializes with a concurrent change.
-        // The scoped 500 ms deadline refuses the waiting read as an ordinary
-        // authenticated-helper database failure, which never names the row.
+        // The scoped 500 ms deadline refuses the waiting read as the generic
+        // unavailable result, which never names the row.
         let mut blocker = PgConnection::connect(&writer_url).await.unwrap();
         let mut transaction = blocker.begin().await.unwrap();
         sqlx::query("SELECT id FROM users WHERE id = $1 FOR UPDATE")
@@ -852,14 +884,59 @@ mod postgres {
             .execute(&mut *transaction)
             .await
             .unwrap();
-        let (status, _, body) =
+        let (status, headers, body) =
             send(&app, request("GET", FLEET_PATH, Some(&user_a), false, None)).await;
-        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
-        assert_eq!(body, json!({"detail": "Database operation failed."}));
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(code(&body), "READ_UNAVAILABLE");
+        assert_eq!(headers["retry-after"], "1");
         transaction.rollback().await.unwrap();
         let (status, _, _) =
             send(&app, request("GET", FLEET_PATH, Some(&user_a), false, None)).await;
         assert_eq!(status, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn unscoped_route_keeps_its_database_mapping() {
+        let Some((application, writer_url)) = seeded().await else {
+            return;
+        };
+        // The app role carries the deployed lock deadline; the unscoped path
+        // inherits it instead of setting a transaction-local one.
+        let mut observed = PgConnection::connect(&application).await.unwrap();
+        let lock: String = sqlx::query_scalar("SHOW lock_timeout")
+            .fetch_one(&mut observed)
+            .await
+            .unwrap();
+        assert_eq!(
+            lock, "150ms",
+            "the compliance matrix needs the app role's lock_timeout default"
+        );
+
+        let state = state(&application);
+        let access = auth::verify_access(&token(USER_A), &settings(), now()).unwrap();
+        let mut blocker = PgConnection::connect(&writer_url).await.unwrap();
+        let mut transaction = blocker.begin().await.unwrap();
+        sqlx::query("SELECT id FROM users WHERE id = $1 FOR UPDATE")
+            .bind(USER_A)
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+        let outcome = auth::run_authenticated(
+            &state,
+            access,
+            auth::AuthenticatedRequest::new("GET", "/api/feedback", false),
+            |_| Box::pin(async { Ok(()) }),
+        )
+        .await;
+        transaction.rollback().await.unwrap();
+        match outcome {
+            Err(auth::AuthenticatedError::Database(error)) => {
+                assert_eq!(error.status, StatusCode::INTERNAL_SERVER_ERROR);
+                assert_eq!(error.detail, json!("Database operation failed."));
+            }
+            Ok(()) => panic!("an actor-lock refusal must not run the callback"),
+            Err(other) => panic!("unexpected outcome: {other:?}"),
+        }
     }
 
     #[tokio::test]
@@ -933,7 +1010,9 @@ mod postgres {
     }
 
     #[tokio::test]
-    async fn compliance_score_snapshot_postgres() {
+    /// The helper commits its read-only transaction and adds no business,
+    /// audit, ledger or outbox row.
+    async fn compliance_score_helper_commit_postgres() {
         let Some((application, writer_url)) = seeded().await else {
             return;
         };
