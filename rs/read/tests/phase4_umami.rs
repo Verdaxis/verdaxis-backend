@@ -1494,7 +1494,10 @@ mod cases {
     /// `umami_rankings_normalize_to_closed_domains`.
     #[tokio::test]
     async fn p4_t16_c60() {
-        assert_eq!(EntryPage::from_raw_path("/marketplace?tab=1#x"), EntryPage::Marketplace);
+        assert_eq!(
+            EntryPage::from_raw_path("/marketplace?tab=1#x"),
+            EntryPage::Platform
+        );
         assert_eq!(EntryPage::from_raw_path("/"), EntryPage::Landing);
         assert_eq!(EntryPage::from_raw_path("/login?next=/x"), EntryPage::Login);
         assert_eq!(EntryPage::from_raw_path("/private/buyer-123"), EntryPage::Other);
@@ -1543,7 +1546,7 @@ mod cases {
 
         let entries = window.top_entries.data.expect("entries");
         assert_eq!(entries.len(), 3);
-        assert_eq!(entries[0].entry, EntryPage::Marketplace);
+        assert_eq!(entries[0].entry, EntryPage::Platform);
         assert_eq!(entries[0].rank, 1);
         assert_eq!(entries[0].count.count, Some(3));
         assert_eq!(entries[1].entry, EntryPage::Other);
@@ -1627,11 +1630,12 @@ mod cases {
             json!({"sessions": [{"x": 1, "y": 1}]}),
             json!({"sessions": [{"x": "2026-06-10", "y": -1}]}),
         ] {
+            let body = broken.clone();
             let stub = stub_with(move |request| {
                 request
                     .path
                     .ends_with("/pageviews")
-                    .then(|| Reply::json(200, broken.clone()))
+                    .then(|| Reply::json(200, body.clone()))
             });
             let (address, server) = serve(stub).await;
             let window = client(address).window(&query(), destination_set()).await;

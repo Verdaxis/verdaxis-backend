@@ -479,6 +479,12 @@ impl DomainCatalog {
     }
 }
 
+impl Serialize for AllowedProperty {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.name())
+    }
+}
+
 /// A validated property value: the property plus one token from its domain.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct AllowedPropertyValue {

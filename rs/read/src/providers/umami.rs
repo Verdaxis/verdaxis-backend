@@ -272,11 +272,11 @@ impl UmamiClient {
                 .await;
             match outcome {
                 Ok(payload) => {
-                    let rows = decode_property_rows(event, &payload, &self.inner.catalog)?;
+                    let rows = decode_property_rows(*event, &payload, &self.inner.catalog)?;
                     for property in requested {
                         let selected: Vec<_> = rows
                             .iter()
-                            .filter(|row| row.property() == property)
+                            .filter(|row| row.property == property)
                             .cloned()
                             .collect();
                         property_results.push(PropertyAvailability {
