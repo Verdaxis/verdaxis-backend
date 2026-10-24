@@ -1213,7 +1213,14 @@ mod postgres {
             conn
         }
 
-        async fn order(&mut self, org: Uuid, side: &str, price: i64, created: &str) -> Uuid {
+        async fn order(
+            &mut self,
+            org: Uuid,
+            side: &str,
+            price: i64,
+            created: &str,
+            provenance: &str,
+        ) -> Uuid {
             let id = Uuid::new_v4();
             sqlx::query(include_str!("fixtures/analytics_order_insert.sql"))
                 .bind(id)
@@ -1224,6 +1231,7 @@ mod postgres {
                 .bind(Decimal::new(price, 0))
                 .bind(Decimal::new(500, 0))
                 .bind(created.parse::<DateTime<Utc>>().unwrap())
+                .bind(provenance)
                 .execute(&mut self.admin)
                 .await
                 .unwrap();
@@ -1321,20 +1329,23 @@ mod postgres {
             fixture.demo_org,
             fixture.unknown_org,
         );
+        // Two recognized organizations carry REAL provenance; the seeded demo
+        // organization carries DEMO; an ordinary unvetted organization carries
+        // UNKNOWN. Each must land in its own section and nowhere else.
         fixture
-            .order(buyer, "BID", 780, "2026-06-04T12:00:00Z")
+            .order(buyer, "BID", 780, "2026-06-04T12:00:00Z", "REAL")
             .await;
         fixture
-            .order(buyer, "BID", 770, "2026-06-07T12:00:00Z")
+            .order(buyer, "BID", 770, "2026-06-07T12:00:00Z", "REAL")
             .await;
         fixture
-            .order(supplier, "ASK", 800, "2026-06-03T12:00:00Z")
+            .order(supplier, "ASK", 800, "2026-06-03T12:00:00Z", "REAL")
             .await;
         fixture
-            .order(demo, "BID", 500, "2026-06-05T12:00:00Z")
+            .order(demo, "BID", 500, "2026-06-05T12:00:00Z", "DEMO")
             .await;
         fixture
-            .order(unknown, "ASK", 400, "2026-06-06T12:00:00Z")
+            .order(unknown, "ASK", 400, "2026-06-06T12:00:00Z", "UNKNOWN")
             .await;
 
         let mut conn = fixture.connect().await;
@@ -1468,7 +1479,7 @@ mod postgres {
     async fn p4_t19_c13() {
         let mut fixture = Fixture::new().await;
         fixture
-            .order(fixture.buyer_org, "BID", 780, "2026-06-04T12:00:00Z")
+            .order(fixture.buyer_org, "BID", 780, "2026-06-04T12:00:00Z", "REAL")
             .await;
         let mut conn = fixture.connect().await;
         let service = service(ComponentStatus::Available);
