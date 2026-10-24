@@ -1068,10 +1068,16 @@ async fn p4_t4_c03() {
     no_org.membership_status = None;
     no_org.membership_reviewed_ago = None;
 
+    // The first-login clock counts from the latest of the four gates, so the
+    // two boundary cases move all three review instants together.
     let mut boundary_before = Spec::new("boundary-before@example.test");
     boundary_before.membership_reviewed_ago = Some(7000);
+    boundary_before.user_approved_ago = Some(7000);
+    boundary_before.organization_approved_ago = Some(7000);
     let mut boundary_at = Spec::new("boundary-at@example.test");
     boundary_at.membership_reviewed_ago = Some(7200);
+    boundary_at.user_approved_ago = Some(7200);
+    boundary_at.organization_approved_ago = Some(7200);
     let mut logged_in = Spec::new("logged-in@example.test");
     logged_in.last_login_ago = Some(60);
 
@@ -1139,7 +1145,8 @@ async fn p4_t4_c03() {
     fixture.seed(&wrong_audit).await;
     fixture.seed(&right_audit).await;
     // The pending rows live outside the user projection and are classified
-    // with the same rules.
+    // with the same rules. A used registration is not a candidate at all, so
+    // only the unused ones enter the parity set.
     let mut expected_pending = Vec::new();
     for (email, expires_at, used) in [
         (
@@ -1167,10 +1174,17 @@ async fn p4_t4_c03() {
                 fixture.now - Duration::seconds(60),
             )
             .await;
-        expected_pending.push((email, candidate));
+        if !used {
+            expected_pending.push((email, candidate));
+        }
     }
 
+    // The seed order matters for the parity helper: it reads the whole page,
+    // so a row seeded outside its expected set would break the count. This
+    // pair is seeded only after parity runs.
     assert_parity(&mut fixture, &seeds, &expected_pending).await;
+    fixture.seed(&wrong_audit).await;
+    fixture.seed(&right_audit).await;
 
     // The action-spelling pair, read back through the route.
     let app = app(fixture.pool.clone(), fixture.url(), limits());
@@ -1184,6 +1198,12 @@ async fn p4_t4_c03() {
     .await;
     assert_eq!(status, StatusCode::OK, "{body}");
     let items = body["items"].as_array().unwrap();
+    assert!(
+        !items
+            .iter()
+            .any(|item| item["email"] == "used-pending@example.test"),
+        "a used registration is never a candidate"
+    );
     let wrong = items
         .iter()
         .find(|item| item["email"] == "wrong-audit@example.test")
