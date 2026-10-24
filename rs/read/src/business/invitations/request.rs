@@ -121,7 +121,7 @@ pub struct InvitationService {
 }
 
 /// One invitation request, normalized and type-checked before any target read.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct CreateInvitation {
     pub email: String,
     pub first_name: String,
@@ -156,7 +156,7 @@ impl InvitationRole {
 
 /// A new organization created by the invitation. It is explicitly REAL; the
 /// runtime never updates provenance.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct NewOrganization {
     pub name: String,
     pub kind: String,
@@ -166,7 +166,7 @@ pub struct NewOrganization {
 }
 
 /// Exactly one organization source per request.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum OrganizationSource {
     Existing(Uuid),
     New(NewOrganization),

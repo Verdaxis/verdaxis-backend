@@ -16,6 +16,7 @@ use super::request::{
     OrganizationDomainPolicy, OrganizationSource,
 };
 use crate::{
+    ApiError,
     auth::{CurrentActor, token_bytes},
     business::{
         audit::{AuditFact, append_audit},
@@ -312,11 +313,11 @@ impl BusinessCommand for CreateInvitationCommand {
                 country_code,
             ) = match &invitation.organization {
                 OrganizationSource::Existing(id) => {
-                    let row = sqlx::query(&format!(
-                            "SELECT id,name,type,provenance,country_code,({}) AS eligible FROM organizations WHERE id=$1",
-                            eligible_where()
-                        ))
-                        .bind(id)
+                    let row = sqlx::query(sqlx::AssertSqlSafe(format!(
+                        "SELECT id,name,type,provenance,country_code,({}) AS eligible FROM organizations WHERE id=$1",
+                        eligible_where()
+                    )))
+                    .bind(id)
                         .fetch_optional(&mut *conn)
                         .await?
                         .ok_or_else(missing_organization)?;
@@ -441,7 +442,7 @@ impl BusinessCommand for CreateInvitationCommand {
                         &StatusFact {
                             id: Uuid::new_v4(),
                             user_id: id,
-                            organization_id,
+                            organization_id: Some(organization_id),
                             role: Some(role.to_owned()),
                             from: None,
                             to: AccountStatus::Approved,
@@ -558,10 +559,10 @@ pub async fn list_organizations(
     conn: &mut PgConnection,
     query: &InvitationListQuery,
 ) -> Result<OrganizationPage, crate::ApiError> {
-    let rows = sqlx::query(&format!(
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT id,name,domain,type,provenance FROM organizations WHERE {} ORDER BY name,id LIMIT $1 OFFSET $2",
         eligible_where()
-    ))
+    )))
     .bind(query.limit() + 1)
     .bind(query.offset())
     .fetch_all(&mut *conn)

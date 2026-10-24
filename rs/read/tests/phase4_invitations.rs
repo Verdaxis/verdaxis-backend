@@ -17,13 +17,10 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Duration, Utc};
 use serde_json::{Value, json};
-use sqlx::{Connection, PgConnection, Row, postgres::PgPoolOptions};
-use tower::ServiceExt;
 use uuid::Uuid;
-use verdaxis_read::auth::VerificationSettings;
 
 use request::{
-    CreateInvitation, InvitationAudit, InvitationListQuery, InvitationRole, NewOrganization,
+    CreateInvitation, InvitationListQuery, InvitationRole, NewOrganization,
     OrganizationDomainPolicy, OrganizationSource, ResolveToken,
 };
 
@@ -426,6 +423,11 @@ fn p4_t5_c01() {
 #[cfg(feature = "contract-tests")]
 mod postgres {
     use super::*;
+    use sqlx::{Connection, PgConnection, Row, postgres::PgPoolOptions};
+    use tower::ServiceExt;
+    use verdaxis_read::auth::VerificationSettings;
+
+    use request::InvitationAudit;
 
     struct Fixture {
         pool: sqlx::PgPool,
