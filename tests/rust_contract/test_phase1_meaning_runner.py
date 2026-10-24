@@ -103,7 +103,7 @@ def canned_record(monkeypatch, recordings):
     from scripts.rust_contract import record
 
     calls = iter(recordings)
-    monkeypatch.setattr(record, "record", lambda url, token, cases: next(calls))
+    monkeypatch.setattr(record, "record", lambda url, token, cases, **kwargs: next(calls))
 
 
 def test_raw_tie_order_in_both_python_recordings_still_matches(simulation, monkeypatch):
