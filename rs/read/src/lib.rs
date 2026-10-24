@@ -1,8 +1,21 @@
 pub mod auth;
+pub mod business;
+pub mod crud;
 pub mod market;
 pub mod mcp;
 pub mod routes;
 pub mod runtime;
+
+// ---------------------------------------------------------------------------
+// Phase 2 Task 20 registration block.
+//
+// The one shared-file change the order-book write boundary needs: the module
+// must be reachable for `rs/read/tests/order_write_boundary.rs`. This module
+// mounts no route. The integration owner merges this block into
+// `feat/rust-phase-2`; nothing else in this file belongs to Task 20.
+pub mod order_write;
+// ----------------------- end Task 20 registration block --------------------
+
 pub use market::decimal::decimal_text;
 pub use market::provenance::MarketEvidenceScope;
 pub use market::terms::{

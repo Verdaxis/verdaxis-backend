@@ -1,0 +1,1745 @@
+{
+  "version": 1,
+  "source_sha": "2dcc91a91c252b46a74b8853d011a4af59c8465c",
+  "groups": {
+    "B": {
+      "count": 22,
+      "caddy_arg": 2,
+      "default_owner": "python",
+      "allowed_owners": [
+        "python",
+        "rust"
+      ]
+    },
+    "O": {
+      "count": 2,
+      "caddy_arg": 3,
+      "default_owner": "python",
+      "allowed_owners": [
+        "python",
+        "rust"
+      ]
+    },
+    "V": {
+      "count": 2,
+      "caddy_arg": 4,
+      "default_owner": "python",
+      "allowed_owners": [
+        "python",
+        "rust"
+      ]
+    },
+    "I": {
+      "count": 1,
+      "caddy_arg": 5,
+      "default_owner": "python",
+      "allowed_owners": [
+        "python",
+        "rust"
+      ]
+    },
+    "S": {
+      "count": 5,
+      "caddy_arg": 6,
+      "default_owner": "python",
+      "allowed_owners": [
+        "python",
+        "rust"
+      ]
+    },
+    "P": {
+      "count": 11,
+      "caddy_arg": 7,
+      "default_owner": "python",
+      "allowed_owners": [
+        "python",
+        "rust"
+      ]
+    }
+  },
+  "routes": [
+    {
+      "id": "A01",
+      "method": "GET",
+      "path": "/api/auth/me",
+      "group": "B",
+      "task": "3",
+      "auth": "U",
+      "limits": [
+        {
+          "id": "limit_client_minute",
+          "count": 120,
+          "window": "minute",
+          "key": "client",
+          "fallback": null
+        }
+      ],
+      "body": "none",
+      "body_limit_bytes": 131072,
+      "request_schema": "none",
+      "query": [],
+      "path_parameters": {},
+      "writes": false,
+      "database": true,
+      "providers": [],
+      "scopes": [],
+      "read_cap": null,
+      "source": {
+        "path": "app/routers/auth_simple.py",
+        "symbol": "read_users_me",
+        "sha256": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0"
+      },
+      "ownership": "python_until_group_cutover"
+    },
+    {
+      "id": "A02",
+      "method": "PUT",
+      "path": "/api/auth/me",
+      "group": "B",
+      "task": "3",
+      "auth": "U",
+      "limits": [
+        {
+          "id": "limit_client_minute",
+          "count": 10,
+          "window": "minute",
+          "key": "client",
+          "fallback": null
+        }
+      ],
+      "body": "json",
+      "body_limit_bytes": 131072,
+      "request_schema": "UserUpdate",
+      "query": [],
+      "path_parameters": {},
+      "writes": true,
+      "database": true,
+      "providers": [],
+      "scopes": [],
+      "read_cap": null,
+      "source": {
+        "path": "app/routers/auth_simple.py",
+        "symbol": "update_users_me",
+        "sha256": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0"
+      },
+      "ownership": "python_until_group_cutover"
+    },
+    {
+      "id": "A03",
+      "method": "POST",
+      "path": "/api/auth/survey",
+      "group": "B",
+      "task": "3",
+      "auth": "U",
+      "limits": [
+        {
+          "id": "limit_client_minute",
+          "count": 5,
+          "window": "minute",
+          "key": "client",
+          "fallback": null
+        }
+      ],
+      "body": "json",
+      "body_limit_bytes": 131072,
+      "request_schema": "SurveyRequest",
+      "query": [],
+      "path_parameters": {},
+      "writes": true,
+      "database": true,
+      "providers": [],
+      "scopes": [],
+      "read_cap": null,
+      "source": {
+        "path": "app/routers/auth_simple.py",
+        "symbol": "submit_survey",
+        "sha256": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0"
+      },
+      "ownership": "python_until_group_cutover"
+    },
+    {
+      "id": "A04",
+      "method": "GET",
+      "path": "/api/auth/admin/invitations/organizations",
+      "group": "B",
+      "task": "5",
+      "auth": "A",
+      "limits": [
+        {
+          "id": "limit_client_minute",
+          "count": 60,
+          "window": "minute",
+          "key": "client",
+          "fallback": null
+        }
+      ],
+      "body": "none",
+      "body_limit_bytes": 131072,
+      "request_schema": "none",
+      "query": [
+        "limit:int=100;1..500",
+        "offset:int=0;0..10000"
+      ],
+      "path_parameters": {},
+      "writes": false,
+      "database": true,
+      "providers": [],
+      "scopes": [],
+      "read_cap": {
+        "limit_default": 100,
+        "limit_max": 500,
+        "offset_max": 10000,
+        "header": "X-Result-Truncated",
+        "expose_header": true,
+        "body_truncated": true,
+        "fetch_extra": 1,
+        "order": [
+          "name",
+          "id"
+        ]
+      },
+      "source": {
+        "path": "app/routers/auth_simple.py",
+        "symbol": "list_invitation_organizations",
+        "sha256": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0"
+      },
+      "ownership": "python_until_group_cutover"
+    },
+    {
+      "id": "A05",
+      "method": "POST",
+      "path": "/api/auth/admin/invitations",
+      "group": "B",
+      "task": "5",
+      "auth": "A",
+      "limits": [
+        {
+          "id": "limit_client_minute",
+          "count": 30,
+          "window": "minute",
+          "key": "client",
+          "fallback": null
+        }
+      ],
+      "body": "json",
+      "body_limit_bytes": 131072,
+      "request_schema": "AdminInvitationCreate",
+      "query": [],
+      "path_parameters": {},
+      "writes": true,
+      "database": true,
+      "providers": [],
+      "scopes": [],
+      "read_cap": null,
+      "source": {
+        "path": "app/routers/auth_simple.py",
+        "symbol": "create_admin_invitation",
+        "sha256": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0"
+      },
+      "ownership": "python_until_group_cutover"
+    },
+    {
+      "id": "A06",
+      "method": "POST",
+      "path": "/api/auth/invitations/resolve",
+      "group": "B",
+      "task": "5",
+      "auth": "P",
+      "limits": [
+        {
+          "id": "limit_client_minute",
+          "count": 20,
+          "window": "minute",
+          "key": "client",
+          "fallback": null
+        }
+      ],
+      "body": "json",
+      "body_limit_bytes": 131072,
+      "request_schema": "InvitationTokenRequest",
+      "query": [],
+      "path_parameters": {},
+      "writes": false,
+      "database": true,
+      "providers": [],
+      "scopes": [],
+      "read_cap": null,
+      "source": {
+        "path": "app/routers/auth_simple.py",
+        "symbol": "resolve_admin_invitation",
+        "sha256": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0"
+      },
+      "ownership": "python_until_group_cutover"
+    },
+    {
+      "id": "A07",
+      "method": "PUT",
+      "path": "/api/auth/approve/{user_id}",
+      "group": "B",
+      "task": "6",
+      "auth": "A",
+      "limits": [
+        {
+          "id": "limit_client_minute",
+          "count": 60,
+          "window": "minute",
+          "key": "client",
+          "fallback": null
+        }
+      ],
+      "body": "none",
+      "body_limit_bytes": 131072,
+      "request_schema": "none",
+      "query": [],
+      "path_parameters": {
+        "user_id": "uuid"
+      },
+      "writes": true,
+      "database": true,
+      "providers": [
+        "mail"
+      ],
+      "scopes": [
+        "user"
+      ],
+      "read_cap": null,
+      "source": {
+        "path": "app/routers/auth_simple.py",
+        "symbol": "approve_user",
+        "sha256": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0"
+      },
+      "ownership": "python_until_group_cutover"
+    },
+    {
+      "id": "A08",
+      "method": "PUT",
+      "path": "/api/auth/reject/{user_id}",
+      "group": "B",
+      "task": "6",
+      "auth": "A",
+      "limits": [
+        {
+          "id": "limit_client_minute",
+          "count": 60,
+          "window": "minute",
+          "key": "client",
+          "fallback": null
+        }
+      ],
+      "body": "json",
+      "body_limit_bytes": 131072,
+      "request_schema": "RejectBody",
+      "query": [],
+      "path_parameters": {
+        "user_id": "uuid"
+      },
+      "writes": true,
+      "database": true,
+      "providers": [],
+      "scopes": [
+        "user"
+      ],
+      "read_cap": null,
+      "source": {
+        "path": "app/routers/auth_simple.py",
+        "symbol": "reject_user",
+        "sha256": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0"
+      },
+      "ownership": "python_until_group_cutover"
+    },
+    {
+      "id": "A09",
+      "method": "PUT",
+      "path": "/api/auth/organization/{organization_id}/approve",
+      "group": "B",
+      "task": "8",
+      "auth": "A",
+      "limits": [
+        {
+          "id": "limit_client_minute",
+          "count": 60,
+          "window": "minute",
+          "key": "client",
+          "fallback": null
+        }
+      ],
+      "body": "none",
+      "body_limit_bytes": 131072,
+      "request_schema": "none",
+      "query": [],
+      "path_parameters": {
+        "organization_id": "uuid"
+      },
+      "writes": true,
+      "database": true,
+      "providers": [],
+      "scopes": [
+        "organization"
+      ],
+      "read_cap": null,
+      "source": {
+        "path": "app/routers/auth_simple.py",
+        "symbol": "approve_organization",
+        "sha256": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0"
+      },
+      "ownership": "python_until_group_cutover"
+    },
+    {
+      "id": "A10",
+      "method": "PUT",
+      "path": "/api/auth/organization/{organization_id}/reject",
+      "group": "B",
+      "task": "8",
+      "auth": "A",
+      "limits": [
+        {
+          "id": "limit_client_minute",
+          "count": 60,
+          "window": "minute",
+          "key": "client",
+          "fallback": null
+        }
+      ],
+      "body": "json",
+      "body_limit_bytes": 131072,
+      "request_schema": "RejectBody",
+      "query": [],
+      "path_parameters": {
+        "organization_id": "uuid"
+      },
+      "writes": true,
+      "database": true,
+      "providers": [],
+      "scopes": [
+        "organization"
+      ],
+      "read_cap": null,
+      "source": {
+        "path": "app/routers/auth_simple.py",
+        "symbol": "reject_organization",
+        "sha256": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0"
+      },
+      "ownership": "python_until_group_cutover"
+    },
+    {
+      "id": "A11",
+      "method": "GET",
+      "path": "/api/auth/admin/review-queue",
+      "group": "B",
+      "task": "6",
+      "auth": "A",
+      "limits": [
+        {
+          "id": "limit_client_minute",
+          "count": 60,
+          "window": "minute",
+          "key": "client",
+          "fallback": null
+        }
+      ],
+      "body": "none",
+      "body_limit_bytes": 131072,
+      "request_schema": "none",
+      "query": [
+        "limit:int=50;1..100"
+      ],
+      "path_parameters": {},
+      "writes": false,
+      "database": true,
+      "providers": [],
+      "scopes": [],
+      "read_cap": null,
+      "source": {
+        "path": "app/routers/auth_simple.py",
+        "symbol": "admin_review_queue",
+        "sha256": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0"
+      },
+      "ownership": "python_until_group_cutover"
+    },
+    {
+      "id": "A12",
+      "method": "GET",
+      "path": "/api/auth/admin/review-queue/{user_id}",
+      "group": "B",
+      "task": "6",
+      "auth": "A",
+      "limits": [
+        {
+          "id": "limit_client_minute",
+          "count": 60,
+          "window": "minute",
+          "key": "client",
+          "fallback": null
+        }
+      ],
+      "body": "none",
+      "body_limit_bytes": 131072,
+      "request_schema": "none",
+      "query": [],
+      "path_parameters": {
+        "user_id": "uuid"
+      },
+      "writes": false,
+      "database": true,
+      "providers": [],
+      "scopes": [
+        "user"
+      ],
+      "read_cap": null,
+      "source": {
+        "path": "app/routers/auth_simple.py",
+        "symbol": "admin_review_detail",
+        "sha256": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0"
+      },
+      "ownership": "python_until_group_cutover"
+    },
+    {
+      "id": "A13",
+      "method": "GET",
+      "path": "/api/auth/organization-joins",
+      "group": "B",
+      "task": "8",
+      "auth": "A",
+      "limits": [
+        {
+          "id": "limit_client_minute",
+          "count": 60,
+          "window": "minute",
+          "key": "client",
+          "fallback": null
+        }
+      ],
+      "body": "none",
+      "body_limit_bytes": 131072,
+      "request_schema": "none",
+      "query": [
+        "status?:PENDING|APPROVED|REJECTED",
+        "limit:int=100;1..500",
+        "offset:int=0;0..10000"
+      ],
+      "path_parameters": {},
+      "writes": false,
+      "database": true,
+      "providers": [],
+      "scopes": [
+        "join"
+      ],
+      "read_cap": {
+        "limit_default": 100,
+        "limit_max": 500,
+        "offset_max": 10000,
+        "header": "X-Result-Truncated",
+        "expose_header": true,
+        "body_truncated": false,
+        "fetch_extra": 1,
+        "order": [
+          "created_at",
+          "id"
+        ]
+      },
+      "source": {
+        "path": "app/routers/auth_simple.py",
+        "symbol": "list_organization_joins",
+        "sha256": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0"
+      },
+      "ownership": "python_until_group_cutover"
+    },
+    {
+      "id": "A14",
+      "method": "PUT",
+      "path": "/api/auth/organization-joins/{join_request_id}/approve",
+      "group": "B",
+      "task": "8",
+      "auth": "A",
+      "limits": [
+        {
+          "id": "limit_client_minute",
+          "count": 60,
+          "window": "minute",
+          "key": "client",
+          "fallback": null
+        }
+      ],
+      "body": "json",
+      "body_limit_bytes": 131072,
+      "request_schema": "JoinReviewBody",
+      "query": [],
+      "path_parameters": {
+        "join_request_id": "uuid"
+      },
+      "writes": true,
+      "database": true,
+      "providers": [],
+      "scopes": [
+        "join"
+      ],
+      "read_cap": null,
+      "source": {
+        "path": "app/routers/auth_simple.py",
+        "symbol": "approve_organization_join",
+        "sha256": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0"
+      },
+      "ownership": "python_until_group_cutover"
+    },
+    {
+      "id": "A15",
+      "method": "PUT",
+      "path": "/api/auth/organization-joins/{join_request_id}/reject",
+      "group": "B",
+      "task": "8",
+      "auth": "A",
+      "limits": [
+        {
+          "id": "limit_client_minute",
+          "count": 60,
+          "window": "minute",
+          "key": "client",
+          "fallback": null
+        }
+      ],
+      "body": "json",
+      "body_limit_bytes": 131072,
+      "request_schema": "JoinReviewBody",
+      "query": [],
+      "path_parameters": {
+        "join_request_id": "uuid"
+      },
+      "writes": true,
+      "database": true,
+      "providers": [],
+      "scopes": [
+        "join"
+      ],
+      "read_cap": null,
+      "source": {
+        "path": "app/routers/auth_simple.py",
+        "symbol": "reject_organization_join",
+        "sha256": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0"
+      },
+      "ownership": "python_until_group_cutover"
+    },
+    {
+      "id": "K01",
+      "method": "POST",
+      "path": "/api/kyc/submit",
+      "group": "B",
+      "task": "10",
+      "auth": "U",
+      "limits": [
+        {
+          "id": "limit_user_hour",
+          "count": 5,
+          "window": "hour",
+          "key": "user",
+          "fallback": null
+        }
+      ],
+      "body": "multipart",
+      "body_limit_bytes": 21037056,
+      "request_schema": "KycUpload",
+      "query": [],
+      "path_parameters": {},
+      "writes": true,
+      "database": true,
+      "providers": [],
+      "scopes": [
+        "organization"
+      ],
+      "read_cap": null,
+      "source": {
+        "path": "app/routers/kyc.py",
+        "symbol": "submit_kyc",
+        "sha256": "664e35aee3bb6220a04ec22040fa2203f5346be2686d96c1c519dd50028213c4"
+      },
+      "ownership": "python_until_group_cutover"
+    },
+    {
+      "id": "K02",
+      "method": "GET",
+      "path": "/api/kyc/status",
+      "group": "B",
+      "task": "10",
+      "auth": "U",
+      "limits": [],
+      "body": "none",
+      "body_limit_bytes": null,
+      "request_schema": "none",
+      "query": [],
+      "path_parameters": {},
+      "writes": false,
+      "database": true,
+      "providers": [],
+      "scopes": [],
+      "read_cap": null,
+      "source": {
+        "path": "app/routers/kyc.py",
+        "symbol": "get_kyc_status",
+        "sha256": "664e35aee3bb6220a04ec22040fa2203f5346be2686d96c1c519dd50028213c4"
+      },
+      "ownership": "python_until_group_cutover"
+    },
+    {
+      "id": "K03",
+      "method": "GET",
+      "path": "/api/kyc/admin/{user_id}/documents",
+      "group": "B",
+      "task": "10",
+      "auth": "A",
+      "limits": [
+        {
+          "id": "limit_client_minute",
+          "count": 30,
+          "window": "minute",
+          "key": "client",
+          "fallback": null
+        }
+      ],
+      "body": "none",
+      "body_limit_bytes": null,
+      "request_schema": "none",
+      "query": [],
+      "path_parameters": {
+        "user_id": "uuid"
+      },
+      "writes": false,
+      "database": true,
+      "providers": [],
+      "scopes": [
+        "user"
+      ],
+      "read_cap": null,
+      "source": {
+        "path": "app/routers/kyc.py",
+        "symbol": "admin_list_kyc_documents",
+        "sha256": "664e35aee3bb6220a04ec22040fa2203f5346be2686d96c1c519dd50028213c4"
+      },
+      "ownership": "python_until_group_cutover"
+    },
+    {
+      "id": "K04",
+      "method": "GET",
+      "path": "/api/kyc/admin/documents/{document_id}",
+      "group": "B",
+      "task": "10",
+      "auth": "A",
+      "limits": [
+        {
+          "id": "limit_client_minute",
+          "count": 30,
+          "window": "minute",
+          "key": "client",
+          "fallback": null
+        }
+      ],
+      "body": "none",
+      "body_limit_bytes": null,
+      "request_schema": "none",
+      "query": [],
+      "path_parameters": {
+        "document_id": "uuid"
+      },
+      "writes": true,
+      "database": true,
+      "providers": [],
+      "scopes": [
+        "user"
+      ],
+      "read_cap": null,
+      "source": {
+        "path": "app/routers/kyc.py",
+        "symbol": "admin_download_kyc_document",
+        "sha256": "664e35aee3bb6220a04ec22040fa2203f5346be2686d96c1c519dd50028213c4"
+      },
+      "ownership": "python_until_group_cutover"
+    },
+    {
+      "id": "K05",
+      "method": "PUT",
+      "path": "/api/kyc/admin/{user_id}/approve",
+      "group": "B",
+      "task": "11b",
+      "auth": "A",
+      "limits": [],
+      "body": "json",
+      "body_limit_bytes": null,
+      "request_schema": "KycApprovalRequest",
+      "query": [],
+      "path_parameters": {
+        "user_id": "uuid"
+      },
+      "writes": true,
+      "database": true,
+      "providers": [
+        "mail"
+      ],
+      "scopes": [
+        "user"
+      ],
+      "read_cap": null,
+      "source": {
+        "path": "app/routers/kyc.py",
+        "symbol": "admin_approve_kyc",
+        "sha256": "664e35aee3bb6220a04ec22040fa2203f5346be2686d96c1c519dd50028213c4"
+      },
+      "ownership": "python_until_group_cutover"
+    },
+    {
+      "id": "K06",
+      "method": "PUT",
+      "path": "/api/kyc/admin/{user_id}/reject",
+      "group": "B",
+      "task": "11b",
+      "auth": "A",
+      "limits": [],
+      "body": "json",
+      "body_limit_bytes": null,
+      "request_schema": "KycRejectionRequest",
+      "query": [],
+      "path_parameters": {
+        "user_id": "uuid"
+      },
+      "writes": true,
+      "database": true,
+      "providers": [
+        "mail"
+      ],
+      "scopes": [
+        "user"
+      ],
+      "read_cap": null,
+      "source": {
+        "path": "app/routers/kyc.py",
+        "symbol": "admin_reject_kyc",
+        "sha256": "664e35aee3bb6220a04ec22040fa2203f5346be2686d96c1c519dd50028213c4"
+      },
+      "ownership": "python_until_group_cutover"
+    },
+    {
+      "id": "N01",
+      "method": "PUT",
+      "path": "/api/admin/analytics/users/{user_id}/reject",
+      "group": "B",
+      "task": "6",
+      "auth": "A",
+      "limits": [
+        {
+          "id": "limit_token_minute",
+          "count": 60,
+          "window": "minute",
+          "key": "token",
+          "fallback": "client"
+        }
+      ],
+      "body": "none",
+      "body_limit_bytes": null,
+      "request_schema": "none",
+      "query": [],
+      "path_parameters": {
+        "user_id": "uuid"
+      },
+      "writes": true,
+      "database": true,
+      "providers": [],
+      "scopes": [
+        "user"
+      ],
+      "read_cap": null,
+      "source": {
+        "path": "app/routers/admin_analytics.py",
+        "symbol": "reject_user",
+        "sha256": "648abaaccf0dc54cd1cbf52f02ee68d00acabbbcb83bf0800659d484e881a8c1"
+      },
+      "ownership": "python_until_group_cutover"
+    },
+    {
+      "id": "N02",
+      "method": "GET",
+      "path": "/api/admin/onboarding-attention",
+      "group": "O",
+      "task": "4",
+      "auth": "A",
+      "limits": [
+        {
+          "id": "limit_client_minute",
+          "count": 60,
+          "window": "minute",
+          "key": "client",
+          "fallback": null
+        }
+      ],
+      "body": "none",
+      "body_limit_bytes": null,
+      "request_schema": "none",
+      "query": [
+        "limit:int=100;1..500",
+        "offset:int=0;0..10000"
+      ],
+      "path_parameters": {},
+      "writes": false,
+      "database": true,
+      "providers": [],
+      "scopes": [],
+      "read_cap": {
+        "limit_default": 100,
+        "limit_max": 500,
+        "offset_max": 10000,
+        "header": "X-Result-Truncated",
+        "expose_header": true,
+        "body_truncated": true,
+        "fetch_extra": 1,
+        "order": [
+          "since",
+          "candidate_key"
+        ]
+      },
+      "source": {
+        "path": "app/routers/admin_attention.py",
+        "symbol": "list_onboarding_attention",
+        "sha256": "7fcbdbfdf260bf0b82f67afc7e1da66fe5098b9bc95682dba4a75cb1faa8c70b"
+      },
+      "ownership": "python_until_group_cutover"
+    },
+    {
+      "id": "N03",
+      "method": "GET",
+      "path": "/api/admin/audit-logs",
+      "group": "O",
+      "task": "4",
+      "auth": "A",
+      "limits": [],
+      "body": "none",
+      "body_limit_bytes": null,
+      "request_schema": "none",
+      "query": [
+        "action?:string",
+        "resource_type?:string",
+        "user_id?:uuid",
+        "limit:int=50;1..200",
+        "offset:int=0;0..10000"
+      ],
+      "path_parameters": {},
+      "writes": false,
+      "database": true,
+      "providers": [],
+      "scopes": [],
+      "read_cap": null,
+      "source": {
+        "path": "app/routers/audit.py",
+        "symbol": "list_audit_logs",
+        "sha256": "12242aa0359a4a3fd90db57647716317ca24ef77f446c8bfce4710b82a81c1e9"
+      },
+      "ownership": "python_until_group_cutover"
+    },
+    {
+      "id": "V01",
+      "method": "GET",
+      "path": "/api/vessels",
+      "group": "V",
+      "task": "12",
+      "auth": "U",
+      "limits": [],
+      "body": "none",
+      "body_limit_bytes": null,
+      "request_schema": "none",
+      "query": [],
+      "path_parameters": {},
+      "writes": false,
+      "database": true,
+      "providers": [],
+      "scopes": [
+        "organization"
+      ],
+      "read_cap": null,
+      "source": {
+        "path": "app/routers/vessels.py",
+        "symbol": "list_my_vessels",
+        "sha256": "f91c0926aa6479474103374f97cd359199e8f8b05948ca2a60f3046a74fceaae"
+      },
+      "ownership": "python_until_group_cutover"
+    },
+    {
+      "id": "V02",
+      "method": "GET",
+      "path": "/api/vessels/{vessel_id}",
+      "group": "V",
+      "task": "12",
+      "auth": "U",
+      "limits": [],
+      "body": "none",
+      "body_limit_bytes": null,
+      "request_schema": "none",
+      "query": [],
+      "path_parameters": {
+        "vessel_id": "uuid"
+      },
+      "writes": false,
+      "database": true,
+      "providers": [],
+      "scopes": [
+        "organization"
+      ],
+      "read_cap": null,
+      "source": {
+        "path": "app/routers/vessels.py",
+        "symbol": "get_vessel",
+        "sha256": "f91c0926aa6479474103374f97cd359199e8f8b05948ca2a60f3046a74fceaae"
+      },
+      "ownership": "python_until_group_cutover"
+    },
+    {
+      "id": "I01",
+      "method": "POST",
+      "path": "/api/ai/chat",
+      "group": "I",
+      "task": "14",
+      "auth": "U",
+      "limits": [
+        {
+          "id": "limit_user_minute",
+          "count": 10,
+          "window": "minute",
+          "key": "user",
+          "fallback": null
+        },
+        {
+          "id": "limit_org_minute",
+          "count": 30,
+          "window": "minute",
+          "key": "org",
+          "fallback": "user"
+        }
+      ],
+      "body": "json",
+      "body_limit_bytes": 32768,
+      "request_schema": "AIChatRequest",
+      "query": [],
+      "path_parameters": {},
+      "writes": false,
+      "database": true,
+      "providers": [
+        "gemini"
+      ],
+      "scopes": [],
+      "read_cap": null,
+      "source": {
+        "path": "app/routers/ai.py",
+        "symbol": "chat",
+        "sha256": "2094047436569e867d4ffec4e246c4946e70d21c35e09e328e98295d0aebcc40"
+      },
+      "ownership": "python_until_group_cutover"
+    },
+    {
+      "id": "S01",
+      "method": "GET",
+      "path": "/api/subscriptions/fees",
+      "group": "S",
+      "task": "13",
+      "auth": "P",
+      "limits": [],
+      "body": "none",
+      "body_limit_bytes": null,
+      "request_schema": "none",
+      "query": [],
+      "path_parameters": {},
+      "writes": false,
+      "database": false,
+      "providers": [],
+      "scopes": [],
+      "read_cap": null,
+      "source": {
+        "path": "app/routers/subscriptions.py",
+        "symbol": "get_fee_schedule",
+        "sha256": "df2b635032bfce001324821583b22b122e5a6fe1fe918ee86140731d55dbe17d"
+      },
+      "ownership": "python_until_group_cutover"
+    },
+    {
+      "id": "S02",
+      "method": "GET",
+      "path": "/api/subscriptions/me",
+      "group": "S",
+      "task": "13",
+      "auth": "U",
+      "limits": [],
+      "body": "none",
+      "body_limit_bytes": null,
+      "request_schema": "none",
+      "query": [],
+      "path_parameters": {},
+      "writes": true,
+      "database": true,
+      "providers": [],
+      "scopes": [
+        "organization"
+      ],
+      "read_cap": null,
+      "source": {
+        "path": "app/routers/subscriptions.py",
+        "symbol": "get_my_subscription",
+        "sha256": "df2b635032bfce001324821583b22b122e5a6fe1fe918ee86140731d55dbe17d"
+      },
+      "ownership": "python_until_group_cutover"
+    },
+    {
+      "id": "S03",
+      "method": "GET",
+      "path": "/api/admin/subscriptions",
+      "group": "S",
+      "task": "13",
+      "auth": "A",
+      "limits": [],
+      "body": "none",
+      "body_limit_bytes": null,
+      "request_schema": "none",
+      "query": [
+        "limit:int=100;1..500",
+        "offset:int=0;0..10000"
+      ],
+      "path_parameters": {},
+      "writes": false,
+      "database": true,
+      "providers": [],
+      "scopes": [],
+      "read_cap": {
+        "limit_default": 100,
+        "limit_max": 500,
+        "offset_max": 10000,
+        "header": "X-Result-Truncated",
+        "expose_header": true,
+        "body_truncated": false,
+        "fetch_extra": 1,
+        "order": [
+          "org_id",
+          "id"
+        ]
+      },
+      "source": {
+        "path": "app/routers/subscriptions.py",
+        "symbol": "list_subscriptions",
+        "sha256": "df2b635032bfce001324821583b22b122e5a6fe1fe918ee86140731d55dbe17d"
+      },
+      "ownership": "python_until_group_cutover"
+    },
+    {
+      "id": "S04",
+      "method": "GET",
+      "path": "/api/admin/subscriptions/{org_id}",
+      "group": "S",
+      "task": "13",
+      "auth": "A",
+      "limits": [],
+      "body": "none",
+      "body_limit_bytes": null,
+      "request_schema": "none",
+      "query": [],
+      "path_parameters": {
+        "org_id": "uuid"
+      },
+      "writes": false,
+      "database": true,
+      "providers": [],
+      "scopes": [
+        "organization"
+      ],
+      "read_cap": null,
+      "source": {
+        "path": "app/routers/subscriptions.py",
+        "symbol": "get_subscription_by_org",
+        "sha256": "df2b635032bfce001324821583b22b122e5a6fe1fe918ee86140731d55dbe17d"
+      },
+      "ownership": "python_until_group_cutover"
+    },
+    {
+      "id": "S05",
+      "method": "PUT",
+      "path": "/api/admin/subscriptions/{org_id}",
+      "group": "S",
+      "task": "13",
+      "auth": "A",
+      "limits": [],
+      "body": "json",
+      "body_limit_bytes": null,
+      "request_schema": "SubscriptionUpdate",
+      "query": [],
+      "path_parameters": {
+        "org_id": "uuid"
+      },
+      "writes": true,
+      "database": true,
+      "providers": [],
+      "scopes": [
+        "organization"
+      ],
+      "read_cap": null,
+      "source": {
+        "path": "app/routers/subscriptions.py",
+        "symbol": "update_subscription",
+        "sha256": "df2b635032bfce001324821583b22b122e5a6fe1fe918ee86140731d55dbe17d"
+      },
+      "ownership": "python_until_group_cutover"
+    },
+    {
+      "id": "P01",
+      "method": "GET",
+      "path": "/api/admin/analytics/product-usage",
+      "group": "P",
+      "task": "17a",
+      "auth": "A",
+      "limits": [
+        {
+          "id": "limit_token_minute",
+          "count": 30,
+          "window": "minute",
+          "key": "token",
+          "fallback": "client"
+        }
+      ],
+      "body": "none",
+      "body_limit_bytes": null,
+      "request_schema": "none",
+      "query": [
+        "days:int=30;7|30|90"
+      ],
+      "path_parameters": {},
+      "writes": false,
+      "database": true,
+      "providers": [
+        "umami"
+      ],
+      "scopes": [],
+      "read_cap": null,
+      "source": {
+        "path": "app/routers/admin_analytics.py",
+        "symbol": "get_product_usage",
+        "sha256": "648abaaccf0dc54cd1cbf52f02ee68d00acabbbcb83bf0800659d484e881a8c1"
+      },
+      "ownership": "python_until_group_cutover"
+    },
+    {
+      "id": "P02",
+      "method": "GET",
+      "path": "/api/admin/analytics/overview",
+      "group": "P",
+      "task": "17b",
+      "auth": "A",
+      "limits": [
+        {
+          "id": "limit_token_minute",
+          "count": 60,
+          "window": "minute",
+          "key": "token",
+          "fallback": "client"
+        }
+      ],
+      "body": "none",
+      "body_limit_bytes": null,
+      "request_schema": "none",
+      "query": [],
+      "path_parameters": {},
+      "writes": false,
+      "database": true,
+      "providers": [],
+      "scopes": [],
+      "read_cap": null,
+      "source": {
+        "path": "app/routers/admin_analytics.py",
+        "symbol": "get_overview",
+        "sha256": "648abaaccf0dc54cd1cbf52f02ee68d00acabbbcb83bf0800659d484e881a8c1"
+      },
+      "ownership": "python_until_group_cutover"
+    },
+    {
+      "id": "P03",
+      "method": "GET",
+      "path": "/api/admin/analytics/daily",
+      "group": "P",
+      "task": "17b",
+      "auth": "A",
+      "limits": [
+        {
+          "id": "limit_token_minute",
+          "count": 60,
+          "window": "minute",
+          "key": "token",
+          "fallback": "client"
+        }
+      ],
+      "body": "none",
+      "body_limit_bytes": null,
+      "request_schema": "none",
+      "query": [
+        "days:int=30;1..365"
+      ],
+      "path_parameters": {},
+      "writes": false,
+      "database": true,
+      "providers": [],
+      "scopes": [],
+      "read_cap": null,
+      "source": {
+        "path": "app/routers/admin_analytics.py",
+        "symbol": "get_daily_stats",
+        "sha256": "648abaaccf0dc54cd1cbf52f02ee68d00acabbbcb83bf0800659d484e881a8c1"
+      },
+      "ownership": "python_until_group_cutover"
+    },
+    {
+      "id": "P04",
+      "method": "GET",
+      "path": "/api/admin/analytics/users",
+      "group": "P",
+      "task": "17b",
+      "auth": "A",
+      "limits": [
+        {
+          "id": "limit_token_minute",
+          "count": 60,
+          "window": "minute",
+          "key": "token",
+          "fallback": "client"
+        }
+      ],
+      "body": "none",
+      "body_limit_bytes": null,
+      "request_schema": "none",
+      "query": [
+        "status?:enum",
+        "search?:string;max200",
+        "limit:int=50;1..100",
+        "offset:int=0;0..10000"
+      ],
+      "path_parameters": {},
+      "writes": false,
+      "database": true,
+      "providers": [],
+      "scopes": [],
+      "read_cap": null,
+      "source": {
+        "path": "app/routers/admin_analytics.py",
+        "symbol": "list_users",
+        "sha256": "648abaaccf0dc54cd1cbf52f02ee68d00acabbbcb83bf0800659d484e881a8c1"
+      },
+      "ownership": "python_until_group_cutover"
+    },
+    {
+      "id": "P05",
+      "method": "GET",
+      "path": "/api/admin/analytics/product-analytics/overview",
+      "group": "P",
+      "task": "18",
+      "auth": "A",
+      "limits": [
+        {
+          "id": "limit_token_minute",
+          "count": 30,
+          "window": "minute",
+          "key": "token",
+          "fallback": "client"
+        }
+      ],
+      "body": "none",
+      "body_limit_bytes": null,
+      "request_schema": "none",
+      "query": [
+        "start:datetime;required",
+        "end:datetime;required",
+        "compare:bool=true",
+        "audience:ALL|BUYER|SUPPLIER=ALL",
+        "activity:LIVE|DEMO|ALL=LIVE",
+        "product_id?:uuid",
+        "delivery_point_id?:uuid",
+        "availability_window?:string;max16"
+      ],
+      "path_parameters": {},
+      "writes": false,
+      "database": true,
+      "providers": [
+        "umami"
+      ],
+      "scopes": [],
+      "read_cap": null,
+      "source": {
+        "path": "app/routers/admin_analytics.py",
+        "symbol": "product_analytics_overview",
+        "sha256": "648abaaccf0dc54cd1cbf52f02ee68d00acabbbcb83bf0800659d484e881a8c1"
+      },
+      "ownership": "python_until_group_cutover"
+    },
+    {
+      "id": "P06",
+      "method": "GET",
+      "path": "/api/admin/analytics/product-analytics/acquisition",
+      "group": "P",
+      "task": "19",
+      "auth": "A",
+      "limits": [
+        {
+          "id": "limit_token_minute",
+          "count": 30,
+          "window": "minute",
+          "key": "token",
+          "fallback": "client"
+        }
+      ],
+      "body": "none",
+      "body_limit_bytes": null,
+      "request_schema": "none",
+      "query": [
+        "start:datetime;required",
+        "end:datetime;required",
+        "compare:bool=true",
+        "audience:ALL|BUYER|SUPPLIER=ALL",
+        "activity:LIVE|DEMO|ALL=LIVE",
+        "product_id?:uuid",
+        "delivery_point_id?:uuid",
+        "availability_window?:string;max16"
+      ],
+      "path_parameters": {},
+      "writes": false,
+      "database": true,
+      "providers": [
+        "umami"
+      ],
+      "scopes": [],
+      "read_cap": null,
+      "source": {
+        "path": "app/routers/admin_analytics.py",
+        "symbol": "product_analytics_acquisition",
+        "sha256": "648abaaccf0dc54cd1cbf52f02ee68d00acabbbcb83bf0800659d484e881a8c1"
+      },
+      "ownership": "python_until_group_cutover"
+    },
+    {
+      "id": "P07",
+      "method": "GET",
+      "path": "/api/admin/analytics/product-analytics/activation",
+      "group": "P",
+      "task": "18",
+      "auth": "A",
+      "limits": [
+        {
+          "id": "limit_token_minute",
+          "count": 30,
+          "window": "minute",
+          "key": "token",
+          "fallback": "client"
+        }
+      ],
+      "body": "none",
+      "body_limit_bytes": null,
+      "request_schema": "none",
+      "query": [
+        "start:datetime;required",
+        "end:datetime;required",
+        "compare:bool=true",
+        "audience:ALL|BUYER|SUPPLIER=ALL",
+        "activity:LIVE|DEMO|ALL=LIVE",
+        "product_id?:uuid",
+        "delivery_point_id?:uuid",
+        "availability_window?:string;max16"
+      ],
+      "path_parameters": {},
+      "writes": false,
+      "database": true,
+      "providers": [
+        "umami"
+      ],
+      "scopes": [],
+      "read_cap": null,
+      "source": {
+        "path": "app/routers/admin_analytics.py",
+        "symbol": "product_analytics_activation",
+        "sha256": "648abaaccf0dc54cd1cbf52f02ee68d00acabbbcb83bf0800659d484e881a8c1"
+      },
+      "ownership": "python_until_group_cutover"
+    },
+    {
+      "id": "P08",
+      "method": "GET",
+      "path": "/api/admin/analytics/product-analytics/engagement",
+      "group": "P",
+      "task": "18",
+      "auth": "A",
+      "limits": [
+        {
+          "id": "limit_token_minute",
+          "count": 30,
+          "window": "minute",
+          "key": "token",
+          "fallback": "client"
+        }
+      ],
+      "body": "none",
+      "body_limit_bytes": null,
+      "request_schema": "none",
+      "query": [
+        "start:datetime;required",
+        "end:datetime;required",
+        "compare:bool=true",
+        "audience:ALL|BUYER|SUPPLIER=ALL",
+        "activity:LIVE|DEMO|ALL=LIVE",
+        "product_id?:uuid",
+        "delivery_point_id?:uuid",
+        "availability_window?:string;max16"
+      ],
+      "path_parameters": {},
+      "writes": false,
+      "database": true,
+      "providers": [
+        "umami"
+      ],
+      "scopes": [],
+      "read_cap": null,
+      "source": {
+        "path": "app/routers/admin_analytics.py",
+        "symbol": "product_analytics_engagement",
+        "sha256": "648abaaccf0dc54cd1cbf52f02ee68d00acabbbcb83bf0800659d484e881a8c1"
+      },
+      "ownership": "python_until_group_cutover"
+    },
+    {
+      "id": "P09",
+      "method": "GET",
+      "path": "/api/admin/analytics/product-analytics/marketplace",
+      "group": "P",
+      "task": "19",
+      "auth": "A",
+      "limits": [
+        {
+          "id": "limit_token_minute",
+          "count": 30,
+          "window": "minute",
+          "key": "token",
+          "fallback": "client"
+        }
+      ],
+      "body": "none",
+      "body_limit_bytes": null,
+      "request_schema": "none",
+      "query": [
+        "start:datetime;required",
+        "end:datetime;required",
+        "compare:bool=true",
+        "audience:ALL|BUYER|SUPPLIER=ALL",
+        "activity:LIVE|DEMO|REFERENCE|ALL=LIVE",
+        "product_id?:uuid",
+        "delivery_point_id?:uuid",
+        "availability_window?:string;max16"
+      ],
+      "path_parameters": {},
+      "writes": false,
+      "database": true,
+      "providers": [],
+      "scopes": [],
+      "read_cap": null,
+      "source": {
+        "path": "app/routers/admin_analytics.py",
+        "symbol": "product_analytics_marketplace",
+        "sha256": "648abaaccf0dc54cd1cbf52f02ee68d00acabbbcb83bf0800659d484e881a8c1"
+      },
+      "ownership": "python_until_group_cutover"
+    },
+    {
+      "id": "P10",
+      "method": "GET",
+      "path": "/api/admin/analytics/product-analytics/retention",
+      "group": "P",
+      "task": "18",
+      "auth": "A",
+      "limits": [
+        {
+          "id": "limit_token_minute",
+          "count": 30,
+          "window": "minute",
+          "key": "token",
+          "fallback": "client"
+        }
+      ],
+      "body": "none",
+      "body_limit_bytes": null,
+      "request_schema": "none",
+      "query": [
+        "start:datetime;required",
+        "end:datetime;required",
+        "compare:bool=true",
+        "audience:ALL|BUYER|SUPPLIER=ALL",
+        "activity:LIVE|DEMO|ALL=LIVE",
+        "product_id?:uuid",
+        "delivery_point_id?:uuid",
+        "availability_window?:string;max16"
+      ],
+      "path_parameters": {},
+      "writes": false,
+      "database": true,
+      "providers": [
+        "umami"
+      ],
+      "scopes": [],
+      "read_cap": null,
+      "source": {
+        "path": "app/routers/admin_analytics.py",
+        "symbol": "product_analytics_retention",
+        "sha256": "648abaaccf0dc54cd1cbf52f02ee68d00acabbbcb83bf0800659d484e881a8c1"
+      },
+      "ownership": "python_until_group_cutover"
+    },
+    {
+      "id": "P11",
+      "method": "GET",
+      "path": "/api/admin/analytics/product-analytics/reliability",
+      "group": "P",
+      "task": "19",
+      "auth": "A",
+      "limits": [
+        {
+          "id": "limit_token_minute",
+          "count": 30,
+          "window": "minute",
+          "key": "token",
+          "fallback": "client"
+        }
+      ],
+      "body": "none",
+      "body_limit_bytes": null,
+      "request_schema": "none",
+      "query": [
+        "start:datetime;required",
+        "end:datetime;required",
+        "compare:bool=true",
+        "audience:ALL|BUYER|SUPPLIER=ALL",
+        "activity:LIVE|DEMO|ALL=LIVE",
+        "product_id?:uuid",
+        "delivery_point_id?:uuid",
+        "availability_window?:string;max16"
+      ],
+      "path_parameters": {},
+      "writes": false,
+      "database": true,
+      "providers": [
+        "umami"
+      ],
+      "scopes": [],
+      "read_cap": null,
+      "source": {
+        "path": "app/routers/admin_analytics.py",
+        "symbol": "product_analytics_reliability",
+        "sha256": "648abaaccf0dc54cd1cbf52f02ee68d00acabbbcb83bf0800659d484e881a8c1"
+      },
+      "ownership": "python_until_group_cutover"
+    }
+  ],
+  "sources": [
+    {
+      "path": "app/models/kyc_document.py",
+      "sha256": "d541299f100ce8970fe2ff77a376b8afcfa993fcdc51718eb27c3ce7681359a2"
+    },
+    {
+      "path": "app/models/product_analytics.py",
+      "sha256": "8b838698cd1279bcc7322e398c0e5cd7b121799e57a8fd3274bfb7a3311ea445"
+    },
+    {
+      "path": "app/models/registration.py",
+      "sha256": "3cc33043a37c27dddebc12d4004b90a1a1eac809b9464b9fbc6355b503e712f8"
+    },
+    {
+      "path": "app/models/subscription.py",
+      "sha256": "405dfd5c86d4562cd344ec319c2e32ed4599fc2db79409a2670499cdf43641d6"
+    },
+    {
+      "path": "app/models/user.py",
+      "sha256": "fda40d53a1e63f61b1b3055da23df202cc8816be494194a3da26203dd0328de8"
+    },
+    {
+      "path": "app/reference/iso_countries.py",
+      "sha256": "e3ab1f4844d1b949cbdfafe6b9f5e9f59ccf472efaccbfe99ca1c5da50985f0d"
+    },
+    {
+      "path": "app/routers/admin_analytics.py",
+      "sha256": "648abaaccf0dc54cd1cbf52f02ee68d00acabbbcb83bf0800659d484e881a8c1"
+    },
+    {
+      "path": "app/routers/admin_attention.py",
+      "sha256": "7fcbdbfdf260bf0b82f67afc7e1da66fe5098b9bc95682dba4a75cb1faa8c70b"
+    },
+    {
+      "path": "app/routers/ai.py",
+      "sha256": "2094047436569e867d4ffec4e246c4946e70d21c35e09e328e98295d0aebcc40"
+    },
+    {
+      "path": "app/routers/audit.py",
+      "sha256": "12242aa0359a4a3fd90db57647716317ca24ef77f446c8bfce4710b82a81c1e9"
+    },
+    {
+      "path": "app/routers/auth_simple.py",
+      "sha256": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0"
+    },
+    {
+      "path": "app/routers/kyc.py",
+      "sha256": "664e35aee3bb6220a04ec22040fa2203f5346be2686d96c1c519dd50028213c4"
+    },
+    {
+      "path": "app/routers/market_support.py",
+      "sha256": "1c4938e0111b84f788342367d0e7ac74cc78ab829c1d5c3f720d5a5743dbe3f5"
+    },
+    {
+      "path": "app/routers/subscriptions.py",
+      "sha256": "df2b635032bfce001324821583b22b122e5a6fe1fe918ee86140731d55dbe17d"
+    },
+    {
+      "path": "app/routers/vessels.py",
+      "sha256": "f91c0926aa6479474103374f97cd359199e8f8b05948ca2a60f3046a74fceaae"
+    },
+    {
+      "path": "app/schemas/ai.py",
+      "sha256": "e8128cf47bedacc211f86d07dcba283959d140fd46423b39f512262708b1091a"
+    },
+    {
+      "path": "app/schemas/behavioral_analytics.py",
+      "sha256": "a9cda7b2044c5acc4f8adbb212fd227428a4df10b6ed9ee62e5b0fcd6d6c5757"
+    },
+    {
+      "path": "app/schemas/product_analytics.py",
+      "sha256": "5d7519bd4b2cdb56640a110349a0e5c626c53aaeddf466c3ee5d2123fa611550"
+    },
+    {
+      "path": "app/schemas/subscription.py",
+      "sha256": "64d9dcce3a910d4d92a1affaf9da511bdb7ab34af380835956193cdd84a8f6c2"
+    },
+    {
+      "path": "app/schemas/user.py",
+      "sha256": "57af55ff93632301000568fd5d308b500fc41f58180cd10aaf349cb3da32a850"
+    },
+    {
+      "path": "app/schemas/vessel.py",
+      "sha256": "0da6e7b5da25412edacc14b490040c040688168d9f8adbd23dd17e7b52b6263f"
+    },
+    {
+      "path": "app/services/behavioral_analytics.py",
+      "sha256": "1a3ee6f84d7d30d8b489574e5d62ea3cfeb13dd31c4f03be6cb2b7c9be6f0801"
+    },
+    {
+      "path": "app/services/kyc_execution.py",
+      "sha256": "beba3a3f78b6c2c582aeee1cebf27e4fe9fd8099416151f94f41b18b20b529e2"
+    },
+    {
+      "path": "app/services/market_invalidation.py",
+      "sha256": "c19b40329b9aa2f90ba96b43914d49a90e92ada1e08ea74a1eac6557defc04fd"
+    },
+    {
+      "path": "app/services/onboarding_attention.py",
+      "sha256": "b7ed53afdf43c93cfc7b4abec0663604633182394c9ae7f551f5fb5e62b9aabf"
+    },
+    {
+      "path": "app/services/product_analytics.py",
+      "sha256": "93aa956ec4cef5dd7cd17ee7f7af51c0e2e7ff0e541c3ab1eadeabc66ba3dcca"
+    },
+    {
+      "path": "app/services/trade_fees.py",
+      "sha256": "6e7a2a16d84a43db0a8959a2989dc589d840b9ffc05d2d4306b69d23c2c01a95"
+    },
+    {
+      "path": "deploy/postgres/app_acl_policy.sql",
+      "sha256": "b097b2b2fe2925d4031c4fa6f6158247204b3cee18cd74433102b1cd6ef2d38c"
+    }
+  ]
+}

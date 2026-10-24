@@ -16,6 +16,112 @@ comes from each environment's `/health/ready` response, not a dated SHA in
 source documentation. The shared-host marker is
 `/home/verdaxis-prod/verdaxis/PRODUCTION_HOST.md`.
 
+## Rust business transaction foundation
+
+`rs/read/src/business/` supplies caller-owned audit/status appenders and an
+ordered command owner. The owner releases its read-only preview before locking
+organizations, sorted users including the actor, and join requests through the
+shared auth lock helper. It rechecks account authority and preview identity
+inside the write transaction. A detached task holds admission through caller
+cancellation; ambiguous commit outcomes are not replayed. Business quota
+adapters use exact method/template pairs from the committed route inventory.
+No business route is mounted by these modules. The foundation remains pending
+integration and database qualification before consumer acceptance.
+
+## Rust Phase 2 feedback
+
+`rs/read/src/crud/feedback.rs` provides the Task 10 feedback submission and
+administrator listing routers. Both use the shared authenticated transaction;
+submission and pagination validation precede endpoint quota consumption through
+`validate_and_admit`. The admin view retains identified support data and outer
+joins. `rs/read/tests/run_feedback.sh` runs the focused HTTP/database checks in a
+disposable PostgreSQL container; `tests/rust_contract/phase2/feedback.json` holds
+validation vectors and scenario definitions. `feedback_scenario.py` registers
+31 real-route twin-database actions with full committed-state, rollback,
+postcommit no-replay and empty-mail-ledger assertions. The feature-gated
+`feedback_contract` example and Python test adapter control IDs and clocks without
+changing deployed settings. These routers are
+not activated in the serving binary. Feedback stays on Python at cutover until
+Task 22 provides the shared Python–Rust quota counter across real processes.
+
+
+## Rust Phase 3 auth storage and lock primitives
+
+`rs/read/src/auth/store.rs` holds every statement on `refresh_sessions` and
+`password_reset_tokens`, plus the user-row locks credential routes take. It runs
+on the caller's transaction and never commits. `rs/read/src/auth/lock.rs` owns
+the device advisory key (the first eight bytes of the cookie's SHA-256 digest,
+big-endian, signed, the same key Python uses), the session lock order (device,
+user, then that user's session or reset rows), the organization-write order
+(after the admission-held actor, organizations, other users, join requests,
+each by ascending id) and the bounded retry: three attempts on 40001/40P01,
+then a 503 `ORGANIZATION_WRITE_BUSY`. Reset issuance touches only its user's
+row; bounded expired-row cleanup executes separately through the pool.
+`alembic/versions/p3_20261020_auth_tokens.py` adds `password_reset_tokens`
+(one row per user, Rust-owned; `app/models/password_reset_token.py` only declares
+it for `alembic check`). Its runtime grants are table-level SELECT and DELETE and
+column-level INSERT and UPDATE, so a later column gets no write authority.
+`tests/postgres/test_phase3_auth_store.py` proves the single head, the additive
+and reversible migration, the grants, the shared device key
+(`tests/rust_contract/phase3/device-lock-keys.json`) and drives
+`rs/read/tests/auth_store_postgres.rs` on the migrated database. No route uses
+these primitives yet. `store::revoke_user_authentication` locks the user, advances
+`authentication_revoked_at` monotonically at PostgreSQL microsecond precision,
+and revokes all user refresh families without committing. Missing users return
+`sqlx::Error::RowNotFound`. `auth_revocation_postgres.rs`, driven by
+`tests/postgres/test_phase3_auth_revocation.py`, covers concurrent updates and
+caller rollback on the migrated runtime role.
+
+## Rust Phase 2 order-write boundary
+
+Task 20 adds `rs/read/src/order_write/` for Python-derived lock identities,
+request hashes, receipt replay, bounded retries, and a private PostgreSQL
+transaction shell. The shell preserves caller-declared order-row acquisition
+order and sorts side-independent slice locks. Its database methods and test
+doubles remain inside the boundary. SQLx owns rollback on transaction drop.
+The public command entry point refuses unsupported commands before database
+access; no market HTTP write route is mounted. This task implements neither
+matching nor trade lifecycle operations. Public-scope event generation (PD4)
+remains mandatory before a future command can emit market events.
+
+`tests/rust_contract/phase2/market-write-spec.json` pins the Python source and
+hash vectors. The registered `order-write-postgres` group uses feature-gated
+loopback adapters to prove twin state, rollback, replay, timeouts, observed
+PostgreSQL advisory-lock order, bounded retries, races and mixed dispatch. See
+`docs/rust-phase2/task20-write-boundary.md` for gate results and the resume point.
+
+## Rust Phase 2 price-alert component
+
+Task 16 adds `rs/read/src/crud/alerts.rs` for organization-owned alert create,
+list, and delete. `routes::alerts_router` exposes the component router; runtime
+composition must supply the existing verification settings and shared quota
+authority. Each request uses the shared authenticated transaction owner and
+current database organization. NUMERIC rounding remains PostgreSQL-owned;
+product codes derive from the attested exact label tuple, including inactive
+products. Python retains price triggering and participant-event production.
+`tests/postgres/test_phase2_alert_interop.py` drives Rust storage and HTTP
+component checks against the existing disposable PostgreSQL fixture, then runs
+Python's trigger helper on the committed Rust row. The registered `alerts-crud`
+and `alerts-crud-reverse` scenarios use the shared runner for paired HTTP/state,
+rollback, retained-commit/no-replay and mixed dispatcher checks. Disposable-only
+adapters control IDs/clocks and record approved PD8: Python's SQL-count barrier
+reproduces six active rows; Rust takes a namespaced per-organization transaction
+advisory lock after the authenticated user lock and before counting, admitting
+one create and refusing the other with the existing 403, leaving five active rows.
+No organization row lock, Python change, or runtime ACL grant is required. Evidence is in `docs/rust-phase2/task16-handoff.md`.
+Coverage requirements are data in `tests/rust_contract/phase2/alerts-scenarios.json`.
+
+## Rust Phase 2 referral routes
+
+`rs/read/src/crud/referrals/` implements referral statistics, leaderboard,
+public code resolution, serialized code allocation and invite preparation.
+Routes use shared authentication/transaction authority; invite allocation commits
+before the bounded provider call. Only the actor's referral code can change.
+Mail settings are injected, default disabled, and tests use numeric loopback
+stubs. No referral or outbox row is inserted by invite. Shared runtime projection
+and twin-database/race qualification remain integration gates. See
+`docs/rust-phase2-referrals.md`.
+
 ## Rust Phase 1 bootstrap
 
 `rs/` is a Rust 1.95 workspace with two packages. `verdaxis-read` defines the
@@ -278,6 +384,17 @@ owns the one budgeted listener connection. Nothing starts either yet. See
 Exact `market/amount.rs` operations retain intermediate economic rounding while
 removing wire-spelling emulation. See `docs/rust-phase1/same-meaning-contract.md`.
 
+## Rust Phase 2 shared route runner
+
+`phase2_scenarios.py` owns lane registrations, per-action HTTP/state/effect checks,
+barrier races and mixed-writer schedules. `phase2_routes.py` adapts them to the
+existing `run_disposable.Runner` lifecycle and app-role cloned databases.
+`phase2_mail.py` owns the per-run loopback captured-send provider;
+`phase2_oracle.py` redirects Python email only in disposable tests. The complete
+synthetic registration is `phase2_example.py`, not CRUD qualification. Groups
+without real registrations refuse rather than execute harness smoke. See
+`docs/rust-phase2-runner.md` for lane adapters and acceptance boundaries.
+
 ## Rust Phase 2 contract preparation
 
 `tests/rust_contract/phase2/routes.json` pins the 27 CRUD method/path pairs,
@@ -286,7 +403,6 @@ OpenAPI operations, DTO exports, effect classes and Python source digests.
 on the isolated test host. `evidence-manifest.json` declares required route and
 scenario coverage and separates disposable-artifact qualification from
 production-cutover acceptance. It contains no run results or cutover verdict.
-See `outputs/rust-phase2/source-checkpoint.md` for the oracle identity and checks.
 Authentication issuance, market writers, SSE and dispatch remain Python-owned.
 `compare.py::compare_responses` is the raw-response profile boundary. Its explicit
 `phase2-meaning-v1` branch delegates to private `phase2_meaning.py`, with a
@@ -302,6 +418,33 @@ Task 6 must load account state under the shared transaction/user-row lock.
 `phase2_auth_vectors.py` exports synthetic full-HTTP Python results for Rust's
 in-process HTTP tests. See `docs/rust-phase2-task5.md` for scope, source findings
 and every gate result.
+
+### Phase 2 Task 8: notifications
+
+`rs/read/src/crud/notifications.rs` serves N01–N04 through `auth::run_authenticated`.
+List/count filter by recipient and PostgreSQL's `_email_only` boolean coercion;
+response projection removes top-level `_email_` keys only. Both writes include
+email-only rows and create no events. `notification_authority.rs` accepts explicit
+verification settings and a shared quota authority at composition time; it adds
+no runtime settings or secrets. `routes::notification_routes` exposes the route
+group without activating it in the serving binary.
+`rs/read/tests/run_notifications.py` reuses the existing disposable lifecycle to
+run the Rust component tests against the migrated schema and audited app ACLs.
+The twin-cell HTTP scenario remains pending the runner lane. Its task-owned data
+is `tests/rust_contract/phase2/notification-scenario.json`; current gate evidence
+and integration requirements are in `docs/rust-phase2/task8-handoff.md`.
+
+### Phase 2 Task 9: preferences
+
+Task 9 adds `crud/preferences.rs` and the marked `routes::preferences_router`
+registration seam for P01/P02. Both routes use the shared authenticated transaction;
+PUT retains the exclusive user lock through commit and preserves the original
+validated JSON. The integration owner supplies verification settings and shared
+quota authority; this task does not activate deployed routes. The disposable
+`phase2_preferences.py` scenario uses the existing runner lifecycle, separate
+Python/Rust databases, controlled IDs/clocks, full-state comparison, and observed
+same-user lock waits. Evidence and remaining boundaries are in
+`docs/rust-phase2-task9.md`.
 
 ### Frozen Phase 1 measurement reference
 

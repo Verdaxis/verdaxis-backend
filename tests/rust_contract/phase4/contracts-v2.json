@@ -1,0 +1,3607 @@
+{
+  "version": 2,
+  "status": "partial",
+  "source_sha": "b57affd30437869e60f21ffdd1e68f6d0ae1e9ff",
+  "contracts": [
+    {
+      "id": "CF4_01",
+      "owners": [
+        "6",
+        "11a",
+        "integration"
+      ],
+      "signature_status": "declared",
+      "signatures": [
+        {
+          "declaration": "pub async fn freeze_approval_mail(conn: &mut PgConnection, marker: &ApprovalMailMarker) -> Result<(), MailError>",
+          "sha256": "411eb944c0f0ed14a071fff4cf968e5e7fbf69003fb83426ea122aeaa2794a47"
+        },
+        {
+          "declaration": "pub async fn claim_approval_mail(conn: &mut PgConnection, user_id: Uuid, transition_id: Uuid, now: DateTime<Utc>) -> Result<Option<ApprovalMailClaim>, MailError>",
+          "sha256": "f4cc95668550e4887a45ec19a303333db092cc64845ab0452cf3617deced1618"
+        },
+        {
+          "declaration": "pub async fn finalize_approval_mail(conn: &mut PgConnection, claim: &ApprovalMailClaim, accepted: bool, now: DateTime<Utc>) -> Result<(), MailError>",
+          "sha256": "594ba5d1a5510ef28445284e549e14284490a8ce284d27d8a43efffa96f79fc7"
+        }
+      ],
+      "schemas": {
+        "ApprovalMailMarker": {
+          "user_id": "Uuid",
+          "transition_id": "Uuid",
+          "payload": "FrozenApprovalPayload",
+          "retry_at": "DateTime<Utc>"
+        },
+        "FrozenApprovalPayload": {
+          "from": "String",
+          "to": "[String;1]",
+          "subject": "String",
+          "html": "String",
+          "reply_to": "Option<String>; omitted for retained payload without field"
+        },
+        "ApprovalMailClaim": {
+          "marker": "ApprovalMailMarker",
+          "claim_until": "DateTime<Utc>"
+        },
+        "columns": {
+          "users.pending_approval_email_transition_id": "uuid nullable",
+          "users.pending_approval_email_payload": "jsonb nullable",
+          "users.pending_approval_email_retry_at": "timestamptz nullable"
+        }
+      },
+      "rules": {
+        "claim_seconds": 300,
+        "failure_defer_seconds": 3600,
+        "batch_default": 20,
+        "batch_max": 100,
+        "idempotency_key": "account-approval/{transition_id}",
+        "finalize_match": [
+          "user_id",
+          "transition_id",
+          "claim_until"
+        ],
+        "payload": "freeze at approval; never rebuild on retry; preserve retained optional field omission",
+        "eligibility": "APPROVED, email verified, nonadmin",
+        "transaction": "all helpers borrow caller connection; no commit; claim committed by owner before bounded send without user lock",
+        "reapproval": "new transition; old finalization cannot clear newer claim",
+        "notification": "one bounded send per claim; no new timer; uncertain send not exactly-once guaranteed"
+      },
+      "source_digests": [
+        {
+          "path": "app/services/account_approval_email.py",
+          "sha256": "34f6b8e8a2c05b1e8bf9de64385d92acd5280a6da2debab99ce0cfe194604dab"
+        },
+        {
+          "path": "app/services/email.py",
+          "sha256": "e6b295f955cfe0c5001b694811977336bb7ca473e3625dbc07c03741b11f63fe"
+        },
+        {
+          "path": "app/models/user.py",
+          "sha256": "fda40d53a1e63f61b1b3055da23df202cc8816be494194a3da26203dd0328de8"
+        }
+      ],
+      "status": "accepted"
+    },
+    {
+      "id": "CF4_02",
+      "owners": [
+        "3",
+        "8",
+        "9",
+        "10",
+        "11b",
+        "integration"
+      ],
+      "signature_status": "declared",
+      "signatures": [
+        {
+          "declaration": "pub fn eligibility(policy: &KycPolicy, party: &KycParty, grace: Option<&Grace>, now: DateTime<Utc>) -> KycEligibility",
+          "sha256": "c27f64dc891b9ec1064529f5bdd275e3855a12044a6296b5bf5da58c79b13673"
+        },
+        {
+          "declaration": "pub fn bind_eligibility_sql(builder: &mut QueryBuilder<Postgres>, policy: &KycPolicy, party: KycSqlParty, now: DateTime<Utc>)",
+          "sha256": "87a7b1a8a9ce011b83ac52a0765bb6897c7b2f44273487ca22999a2e657aceb9"
+        }
+      ],
+      "schemas": {
+        "KycPolicy": {
+          "execution_gate_enabled": "bool; runtime Config.kyc_execution_gate_enabled only"
+        },
+        "KycParty": {
+          "user_id": "Uuid",
+          "organization_id": "Option<Uuid>",
+          "kyc_organization_id": "Option<Uuid>",
+          "kyc_status": "Pending|Submitted|Approved|Rejected"
+        },
+        "Grace": {
+          "user_id": "Uuid",
+          "organization_id": "Uuid",
+          "expires_at": "DateTime<Utc>"
+        },
+        "KycEligibility": {
+          "eligible": "bool",
+          "reason": "KYC_NOT_ENFORCED|KYC_APPROVED|KYC_REJECTED|KYC_GRACE|KYC_REQUIRED",
+          "grace_expires_at": "Option<DateTime<Utc>>"
+        },
+        "KycSqlParty": {
+          "user_alias": "closed developer-owned alias",
+          "organization_alias": "closed developer-owned alias"
+        },
+        "profile_not_applicable": "separate presentation state; never market eligibility",
+        "KycSqlBinding": {
+          "user": "u",
+          "grace": "g",
+          "binds": [
+            "execution_gate_enabled bool",
+            "now timestamptz"
+          ],
+          "strict_sql": "u.kyc_status IN ('PENDING','SUBMITTED','APPROVED','REJECTED') AND u.kyc_status <> 'REJECTED' AND ((u.kyc_status = 'APPROVED' AND u.kyc_organization_id = u.organization_id) OR EXISTS (SELECT 1 FROM kyc_execution_grace g WHERE g.user_id = u.id AND g.organization_id = u.organization_id AND g.expires_at > $now))",
+          "advisory_sql": "u.kyc_status IN ('PENDING','SUBMITTED','APPROVED','REJECTED') AND u.kyc_status <> 'REJECTED' AND (u.kyc_organization_id IS NULL OR u.kyc_organization_id = u.organization_id)",
+          "combined": "(NOT $enabled AND advisory_sql) OR ($enabled AND strict_sql)",
+          "known_status_values": [
+            "PENDING",
+            "SUBMITTED",
+            "APPROVED",
+            "REJECTED"
+          ],
+          "review_required_literal": {
+            "symbol": "KYC_REVIEW_REQUIRED",
+            "value": "SUBMITTED",
+            "source": "app/services/kyc.py:3"
+          },
+          "unknown_status": "false in both switch states, with or without matching unexpired grace; null never authorizes",
+          "release_gate": {
+            "operation": "read_only",
+            "sql": "SELECT count(*) FROM users WHERE kyc_status IS NULL OR kyc_status NOT IN ('PENDING','SUBMITTED','APPROVED','REJECTED')",
+            "required_count": 0,
+            "failure": "block cutover; no automatic coercion, repair or mutation",
+            "consumers": [
+              "3",
+              "8",
+              "9",
+              "10",
+              "11b"
+            ]
+          }
+        }
+      },
+      "rules": {
+        "switch": "one runtime switch; no route copies",
+        "enabled": "current organization required; bound approved or current unexpired organization-bound grace; rejection always blocks; cross-organization grace never applies",
+        "disabled": "advisory: rejection or review bound to another organization blocks; otherwise eligible with KYC_NOT_ENFORCED",
+        "grace_expiry": "now < expires_at; equality refuses",
+        "sql": "same decision truth table and bound switch/now; reuse market visibility; no untrusted SQL identifiers",
+        "authority": "grace SELECT-only; no fake KYC",
+        "evidence": "vault has no provider dependency; encrypted rows and history retained"
+      },
+      "source_digests": [
+        {
+          "path": "app/services/kyc_execution.py",
+          "sha256": "beba3a3f78b6c2c582aeee1cebf27e4fe9fd8099416151f94f41b18b20b529e2"
+        },
+        {
+          "path": "rs/read/src/market/visibility.rs",
+          "sha256": "750193b9b57a1428faf44ba5cf3fded16fa6f205810dc60928531229e23c02fc"
+        }
+      ],
+      "status": "accepted"
+    },
+    {
+      "id": "CF4_03",
+      "owners": [
+        "15",
+        "16",
+        "17a",
+        "17b",
+        "18",
+        "19",
+        "integration"
+      ],
+      "signature_status": "declared",
+      "signatures": [
+        {
+          "declaration": "pub fn validate_query(input: QueryInput) -> Result<AnalyticsQuery, ApiError>",
+          "sha256": "07229cea8084d90e6db988cf1795b42930e712f5951d1693ae5650fdc2d04edc"
+        },
+        {
+          "declaration": "pub fn suppress(count: Option<u64>, entities: Option<u64>) -> AggregateCell",
+          "sha256": "67b0b129c199481221676439ea93fbcf534ce8b0c03e7d8856fdc3fb23c27e8b"
+        },
+        {
+          "declaration": "pub async fn window(&self, query: &AnalyticsQuery, properties: AllowedPropertySet) -> BehavioralWindow",
+          "sha256": "0e1851ecd051a1b2a6827234d0e9f8eac71e6f441d467d4448b50a46d12fa183"
+        }
+      ],
+      "schemas": {
+        "source_response_types": {
+          "AnalyticsAudience": {
+            "fields": {},
+            "variants": {
+              "ALL": "ALL",
+              "BUYER": "BUYER",
+              "SUPPLIER": "SUPPLIER"
+            }
+          },
+          "AnalyticsActivity": {
+            "fields": {},
+            "variants": {
+              "LIVE": "LIVE",
+              "DEMO": "DEMO",
+              "REFERENCE": "REFERENCE",
+              "ALL": "ALL"
+            }
+          },
+          "ProductAnalyticsQuery": {
+            "fields": {
+              "start": "datetime",
+              "end": "datetime",
+              "compare": "bool",
+              "audience": "AnalyticsAudience",
+              "activity": "AnalyticsActivity",
+              "product_id": "UUID | None",
+              "delivery_point_id": "UUID | None",
+              "availability_window": "str | None"
+            },
+            "variants": {},
+            "input_schema": "QueryInput (normative defaults and validation)"
+          },
+          "AnalyticsDiagnostic": {
+            "fields": {},
+            "variants": {
+              "DISABLED": "disabled",
+              "CONFIGURATION": "configuration",
+              "AUTHENTICATION": "authentication",
+              "TIMEOUT": "timeout",
+              "UPSTREAM": "upstream",
+              "MALFORMED_RESPONSE": "malformed_response",
+              "INSUFFICIENT_COVERAGE": "insufficient_coverage"
+            }
+          },
+          "AnalyticsDataQuality": {
+            "fields": {
+              "legacy_timestamp_fallback_count": "int",
+              "missing_paid_at_count": "int",
+              "missing_commission_payment_date_count": "int",
+              "suppressed_cell_count": "int",
+              "cohort_complete": "bool"
+            },
+            "variants": {}
+          },
+          "AnalyticsSourceStatus": {
+            "fields": {},
+            "variants": {
+              "AVAILABLE": "available",
+              "PARTIAL": "partial",
+              "UNAVAILABLE": "unavailable",
+              "NOT_APPLICABLE": "not_applicable"
+            }
+          },
+          "AnalyticsSourceCoverage": {
+            "fields": {
+              "coverage_start": "datetime | None",
+              "coverage_end": "datetime | None",
+              "observed_at": "datetime | None",
+              "status": "AnalyticsSourceStatus",
+              "diagnostic": "AnalyticsDiagnostic | None"
+            },
+            "variants": {}
+          },
+          "AnalyticsCoverage": {
+            "fields": {
+              "authoritative": "AnalyticsSourceCoverage",
+              "behavioral": "AnalyticsSourceCoverage",
+              "login_history": "AnalyticsSourceCoverage",
+              "status_history": "AnalyticsSourceCoverage",
+              "reference": "AnalyticsSourceCoverage"
+            },
+            "variants": {}
+          },
+          "AnalyticsMeta": {
+            "fields": {
+              "start": "datetime",
+              "end": "datetime",
+              "previous_start": "datetime | None",
+              "previous_end": "datetime | None",
+              "observed_at": "datetime",
+              "coverage": "AnalyticsCoverage",
+              "data_quality": "AnalyticsDataQuality"
+            },
+            "variants": {}
+          },
+          "AggregateCell": {
+            "fields": {
+              "key": "str",
+              "count": "int | None",
+              "suppressed": "bool"
+            },
+            "variants": {}
+          },
+          "MetricValue": {
+            "fields": {
+              "value": "int | None",
+              "previous": "int | None",
+              "suppressed": "bool"
+            },
+            "variants": {}
+          },
+          "DecimalMetricValue": {
+            "fields": {
+              "value": "Decimal | None",
+              "previous": "Decimal | None",
+              "suppressed": "bool"
+            },
+            "variants": {}
+          },
+          "RatioValue": {
+            "fields": {
+              "numerator": "int | None",
+              "denominator": "int | None",
+              "rate_pct": "Decimal | None",
+              "suppressed": "bool",
+              "cohort_complete": "bool"
+            },
+            "variants": {}
+          },
+          "SeriesPoint": {
+            "fields": {
+              "date": "date",
+              "value": "int | None"
+            },
+            "variants": {}
+          },
+          "DecimalSeriesPoint": {
+            "fields": {
+              "date": "date",
+              "value": "Decimal | None"
+            },
+            "variants": {}
+          },
+          "RankedRow": {
+            "fields": {
+              "key": "str",
+              "label": "str",
+              "count": "int | None",
+              "share_pct": "Decimal | None",
+              "suppressed": "bool"
+            },
+            "variants": {}
+          },
+          "RouteFamily": {
+            "fields": {},
+            "variants": {
+              "LANDING": "landing",
+              "SIGNUP": "signup",
+              "PLATFORM": "platform",
+              "ADMIN": "admin"
+            }
+          },
+          "FrontendErrorCategory": {
+            "fields": {},
+            "variants": {
+              "RENDER": "render",
+              "CHUNK": "chunk",
+              "NETWORK": "network",
+              "UNKNOWN": "unknown"
+            }
+          },
+          "NavigationDestination": {
+            "fields": {},
+            "variants": {
+              "HOME": "home",
+              "MAP": "map",
+              "MARKETPLACE": "marketplace",
+              "CURVE": "curve",
+              "WATCHLIST": "watchlist",
+              "ANALYTICS": "analytics",
+              "TRADES": "trades",
+              "QUOTES": "quotes",
+              "COMPLIANCE": "compliance",
+              "TRAINING": "training",
+              "SETTINGS": "settings",
+              "ADMIN": "admin"
+            }
+          },
+          "NavigationLatencyBucket": {
+            "fields": {},
+            "variants": {
+              "LT_250": "lt250",
+              "FROM_250_TO_500": "250_500",
+              "FROM_500_TO_1000": "500_1000",
+              "FROM_1000_TO_2500": "1000_2500",
+              "GTE_2500": "gte2500"
+            }
+          },
+          "LifecycleStageKey": {
+            "fields": {},
+            "variants": {
+              "VISITORS": "visitors",
+              "REGISTERED": "registered",
+              "ACTIVE": "active",
+              "PARTICIPATING": "participating",
+              "TRADING": "trading",
+              "RETAINED": "retained"
+            }
+          },
+          "NeedsAttentionRule": {
+            "fields": {},
+            "variants": {
+              "APPROVED_MEMBERS_NEVER_LOGGED_IN": "approved_members_never_logged_in",
+              "SIGNUP_SUBMISSION_DROP": "signup_submission_drop",
+              "ONE_SIDED_LIVE_MARKET": "one_sided_live_market",
+              "ELEVATED_LOGIN_FAILURES": "elevated_login_failures",
+              "DEGRADED_ANALYTICS_COLLECTION": "degraded_analytics_collection"
+            }
+          },
+          "LifecycleStage": {
+            "fields": {
+              "key": "LifecycleStageKey",
+              "count": "int | None",
+              "previous": "int | None",
+              "coverage": "AnalyticsSourceStatus",
+              "detail_tab": "str"
+            },
+            "variants": {}
+          },
+          "ActivityTrend": {
+            "fields": {
+              "visitors": "list[SeriesPoint]",
+              "active_members": "list[SeriesPoint]",
+              "orders": "list[SeriesPoint]",
+              "confirmed_trades": "list[SeriesPoint]"
+            },
+            "variants": {}
+          },
+          "MarketplaceBalance": {
+            "fields": {
+              "buyer_organizations": "MetricValue",
+              "supplier_organizations": "MetricValue",
+              "bid_orders": "MetricValue",
+              "ask_orders": "MetricValue"
+            },
+            "variants": {}
+          },
+          "NeedsAttentionItem": {
+            "fields": {
+              "rule": "NeedsAttentionRule",
+              "count": "int | None"
+            },
+            "variants": {}
+          },
+          "OverviewKpis": {
+            "fields": {
+              "qualified_organizations": "MetricValue",
+              "active_members": "MetricValue",
+              "participating_organizations": "MetricValue",
+              "live_orders": "MetricValue",
+              "confirmed_trades": "MetricValue"
+            },
+            "variants": {}
+          },
+          "OverviewResponse": {
+            "fields": {
+              "meta": "AnalyticsMeta",
+              "kpis": "OverviewKpis",
+              "lifecycle": "list[LifecycleStage]",
+              "activity_trend": "ActivityTrend",
+              "marketplace_balance": "MarketplaceBalance",
+              "needs_attention": "list[NeedsAttentionItem]"
+            },
+            "variants": {}
+          },
+          "AcquisitionKpis": {
+            "fields": {
+              "visitors": "MetricValue",
+              "visits": "MetricValue",
+              "pageviews": "MetricValue",
+              "average_session_duration_seconds": "DecimalMetricValue",
+              "cta_clicks": "MetricValue"
+            },
+            "variants": {}
+          },
+          "CtaMatrixRow": {
+            "fields": {
+              "cta": "str",
+              "placement": "str",
+              "clicks": "int | None",
+              "share_pct": "Decimal | None",
+              "suppressed": "bool"
+            },
+            "variants": {}
+          },
+          "CalculatorFunnel": {
+            "fields": {
+              "starts": "MetricValue",
+              "completions": "MetricValue"
+            },
+            "variants": {}
+          },
+          "AcquisitionResponse": {
+            "fields": {
+              "meta": "AnalyticsMeta",
+              "kpis": "AcquisitionKpis",
+              "visitors_trend": "list[SeriesPoint]",
+              "previous_visitors_trend": "list[SeriesPoint]",
+              "visits_trend": "list[SeriesPoint]",
+              "referrers": "list[RankedRow]",
+              "entry_pages": "list[RankedRow]",
+              "cta_matrix": "list[CtaMatrixRow]",
+              "languages": "list[RankedRow]",
+              "calculator": "CalculatorFunnel"
+            },
+            "variants": {}
+          },
+          "JourneySource": {
+            "fields": {},
+            "variants": {
+              "BEHAVIORAL": "behavioral",
+              "AUTHORITATIVE": "authoritative"
+            }
+          },
+          "JourneyStage": {
+            "fields": {
+              "key": "str",
+              "source": "JourneySource",
+              "total": "AggregateCell",
+              "buyer": "AggregateCell | None",
+              "supplier": "AggregateCell | None"
+            },
+            "variants": {}
+          },
+          "DurationBucket": {
+            "fields": {
+              "bucket": "str",
+              "cell": "AggregateCell"
+            },
+            "variants": {}
+          },
+          "DurationDistribution": {
+            "fields": {
+              "buckets": "list[DurationBucket]",
+              "median_hours": "Decimal | None",
+              "sample_size": "int | None",
+              "suppressed": "bool"
+            },
+            "variants": {}
+          },
+          "ConversionRatioKind": {
+            "fields": {},
+            "variants": {
+              "USER_COHORT": "user_cohort",
+              "ORGANIZATION_COHORT": "organization_cohort",
+              "AGGREGATE_EVENT": "aggregate_event"
+            }
+          },
+          "LabeledRatio": {
+            "fields": {
+              "key": "str",
+              "kind": "ConversionRatioKind",
+              "ratio": "RatioValue"
+            },
+            "variants": {}
+          },
+          "ActivationResponse": {
+            "fields": {
+              "meta": "AnalyticsMeta",
+              "journey": "list[JourneyStage]",
+              "time_to_first_login": "DurationDistribution",
+              "time_to_first_live_order": "DurationDistribution",
+              "drop_off": "list[AggregateCell]",
+              "ratios": "list[LabeledRatio]"
+            },
+            "variants": {}
+          },
+          "EngagementKpis": {
+            "fields": {
+              "dau": "MetricValue",
+              "wau": "MetricValue",
+              "mau": "MetricValue",
+              "stickiness_pct": "Decimal | None"
+            },
+            "variants": {}
+          },
+          "FeatureAdoptionRow": {
+            "fields": {
+              "family": "str",
+              "events": "int | None",
+              "suppressed": "bool"
+            },
+            "variants": {}
+          },
+          "NavigationDestinationRow": {
+            "fields": {
+              "destination": "NavigationDestination",
+              "total": "AggregateCell",
+              "buyer": "AggregateCell | None",
+              "supplier": "AggregateCell | None"
+            },
+            "variants": {}
+          },
+          "TutorialStepRow": {
+            "fields": {
+              "step": "str",
+              "completed": "AggregateCell",
+              "skipped": "AggregateCell"
+            },
+            "variants": {}
+          },
+          "EngagementResponse": {
+            "fields": {
+              "meta": "AnalyticsMeta",
+              "kpis": "EngagementKpis",
+              "active_members_trend": "list[SeriesPoint]",
+              "feature_adoption": "list[FeatureAdoptionRow]",
+              "workflow_ratios": "list[LabeledRatio]",
+              "navigation_destinations": "list[NavigationDestinationRow]",
+              "tutorial_steps": "list[TutorialStepRow]"
+            },
+            "variants": {}
+          },
+          "MarketplaceKpis": {
+            "fields": {
+              "participating_organizations": "MetricValue",
+              "open_bids": "MetricValue",
+              "open_asks": "MetricValue",
+              "confirmed_trades": "MetricValue",
+              "confirmed_volume_mt": "DecimalMetricValue",
+              "execution_rate": "RatioValue"
+            },
+            "variants": {}
+          },
+          "SliceLiquidityRow": {
+            "fields": {
+              "product_key": "str",
+              "product_label": "str",
+              "delivery_point_key": "str",
+              "delivery_point_label": "str",
+              "availability_window": "str",
+              "availability_window_label": "str",
+              "contributing_organizations": "int | None",
+              "best_bid_usd_per_mt": "Decimal | None",
+              "best_ask_usd_per_mt": "Decimal | None",
+              "spread_usd_per_mt": "Decimal | None",
+              "spread_bps": "Decimal | None",
+              "best_bid_depth_mt": "Decimal | None",
+              "best_ask_depth_mt": "Decimal | None",
+              "one_percent_bid_depth_mt": "Decimal | None",
+              "one_percent_ask_depth_mt": "Decimal | None",
+              "crossed": "bool | None",
+              "suppressed": "bool"
+            },
+            "variants": {}
+          },
+          "LiquiditySummary": {
+            "fields": {
+              "two_sided_slices": "int | None",
+              "one_sided_slices": "int | None",
+              "crossed_slices": "int | None",
+              "median_spread_usd_per_mt": "Decimal | None",
+              "median_spread_bps": "Decimal | None",
+              "median_open_order_age_hours": "Decimal | None",
+              "median_hours_to_first_fill": "Decimal | None",
+              "slices": "list[SliceLiquidityRow]"
+            },
+            "variants": {}
+          },
+          "MarketBalanceTrend": {
+            "fields": {
+              "buyer_organizations": "list[SeriesPoint]",
+              "supplier_organizations": "list[SeriesPoint]",
+              "bids": "list[SeriesPoint]",
+              "asks": "list[SeriesPoint]"
+            },
+            "variants": {}
+          },
+          "ProductPortCell": {
+            "fields": {
+              "product_key": "str",
+              "product_label": "str",
+              "delivery_point_key": "str",
+              "delivery_point_label": "str",
+              "orders": "AggregateCell",
+              "organizations": "AggregateCell"
+            },
+            "variants": {}
+          },
+          "ConcentrationBand": {
+            "fields": {},
+            "variants": {
+              "LOW": "low",
+              "MODERATE": "moderate",
+              "HIGH": "high"
+            }
+          },
+          "OrganizationConcentration": {
+            "fields": {
+              "hhi_band": "ConcentrationBand | None",
+              "suppressed": "bool"
+            },
+            "variants": {}
+          },
+          "CommercialSummary": {
+            "fields": {
+              "realized_gmv_usd": "DecimalMetricValue",
+              "realized_revenue_usd": "DecimalMetricValue",
+              "commission_pending_usd": "Decimal | None",
+              "commission_invoiced_usd": "Decimal | None"
+            },
+            "variants": {}
+          },
+          "MarketActivitySection": {
+            "fields": {
+              "kpis": "MarketplaceKpis",
+              "liquidity": "LiquiditySummary",
+              "balance_trend": "MarketBalanceTrend",
+              "product_port_matrix": "list[ProductPortCell]",
+              "window_distribution": "list[RankedRow]",
+              "order_status_distribution": "list[AggregateCell]",
+              "trade_status_distribution": "list[AggregateCell]",
+              "concentration": "OrganizationConcentration"
+            },
+            "variants": {}
+          },
+          "ReferenceSourceLabel": {
+            "fields": {},
+            "variants": {
+              "MANUAL_OVERRIDE": "MANUAL_OVERRIDE",
+              "SEED_MATRIX": "SEED_MATRIX",
+              "OTHER": "OTHER"
+            }
+          },
+          "ReferenceSourceKind": {
+            "fields": {},
+            "variants": {
+              "ADMIN_BENCHMARK": "ADMIN_BENCHMARK",
+              "SEEDED_BENCHMARK": "SEEDED_BENCHMARK",
+              "TRADE_DERIVED_VWAP": "TRADE_DERIVED_VWAP",
+              "OTHER": "OTHER"
+            }
+          },
+          "ReferenceScope": {
+            "fields": {},
+            "variants": {
+              "EXACT_SLICE": "EXACT_SLICE",
+              "WINDOW_ADJUSTED": "WINDOW_ADJUSTED",
+              "OTHER": "OTHER"
+            }
+          },
+          "ReferenceCoverageRow": {
+            "fields": {
+              "product_key": "str",
+              "product_label": "str",
+              "delivery_point_key": "str",
+              "delivery_point_label": "str",
+              "availability_window": "str",
+              "availability_window_label": "str",
+              "benchmark_price_usd_per_mt": "Decimal | None",
+              "source_label": "ReferenceSourceLabel",
+              "generated_at": "datetime",
+              "observed_at": "datetime | None",
+              "source_kind": "ReferenceSourceKind",
+              "scope": "ReferenceScope",
+              "coverage_status": "Literal['current', 'stale', 'unavailable']"
+            },
+            "variants": {}
+          },
+          "ReferenceCoverageSection": {
+            "fields": {
+              "rows": "list[ReferenceCoverageRow]"
+            },
+            "variants": {}
+          },
+          "MarketplaceResponse": {
+            "fields": {
+              "meta": "AnalyticsMeta",
+              "live": "MarketActivitySection | None",
+              "demo": "MarketActivitySection | None",
+              "unknown": "MarketActivitySection | None",
+              "reference": "ReferenceCoverageSection | None",
+              "commercial": "CommercialSummary | None"
+            },
+            "variants": {}
+          },
+          "CohortCell": {
+            "fields": {
+              "offset": "int",
+              "cell": "AggregateCell",
+              "pct": "Decimal | None"
+            },
+            "variants": {}
+          },
+          "CohortRow": {
+            "fields": {
+              "cohort_start": "date",
+              "size": "AggregateCell",
+              "cells": "list[CohortCell]"
+            },
+            "variants": {}
+          },
+          "RetentionKpis": {
+            "fields": {
+              "returning_members": "MetricValue",
+              "retained_organizations": "MetricValue",
+              "reactivated_organizations": "MetricValue",
+              "dormant_approved_members": "MetricValue"
+            },
+            "variants": {}
+          },
+          "RetentionResponse": {
+            "fields": {
+              "meta": "AnalyticsMeta",
+              "kpis": "RetentionKpis",
+              "member_cohorts": "list[CohortRow]",
+              "organization_cohorts": "list[CohortRow]",
+              "repeat_participation": "list[AggregateCell]"
+            },
+            "variants": {}
+          },
+          "CollectorState": {
+            "fields": {
+              "status": "AnalyticsSourceStatus",
+              "diagnostic": "AnalyticsDiagnostic | None",
+              "last_observation_at": "datetime | None"
+            },
+            "variants": {}
+          },
+          "LoginFailurePanel": {
+            "fields": {
+              "total": "MetricValue",
+              "categories": "list[AggregateCell]",
+              "trend": "list[SeriesPoint]"
+            },
+            "variants": {}
+          },
+          "FrontendErrorPanel": {
+            "fields": {
+              "total": "MetricValue",
+              "by_route_family": "list[AggregateCell]",
+              "by_category": "list[AggregateCell]"
+            },
+            "variants": {}
+          },
+          "BackendUnavailablePanel": {
+            "fields": {
+              "total": "MetricValue",
+              "by_route_family": "list[AggregateCell]"
+            },
+            "variants": {}
+          },
+          "NavigationLatencyRow": {
+            "fields": {
+              "destination": "NavigationDestination | Literal['all']",
+              "buckets": "list[AggregateCell]"
+            },
+            "variants": {}
+          },
+          "AuditActivityRow": {
+            "fields": {
+              "occurred_at": "datetime",
+              "action": "str",
+              "resource_type": "str | None",
+              "actor_role": "str | None"
+            },
+            "variants": {}
+          },
+          "ReliabilityResponse": {
+            "fields": {
+              "meta": "AnalyticsMeta",
+              "collector": "CollectorState",
+              "login_failures": "LoginFailurePanel",
+              "frontend_errors": "FrontendErrorPanel",
+              "backend_unavailable": "BackendUnavailablePanel",
+              "navigation_latency": "list[NavigationLatencyRow]",
+              "audit_activity": "list[AuditActivityRow]"
+            },
+            "variants": {}
+          }
+        },
+        "AnalyticsQuery": {
+          "start": "DateTime<Utc>",
+          "end": "DateTime<Utc>",
+          "previous": "Option<(DateTime<Utc>,DateTime<Utc>)>",
+          "compare": "bool default true",
+          "audience": "AnalyticsAudience",
+          "activity": "AnalyticsActivity",
+          "product_id": "Option<Uuid>",
+          "delivery_point_id": "Option<Uuid>",
+          "availability_window": "Option<String>"
+        },
+        "BehavioralWindow": {
+          "start": "DateTime<Utc>",
+          "end": "DateTime<Utc>",
+          "observed_at": "DateTime<Utc>",
+          "availability": "available|partial|unavailable",
+          "diagnostic": "Option<AnalyticsDiagnostic>",
+          "coverage": "AnalyticsSourceCoverage",
+          "core": "ProviderComponent<CoreMetrics>",
+          "event_totals": "ProviderComponent<Vec<AllowedEventAggregate>>",
+          "daily_visitors": "ProviderComponent<Vec<DailyVisitorRow>>",
+          "event_series": "ProviderComponent<Vec<DailyEventRow>>",
+          "top_entries": "ProviderComponent<Vec<EntryRankingRow>>",
+          "top_referrers": "ProviderComponent<Vec<ReferrerRankingRow>>",
+          "property_results": "Vec<PropertyAvailability>; max 12 distinct requested events, max 500 rows total per event",
+          "bounds": {
+            "daily_visitor_rows": 366,
+            "event_series_rows": "366 * registered event count; maximum 366 * 32 = 11712",
+            "event_totals": "registered event count <=32",
+            "rank_rows_each": 20,
+            "property_rows_per_event": 500,
+            "requested_property_events": 12,
+            "response_body_bytes": 1000000
+          },
+          "consumers": {
+            "16": "all typed components and per-property results",
+            "17a": "core, event_totals, daily_visitors, event_series, top_entries, top_referrers; DB actuals remain independent",
+            "18": "overview visitor trend, feature/event series and requested property_results; unavailable behavior never erases authoritative facts",
+            "19": "acquisition core/trends/rankings/CTA properties and reliability enum breakdowns/latency; marketplace reference independent",
+            "17b": "no provider dependency; consumes QueryInput and source_response_types only"
+          },
+          "composition": "aggregate duplicate allowed labels before suppression; suppress 1/2 event/entity cells and derived values, including series, totals and ranking; unavailable null propagates to every consumer and ratio; no raw upstream JSON; no cache"
+        },
+        "AllowedEventAggregate": {
+          "event": "AllowedServerEvent|AllowedFrontendEvent",
+          "count": "AggregateCell"
+        },
+        "AllowedPropertyAggregate": {
+          "event": "AllowedServerEvent|AllowedFrontendEvent",
+          "property": "AllowedProperty",
+          "value": "AllowedPropertyValue",
+          "count": "AggregateCell"
+        },
+        "QueryInput": {
+          "fields": {
+            "start": {
+              "type": "timestamp string",
+              "required": true
+            },
+            "end": {
+              "type": "timestamp string",
+              "required": true
+            },
+            "compare": {
+              "type": "bool",
+              "default": true
+            },
+            "audience": {
+              "type": "ALL|BUYER|SUPPLIER",
+              "default": "ALL"
+            },
+            "activity": {
+              "type": "LIVE|DEMO|REFERENCE|ALL",
+              "default": "LIVE"
+            },
+            "product_id": {
+              "type": "Option<Uuid>",
+              "default": null
+            },
+            "delivery_point_id": {
+              "type": "Option<Uuid>",
+              "default": null
+            },
+            "availability_window": {
+              "type": "Option<String>",
+              "default": null,
+              "max_characters": 16
+            }
+          },
+          "timestamp_normalization": "naive date-time accepted as UTC; explicit offset converted to UTC; malformed timestamp refused",
+          "unknown_parameters": "ignored; never copied to SQL or provider",
+          "refusal": {
+            "status": 422,
+            "body": {
+              "detail": {
+                "code": "ANALYTICS_QUERY_INVALID",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "cases": [
+              "missing start/end",
+              "invalid timestamp, UUID, bool or enum",
+              "end <= start",
+              "elapsed range > 365 days",
+              "availability_window >16 characters",
+              "checked previous_start underflow when compare=true"
+            ]
+          },
+          "previous": "when compare=true: checked start-(end-start), previous_end=start; otherwise both null",
+          "sources": [
+            "app/schemas/product_analytics.py:43-91",
+            "app/routers/admin_analytics.py:952-984"
+          ],
+          "elapsed_range_limit_seconds": 31536000,
+          "series_cardinality_max": 366,
+          "route_validation": {
+            "shared_parser": {
+              "routes": [
+                "P05",
+                "P06",
+                "P07",
+                "P08",
+                "P09",
+                "P10",
+                "P11"
+              ],
+              "checks": [
+                "required timestamps, enum/bool/UUID types",
+                "naive UTC and offset-to-UTC normalization",
+                "end > start; elapsed duration <=365 days",
+                "window string maximum16",
+                "checked previous-window arithmetic if compare=true"
+              ],
+              "database_access": false,
+              "refusal_status": 422,
+              "refusal_code": "ANALYTICS_QUERY_INVALID"
+            },
+            "non_marketplace": {
+              "routes": [
+                "P05",
+                "P06",
+                "P07",
+                "P08",
+                "P10",
+                "P11"
+              ],
+              "activity_REFERENCE": {
+                "status": 422,
+                "code": "ANALYTICS_QUERY_INVALID"
+              },
+              "catalog_validation": false,
+              "source": "app/routers/admin_analytics.py:735-740,989,1104,1221,1301,1423,1456"
+            },
+            "marketplace": {
+              "routes": [
+                "P09"
+              ],
+              "activity_REFERENCE": "accepted",
+              "supplied_filters": [
+                "canonical availability window",
+                "active catalog product",
+                "active delivery point"
+              ],
+              "validation_owner": "route-owned database/catalog validation after pure parsing; no catalog query in validate_query",
+              "refusal": {
+                "status": 422,
+                "code": "ANALYTICS_QUERY_INVALID"
+              },
+              "source": "app/routers/admin_analytics.py:952-977,1383-1389"
+            },
+            "other_analytics": {
+              "routes": [
+                "P01",
+                "P02",
+                "P03",
+                "P04"
+              ],
+              "ProductAnalyticsQuery": "not used; retain route-specific days/list filters from client-contract.json; no new REFERENCE input"
+            }
+          }
+        },
+        "ProviderComponent<T>": {
+          "status": "available|partial|unavailable|not_requested",
+          "diagnostic": "Option<AnalyticsDiagnostic>",
+          "data": "Option<T>",
+          "rules": [
+            "unavailable/not_requested => data=null, never zero or []",
+            "available empty collection means genuine empty response",
+            "partial has data only for confirmed components; missing metrics stay null",
+            "unknown event/property/value discarded before aggregation; malformed types => component unavailable",
+            "diagnostic closed domain: disabled,configuration,authentication,timeout,upstream,malformed_response,insufficient_coverage"
+          ]
+        },
+        "CoreMetrics": {
+          "visitors": "Option<u64>",
+          "visits": "Option<u64>",
+          "pageviews": "Option<u64>",
+          "total_time_seconds": "Option<u64>",
+          "average_session_duration_seconds": "Option<Decimal>; total_time_seconds/visits only for visits>0 and both inputs available"
+        },
+        "DailyVisitorRow": {
+          "date": "NaiveDate UTC in [start,end)",
+          "visitors": "AggregateCell"
+        },
+        "DailyEventRow": {
+          "date": "NaiveDate UTC in [start,end)",
+          "event": "AllowedServerEvent|AllowedFrontendEvent",
+          "count": "AggregateCell"
+        },
+        "EntryRankingRow": {
+          "entry": "EntryPage",
+          "count": "AggregateCell",
+          "rank": "u8 1..20"
+        },
+        "ReferrerRankingRow": {
+          "referrer": "ReferrerCategory",
+          "count": "AggregateCell",
+          "rank": "u8 1..20"
+        },
+        "PropertyAvailability": {
+          "event": "AllowedServerEvent|AllowedFrontendEvent",
+          "property": "AllowedProperty permitted for event",
+          "result": "ProviderComponent<Vec<AllowedPropertyAggregate>>",
+          "requested": "every requested (event,property) has exactly one status; event endpoint failure marks every requested property of that event unavailable; no inferred zero"
+        },
+        "AllowedPropertySet": {
+          "type": "sorted unique set<(RegisteredEvent,AllowedProperty)>",
+          "validation": "property must exist in EventPropertyDomains[event]; max12 distinct events; invalid caller request returns422 ANALYTICS_PROPERTY_INVALID; no free-text extension"
+        },
+        "EventPropertyDomains": {
+          "registration_completed": {
+            "role": "TradingRole"
+          },
+          "organization_created": {
+            "role": "TradingRole"
+          },
+          "order_created": {
+            "role": "TradingRole",
+            "side": "Side",
+            "canonical_product": "CanonicalProduct",
+            "delivery_point": "DeliveryPoint",
+            "availability_window": "AvailabilityWindow"
+          },
+          "trade_created": {
+            "role": "TradingRole",
+            "side": "Side",
+            "canonical_product": "CanonicalProduct",
+            "delivery_point": "DeliveryPoint",
+            "availability_window": "AvailabilityWindow"
+          },
+          "landing_cta_clicked": {
+            "cta": "LandingCta",
+            "placement": "Placement",
+            "language": "Language"
+          },
+          "energy_calculator_started": {
+            "language": "Language"
+          },
+          "energy_calculator_completed": {
+            "language": "Language",
+            "fuel": "CanonicalProduct",
+            "port": "DeliveryPoint"
+          },
+          "public_language_changed": {
+            "from": "Language",
+            "to": "Language"
+          },
+          "signup_started": {
+            "entry_point": "EntryPoint",
+            "language": "Language"
+          },
+          "signup_role_selected": {
+            "role": "TradingRole"
+          },
+          "signup_submitted": {
+            "role": "TradingRole",
+            "organization_path": "OrganizationPath"
+          },
+          "signup_organization_required": {
+            "role": "TradingRole"
+          },
+          "signup_organization_submitted": {
+            "role": "TradingRole",
+            "organization_type": "OrganizationType",
+            "country": "AssignedCountry"
+          },
+          "login_submitted": {},
+          "login_succeeded": {
+            "role": "Role"
+          },
+          "login_failed": {
+            "reason_category": "LoginFailure"
+          },
+          "platform_navigation": {
+            "destination": "Destination",
+            "view_mode": "TradingRole"
+          },
+          "market_slice_selected": {
+            "product": "CanonicalProduct",
+            "delivery_point": "DeliveryPoint",
+            "window": "AvailabilityWindow"
+          },
+          "listing_opened": {
+            "product": "CanonicalProduct",
+            "delivery_point": "DeliveryPoint",
+            "window": "AvailabilityWindow",
+            "side": "Side",
+            "demo_status": "DemoStatus"
+          },
+          "order_form_opened": {
+            "product": "CanonicalProduct",
+            "delivery_point": "DeliveryPoint",
+            "window": "AvailabilityWindow",
+            "side": "Side"
+          },
+          "order_form_submitted": {
+            "product": "CanonicalProduct",
+            "delivery_point": "DeliveryPoint",
+            "window": "AvailabilityWindow",
+            "side": "Side"
+          },
+          "trade_confirmation_opened": {
+            "side": "Side",
+            "demo_status": "DemoStatus"
+          },
+          "tutorial_started": {
+            "role": "Role"
+          },
+          "tutorial_step_completed": {
+            "step": "TutorialStep",
+            "role": "Role"
+          },
+          "tutorial_step_skipped": {
+            "step": "TutorialStep",
+            "role": "Role"
+          },
+          "tutorial_completed": {
+            "role": "Role"
+          },
+          "estimator_opened": {},
+          "estimator_completed": {
+            "port": "DeliveryPoint",
+            "fuel": "CanonicalProduct"
+          },
+          "frontend_error": {
+            "route_family": "RouteFamily",
+            "category": "ErrorCategory"
+          },
+          "backend_unavailable": {
+            "route_family": "NonlandingRouteFamily"
+          },
+          "navigation_performance": {
+            "destination": "Destination",
+            "view_mode": "TradingRole",
+            "latency_bucket": "LatencyBucket"
+          }
+        },
+        "ValueDomains": {
+          "Role": [
+            "BUYER",
+            "SUPPLIER",
+            "ADMIN"
+          ],
+          "TradingRole": [
+            "BUYER",
+            "SUPPLIER"
+          ],
+          "Language": [
+            "en",
+            "zh"
+          ],
+          "Side": [
+            "BID",
+            "ASK"
+          ],
+          "DemoStatus": [
+            "LIVE",
+            "DEMO",
+            "REFERENCE",
+            "MIXED",
+            "UNKNOWN"
+          ],
+          "LandingCta": [
+            "pilot",
+            "how_it_works",
+            "register",
+            "register_interest",
+            "sign_in"
+          ],
+          "Placement": [
+            "nav",
+            "hero",
+            "calculator",
+            "landing_bottom",
+            "pilot_sidebar",
+            "pilot_bottom"
+          ],
+          "Destination": [
+            "home",
+            "map",
+            "marketplace",
+            "curve",
+            "watchlist",
+            "analytics",
+            "trades",
+            "quotes",
+            "compliance",
+            "training",
+            "settings",
+            "admin"
+          ],
+          "RouteFamily": [
+            "landing",
+            "signup",
+            "platform",
+            "admin"
+          ],
+          "NonlandingRouteFamily": [
+            "signup",
+            "platform",
+            "admin"
+          ],
+          "ErrorCategory": [
+            "render",
+            "chunk",
+            "network",
+            "unknown"
+          ],
+          "LatencyBucket": [
+            "lt250",
+            "250_500",
+            "500_1000",
+            "1000_2500",
+            "gte2500"
+          ],
+          "LoginFailure": [
+            "invalid_credentials",
+            "account_state",
+            "network",
+            "server",
+            "unknown"
+          ],
+          "EntryPoint": [
+            "referral",
+            "direct",
+            "landing",
+            "signup",
+            "pilot",
+            "invite",
+            "other"
+          ],
+          "OrganizationPath": [
+            "create",
+            "existing",
+            "invitation",
+            "other"
+          ],
+          "OrganizationType": [
+            "SHIP_OPERATOR",
+            "FUEL_SUPPLIER",
+            "FUEL_TRADER",
+            "OTHER"
+          ],
+          "TutorialStep": [
+            "buyer_1",
+            "buyer_2",
+            "buyer_3",
+            "buyer_4",
+            "buyer_5",
+            "buyer_6",
+            "buyer_7",
+            "buyer_8",
+            "buyer_9",
+            "buyer_10",
+            "buyer_11",
+            "buyer_12",
+            "buyer_13",
+            "buyer_14",
+            "buyer_15",
+            "buyer_16",
+            "buyer_17",
+            "buyer_18",
+            "buyer_19",
+            "buyer_20",
+            "buyer_21",
+            "buyer_22",
+            "buyer_23",
+            "buyer_24",
+            "buyer_25",
+            "buyer_26",
+            "buyer_27",
+            "buyer_28",
+            "supplier_1",
+            "supplier_2",
+            "supplier_3",
+            "supplier_4",
+            "supplier_5",
+            "supplier_6",
+            "supplier_7",
+            "supplier_8",
+            "supplier_9",
+            "supplier_10",
+            "supplier_11",
+            "supplier_12",
+            "supplier_13",
+            "supplier_14",
+            "supplier_15",
+            "supplier_16",
+            "supplier_17",
+            "supplier_18",
+            "supplier_19",
+            "supplier_20",
+            "supplier_21",
+            "supplier_22",
+            "supplier_23",
+            "supplier_24",
+            "supplier_25",
+            "supplier_26",
+            "supplier_27",
+            "supplier_28",
+            "supplier_29"
+          ],
+          "EntryPage": [
+            "landing",
+            "signup",
+            "login",
+            "pilot",
+            "calculator",
+            "platform",
+            "admin",
+            "other"
+          ],
+          "ReferrerCategory": [
+            "direct",
+            "search",
+            "social",
+            "referral",
+            "other"
+          ],
+          "AssignedCountry": "exact assigned alpha-2 set in pinned app/reference/iso_countries.py; uppercase only",
+          "CanonicalProduct": "code resolved through pinned market-policy.json active product catalog; never arbitrary token/UUID",
+          "DeliveryPoint": "code resolved through pinned market-policy.json active point catalog; never arbitrary token/UUID",
+          "AvailabilityWindow": "SPOT or canonical YYYY-MM (01..12), YYYY-Q[1-4], YYYY-CAL; maximum16; year0001..9999; no labels or free text"
+        },
+        "AllowedServerEvent": [
+          "registration_completed",
+          "organization_created",
+          "order_created",
+          "trade_created"
+        ],
+        "AllowedFrontendEvent": [
+          "landing_cta_clicked",
+          "energy_calculator_started",
+          "energy_calculator_completed",
+          "public_language_changed",
+          "signup_started",
+          "signup_role_selected",
+          "signup_submitted",
+          "signup_organization_required",
+          "signup_organization_submitted",
+          "login_submitted",
+          "login_succeeded",
+          "login_failed",
+          "platform_navigation",
+          "market_slice_selected",
+          "listing_opened",
+          "order_form_opened",
+          "order_form_submitted",
+          "trade_confirmation_opened",
+          "tutorial_started",
+          "tutorial_step_completed",
+          "tutorial_step_skipped",
+          "tutorial_completed",
+          "estimator_opened",
+          "estimator_completed",
+          "frontend_error",
+          "backend_unavailable",
+          "navigation_performance"
+        ],
+        "AllowedProperty": "union of EventPropertyDomains keys; event-specific mapping authoritative",
+        "AllowedPropertyValue": "tagged value from referenced ValueDomains entry, never arbitrary string",
+        "ranking_normalization": {
+          "entries": "strip query and fragment; fixed route-family allowlist maps unknown to other; never expose raw path",
+          "referrers": "parse host internally and map to fixed ReferrerCategory; no raw hostname/URL reaches output",
+          "new_closed_domains": "Closed decoding domains; unknown values dropped, never echoed. Historical token validators do not define these domains.",
+          "sources": [
+            "app/services/behavioral_analytics.py:33-58,102-164,337-365,373-470",
+            "app/routers/admin_analytics.py:220-234,890-938,1112-1180,1335-1370,1455-1480",
+            "docs/behavioral-analytics-contract.md:30-56,58-114,116-149"
+          ],
+          "domain_references": [
+            {
+              "repository": "Verdaxis/verdaxis-frontend",
+              "path": "src/services/analytics.ts",
+              "lines": "3-51,68-120"
+            },
+            {
+              "repository": "Verdaxis/verdaxis-frontend",
+              "path": "src/pages/RegisterPage.tsx",
+              "lines": "37-40,120-127"
+            },
+            {
+              "repository": "Verdaxis/verdaxis-frontend",
+              "path": "src/components/GuidedTutorial.tsx",
+              "lines": "42-103,482,531"
+            }
+          ]
+        }
+      },
+      "rules": {
+        "range": "half-open UTC, end > start, elapsed duration <=365 days (31536000 seconds); separate maximum366 daily series points; checked previous-window arithmetic; underflow422",
+        "bounds": {
+          "rank": 20,
+          "matrix": 512,
+          "weeks": 54,
+          "provider_events": 12,
+          "provider_property_rows": 500,
+          "provider_body_bytes": 1000000
+        },
+        "suppression": "positive count or entity basis 1 or 2 suppresses count and derived values; zero genuine; missing coverage null not zero; 3 unsuppressed",
+        "sources": "authoritative, behavioral, login, status, reference coverage remain separate; reference never activity or commercial actuals",
+        "provider": "typed unavailable for disabled/config/auth/timeout/upstream/malformed; authoritative tabs remain 200; no raw body",
+        "cache": "none: no aggregate, credential or token cache; no single-flight; no raw upstream DTO exposed",
+        "retention": "today and preceding 799 UTC dates; status facts never pruned",
+        "privacy": "closed event/property/value allowlists; no identifiers, free text, commercial values",
+        "provider_body_bytes": 1000000
+      },
+      "source_digests": [
+        {
+          "path": "app/schemas/product_analytics.py",
+          "sha256": "5d7519bd4b2cdb56640a110349a0e5c626c53aaeddf466c3ee5d2123fa611550"
+        },
+        {
+          "path": "app/services/behavioral_analytics.py",
+          "sha256": "1a3ee6f84d7d30d8b489574e5d62ea3cfeb13dd31c4f03be6cb2b7c9be6f0801"
+        },
+        {
+          "path": "app/routers/admin_analytics.py",
+          "sha256": "648abaaccf0dc54cd1cbf52f02ee68d00acabbbcb83bf0800659d484e881a8c1"
+        },
+        {
+          "path": "app/reference/iso_countries.py",
+          "sha256": "e3ab1f4844d1b949cbdfafe6b9f5e9f59ccf472efaccbfe99ca1c5da50985f0d"
+        },
+        {
+          "path": "deploy/rust/market-policy.json",
+          "sha256": "9832ad27ea20cc47bed94eaa0ddf3dbc518bf8030b2e529ffdbe65d783b0b8aa"
+        },
+        {
+          "path": "docs/behavioral-analytics-contract.md",
+          "sha256": "ad873bdffacead9908884da87675bc5f27ca8cd7d1740d64144155eda6f51236"
+        }
+      ],
+      "status": "proposed",
+      "source_references": [
+        {
+          "path": "app/schemas/product_analytics.py",
+          "lines": "43-91,99-166,340-760"
+        },
+        {
+          "path": "app/services/behavioral_analytics.py",
+          "lines": "33-58,102-164,337-365,373-470"
+        },
+        {
+          "path": "app/routers/admin_analytics.py",
+          "lines": "220-234,890-938,952-984,1112-1180,1335-1370,1455-1480"
+        }
+      ]
+    },
+    {
+      "id": "CF4_04",
+      "owners": [
+        "6",
+        "7",
+        "8",
+        "11b",
+        "21",
+        "22",
+        "phase8",
+        "phase9",
+        "integration"
+      ],
+      "signature_status": "declared_with_pending_producers",
+      "signatures": [
+        {
+          "declaration": "pub async fn invalidate_organization(conn: &mut PgConnection, command: &InvalidateOrganization) -> Result<InvalidationResult, InvalidationError>",
+          "sha256": "cb12bb3a4d1f965c7df41243eecf5470268e7968690d665f3e8765841bef57af"
+        },
+        {
+          "declaration": "pub async fn cleanup_context_for_trade(tx: &mut Tx, actor: &AuthenticatedActor, trade_id: Uuid) -> Result<WriteContext, MarketWriteError>",
+          "sha256": "a67ae8adb98b08155e9584cf0aa701be49bac4537b541d780c0ffd0efb616cbe"
+        },
+        {
+          "declaration": "pub async fn require_cleanup(tx: &mut Tx, ctx: &WriteContext, trade: &TradeRow, side: TradeSide) -> Result<(), MarketWriteError>",
+          "sha256": "98f8df17a12695fda7de88d80e1cae0881aa3444021b580061b9bbd51f1f5163"
+        },
+        {
+          "declaration": "pub async fn require_execution(tx: &mut Tx, ctx: &WriteContext, party: &PartyRef) -> Result<(), MarketWriteError>",
+          "sha256": "5127df39f0e2110b17646d3dbfe7e30bdaad97a937bb1cfa39adcf70078d7b77"
+        },
+        {
+          "declaration": "pub enum SettlementOwnership { RecordedUser { side: TradeSide, user_id: Uuid, organization_id: Uuid }, AssistedCustomerMember { side: TradeSide, actor_user_id: Uuid, organization_id: Uuid, expected_role: ActorRole, evidence: AssistedSideEvidence } }",
+          "sha256": "8bb9455598f483166ce28d746ec57661054083d383cc349088db4fcd8bfeea18"
+        },
+        {
+          "declaration": "pub async fn rebuild_live_slice_benchmarks_for_keys(conn: &mut PgConnection, policy: &MarketPolicy, config: &Config, keys: &[BenchmarkRebuildKey], now: DateTime<Utc>) -> Result<BenchmarkRebuildResult, InvalidationError>",
+          "sha256": "57869d42403a9d661466207780df65786efe49d87e33b0ecd1dd1b72c42cf0a7"
+        },
+        {
+          "declaration": "pub async fn calculate_live_benchmarks(conn: &mut PgConnection, policy: &MarketPolicy, config: &Config, keys: &[LiveBenchmarkKey], now: DateTime<Utc>) -> Result<HashMap<LiveBenchmarkKey, LiveBenchmark>, sqlx::Error>",
+          "sha256": "de303d62c7eac50359a3ea8b5fce5ca5a63d8946e754eea1e6bd48e5c0eeccbd"
+        },
+        {
+          "declaration": "pub async fn live_benchmarks(conn: &mut PgConnection, policy: &MarketPolicy, config: &Config, keys: &[LiveBenchmarkKey], now: DateTime<Utc>) -> Result<HashMap<LiveBenchmarkKey, LiveBenchmark>, ApiError>",
+          "sha256": "9c2fd44e29e9869a9fa8827558b13a633eb340b47a7baf1c1436a83e20457391"
+        },
+        {
+          "declaration": "pub struct InvalidateOrganization { pub organization_id: Uuid, pub actor_id: Uuid, pub now: DateTime<Utc>, pub policy: Arc<MarketPolicy>, pub config: Arc<Config> }",
+          "sha256": "82d97ebce8d7199ab80df49129301a16cde51b17b7466cdffd84e7f287afa19d"
+        }
+      ],
+      "schemas": {
+        "InvalidateOrganization": {
+          "organization_id": "Uuid",
+          "actor_id": "Uuid",
+          "now": "DateTime<Utc>; caller already holds canonical organization/user locks",
+          "policy": "Arc<MarketPolicy>; explicit immutable request-runtime snapshot supplied by caller",
+          "config": "Arc<Config>; same immutable runtime snapshot supplying kyc_execution_gate_enabled; no global or default configuration"
+        },
+        "InvalidationResult": {
+          "withdrawn_orders": "Vec<Uuid>; max 100",
+          "preserved_trade_ids": "Vec<Uuid>; max 100",
+          "released_uncommitted_quantity": "Decimal",
+          "outbox_ids": "Vec<Uuid>"
+        },
+        "SettlementAction": [
+          "Confirm",
+          "Decline",
+          "Deliver",
+          "Pay"
+        ],
+        "TradeState": {
+          "PendingConfirmation": {
+            "wire": "PENDING_CONFIRMATION",
+            "storage": "PENDING_CONFIRMATION"
+          },
+          "Confirmed": {
+            "wire": "CONFIRMED",
+            "storage": "CONFIRMED"
+          },
+          "Delivered": {
+            "wire": "DELIVERED",
+            "storage": "DELIVERED"
+          },
+          "Paid": {
+            "wire": "PAID",
+            "storage": "PAID"
+          },
+          "Cancelled": {
+            "wire": "CANCELLED",
+            "storage": "CANCELLED"
+          },
+          "Declined": {
+            "wire": "DECLINED",
+            "storage": "DECLINED"
+          }
+        },
+        "CurrentActor": {
+          "producer": "Phase 3",
+          "status": "existing",
+          "source": "rs/read/src/auth/actor.rs:3-9",
+          "fields": {
+            "id": "Uuid",
+            "organization_id": "Option<Uuid>",
+            "role": "Option<String>",
+            "email_verified": "bool"
+          },
+          "authority": "database projection only; not a token or cutoff proof"
+        },
+        "VerifiedAccess": {
+          "producer": "Phase 3 required-expiry lane",
+          "status": "pending",
+          "existing_source": "rs/read/src/auth/claims.rs:6-11; rs/read/src/auth/token.rs:59-92,95-132",
+          "fields": {
+            "subject": "Uuid",
+            "issued_at": "Option<DateTime<Utc>>",
+            "expires_at": "DateTime<Utc>; required producer addition",
+            "issuance_out_of_range": "bool; crate-private existing parser evidence"
+          },
+          "construction": "existing signature/type/issuer/audience/subject verifier plus required exp validation; missing, malformed, expired exp refuses401 AUTH_CREDENTIALS_INVALID; only verifier constructs proof; no alternate verifier",
+          "existing_abi_delta": "existing VerifiedAccess lacks expires_at and existing verifier permits missing exp; required producer must land before use"
+        },
+        "ActorAccountState": [
+          "Pending",
+          "Approved",
+          "Rejected"
+        ],
+        "ActorRole": [
+          "Buyer",
+          "Supplier",
+          "Admin"
+        ],
+        "TradeSide": [
+          "Buyer",
+          "Seller"
+        ],
+        "InitiatingSide": {
+          "Buyer": "BUYER",
+          "Seller": "SELLER"
+        },
+        "LockedActorState": {
+          "producer": "Phases 8-9",
+          "status": "pending",
+          "fields": {
+            "current": "CurrentActor",
+            "status": "ActorAccountState",
+            "must_change_password": "bool",
+            "password_changed_at": "Option<DateTime<Utc>>",
+            "authentication_revoked_at": "Option<DateTime<Utc>>"
+          },
+          "construction": "private fields; read fresh under canonical organization/user locks; role parsed fallibly from CurrentActor optional string; never default to Buyer or Approved"
+        },
+        "AuthenticatedActor": {
+          "producer": "Phases 8-9",
+          "status": "pending",
+          "fields": {
+            "access": "VerifiedAccess (expiry-bearing producer required)",
+            "account": "LockedActorState"
+          },
+          "construction": "private; inside transaction from VerifiedAccess plus locked current database projection; account.current.id must equal access.subject; refresh projection each retry; no duplicate actor cache or cutoff booleans"
+        },
+        "RecordedSide": {
+          "side": "TradeSide",
+          "organization_id": "Uuid; trades.buyer_id/seller_id",
+          "concrete_user_id": "Option<Uuid>; historical nullable side user"
+        },
+        "AssistedSideEvidence": {
+          "producer": "Phases 8-9",
+          "status": "pending",
+          "constructor_visibility": "private",
+          "fields": {
+            "side": "TradeSide",
+            "organization_id": "Uuid",
+            "linked_order_id": "Uuid",
+            "owner_user_id": "Uuid",
+            "created_by_actor_user_id": "Uuid"
+          },
+          "proof": "linked order MARKET_SUPPORT, ASK->seller or BID->buyer; immutable trade order id/side/org match; trade side user=order owner; created_by_actor_user_id=owner_user_id nonnull; all read under locks"
+        },
+        "SettlementOwnership": {
+          "producer": "Phases 8-9",
+          "status": "pending",
+          "constructor_visibility": "private to authority module; no public field construction or deserialization",
+          "variants": {
+            "RecordedUser": {
+              "side": "TradeSide",
+              "user_id": "Uuid",
+              "organization_id": "Uuid"
+            },
+            "AssistedCustomerMember": {
+              "side": "TradeSide",
+              "actor_user_id": "Uuid",
+              "organization_id": "Uuid",
+              "expected_role": "ActorRole",
+              "evidence": "AssistedSideEvidence"
+            }
+          },
+          "construction": "verified access subject and locked trade/side/user/org evidence only; not request-body or header authority; revalidate each transaction attempt"
+        },
+        "TradeRow": {
+          "producer": "Phases 8-9",
+          "status": "pending",
+          "fields": {
+            "id": "Uuid",
+            "buyer": "RecordedSide",
+            "seller": "RecordedSide",
+            "initiated_by": "InitiatingSide",
+            "state": "TradeState",
+            "linked_bid_order_id": "Option<Uuid>",
+            "linked_ask_order_id": "Option<Uuid>",
+            "quantity": "Decimal",
+            "frozen_terms": "immutable typed persisted trade snapshot",
+            "fee_basis": "immutable persisted fee snapshot",
+            "commitment": "immutable existing settlement commitment"
+          },
+          "authority_projection": "other existing trade fields retained; not a replacement economic row schema"
+        },
+        "WriteContext": {
+          "producer": "Phases 8-9",
+          "status": "pending",
+          "fields": {
+            "actor": "AuthenticatedActor",
+            "settlement_trade_id": "Uuid",
+            "effective_organization_id": "Uuid",
+            "support_context_id": "Option<Uuid>; None for lifecycle",
+            "settlement_ownership": "SettlementOwnership",
+            "now": "DateTime<Utc>; transaction instant"
+          },
+          "construction": "private; cleanup_context_for_trade loads immutable trade under canonical locks; derive nonnull effective organization from authorized recorded side, not current/caller-selected organization; preserve other planned write-context fields; scope binds one trade and one side"
+        },
+        "PartyRef": {
+          "producer": "Phases 8-9",
+          "status": "pending",
+          "fields": {
+            "user_id": "Uuid",
+            "organization_id": "Uuid"
+          },
+          "scope": "execution party; nullable historical RecordedSide is not coerced into PartyRef"
+        },
+        "MarketWriteError": {
+          "producer": "Phases 8-9",
+          "status": "pending",
+          "fields": {
+            "status": "u16 HTTP status",
+            "code": "SettlementErrorCode from error_table",
+            "message": "String; clear free wording",
+            "extras": "typed optional KYC fields only",
+            "headers": "typed WWW-Authenticate, ETag/Retry-After as required"
+          },
+          "body": "{detail:{code,message,...typed_extras}}; never raw Python string/array or upstream body"
+        },
+        "BenchmarkRebuildResult": {
+          "rebuilt": "Vec<LiveBenchmarkKey>; sorted unique, <=100",
+          "deleted": "Vec<LiveBenchmarkKey>; sorted unique, <=100",
+          "ignored_null_points": "usize",
+          "scope": "only requested normalized keys; every eligible concrete key in exactly one rebuilt/deleted set"
+        },
+        "BenchmarkRebuildKey": {
+          "side": "BID|ASK",
+          "market_product": "Option<String>",
+          "delivery_point_id": "Option<Uuid>",
+          "availability_window": "Option<String>",
+          "source": "affected order rows after canonical locks; not an HTTP input",
+          "normalization": "missing/empty product, null point or missing/empty window => ignore; nonempty invalid canonical window => fail with InvalidationError::Application; valid product must resolve through supplied MarketPolicy, never guessed"
+        },
+        "InvalidationError": {
+          "Database": "sqlx::Error; original SQLSTATE retained through calculation and persistence",
+          "Application": "ApiError; domain refusal never SQLSTATE retry",
+          "conversion": "borrowed invalidator returns to existing business owner; Database->AttemptError::Database, Application->AttemptError::Application; no inner retry"
+        }
+      },
+      "rules": {
+        "scope": "sole market_write boundary owns orders/trades/inventory DML; caller connection; no commit or dispatcher",
+        "bounds": "discover limit+1; >100 commitments or >100 active orders => atomic 409",
+        "preserve": "all six persisted states; terminal PAID,CANCELLED,DECLINED rows unchanged; fresh lifecycle commands refused on terminal rows",
+        "release": "withdraw executable uncommitted remainder only; return only its reserved stock",
+        "ownership": "transaction-local SettlementOwnership with private constructors; exact recorded user or separately proven assisted customer member; no support admin authority",
+        "authentication": "existing verifier plus required-expiry producer; cleanup password and rejected-only revocation rule; full execution only for fresh confirmation",
+        "freeze": "no trade freeze column or route",
+        "coexistence": "actual Python deliver/pay proof mandatory at integration; mismatch blocks business group; do not modify Python",
+        "locks": "canonical slice and row keys reused; shared retry up to three full attempts only 40001/40P01; outward exhaustion 503 TRANSACTION_RETRY_EXHAUSTED with Retry-After:1 per CF4_06; 55P03 409 MARKET_BUSY; 57014 503 TRANSACTION_TIMEOUT; preserve stock/outbox/audit atomically"
+      },
+      "source_digests": [
+        {
+          "path": "app/services/market_invalidation.py",
+          "sha256": "c19b40329b9aa2f90ba96b43914d49a90e92ada1e08ea74a1eac6557defc04fd"
+        },
+        {
+          "path": "rs/read/src/auth/lock.rs",
+          "sha256": "05c2ae79f520f6a09937edc590a8f383ccb2177512d41a3e8e5183794e65b414"
+        },
+        {
+          "path": "app/models/orderbook.py",
+          "sha256": "01ed42519df764c402258366a29a0e8eaa8f78e7836ca991936f56b604b4eb00"
+        },
+        {
+          "path": "app/routers/auth_simple.py",
+          "sha256": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0"
+        },
+        {
+          "path": "rs/read/src/auth/actor.rs",
+          "sha256": "d68d361d841a603c75dfd2a0d331121cf1b2610b9583b036d31385718b9f8a74"
+        },
+        {
+          "path": "rs/read/src/auth/claims.rs",
+          "sha256": "0bec0a81a25ba61ce454cfff3c433d16999e6d8a86a36fe8e8895895809e87f5"
+        },
+        {
+          "path": "rs/read/src/auth/token.rs",
+          "sha256": "8f91f30df00456c33842f65b7b80269f33a7602a4d522defabaee02e63ffdbcc"
+        },
+        {
+          "path": "rs/read/src/auth/error.rs",
+          "sha256": "e972b50d0af365ff0b681644113246b8a4fe8e76f88549be04dc77cd68106f0d"
+        },
+        {
+          "path": "app/routers/trades.py",
+          "sha256": "a240cc908a84015a5cf3dd8f9cb6eb9f8af8466632c4183247e6aad59f6152bd"
+        },
+        {
+          "path": "app/services/market_support.py",
+          "sha256": "03da08a699fe3bde80871c374f69193641e4848ff77824670b83f1a30bb37652"
+        },
+        {
+          "path": "app/services/command_results.py",
+          "sha256": "a0b014426ddabff35747ff64ea11457aa6341242e3146f91bec213000baa1479"
+        },
+        {
+          "path": "rs/read/src/market/live_benchmarks.rs",
+          "sha256": "8d33fdcbb1155954e0799346d16ccf117e8c32fbf38d8e44bbae4dfcd17183be"
+        },
+        {
+          "path": "rs/read/sql/live_benchmarks.sql",
+          "sha256": "1bda864ac69deedad07917e8e4ad5c33c93791aa93720bf7b9b3bd5906c175a9"
+        },
+        {
+          "path": "rs/read/src/market/visibility.rs",
+          "sha256": "750193b9b57a1428faf44ba5cf3fded16fa6f205810dc60928531229e23c02fc"
+        },
+        {
+          "path": "rs/read/src/order_write/mod.rs",
+          "sha256": "6366f4bba798456a144b66b357b25f669452af359790431dc195738debd5993f"
+        },
+        {
+          "path": "rs/read/src/order_write/locks.rs",
+          "sha256": "654423d3d45a58cec507c25cf83abebd4aa8b39af676963ef30b6c2d403ddc91"
+        },
+        {
+          "path": "app/services/live_benchmarks.py",
+          "sha256": "456056d77f046c552fc2ccdf5d1fd05722728371a5d904bc9e107b0c4af42087"
+        },
+        {
+          "path": "app/models/live_slice_benchmark.py",
+          "sha256": "e2e5d91d3d7e75d9d36ef089c5b6efd119df0da04712100447c2c47f2b10b683"
+        },
+        {
+          "path": "alembic/versions/sb_2026_04_live_slice_benchmarks.py",
+          "sha256": "6f697da24f7a2a669cc3a409147af982545fd4031c8e8ef996c47a9db25fda15"
+        },
+        {
+          "path": "deploy/postgres/app_acl_policy.sql",
+          "sha256": "b097b2b2fe2925d4031c4fa6f6158247204b3cee18cd74433102b1cd6ef2d38c"
+        }
+      ],
+      "status": "proposed_for_acceptance",
+      "source_references": [
+        {
+          "path": "app/routers/trades.py",
+          "lines": "438-585,666-690,1236-1295,1395-1480,1598-1670,1746-1796"
+        },
+        {
+          "path": "rs/read/src/auth/actor.rs",
+          "lines": "3-9"
+        },
+        {
+          "path": "rs/read/src/auth/claims.rs",
+          "lines": "6-11,40-104"
+        },
+        {
+          "path": "rs/read/src/auth/token.rs",
+          "lines": "59-92,95-132; required expiry pending producer"
+        },
+        {
+          "path": "app/services/market_support.py",
+          "lines": "75-98"
+        },
+        {
+          "path": "app/models/orderbook.py",
+          "lines": "75-86"
+        },
+        {
+          "path": "app/services/live_benchmarks.py",
+          "lines": "96-104,124-205,208-277"
+        },
+        {
+          "path": "app/services/market_invalidation.py",
+          "lines": "327-335,371"
+        },
+        {
+          "path": "app/models/live_slice_benchmark.py",
+          "lines": "12-45"
+        },
+        {
+          "path": "rs/read/src/order_write/mod.rs",
+          "lines": "1-35"
+        },
+        {
+          "path": "rs/read/src/order_write/locks.rs",
+          "lines": "29-35,77-129"
+        }
+      ],
+      "construction": {
+        "lock_order": [
+          "read-only preview closed",
+          "all affected organizations sorted",
+          "all affected users including actor sorted",
+          "keys/slices/resource rows",
+          "revalidate membership/trade/assisted evidence; restart entire attempt on set drift"
+        ],
+        "recorded_user": "exact nonnull side user; retained ownership after move/detach; current org need not equal historical org; proof organization must equal immutable side org",
+        "null_side_user": "no ordinary same-org fallback; cleanup403; fresh confirmation409; row preserved",
+        "ambiguous_sides": "409 TRADE_PARTIES_INVALID; never choose caller tenant",
+        "assisted_member": "current actor in customer organization, correct Buyer for BID/buyer or Supplier for ASK/seller; valid AssistedSideEvidence; not the recorded support-owner admin; no Market Support capability/header authority",
+        "evidence_missing": "409 TRADE_PARTIES_INVALID; immutable RESTRICT linked ownership evidence; no new attestation schema or reconstruction",
+        "same_org_stranger": "403 TRADE_PARTY_FORBIDDEN before receipt data",
+        "source_references": [
+          "app/routers/trades.py:438-585",
+          "app/routers/auth_simple.py:703-783"
+        ]
+      },
+      "admission": {
+        "token": "unexpired signed access token, type=access, required exp, valid UUID subject and existing actor; verifier-produced evidence only",
+        "issuance": "existing Phase3 read_issuance: nonnegative integer iat_us preferred (including existing bool-to0/1 behavior), negative falls back to numeric iat; out-of-i64 preferred value marks out_of_range without fallback; numeric iat rounded ties-even to microseconds; missing issuance=None. Required-expiry producer must preserve existing issuance parser behavior; malformed claims rejected per credential parser, not widened by contract",
+        "cutoffs": "UTC microsecond inclusive: missing/unusable issuance with active cutoff refuses; issue<=cutoff refuses; password before revocation; naive persisted cutoff interpreted UTC",
+        "cleanup": "password cutoff always; revocation skipped only when fresh locked status=Rejected; Pending/Approved enforce it; after reapproval exception ends immediately and retained cutoff stays; no must-change/email/KYC/account/org-approval gate",
+        "execution_confirm": "normal password/revocation and must_change_password=false; actor and both economic sides full role/APPROVED account/email/current membership/APPROVED org/shared KYC-or-grace; administrator never executes; moved/unlinked/rejected party cannot freshly confirm",
+        "replay": "cleanup authentication and authorized ownership before receipt lookup/body, including confirm; full confirm admission only after miss; actor/operation/key/resource/effective org/support context checks mandatory; do not strip stored support context",
+        "no_epoch": "no created-before-rejection timestamp comparison; immutable participation plus current cutoffs; no new role-transition gate",
+        "source_references": [
+          "rs/read/src/auth/claims.rs:40-104",
+          "app/routers/auth_simple.py:633-700,703-783",
+          "app/services/execution_policy.py:35-64,98-118"
+        ]
+      },
+      "action_matrix": {
+        "Confirm": {
+          "side": "opposite initiated_by; Buyer initiation->Seller, Seller initiation->Buyer",
+          "ownership": "exact recorded counterparty or admitted assisted customer member",
+          "admission": "full execution actor and both economic sides after replay miss",
+          "from": "PENDING_CONFIRMATION",
+          "to": "CONFIRMED",
+          "fresh_checks": [
+            "provenance",
+            "current parties",
+            "frozen compatible terms",
+            "If-Match required",
+            "reserved quantity consumed once",
+            "confirmed referral effect once"
+          ]
+        },
+        "Decline": {
+          "side": "opposite initiated_by",
+          "ownership": "recorded noninitiating user or assisted customer member",
+          "admission": "cleanup, no extra ordinary role gate",
+          "from": "PENDING_CONFIRMATION",
+          "to": "DECLINED",
+          "effects": "live order restores remainder/reservation; withdrawn/expired releases commitment without resurrecting liquidity"
+        },
+        "Deliver": {
+          "side": "either Buyer or Seller",
+          "ownership": "either exact recorded user or assisted customer member of either side",
+          "admission": "cleanup; no extra ordinary Buyer/Supplier role gate",
+          "from": "CONFIRMED",
+          "to": "DELIVERED",
+          "quantity": "finite Decimal >0 <=100000, max_digits12 scale<=2; <=trade quantity",
+          "price": "finite Decimal >0 <=1000000 max_digits10 scale<=2; deviation<=10%, equality passes; exact cross-multiplication",
+          "effects": "immutable final fields and frozen fee basis; no re-execution"
+        },
+        "Pay": {
+          "side": "Seller only",
+          "ownership": "exact recorded seller or assisted seller customer member",
+          "admission": "cleanup plus current Supplier role",
+          "from": "DELIVERED",
+          "to": "PAID",
+          "effects": "timestamp only; no payment provider"
+        },
+        "Terminal": {
+          "states": [
+            "PAID",
+            "DECLINED",
+            "CANCELLED"
+          ],
+          "invalidation": "unchanged rows, commitments, terms, participant evidence and fees",
+          "fresh_action": "action-specific400 error; no transition out",
+          "receipt": "authorized committed replay is not fresh lifecycle command"
+        }
+      },
+      "precedence": [
+        "token and cutoff verification",
+        "authorized transaction-local context and ownership",
+        "authorized receipt replay",
+        "full execution for Confirm after replay miss",
+        "action-side and role",
+        "state",
+        "Phase8-9 active freeze if applicable",
+        "remaining economic and ETag checks"
+      ],
+      "etag": {
+        "header": "If-Match",
+        "required_for": "fresh Confirm",
+        "mapping": "same shared order cancel mapping",
+        "syntax": "trimmed W/\"...\" weak ETag; missing428, malformed400, nonmatching412",
+        "value": "shared order_etag(order_id,version): W/\"order-{order_id}-v{version}\"; compare against locked linked-order identity/version; no alternate trade-specific token inferred",
+        "code_missing": "IF_MATCH_REQUIRED",
+        "code_malformed": "IF_MATCH_MALFORMED",
+        "code_stale": "ORDER_VERSION_STALE",
+        "serving_gate": "Rust confirm not served until frontend sends If-Match; Phase8-9 frontend task owns change",
+        "source": "app/services/market_support.py:75-98"
+      },
+      "error_table": [
+        {
+          "case": "missing_bearer",
+          "python_observation": {
+            "status": 401,
+            "body": {
+              "detail": "Not authenticated"
+            },
+            "source": "app/routers/auth_simple.py:326"
+          },
+          "rust": {
+            "status": 401,
+            "body": {
+              "detail": {
+                "code": "AUTH_REQUIRED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": "Bearer"
+            }
+          }
+        },
+        {
+          "case": "invalid_expired_malformed_claim_or_missing_exp",
+          "python_observation": {
+            "status": 401,
+            "body": {
+              "detail": "Could not validate credentials"
+            },
+            "source": "app/routers/auth_simple.py:708-727,752-753; rs/read/src/auth/error.rs:88"
+          },
+          "rust": {
+            "status": 401,
+            "body": {
+              "detail": {
+                "code": "AUTH_CREDENTIALS_INVALID",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": "Bearer"
+            }
+          }
+        },
+        {
+          "case": "password_cutoff",
+          "python_observation": {
+            "status": 401,
+            "body": {
+              "detail": {
+                "code": "AUTH_PASSWORD_CHANGED",
+                "message": "Password was changed; sign in again"
+              }
+            },
+            "source": "app/routers/auth_simple.py:661-673"
+          },
+          "rust": {
+            "status": 401,
+            "body": {
+              "detail": {
+                "code": "AUTH_PASSWORD_CHANGED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": "Bearer"
+            }
+          }
+        },
+        {
+          "case": "revocation_cutoff_except_current_rejected_cleanup",
+          "python_observation": {
+            "status": 401,
+            "body": {
+              "detail": {
+                "code": "AUTH_SESSION_REVOKED",
+                "message": "Session was revoked; sign in again"
+              }
+            },
+            "source": "app/routers/auth_simple.py:676-690,769-773"
+          },
+          "rust": {
+            "status": 401,
+            "body": {
+              "detail": {
+                "code": "AUTH_SESSION_REVOKED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": "Bearer"
+            }
+          }
+        },
+        {
+          "case": "confirm_account_not_approved",
+          "python_observation": {
+            "status": 403,
+            "body": {
+              "detail_alternatives": [
+                "Account is PENDING. Please wait for admin approval.",
+                "Account is REJECTED. Please wait for admin approval."
+              ]
+            },
+            "source": "app/routers/auth_simple.py:697-698"
+          },
+          "rust": {
+            "status": 403,
+            "body": {
+              "detail": {
+                "code": "ACCOUNT_NOT_APPROVED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "confirm_must_change_password",
+          "python_observation": {
+            "status": 403,
+            "body": {
+              "detail": "Password change required."
+            },
+            "source": "app/routers/auth_simple.py:699-700"
+          },
+          "rust": {
+            "status": 403,
+            "body": {
+              "detail": {
+                "code": "PASSWORD_CHANGE_REQUIRED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "administrator_execution",
+          "python_observation": {
+            "status": 403,
+            "body": {
+              "detail": "Administrators cannot execute market actions"
+            },
+            "source": "app/middleware/execution.py:21-27"
+          },
+          "rust": {
+            "status": 403,
+            "body": {
+              "detail": {
+                "code": "EXECUTION_ROLE_REQUIRED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "confirm_kyc",
+          "python_observation": {
+            "status": 403,
+            "body": {
+              "detail": {
+                "code": "KYC_REQUIRED",
+                "message": "Complete KYC verification to trade.",
+                "kyc_status": "actual status string",
+                "grace_expires_at": "ISO-8601 UTC string or null"
+              }
+            },
+            "source": "app/services/kyc_execution.py:119-127"
+          },
+          "rust": {
+            "status": 403,
+            "body": {
+              "detail": {
+                "code": "KYC_REQUIRED",
+                "message": "clear text; wording not frozen",
+                "kyc_status": "actual status string",
+                "grace_expires_at": "ISO-8601 UTC string or null"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "confirm_actor_execution_ineligible",
+          "python_observation": {
+            "status": 403,
+            "body": {
+              "detail": "Execution access is not available"
+            },
+            "source": "app/middleware/execution.py:29-37"
+          },
+          "rust": {
+            "status": 403,
+            "body": {
+              "detail": {
+                "code": "EXECUTION_NOT_AVAILABLE",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "locked_actor_disappeared",
+          "python_observation": {
+            "status": 409,
+            "body": {
+              "detail": "Market user no longer exists"
+            },
+            "source": "app/services/market_admission.py:80-130"
+          },
+          "rust": {
+            "status": 409,
+            "body": {
+              "detail": {
+                "code": "TRADE_PARTIES_INVALID",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "execution_membership_drift",
+          "python_observation": {
+            "status": 409,
+            "body": {
+              "detail": "Market user organization ownership changed"
+            },
+            "source": "app/services/market_admission.py:80-130"
+          },
+          "rust": {
+            "status": 409,
+            "body": {
+              "detail": {
+                "code": "TRADE_PARTIES_INVALID",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "recorded_organization_absent",
+          "python_observation": {
+            "status": 409,
+            "body": {
+              "detail": "Market organization no longer exists"
+            },
+            "source": "app/services/market_admission.py:80-130"
+          },
+          "rust": {
+            "status": 409,
+            "body": {
+              "detail": {
+                "code": "TRADE_PARTIES_INVALID",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "confirm_organization_not_approved",
+          "python_observation": {
+            "status": 409,
+            "body": {
+              "detail": "Organization is not approved for market activity"
+            },
+            "source": "app/services/market_admission.py:80-130"
+          },
+          "rust": {
+            "status": 409,
+            "body": {
+              "detail": {
+                "code": "TRADE_PARTIES_INVALID",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "confirm_locked_party_ineligible",
+          "python_observation": {
+            "status": 409,
+            "body": {
+              "detail": "User is not approved for market activity"
+            },
+            "source": "app/services/market_admission.py:80-130"
+          },
+          "rust": {
+            "status": 409,
+            "body": {
+              "detail": {
+                "code": "TRADE_PARTIES_INVALID",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "trade_absent",
+          "python_observation": {
+            "status": 404,
+            "body": {
+              "detail": "Trade not found"
+            },
+            "source": "app/routers/trades.py:438-455"
+          },
+          "rust": {
+            "status": 404,
+            "body": {
+              "detail": {
+                "code": "TRADE_NOT_FOUND",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "slice_drift",
+          "python_observation": {
+            "status": 409,
+            "body": {
+              "detail": "Trade slice changed; retry the request"
+            },
+            "source": "app/routers/trades.py:666-690,1480"
+          },
+          "rust": {
+            "status": 409,
+            "body": {
+              "detail": {
+                "code": "MARKET_SLICE_CHANGED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "slice_drift",
+          "python_observation": {
+            "status": 409,
+            "body": {
+              "detail": "Trade order slice changed; retry the request"
+            },
+            "source": "app/routers/trades.py:666-690,1480"
+          },
+          "rust": {
+            "status": 409,
+            "body": {
+              "detail": {
+                "code": "MARKET_SLICE_CHANGED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "slice_drift",
+          "python_observation": {
+            "status": 409,
+            "body": {
+              "detail": "Order slice changed; retry the decline"
+            },
+            "source": "app/routers/trades.py:666-690,1480"
+          },
+          "rust": {
+            "status": 409,
+            "body": {
+              "detail": {
+                "code": "MARKET_SLICE_CHANGED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "linked_order_absent",
+          "python_observation": {
+            "status": 409,
+            "body": {
+              "detail": "Trade order no longer exists"
+            },
+            "source": "app/routers/trades.py:681-683"
+          },
+          "rust": {
+            "status": 409,
+            "body": {
+              "detail": {
+                "code": "TRADE_PARTIES_INVALID",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "wrong_state_confirm_decline",
+          "python_observation": {
+            "status": 400,
+            "body": {
+              "detail": "Trade is not pending confirmation"
+            },
+            "source": "app/routers/trades.py:1264-1265,1406-1408,1636-1637,1781-1782"
+          },
+          "rust": {
+            "status": 400,
+            "body": {
+              "detail": {
+                "code": "TRADE_NOT_PENDING",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "wrong_state_deliver",
+          "python_observation": {
+            "status": 400,
+            "body": {
+              "detail": "Trade must be confirmed before delivery"
+            },
+            "source": "app/routers/trades.py:1264-1265,1406-1408,1636-1637,1781-1782"
+          },
+          "rust": {
+            "status": 400,
+            "body": {
+              "detail": {
+                "code": "TRADE_NOT_CONFIRMED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "wrong_state_pay",
+          "python_observation": {
+            "status": 400,
+            "body": {
+              "detail": "Trade must be delivered before payment"
+            },
+            "source": "app/routers/trades.py:1264-1265,1406-1408,1636-1637,1781-1782"
+          },
+          "rust": {
+            "status": 400,
+            "body": {
+              "detail": {
+                "code": "TRADE_NOT_DELIVERED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "wrong_confirm_seller",
+          "python_observation": {
+            "status": 403,
+            "body": {
+              "detail": "Only the seller can confirm this trade"
+            },
+            "source": "app/routers/trades.py:510-585,1286-1295,1438-1456,1646-1653,1792-1793"
+          },
+          "rust": {
+            "status": 403,
+            "body": {
+              "detail": {
+                "code": "TRADE_PARTY_FORBIDDEN",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "wrong_confirm_buyer",
+          "python_observation": {
+            "status": 403,
+            "body": {
+              "detail": "Only the buyer can confirm this trade"
+            },
+            "source": "app/routers/trades.py:510-585,1286-1295,1438-1456,1646-1653,1792-1793"
+          },
+          "rust": {
+            "status": 403,
+            "body": {
+              "detail": {
+                "code": "TRADE_PARTY_FORBIDDEN",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "wrong_decline_seller",
+          "python_observation": {
+            "status": 403,
+            "body": {
+              "detail": "Only the seller can decline this trade"
+            },
+            "source": "app/routers/trades.py:510-585,1286-1295,1438-1456,1646-1653,1792-1793"
+          },
+          "rust": {
+            "status": 403,
+            "body": {
+              "detail": {
+                "code": "TRADE_PARTY_FORBIDDEN",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "wrong_decline_buyer",
+          "python_observation": {
+            "status": 403,
+            "body": {
+              "detail": "Only the buyer can decline this trade"
+            },
+            "source": "app/routers/trades.py:510-585,1286-1295,1438-1456,1646-1653,1792-1793"
+          },
+          "rust": {
+            "status": 403,
+            "body": {
+              "detail": {
+                "code": "TRADE_PARTY_FORBIDDEN",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "foreign_delivery",
+          "python_observation": {
+            "status": 403,
+            "body": {
+              "detail": "Not authorized for this trade"
+            },
+            "source": "app/routers/trades.py:510-585,1286-1295,1438-1456,1646-1653,1792-1793"
+          },
+          "rust": {
+            "status": 403,
+            "body": {
+              "detail": {
+                "code": "TRADE_PARTY_FORBIDDEN",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "foreign_payment",
+          "python_observation": {
+            "status": 403,
+            "body": {
+              "detail": "Only the seller can mark a trade as paid"
+            },
+            "source": "app/routers/trades.py:510-585,1286-1295,1438-1456,1646-1653,1792-1793"
+          },
+          "rust": {
+            "status": 403,
+            "body": {
+              "detail": {
+                "code": "TRADE_PARTY_FORBIDDEN",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "invalid_assisted_linkage",
+          "python_observation": {
+            "status": 403,
+            "body": {
+              "detail": "Trade support ownership is not valid"
+            },
+            "source": "app/routers/trades.py:510-585,1286-1295,1438-1456,1646-1653,1792-1793"
+          },
+          "rust": {
+            "status": 403,
+            "body": {
+              "detail": {
+                "code": "TRADE_PARTY_FORBIDDEN",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "assisted_support_owner",
+          "python_observation": {
+            "status": 403,
+            "body": {
+              "detail": "Support administrators cannot change trade lifecycle"
+            },
+            "source": "app/routers/trades.py:510-585,1286-1295,1438-1456,1646-1653,1792-1793"
+          },
+          "rust": {
+            "status": 403,
+            "body": {
+              "detail": {
+                "code": "TRADE_PARTY_FORBIDDEN",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "assisted_wrong_side",
+          "python_observation": {
+            "status": 403,
+            "body": {
+              "detail": "Trade side is not authorized for this action"
+            },
+            "source": "app/routers/trades.py:510-585,1286-1295,1438-1456,1646-1653,1792-1793"
+          },
+          "rust": {
+            "status": 403,
+            "body": {
+              "detail": {
+                "code": "TRADE_PARTY_FORBIDDEN",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "pay_role",
+          "python_observation": {
+            "status": 403,
+            "body": {
+              "detail": "Only suppliers can mark trades as paid"
+            },
+            "source": "app/routers/trades.py:1795-1796"
+          },
+          "rust": {
+            "status": 403,
+            "body": {
+              "detail": {
+                "code": "TRADE_PAY_ROLE_REQUIRED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "assisted_actor_or_org_absent",
+          "python_observation": {
+            "status": 409,
+            "body": {
+              "detail": "Trade support ownership is no longer valid"
+            },
+            "source": "app/routers/trades.py:458-507,563-585"
+          },
+          "rust": {
+            "status": 409,
+            "body": {
+              "detail": {
+                "code": "TRADE_PARTIES_INVALID",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "confirm_assisted_ineligible",
+          "python_observation": {
+            "status": 409,
+            "body": {
+              "detail": "Trade parties are no longer execution-qualified"
+            },
+            "source": "app/routers/trades.py:458-507,563-585"
+          },
+          "rust": {
+            "status": 409,
+            "body": {
+              "detail": {
+                "code": "TRADE_PARTIES_INVALID",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "confirm_null_concrete_user",
+          "python_observation": {
+            "status": 409,
+            "body": {
+              "detail": "Trade parties require fresh admission review"
+            },
+            "source": "app/routers/trades.py:458-507,563-585"
+          },
+          "rust": {
+            "status": 409,
+            "body": {
+              "detail": {
+                "code": "TRADE_PARTIES_INVALID",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "confirm_economic_parties_ineligible",
+          "python_observation": {
+            "status": 409,
+            "body": {
+              "detail": "Trade parties are no longer execution-qualified"
+            },
+            "source": "app/routers/trades.py:458-507,563-585"
+          },
+          "rust": {
+            "status": 409,
+            "body": {
+              "detail": {
+                "code": "TRADE_PARTIES_INVALID",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "cleanup_null_concrete_identity",
+          "python_observation": {
+            "status": 403,
+            "body": {
+              "behavior": "Python decline may use same-org fallback; Rust forbids fallback"
+            },
+            "source": "app/routers/trades.py:1441-1454"
+          },
+          "rust": {
+            "status": 403,
+            "body": {
+              "detail": {
+                "code": "TRADE_PARTY_FORBIDDEN",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "ambiguous_historical_sides",
+          "python_observation": {
+            "status": null,
+            "body": null,
+            "source": null,
+            "observation": "no Python application equivalent at checkpoint"
+          },
+          "rust": {
+            "status": 409,
+            "body": {
+              "detail": {
+                "code": "TRADE_PARTIES_INVALID",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "confirm_provenance",
+          "python_observation": {
+            "status": 409,
+            "body": {
+              "detail": "Trade provenance is not eligible for execution"
+            },
+            "source": "app/routers/trades.py:1266-1275"
+          },
+          "rust": {
+            "status": 409,
+            "body": {
+              "detail": {
+                "code": "TRADE_PROVENANCE_INCOMPATIBLE",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "confirm_frozen_terms",
+          "python_observation": {
+            "status": 409,
+            "body": {
+              "detail": "Trade fuel terms are no longer eligible for confirmation"
+            },
+            "source": "app/routers/trades.py:238-283"
+          },
+          "rust": {
+            "status": 409,
+            "body": {
+              "detail": {
+                "code": "TRADE_TERMS_CHANGED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "confirm_frozen_terms",
+          "python_observation": {
+            "status": 409,
+            "body": {
+              "detail": "Trade order fuel terms changed; create a new trade request"
+            },
+            "source": "app/routers/trades.py:238-283"
+          },
+          "rust": {
+            "status": 409,
+            "body": {
+              "detail": {
+                "code": "TRADE_TERMS_CHANGED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "confirm_frozen_terms",
+          "python_observation": {
+            "status": 409,
+            "body": {
+              "detail": "Trade order is no longer eligible"
+            },
+            "source": "app/routers/trades.py:238-283"
+          },
+          "rust": {
+            "status": 409,
+            "body": {
+              "detail": {
+                "code": "TRADE_TERMS_CHANGED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "lng_validation",
+          "python_observation": {
+            "status": 422,
+            "body": {
+              "detail": "LNG snapshots are only valid for Bio-LNG"
+            },
+            "source": "app/services/lng_order.py:35-46,117-125"
+          },
+          "rust": {
+            "status": 422,
+            "body": {
+              "detail": {
+                "code": "VALIDATION_FAILED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "lng_validation",
+          "python_observation": {
+            "status": 422,
+            "body": {
+              "detail": "A complete Bio-LNG trade snapshot is required"
+            },
+            "source": "app/services/lng_order.py:35-46,117-125"
+          },
+          "rust": {
+            "status": 422,
+            "body": {
+              "detail": {
+                "code": "VALIDATION_FAILED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "lng_validation",
+          "python_observation": {
+            "status": 422,
+            "body": {
+              "detail": "LNG terms are only valid for Bio-LNG"
+            },
+            "source": "app/services/lng_order.py:35-46,117-125"
+          },
+          "rust": {
+            "status": 422,
+            "body": {
+              "detail": {
+                "code": "VALIDATION_FAILED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "lng_validation",
+          "python_observation": {
+            "status": 422,
+            "body": {
+              "detail": "Valid Bio-LNG requirements or declarations are required"
+            },
+            "source": "app/services/lng_order.py:35-46,117-125"
+          },
+          "rust": {
+            "status": 422,
+            "body": {
+              "detail": {
+                "code": "VALIDATION_FAILED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "lng_validation",
+          "python_observation": {
+            "status": 422,
+            "body": {
+              "detail": "LNG terms must match the order side"
+            },
+            "source": "app/services/lng_order.py:35-46,117-125"
+          },
+          "rust": {
+            "status": 422,
+            "body": {
+              "detail": {
+                "code": "VALIDATION_FAILED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "lng_incompatible",
+          "python_observation": {
+            "status": 409,
+            "body": {
+              "detail": {
+                "code": "LNG_TERMS_INCOMPATIBLE"
+              }
+            },
+            "source": "app/services/lng_order.py:104,126"
+          },
+          "rust": {
+            "status": 409,
+            "body": {
+              "detail": {
+                "code": "LNG_TERMS_INCOMPATIBLE",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "support_context_header",
+          "python_observation": {
+            "status": 403,
+            "body": {
+              "detail": {
+                "code": "MARKET_SUPPORT_MUTATION_NOT_ALLOWED",
+                "message": "This operation is not available in Market Support mode"
+              }
+            },
+            "source": "app/services/market_support_scope.py:29-42; app/services/request_party.py:263-279"
+          },
+          "rust": {
+            "status": 403,
+            "body": {
+              "detail": {
+                "code": "MARKET_SUPPORT_MUTATION_NOT_ALLOWED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "active_freeze_protected_transition",
+          "python_observation": {
+            "status": null,
+            "body": null,
+            "source": "Phases8-9 only; no Phase4 freeze API or flag",
+            "observation": "no Python application equivalent at checkpoint"
+          },
+          "rust": {
+            "status": 409,
+            "body": {
+              "detail": {
+                "code": "TRADE_FROZEN",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "delivery_decimal_schema",
+          "python_observation": {
+            "status": 422,
+            "body": {
+              "detail": "FastAPI validation array of loc,msg,type and optional context; not a Rust body"
+            },
+            "source": "app/schemas/orderbook.py:388-396"
+          },
+          "rust": {
+            "status": 422,
+            "body": {
+              "detail": {
+                "code": "VALIDATION_FAILED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "delivery_quantity_above_trade",
+          "python_observation": {
+            "status": 400,
+            "body": {
+              "detail": "final_quantity_mt cannot exceed originally traded quantity"
+            },
+            "source": "app/routers/trades.py:1654-1658"
+          },
+          "rust": {
+            "status": 400,
+            "body": {
+              "detail": {
+                "code": "DELIVERY_QUANTITY_INVALID",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "delivery_price_deviation_over_ten_percent",
+          "python_observation": {
+            "status": 400,
+            "body": {
+              "detail": "final_price_per_mt deviates more than 10% from the confirmed trade price"
+            },
+            "source": "app/routers/trades.py:1659-1670"
+          },
+          "rust": {
+            "status": 400,
+            "body": {
+              "detail": {
+                "code": "DELIVERY_PRICE_DEVIATION",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "receipt_context_or_hash",
+          "python_observation": {
+            "status": 409,
+            "body": {
+              "detail": "Idempotency-Key was reused with a different request or actor context"
+            },
+            "source": "app/services/command_results.py:113-123"
+          },
+          "rust": {
+            "status": 409,
+            "body": {
+              "detail": {
+                "code": "IDEMPOTENCY_CONFLICT",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "receipt_resource_mismatch",
+          "python_observation": {
+            "status": 409,
+            "body": {
+              "detail": "Idempotency-Key was reused with a different request or actor context"
+            },
+            "source": "app/services/command_results.py:113-123; foreign-resource lookup may first return404 TRADE_NOT_FOUND"
+          },
+          "rust": {
+            "status": 409,
+            "body": {
+              "detail": {
+                "code": "RECEIPT_RESOURCE_MISMATCH",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "confirm_etag_missing",
+          "python_observation": {
+            "status": 428,
+            "body": {
+              "order_cancel_body": {
+                "detail": {
+                  "code": "IF_MATCH_REQUIRED",
+                  "message": "If-Match is required"
+                }
+              },
+              "confirm_body": null
+            },
+            "source": "app/services/market_support.py:79-98; new confirm check uses same mapping"
+          },
+          "rust": {
+            "status": 428,
+            "body": {
+              "detail": {
+                "code": "IF_MATCH_REQUIRED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "confirm_etag_malformed",
+          "python_observation": {
+            "status": 400,
+            "body": {
+              "order_cancel_body": {
+                "detail": {
+                  "code": "IF_MATCH_MALFORMED",
+                  "message": "If-Match is malformed"
+                }
+              },
+              "confirm_body": null
+            },
+            "source": "app/services/market_support.py:79-98; new confirm check uses same mapping"
+          },
+          "rust": {
+            "status": 400,
+            "body": {
+              "detail": {
+                "code": "IF_MATCH_MALFORMED",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        },
+        {
+          "case": "confirm_etag_stale",
+          "python_observation": {
+            "status": 412,
+            "body": {
+              "order_cancel_body": {
+                "detail": {
+                  "code": "ORDER_VERSION_STALE",
+                  "message": "Listing changed; reload and retry"
+                }
+              },
+              "confirm_body": null
+            },
+            "source": "app/services/market_support.py:79-98; new confirm check uses same mapping"
+          },
+          "rust": {
+            "status": 412,
+            "body": {
+              "detail": {
+                "code": "ORDER_VERSION_STALE",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "headers": {}
+          }
+        }
+      ],
+      "validation_envelope": {
+        "delivery_decimal_or_lng_shape": {
+          "status": 422,
+          "body": {
+            "detail": {
+              "code": "VALIDATION_FAILED",
+              "message": "clear description; no raw FastAPI errors"
+            }
+          }
+        },
+        "null_and_nonfinite": "422 VALIDATION_FAILED before economic400 checks",
+        "unknown_private_exceptions": "not reflected; database adapter only",
+        "messages": "not byte-frozen; no invented Python code"
+      },
+      "producer_requirements": {
+        "CurrentActor": "existing Phase3 ABI unchanged",
+        "VerifiedAccess.expires_at": "pending Phase3 required-expiry producer; security release and integration required",
+        "AuthenticatedActor": "pending Phases8-9 transaction constructor",
+        "WriteContext": "pending Phases8-9 cleanup context constructor",
+        "SettlementOwnership": "pending Phases8-9 private authority proof",
+        "MarketWriteError": "pending Phases8-9 adapter",
+        "acceptance_status": "proposal only; no consumer release from producer specification"
+      },
+      "benchmark_rebuild": {
+        "producer": "Phase 4 Task 7; integration owner applies shared-file patch on merge",
+        "module": "order_write::benchmarks; private module with narrow function/type re-exports",
+        "caller": "order_write::invalidation calls on its borrowed connection after order changes and before audit/outbox transaction completion",
+        "calculation_refactor": {
+          "choice": "yes: existing live_benchmarks and LiveBenchmarkCache::load accept &mut PgConnection instead of &mut Transaction; callers pass dereferenced transaction; no transaction/pool creation",
+          "shared_core": "extract the existing single batched SELECT, qualification and VWAP body into calculate_live_benchmarks, returning original sqlx::Error; existing read wrapper delegates and keeps its current ApiError mapping; no copied SQL or policy",
+          "source": "rs/read/src/market/live_benchmarks.rs:13-17,40-47,49-111,116-194,203-227",
+          "preserve": [
+            "benchmark_candidate_sql and bind_order_query",
+            "candidate_is_benchmark_qualified",
+            "VisibilityClock::at(now)",
+            "qualified_vwap and cents rounding",
+            "request-local LiveBenchmarkCache behavior",
+            "JIT setting restoration; error rollback by caller"
+          ]
+        },
+        "policy_supply": "command.policy and command.config are Arc snapshots cloned from AppState by caller; invalidator passes .as_ref() to rebuild; never reread mutable globals/config or clock inside attempt; same policy/config/now for preview, mutation and calculation",
+        "keys": "deduplicate exact side/product-code/non-null-point/canonical-window; normalize before mutation; at most100 active-order-derived keys; null-point slice still uses existing side-independent lock but has no persisted benchmark key; ignore absent product/window as Python; invalid nonempty window refuses atomically",
+        "empty_keys": "no SELECT and no INSERT/UPDATE/DELETE; result vectors empty",
+        "empty_calculation": "DELETE only the exact requested side/product/point/window existing row, if any; never store zero/sentinel; unrelated keys unchanged",
+        "positive_calculation": "INSERT id=new UUID, key columns, benchmark_price_per_mt_usd=price, total_remaining_quantity_mt=quantity, order_count=checked i32 count, source=live_slice_vwap, created_at=now,updated_at=now; ON CONFLICT uq_live_slice_benchmarks_slice_key UPDATE only price,quantity,count,source,updated_at; preserve existing id and created_at",
+        "null_point": "never insert nullable point or use nil UUID; no broad DELETE for null; existing table point is NOT NULL",
+        "persistence_columns": {
+          "id": "uuid",
+          "side": "varchar(3) BID|ASK",
+          "market_product": "varchar(64)",
+          "delivery_point_id": "uuid nonnull FK",
+          "availability_window": "varchar(16)",
+          "benchmark_price_per_mt_usd": "numeric(10,2)",
+          "total_remaining_quantity_mt": "numeric(12,2)",
+          "order_count": "int4 checked conversion",
+          "source": "varchar(32) live_slice_vwap",
+          "created_at": "timestamptz",
+          "updated_at": "timestamptz"
+        },
+        "clock": "one command.now captured by outer request; use for candidate eligibility/expiry/qualification, created_at for new row and updated_at; bind UTC; no database wall-clock recapture; calculation reads caller uncommitted order changes",
+        "errors": "every SELECT/qualification decoding/Decimal conversion/count overflow/DELETE/UPSERT error aborts command; original SQLSTATE to shared outer retry classifier; no swallow, partial success, commit/savepoint, new pool connection, provider or dispatch; whole transaction rolls back all benchmark/order/inventory/audit/watchlist/outbox changes",
+        "authority": "existing app ACL grants live_slice_benchmarks SELECT/INSERT/UPDATE/DELETE; no new grants or Python model/schema edit",
+        "qualification": "same REAL/DEMO and same-side behavior as existing canonical Rust/Python calculation; no alternative benchmark predicate or formula",
+        "acceptance": [
+          "empty and duplicate keys",
+          "null-point ignored without touching concrete slices",
+          "delete stale requested row when no qualified liquidity",
+          "upsert aggregate and preserve existing id/created_at",
+          "captured now boundary",
+          "nondefault supplied policy/switch consumed",
+          "caller rollback after rebuild",
+          "injected rebuild SQLSTATE retains retry classification",
+          "unchanged existing read route results after connection refactor",
+          "Python reader accepts persisted row"
+        ],
+        "error_conversion": "calculate_live_benchmarks returns raw sqlx::Error; read-only HTTP wrapper maps to ApiError as before. Rebuild converts SQLx errors to InvalidationError::Database without formatting away SQLSTATE. Invalid key/domain validation becomes Application(ApiError)."
+      },
+      "write_boundary": {
+        "canonical_module": "rs/read/src/order_write/",
+        "invalidator_module": "order_write::invalidation",
+        "benchmark_writer_module": "order_write::benchmarks",
+        "market_write_module": "not created; plan market_write paths resolve to existing order_write boundary",
+        "entrypoint": "order_write::invalidate_organization is a caller-owned subcommand, not a second transaction entry point; only existing business::transaction::run_organization_write owns ordered admission/attempt/commit for this call graph",
+        "locking": "caller already holds organizations/users/joins; invalidator uses existing order_write::locks::{SliceKey,ordered_slice_lock_keys,market_slice_lock_sort_key} and existing timeout constants; no replacement hash, advisory namespace or late party lock",
+        "ownership": "all order/trade/inventory DML inside order_write; benchmark calculation in market remains read-only; benchmark persistence in order_write only",
+        "legacy_scaffold": "order_write::execute_order_command retains its existing standalone transaction shell for its own unmounted scaffold tests; invalidator never calls it, WriteSession, or its retry loop; no nesting, wrapping, second retry/transaction owner in business invalidation",
+        "plan_correction": "Phase4 Task7/\u00a711.2 and shared-file lists proposed market_write/{mod,invalidation,locks,reservations,events}.rs before existing boundary integration. Resolve to order_write/{mod,invalidation,reservations,events,benchmarks}.rs; reuse existing locks.rs unchanged; do not create second boundary or transaction.rs",
+        "producer": "Task7 leaf implementation; integration owner serializes mod.rs, market/live_benchmarks refactor, callers, Cargo target and architecture patch"
+      },
+      "integration_patch": {
+        "format": "exact shared module/export patch specification; not executable changes in this artifact revision",
+        "order_write_mod_rs": {
+          "replace_module_doc": "The single sealed market row-write boundary. Standalone order commands use execute_order_command. Ordered business commands enter only through the borrowed invalidate_organization subcommand after business-owner organization/user locks; that subcommand never owns completion or retries. No module outside order_write locks or changes order/trade/inventory rows.",
+          "after_mod_transaction": "mod invalidation;\nmod benchmarks;\nmod reservations;\nmod events;",
+          "add_exports": "pub use invalidation::{InvalidateOrganization, InvalidationResult, InvalidationError, invalidate_organization};\npub use benchmarks::{BenchmarkRebuildKey, BenchmarkRebuildResult, rebuild_live_slice_benchmarks_for_keys};",
+          "retain": "all existing command/locks/transaction exports unchanged; no pub mod market_write in lib.rs"
+        },
+        "market_live_benchmarks_rs": {
+          "import": "use sqlx::{PgConnection, Row};",
+          "live_benchmarks_parameter": "tx: &mut sqlx::Transaction<'_, sqlx::Postgres> -> conn: &mut PgConnection",
+          "new_core": "calculate_live_benchmarks declaration in signatures; move existing result block there once; replace &mut **tx with &mut *conn",
+          "wrapper": "live_benchmarks calls calculate_live_benchmarks(conn,policy,config,keys,now).await and keeps existing database_error adapter",
+          "cache_load_parameter": "tx: &mut sqlx::Transaction<'_, sqlx::Postgres> -> conn: &mut PgConnection",
+          "cache_call": "calculate missing keys via live_benchmarks(&mut *conn,policy,config,&missing,now); no cache lifetime or key change",
+          "exact_body_extraction": "Move existing lines123-183 core including empty-key early return into calculate_live_benchmarks. Return result directly. Existing live_benchmarks becomes only a delegate plus existing lines184-193 mapping, so the read and writer call the same core. Do not route writer through the mapped read wrapper."
+        },
+        "callers": "integration owner adapts existing LiveBenchmarkCache::load callers with &mut *transaction where deref coercion requires; no response, SQL, filters or clock change; enumerate actual merged callers before applying",
+        "no_changes": "lib.rs order_write export already exists; market/mod.rs live_benchmarks export already exists; do not add duplicate exports, nested transaction, copied locks or alternate policy SQL"
+      }
+    },
+    {
+      "id": "CF4_05",
+      "owners": [
+        "24",
+        "integration"
+      ],
+      "signature_status": "declared",
+      "signatures": [
+        {
+          "declaration": "import rust-phase4 python_upstream rust_upstream B_owner O_owner V_owner I_owner S_owner P_owner",
+          "sha256": "cda710f0ba9dfd7f3c4e06e2c36dff38048c86ea7c5a1f9677730c35d298d6cc"
+        }
+      ],
+      "schemas": {
+        "arguments": {
+          "0": "Python upstream",
+          "1": "Rust upstream",
+          "2": "B",
+          "3": "O",
+          "4": "V",
+          "5": "I",
+          "6": "S",
+          "7": "P"
+        },
+        "owner": "python|rust; all default python",
+        "groups": {
+          "B": 22,
+          "O": 2,
+          "V": 2,
+          "I": 1,
+          "S": 5,
+          "P": 11
+        }
+      },
+      "rules": {
+        "match": "exact method plus path; 43 unique pairs; no auth/admin wildcard",
+        "rollback": "change one group owner argument only; keep valid shared data",
+        "import_order": [
+          "phase4",
+          "phase3_auth",
+          "public_read",
+          "python_catchall"
+        ],
+        "abi": "do not renumber Phase3 auth or public args",
+        "verification": "real disposable Caddy HTTP forward and rollback; no live config edits"
+      },
+      "source_digests": [
+        {
+          "path": "tests/rust_contract/phase4/routes.json",
+          "sha256": "94fa69b1897ae4a08814d372c7b0f2908ad86146e679003c30a39d3224ffa0d3"
+        }
+      ],
+      "status": "accepted"
+    },
+    {
+      "id": "CF4_06",
+      "owners": [
+        "Phase 3",
+        "Phase 4 Task 2",
+        "integration"
+      ],
+      "signature_status": "implemented",
+      "signatures": [
+        {
+          "declaration": "pub async fn retry_org_write<T, E, F, Fut>(mut attempt: F) -> Result<T, OrgWriteError<E>> where E: WriteConflict, F: FnMut(usize) -> Fut, Fut: Future<Output = Result<T, E>>",
+          "sha256": "dcae6eb114daf8e7ad24b6546e02201bc4ff8e0f33404819e0ecc13695c4dfa4"
+        },
+        {
+          "declaration": "pub async fn lock_organization_write(connection: &mut PgConnection, scope: &OrganizationWriteScope) -> Result<LockedOrganizationWrite, sqlx::Error>",
+          "sha256": "3f7bb1eaac9cd53fa4b68237fdaed2557dc715d3f05a0de4958c6c4ac2daf0d8"
+        },
+        {
+          "declaration": "org_write_retries_twice_then_stops",
+          "sha256": "4d768fbcd058acfb39474049ad28a4a5335239da11e3498409cacbc687f14f68"
+        },
+        {
+          "declaration": "pub fn retry_exhausted() -> ApiError",
+          "sha256": "6d942c340749f3c306c049cd3e0a7552fe8b46a5949d8c7fd741208bf11c4eb9"
+        }
+      ],
+      "schemas": {
+        "OrganizationWriteScope": {
+          "organizations": "sorted unique Vec<Uuid>",
+          "users": "sorted unique Vec<Uuid>, including actor",
+          "join_requests": "sorted unique Vec<Uuid>"
+        },
+        "OrgWriteError": [
+          "Busy",
+          "Failed(E)"
+        ],
+        "WriteConflict": "is_write_conflict(&self) -> bool",
+        "Phase4RetryAdapter": {
+          "input": "OrgWriteError::Busy from shared retry_org_write",
+          "status": 503,
+          "body": {
+            "detail": {
+              "code": "TRANSACTION_RETRY_EXHAUSTED",
+              "message": "clear text; not wording-frozen"
+            }
+          },
+          "headers": {
+            "Retry-After": "1",
+            "Content-Type": "application/json"
+          },
+          "inherited_Phase3_adapter": {
+            "status": 503,
+            "code": "ORGANIZATION_WRITE_BUSY",
+            "Retry-After": "1",
+            "scope": "unchanged helper/test; do not expose this conversion for Phase4 organization commands"
+          },
+          "other_states": {
+            "55P03": {
+              "status": 409,
+              "code": "MARKET_BUSY"
+            },
+            "57014": {
+              "status": 503,
+              "code": "TRANSACTION_TIMEOUT"
+            },
+            "other_server_error": {
+              "status": 500,
+              "code": "DATABASE_ERROR"
+            },
+            "uncertain_commit": {
+              "status": 503,
+              "code": "COMMIT_OUTCOME_UNKNOWN",
+              "retry": false
+            }
+          }
+        }
+      },
+      "rules": {
+        "attempts": 3,
+        "retryable_sqlstates": [
+          "40001",
+          "40P01"
+        ],
+        "commit": "known server abort passes same classifier; uncertain transport/protocol completion never replayed",
+        "attempt": "fresh preview and full transaction each call; rollback/discard before retry; no provider I/O",
+        "test_target": "auth_store_postgres",
+        "test": "org_write_retries_twice_then_stops",
+        "lock_order": [
+          "organizations UUID ascending",
+          "users including actor UUID ascending",
+          "joins UUID ascending",
+          "market subgraph"
+        ],
+        "ownership": "no actor-first wrapper; no new namespace or retry loop",
+        "Phase4_outward": "Busy mapped only through business::error::retry_exhausted: 503 TRANSACTION_RETRY_EXHAUSTED, Retry-After:1; inherited Phase3 conversion unchanged"
+      },
+      "source_digests": [
+        {
+          "path": "rs/read/src/auth/lock.rs",
+          "sha256": "05c2ae79f520f6a09937edc590a8f383ccb2177512d41a3e8e5183794e65b414"
+        },
+        {
+          "path": "rs/read/tests/auth_store_postgres.rs",
+          "sha256": "2e656847359af86428ece509b53a6f8227759e436a27ae82868eb01629656be6"
+        },
+        {
+          "path": "rs/read/src/business/error.rs",
+          "sha256": "ed64409ad6c64a6ea98be16ea3b4f3f5d8fd50bd3f0568efa2214f70ca8fee52"
+        },
+        {
+          "path": "rs/read/src/business/transaction.rs",
+          "sha256": "08c11710ddbec0762012810e9f212caff160340651ae3f6863f4632dec711f0f"
+        },
+        {
+          "path": "rs/read/src/runtime/error.rs",
+          "sha256": "91be447533c20344c6da54e43914096f7f783d67f2ce0dc815fbee25d3a00477"
+        }
+      ],
+      "status": "accepted",
+      "source_references": [
+        {
+          "path": "rs/read/src/auth/lock.rs",
+          "lines": "131-184,243-246"
+        },
+        {
+          "path": "rs/read/tests/auth_store_postgres.rs",
+          "lines": "120-193"
+        },
+        {
+          "path": "rs/read/src/business/error.rs",
+          "lines": "15-45"
+        },
+        {
+          "path": "rs/read/src/business/transaction.rs",
+          "lines": "160-184"
+        },
+        {
+          "path": "rs/read/src/runtime/error.rs",
+          "lines": "10-28"
+        }
+      ]
+    }
+  ],
+  "supersedes": "contracts-v1.json",
+  "accepted_contracts": [
+    "CF4_01",
+    "CF4_02",
+    "CF4_05",
+    "CF4_06"
+  ]
+}
