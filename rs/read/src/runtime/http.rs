@@ -1,3 +1,4 @@
+use crate::auth::{limits::Refusal, origin::trusted_origins};
 use crate::{ApiError, request_id};
 use axum::{
     Router,
@@ -13,18 +14,9 @@ use std::{
     time::Instant,
 };
 
-/// Mirror the deployed Python credentialed-origin boundary, without sharing
-/// production browser authority with staging. Test harnesses retain their oracle.
+/// Use the same closed environment policy as the cookie origin guard.
 pub fn allowed_browser_origin(environment: &str, origin: &str) -> bool {
-    match environment {
-        "production" => matches!(
-            origin,
-            "https://app.verdaxis.exchange"
-                | "https://verdaxis.exchange"
-                | "https://canary.verdaxis.exchange"
-        ),
-        _ => origin == "https://staging.verdaxis.exchange",
-    }
+    trusted_origins(environment).contains(&origin)
 }
 
 pub fn client_ip(peer: Option<IpAddr>, forwarded: Option<&str>) -> String {
@@ -43,27 +35,52 @@ pub fn client_ip(peer: Option<IpAddr>, forwarded: Option<&str>) -> String {
 struct HttpState {
     started: Instant,
     buckets: Arc<Mutex<HashMap<(String, String), RateBucket>>>,
-    phase2_limits: Arc<Mutex<crate::auth::limits::Phase2Limits>>,
+    phase2_limits: crate::auth::limits::SharedLimits,
 }
 
-pub fn middleware(routes: Router) -> Router {
-    compose(routes, None)
+pub fn middleware(routes: Router, environment: &str) -> Router {
+    compose(
+        routes,
+        None,
+        crate::auth::limits::SharedLimits::default(),
+        environment,
+    )
 }
 
 pub fn middleware_with_state(routes: Router, app_state: crate::AppState) -> Router {
-    compose(routes, Some(app_state))
+    compose(
+        routes,
+        Some(app_state),
+        crate::auth::limits::SharedLimits::default(),
+        "",
+    )
 }
 
-fn compose(routes: Router, app_state: Option<crate::AppState>) -> Router {
+/// Compose one pre-auth authority around a route split. Task 22 must attach
+/// both real upstream owners here before admin-feedback cutover is permitted.
+pub fn middleware_with_limits(
+    routes: Router,
+    limits: crate::auth::limits::SharedLimits,
+    environment: &str,
+) -> Router {
+    compose(routes, None, limits, environment)
+}
+
+fn compose(
+    routes: Router,
+    app_state: Option<crate::AppState>,
+    limits: crate::auth::limits::SharedLimits,
+    environment: &str,
+) -> Router {
     let state = HttpState {
         started: Instant::now(),
         buckets: Arc::new(Mutex::new(HashMap::new())),
-        phase2_limits: Arc::new(Mutex::new(crate::auth::limits::Phase2Limits::default())),
+        phase2_limits: limits,
     };
     let environment = app_state
         .as_ref()
         .map(|state| state.config.environment.clone())
-        .unwrap_or_else(|| "staging".into());
+        .unwrap_or_else(|| environment.to_owned());
     let routes = routes.layer(middleware::from_fn_with_state(state, dispatch_boundary));
     let routes = if let Some(app_state) = app_state {
         routes.layer(middleware::from_fn_with_state(
@@ -263,12 +280,26 @@ fn public_get_path(path: &str) -> bool {
             .is_some_and(|id| !id.is_empty() && !id.contains('/'))
 }
 
+/// The pre-auth 429. An auth route gets the auth envelope and the seconds until
+/// its window resets; the Phase 2 admin prefix keeps its existing response.
+fn preauth_refusal(path: &str, refusal: Refusal) -> Response {
+    if path.starts_with("/api/auth/") {
+        return refusal.auth_failure().into_response();
+    }
+    (
+        StatusCode::TOO_MANY_REQUESTS,
+        [("retry-after", "60")],
+        axum::Json(serde_json::json!({"detail":"Rate limit exceeded"})),
+    )
+        .into_response()
+}
+
 /// Apply the two rules that sit just outside route dispatch: the Market Support
 /// context boundary and the fixed-window price limits (AD-01). Admission and
 /// CORS are separate outer layers.
 async fn dispatch_boundary(
     State(state): State<HttpState>,
-    request: Request,
+    mut request: Request,
     next: Next,
 ) -> Response {
     let path = request.uri().path();
@@ -283,19 +314,14 @@ async fn dispatch_boundary(
             .get("x-forwarded-for")
             .and_then(|value| value.to_str().ok()),
     );
-    if !state
-        .phase2_limits
-        .lock()
-        .expect("phase2 rate lock")
-        .preauth(&client, path, state.started.elapsed().as_secs())
-    {
-        return (
-            StatusCode::TOO_MANY_REQUESTS,
-            [("retry-after", "60")],
-            axum::Json(serde_json::json!({"detail":"Rate limit exceeded"})),
-        )
-            .into_response();
+    let quota_now = chrono::Utc::now().timestamp().max(0) as u64;
+    if let Err(refusal) = state.phase2_limits.preauth_check(&client, path, quota_now) {
+        return preauth_refusal(path, refusal);
     }
+    request
+        .extensions_mut()
+        .insert(crate::auth::login::PreauthCharged(quota_now));
+    let path = request.uri().path();
     if let Some(response) = crate::auth::scope::known_get_refusal(request.method().as_str(), path) {
         return response;
     }
@@ -516,6 +542,11 @@ impl QueryFields {
                 .into_owned()
                 .collect(),
         )
+    }
+
+    /// The raw text of a query parameter, before any declared conversion.
+    pub fn raw(&self, name: &str) -> Option<&str> {
+        self.0.get(name).map(String::as_str)
     }
 
     pub fn validate(

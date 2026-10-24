@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "id": "notification_scope_and_email_state",
+  "group": "notifications",
+  "route_ids": ["N01", "N02", "N03", "N04"],
+  "status": "pending-runner-registration",
+  "comparator_profile": "phase2-meaning-v1",
+  "actors": [
+    {"name": "a", "id": "20000000-0000-4000-8000-00000000000a", "organization_id": "10000000-0000-4000-8000-000000000001"},
+    {"name": "b", "id": "20000000-0000-4000-8000-00000000000b", "organization_id": "10000000-0000-4000-8000-000000000001"},
+    {"name": "c", "id": "20000000-0000-4000-8000-00000000000c", "organization_id": "10000000-0000-4000-8000-000000000002"}
+  ],
+  "fixtures": [
+    {"id": "30000000-0000-4000-8000-000000000001", "actor": "a", "data": null, "is_read": false, "created_at": "2026-01-01T00:00:00Z"},
+    {"id": "30000000-0000-4000-8000-000000000002", "actor": "a", "data": {}, "is_read": false, "created_at": "2026-01-02T00:00:00Z"},
+    {"id": "30000000-0000-4000-8000-000000000003", "actor": "a", "data": {"_email_only": true, "_email_trace": "retained"}, "is_read": false, "created_at": "2026-01-03T00:00:00Z"},
+    {"id": "30000000-0000-4000-8000-000000000004", "actor": "a", "data": {"_email_only": false, "_email_trace": "retained", "nested": {"_email_key": 2}, "value": [1, true, null]}, "is_read": false, "created_at": "2026-01-04T00:00:00Z"},
+    {"id": "30000000-0000-4000-8000-000000000005", "actor": "a", "data": {"_email_only": "true"}, "is_read": false, "created_at": "2026-01-05T00:00:00Z"},
+    {"id": "30000000-0000-4000-8000-000000000006", "actor": "a", "data": {"_email_only": "false"}, "is_read": false, "created_at": "2026-01-05T00:00:00Z"},
+    {"id": "30000000-0000-4000-8000-000000000007", "actor": "a", "data": {"_email_only": 1}, "is_read": false, "created_at": "2026-01-06T00:00:00Z"},
+    {"id": "30000000-0000-4000-8000-000000000008", "actor": "a", "data": {"_email_only": 0}, "is_read": false, "created_at": "2026-01-06T00:00:00Z"},
+    {"id": "30000000-0000-4000-8000-000000000009", "actor": "a", "data": {"_email_only": null}, "is_read": false, "created_at": "2026-01-08T00:00:00Z"},
+    {"id": "30000000-0000-4000-8000-00000000000a", "actor": "a", "data": {}, "is_read": true, "created_at": "2026-01-08T00:00:00Z"},
+    {"id": "30000000-0000-4000-8000-0000000000b1", "actor": "b", "data": {}, "is_read": false, "created_at": "2026-02-01T00:00:00Z"},
+    {"id": "30000000-0000-4000-8000-0000000000c1", "actor": "c", "data": {}, "is_read": false, "created_at": "2026-03-01T00:00:00Z"}
+  ],
+  "actions": [
+    {"actor": "a", "method": "GET", "path": "/api/notifications", "route_id": "N01", "status": 200},
+    {"actor": "b", "method": "GET", "path": "/api/notifications", "route_id": "N01", "status": 200},
+    {"actor": "c", "method": "GET", "path": "/api/notifications", "route_id": "N01", "status": 200},
+    {"actor": "a", "method": "GET", "path": "/api/notifications?skip=2&limit=2", "route_id": "N01", "status": 200},
+    {"actor": "a", "method": "GET", "path": "/api/notifications?skip=-1&limit=0", "route_id": "N01", "status": 422},
+    {"actor": "a", "method": "GET", "path": "/api/notifications/unread-count", "route_id": "N02", "status": 200, "body": {"count": 6}},
+    {"actor": "a", "method": "PATCH", "path": "/api/notifications/not-a-uuid/read", "route_id": "N03", "status": 422},
+    {"actor": "a", "method": "PATCH", "path": "/api/notifications/30000000-0000-4000-8000-0000000000b1/read", "route_id": "N03", "status": 404},
+    {"actor": "a", "method": "PATCH", "path": "/api/notifications/30000000-0000-4000-8000-0000000000c1/read", "route_id": "N03", "status": 404},
+    {"actor": "a", "method": "PATCH", "path": "/api/notifications/30000000-0000-4000-8000-0000000000ff/read", "route_id": "N03", "status": 404},
+    {"actor": "a", "method": "PATCH", "path": "/api/notifications/30000000-0000-4000-8000-000000000003/read", "route_id": "N03", "status": 200, "repeat": 2},
+    {"actor": "a", "method": "PATCH", "path": "/api/notifications/30000000-0000-4000-8000-000000000001/read", "route_id": "N03", "status": 200, "repeat": 2},
+    {"actor": "a", "method": "GET", "path": "/api/notifications/unread-count", "route_id": "N02", "status": 200, "body": {"count": 5}},
+    {"actor": "a", "method": "PATCH", "path": "/api/notifications/read-all", "route_id": "N04", "status": 200, "repeat": 2},
+    {"actor": "a", "method": "GET", "path": "/api/notifications/unread-count", "route_id": "N02", "status": 200, "body": {"count": 0}}
+  ],
+  "state_assertions": ["Only actor a notification is_read columns change", "Private data stays unchanged", "Other users and all users columns stay unchanged", "No notification, watchlist event, outbox or email send is generated", "Compare complete logical state after every action"],
+  "fault_schedules": ["before-write", "before-commit", "commit-acknowledgement", "after-commit-before-response"],
+  "race_schedules": ["same-recipient read/read-all", "same-organization different-recipient writes", "cross-organization writes"],
+  "note": "Task-owned data draft. Registration and execution await the shared runner lane; this is not evidence of a completed differential gate."
+}
