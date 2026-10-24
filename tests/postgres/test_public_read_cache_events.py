@@ -43,6 +43,10 @@ REVIEWED_EXCLUSIONS = {
     "refresh_sessions": "private session rows of the credential store; never cached",
     "password_reset_tokens": "private reset-token rows of the credential store; never cached",
     "organization_join_requests": "organization-write row locks only; never cached",
+    "audit_logs": "append-only audit rows written inside credential transactions; never cached",
+    "pending_registrations": "registration token rows read and written only inside registration transactions; never cached",
+    "user_login_days": "login-day upsert inside the login transaction; never cached",
+    "user_status_transitions": "status history appended inside registration transactions; never cached",
     "alembic_version": "revision attestation at startup, not a response dependency",
     **{table: "cache infrastructure itself" for table in CACHE_TABLES},
 }

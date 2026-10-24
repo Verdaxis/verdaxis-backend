@@ -1,17 +1,14 @@
 """E3/E4 disposable database gate."""
-import os
 import subprocess
 from pathlib import Path
+
+from tests.postgres.cargo_support import cargo_test_environment
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_e3_e4_postgres(analytics_pg_url):
-    environment = {
-        **os.environ,
-        "AUTH_EMAIL_TEST_OWNER_URL": analytics_pg_url.replace("postgresql+asyncpg://", "postgresql://"),
-        "AUTH_EMAIL_TEST_DATABASE_URL": os.environ["DATABASE_URL"].replace("postgresql+asyncpg://", "postgresql://"), "SQLX_OFFLINE": "true",
-    }
+    environment = cargo_test_environment(analytics_pg_url)
     run = subprocess.run(
         ["cargo", "test", "--manifest-path", "rs/Cargo.toml", "--locked", "-p", "verdaxis-read",
          "--features", "contract-tests", "--test", "auth_email_verification_postgres", "--", "--include-ignored"],
