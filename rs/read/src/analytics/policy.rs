@@ -402,9 +402,7 @@ impl PropertyValues {
     /// resolved through an external pinned reference.
     pub fn accepts(self, value: &str) -> Option<bool> {
         match self {
-            PropertyValues::Closed(values) => {
-                Some(values.iter().any(|accepted| *accepted == value))
-            }
+            PropertyValues::Closed(values) => Some(values.contains(&value)),
             PropertyValues::TutorialSteps => Some(tutorial_step(value)),
             PropertyValues::External => None,
         }

@@ -22,14 +22,21 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::types::{AnalyticsActivity, AnalyticsAudience};
-use crate::ApiError;
 use crate::business::error::refusal;
+use crate::ApiError;
 
 /// Longest accepted half-open period: 365 days.
 pub const MAX_RANGE_SECONDS: i64 = 365 * 24 * 60 * 60;
 
 /// Longest accepted availability-window string.
 pub const MAX_AVAILABILITY_WINDOW_CHARS: usize = 16;
+
+/// Earliest instant a client query may address.
+///
+/// The client contract is a four-digit calendar year, the same domain the
+/// Python schema and the frontend use. A comparison window that would begin
+/// before it is refused rather than silently widened.
+pub const MIN_QUERY_INSTANT: &str = "0001-01-01T00:00:00Z";
 
 /// Raw query parameters, before validation.
 ///
@@ -158,11 +165,7 @@ pub fn validate_query(input: QueryInput) -> Result<AnalyticsQuery, ApiError> {
     }
 
     let previous = if compare {
-        // The previous period has the same length and ends exactly at `start`.
-        let previous_start = start
-            .checked_sub_signed(elapsed)
-            .ok_or_else(|| invalid("the comparison period is outside the supported range"))?;
-        Some((previous_start, start))
+        Some(previous_window(start, elapsed)?)
     } else {
         None
     };
@@ -180,6 +183,20 @@ pub fn validate_query(input: QueryInput) -> Result<AnalyticsQuery, ApiError> {
     })
 }
 
+/// The checked comparison window of a period: the same length, ending exactly
+/// at its start, and never before [`MIN_QUERY_INSTANT`].
+pub fn previous_window(
+    start: DateTime<Utc>,
+    elapsed: TimeDelta,
+) -> Result<(DateTime<Utc>, DateTime<Utc>), ApiError> {
+    let earliest: DateTime<Utc> = MIN_QUERY_INSTANT.parse().expect("declared minimum instant");
+    let previous_start = start
+        .checked_sub_signed(elapsed)
+        .filter(|previous_start| *previous_start >= earliest)
+        .ok_or_else(|| invalid("the comparison period is outside the supported range"))?;
+    Ok((previous_start, start))
+}
+
 fn invalid(message: &'static str) -> ApiError {
     refusal(
         StatusCode::UNPROCESSABLE_ENTITY,
@@ -195,13 +212,18 @@ fn parse_uuid(value: Option<&str>, message: &'static str) -> Result<Option<Uuid>
         .map_err(|_| invalid(message))
 }
 
-/// Parse one ISO 8601 timestamp.
+/// Parse one ISO 8601 timestamp in the client's four-digit calendar domain.
 ///
 /// The relaxed RFC 3339 form accepts a space or `T` separator and an offset
-/// with or without a colon. Expanded ISO 8601 years (outside RFC 3339's four
-/// digits) are also accepted so the checked previous-window guard stays
-/// reachable; ordinary client values never use them.
+/// with or without a colon. Expanded years, year zero and negative years are
+/// refused, as the Python schema refuses them.
 fn parse_timestamp(value: &str) -> Option<DateTime<Utc>> {
+    let parsed = parse_timestamp_any(value)?;
+    let year = chrono::Datelike::year(&parsed);
+    (1..=9999).contains(&year).then_some(parsed)
+}
+
+fn parse_timestamp_any(value: &str) -> Option<DateTime<Utc>> {
     if value.is_empty() {
         return None;
     }

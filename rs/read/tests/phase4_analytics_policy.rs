@@ -6,7 +6,7 @@
 //! a patch, so the leaves stay reachable without a concurrent shared-file
 //! change.
 
-pub use verdaxis_read::{ApiError, business};
+pub use verdaxis_read::{business, ApiError};
 
 #[allow(dead_code)]
 #[path = "../src/analytics/facts.rs"]
@@ -28,18 +28,19 @@ use chrono::{DateTime, Duration, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde_json::json;
 
-use facts::{MarketProvenance, classify_order, classify_trade};
+use facts::{classify_order, classify_trade, MarketProvenance};
 use policy::{
-    MAX_COHORT_ROWS, MAX_MATRIX_CELLS, MAX_RANKED_ROWS, MAX_SERIES_POINTS, PropertyValueCheck,
-    SUPPRESSION_THRESHOLD, allowed_event_properties, allowed_properties, check_property_value,
-    property_domain, ratio_from_counts, suppress, suppress_cell,
+    allowed_event_properties, allowed_properties, check_property_value, property_domain,
+    ratio_from_counts, suppress, suppress_cell, PropertyValueCheck, MAX_COHORT_ROWS,
+    MAX_MATRIX_CELLS, MAX_RANKED_ROWS, MAX_SERIES_POINTS, SUPPRESSION_THRESHOLD,
 };
 use query::{
-    AnalyticsQuery, MAX_AVAILABILITY_WINDOW_CHARS, MAX_RANGE_SECONDS, QueryInput, validate_query,
+    previous_window, validate_query, AnalyticsQuery, QueryInput, MAX_AVAILABILITY_WINDOW_CHARS,
+    MAX_RANGE_SECONDS, MIN_QUERY_INSTANT,
 };
 use retention::{
-    AnalyticsFactFamily, MAX_SERIES_DATES, RETAINED_DATES, login_day_is_retained,
-    login_retention_cutoff,
+    login_day_is_retained, login_retention_cutoff, AnalyticsFactFamily, MAX_SERIES_DATES,
+    RETAINED_DATES,
 };
 use types::{
     AggregateCell, AnalyticsActivity, AnalyticsAudience, AnalyticsDiagnostic,
@@ -66,11 +67,11 @@ fn refusal_code(error: &ApiError) -> (u16, String, String) {
 /// c01: the comparison period is arithmetic, and an underflow is a 422.
 #[test]
 fn p4_t15_c01() {
-    // The earliest representable year, twelve hours in: the comparison
-    // period of one day would begin before the calendar range.
+    // Ten days into year 1, the comparison period begins before the earliest
+    // addressable instant, so the query is refused rather than widened.
     let underflowing = input(&[
-        ("start", "-262144-01-01T12:00:00"),
-        ("end", "-262144-01-02T12:00:00"),
+        ("start", "0001-01-10T00:00:00"),
+        ("end", "0001-12-31T00:00:00"),
     ]);
     let error = validate_query(underflowing).expect_err("previous window underflows");
     let (status, code, message) = refusal_code(&error);
@@ -85,12 +86,51 @@ fn p4_t15_c01() {
     // The same period is valid when no comparison is asked for: the refusal
     // is the checked arithmetic, not the range.
     let without_comparison = input(&[
-        ("start", "-262144-01-01T12:00:00"),
-        ("end", "-262144-01-02T12:00:00"),
+        ("start", "0001-01-10T00:00:00"),
+        ("end", "0001-12-31T00:00:00"),
         ("compare", "false"),
     ]);
     let query = validate_query(without_comparison).expect("no previous period is computed");
     assert_eq!(query.previous, None);
+
+    // The guard is the comparison arithmetic, not a floor on the period: the
+    // shortest period inside year 1 is still refused, and the same period
+    // placed after the boundary is valid.
+    assert_eq!(
+        refusal_code(
+            &validate_query(input(&[
+                ("start", "0001-01-01T00:00:00"),
+                ("end", "0001-01-02T00:00:00"),
+            ]))
+            .unwrap_err()
+        )
+        .2,
+        "the comparison period is outside the supported range"
+    );
+    let after_boundary = validate_query(input(&[
+        ("start", "0001-01-02T00:00:00"),
+        ("end", "0001-01-03T00:00:00"),
+    ]))
+    .expect("comparison fits");
+    assert_eq!(
+        after_boundary.previous_start(),
+        Some("0001-01-01T00:00:00Z".parse().unwrap())
+    );
+
+    // The published window helper owns the same checked arithmetic.
+    let earliest: DateTime<Utc> = MIN_QUERY_INSTANT.parse().unwrap();
+    let (status, code, message) =
+        refusal_code(&previous_window(earliest, Duration::seconds(1)).unwrap_err());
+    assert_eq!(status, 422);
+    assert_eq!(code, "ANALYTICS_QUERY_INVALID");
+    assert_eq!(
+        message,
+        "the comparison period is outside the supported range"
+    );
+    assert_eq!(
+        previous_window(earliest + Duration::days(1), Duration::days(1)),
+        Ok((earliest, earliest + Duration::days(1)))
+    );
 }
 
 /// c02: half-open UTC period, naive-as-UTC and offset normalization, checked
@@ -168,13 +208,11 @@ fn p4_t15_c02() {
         .0,
         422
     );
-    assert!(
-        validate_query(input(&[
-            ("start", "2026-01-01T00:00:00Z"),
-            ("end", "2027-01-01T00:00:00Z"),
-        ]))
-        .is_ok()
-    );
+    assert!(validate_query(input(&[
+        ("start", "2026-01-01T00:00:00Z"),
+        ("end", "2027-01-01T00:00:00Z"),
+    ]))
+    .is_ok());
     let over = validate_query(input(&[
         ("start", "2026-01-01T00:00:00Z"),
         ("end", "2027-01-01T00:00:01Z"),
@@ -184,14 +222,12 @@ fn p4_t15_c02() {
 
     // A 16-character window is accepted, 17 is refused.
     let longest = "x".repeat(MAX_AVAILABILITY_WINDOW_CHARS);
-    assert!(
-        validate_query(input(&[
-            ("start", "2026-06-01T00:00:00Z"),
-            ("end", "2026-06-02T00:00:00Z"),
-            ("availability_window", longest.as_str()),
-        ]))
-        .is_ok()
-    );
+    assert!(validate_query(input(&[
+        ("start", "2026-06-01T00:00:00Z"),
+        ("end", "2026-06-02T00:00:00Z"),
+        ("availability_window", longest.as_str()),
+    ]))
+    .is_ok());
     let too_long = "x".repeat(MAX_AVAILABILITY_WINDOW_CHARS + 1);
     assert_eq!(
         refusal_code(
@@ -208,7 +244,7 @@ fn p4_t15_c02() {
 
     // Missing, malformed and out-of-domain values are all 422 refusals with
     // the same envelope, never a database read.
-    let refused_cases: [&[(&str, &str)]; 7] = [
+    let refused_cases: [&[(&str, &str)]; 9] = [
         &[("end", "2026-06-02T00:00:00Z")],
         &[("start", "2026-06-01T00:00:00Z")],
         &[
@@ -234,6 +270,16 @@ fn p4_t15_c02() {
             ("start", "2026-06-01T00:00:00Z"),
             ("end", "2026-06-02T00:00:00Z"),
             ("product_id", "not-a-uuid"),
+        ],
+        // Year zero and expanded years are outside the four-digit client
+        // calendar, so they are refused at parse time.
+        &[
+            ("start", "0000-01-01T00:00:00"),
+            ("end", "0000-02-01T00:00:00"),
+        ],
+        &[
+            ("start", "-0001-01-01T00:00:00"),
+            ("end", "0001-02-01T00:00:00"),
         ],
     ];
     for bad in refused_cases {
@@ -404,8 +450,8 @@ fn p4_t15_c05() {
 
     // The retained window always covers a full period series and its
     // comparison series.
-    assert!(RETAINED_DATES >= MAX_SERIES_DATES);
     assert_eq!(MAX_SERIES_DATES, 732);
+    assert_eq!(RETAINED_DATES - MAX_SERIES_DATES, 68);
 
     // An extreme input saturates instead of panicking; nothing is prunable
     // there.
