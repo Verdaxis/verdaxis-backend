@@ -236,6 +236,46 @@ fn state_lock_does_not_change_existing_mode() {
 }
 
 #[test]
+fn state_files_outside_their_owner_directory_are_refused() {
+    // State lives in a directory owned by the identity that owns its files.
+    // `/tmp` belongs to root, so a file created there by another identity has
+    // an owner that differs from its parent's and must be refused.
+    let parent = Path::new("/tmp");
+    let Ok(parent_metadata) = std::fs::metadata(parent) else {
+        return;
+    };
+    let own_directory = TempDir::new();
+    let own_uid = std::fs::metadata(own_directory.path())
+        .expect("read the scratch directory owner")
+        .uid();
+    if parent_metadata.uid() == own_uid {
+        return;
+    }
+
+    let suffix = uuid::Uuid::new_v4().simple();
+    let state = parent.join(format!("verdaxis-phase10-{suffix}.json"));
+    let lock = parent.join(format!("verdaxis-phase10-{suffix}.lock"));
+    std::fs::write(&state, br#"{"version":1,"state":"ok"}"#).expect("write a state file");
+    std::fs::write(&lock, b"").expect("write a lock file");
+
+    let read = read_bounded::<Record>(&state, 4096);
+    let acquired = StateLock::try_acquire(&lock).err();
+    let _ = std::fs::remove_file(&state);
+    let _ = std::fs::remove_file(&lock);
+
+    assert_eq!(
+        read,
+        Err(Exit::Precondition),
+        "a state file is refused when its owner is not its directory's owner"
+    );
+    assert_eq!(
+        acquired,
+        Some(Exit::Precondition),
+        "a lock file is refused when its owner is not its directory's owner"
+    );
+}
+
+#[test]
 fn state_lock_is_nonblocking() {
     let directory = TempDir::new();
     let path = directory.path().join("job.lock");
