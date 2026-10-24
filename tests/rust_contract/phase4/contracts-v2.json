@@ -1,8 +1,7 @@
 {
   "version": 2,
-  "status": "partial_acceptance_with_proposals_and_delayed_settlement",
+  "status": "partial",
   "source_sha": "f8627807a01cee35ddb9d43d1ce81fa5882b10cd",
-  "acceptance": "PD4-CF4a accepts CF4_01, CF4_02, CF4_05 at v1 source/digest. Others are not accepted. PM starts lanes; each lane reconfirms consumed digest and stops on a defect.",
   "contracts": [
     {
       "id": "CF4_01",
@@ -11,7 +10,7 @@
         "11a",
         "integration"
       ],
-      "signature_status": "proposed_for_review",
+      "signature_status": "declared",
       "signatures": [
         {
           "declaration": "pub async fn freeze_approval_mail(conn: &mut PgConnection, marker: &ApprovalMailMarker) -> Result<(), MailError>",
@@ -81,13 +80,7 @@
           "sha256": "fda40d53a1e63f61b1b3055da23df202cc8816be494194a3da26203dd0328de8"
         }
       ],
-      "status": "accepted",
-      "acceptance_record": {
-        "decision": "PD4-CF4a",
-        "source_sha": "f8627807a01cee35ddb9d43d1ce81fa5882b10cd",
-        "artifact_sha256": "f075109fb4c3097525f20b9264c5a6654399122c632f27eedf83a7bd45e8ff57",
-        "declarations": "identical to reviewed v1; acceptance does not assert producer completion"
-      }
+      "status": "accepted"
     },
     {
       "id": "CF4_02",
@@ -99,7 +92,7 @@
         "11b",
         "integration"
       ],
-      "signature_status": "proposed_for_review",
+      "signature_status": "declared",
       "signatures": [
         {
           "declaration": "pub fn eligibility(policy: &KycPolicy, party: &KycParty, grace: Option<&Grace>, now: DateTime<Utc>) -> KycEligibility",
@@ -166,13 +159,7 @@
           "sha256": "750193b9b57a1428faf44ba5cf3fded16fa6f205810dc60928531229e23c02fc"
         }
       ],
-      "status": "accepted",
-      "acceptance_record": {
-        "decision": "PD4-CF4a",
-        "source_sha": "f8627807a01cee35ddb9d43d1ce81fa5882b10cd",
-        "artifact_sha256": "f075109fb4c3097525f20b9264c5a6654399122c632f27eedf83a7bd45e8ff57",
-        "declarations": "identical to reviewed v1; acceptance does not assert producer completion"
-      }
+      "status": "accepted"
     },
     {
       "id": "CF4_03",
@@ -185,7 +172,7 @@
         "19",
         "integration"
       ],
-      "signature_status": "proposed_for_review",
+      "signature_status": "declared",
       "signatures": [
         {
           "declaration": "pub fn validate_query(input: QueryInput) -> Result<AnalyticsQuery, ApiError>",
@@ -985,19 +972,83 @@
               "missing start/end",
               "invalid timestamp, UUID, bool or enum",
               "end <= start",
-              "range > 366 days",
+              "elapsed range > 365 days",
               "availability_window >16 characters",
-              "checked previous_start underflow when compare=true",
-              "invalid supplied canonical availability window",
-              "supplied inactive or absent product",
-              "supplied absent or inactive delivery point"
+              "checked previous_start underflow when compare=true"
             ]
           },
           "previous": "when compare=true: checked start-(end-start), previous_end=start; otherwise both null",
           "sources": [
             "app/schemas/product_analytics.py:43-91",
             "app/routers/admin_analytics.py:952-984"
-          ]
+          ],
+          "elapsed_range_limit_seconds": 31536000,
+          "series_cardinality_max": 366,
+          "route_validation": {
+            "shared_parser": {
+              "routes": [
+                "P05",
+                "P06",
+                "P07",
+                "P08",
+                "P09",
+                "P10",
+                "P11"
+              ],
+              "checks": [
+                "required timestamps, enum/bool/UUID types",
+                "naive UTC and offset-to-UTC normalization",
+                "end > start; elapsed duration <=365 days",
+                "window string maximum16",
+                "checked previous-window arithmetic if compare=true"
+              ],
+              "database_access": false,
+              "refusal_status": 422,
+              "refusal_code": "ANALYTICS_QUERY_INVALID"
+            },
+            "non_marketplace": {
+              "routes": [
+                "P05",
+                "P06",
+                "P07",
+                "P08",
+                "P10",
+                "P11"
+              ],
+              "activity_REFERENCE": {
+                "status": 422,
+                "code": "ANALYTICS_QUERY_INVALID"
+              },
+              "catalog_validation": false,
+              "source": "app/routers/admin_analytics.py:735-740,989,1104,1221,1301,1423,1456"
+            },
+            "marketplace": {
+              "routes": [
+                "P09"
+              ],
+              "activity_REFERENCE": "accepted",
+              "supplied_filters": [
+                "canonical availability window",
+                "active catalog product",
+                "active delivery point"
+              ],
+              "validation_owner": "route-owned database/catalog validation after pure parsing; no catalog query in validate_query",
+              "refusal": {
+                "status": 422,
+                "code": "ANALYTICS_QUERY_INVALID"
+              },
+              "source": "app/routers/admin_analytics.py:952-977,1383-1389"
+            },
+            "other_analytics": {
+              "routes": [
+                "P01",
+                "P02",
+                "P03",
+                "P04"
+              ],
+              "ProductAnalyticsQuery": "not used; retain route-specific days/list filters from client-contract.json; no new REFERENCE input"
+            }
+          }
         },
         "ProviderComponent<T>": {
           "status": "available|partial|unavailable|not_requested",
@@ -1402,7 +1453,7 @@
         "ranking_normalization": {
           "entries": "strip query and fragment; fixed route-family allowlist maps unknown to other; never expose raw path",
           "referrers": "parse host internally and map to fixed ReferrerCategory; no raw hostname/URL reaches output",
-          "new_closed_domains": "Proposed closed decoding domains, not a claim that historical token validators imposed them. Existing observed referral/direct and create/existing included. Unknown values are dropped, not echoed; independent analytics review required.",
+          "new_closed_domains": "Closed decoding domains; unknown values dropped, never echoed. Historical token validators do not define these domains.",
           "sources": [
             "app/services/behavioral_analytics.py:33-58,102-164,337-365,373-470",
             "app/routers/admin_analytics.py:220-234,890-938,1112-1180,1335-1370,1455-1480",
@@ -1428,14 +1479,14 @@
         }
       },
       "rules": {
-        "range": "half-open UTC, end > start, <=366 days; checked previous-window arithmetic; underflow 422",
+        "range": "half-open UTC, end > start, elapsed duration <=365 days (31536000 seconds); separate maximum366 daily series points; checked previous-window arithmetic; underflow422",
         "bounds": {
           "rank": 20,
           "matrix": 512,
           "weeks": 54,
           "provider_events": 12,
           "provider_property_rows": 500,
-          "provider_body_bytes": 1048576
+          "provider_body_bytes": 1000000
         },
         "suppression": "positive count or entity basis 1 or 2 suppresses count and derived values; zero genuine; missing coverage null not zero; 3 unsuppressed",
         "sources": "authoritative, behavioral, login, status, reference coverage remain separate; reference never activity or commercial actuals",
@@ -1500,7 +1551,7 @@
         "phase9",
         "integration"
       ],
-      "signature_status": "delayed_pending_Phase_8_9_owner_reconciliation",
+      "signature_status": "delayed",
       "signatures": [
         {
           "declaration": "pub async fn invalidate_organization(conn: &mut PgConnection, command: &InvalidateOrganization) -> Result<InvalidationResult, InvalidationError>",
@@ -1693,7 +1744,7 @@
         }
       },
       "delay": {
-        "reason": "Exact cleanup actor/context types, assisted-side representation, delivery-side rule and MarketWriteError codes need Phase8/9 owner confirmation. No parallel admit_existing_settlement API is frozen.",
+        "reason": "Exact cleanup actor/context types, assisted-side representation, delivery-side evidence and error codes remain unresolved; no parallel authority API.",
         "consumers_blocked": [
           "6",
           "7",
@@ -1702,7 +1753,7 @@
           "21",
           "22"
         ],
-        "release": "independent contract re-review plus Phase8/9 owner reconciliation and PM acceptance; not inferred",
+        "release": "blocked_pending_authority_contract",
         "plan_references": [
           "Phases 8-9 Plan \u00a77.4 lines353-365,378",
           "Phases 8-9 Plan lines668-672,886-887,1063-1064,1760-1804",
@@ -1727,7 +1778,7 @@
         "24",
         "integration"
       ],
-      "signature_status": "proposed_for_review",
+      "signature_status": "declared",
       "signatures": [
         {
           "declaration": "import rust-phase4 python_upstream rust_upstream B_owner O_owner V_owner I_owner S_owner P_owner",
@@ -1773,13 +1824,7 @@
           "sha256": "94fa69b1897ae4a08814d372c7b0f2908ad86146e679003c30a39d3224ffa0d3"
         }
       ],
-      "status": "accepted",
-      "acceptance_record": {
-        "decision": "PD4-CF4a",
-        "source_sha": "f8627807a01cee35ddb9d43d1ce81fa5882b10cd",
-        "artifact_sha256": "f075109fb4c3097525f20b9264c5a6654399122c632f27eedf83a7bd45e8ff57",
-        "declarations": "identical to reviewed v1; acceptance does not assert producer completion"
-      }
+      "status": "accepted"
     },
     {
       "id": "CF4_06",
@@ -1899,7 +1944,7 @@
           "sha256": "91be447533c20344c6da54e43914096f7f783d67f2ce0dc815fbee25d3a00477"
         }
       ],
-      "status": "proposed",
+      "status": "accepted",
       "source_references": [
         {
           "path": "rs/read/src/auth/lock.rs",
@@ -1924,5 +1969,11 @@
       ]
     }
   ],
-  "supersedes": "contracts-v1.json; v1 retained unchanged"
+  "supersedes": "contracts-v1.json",
+  "accepted_contracts": [
+    "CF4_01",
+    "CF4_02",
+    "CF4_05",
+    "CF4_06"
+  ]
 }
