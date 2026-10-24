@@ -121,16 +121,16 @@ pub mod analytics {
         }
     }
 
-    #[path = "../../src/analytics/events.rs"]
+    #[path = "../../../src/analytics/events.rs"]
     pub mod events;
-    #[path = "../../src/analytics/behavioral.rs"]
+    #[path = "../../../src/analytics/behavioral.rs"]
     pub mod behavioral;
 }
 
 pub mod providers {
-    #[path = "../../src/providers/umami.rs"]
+    #[path = "../../../src/providers/umami.rs"]
     pub mod umami;
 }
 
-#[path = "cases.rs"]
+#[path = "../phase4_umami_suite/cases.rs"]
 mod cases;
