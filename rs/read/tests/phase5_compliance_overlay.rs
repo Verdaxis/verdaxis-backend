@@ -454,6 +454,34 @@ async fn no_organization_user(pool: &sqlx::PgPool) -> Uuid {
     id
 }
 
+/// The runtime role may read every table but the market-contract runner grants
+/// it no write privilege. The route's transaction takes the current-account row
+/// in update mode, and PostgreSQL requires `UPDATE` privilege for that row lock,
+/// so the authenticated cases grant it on the disposable database first. This is
+/// what the deployed runtime role already holds for its own account writes.
+#[cfg(feature = "contract-tests")]
+async fn grant_actor_lock(writer: &sqlx::PgPool, database_url: &str) {
+    use sqlx::ConnectOptions as _;
+    let options = database_url
+        .parse::<sqlx::postgres::PgConnectOptions>()
+        .expect("disposable fixture URL");
+    let role = options
+        .get_username()
+        .to_owned();
+    assert!(
+        role.bytes()
+            .enumerate()
+            .all(|(index, byte)| byte.is_ascii_lowercase()
+                || byte == b'_'
+                || (index > 0 && byte.is_ascii_digit())),
+        "unexpected disposable role name"
+    );
+    sqlx::query(&format!("GRANT UPDATE ON users TO {role}"))
+        .execute(writer)
+        .await
+        .expect("current-account lock privilege");
+}
+
 #[cfg(feature = "contract-tests")]
 async fn authenticated_state(config: &Config) -> AppState {
     let pools = verdaxis_read::connect(config).await.expect("read pools");
@@ -512,7 +540,8 @@ async fn compliance_overlay_authenticated_cases() {
 
     let Some(url) = fixture_url() else { return };
     let writer = writer_pool().await;
-    let config = test_config(url, None);
+    let config = test_config(url.clone(), None);
+    grant_actor_lock(&writer, &url).await;
     let state = authenticated_state(&config).await;
     let manifest = manifest();
     let member = user_id(&writer, "fixture-real@rust-market.test").await;
@@ -746,7 +775,8 @@ async fn compliance_overlay_timeout_cases() {
 
     let Some(url) = fixture_url() else { return };
     let writer = writer_pool().await;
-    let config = test_config(url, None);
+    let config = test_config(url.clone(), None);
+    grant_actor_lock(&writer, &url).await;
     let state = authenticated_state(&config).await;
     let member = user_id(&writer, "fixture-real@rust-market.test").await;
     let token = signed_token(member);
@@ -883,27 +913,23 @@ async fn compliance_overlay_snapshot_cases() {
         .expect("logging connection");
     let executed = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
     let policy = fixture_policy();
-    let actor_for_first = actor.clone();
-    let executed_for_first = executed.clone();
-    let first = tracing::subscriber::with_default(
-        tracing_subscriber::registry().with(OneStatement(executed.clone())),
-        || async {
-            executed_for_first.lock().unwrap().clear();
-            let request = OverlayRequest::validate(json!({"order_ids": [order]})).unwrap();
-            let response = overlay::select_overlay(
-                &mut connection,
-                &policy,
-                &market::visibility::VisibilityClock::at(chrono::Utc::now()),
-                &config,
-                &actor_for_first,
-                &request,
-            )
-            .await
-            .expect("overlay response");
-            (response, connection)
-        },
-    );
-    let (response, mut connection) = first.await;
+    let request = OverlayRequest::validate(json!({"order_ids": [order]})).unwrap();
+    // The guard keeps this connection's statement events on the test's own
+    // current-thread runtime for the whole awaited call.
+    let subscriber = tracing_subscriber::registry().with(OneStatement(executed.clone()));
+    let guard = tracing::subscriber::set_default(subscriber);
+    executed.lock().unwrap().clear();
+    let response = overlay::select_overlay(
+        &mut connection,
+        &policy,
+        &market::visibility::VisibilityClock::at(chrono::Utc::now()),
+        &config,
+        &actor,
+        &request,
+    )
+    .await
+    .expect("overlay response");
+    drop(guard);
     let statements = executed.lock().unwrap().clone();
     assert_eq!(
         statements.len(),
@@ -930,23 +956,19 @@ async fn compliance_overlay_snapshot_cases() {
         .await
         .expect("insert a member vessel");
     executed.lock().unwrap().clear();
-    let request = OverlayRequest::validate(json!({"order_ids": [order]})).unwrap();
-    let after = tracing::subscriber::with_default(
-        tracing_subscriber::registry().with(OneStatement(executed.clone())),
-        || async {
-            overlay::select_overlay(
-                &mut connection,
-                &policy,
-                &market::visibility::VisibilityClock::at(chrono::Utc::now()),
-                &config,
-                &actor,
-                &request,
-            )
-            .await
-        },
+    let subscriber = tracing_subscriber::registry().with(OneStatement(executed.clone()));
+    let guard = tracing::subscriber::set_default(subscriber);
+    let after = overlay::select_overlay(
+        &mut connection,
+        &policy,
+        &market::visibility::VisibilityClock::at(chrono::Utc::now()),
+        &config,
+        &actor,
+        &request,
     )
     .await
     .expect("second overlay response");
+    drop(guard);
     let statements = executed.lock().unwrap().clone();
     assert_eq!(
         statements.len(),
