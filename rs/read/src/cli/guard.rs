@@ -23,10 +23,12 @@ const MAX_STATE_FIELD_CHARS: usize = 256;
 
 // `std` has no portable `O_NOFOLLOW` constant. The guard refuses symlinks
 // before opening as well, so this flag only closes the replace-after-check gap.
+// Linux `open(2)`: O_NOFOLLOW is 0x20000 and O_NONBLOCK is 0x800.
 #[cfg(target_os = "linux")]
-const O_NOFOLLOW: i32 = 0o40000;
+const O_NOFOLLOW: i32 = 0o400000;
 #[cfg(target_os = "linux")]
 const O_NONBLOCK: i32 = 0o4000;
+// Darwin `fcntl.h`: O_NOFOLLOW is 0x0100 and O_NONBLOCK is 0x0004.
 #[cfg(target_os = "macos")]
 const O_NOFOLLOW: i32 = 0x0100;
 #[cfg(target_os = "macos")]
