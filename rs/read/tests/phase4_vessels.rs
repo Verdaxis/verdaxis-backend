@@ -67,10 +67,7 @@ fn app(pool: sqlx::PgPool, url: String) -> Router {
         .unwrap();
     let state = AppState::new(
         config(url),
-        runtime::db::Pools {
-            read: pool,
-            health,
-        },
+        runtime::db::Pools { read: pool, health },
         MarketPolicy {
             source_sha: compiled_sha().into(),
             products: vec![],
@@ -142,6 +139,14 @@ async fn p4_t12_c05() {
 #[cfg(feature = "contract-tests")]
 mod postgres {
     use super::*;
+
+    /// One row of the raw geography snapshot compared across repeated reads.
+    type SnapshotRow = (
+        Uuid,
+        Option<Vec<u8>>,
+        Option<Vec<u8>>,
+        chrono::DateTime<Utc>,
+    );
 
     struct Fixture {
         admin: PgConnection,
@@ -309,12 +314,7 @@ mod postgres {
     async fn p4_t12_c03() {
         let mut f = Fixture::new().await;
         let snapshot = "SELECT id,ST_AsEWKB(current_location::geometry),ST_AsEWKB(previous_location::geometry),updated_at FROM vessels ORDER BY id";
-        let before: Vec<(
-            Uuid,
-            Option<Vec<u8>>,
-            Option<Vec<u8>>,
-            chrono::DateTime<Utc>,
-        )> = sqlx::query_as(snapshot)
+        let before: Vec<SnapshotRow> = sqlx::query_as(snapshot)
             .fetch_all(&mut f.admin)
             .await
             .unwrap();
@@ -364,12 +364,7 @@ mod postgres {
                 assert_eq!(null[key], Value::Null);
             }
         }
-        let after: Vec<(
-            Uuid,
-            Option<Vec<u8>>,
-            Option<Vec<u8>>,
-            chrono::DateTime<Utc>,
-        )> = sqlx::query_as(snapshot)
+        let after: Vec<SnapshotRow> = sqlx::query_as(snapshot)
             .fetch_all(&mut f.admin)
             .await
             .unwrap();
