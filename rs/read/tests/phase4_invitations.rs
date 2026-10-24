@@ -72,9 +72,11 @@ impl OrganizationDomainPolicy for Domains {
             return None;
         }
         let labels: Vec<&str> = domain.split('.').collect();
-        if (0..labels.len() - 1)
-            .any(|index| self.excluded.iter().any(|item| item == &labels[index..].join(".")))
-        {
+        if (0..labels.len() - 1).any(|index| {
+            self.excluded
+                .iter()
+                .any(|item| item == &labels[index..].join("."))
+        }) {
             return None;
         }
         Some(domain)
@@ -107,11 +109,16 @@ fn p4_t5_c02() {
             expected
         );
     }
-    for refused in ["ZZ", "XX", "XK", "EU", "UK", "AA", "QM", "S1", "S", "SGP", ""] {
+    for refused in [
+        "ZZ", "XX", "XK", "EU", "UK", "AA", "QM", "S1", "S", "SGP", "",
+    ] {
         let mut payload = new_organization_payload();
         payload["new_organization"]["country_code"] = json!(refused);
         assert_eq!(
-            CreateInvitation::parse(&payload).unwrap_err().status.as_u16(),
+            CreateInvitation::parse(&payload)
+                .unwrap_err()
+                .status
+                .as_u16(),
             422,
             "country {refused} must be refused"
         );
@@ -122,10 +129,22 @@ fn p4_t5_c02() {
 fn p4_t5_c50() {
     // A trader supplier is invitation-only: the role/type matrix admits a
     // FUEL_TRADER organization for a SUPPLIER and nothing else.
-    assert!(store::organization_type_matches_role("SUPPLIER", "FUEL_TRADER"));
-    assert!(store::organization_type_matches_role("SUPPLIER", "FUEL_SUPPLIER"));
-    assert!(!store::organization_type_matches_role("BUYER", "FUEL_TRADER"));
-    assert!(!store::organization_type_matches_role("SUPPLIER", "FUEL_BUYER"));
+    assert!(store::organization_type_matches_role(
+        "SUPPLIER",
+        "FUEL_TRADER"
+    ));
+    assert!(store::organization_type_matches_role(
+        "SUPPLIER",
+        "FUEL_SUPPLIER"
+    ));
+    assert!(!store::organization_type_matches_role(
+        "BUYER",
+        "FUEL_TRADER"
+    ));
+    assert!(!store::organization_type_matches_role(
+        "SUPPLIER",
+        "FUEL_BUYER"
+    ));
     let mut payload = new_organization_payload();
     payload["role"] = json!("SUPPLIER");
     payload["new_organization"] = json!({
@@ -140,29 +159,50 @@ fn p4_t5_c56() {
     let organization = Uuid::new_v4();
     assert!(CreateInvitation::parse(&existing_payload(organization)).is_ok());
     let mut neither = new_organization_payload();
-    neither
-        .as_object_mut()
-        .unwrap()
-        .remove("new_organization");
-    assert_eq!(CreateInvitation::parse(&neither).unwrap_err().status.as_u16(), 422);
+    neither.as_object_mut().unwrap().remove("new_organization");
+    assert_eq!(
+        CreateInvitation::parse(&neither)
+            .unwrap_err()
+            .status
+            .as_u16(),
+        422
+    );
     let mut both = existing_payload(organization);
     both["new_organization"] = new_organization_payload()["new_organization"].clone();
-    assert_eq!(CreateInvitation::parse(&both).unwrap_err().status.as_u16(), 422);
+    assert_eq!(
+        CreateInvitation::parse(&both).unwrap_err().status.as_u16(),
+        422
+    );
     let mut empty = existing_payload(organization);
     empty["organization_id"] = Value::Null;
-    assert_eq!(CreateInvitation::parse(&empty).unwrap_err().status.as_u16(), 422);
+    assert_eq!(
+        CreateInvitation::parse(&empty).unwrap_err().status.as_u16(),
+        422
+    );
     // A non-UUID organization id is a validation failure, never a lookup.
     let mut malformed = existing_payload(organization);
     malformed["organization_id"] = json!("not-a-uuid");
-    assert_eq!(CreateInvitation::parse(&malformed).unwrap_err().status.as_u16(), 422);
+    assert_eq!(
+        CreateInvitation::parse(&malformed)
+            .unwrap_err()
+            .status
+            .as_u16(),
+        422
+    );
     // ADMIN is never an invitation role.
     let mut admin = existing_payload(organization);
     admin["role"] = json!("ADMIN");
-    assert_eq!(CreateInvitation::parse(&admin).unwrap_err().status.as_u16(), 422);
+    assert_eq!(
+        CreateInvitation::parse(&admin).unwrap_err().status.as_u16(),
+        422
+    );
     // Names are stripped and may not become blank.
     let mut names = existing_payload(organization);
     names["first_name"] = json!("  ");
-    assert_eq!(CreateInvitation::parse(&names).unwrap_err().status.as_u16(), 422);
+    assert_eq!(
+        CreateInvitation::parse(&names).unwrap_err().status.as_u16(),
+        422
+    );
     let mut names = existing_payload(organization);
     names["last_name"] = json!("  Rahman  ");
     assert_eq!(body(names).last_name.as_deref(), Some("Rahman"));
@@ -196,18 +236,25 @@ fn p4_t5_c57() {
 fn p4_t5_c62() {
     // The role always matches the organization side: BUYER takes the four
     // buy-side types only, SUPPLIER the two supply-side types only.
-    for kind in [
-        "SHIPPING_LINE",
-        "SHIP_MANAGER",
-        "FUEL_BUYER",
-        "CHARTERER",
-    ] {
-        assert!(store::organization_type_matches_role("BUYER", kind), "{kind}");
-        assert!(!store::organization_type_matches_role("SUPPLIER", kind), "{kind}");
+    for kind in ["SHIPPING_LINE", "SHIP_MANAGER", "FUEL_BUYER", "CHARTERER"] {
+        assert!(
+            store::organization_type_matches_role("BUYER", kind),
+            "{kind}"
+        );
+        assert!(
+            !store::organization_type_matches_role("SUPPLIER", kind),
+            "{kind}"
+        );
     }
     for kind in ["FUEL_SUPPLIER", "FUEL_TRADER"] {
-        assert!(store::organization_type_matches_role("SUPPLIER", kind), "{kind}");
-        assert!(!store::organization_type_matches_role("BUYER", kind), "{kind}");
+        assert!(
+            store::organization_type_matches_role("SUPPLIER", kind),
+            "{kind}"
+        );
+        assert!(
+            !store::organization_type_matches_role("BUYER", kind),
+            "{kind}"
+        );
     }
     for kind in [
         "BUNKER_BROKER",
@@ -219,7 +266,10 @@ fn p4_t5_c62() {
         assert!(!store::organization_type_matches_role("BUYER", kind));
         assert!(!store::organization_type_matches_role("SUPPLIER", kind));
     }
-    assert!(!store::organization_type_matches_role("ADMIN", "FUEL_BUYER"));
+    assert!(!store::organization_type_matches_role(
+        "ADMIN",
+        "FUEL_BUYER"
+    ));
 }
 
 #[test]
@@ -227,7 +277,13 @@ fn p4_t5_c70() {
     // An unknown organization type is refused, and every model type parses.
     let mut payload = new_organization_payload();
     payload["new_organization"]["type"] = json!("UNSUPPORTED_ORG_TYPE");
-    assert_eq!(CreateInvitation::parse(&payload).unwrap_err().status.as_u16(), 422);
+    assert_eq!(
+        CreateInvitation::parse(&payload)
+            .unwrap_err()
+            .status
+            .as_u16(),
+        422
+    );
     for kind in [
         "SHIPPING_LINE",
         "SHIP_MANAGER",
@@ -258,7 +314,13 @@ fn p4_t5_c05() {
         assert_eq!(format!("{parsed:?}"), "ResolveToken(REDACTED)");
         assert!(!format!("{parsed:?}").contains(token.as_str()));
     }
-    for refused in [Value::Null, json!("short"), json!("a".repeat(129)), json!(17), json!([])] {
+    for refused in [
+        Value::Null,
+        json!("short"),
+        json!("a".repeat(129)),
+        json!(17),
+        json!([]),
+    ] {
         let payload = if refused == Value::Null {
             json!({})
         } else {
@@ -281,10 +343,7 @@ fn p4_t5_c05() {
     assert_eq!(raw.len(), 43);
     assert_eq!(store::digest_of(raw).len(), 64);
     assert_ne!(store::digest_of(raw), raw);
-    assert_eq!(
-        format!("{secret:?}"),
-        "InvitationSecret(REDACTED)"
-    );
+    assert_eq!(format!("{secret:?}"), "InvitationSecret(REDACTED)");
     assert_eq!(
         secret.expires_at(),
         instant() + Duration::days(request::INVITATION_TTL_DAYS)
@@ -337,7 +396,10 @@ fn p4_t5_c01() {
         "offset=1.5",
     ] {
         assert_eq!(
-            InvitationListQuery::parse_query(raw).unwrap_err().status.as_u16(),
+            InvitationListQuery::parse_query(raw)
+                .unwrap_err()
+                .status
+                .as_u16(),
             422,
             "{raw}"
         );
@@ -431,7 +493,9 @@ mod postgres {
                 .after_connect(move |conn, _| {
                     let sql = search_path.clone();
                     Box::pin(async move {
-                        sqlx::raw_sql(sqlx::AssertSqlSafe(sql)).execute(conn).await?;
+                        sqlx::raw_sql(sqlx::AssertSqlSafe(sql))
+                            .execute(conn)
+                            .await?;
                         Ok(())
                     })
                 })
@@ -447,7 +511,11 @@ mod postgres {
             }
         }
 
-        fn command(&self, invitation: CreateInvitation, now: DateTime<Utc>) -> store::CreateInvitationCommand {
+        fn command(
+            &self,
+            invitation: CreateInvitation,
+            now: DateTime<Utc>,
+        ) -> store::CreateInvitationCommand {
             store::CreateInvitationCommand {
                 invitation,
                 now,
@@ -521,7 +589,10 @@ mod postgres {
         let payload = existing_payload(f.organization);
         let first = f.create(body(&payload), now).await.unwrap();
         assert!(!first.reissued);
-        let second = f.create(body(&payload), now + Duration::minutes(1)).await.unwrap();
+        let second = f
+            .create(body(&payload), now + Duration::minutes(1))
+            .await
+            .unwrap();
         assert!(second.reissued);
         assert_eq!(first.user_id, second.user_id);
         assert_ne!(token_from(&first), token_from(&second));
@@ -541,11 +612,13 @@ mod postgres {
         assert_eq!(row.get::<String, _>("role"), "SUPPLIER");
         // A referral and the initial status transition exist once each.
         assert_eq!(
-            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM referrals WHERE referred_user_id=$1")
-                .bind(first.user_id)
-                .fetch_one(&f.pool)
-                .await
-                .unwrap(),
+            sqlx::query_scalar::<_, i64>(
+                "SELECT count(*) FROM referrals WHERE referred_user_id=$1"
+            )
+            .bind(first.user_id)
+            .fetch_one(&f.pool)
+            .await
+            .unwrap(),
             1
         );
         assert_eq!(
@@ -558,10 +631,12 @@ mod postgres {
         );
         // Two audits under Python's exact action name, with the masked address
         // and the correlation context; no tax id.
-        let audits = sqlx::query("SELECT action,changes,ip_address,request_id FROM audit_logs ORDER BY timestamp,id")
-            .fetch_all(&f.pool)
-            .await
-            .unwrap();
+        let audits = sqlx::query(
+            "SELECT action,changes,ip_address,request_id FROM audit_logs ORDER BY timestamp,id",
+        )
+        .fetch_all(&f.pool)
+        .await
+        .unwrap();
         assert_eq!(audits.len(), 2);
         let mut reissued = Vec::new();
         for audit in audits {
@@ -571,8 +646,14 @@ mod postgres {
             assert_eq!(changes["organization_provenance"], "REAL");
             assert_eq!(changes["organization_type"], "FUEL_SUPPLIER");
             assert!(changes.get("tax_id").is_none());
-            assert_eq!(audit.get::<Option<String>, _>("ip_address").as_deref(), Some("127.0.0.8"));
-            assert_eq!(audit.get::<Option<String>, _>("request_id").as_deref(), Some("request-5"));
+            assert_eq!(
+                audit.get::<Option<String>, _>("ip_address").as_deref(),
+                Some("127.0.0.8")
+            );
+            assert_eq!(
+                audit.get::<Option<String>, _>("request_id").as_deref(),
+                Some("request-5")
+            );
             reissued.push(changes["reissued"].as_bool().unwrap());
         }
         reissued.sort_unstable();
@@ -588,7 +669,11 @@ mod postgres {
         assert_eq!(stored.len(), 64);
         assert_ne!(stored, token_from(&first));
         assert_eq!(stored, store::digest_of(&token_from(&first)));
-        assert!(first.acceptance_url.starts_with("https://app.example/accept-invite#token="));
+        assert!(
+            first
+                .acceptance_url
+                .starts_with("https://app.example/accept-invite#token=")
+        );
         assert_eq!(
             first.expires_at,
             now + Duration::days(request::INVITATION_TTL_DAYS)
@@ -600,23 +685,41 @@ mod postgres {
     #[ignore = "requires explicit disposable PostgreSQL authority"]
     async fn p4_t5_c52() {
         let f = Fixture::new().await;
-        let created = f.create(body(&new_organization_payload()), instant()).await.unwrap();
+        let created = f
+            .create(body(&new_organization_payload()), instant())
+            .await
+            .unwrap();
         assert!(created.organization_created);
         assert_eq!(created.organization_name, "Northstar Shipping");
         let organization = sqlx::query("SELECT id,domain,type,country_code,tax_id,verification_status,provenance FROM organizations WHERE name='Northstar Shipping'")
             .fetch_one(&f.pool)
             .await
             .unwrap();
-        assert_eq!(organization.get::<Option<String>, _>("domain").as_deref(), Some("northstar.example"));
+        assert_eq!(
+            organization.get::<Option<String>, _>("domain").as_deref(),
+            Some("northstar.example")
+        );
         assert_eq!(organization.get::<String, _>("type"), "SHIPPING_LINE");
-        assert_eq!(organization.get::<Option<String>, _>("country_code").as_deref(), Some("SG"));
-        assert_eq!(organization.get::<Option<String>, _>("tax_id").as_deref(), Some("SG-2026-001"));
-        assert_eq!(organization.get::<String, _>("verification_status"), "APPROVED");
+        assert_eq!(
+            organization
+                .get::<Option<String>, _>("country_code")
+                .as_deref(),
+            Some("SG")
+        );
+        assert_eq!(
+            organization.get::<Option<String>, _>("tax_id").as_deref(),
+            Some("SG-2026-001")
+        );
+        assert_eq!(
+            organization.get::<String, _>("verification_status"),
+            "APPROVED"
+        );
         assert_eq!(organization.get::<String, _>("provenance"), "REAL");
-        let audit: Value = sqlx::query_scalar("SELECT changes FROM audit_logs WHERE action='admin.user_invited'")
-            .fetch_one(&f.pool)
-            .await
-            .unwrap();
+        let audit: Value =
+            sqlx::query_scalar("SELECT changes FROM audit_logs WHERE action='admin.user_invited'")
+                .fetch_one(&f.pool)
+                .await
+                .unwrap();
         assert_eq!(audit["organization_created"], true);
         assert_eq!(audit["organization_country_code"], "SG");
         assert!(!audit.to_string().to_lowercase().contains("tax"));
@@ -628,7 +731,10 @@ mod postgres {
     async fn p4_t5_c53() {
         // A second user can join the new organization before the first accepts.
         let f = Fixture::new().await;
-        let first = f.create(body(&new_organization_payload()), instant()).await.unwrap();
+        let first = f
+            .create(body(&new_organization_payload()), instant())
+            .await
+            .unwrap();
         let organization: Uuid =
             sqlx::query_scalar("SELECT id FROM organizations WHERE name='Northstar Shipping'")
                 .fetch_one(&f.pool)
@@ -693,7 +799,11 @@ mod postgres {
         let names: Vec<&str> = page.items.iter().map(|item| item.name.as_str()).collect();
         assert_eq!(names, ["Goldwind Green Methanol", "Pending Market Review"]);
         assert!(!page.truncated);
-        let provenance: Vec<&str> = page.items.iter().map(|item| item.provenance.as_str()).collect();
+        let provenance: Vec<&str> = page
+            .items
+            .iter()
+            .map(|item| item.provenance.as_str())
+            .collect();
         assert_eq!(provenance, ["REAL", "UNKNOWN"]);
         // 501 eligible rows produce one page of 500 and the truncation marker.
         for index in 0..501 {
@@ -738,7 +848,10 @@ mod postgres {
         // a claimed account or an ineligible organization is a 409 with no write.
         let mut f = Fixture::new().await;
         let now = instant();
-        let created = f.create(body(&existing_payload(f.organization)), now).await.unwrap();
+        let created = f
+            .create(body(&existing_payload(f.organization)), now)
+            .await
+            .unwrap();
         // A claimed account (verified) cannot be reissued.
         sqlx::query("UPDATE users SET email_verified=true WHERE id=$1")
             .bind(created.user_id)
@@ -746,7 +859,10 @@ mod postgres {
             .await
             .unwrap();
         let error = f
-            .create(body(&existing_payload(f.organization)), now + Duration::minutes(1))
+            .create(
+                body(&existing_payload(f.organization)),
+                now + Duration::minutes(1),
+            )
             .await
             .unwrap_err();
         assert_eq!(error.status.as_u16(), 409);
@@ -782,7 +898,11 @@ mod postgres {
         let mut wrong_role = existing_payload(f.organization);
         wrong_role["role"] = json!("BUYER");
         assert_eq!(
-            f.create(body(&wrong_role), now).await.unwrap_err().status.as_u16(),
+            f.create(body(&wrong_role), now)
+                .await
+                .unwrap_err()
+                .status
+                .as_u16(),
             422
         );
         // An ineligible organization is 404; a mismatched type is 422.
@@ -834,19 +954,20 @@ mod postgres {
         assert_eq!(error.status.as_u16(), 409);
         assert_eq!(error.detail["code"], "ORGANIZATION_DOMAIN_CONFLICT");
         for table in ["organizations", "users", "referrals", "audit_logs"] {
-            let count: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-                "SELECT count(*) FROM {table}"
-            )))
-            .fetch_one(&f.pool)
-            .await
-            .unwrap();
+            let count: i64 =
+                sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {table}")))
+                    .fetch_one(&f.pool)
+                    .await
+                    .unwrap();
             assert!(count <= 1, "{table} has {count} rows");
         }
         assert_eq!(
-            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM organizations WHERE name='Duplicate Domain Supplier'")
-                .fetch_one(&f.pool)
-                .await
-                .unwrap(),
+            sqlx::query_scalar::<_, i64>(
+                "SELECT count(*) FROM organizations WHERE name='Duplicate Domain Supplier'"
+            )
+            .fetch_one(&f.pool)
+            .await
+            .unwrap(),
             0
         );
         f.finish().await;
@@ -874,14 +995,20 @@ mod postgres {
             },
         });
         assert_eq!(
-            f.create(body(&payload), instant()).await.unwrap_err().status.as_u16(),
+            f.create(body(&payload), instant())
+                .await
+                .unwrap_err()
+                .status
+                .as_u16(),
             409
         );
         assert_eq!(
-            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM organizations WHERE name='Must Roll Back'")
-                .fetch_one(&f.pool)
-                .await
-                .unwrap(),
+            sqlx::query_scalar::<_, i64>(
+                "SELECT count(*) FROM organizations WHERE name='Must Roll Back'"
+            )
+            .fetch_one(&f.pool)
+            .await
+            .unwrap(),
             0
         );
         f.finish().await;
@@ -921,7 +1048,10 @@ mod postgres {
         // it, and gives one refusal for every failure mode.
         let mut f = Fixture::new().await;
         let now = instant();
-        let created = f.create(body(&existing_payload(f.organization)), now).await.unwrap();
+        let created = f
+            .create(body(&existing_payload(f.organization)), now)
+            .await
+            .unwrap();
         let secret = token_from(&created);
         let mut connection = f.pool.acquire().await.unwrap();
         let resolved = resolve::resolve(
@@ -963,7 +1093,10 @@ mod postgres {
         )
         .await
         .unwrap_err();
-        assert_eq!((expired.status, expired.detail.clone()), (wrong.status, wrong.detail.clone()));
+        assert_eq!(
+            (expired.status, expired.detail.clone()),
+            (wrong.status, wrong.detail.clone())
+        );
         sqlx::query("UPDATE users SET role='BUYER' WHERE id=$1")
             .bind(created.user_id)
             .execute(&mut f.admin)
@@ -1001,13 +1134,18 @@ mod postgres {
             .await
             .unwrap_err();
         assert_eq!(error.status.as_u16(), 500);
-        for table in ["organizations", "users", "referrals", "user_status_transitions", "audit_logs"] {
-            let count: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-                "SELECT count(*) FROM {table}"
-            )))
-            .fetch_one(&f.pool)
-            .await
-            .unwrap();
+        for table in [
+            "organizations",
+            "users",
+            "referrals",
+            "user_status_transitions",
+            "audit_logs",
+        ] {
+            let count: i64 =
+                sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {table}")))
+                    .fetch_one(&f.pool)
+                    .await
+                    .unwrap();
             let expected = i64::from(matches!(table, "organizations" | "users"));
             assert_eq!(count, expected, "{table}");
         }
@@ -1135,18 +1273,32 @@ mod postgres {
         // A04 and A05 refuse an anonymous caller and a non-administrator.
         for (method, path, body) in [
             ("GET", request::LIST_PATH, None),
-            ("POST", request::CREATE_PATH, Some(existing_payload(f.organization))),
+            (
+                "POST",
+                request::CREATE_PATH,
+                Some(existing_payload(f.organization)),
+            ),
         ] {
             assert_eq!(send(&router, method, path, None, body.clone()).await.0, 401);
             assert_eq!(
-                send(&router, method, path, Some(&member_token), body).await.0,
+                send(&router, method, path, Some(&member_token), body)
+                    .await
+                    .0,
                 403
             );
         }
         // Sixty non-administrator refusals consume no administrator quota.
         for _ in 0..60 {
             assert_eq!(
-                send(&router, "POST", request::CREATE_PATH, Some(&member_token), Some(existing_payload(f.organization))).await.0,
+                send(
+                    &router,
+                    "POST",
+                    request::CREATE_PATH,
+                    Some(&member_token),
+                    Some(existing_payload(f.organization))
+                )
+                .await
+                .0,
                 403
             );
         }
@@ -1163,7 +1315,8 @@ mod postgres {
         assert_eq!(body["reissued"], false);
         assert_eq!(body["organization_name"], "Goldwind Green Methanol");
         assert!(body["acceptance_url"].as_str().unwrap().contains("#token="));
-        let (status, _, body) = send(&router, "GET", request::LIST_PATH, Some(&admin_token), None).await;
+        let (status, _, body) =
+            send(&router, "GET", request::LIST_PATH, Some(&admin_token), None).await;
         assert_eq!(status, 200);
         assert_eq!(body["items"].as_array().unwrap().len(), 1);
         assert_eq!(body["truncated"], false);
@@ -1209,7 +1362,11 @@ mod postgres {
             refusals.push((status, body));
         }
         assert!(refusals.iter().all(|(status, _)| *status == 400));
-        assert!(refusals.iter().all(|(_, body)| body["detail"]["code"] == "INVITATION_INVALID"));
+        assert!(
+            refusals
+                .iter()
+                .all(|(_, body)| body["detail"]["code"] == "INVITATION_INVALID")
+        );
         let (status, retry_after, _) = send(
             &router,
             "POST",

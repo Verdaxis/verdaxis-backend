@@ -51,7 +51,10 @@ pub async fn resolve(
         || row.get::<bool, _>("email_verified")
         || !row.get::<bool, _>("must_change_password")
         || organization_id.is_none()
-        || !matches!(row.get::<Option<String>, _>("role").as_deref(), Some("BUYER" | "SUPPLIER"))
+        || !matches!(
+            row.get::<Option<String>, _>("role").as_deref(),
+            Some("BUYER" | "SUPPLIER")
+        )
     {
         return Err(store::invitation_invalid());
     }

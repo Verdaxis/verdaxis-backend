@@ -212,10 +212,12 @@ impl BusinessCommand for CreateInvitationCommand {
         conn: &'a mut PgConnection,
     ) -> CommandFuture<'a, OrganizationWritePlan, AttemptError> {
         Box::pin(async move {
-            let row = sqlx::query("SELECT id,organization_id,role::text AS role FROM users WHERE email=$1")
-                .bind(&self.invitation.email)
-                .fetch_optional(&mut *conn)
-                .await?;
+            let row = sqlx::query(
+                "SELECT id,organization_id,role::text AS role FROM users WHERE email=$1",
+            )
+            .bind(&self.invitation.email)
+            .fetch_optional(&mut *conn)
+            .await?;
             let mut users: Vec<Uuid> = Vec::new();
             let (invited, fingerprint) = match row {
                 Some(row) => {
@@ -248,8 +250,7 @@ impl BusinessCommand for CreateInvitationCommand {
                     Some(*id)
                 }
                 OrganizationSource::New(_) => {
-                    if let Some(domain) = self.domains.organization_domain(&self.invitation.email)
-                    {
+                    if let Some(domain) = self.domains.organization_domain(&self.invitation.email) {
                         let existing: Option<Uuid> =
                             sqlx::query_scalar("SELECT id FROM organizations WHERE domain=$1")
                                 .bind(&domain)
@@ -302,10 +303,16 @@ impl BusinessCommand for CreateInvitationCommand {
             let reissued = invitee.is_some();
             let invitation = &self.invitation;
             let role = invitation.role.as_str();
-            let (organization_id, organization_name, organization_created, provenance, kind, country_code) =
-                match &invitation.organization {
-                    OrganizationSource::Existing(id) => {
-                        let row = sqlx::query(&format!(
+            let (
+                organization_id,
+                organization_name,
+                organization_created,
+                provenance,
+                kind,
+                country_code,
+            ) = match &invitation.organization {
+                OrganizationSource::Existing(id) => {
+                    let row = sqlx::query(&format!(
                             "SELECT id,name,type,provenance,country_code,({}) AS eligible FROM organizations WHERE id=$1",
                             eligible_where()
                         ))
@@ -313,44 +320,42 @@ impl BusinessCommand for CreateInvitationCommand {
                         .fetch_optional(&mut *conn)
                         .await?
                         .ok_or_else(missing_organization)?;
-                        if !row.try_get::<bool, _>("eligible").unwrap_or(false) {
-                            return Err(missing_organization());
-                        }
-                        let kind: String = row.get("type");
-                        if !organization_type_matches_role(role, &kind) {
-                            return Err(type_mismatch());
-                        }
-                        (
-                            row.get("id"),
-                            row.get::<String, _>("name"),
-                            false,
-                            row.get::<String, _>("provenance"),
-                            kind,
-                            row.get::<Option<String>, _>("country_code"),
-                        )
+                    if !row.try_get::<bool, _>("eligible").unwrap_or(false) {
+                        return Err(missing_organization());
                     }
-                    OrganizationSource::New(organization) => {
-                        if invitee.is_some() {
-                            return Err(email_conflict());
+                    let kind: String = row.get("type");
+                    if !organization_type_matches_role(role, &kind) {
+                        return Err(type_mismatch());
+                    }
+                    (
+                        row.get("id"),
+                        row.get::<String, _>("name"),
+                        false,
+                        row.get::<String, _>("provenance"),
+                        kind,
+                        row.get::<Option<String>, _>("country_code"),
+                    )
+                }
+                OrganizationSource::New(organization) => {
+                    if invitee.is_some() {
+                        return Err(email_conflict());
+                    }
+                    if !organization_type_matches_role(role, &organization.kind) {
+                        return Err(type_mismatch());
+                    }
+                    let domain = self.domains.organization_domain(&invitation.email);
+                    if let Some(domain) = &domain {
+                        let existing: Option<Uuid> =
+                            sqlx::query_scalar("SELECT id FROM organizations WHERE domain=$1")
+                                .bind(domain)
+                                .fetch_optional(&mut *conn)
+                                .await?;
+                        if existing.is_some() {
+                            return Err(domain_conflict());
                         }
-                        if !organization_type_matches_role(role, &organization.kind) {
-                            return Err(type_mismatch());
-                        }
-                        let domain = self
-                            .domains
-                            .organization_domain(&invitation.email);
-                        if let Some(domain) = &domain {
-                            let existing: Option<Uuid> =
-                                sqlx::query_scalar("SELECT id FROM organizations WHERE domain=$1")
-                                    .bind(domain)
-                                    .fetch_optional(&mut *conn)
-                                    .await?;
-                            if existing.is_some() {
-                                return Err(domain_conflict());
-                            }
-                        }
-                        let id = Uuid::new_v4();
-                        sqlx::query(
+                    }
+                    let id = Uuid::new_v4();
+                    sqlx::query(
                             "INSERT INTO organizations (id,name,domain,type,tax_id,country_code,verification_status,provenance,created_at) \
                              VALUES($1,$2,$3,$4,$5,$6,'APPROVED','REAL',$7)",
                         )
@@ -364,12 +369,12 @@ impl BusinessCommand for CreateInvitationCommand {
                         .execute(&mut *conn)
                         .await
                         .map_err(|error| integrity_conflict(error))?;
-                        let name = organization.name.clone();
-                        let kind = organization.kind.clone();
-                        let country = Some(organization.country_code.clone());
-                        (id, name, true, "REAL".into(), kind, country)
-                    }
-                };
+                    let name = organization.name.clone();
+                    let kind = organization.kind.clone();
+                    let country = Some(organization.country_code.clone());
+                    (id, name, true, "REAL".into(), kind, country)
+                }
+            };
             let invitee = match invitee {
                 Some(row) => {
                     let organization_id_row: Option<Uuid> = row.get("organization_id");
@@ -390,12 +395,11 @@ impl BusinessCommand for CreateInvitationCommand {
                         // A bounded code allocation, as Python's ten probes.
                         let mut allocated = None;
                         for candidate in crate::crud::referrals::Candidates::new().take(10) {
-                            let taken: Option<i32> = sqlx::query_scalar(
-                                "SELECT 1 FROM users WHERE referral_code=$1",
-                            )
-                            .bind(&candidate)
-                            .fetch_optional(&mut *conn)
-                            .await?;
+                            let taken: Option<i32> =
+                                sqlx::query_scalar("SELECT 1 FROM users WHERE referral_code=$1")
+                                    .bind(&candidate)
+                                    .fetch_optional(&mut *conn)
+                                    .await?;
                             if taken.is_none() {
                                 sqlx::query("UPDATE users SET referral_code=$1 WHERE id=$2")
                                     .bind(&candidate)

@@ -251,7 +251,10 @@ fn required_text(
     minimum: usize,
     maximum: usize,
 ) -> Result<String, ApiError> {
-    let value = object.get(key).and_then(Value::as_str).ok_or_else(invalid)?;
+    let value = object
+        .get(key)
+        .and_then(Value::as_str)
+        .ok_or_else(invalid)?;
     let length = value.chars().count();
     if length < minimum || length > maximum {
         return Err(invalid());
