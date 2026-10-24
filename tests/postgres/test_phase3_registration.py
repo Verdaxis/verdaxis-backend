@@ -30,5 +30,7 @@ def test_e5_e6_postgres(analytics_pg_url):
         "e5_e6_http_limits",
         "e5_e6_monitor_admission_controls_cleanup",
         "e5_e6_mail_logs_exclude_credentials",
+        "e5_domain_monitor_cleanup",
+        "e3_e6_reset_errors_exclude_credentials",
     ):
         assert f"test {name} ... ok" in run.stdout, run.stdout
