@@ -6,7 +6,7 @@
 //! a patch, so the leaves stay reachable without a concurrent shared-file
 //! change.
 
-pub use verdaxis_read::{ApiError, business};
+pub use verdaxis_read::{business, ApiError};
 
 #[allow(dead_code)]
 #[path = "../src/analytics/facts.rs"]
@@ -28,19 +28,19 @@ use chrono::{DateTime, Duration, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde_json::json;
 
-use facts::{MarketProvenance, classify_order, classify_trade};
+use facts::{classify_order, classify_trade, MarketProvenance};
 use policy::{
-    MAX_COHORT_ROWS, MAX_MATRIX_CELLS, MAX_RANKED_ROWS, MAX_SERIES_POINTS, PropertyValueCheck,
-    SUPPRESSION_THRESHOLD, allowed_event_properties, allowed_properties, check_property_value,
-    property_domain, ratio_from_counts, suppress, suppress_cell,
+    allowed_event_properties, allowed_properties, check_property_value, property_domain,
+    ratio_from_counts, suppress, suppress_cell, PropertyValueCheck, MAX_COHORT_ROWS,
+    MAX_MATRIX_CELLS, MAX_RANKED_ROWS, MAX_SERIES_POINTS, SUPPRESSION_THRESHOLD,
 };
 use query::{
-    AnalyticsQuery, MAX_AVAILABILITY_WINDOW_CHARS, MAX_RANGE_SECONDS, MIN_QUERY_INSTANT,
-    QueryInput, previous_window, validate_query,
+    previous_window, validate_query, AnalyticsQuery, QueryInput, MAX_AVAILABILITY_WINDOW_CHARS,
+    MAX_RANGE_SECONDS, MIN_QUERY_INSTANT,
 };
 use retention::{
-    AnalyticsFactFamily, MAX_SERIES_DATES, RETAINED_DATES, login_day_is_retained,
-    login_retention_cutoff,
+    login_day_is_retained, login_retention_cutoff, AnalyticsFactFamily, MAX_SERIES_DATES,
+    RETAINED_DATES,
 };
 use types::{
     AggregateCell, AnalyticsActivity, AnalyticsAudience, AnalyticsDiagnostic,
@@ -208,13 +208,11 @@ fn p4_t15_c02() {
         .0,
         422
     );
-    assert!(
-        validate_query(input(&[
-            ("start", "2026-01-01T00:00:00Z"),
-            ("end", "2027-01-01T00:00:00Z"),
-        ]))
-        .is_ok()
-    );
+    assert!(validate_query(input(&[
+        ("start", "2026-01-01T00:00:00Z"),
+        ("end", "2027-01-01T00:00:00Z"),
+    ]))
+    .is_ok());
     let over = validate_query(input(&[
         ("start", "2026-01-01T00:00:00Z"),
         ("end", "2027-01-01T00:00:01Z"),
@@ -224,14 +222,12 @@ fn p4_t15_c02() {
 
     // A 16-character window is accepted, 17 is refused.
     let longest = "x".repeat(MAX_AVAILABILITY_WINDOW_CHARS);
-    assert!(
-        validate_query(input(&[
-            ("start", "2026-06-01T00:00:00Z"),
-            ("end", "2026-06-02T00:00:00Z"),
-            ("availability_window", longest.as_str()),
-        ]))
-        .is_ok()
-    );
+    assert!(validate_query(input(&[
+        ("start", "2026-06-01T00:00:00Z"),
+        ("end", "2026-06-02T00:00:00Z"),
+        ("availability_window", longest.as_str()),
+    ]))
+    .is_ok());
     let too_long = "x".repeat(MAX_AVAILABILITY_WINDOW_CHARS + 1);
     assert_eq!(
         refusal_code(
@@ -570,8 +566,9 @@ fn reference_row(status: ReferenceCoverageStatus) -> ReferenceCoverageRow {
 #[test]
 fn p4_t15_c08() {
     let not_requested: ProviderComponent<Decimal> = ProviderComponent::not_requested();
-    assert_eq!(not_requested.status, ComponentStatus::NotRequested);
-    assert_eq!(not_requested.data, None);
+    assert_eq!(not_requested.status(), ComponentStatus::NotRequested);
+    assert_eq!(not_requested.data(), None);
+    assert!(not_requested.is_coherent());
     assert_eq!(
         serde_json::to_value(&not_requested).unwrap(),
         json!({"status": "not_requested", "diagnostic": null, "data": null})
@@ -579,8 +576,16 @@ fn p4_t15_c08() {
 
     let unavailable: ProviderComponent<Vec<u64>> =
         ProviderComponent::unavailable(AnalyticsDiagnostic::Timeout);
-    assert_eq!(unavailable.status, ComponentStatus::Unavailable);
-    assert_eq!(unavailable.data, None);
+    assert_eq!(unavailable.status(), ComponentStatus::Unavailable);
+    assert_eq!(unavailable.data(), None);
+    assert!(unavailable.is_coherent());
+    // The status fields are private, so absence cannot be paired with data by
+    // a struct literal; only the constructors decide.
+    assert_eq!(
+        unavailable.into_data(),
+        None::<Vec<u64>>,
+        "an unavailable component yields no data"
+    );
     assert_eq!(
         serde_json::to_value(&unavailable).unwrap()["diagnostic"],
         json!("timeout")
@@ -588,18 +593,21 @@ fn p4_t15_c08() {
 
     // An available empty collection is a genuine empty response.
     let empty = ProviderComponent::available(Vec::<u64>::new());
-    assert_eq!(empty.status, ComponentStatus::Available);
-    assert_eq!(empty.data, Some(vec![]));
+    assert_eq!(empty.status(), ComponentStatus::Available);
+    assert_eq!(empty.data(), Some(&Vec::new()));
+    assert!(empty.is_coherent());
     assert_eq!(serde_json::to_value(&empty).unwrap()["data"], json!([]));
 
     // A partial component keeps only confirmed data; the missing part stays
     // absent.
     let partial = ProviderComponent::partial(Some(vec![1]), Some(AnalyticsDiagnostic::Upstream));
-    assert_eq!(partial.status, ComponentStatus::Partial);
-    assert_eq!(partial.data, Some(vec![1]));
+    assert_eq!(partial.status(), ComponentStatus::Partial);
+    assert_eq!(partial.data(), Some(&vec![1]));
+    assert!(partial.is_coherent());
     let partial_none: ProviderComponent<Vec<u64>> =
         ProviderComponent::partial(None, Some(AnalyticsDiagnostic::Upstream));
-    assert_eq!(partial_none.data, None);
+    assert_eq!(partial_none.data(), None);
+    assert!(partial_none.is_coherent());
 }
 
 /// c09: decimals keep their exact wire spelling and ratios publish only with
@@ -966,20 +974,14 @@ fn p4_t15_c13() {
     );
     assert_eq!(window.diagnostic, Some(AnalyticsDiagnostic::Authentication));
     assert_eq!(window.coverage.status, AnalyticsSourceStatus::Unavailable);
-    for status in [
-        window.core.status,
-        window.event_totals.status,
-        window.daily_visitors.status,
-        window.event_series.status,
-        window.top_entries.status,
-        window.top_referrers.status,
-    ] {
+    for status in window.components() {
         assert_eq!(status, ComponentStatus::Unavailable);
     }
-    assert!(window.core.data.is_none());
-    assert!(window.event_totals.data.is_none());
-    assert!(window.daily_visitors.data.is_none());
+    assert!(window.core.data().is_none());
+    assert!(window.event_totals.data().is_none());
+    assert!(window.daily_visitors.data().is_none());
     assert!(window.property_results.is_empty());
+    assert_eq!(window.validate(), Ok(()));
     assert_eq!(
         serde_json::to_value(&window).unwrap()["daily_visitors"],
         json!({
@@ -987,6 +989,30 @@ fn p4_t15_c13() {
             "diagnostic": "authentication",
             "data": null,
         })
+    );
+
+    // A window that claims unavailable while one component carries data is
+    // rejected, so an absent provider is never read as an empty result.
+    let mut fabricated = serde_json::to_value(&window).unwrap();
+    fabricated["daily_visitors"] = json!({
+        "status": "unavailable",
+        "diagnostic": "authentication",
+        "data": [],
+    });
+    let fabricated: types::BehavioralWindow = serde_json::from_value(fabricated).unwrap();
+    assert_eq!(
+        fabricated.validate(),
+        Err(types::BehavioralWindowError::IncoherentComponent)
+    );
+
+    // A window that claims available while every component is unavailable is
+    // equally rejected.
+    let mut mislabelled = serde_json::to_value(&window).unwrap();
+    mislabelled["availability"] = json!("available");
+    let mislabelled: types::BehavioralWindow = serde_json::from_value(mislabelled).unwrap();
+    assert_eq!(
+        mislabelled.validate(),
+        Err(types::BehavioralWindowError::IncoherentAvailability)
     );
 
     // Ranking and row types keep their bounded shapes.

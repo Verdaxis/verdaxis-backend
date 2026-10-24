@@ -529,16 +529,18 @@ pub enum ComponentStatus {
 
 /// A provider-backed component that is either present or explicitly absent.
 ///
-/// `Unavailable` and `NotRequested` never carry data; an available empty
-/// collection is a genuine empty response.
+/// `Unavailable` and `NotRequested` never carry data, and the fields are
+/// private so no caller can build the forbidden combination: absence is
+/// constructed, never assigned field by field. An available empty collection
+/// is a genuine empty response.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ProviderComponent<T> {
-    pub status: ComponentStatus,
+    status: ComponentStatus,
     #[serde(default)]
-    pub diagnostic: Option<AnalyticsDiagnostic>,
+    diagnostic: Option<AnalyticsDiagnostic>,
     // A missing `Option` field deserializes as `None`; `#[serde(default)]`
     // here would make the derive demand `T: Default` instead.
-    pub data: Option<T>,
+    data: Option<T>,
 }
 
 impl<T> ProviderComponent<T> {
@@ -571,6 +573,34 @@ impl<T> ProviderComponent<T> {
             status: ComponentStatus::NotRequested,
             diagnostic: None,
             data: None,
+        }
+    }
+
+    pub fn status(&self) -> ComponentStatus {
+        self.status
+    }
+
+    pub fn diagnostic(&self) -> Option<AnalyticsDiagnostic> {
+        self.diagnostic
+    }
+
+    pub fn data(&self) -> Option<&T> {
+        self.data.as_ref()
+    }
+
+    pub fn into_data(self) -> Option<T> {
+        self.data
+    }
+
+    /// Whether this component obeys the absence rule.
+    ///
+    /// The constructors cannot produce a violation; this catches one that
+    /// arrived as JSON, where a caller could pair `unavailable` with data.
+    pub fn is_coherent(&self) -> bool {
+        match self.status {
+            ComponentStatus::Unavailable | ComponentStatus::NotRequested => self.data.is_none(),
+            ComponentStatus::Available => self.diagnostic.is_none(),
+            ComponentStatus::Partial => true,
         }
     }
 }
@@ -734,6 +764,69 @@ impl BehavioralWindow {
             property_results: Vec::new(),
         }
     }
+
+    /// Every component this window carries, in response order.
+    pub fn components(&self) -> [ComponentStatus; 6] {
+        [
+            self.core.status(),
+            self.event_totals.status(),
+            self.daily_visitors.status(),
+            self.event_series.status(),
+            self.top_entries.status(),
+            self.top_referrers.status(),
+        ]
+    }
+
+    /// Check that the window status and its components agree.
+    ///
+    /// An unavailable provider marks every component unavailable; an available
+    /// window contains none; a partial window has at least one incomplete
+    /// component. A component never carries data while unavailable or not
+    /// requested, so an absent provider can never be read as an empty result.
+    pub fn validate(&self) -> Result<(), BehavioralWindowError> {
+        let components = [
+            self.core.is_coherent(),
+            self.event_totals.is_coherent(),
+            self.daily_visitors.is_coherent(),
+            self.event_series.is_coherent(),
+            self.top_entries.is_coherent(),
+            self.top_referrers.is_coherent(),
+        ];
+        if components.iter().any(|coherent| !coherent) {
+            return Err(BehavioralWindowError::IncoherentComponent);
+        }
+        let statuses = self.components();
+        let unavailable = statuses
+            .iter()
+            .filter(|status| **status == ComponentStatus::Unavailable)
+            .count();
+        let incomplete = statuses
+            .iter()
+            .filter(|status| **status == ComponentStatus::Partial)
+            .count();
+        let consistent = match self.availability {
+            BehavioralAvailability::Unavailable => {
+                unavailable == statuses.len() && self.diagnostic.is_some()
+            }
+            BehavioralAvailability::Available => unavailable == 0,
+            BehavioralAvailability::Partial => unavailable + incomplete > 0,
+        };
+        if consistent {
+            Ok(())
+        } else {
+            Err(BehavioralWindowError::IncoherentAvailability)
+        }
+    }
+}
+
+/// Why a behavioral window contradicts itself.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BehavioralWindowError {
+    /// A component carries data while unavailable or not requested, or
+    /// reports a diagnostic while available.
+    IncoherentComponent,
+    /// The window availability contradicts its components.
+    IncoherentAvailability,
 }
 
 // ---------------------------------------------------------------------------
