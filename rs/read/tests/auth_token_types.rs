@@ -286,12 +286,26 @@ fn verified_token_exposes_subject_issuance_and_profile_claims() {
 }
 
 #[test]
-fn access_entry_point_keeps_its_rules() {
-    // An access token without `exp` stays valid, as before the shared path.
+fn every_profile_requires_a_present_expiry() {
+    // Mandatory `exp` now applies to both profiles through the shared
+    // verifier; removing it must refuse, not pass through as before.
+    for profile in [TokenType::Access, TokenType::Stream] {
+        let mut claims = claims(profile);
+        claims.as_object_mut().unwrap().remove("exp");
+        let token = sign(SECRET, &claims);
+        assert!(
+            verify_token(&token, &current_only(), profile, now()).is_err(),
+            "{profile:?} token without exp must be refused"
+        );
+    }
+}
+
+#[test]
+fn verified_token_exposes_the_verified_expiry() {
+    let expected = now() + Duration::minutes(15);
     let mut claims = claims(TokenType::Access);
-    claims.as_object_mut().unwrap().remove("exp");
+    claims["exp"] = json!(expected.timestamp());
     let token = sign(SECRET, &claims);
-    let access = verify_access(&token, &current_only(), now()).unwrap();
-    assert_eq!(access.subject, subject());
-    assert_eq!(access.issued_at, Some(now()));
+    let verified = verify_token(&token, &current_only(), TokenType::Access, now()).unwrap();
+    assert_eq!(verified.expires_at(), expected);
 }
