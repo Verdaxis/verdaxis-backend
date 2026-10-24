@@ -226,7 +226,7 @@ async fn register_attempt(
         .execute(&mut *tx)
         .await?;
         sqlx::query("INSERT INTO pending_registrations(id,token_hash,email,password_hash,first_name,last_name,role,referral_code,expires_at,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)")
-            .bind(Uuid::new_v4()).bind(token_digest(&token)).bind(&input.email).bind(hash).bind(&input.first_name).bind(&input.last_name).bind(&input.role).bind(&input.referral_code).bind(now+Duration::hours(24)).bind(now).execute(&mut *tx).await?;
+            .bind(Uuid::new_v4()).bind(token_digest(&token)).bind(&input.email).bind(hash).bind(&input.first_name).bind(&input.last_name).bind(&input.role).bind(&input.referral_code).bind(now+Duration::minutes(30)).bind(now).execute(&mut *tx).await?;
     }
     tx.commit().await?;
     Ok(AuthMail::Verification {
