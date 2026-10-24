@@ -39,11 +39,12 @@ impl Fixture {
             std::process::id()
         ));
         let _ = fs::remove_dir_all(&root);
-        fs::create_dir_all(root.join("scripts")).expect("fixture scripts");
+        // The shipped layout is <be>/deploy/scripts/<name>; <be> is the root.
+        fs::create_dir_all(root.join("deploy/scripts")).expect("fixture scripts");
         let root = root.canonicalize().expect("fixture root");
         fs::copy(
             guard_source(),
-            root.join("scripts/verify-deploy-start-guard.sh"),
+            root.join("deploy/scripts/verify-deploy-start-guard.sh"),
         )
         .expect("fixture guard");
         Self {
@@ -53,7 +54,8 @@ impl Fixture {
     }
 
     fn guard(&self) -> PathBuf {
-        self.root.join("scripts/verify-deploy-start-guard.sh")
+        self.root
+            .join("deploy/scripts/verify-deploy-start-guard.sh")
     }
 
     fn deploy_dir(&self) -> PathBuf {
@@ -157,6 +159,29 @@ exec "$real" "$@"
 /// Fails the way flock does on a kernel error, never with its conflict code.
 const FLOCK_SHIM: &str = "#!/usr/bin/env bash\nexit 1\n";
 
+/// Like `STAT_SHIM`, for the restart lock's path identity.
+const STAT_LOCK_SHIM: &str = r#"#!/usr/bin/env bash
+real=${REAL_STAT:?}
+for argument in "$@"; do
+    case $argument in
+        *.restart.lock)
+            output=$("$real" "$@") || exit $?
+            printf '%s\n' "$output" | awk -F: 'BEGIN { OFS = ":" } { $2 = $2 + 1; print }'
+            exit 0
+            ;;
+    esac
+done
+exec "$real" "$@"
+"#;
+
+fn make_fifo(path: &Path) {
+    let status = Command::new("mkfifo")
+        .arg(path)
+        .status()
+        .expect("create fifo");
+    assert!(status.success(), "mkfifo {}", path.display());
+}
+
 fn guard_source() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../deploy/scripts/verify-deploy-start-guard.sh")
 }
@@ -167,16 +192,24 @@ fn run_guard(fixture: &Fixture, arguments: &[&str]) -> Output {
 
 /// Run the guard with an optional PATH prefix that supplies a shim.
 fn run_guard_with_path(fixture: &Fixture, shim: Option<&Path>, arguments: &[&str]) -> Output {
+    run_guard_at(&fixture.guard(), shim, arguments)
+}
+
+/// Run any staged copy of the guard. The run is bounded, so a blocking open on
+/// a FIFO fails the case instead of hanging the corpus.
+fn run_guard_at(path: &Path, shim: Option<&Path>, arguments: &[&str]) -> Output {
     let base = std::env::var("PATH").unwrap_or_default();
-    let path = match shim {
+    let path_env = match shim {
         Some(directory) => format!("{}:{base}", directory.display()),
         None => base,
     };
-    Command::new("bash")
-        .arg(fixture.guard())
+    Command::new("timeout")
+        .arg("8")
+        .arg("bash")
+        .arg(path)
         .args(arguments)
         .env_clear()
-        .env("PATH", path)
+        .env("PATH", path_env)
         .env("REAL_STAT", real_stat())
         .output()
         .expect("run deploy-start guard")
@@ -261,12 +294,27 @@ fn deploy_guard_allows_absent_state() {
         elsewhere.join("verify-deploy-start-guard.sh"),
     )
     .expect("copy");
+    let misplaced = elsewhere.join("verify-deploy-start-guard.sh");
     let output = Command::new("bash")
-        .arg(elsewhere.join("verify-deploy-start-guard.sh"))
+        .arg(&misplaced)
         .args(["--environment", "staging", "--expected-release-sha", SHA_A])
         .output()
         .expect("run misplaced guard");
     assert_denied(&output, "misplaced helper", "misplaced helper");
+
+    // A top-level scripts directory is not the shipped layout either.
+    let top_level = fixture.root.join("scripts");
+    fs::create_dir_all(&top_level).expect("top-level scripts");
+    fs::copy(fixture.guard(), top_level.join("verify-deploy-start-guard.sh")).expect("copy");
+    fixture.write_phase("staging", SHA_A, "blocked");
+    let output = Command::new("bash")
+        .arg(top_level.join("verify-deploy-start-guard.sh"))
+        .args(["--environment", "staging", "--expected-release-sha", SHA_A])
+        .output()
+        .expect("run unshipped layout");
+    assert_denied(&output, "unshipped layout", "misplaced helper");
+    fs::remove_dir_all(&top_level).expect("remove top-level scripts");
+    fs::remove_dir_all(fixture.deploy_dir()).expect("remove deploy state");
 
     for (arguments, reason) in [
         (vec![], "invalid arguments"),
@@ -491,6 +539,13 @@ fn deploy_guard_rejects_dangling_state_and_wrong_sha() {
         "restart lock is not a regular file",
     );
     fs::remove_dir(&restart).expect("remove restart lock directory");
+    make_fifo(&restart);
+    assert_denied(
+        &run_for(&fixture, environment, SHA_A),
+        "restart lock fifo",
+        "restart lock is not a regular file",
+    );
+    fs::remove_file(&restart).expect("remove restart lock fifo");
     assert_denied(
         &run_for(&fixture, environment, SHA_A),
         "missing restart lock",
@@ -548,6 +603,17 @@ fn deploy_guard_denies_unsearchable_state_and_any_other_phase() {
     }
     fixture.write_state(environment, SHA_A);
 
+    // A FIFO at the state path is refused before any open, so it cannot block.
+    fs::remove_file(fixture.state(environment)).expect("remove state");
+    make_fifo(&fixture.state(environment));
+    assert_denied(
+        &run_for(&fixture, environment, SHA_A),
+        "state fifo",
+        "deployment state is not a regular file",
+    );
+    fs::remove_file(fixture.state(environment)).expect("remove fifo");
+    fixture.write_state(environment, SHA_A);
+
     // An unsearchable directory must deny, never read as an absent state.
     set_mode(&fixture.deploy_dir(), 0o000);
     assert_denied(
@@ -591,6 +657,14 @@ fn deploy_guard_denies_flock_and_descriptor_identity_errors() {
         &run_guard_with_path(&fixture, Some(&stat_shim), &arguments),
         "descriptor identity mismatch",
         "deployment state changed during validation",
+    );
+
+    let lock_shim = fixture.root.join("stat-lock-shim");
+    write_shim(&lock_shim, "stat", STAT_LOCK_SHIM);
+    assert_denied(
+        &run_guard_with_path(&fixture, Some(&lock_shim), &arguments),
+        "lock descriptor identity mismatch",
+        "restart lock check failed",
     );
 
     let flock_shim = fixture.root.join("flock-shim");

@@ -45,20 +45,26 @@ record() {
     failures=$((failures + 1))
 }
 
+# The shipped layout is <be>/deploy/scripts/<name>; its runtime root is <be>.
 new_fixture() {
     local fixture=$work/fixture-$1
-    mkdir -p -- "$fixture/scripts"
-    cp -- "$guard" "$fixture/scripts/verify-deploy-start-guard.sh"
+    mkdir -p -- "$fixture/deploy/scripts"
+    cp -- "$guard" "$fixture/deploy/scripts/verify-deploy-start-guard.sh"
     printf '%s\n' "$fixture"
 }
 
+helper_at() {
+    printf '%s/deploy/scripts/verify-deploy-start-guard.sh' "$1"
+}
+
+# Every run is bounded: a blocking open must fail the corpus, never hang it.
 run_at() {
     local target=$1 prefix=$2
     shift 2
     if [[ -n "$prefix" ]]; then
-        PATH="$prefix:$PATH" bash "$target" "$@" >"$work/stdout" 2>"$work/stderr"
+        PATH="$prefix:$PATH" timeout 8 bash "$target" "$@" >"$work/stdout" 2>"$work/stderr"
     else
-        bash "$target" "$@" >"$work/stdout" 2>"$work/stderr"
+        timeout 8 bash "$target" "$@" >"$work/stdout" 2>"$work/stderr"
     fi
 }
 
@@ -83,7 +89,7 @@ check_denied_output() {
 expect_allowed() {
     local label=$1 fixture=$2 status=0
     shift 2
-    run_at "$fixture/scripts/verify-deploy-start-guard.sh" '' "$@" || status=$?
+    run_at "$(helper_at "$fixture")" '' "$@" || status=$?
     if [[ "$status" -ne 0 ]]; then
         record "$label: a permitted start was denied: $(head -n 1 "$work/stderr")"
     else
@@ -105,15 +111,13 @@ expect_denied_at() {
 expect_denied() {
     local label=$1 reason=$2 fixture=$3
     shift 3
-    expect_denied_at "$label" "$reason" '' \
-        "$fixture/scripts/verify-deploy-start-guard.sh" "$@"
+    expect_denied_at "$label" "$reason" '' "$(helper_at "$fixture")" "$@"
 }
 
 expect_denied_with_shim() {
     local label=$1 reason=$2 prefix=$3 fixture=$4
     shift 4
-    expect_denied_at "$label" "$reason" "$prefix" \
-        "$fixture/scripts/verify-deploy-start-guard.sh" "$@"
+    expect_denied_at "$label" "$reason" "$prefix" "$(helper_at "$fixture")" "$@"
 }
 
 write_state() {
@@ -154,13 +158,15 @@ hold_lock() {
 
 # Two controlled shims prove the guard does not fail open on a bad descriptor
 # identity or on a flock error that is not contention.
-mkdir -p -- "$work/stat-shim" "$work/flock-shim"
-cat >"$work/stat-shim/stat" <<SHIM
+mkdir -p -- "$work/stat-shim" "$work/stat-lock-shim" "$work/flock-shim"
+for entry in "stat-shim *.state" "stat-lock-shim *.restart.lock"; do
+    set -- $entry
+    cat >"$work/$1/stat" <<SHIM
 #!/usr/bin/env bash
 real=\${REAL_STAT:?}
 for argument in "\$@"; do
     case \$argument in
-        *.state)
+        $2)
             output=\$("\$real" "\$@") || exit \$?
             printf '%s\n' "\$output" | awk -F: 'BEGIN { OFS = ":" } { \$2 = \$2 + 1; print }'
             exit 0
@@ -169,8 +175,10 @@ for argument in "\$@"; do
 done
 exec "\$real" "\$@"
 SHIM
+    chmod 0755 "$work/$1/stat"
+done
 printf '#!/usr/bin/env bash\nexit 1\n' >"$work/flock-shim/flock"
-chmod 0755 "$work/stat-shim/stat" "$work/flock-shim/flock"
+chmod 0755 "$work/flock-shim/flock"
 export REAL_STAT=$real_stat
 
 # An absent state file is the normal start path.
@@ -181,11 +189,18 @@ mkdir -p -- "$fixture/.runtime-deploy"
 chmod 0755 "$fixture/.runtime-deploy"
 expect_allowed 'empty state directory' "$fixture" \
     --environment production --expected-release-sha "$sha_b"
-mkdir -p -- "$fixture/bin"
+mkdir -p -- "$fixture/bin" "$fixture/scripts"
 cp -- "$guard" "$fixture/bin/verify-deploy-start-guard.sh"
 expect_denied_at 'misplaced helper' 'misplaced helper' '' \
     "$fixture/bin/verify-deploy-start-guard.sh" \
     --environment staging --expected-release-sha "$sha_a"
+# A top-level scripts directory is not the shipped layout either.
+write_state "$fixture" staging "$sha_a" blocked
+cp -- "$guard" "$fixture/scripts/verify-deploy-start-guard.sh"
+expect_denied_at 'unshipped layout' 'misplaced helper' '' \
+    "$fixture/scripts/verify-deploy-start-guard.sh" \
+    --environment staging --expected-release-sha "$sha_a"
+rm -rf -- "$fixture/scripts" "$fixture/.runtime-deploy"
 
 expect_denied 'no arguments' 'invalid arguments' "$fixture"
 expect_denied 'missing value' 'invalid arguments' "$fixture" --environment staging
@@ -233,6 +248,10 @@ expect_denied 'main lock only' 'restart lock is missing' \
 hold_lock "$state_dir/staging.restart.lock"
 expect_allowed 'both locks held' "$fixture" \
     --environment staging --expected-release-sha "$sha_a"
+# The restart lock's own descriptor identity is compared, not just the state's.
+expect_denied_with_shim 'lock descriptor identity mismatch' \
+    'restart lock check failed' "$work/stat-lock-shim" "$fixture" \
+    --environment staging --expected-release-sha "$sha_a"
 kill "$main_holder" 2>/dev/null || true
 wait "$main_holder" 2>/dev/null || true
 expect_denied 'restart lock only' 'restart authorization is not held' \
@@ -260,6 +279,7 @@ expect_denied_with_shim 'descriptor identity mismatch' \
     'deployment state changed during validation' "$work/stat-shim" "$fixture" \
     --environment staging --expected-release-sha "$sha_a"
 
+# A blocked state at the runtime root is the case the shipped layout must see.
 for phase in deploying failed blocked rust-failed readiness-pending unknown; do
     write_state "$fixture" staging "$sha_a" "$phase"
     expect_denied "phase $phase" 'deployment state does not authorize a restart' \
@@ -308,6 +328,15 @@ expect_denied 'state directory' 'deployment state is not a regular file' \
     "$fixture" --environment staging --expected-release-sha "$sha_a"
 rmdir -- "$state"
 
+# A FIFO is refused before any open, so the guard cannot block on it.
+write_state "$fixture" staging "$sha_a"
+rm -- "$state"
+mkfifo -- "$state"
+expect_denied 'state fifo' 'deployment state is not a regular file' \
+    "$fixture" --environment staging --expected-release-sha "$sha_a"
+rm -- "$state"
+write_state "$fixture" staging "$sha_a"
+
 write_state "$fixture" staging "$sha_a"
 rm -- "$state_dir/staging.lock"
 mkdir -- "$state_dir/staging.lock"
@@ -330,6 +359,10 @@ mkdir -- "$state_dir/staging.restart.lock"
 expect_denied 'replaced restart lock' 'restart lock is not a regular file' \
     "$fixture" --environment staging --expected-release-sha "$sha_a"
 rmdir -- "$state_dir/staging.restart.lock"
+mkfifo -- "$state_dir/staging.restart.lock"
+expect_denied 'restart lock fifo' 'restart lock is not a regular file' \
+    "$fixture" --environment staging --expected-release-sha "$sha_a"
+rm -- "$state_dir/staging.restart.lock"
 expect_denied 'missing restart lock' 'restart lock is missing' \
     "$fixture" --environment staging --expected-release-sha "$sha_a"
 
