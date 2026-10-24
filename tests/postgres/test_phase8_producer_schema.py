@@ -15,7 +15,7 @@ from tests.postgres.test_supplier_offer_migration_roundtrip import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-PARENT = "prc_20261018_cache"
+PARENT = "p3_20261020_auth_tokens"
 REVISION = "p89_20261022_watchlist_producer"
 WATCHLIST = "88888888-7777-0000-0000-000000000002"
 TARGET = "88888888-7777-0000-0000-000000000003"

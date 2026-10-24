@@ -395,8 +395,10 @@ read, insert and update the watermark but cannot delete it; shared outbox
 writer/sequencer grants stay unchanged. The consumer is not activated by this
 schema change. Downgrade refuses retained trusted rows or internal evidence.
 The applying production release requires this exact reviewed checkpoint.
-Revision `p3_20261020_auth_tokens` also follows `prc_20261018_cache` until the
-reviewed single-head integration lands (see the Task 1 schema gate).
+`p89_20261022_watchlist_producer` follows `p3_20261020_auth_tokens`, which in turn
+follows `prc_20261018_cache`: one linear chain and one Alembic head. Under
+PD-MIG-1 the later-shipping phase reparents its own revision onto the earlier
+phase's head by changing `down_revision` only.
 
 ## Rust Phase 2 shared route runner
 
