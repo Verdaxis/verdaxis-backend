@@ -494,11 +494,17 @@ fn boundary_reference_allowed(text: &str) -> bool {
                     if tokens.get(cursor).map(String::as_str) == Some("async") {
                         cursor += 1;
                     }
-                    if !matches!(tokens.get(cursor).map(String::as_str), Some("struct" | "type" | "fn")) {
+                    if !matches!(
+                        tokens.get(cursor).map(String::as_str),
+                        Some("struct" | "type" | "fn")
+                    ) {
                         return false;
                     }
                     cursor += 1;
-                    if !tokens.get(cursor).is_some_and(|name| BUSINESS_EXPORTS.contains(&name.as_str())) {
+                    if !tokens
+                        .get(cursor)
+                        .is_some_and(|name| BUSINESS_EXPORTS.contains(&name.as_str()))
+                    {
                         return false;
                     }
                 }
@@ -509,7 +515,9 @@ fn boundary_reference_allowed(text: &str) -> bool {
                 }
                 cursor += 1;
             }
-            if depth != 0 { return false; }
+            if depth != 0 {
+                return false;
+            }
             continue;
         }
         if tokens.get(index + 1).map(String::as_str) != Some("::") {
@@ -590,10 +598,18 @@ fn declared_business_exports_do_not_open_the_write_boundary() {
         "use crate::order_write::{InvalidateOrganization, locks::SliceKey};"
     ));
     assert!(!boundary_reference_allowed("use crate::order_write::*;"));
-    assert!(boundary_reference_allowed("pub mod order_write { pub struct InvalidateOrganization { pub id: Uuid } pub type InvalidationError = Error; pub async fn invalidate_organization() {} }"));
-    assert!(!boundary_reference_allowed("pub mod order_write { pub fn execute_order_command() {} }"));
-    assert!(!boundary_reference_allowed("use crate::order_write as other;"));
-    assert!(!boundary_reference_allowed("use crate::order_write::{InvalidateOrganization, execute_order_command};"));
+    assert!(boundary_reference_allowed(
+        "pub mod order_write { pub struct InvalidateOrganization { pub id: Uuid } pub type InvalidationError = Error; pub async fn invalidate_organization() {} }"
+    ));
+    assert!(!boundary_reference_allowed(
+        "pub mod order_write { pub fn execute_order_command() {} }"
+    ));
+    assert!(!boundary_reference_allowed(
+        "use crate::order_write as other;"
+    ));
+    assert!(!boundary_reference_allowed(
+        "use crate::order_write::{InvalidateOrganization, execute_order_command};"
+    ));
     let direct_write = ["UPDATE ", "order", "book_orders SET version=2"].concat();
     assert_eq!(
         orderbook_dml(&normalized(&direct_write)),
