@@ -15,6 +15,7 @@ pub mod password_reset;
 pub mod request;
 pub mod scope;
 pub mod store;
+pub mod stream;
 mod token;
 pub mod token_bytes;
 mod transaction;
