@@ -6,6 +6,7 @@ pub mod market;
 pub mod mcp;
 pub mod routes;
 pub mod runtime;
+pub mod subscriptions;
 
 // ---------------------------------------------------------------------------
 // Phase 2 Task 20 registration block.
@@ -194,5 +195,3 @@ pub fn verify_release(value: &str) -> Result<(), &'static str> {
     }
 }
 
-pub mod kyc;
-pub mod subscriptions;
