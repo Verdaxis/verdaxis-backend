@@ -1076,6 +1076,7 @@ mod postgres {
         events.push_visible(true);
         let reply = put(
             &f.app,
+            &peer(14),
             "/api/auth/me",
             &plain,
             &json!({"role": "BUYER", "first_name": "Ada", "last_name": "Lovelace"}),
@@ -1144,6 +1145,7 @@ mod postgres {
         events.push_visible(false);
         let reply = put(
             &f.app,
+            &peer(5),
             "/api/auth/me",
             &no_projection,
             &json!({"role": "SUPPLIER"}),
