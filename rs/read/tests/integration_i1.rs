@@ -215,6 +215,7 @@ impl Fixture {
 /// Task 8 organization rejection through the real Task 7 invalidator, checked
 /// by the real Task 9 policy. No lane double participates in this case.
 #[tokio::test]
+#[ignore = "requires explicit disposable PostgreSQL authority"]
 async fn i1_t8_rejection_with_real_t7_and_t9() {
     let fixture = Fixture::new().await;
     // The released Task 9 policy admits the bound approved member before the
@@ -307,12 +308,37 @@ fn i1_t10_declarations_with_real_t9_policy() {
         organization_id: org,
         expires_at: now() + chrono::Duration::hours(1),
     };
-    for (status, bound, expect_enabled, expect_advisory) in [
-        (KycStatus::Pending, Some(org), false, true),
-        (KycStatus::Submitted, Some(org), false, true),
-        (KycStatus::Approved, Some(org), true, true),
-        (KycStatus::Approved, Some(other), false, false),
-        (KycStatus::Rejected, Some(org), false, false),
+    for (status, bound, strict_expect, advisory_expect) in [
+        (
+            KycStatus::Pending,
+            Some(org),
+            (true, KycReason::Grace),
+            (true, KycReason::NotEnforced),
+        ),
+        (
+            KycStatus::Submitted,
+            Some(org),
+            (true, KycReason::Grace),
+            (true, KycReason::NotEnforced),
+        ),
+        (
+            KycStatus::Approved,
+            Some(org),
+            (true, KycReason::Approved),
+            (true, KycReason::NotEnforced),
+        ),
+        (
+            KycStatus::Approved,
+            Some(other),
+            (true, KycReason::Grace),
+            (false, KycReason::Required),
+        ),
+        (
+            KycStatus::Rejected,
+            Some(org),
+            (false, KycReason::Rejected),
+            (false, KycReason::Rejected),
+        ),
     ] {
         let party = KycParty {
             user_id: Uuid::from_u128(1),
@@ -322,13 +348,15 @@ fn i1_t10_declarations_with_real_t9_policy() {
         };
         let strict = eligibility(&enabled, &party, Some(&grace), now());
         assert_eq!(
-            strict.eligible, expect_enabled,
-            "{status:?} bound={bound:?}"
+            (strict.eligible, strict.reason),
+            strict_expect,
+            "strict {status:?} bound={bound:?}"
         );
         let loose = eligibility(&advisory, &party, Some(&grace), now());
         assert_eq!(
-            loose.eligible, expect_advisory,
-            "{status:?} bound={bound:?}"
+            (loose.eligible, loose.reason),
+            advisory_expect,
+            "advisory {status:?} bound={bound:?}"
         );
     }
     // Grace is current-organization bound and must still be unexpired.
