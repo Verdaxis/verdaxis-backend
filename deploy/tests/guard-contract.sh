@@ -133,13 +133,15 @@ create_lock() {
     chmod 0600 "$path"
 }
 
+# Sets holder_pid; the caller keeps it to release that one lock later.
 hold_lock() {
     local path=$1
     create_lock "$path"
     # `-o` closes the descriptor before the command runs, so killing the holder
     # releases the lock even though its sleep child keeps running.
     flock -o "$path" sleep 60 &
-    held_pids+=("$!")
+    holder_pid=$!
+    held_pids+=("$holder_pid")
     for _ in $(seq 1 200); do
         if ! flock -n "$path" true 2>/dev/null; then
             return 0
@@ -225,13 +227,14 @@ write_state "$fixture" staging "$sha_a"
 expect_denied 'stale authorization' 'restart authorization is not held' \
     "$fixture" --environment staging --expected-release-sha "$sha_a"
 hold_lock "$state_dir/staging.lock"
+main_holder=$holder_pid
 expect_denied 'main lock only' 'restart authorization is not held' \
     "$fixture" --environment staging --expected-release-sha "$sha_a"
 hold_lock "$state_dir/staging.restart.lock"
 expect_allowed 'both locks held' "$fixture" \
     --environment staging --expected-release-sha "$sha_a"
-kill "${held_pids[0]}" 2>/dev/null || true
-wait "${held_pids[0]}" 2>/dev/null || true
+kill "$main_holder" 2>/dev/null || true
+wait "$main_holder" 2>/dev/null || true
 expect_denied 'restart lock only' 'restart authorization is not held' \
     "$fixture" --environment staging --expected-release-sha "$sha_a"
 
