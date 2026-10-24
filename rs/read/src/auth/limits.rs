@@ -93,15 +93,18 @@ impl QuotaStore {
                 if !evict {
                     return false;
                 }
-                // The parenthetical pre-auth store evicts the soonest-expiring
-                // entry: every entry shares one window length, so the oldest
-                // accounting is the least valuable to keep. Refusing instead
-                // would lock out every new client while the table is full.
+                // Only the pre-auth store evicts (PM decision PD2-SEC-1). Every
+                // entry shares one window length, so the soonest-expiring entry
+                // is the oldest accounting. Refusing the new client instead
+                // would let a flood of fresh addresses lock out every
+                // legitimate client, administrators included. The trade is
+                // deliberate: under sustained churn a client can be evicted and
+                // regain budget. A warn-level count makes such a flood visible;
+                // it never names the evicted client.
                 let (_, expired) = self.expiration.pop_first().expect("full quota index");
                 self.buckets.remove(&expired);
                 self.evictions = self.evictions.saturating_add(1);
-                // The count only. An eviction log must never name its client.
-                tracing::debug!(evictions = self.evictions, "preauth quota eviction");
+                tracing::warn!(evictions = self.evictions, "preauth quota eviction");
             }
             let expires_at = now.saturating_add(window);
             self.expiration.insert((expires_at, identity.clone()));
@@ -191,6 +194,38 @@ pub fn sample_floor(limit_per_minute: f64, window_seconds: f64) -> u64 {
 mod tests {
     use super::*;
     use std::net::Ipv4Addr;
+
+    /// A full table drops exactly one entry, the soonest-expiring one, and
+    /// leaves every other client's accounting as it was. It cannot drop the
+    /// client that triggered the eviction: that identity is not stored yet.
+    #[test]
+    fn eviction_drops_only_the_soonest_expiring_entry() {
+        let mut limits = Phase2Limits::default();
+        for client in 0..MAX_BUCKETS as u32 {
+            let address = Ipv4Addr::from(client).to_string();
+            assert!(limits.preauth(&address, "/api/admin/users", 100));
+        }
+        // A late client spends most of its minute budget.
+        for _ in 0..299 {
+            assert!(limits.preauth("203.0.113.7", "/api/admin/users", 100));
+        }
+        assert!(!limits.preauth("203.0.113.7", "/api/admin/users", 100));
+        let evicted = ("0.0.0.0".to_string(), "/api/admin/".to_string());
+        // The flood displaces the earliest-inserted entry, not the spent client.
+        for client in MAX_BUCKETS as u32..MAX_BUCKETS as u32 + 10 {
+            let address = Ipv4Addr::from(client).to_string();
+            assert!(limits.preauth(&address, "/api/admin/users", 100));
+        }
+        assert_eq!(limits.preauth_evictions(), 10);
+        assert!(!limits.preauth_store.buckets.contains_key(&evicted));
+        assert!(
+            limits
+                .preauth_store
+                .buckets
+                .contains_key(&("203.0.113.7".to_string(), "/api/admin/".to_string()))
+        );
+        assert!(!limits.preauth("203.0.113.7", "/api/admin/users", 100));
+    }
 
     /// Both stores keep every bucket and every expiration index entry under the
     /// same cap; an eviction replaces one entry instead of growing the map.
