@@ -85,6 +85,10 @@ fn p4_t10_c13() {
         ("FFI Marine", "ﬃ Marine"),
         ("STRASSE", "Straße"),
         ("i\u{0307} Marine", "İ Marine"),
+        ("ﬀ ﬁ ﬂ ﬃ ﬄ ﬅ ﬆ Marine", "ff fi fl ffi ffl st st Marine"),
+        ("OS City", "ΟЅ City"),
+        ("os city", "ος city"),
+        ("ＭＡＲＩＮＥ", "ｍａｒｉｎｅ"),
     ] {
         assert!(
             Declarations::new(Some(declared.into()), None)
@@ -98,6 +102,12 @@ fn p4_t10_c13() {
         Declarations::new(Some("I Marine".into()), None)
             .expect("synthetic declaration")
             .validate_organization("İ Marine", None)
+            .is_err()
+    );
+    assert!(
+        Declarations::new(Some("ı Marine".into()), None)
+            .expect("synthetic declaration")
+            .validate_organization("i Marine", None)
             .is_err()
     );
     assert!(Declarations::new(Some(" ".into()), None).is_err());
