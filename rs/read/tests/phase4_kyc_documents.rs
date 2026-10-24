@@ -86,8 +86,8 @@ fn p4_t10_c13() {
         ("STRASSE", "Straße"),
         ("i\u{0307} Marine", "İ Marine"),
         ("ﬀ ﬁ ﬂ ﬃ ﬄ ﬅ ﬆ Marine", "ff fi fl ffi ffl st st Marine"),
-        ("OS City", "ΟΣ City"),
-        ("os city", "ος city"),
+        ("ΟΔΟΣ City", "οδος City"),
+        ("ΟΔΟΣ city", "οδος City"),
         ("ＭＡＲＩＮＥ", "ｍａｒｉｎｅ"),
     ] {
         assert!(
