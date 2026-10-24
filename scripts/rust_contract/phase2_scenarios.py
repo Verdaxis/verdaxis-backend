@@ -123,12 +123,16 @@ def _users(state):
     return {row.get("id", key): row for key, row in rows.items()}
 
 
-def _check_result(action, response, error):
+def _check_result(action, response, error, runtime="?"):
     if error:
         if not action.allow_transport_error:
-            raise ScenarioError(f"{action.name}: unexpected transport failure {error}")
+            raise ScenarioError(f"{action.name} ({runtime}): unexpected transport failure {error}")
     elif response["status"] not in (action.accepted_statuses or (action.expected_status,)):
-        raise ScenarioError(f"{action.name}: unexpected HTTP status {response['status']}")
+        detail = response.get("body", b"")
+        if isinstance(detail, bytes):
+            detail = detail[:400].decode("utf-8", "replace")
+        raise ScenarioError(
+            f"{action.name} ({runtime}): unexpected HTTP status {response['status']} {detail}")
 
 
 def _request(cell, action):
@@ -190,9 +194,9 @@ def _leaderboard_pair(responses):
 def _compare_http(action, responses, errors):
     if errors[0] != errors[1]:
         raise ScenarioError(f"{action.name}: transport outcomes differ")
-    for response, error in zip(responses, errors):
+    for runtime, response, error in zip(("python", "rust"), responses, errors):
         if error:
-            _check_result(action, response, error)
+            _check_result(action, response, error, runtime)
     if not any(errors):
         if action.approved_difference:
             # One response may carry several named rules, written as "PD2+PD3".
@@ -203,8 +207,8 @@ def _compare_http(action, responses, errors):
             # response need not be JSON.
             action.assert_http_difference(list(responses))
             return
-        for response, error in zip(responses, errors):
-            _check_result(action, response, error)
+        for runtime, response, error in zip(("python", "rust"), responses, errors):
+            _check_result(action, response, error, runtime)
         compared = responses
         if (action.route_id == "R03" and action.method == "GET"
                 and action.path == "/api/referrals/leaderboard"
@@ -408,7 +412,9 @@ register(watchlist_targets_scenario())
 register(watchlist_targets_gate_off_scenario())
 register(watchlist_targets_hidden_scenario())
 # Phase 2 Task 24: W07/W08/W09/W10 activity schedules.
-from scripts.rust_contract.phase2_watchlist_activity import scenario as watchlist_activity_scenario
+from scripts.rust_contract.phase2_watchlist_activity import (
+    scenario as watchlist_activity_scenario,
+)
 
 register(watchlist_activity_scenario())
 # Phase 2 Task 10: feedback route scenario.
