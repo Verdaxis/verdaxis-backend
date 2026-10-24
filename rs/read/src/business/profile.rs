@@ -10,8 +10,9 @@ use std::sync::Arc;
 use axum::{
     Extension, Router,
     extract::{ConnectInfo, Request, State},
+    http::StatusCode,
     response::{IntoResponse, Response},
-    routing::{get, put},
+    routing::get,
 };
 use chrono::{DateTime, Utc};
 use serde::Serialize;
@@ -19,10 +20,6 @@ use serde_json::Value;
 use sqlx::{PgConnection, Row};
 use uuid::Uuid;
 
-use super::{
-    error::{authentication, database_failure, refusal},
-    transaction::{AttemptError, BusinessCommand, CommandFuture, OrganizationWritePlan},
-};
 use crate::{
     ApiError, AppState,
     auth::{
@@ -30,9 +27,12 @@ use crate::{
         limits::{BusinessLimitKeys, SharedLimits},
         run_authenticated, verify_authorization,
     },
+    business::{
+        error::{authentication, refusal},
+        transaction::{AttemptError, BusinessCommand, CommandFuture, OrganizationWritePlan},
+    },
     runtime::http::client_ip,
 };
-use axum::http::StatusCode;
 
 const ME_PATH: &str = "/api/auth/me";
 
@@ -549,7 +549,7 @@ async fn serve_update(
         policy: authority.policy.clone(),
         events: authority.events.clone(),
     };
-    match super::transaction::run_organization_write(&state, access, command).await {
+    match crate::business::transaction::run_organization_write(&state, access, command).await {
         Ok(profile) => axum::Json(profile).into_response(),
         Err(error) => error.into_response(),
     }

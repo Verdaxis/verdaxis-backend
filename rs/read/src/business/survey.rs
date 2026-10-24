@@ -19,7 +19,6 @@ use chrono::Utc;
 use serde_json::Value;
 use uuid::Uuid;
 
-use super::error::{authentication, refusal};
 use crate::{
     ApiError, AppState,
     auth::{
@@ -27,6 +26,7 @@ use crate::{
         limits::{BusinessLimitKeys, SharedLimits},
         run_authenticated, verify_authorization,
     },
+    business::error::{authentication, refusal},
     runtime::http::client_ip,
 };
 

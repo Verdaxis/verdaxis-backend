@@ -25,22 +25,14 @@ use serde_json::{Value, json};
 use sqlx::{Connection, PgConnection, Row, postgres::PgPoolOptions};
 use tower::ServiceExt;
 use uuid::Uuid;
+use verdaxis_read::auth::AuthError;
+use verdaxis_read::business::transaction::{AttemptError, CommandFuture};
 
 use profile::{
     KycEligibilityView, KycProfilePolicy, KycReason, ProfileAuthority, ProfileKycParty,
     ProfileMarketEvents,
 };
 use survey::SurveyAuthority;
-use verdaxis_read::{
-    AppState, Config, MarketPolicy, compiled_sha,
-    auth::{
-        AuthError,
-        limits::{BusinessLimitKeys, SharedLimits},
-        verify_access,
-    },
-    business::transaction::{AttemptError, CommandFuture},
-    runtime,
-};
 
 const SECRET: &str = "profile-component-test-secret-at-least-32-characters";
 const ISSUER: &str = "profile-test";
@@ -943,6 +935,7 @@ mod postgres {
         assert_eq!(reply.status, StatusCode::OK);
         assert_eq!(reply.body["role"], "SUPPLIER");
         assert_eq!(events.appends().len(), 1);
+        assert_eq!(events.visible_calls().len(), 4);
         // An orgless profile takes the role without a projection probe.
         let orgless = token(f.users[6]);
         let reply = put(&f.app, "/api/auth/me", &orgless, &json!({"role": "BUYER"})).await;
@@ -982,6 +975,7 @@ mod postgres {
                 .await
                 .unwrap();
         assert_eq!(roles.iter().filter(|role| role.is_some()).count(), 2);
+        assert_eq!(events.visible_calls().len(), 8);
         // Same-row concurrent first assignment: exactly one answer wins.
         let third = Uuid::new_v4();
         sqlx::query("INSERT INTO users(id,email,status) VALUES($1,$2,'APPROVED')")
