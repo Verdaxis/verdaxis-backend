@@ -360,7 +360,12 @@ fn scan_repository() -> Vec<String> {
                 }
                 continue;
             }
-            if let Some(rule) = orderbook_dml(&literal) {
+            // The disposable cache fixture advances committed rows to prove
+            // invalidation. It is not an application command entry point.
+            let cache_fixture = path == &root.join("rs/read/tests/trading_cache_postgres.rs");
+            if let Some(rule) = orderbook_dml(&literal)
+                && !cache_fixture
+            {
                 violations.push(format!("{}: {rule}", path.display()));
             }
             if orderbook_row_lock(&literal) {
