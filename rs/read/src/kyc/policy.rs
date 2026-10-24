@@ -180,6 +180,7 @@ pub fn bind_eligibility_sql(
     // contract declares exactly two bound values, switch then instant.
     let switch = builder
         .sql()
+        .as_str()
         .rsplit_once('$')
         .expect("bound switch placeholder")
         .1
