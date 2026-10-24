@@ -72,7 +72,11 @@ fn access_issuers_set_future_expiry() {
         ),
         sign(python_claims),
     ] {
-        assert!(verify_access(&token, &settings(), now()).is_ok());
-        assert!(verify_authorization(Some(&format!("Bearer {token}")), &settings(), now()).is_ok());
+        let direct = verify_access(&token, &settings(), now()).unwrap();
+        let bearer =
+            verify_authorization(Some(&format!("Bearer {token}")), &settings(), now()).unwrap();
+        let expected = now() + chrono::Duration::seconds(900);
+        assert_eq!(direct.expires_at, expected);
+        assert_eq!(bearer.expires_at, expected);
     }
 }
