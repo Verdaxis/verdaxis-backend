@@ -1005,7 +1005,12 @@ mod postgres {
         assert_eq!(facts.status.qualified_end, Some(3));
         assert_eq!(facts.status.qualified_previous_end, Some(3));
         assert_eq!(facts.status.approved_current, 1);
-        assert_eq!(facts.status.coverage_start, Some(utc(2026, 3, 18)));
+        // Coverage starts at the earliest transition instant itself, not a
+        // midnight projection: the status fact is an instant, not a date.
+        assert_eq!(
+            facts.status.coverage_start,
+            Some(Utc.with_ymd_and_hms(2026, 3, 18, 9, 0, 0).unwrap())
+        );
 
         assert_eq!(facts.daily_orders.get(&day(2026, 6, 2)), Some(&1));
         assert_eq!(facts.daily_trades.get(&day(2026, 6, 9)), Some(&1));
@@ -1117,7 +1122,9 @@ mod postgres {
         let retention_facts = aggregates::load_retention_facts(&mut f.app, &query())
             .await
             .unwrap();
-        assert_eq!(retention_facts.activity.retained_current, 3);
+        // Only the buyer and supplier organizations traded in both periods;
+        // the returning trader's first activity is inside the current period.
+        assert_eq!(retention_facts.activity.retained_current, 2);
         assert_eq!(retention_facts.activity.retained_previous, 0);
         assert_eq!(retention_facts.activity.reactivated_current, 0);
         assert_eq!(retention_facts.activity.active_days_1, 0);
@@ -1126,7 +1133,7 @@ mod postgres {
         assert_eq!(retention_facts.drop_off.never_logged_in, 1);
 
         let response = retention(&retention_facts, None, &query(), observed());
-        assert_eq!(response.kpis.retained_organizations.value, Some(3));
+        assert_eq!(response.kpis.retained_organizations.value, Some(2));
         assert_eq!(response.kpis.retained_organizations.previous, Some(0));
         assert_eq!(response.kpis.reactivated_organizations.value, Some(0));
         assert_eq!(response.kpis.dormant_approved_members.value, Some(1));
