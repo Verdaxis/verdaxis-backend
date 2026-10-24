@@ -9,6 +9,47 @@ below. The final review's F1/F2 gate repairs are committed and qualified in
 the "Review fix round" section. No staging or production deployment was
 attempted. Task 24 has not started. No measurement was run (decision 110).
 
+## PD2-M2 — stricter load wait and one unchanged rerun
+
+On Oct 24 the PM classified the earlier failures as Python-oracle timeouts
+under host load and authorized one more unchanged run after a stricter load
+wait. Exact source tested: `2b719ad5c38529c0a776bb08cdee80958775c079`.
+No code, test, deadline, tolerance or retry policy changed.
+
+Five-minute polling began at 03:37:39Z and qualified at 07:20:13Z (45 readings,
+about 3h43m, within the six-hour cap). Every reading is retained in
+`work/pd2-m2-load-wait.log`; final load was **7.51 / 9.52 / 12.08**. The
+wrapper/heavy startup took about one minute. At actual gate start 07:21:13Z,
+load had risen to **15.88 / 11.21 / 12.48**, above the strict limits again.
+This is an execution limitation: the load was not checked again as an
+admission condition inside the heavy slot, so this is not quiet-host evidence.
+No second run was started.
+
+The unchanged `bash opus-r2-meaning.sh`, under `heavy run 7200`, ended at
+07:52:14Z with **MEANING_EXIT=1** and **CALL_EXIT=1**. After-run load was
+**37.94 / 29.14 / 21.01**. Exact final failure lines:
+
+```text
+contract_server ready group=orderbook_map addr=127.0.0.1:57295
+disposable run failed: nothing accepted a connection on 127.0.0.1:50347
+MEANING_EXIT=1
+```
+
+The Rust listener was ready. `run_disposable.py` starts both adapters, waits
+for Python first (`wait_for_port(python_port)`), then Rust. The failure here
+is the Python-oracle startup wait: no request/response was captured for that
+group, no Rust response differed in meaning, and no assertion established a
+runtime defect. The log does not establish why the Python listener did not
+start; elevated load is observed context, not a proven process-level cause.
+This is a Python-side harness startup timeout, not the previous statement
+cancellation or 503. The run reached this group after the earlier groups;
+there is no complete meaning report and no full-pass claim.
+
+Evidence: `work/pd2-m2-meaning-rerun.log`, recovered full log
+`work/pd2-m2-meaning-detail-recovered.log`, and the load-wait log above.
+No push, CI dispatch or further rerun. Stop for PM harness disposition.
+Local `rs/target` is absent; Task 24 remains unstarted.
+
 ## PD2-M1 — single unchanged rerun, 24 October
 
 PM classified the preceding cancelled-order setup failure as Python database
