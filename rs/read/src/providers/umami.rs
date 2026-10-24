@@ -375,8 +375,7 @@ impl UmamiClient {
             let response = self
                 .inner
                 .http
-                .get(url)
-                .query(&params)
+                .get(with_query(url, &params)?)
                 .bearer_auth(token.as_str())
                 .send()
                 .await
@@ -424,6 +423,18 @@ impl UmamiClient {
         }
         serde_json::from_slice(&body).map_err(|_| AnalyticsDiagnostic::MalformedResponse)
     }
+}
+
+/// Append query parameters without relying on an optional client feature.
+fn with_query(url: &str, params: &[(String, String)]) -> Result<url::Url, AnalyticsDiagnostic> {
+    let mut url = url::Url::parse(url).map_err(|_| AnalyticsDiagnostic::Configuration)?;
+    {
+        let mut pairs = url.query_pairs_mut();
+        for (key, value) in params {
+            pairs.append_pair(key, value);
+        }
+    }
+    Ok(url)
 }
 
 fn classify(error: reqwest::Error) -> AnalyticsDiagnostic {
