@@ -1,2 +1,4 @@
 deploy/scripts/verify-artifact.sh
 deploy/tests/artifact-contract.sh
+deploy/scripts/verify-deploy-start-guard.sh
+deploy/tests/guard-contract.sh
