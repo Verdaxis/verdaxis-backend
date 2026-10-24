@@ -416,6 +416,17 @@ pub fn public_routes() -> Router<crate::AppState> {
         .merge(crate::mcp::mcp_router())
 }
 
+/// Authenticated business routes. Each group receives its own verification
+/// settings, because `VerificationSettings` is not `Clone`.
+pub fn authenticated_routes(
+    verification: crate::auth::VerificationSettings,
+    limits: crate::auth::limits::SharedLimits,
+) -> Vec<Router<crate::AppState>> {
+    vec![crate::business::vessels::routes(
+        crate::business::vessels::VesselAuthority::new(verification, limits),
+    )]
+}
+
 pub fn public_router(state: crate::AppState) -> Router {
     router_with(public_routes(), state)
 }
