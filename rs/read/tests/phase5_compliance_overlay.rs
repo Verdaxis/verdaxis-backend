@@ -843,7 +843,7 @@ async fn compliance_overlay_timeout_cases() {
 #[tokio::test]
 async fn compliance_overlay_snapshot_cases() {
     use rust_decimal::Decimal;
-    use sqlx::ConnectOptions as _;
+    use sqlx::{ConnectOptions as _, Connection as _};
     use tracing_subscriber::layer::SubscriberExt as _;
 
     let Some(url) = fixture_url() else { return };
@@ -877,7 +877,7 @@ async fn compliance_overlay_snapshot_cases() {
     let options: sqlx::postgres::PgConnectOptions = url
         .parse()
         .expect("disposable fixture URL")
-        .log_statements(tracing::log::LevelFilter::Debug);
+        .log_statements("debug".parse().expect("log level"));
     let mut connection = sqlx::PgConnection::connect_with(&options)
         .await
         .expect("logging connection");
@@ -931,12 +931,13 @@ async fn compliance_overlay_snapshot_cases() {
         .await
         .expect("insert a member vessel");
     executed.lock().unwrap().clear();
+    let policy = fixture_policy();
     let request = OverlayRequest::validate(json!({"order_ids": [order]})).unwrap();
     let after = tracing::subscriber::with_default(
         tracing::subscriber::registry().with(OneStatement(executed.clone())),
         overlay::select_overlay(
             &mut connection,
-            &fixture_policy(),
+            &policy,
             &market::visibility::VisibilityClock::at(chrono::Utc::now()),
             &config,
             &actor,
@@ -996,14 +997,11 @@ struct SummaryVisitor<'a>(&'a mut String);
 #[cfg(feature = "contract-tests")]
 impl tracing::field::Visit for SummaryVisitor<'_> {
     fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
-        if field.name() == "summary" {
+        // `summary` is the first four words; `db.statement` carries the whole
+        // statement when it was shortened, so both are kept.
+        if matches!(field.name(), "summary" | "db.statement") {
             self.0.push_str(value);
-        }
-    }
-
-    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
-        if field.name() == "summary" && self.0.is_empty() {
-            self.0.push_str(&format!("{value:?}"));
+            self.0.push('\n');
         }
     }
 }
