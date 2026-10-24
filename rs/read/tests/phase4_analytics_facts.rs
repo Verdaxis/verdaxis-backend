@@ -1158,10 +1158,14 @@ mod postgres {
             cohort_starts,
             vec![day(2026, 5, 18), day(2026, 5, 25), day(2026, 6, 29)]
         );
-        assert_eq!(response.member_cohorts[0].size.count, Some(3));
-        assert!(!response.member_cohorts[0].size.suppressed);
-        assert!(response.member_cohorts[1].size.suppressed);
-        assert!(response.member_cohorts[2].size.suppressed);
+        // One, two and one member start in those weeks: every pilot-scale
+        // cohort size is suppressed rather than published as a small count.
+        assert!(
+            response
+                .member_cohorts
+                .iter()
+                .all(|row| row.size.suppressed && row.size.count.is_none())
+        );
         // Organization cohorts ride order/trade activity, not logins.
         assert_eq!(response.organization_cohorts.len(), 2);
         assert!(
