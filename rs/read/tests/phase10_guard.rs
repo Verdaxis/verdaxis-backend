@@ -36,8 +36,11 @@ impl Fixture {
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(root.join("scripts")).expect("fixture scripts");
         let root = root.canonicalize().expect("fixture root");
-        fs::copy(guard_source(), root.join("scripts/verify-deploy-start-guard.sh"))
-            .expect("fixture guard");
+        fs::copy(
+            guard_source(),
+            root.join("scripts/verify-deploy-start-guard.sh"),
+        )
+        .expect("fixture guard");
         Self {
             root,
             holders: Vec::new(),
@@ -61,7 +64,8 @@ impl Fixture {
     }
 
     fn restart_lock(&self, environment: &str) -> PathBuf {
-        self.deploy_dir().join(format!("{environment}.restart.lock"))
+        self.deploy_dir()
+            .join(format!("{environment}.restart.lock"))
     }
 
     fn write_state(&self, environment: &str, sha: &str) {
@@ -91,8 +95,10 @@ impl Fixture {
 
     fn hold(&mut self, path: &Path) {
         self.create_lock(path);
+        // `-o` closes the descriptor before the command runs, so killing the
+        // holder releases the lock even though its sleep child keeps running.
         let child = Command::new("flock")
-            .arg(path)
+            .args(["-o", path.to_str().expect("lock path")])
             .args(["sleep", "60"])
             .spawn()
             .expect("hold lock");
@@ -179,12 +185,19 @@ fn deploy_guard_allows_absent_state() {
     fs::create_dir_all(fixture.deploy_dir()).expect("deploy directory");
     fs::set_permissions(fixture.deploy_dir(), fs::Permissions::from_mode(0o755))
         .expect("deploy directory mode");
-    assert_allowed(&run_for(&fixture, "production", SHA_B), "empty state directory");
+    assert_allowed(
+        &run_for(&fixture, "production", SHA_B),
+        "empty state directory",
+    );
 
     // A helper outside the fixed scripts directory has no authority.
     let elsewhere = fixture.root.join("bin");
     fs::create_dir_all(&elsewhere).expect("bin");
-    fs::copy(fixture.guard(), elsewhere.join("verify-deploy-start-guard.sh")).expect("copy");
+    fs::copy(
+        fixture.guard(),
+        elsewhere.join("verify-deploy-start-guard.sh"),
+    )
+    .expect("copy");
     let output = Command::new("bash")
         .arg(elsewhere.join("verify-deploy-start-guard.sh"))
         .args(["--environment", "staging", "--expected-release-sha", SHA_A])
@@ -204,14 +217,25 @@ fn deploy_guard_allows_absent_state() {
         ],
         vec!["--expected-release-sha", SHA_A, "--environment", "staging"],
         vec!["--environment", "test", "--expected-release-sha", SHA_A],
-        vec!["--environment", "staging", "--expected-release-sha", "short"],
+        vec![
+            "--environment",
+            "staging",
+            "--expected-release-sha",
+            "short",
+        ],
         vec![
             "--environment",
             "staging",
             "--expected-release-sha",
             "111111111111111111111111111111111111111A",
         ],
-        vec!["--environment", "staging", "--expected-release-sha", SHA_A, "--apply"],
+        vec![
+            "--environment",
+            "staging",
+            "--expected-release-sha",
+            SHA_A,
+            "--apply",
+        ],
     ] {
         assert_denied(&run_guard(&fixture, &arguments), "usage refusal");
     }
@@ -225,7 +249,10 @@ fn deploy_guard_requires_both_locks_for_restart_authorization() {
     let main = fixture.lock(environment);
     let restart = fixture.restart_lock(environment);
 
-    assert_denied(&run_for(&fixture, environment, SHA_A), "stale authorization");
+    assert_denied(
+        &run_for(&fixture, environment, SHA_A),
+        "stale authorization",
+    );
 
     fixture.hold(&main);
     assert_denied(&run_for(&fixture, environment, SHA_A), "main lock only");
@@ -314,18 +341,27 @@ fn deploy_guard_rejects_dangling_state_and_wrong_sha() {
     assert_denied(&run_for(&fixture, environment, SHA_A), "replaced main lock");
 
     fs::remove_file(&restart).expect("remove restart lock");
-    assert_denied(&run_for(&fixture, environment, SHA_A), "missing restart lock");
+    assert_denied(
+        &run_for(&fixture, environment, SHA_A),
+        "missing restart lock",
+    );
 
     // A linked or writable deploy directory is not deploy authority.
     let real_dir = fixture.root.join("real-deploy");
     fs::rename(fixture.deploy_dir(), &real_dir).expect("move deploy directory");
     std::os::unix::fs::symlink(&real_dir, fixture.deploy_dir()).expect("deploy symlink");
-    assert_denied(&run_for(&fixture, environment, SHA_A), "linked deploy directory");
+    assert_denied(
+        &run_for(&fixture, environment, SHA_A),
+        "linked deploy directory",
+    );
     fs::remove_file(fixture.deploy_dir()).expect("remove deploy symlink");
     fs::rename(&real_dir, fixture.deploy_dir()).expect("restore deploy directory");
     fs::set_permissions(fixture.deploy_dir(), fs::Permissions::from_mode(0o777))
         .expect("writable deploy directory");
-    assert_denied(&run_for(&fixture, environment, SHA_A), "writable deploy directory");
+    assert_denied(
+        &run_for(&fixture, environment, SHA_A),
+        "writable deploy directory",
+    );
 }
 
 #[test]
@@ -342,6 +378,21 @@ fn rust_start_requires_regular_budget_and_revision_files() {
 
     assert_eq!(
         guard::check_rust_start(SHA_A, &budget, "rev_20261014", &revision),
+        Ok(())
+    );
+
+    assert!(guard::rust_start(None, None, None, None).is_err());
+    assert!(
+        guard::rust_start(Some(SHA_A), Some(&budget), None, Some(&revision)).is_err(),
+        "revision literal is required"
+    );
+    assert_eq!(
+        guard::rust_start(
+            Some(SHA_A),
+            Some(&budget),
+            Some("rev_20261014"),
+            Some(&revision)
+        ),
         Ok(())
     );
 
@@ -372,10 +423,22 @@ fn rust_start_requires_regular_budget_and_revision_files() {
     for (label, text) in [
         ("not JSON", "not-json".to_owned()),
         ("array", "[]".to_owned()),
-        ("missing version", format!("{{\"release_sha\":\"{SHA_A}\"}}")),
-        ("string version", format!("{{\"version\":\"1\",\"release_sha\":\"{SHA_A}\"}}")),
-        ("wrong version", format!("{{\"version\":2,\"release_sha\":\"{SHA_A}\"}}")),
-        ("wrong budget SHA", format!("{{\"version\":1,\"release_sha\":\"{SHA_B}\"}}")),
+        (
+            "missing version",
+            format!("{{\"release_sha\":\"{SHA_A}\"}}"),
+        ),
+        (
+            "string version",
+            format!("{{\"version\":\"1\",\"release_sha\":\"{SHA_A}\"}}"),
+        ),
+        (
+            "wrong version",
+            format!("{{\"version\":2,\"release_sha\":\"{SHA_A}\"}}"),
+        ),
+        (
+            "wrong budget SHA",
+            format!("{{\"version\":1,\"release_sha\":\"{SHA_B}\"}}"),
+        ),
     ] {
         fs::write(&budget, text).expect("budget variant");
         set_mode(&budget, 0o600);
@@ -389,10 +452,22 @@ fn rust_start_requires_regular_budget_and_revision_files() {
 
     for (label, text) in [
         ("not JSON", "not-json".to_owned()),
-        ("extra key", format!("{{\"release_sha\":\"{SHA_A}\",\"revision\":\"rev_20261014\",\"extra\":1}}")),
-        ("wrong revision", format!("{{\"release_sha\":\"{SHA_A}\",\"revision\":\"rev_other\"}}")),
-        ("wrong revision SHA", format!("{{\"release_sha\":\"{SHA_B}\",\"revision\":\"rev_20261014\"}}")),
-        ("non-string revision", format!("{{\"release_sha\":\"{SHA_A}\",\"revision\":1}}")),
+        (
+            "extra key",
+            format!("{{\"release_sha\":\"{SHA_A}\",\"revision\":\"rev_20261014\",\"extra\":1}}"),
+        ),
+        (
+            "wrong revision",
+            format!("{{\"release_sha\":\"{SHA_A}\",\"revision\":\"rev_other\"}}"),
+        ),
+        (
+            "wrong revision SHA",
+            format!("{{\"release_sha\":\"{SHA_B}\",\"revision\":\"rev_20261014\"}}"),
+        ),
+        (
+            "non-string revision",
+            format!("{{\"release_sha\":\"{SHA_A}\",\"revision\":1}}"),
+        ),
     ] {
         fs::write(&revision, text).expect("revision variant");
         set_mode(&revision, 0o600);
@@ -421,6 +496,16 @@ fn health_guard_accepts_exactly_four_keys() {
         guard::check_health(&mut Cursor::new(exact.as_bytes()), "staging", SHA_A),
         Ok(())
     );
+    assert_eq!(
+        guard::health(
+            Some("staging"),
+            Some(SHA_A),
+            &mut Cursor::new(exact.as_bytes())
+        ),
+        Ok(())
+    );
+    assert!(guard::health(None, Some(SHA_A), &mut Cursor::new(exact.as_bytes())).is_err());
+    assert!(guard::health(Some("staging"), None, &mut Cursor::new(exact.as_bytes())).is_err());
     let reordered = format!(
         "{{\"release_sha\":\"{SHA_A}\",\"db\":\"ok\",\"environment\":\"staging\",\"status\":\"ok\"}}"
     );
@@ -529,7 +614,10 @@ fn guard_scripts_contain_no_python() {
             text.starts_with("#!/usr/bin/env bash\n"),
             "{relative}: bash shebang"
         );
-        assert!(text.contains("set -euo pipefail"), "{relative}: strict mode");
+        assert!(
+            text.contains("set -euo pipefail"),
+            "{relative}: strict mode"
+        );
         assert!(
             reviewed.lines().any(|line| line == relative),
             "{relative}: listed for the reviewed shell gate"
@@ -537,7 +625,11 @@ fn guard_scripts_contain_no_python() {
     }
     let shell = fs::read_to_string(root.join("deploy/scripts/verify-deploy-start-guard.sh"))
         .expect("shell guard");
-    for flag in ["--environment", "--expected-release-sha", "restart-authorized"] {
+    for flag in [
+        "--environment",
+        "--expected-release-sha",
+        "restart-authorized",
+    ] {
         assert!(shell.contains(flag), "shell guard ABI: {flag}");
     }
 }
