@@ -16,7 +16,12 @@ from scripts.rust_contract.phase2_scenarios import (
 A = "20000000-0000-4000-8000-00000000000a"
 B = "20000000-0000-4000-8000-00000000000b"
 C = "20000000-0000-4000-8000-00000000000c"
+D = "20000000-0000-4000-8000-00000000000d"
 SECRET = "test-secret-key-for-testing-minimum-32-chars"
+# History rows sit strictly before the fixture's earliest instant, so the
+# fixture rows stay on the first page and the extra rows fill later pages.
+HISTORY_START = datetime(2025, 12, 31, 12, 0, tzinfo=timezone.utc)
+HISTORY_ID = "31000000-0000-4000-8000-{:012d}"
 
 
 def token(actor):
@@ -47,6 +52,7 @@ def scenario():
         for actor in fixture["actors"]:
             connection.execute("INSERT INTO users(id,email,password_hash,role,status,organization_id,email_verified,must_change_password) VALUES (%s::uuid,%s,'not-a-login','BUYER','APPROVED',%s::uuid,true,false)",
                                (actor["id"], actor["name"] + "@notification.invalid", actor["organization_id"]))
+        connection.execute("INSERT INTO users(id,email,password_hash,role,status,organization_id,email_verified,must_change_password) VALUES (%s::uuid,'empty@notification.invalid','not-a-login','BUYER','APPROVED','10000000-0000-4000-8000-000000000001',true,false)", (D,))
         actors = {item["name"]: item["id"] for item in fixture["actors"]}
         for item in fixture["fixtures"]:
             connection.execute("INSERT INTO notifications(id,recipient_id,type,title,message,data,is_read,created_at) VALUES (%s::uuid,%s::uuid,'SYSTEM','Title','Message',%s::json,%s,%s::timestamptz)",
@@ -59,11 +65,20 @@ def scenario():
           RAISE EXCEPTION 'disposable notification write fault'; END IF; RETURN NEW; END $$""")
         connection.execute("CREATE TRIGGER notification_contract_fault BEFORE UPDATE ON notifications FOR EACH ROW EXECUTE FUNCTION notification_contract_fault()")
 
+    def volume(connection, profile):
+        """The paged personal history for actor A; D stays empty."""
+        for index in range(profile.notifications):
+            connection.execute(
+                "INSERT INTO notifications(id,recipient_id,type,title,message,data,is_read,created_at) "
+                "VALUES (%s::uuid,%s::uuid,'SYSTEM',%s,'History',NULL,%s,%s)",
+                (HISTORY_ID.format(index), A, "History " + str(index),
+                 index % 3 == 0, HISTORY_START - timedelta(seconds=index)))
+
     def servers(context):
         return [Server((context.python_bin, "-m", "scripts.rust_contract.notifications_oracle", "--port", "{port}")),
                 Server((str(context.root / "rs/target/debug/examples/notifications_contract"),))]
 
-    def action(name, route, method, path, actor=A, status=200, notification=None, fault=None):
+    def action(name, route, method, path, actor=A, status=200, notification=None, fault=None, check=None):
         headers = {"authorization": "Bearer " + token(actor), "x-request-id": "notification-" + name}
         if fault:
             headers["x-notification-fault"] = fault
@@ -76,10 +91,45 @@ def scenario():
                     if "recipient_id" in item or any(key.startswith("_email_") for key in (item["data"] or {})):
                         raise ScenarioError("notification projection exposed private state")
         return Action(name, route, method, path, status, headers=headers, actor_id=actor,
-                      outcome="ambiguous" if fault else "rolled-back" if status >= 400 else "committed", assert_after=assertion)
+                      outcome="ambiguous" if fault else "rolled-back" if status >= 400 else "committed",
+                      assert_after=check or assertion)
 
-    def actions(_context):
+    def actions(context):
+        profile = context.size
+        visible = profile.notifications + 7 if profile is not None else 0
+
+        def read_only(expected=None):
+            def assertion(before, after, response, mail):
+                if before != after or mail:
+                    raise ScenarioError("notification read changed state or sent mail")
+                if expected is not None:
+                    result = json.loads(response["body"])
+                    if len(result) != expected:
+                        raise ScenarioError(f"expected {expected} notifications, saw {len(result)}")
+            return assertion
+
+        def full_page(before, after, response, mail):
+            read_only()(before, after, response, mail)
+            result = json.loads(response["body"])
+            if len(result) != min(100, visible):
+                raise ScenarioError("first page length differs from the page bound")
+            stamps = [item["created_at"] for item in result]
+            if stamps != sorted(stamps, reverse=True):
+                raise ScenarioError("notification page is not newest first")
+
+        def empty_count(before, after, response, mail):
+            read_only()(before, after, response, mail)
+            if json.loads(response["body"]) != {"count": 0}:
+                raise ScenarioError("empty count is not zero")
+
         result = [action("list-a", "N01", "GET", "/api/notifications"),
+                  action("list-empty", "N01", "GET", "/api/notifications", D, status=200, check=read_only(0)),
+                  action("count-empty", "N02", "GET", "/api/notifications/unread-count", D, check=empty_count),
+                  action("page-full", "N01", "GET", "/api/notifications?limit=100", status=200, check=full_page),
+                  action("page-second", "N01", "GET", "/api/notifications?skip=100&limit=100", status=200,
+                         check=read_only(max(0, visible - 100))),
+                  action("page-beyond-end", "N01", "GET", "/api/notifications?skip=100000&limit=100", status=200,
+                         check=read_only(0)),
                   action("list-b", "N01", "GET", "/api/notifications", B),
                   action("list-c", "N01", "GET", "/api/notifications", C),
                   action("page", "N01", "GET", "/api/notifications?skip=2&limit=2"),
@@ -114,4 +164,4 @@ def scenario():
 
     return Scenario("notification_scope_and_email_state", "notifications", setup, servers, actions,
                     build=("cargo", "build", "--manifest-path", "rs/Cargo.toml", "--locked", "-p", "verdaxis-read", "--example", "notifications_contract"),
-                    races=races)
+                    races=races, volume=volume)

@@ -87,6 +87,9 @@ class Scenario:
     dispatch: Callable | None = None
     assert_mixed: Callable | None = None
     route_qualification: bool = True
+    # Adds the rows that follow --phase2-size after the fixed fixture, so the
+    # same route schedule proves page and history behaviour at both sizes.
+    volume: Callable | None = None
 
 
 REGISTRY: dict[str, Scenario] = {}
@@ -404,6 +407,10 @@ from scripts.rust_contract.phase2_watchlist_targets import (
 register(watchlist_targets_scenario())
 register(watchlist_targets_gate_off_scenario())
 register(watchlist_targets_hidden_scenario())
+# Phase 2 Task 24: W07/W08/W09/W10 activity schedules.
+from scripts.rust_contract.phase2_watchlist_activity import scenario as watchlist_activity_scenario
+
+register(watchlist_activity_scenario())
 # Phase 2 Task 10: feedback route scenario.
 from scripts.rust_contract.feedback_scenario import feedback_scenario
 

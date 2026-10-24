@@ -37,6 +37,7 @@ class Context:
     database_url: str = ""
     mail: MailStub | None = None
     race_databases: tuple[str, str] = ()
+    size: object | None = None
 
 
 def run_registered(runner, args, selected):
@@ -94,14 +95,20 @@ def run_registered(runner, args, selected):
         with connect(port, database) as reader:
             return snapshot(reader)
 
+    from scripts.rust_contract.phase2_sizes import profile as size_profile
+
+    size = size_profile(getattr(args, "phase2_size", "small"))
     reports = []
     with MailStub() as mail:
         for index, scenario in enumerate(selected):
-            context = Context(ROOT, runner.python_bin, environment, mail=mail)
+            context = Context(ROOT, runner.python_bin, environment, mail=mail, size=size)
             template = f"phase2_route_seed_{index}_test"
             clone(DB_NAME, template)
             with connect(port, template) as source:
                 scenario.setup(source)
+                volume = getattr(scenario, "volume", None)
+                if volume is not None:
+                    volume(source, size)
             databases = [f"phase2_route_{index}_{label}_test" for label in ("python", "rust", "mixed")]
             context.race_databases = (databases[0], databases[1])
             for database in databases:
@@ -171,6 +178,7 @@ def run_registered(runner, args, selected):
                 with connect(port, database) as reader:
                     marks[database] = sequence_marks(reader)
             reports.append({"scenario": scenario.name, "group": scenario.group,
+                            "size": size.name,
                             "scope": "route-contract" if scenario.route_qualification else "harness-only",
                             "route_qualification": scenario.route_qualification, "seed_sha256": digest(initial[0]),
                             "acl_sha256": acl, "actions": actions, "races": races,

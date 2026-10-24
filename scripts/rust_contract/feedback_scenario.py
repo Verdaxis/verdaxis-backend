@@ -25,6 +25,16 @@ def setup(connection):
     connection.execute("ALTER TABLE feedback_entries ADD CONSTRAINT feedback_contract_failure CHECK (message <> 'force-database-error')")
 
 
+def volume(connection, profile):
+    """A longer admin page, strictly older than the pinned action instant."""
+    from datetime import timedelta
+    base = datetime.fromisoformat(INSTANT)
+    for index in range(profile.feedback_history):
+        connection.execute(
+            "INSERT INTO feedback_entries (id,user_id,message,page,created_at) VALUES (%s,%s,%s,NULL,%s)",
+            (str(uuid.UUID(int=10_000 + index)), BUYER, f"history-{index}", base - timedelta(minutes=index + 1)))
+
+
 def servers(context):
     env = {"JWT_ISSUER": "verdaxis", "JWT_AUDIENCE": "verdaxis-api"}
     return (
@@ -96,16 +106,26 @@ def actions(context):
     yield action("retained-commit", 500, {"message": "retained once"}, outcome="ambiguous",
                  extra={"x-feedback-response-loss": "1"}, check=("retained once", None))
     yield action("admin-denied", 403, method="GET", path="/api/admin/feedback")
-    for query in ("", "?limit=200", "?offset=999", "?limit=0", "?limit=201", "?offset=-1"):
+    def page(expected):
         def listing(before, after, response, mail):
             unchanged(before, after, response, mail)
             body = json.loads(response["body"])
-            if response["status"] == 200:
-                assert body["total"] == len(rows(after))
-        yield action("admin-" + str(serial), 422 if query in ("?limit=0", "?limit=201", "?offset=-1") else 200,
-                     subject=ADMIN, method="GET", path="/api/admin/feedback" + query, check=listing)
+            assert body["total"] == len(rows(after))
+            total = len(rows(after))
+            assert len(body["items"]) == min(200, max(0, total - expected))
+        return listing
+
+    for position, query in enumerate(("", "?limit=200", "?offset=999", "?limit=0", "?limit=201", "?offset=-1",
+                                      "?limit=200&offset=0", "?limit=200&offset=200")):
+        from urllib.parse import parse_qs
+        offset = int(parse_qs(query.lstrip("?")).get("offset", ["0"])[0]) if query else 0
+        expected = 422 if query in ("?limit=0", "?limit=201", "?offset=-1") else 200
+        yield action("admin-" + str(serial), expected,
+                     subject=ADMIN, method="GET", path="/api/admin/feedback" + query,
+                     check=unchanged if expected == 422 else page(offset))
 
 
 def feedback_scenario():
     return Scenario("feedback-routes", "feedback", setup, servers, actions,
-                    build=("cargo", "build", "--manifest-path", "rs/Cargo.toml", "--locked", "-p", "verdaxis-read", "--features", "contract-tests", "--example", "feedback_contract"))
+                    build=("cargo", "build", "--manifest-path", "rs/Cargo.toml", "--locked", "-p", "verdaxis-read", "--features", "contract-tests", "--example", "feedback_contract"),
+                    volume=volume)

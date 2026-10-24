@@ -847,6 +847,11 @@ CREATE EXTENSION IF NOT EXISTS postgis;
 
     def run_phase2(self, args) -> None:
         """Use this lifecycle owner for isolated write cells; never a live target."""
+        if getattr(args, "phase2_journeys", False):
+            from scripts.rust_contract.phase2_journeys import run as run_journeys
+
+            run_journeys(self, args)
+            return
         from scripts.rust_contract.phase2_seed import (
             APP_ROLE as role,
         )
@@ -1169,6 +1174,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--phase2-scenario", action="append")
     parser.add_argument("--phase2-size", choices=("small", "large"), default="small")
     parser.add_argument("--phase2-races", action="store_true")
+    parser.add_argument("--phase2-journeys", action="store_true",
+                        help="run the six frontend client journeys against the Rust candidate")
     parser.add_argument("--phase2-measure", action="store_true")
     parser.add_argument("--phase2-order-write-benchmark", action="store_true")
     parser.add_argument("--release-binary", type=Path)
@@ -1183,6 +1190,10 @@ def main(argv: list[str] | None = None) -> int:
         os.environ["MEANING_RULES_SHA256"] = args.rules_sha256
     elif args.rules_sha256:
         parser.error("rules digest requires an explicit profile")
+    if args.phase2_journeys and not args.phase2:
+        parser.error("--phase2-journeys requires --phase2")
+    if args.phase2_journeys and (args.phase2_races or args.phase2_measure or args.phase2_order_write_benchmark):
+        parser.error("--phase2-journeys runs alone")
     if args.phase2:
         scenarios = json.loads((ROOT / "tests/rust_contract/phase2/scenarios.json").read_text())["scenarios"]
         from scripts.rust_contract.phase2_scenarios import REGISTRY
