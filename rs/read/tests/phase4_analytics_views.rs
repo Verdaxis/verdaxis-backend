@@ -1479,7 +1479,13 @@ mod postgres {
     async fn p4_t19_c13() {
         let mut fixture = Fixture::new().await;
         fixture
-            .order(fixture.buyer_org, "BID", 780, "2026-06-04T12:00:00Z", "REAL")
+            .order(
+                fixture.buyer_org,
+                "BID",
+                780,
+                "2026-06-04T12:00:00Z",
+                "REAL",
+            )
             .await;
         let mut conn = fixture.connect().await;
         let service = service(ComponentStatus::Available);
