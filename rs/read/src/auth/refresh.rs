@@ -21,7 +21,7 @@ use axum::{
     routing::post,
 };
 use axum_extra::extract::CookieJar;
-use chrono::{DateTime, Duration, Utc};
+use chrono::{Duration, Utc};
 use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode, errors::ErrorKind};
 use serde_json::{Value, json};
 use sqlx::PgPool;
