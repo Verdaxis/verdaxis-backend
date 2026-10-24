@@ -9,6 +9,55 @@ below. The final review's F1/F2 gate repairs are committed and qualified in
 the "Review fix round" section. No staging or production deployment was
 attempted. Task 24 has not started. No measurement was run (decision 110).
 
+## PD2-M3 — staging merge, gates and the meaning entry condition, 24 October 2026
+
+Staging `b1106280` (PR #124 audit policy, PR #125 meaning-oracle retry) merged
+with `--no-ff` into `1b3f983df`; the merge commit is `5d52c6b6b`. The only
+conflict was `rs/read/src/lib.rs`, where both sides added fields and
+re-exports; both were kept and no assertion was dropped.
+
+The merge exposed three real defects, each fixed on its own commit:
+
+- `1b3f983df`: the alert contract adapter built `AppState` by literal and
+  missed the staging cache fields; it now uses `AppState::new`.
+- `8d0b82271`: four merged test `Config` literals lacked the Task 23 `phase2`
+  field. Both are compile errors, not behaviour changes.
+- `2d6faf3fa`: staging's `trading_cache_postgres` integration test updates
+  order-book rows to prove cache invalidation, which the Task 20 boundary scan
+  forbids. The scan now names that one integration test as its only DML
+  exception, and a new test asserts the exception is under `rs/read/tests/`.
+  No production source and no other assertion changed.
+
+Gates at `2d6faf3fa` (`fd659a5` records them):
+
+| Gate | Host / UTC | Exit |
+| --- | --- | --- |
+| fmt; both Clippy; `cargo check` | M1, 13:13–13:20 | 0 each |
+| Offline workspace | M1 | 0; 440 passed, one ignored |
+| `cd rs && cargo audit` | M1 | 0 |
+| Rust PostgreSQL workspace | prod test host, 13:21–13:32 | 0; 450 passed, one ignored |
+| All Phase 2 scenarios | prod test host, 13:32–14:04 | 0; 21 scenarios, 367 actions |
+| Standalone races | prod test host, 14:04–14:20 | 0; 9 scenarios, 27 races |
+| Python unit, monitor, rust_contract | prod test host, 16:49–16:58 | 0; 4774 passed, two skipped |
+
+The first Python run failed one case, `test_main_mount_and_lifespan`, because
+that gate invocation omitted `DATABASE_URL`, so the lifespan dialed a real
+PostgreSQL. The documented environment (`DATABASE_URL=sqlite+aiosqlite:///:memory:`)
+passes the same tree: the first combined run at staging's own parent also
+passed 3731 tests with that variable. This was a harness invocation error, not
+a code defect. `work/pd2-m3-python-bad-env.log` retains the failed run.
+
+Meaning gate (PD2-M3), once, on the same `2d6faf3fa`, on the prod test host:
+**MEANING_EXIT=0** at 17:19:16Z. All ten groups passed with a complete
+assertion ledger. **Zero `ORACLE_RETRY` and zero `ORACLE_UNAVAILABLE`** lines,
+so the PR #125 retry path was not exercised and no oracle was ever unavailable.
+The host was checked first for the harness: the disposable Podman docker shim,
+PostgreSQL through it, Caddy 2.11.2, and the project venv with `alembic`.
+
+Evidence: `work/pd2-m3-m1.log`, `work/pd2-m3-prod.log`,
+`work/pd2-m3-python.log`, `work/pd2-m3-python-bad-env.log`,
+`work/pd2-m3-meaning.log`.
+
 ## PD2-SEC-1 — pre-auth quota cannot lock out new clients, 24 October 2026
 
 The automated review of `373dc817` found that one 50,000-bucket map, keyed by
