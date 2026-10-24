@@ -68,7 +68,14 @@ class Round9Contract(unittest.TestCase):
                     calls=[0]
                     def fstat(fd):
                         value=original(fd);calls[0]+=1
-                        if calls[0]==1:Path(first).write_bytes(b'changed' if kind=='changed' else b'x'*40)
+                        if kind=='size' and calls[0]>1:
+                            self.fail('oversize input reached read/post-stat')
+                        if calls[0]==1 and kind!='size':Path(first).write_bytes(b'changed' if kind=='changed' else b'x'*40)
+                        if kind=='read-overflow':
+                            # Hold metadata comparison equal so only actual read
+                            # overflow can reject the acquired byte stream.
+                            if calls[0]==1:fstat.first=value
+                            return fstat.first
                         return value
                     def reader(path):
                         if path==late:return record(path,imports=['app.hidden'],credential_references=['/usr/local/libexec/runtime.env'])

@@ -191,8 +191,9 @@ class Round8Contract(unittest.TestCase):
         for branch in ('deadline','wait'):
             with self.subTest(branch=branch):
                 original=self.reader.subprocess.Popen
+                killed=[]
                 def spawn(argv,**kw):
-                    child=original([sys.executable,'-c','import time;time.sleep(60)'],**kw)
+                    child=original([sys.executable,'-c','import time;time.sleep(.2)'],**kw)
                     if branch=='wait':
                         real_wait=child.wait; calls=[0]
                         def wait(*a,**k):
@@ -206,9 +207,12 @@ class Round8Contract(unittest.TestCase):
                     def __exit__(self,*a):pass
                     def register(self,*a):pass
                     def get_map(self):return {}
-                clock=patch.object(self.reader.time,'monotonic',side_effect=[0,10000,10000,10000]) if branch=='deadline' else patch.object(self.reader.selectors,'DefaultSelector',EmptySelector)
-                with patch.object(self.reader.subprocess,'Popen',spawn),clock:
+                clock=patch.object(self.reader.time,'monotonic',side_effect=[0]+[10000]*10000) if branch=='deadline' else patch.object(self.reader.selectors,'DefaultSelector',EmptySelector)
+                real_kill=self.reader.os.killpg
+                def killpg(pid,sig):killed.append(pid);return real_kill(pid,sig)
+                with patch.object(self.reader.subprocess,'Popen',spawn),clock,patch.object(self.reader.os,'killpg',killpg):
                     raw=self.reader.run_command(self.reader.COMMANDS['units'])
+                self.assertTrue(killed)
                 result=self.reader.collect(lambda argv:raw,cron_files=[])
                 self.assertEqual(result['scripts'],[])
                 self.assertEqual(self.markers(result),{'bound-exceeded:'+x for x in ('units','timers','processes','usr_local','packages','cron')})
@@ -221,8 +225,9 @@ class Round8Contract(unittest.TestCase):
         for branch in ('deadline','wait'):
             with self.subTest(branch=branch):
                 original=self.transport.subprocess.Popen
+                killed=[]
                 def spawn(argv,**kw):
-                    child=original([sys.executable,'-c','import time;time.sleep(60)'],**kw)
+                    child=original([sys.executable,'-c','import time;time.sleep(.2)'],**kw)
                     if branch=='wait':
                         real_wait=child.wait; calls=[0]
                         def wait(*a,**k):
@@ -236,9 +241,12 @@ class Round8Contract(unittest.TestCase):
                     def __exit__(self,*a):pass
                     def register(self,*a):pass
                     def get_map(self):return {}
-                clock=patch.object(self.transport.time,'monotonic',side_effect=[0,10000,10000,10000]) if branch=='deadline' else patch.object(self.transport.selectors,'DefaultSelector',EmptySelector)
-                with patch.object(self.transport.subprocess,'Popen',spawn),clock:
+                clock=patch.object(self.transport.time,'monotonic',side_effect=[0]+[10000]*10000) if branch=='deadline' else patch.object(self.transport.selectors,'DefaultSelector',EmptySelector)
+                real_kill=self.transport.os.killpg
+                def killpg(pid,sig):killed.append(pid);return real_kill(pid,sig)
+                with patch.object(self.transport.subprocess,'Popen',spawn),clock,patch.object(self.transport.os,'killpg',killpg):
                     raw=self.transport.ssh_once(['fixture'],b'x')
+                self.assertTrue(killed)
                 self.assertEqual(raw,(b'',False))
                 self.assertEqual(self.transport.read_host('staging',lambda a,d:raw),{'refusal':'transport-error'})
                 base=json.loads((ROOT/'tests/rust_contract/phase10/host-dependencies.json').read_text())
