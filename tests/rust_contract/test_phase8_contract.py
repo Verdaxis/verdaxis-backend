@@ -236,7 +236,10 @@ def test_phase8_expected_schema_manifest():
         "form": "heads = op.get_bind().execute(sa.text(statement)).scalars().all()",
         "statement": "SELECT version_num FROM alembic_version",
     }
-    assert permitted["reviewed_statements"] == ["UPDATE watchlist_events SET producer = 'legacy-python'"]
+    assert permitted["reviewed_statements"] == [
+        "UPDATE watchlist_events SET producer = 'legacy-python'",
+        "LOCK TABLE market_event_outbox, watchlist_events IN ACCESS EXCLUSIVE MODE",
+    ]
     assert set(permitted["inline_checks"]) == {"watchlist_events.producer"}
 
 
@@ -569,6 +572,8 @@ def review_migration_operations(module, manifest):
                 sql = sql.args[0]
             if not isinstance(sql, ast.Constant) or not isinstance(sql.value, str):
                 return "unreviewed execute statement"
+            if normalize_statement(sql.value) == permitted["downgrade"]["lock"]:
+                return "lock must precede the downgrade evidence reads"
             if normalize_statement(sql.value) not in permitted["reviewed_statements"]:
                 return "unreviewed execute statement"
             return None
@@ -622,6 +627,7 @@ def review_migration_operations(module, manifest):
 
                 index = 0
                 downgrade_policy = permitted["downgrade"]
+                lock = ast.parse(f'op.execute({downgrade_policy["lock"]!r})').body[0]
                 retained_reads = ast.parse(downgrade_policy["reads"]).body
                 retained_guard = ast.parse('if trusted_rows or producer_evidence:\n    raise RuntimeError("message")').body[0]
                 while index < len(node.body):
@@ -629,8 +635,8 @@ def review_migration_operations(module, manifest):
                     if ast.dump(statement) == ast.dump(head_read) and index + 1 < len(node.body) and literal_message_guard(node.body[index + 1], head_guard):
                         index += 2
                         continue
-                    if node.name == "downgrade" and index + 2 < len(node.body) and all(ast.dump(node.body[index + offset]) == ast.dump(read) for offset, read in enumerate(retained_reads)) and literal_message_guard(node.body[index + 2], retained_guard):
-                        index += 3
+                    if node.name == "downgrade" and index == 0 and len(node.body) > 3 and ast.dump(statement) == ast.dump(lock) and all(ast.dump(node.body[index + 1 + offset]) == ast.dump(read) for offset, read in enumerate(retained_reads)) and literal_message_guard(node.body[index + 3], retained_guard):
+                        index += 4
                         continue
                     drop = isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Call) and direct_attribute(statement.value.func, "op") and statement.value.func.attr in {"drop_index", "drop_table", "drop_column"}
                     if drop:
@@ -893,10 +899,13 @@ def test_phase8_reviewed_migration_digests(tmp_path):
     assert checker(tmp_path, [path], {path: digest}) == [f"{path}: reviewed_sha256={digest} actual_sha256={changed}"]
 
 
-def test_phase8_reviewed_migration_list_starts_empty():
+def test_phase8_reviewed_migration_list_pins_producer_revision():
     path = ROOT / "tests/rust_contract/phase8/reviewed-migrations.json"
     assert path.is_file(), "reviewed migration digest list missing"
-    assert json.loads(path.read_text()) == {}, "Task 5a review must add the first approved digest"
+    reviewed = json.loads(path.read_text())
+    migration = "alembic/versions/p89_20261022_watchlist_producer.py"
+    assert set(reviewed) == {migration}, "the producer revision requires one exact digest"
+    assert review_migration_digests(ROOT, [migration], reviewed) == []
 
 
 def inventory_gate_fixture(tmp_path):
@@ -1063,7 +1072,8 @@ if len(heads) != 1:
     raise RuntimeError("Expected one migration head")'''
     tree = migration_module(body, module_prefix="from sqlalchemy.dialects import postgresql")
     downgrade = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "downgrade")
-    downgrade.body = ast.parse('''trusted_rows = op.get_bind().execute(sa.text("SELECT EXISTS (SELECT 1 FROM watchlist_events WHERE producer = 'rust-market-v1')")).scalar_one()
+    downgrade.body = ast.parse('''op.execute("LOCK TABLE market_event_outbox, watchlist_events IN ACCESS EXCLUSIVE MODE")
+trusted_rows = op.get_bind().execute(sa.text("SELECT EXISTS (SELECT 1 FROM watchlist_events WHERE producer = 'rust-market-v1')")).scalar_one()
 producer_evidence = op.get_bind().execute(sa.text("SELECT EXISTS (SELECT 1 FROM market_event_outbox WHERE producer_evidence IS NOT NULL)")).scalar_one()
 if trusted_rows or producer_evidence:
     raise RuntimeError("Retained producer evidence prevents downgrade")
@@ -1076,6 +1086,33 @@ op.drop_column("watchlist_events", "source_stream_seq")
 op.drop_column("watchlist_events", "source_event_id")
 op.drop_column("watchlist_events", "producer")''').body
     return tree
+
+
+def test_phase8_producer_downgrade_lock_is_scoped_and_precedes_reads():
+    manifest = load_ledger()["schema_change_set"]
+    lock = ast.parse('op.execute("LOCK TABLE market_event_outbox, watchlist_events IN ACCESS EXCLUSIVE MODE")').body[0]
+    tree = task5a_fixture()
+    downgrade = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "downgrade")
+    assert ast.dump(downgrade.body[0]) == ast.dump(lock)
+    assert review_migration_operations(tree, manifest) == [], "the exact downgrade lock must be reviewed"
+    for position in (1, 2, 3):
+        mutant = copy.deepcopy(tree)
+        function = next(node for node in mutant.body if isinstance(node, ast.FunctionDef) and node.name == "downgrade")
+        function.body.insert(position, function.body.pop(0))
+        assert review_migration_operations(mutant, manifest), "late locks must refuse"
+    mutant = copy.deepcopy(tree)
+    upgrade = next(node for node in mutant.body if isinstance(node, ast.FunctionDef) and node.name == "upgrade")
+    upgrade.body.insert(0, copy.deepcopy(lock))
+    assert review_migration_operations(mutant, manifest), "lock is downgrade-only"
+    for sql in (
+        "LOCK TABLE watchlist_events, market_event_outbox IN ACCESS EXCLUSIVE MODE",
+        "LOCK TABLE market_event_outbox, watchlist_events IN SHARE MODE",
+        "LOCK TABLE market_event_outbox IN ACCESS EXCLUSIVE MODE",
+    ):
+        mutant = copy.deepcopy(tree)
+        function = next(node for node in mutant.body if isinstance(node, ast.FunctionDef) and node.name == "downgrade")
+        function.body[0] = ast.parse(f"op.execute({sql!r})").body[0]
+        assert review_migration_operations(mutant, manifest), sql
 
 
 def test_phase8_task5a_exact_shapes_pass():

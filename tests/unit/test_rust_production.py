@@ -54,7 +54,7 @@ def test_production_runtime_projects_only_its_app_identity(tmp_path):
         "KYC_EXECUTION_GATE_ENABLED=false\nJWT_SECRET=do-not-project\n"
     )
     result = preparer.prepare(
-        env, SHA, tmp_path / "runtime", ROOT, "p0_20261016_union",
+        env, SHA, tmp_path / "runtime", ROOT, "p89_20261022_watchlist_producer",
         environment="production",
     )
     text = result["runtime_env"].read_text()
@@ -65,9 +65,21 @@ def test_production_runtime_projects_only_its_app_identity(tmp_path):
     env.write_text(env.read_text().replace("verdaxis_app:", "verdaxis_app_staging:"))
     with pytest.raises(preparer.RustRuntimeError, match="identity"):
         preparer.prepare(
-            env, SHA, tmp_path / "runtime", ROOT, "p0_20261016_union",
+            env, SHA, tmp_path / "runtime", ROOT, "p89_20261022_watchlist_producer",
             environment="production",
         )
+
+
+@pytest.mark.parametrize("revision", ["p0_20261016_union", "prc_20261018_cache", "unlisted_revision"])
+def test_production_runtime_refuses_a_previous_or_unlisted_checkpoint(tmp_path, revision):
+    preparer = _load_preparer()
+    env = tmp_path / ".env"
+    env.write_text(
+        f"ENVIRONMENT=production\nRELEASE_SHA={SHA}\n"
+        "DATABASE_URL=postgresql+asyncpg://verdaxis_app:fixture-secret@127.0.0.1:5432/verdaxis_prod\n"
+    )
+    with pytest.raises(preparer.RustRuntimeError):
+        preparer.prepare(env, SHA, tmp_path / "runtime", ROOT, revision, environment="production")
 
 
 class ProductionReleaseFixture(RustReleaseFixture):
@@ -86,7 +98,7 @@ class ProductionReleaseFixture(RustReleaseFixture):
                 "[Unit]\nDescription=production fixture\n[Service]\nExecStart=/bin/true\n"
             )
         (self.source / "deploy/migration-checkpoints.tsv").write_text(
-            "p0_20261016_union\tp0_20261016_union\n"
+            "p89_20261022_watchlist_producer\tp89_20261022_watchlist_producer\n"
         )
 
     def push_rust_release(self, *, enabled):
@@ -105,8 +117,8 @@ class ProductionReleaseFixture(RustReleaseFixture):
         env.update(
             TARGET_BRANCH="staging", DEPLOY_ENVIRONMENT="production",
             SERVICE_NAME="verdaxis-backend.service",
-            MIGRATION_EXPECTED_CURRENT_REVISION="p0_20261016_union",
-            MIGRATION_TARGET_REVISION="p0_20261016_union",
+            MIGRATION_EXPECTED_CURRENT_REVISION="p89_20261022_watchlist_producer",
+            MIGRATION_TARGET_REVISION="p89_20261022_watchlist_producer",
             DEPLOY_CURL_BODY=json.dumps({"status": "ok", "db": "ok", "environment": "production", "release_sha": release_sha}),
         )
         return env
@@ -293,14 +305,14 @@ def test_production_exact_prestarts_run_with_no_environment_or_app(tmp_path):
         shutil.copy2(ROOT / "scripts" / name, backend / "scripts" / name)
     runtime = backend / ".runtime-rust"
     runtime.mkdir()
-    for name, data in (("budget.json", {"version": 1, "release_sha": SHA}), ("revision.json", {"release_sha": SHA, "revision": "p0_20261016_union"})):
+    for name, data in (("budget.json", {"version": 1, "release_sha": SHA}), ("revision.json", {"release_sha": SHA, "revision": "p89_20261022_watchlist_producer"})):
         path = runtime / name
         path.write_text(json.dumps(data))
         path.chmod(0o600)
     for line in (ROOT / "deploy/systemd/verdaxis-rust.service").read_text().splitlines():
         if not line.startswith("ExecStartPre="):
             continue
-        command = line.removeprefix("ExecStartPre=").replace("/home/verdaxis-prod/verdaxis/prod/be", str(backend)).replace("${RELEASE_SHA}", SHA).replace("${MIGRATION_REVISION}", "p0_20261016_union")
+        command = line.removeprefix("ExecStartPre=").replace("/home/verdaxis-prod/verdaxis/prod/be", str(backend)).replace("${RELEASE_SHA}", SHA).replace("${MIGRATION_REVISION}", "p89_20261022_watchlist_producer")
         result = subprocess.run(shlex.split(command), cwd=backend, env={}, capture_output=True, text=True, timeout=10)
         assert result.returncode == 0, result.stderr
     assert not (backend / ".env").exists()

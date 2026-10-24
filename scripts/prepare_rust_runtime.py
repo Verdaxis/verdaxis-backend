@@ -154,8 +154,8 @@ def project_runtime_environment(
     if any(values.get(key) is None for key in RUNTIME_KEYS):
         raise RustRuntimeError("the deployed .env must define ENVIRONMENT and RELEASE_SHA")
     environment = policy["environment"]
-    if environment == "production" and migration_revision != "p0_20261016_union":
-        raise RustRuntimeError("production requires its reviewed union checkpoint")
+    if environment == "production" and migration_revision != "p89_20261022_watchlist_producer":
+        raise RustRuntimeError("production requires its reviewed producer checkpoint")
     if values["ENVIRONMENT"] != environment or values["RELEASE_SHA"] != release_sha:
         raise RustRuntimeError(
             "the deployed environment identity does not match this release"

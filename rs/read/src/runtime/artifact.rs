@@ -23,6 +23,7 @@ pub const ALLOWED_REVISIONS: &[&str] = &[
     "kycg_20261014_staging",
     "p0_20261016_union",
     "prc_20261018_cache",
+    "p89_20261022_watchlist_producer",
 ];
 
 /// The reviewed allowlist file, read by the drift test against `ALLOWED_REVISIONS`.
@@ -127,7 +128,8 @@ mod tests {
             serde_json::json!([
                 "kycg_20261014_staging",
                 "p0_20261016_union",
-                "prc_20261018_cache"
+                "prc_20261018_cache",
+                "p89_20261022_watchlist_producer"
             ])
         );
     }
