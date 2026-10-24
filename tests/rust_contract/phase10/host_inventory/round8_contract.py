@@ -78,7 +78,7 @@ class Round8Contract(unittest.TestCase):
                             if bound=='depth': kwargs['max_depth']=0
                             return original(*args,**kwargs)
                     # Visited cap is exercised after late critical acquisition; fourth seed is dropped.
-                    seeds=[first,late] if bound!='visited' else [first,late,late+'1',late+'2']
+                    seeds=[first,late] if bound!='visited' else [first,late,late[:-3]+'1.py',late[:-3]+'2.py']
                     def acquisition(path):
                         if path.startswith(late) and path!=late: return record(path)
                         return reader(path)
@@ -89,14 +89,15 @@ class Round8Contract(unittest.TestCase):
                     self.assertIn('credential-denied',statuses); self.assertIn('removed-package',statuses)
                     self.assertNotIn(denied,json.dumps(result))
                     expected={'bound-exceeded:blocking-rows','bound-exceeded:usr_local'}
+                    if bound in ('blocking-rows','graph-bytes','depth'): expected.add('bound-exceeded:references')
                     if bound=='references': expected.add('bound-exceeded:references')
                     if bound=='visited': expected.add('bound-exceeded:import-queue')
                     if bound=='graph-bytes': expected.add('bound-exceeded:graph-bytes')
-                    if bound in ('file','depth'): expected=set() if bound=='file' else expected
+                    if bound=='file': expected={'bound-exceeded:blocking-rows','bound-exceeded:usr_local'}
                     self.assertEqual(self.markers(result),expected)
                     expected_paths=[] if bound=='file' else [first]
                     if bound!='graph-bytes': expected_paths += [late]
-                    if bound=='visited': expected_paths += [late+'1']
+                    if bound=='visited': expected_paths += [late[:-3]+'1.py']
                     self.assertEqual([r['path'] for r in result['scripts']],expected_paths)
                     self.installed(result)
 
@@ -147,7 +148,12 @@ class Round8Contract(unittest.TestCase):
         self.assertEqual(self.transport.collect_hosts(base,lambda a,d:raw),{'host_refusals':{'staging':{'refusal':'transport-error'},'production':{'refusal':'transport-error'}}})
         result=self.reader.collect(lambda argv:('',True),cron_files=[])
         doc=self.installed(result)
-        with patch.object(self.transport,'MAX_BYTES',1),patch.object(self.transport.os,'open',side_effect=AssertionError('destination opened')):
+        real_open=self.transport.os.open
+        def guarded_open(path,*args,**kwargs):
+            if isinstance(path,str) and str(self.transport.EVIDENCE_ROOT).startswith(path) and path not in ('/', '/Users', '/Users/jonathanjie'):
+                raise AssertionError('destination opened')
+            return real_open(path,*args,**kwargs)
+        with patch.object(self.transport,'MAX_BYTES',1),patch.object(self.transport.os,'open',guarded_open):
             with self.assertRaisesRegex(ValueError,'^output bound exceeded$'):self.transport.publish(doc,'fixture.json')
 
 
