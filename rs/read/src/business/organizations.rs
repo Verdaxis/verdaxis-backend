@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use axum::http::StatusCode;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
@@ -13,7 +15,7 @@ use super::{
 };
 use crate::{
     auth::CurrentActor,
-    market_write::{InvalidateOrganization, invalidate_organization},
+    order_write::{InvalidateOrganization, invalidate_organization},
 };
 
 pub struct ReviewOrganization {
@@ -21,6 +23,8 @@ pub struct ReviewOrganization {
     pub approve: bool,
     pub reason: Option<String>,
     pub now: DateTime<Utc>,
+    pub policy: Arc<crate::MarketPolicy>,
+    pub config: Arc<crate::Config>,
 }
 
 #[derive(Debug, Serialize)]
@@ -45,8 +49,11 @@ pub async fn review(
     access: crate::auth::VerifiedAccess,
     limits: &crate::auth::limits::SharedLimits,
     client: &str,
-    command: ReviewOrganization,
+    mut command: ReviewOrganization,
 ) -> Result<OrganizationDecision, crate::ApiError> {
+    // Capture the request runtime once; retries retain these exact snapshots.
+    command.policy = Arc::clone(&state.policy);
+    command.config = Arc::clone(&state.config);
     let template = if command.approve {
         "/api/auth/organization/{organization_id}/approve"
     } else {
@@ -162,6 +169,8 @@ impl BusinessCommand for ReviewOrganization {
                         organization_id: self.organization_id,
                         actor_id: actor.id,
                         now: self.now,
+                        policy: Arc::clone(&self.policy),
+                        config: Arc::clone(&self.config),
                     },
                 )
                 .await?;

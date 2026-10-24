@@ -7,7 +7,7 @@ use tokio::sync::Semaphore;
 use uuid::Uuid;
 
 pub use verdaxis_read::business::{audit, error, transaction};
-pub use verdaxis_read::{ApiError, AppState, auth};
+pub use verdaxis_read::{ApiError, AppState, Config, MarketPolicy, auth};
 #[path = "../src/business/joins.rs"]
 pub mod joins;
 #[path = "../src/business/membership.rs"]
@@ -16,13 +16,15 @@ pub mod membership;
 pub mod organizations;
 
 // The pending producer is represented only at its declared connection boundary.
-pub mod market_write {
+pub mod order_write {
     use super::*;
     use rust_decimal::Decimal;
     pub struct InvalidateOrganization {
         pub organization_id: Uuid,
         pub actor_id: Uuid,
         pub now: DateTime<Utc>,
+        pub policy: Arc<verdaxis_read::MarketPolicy>,
+        pub config: Arc<verdaxis_read::Config>,
     }
     pub struct InvalidationResult {
         pub withdrawn_orders: Vec<Uuid>,
@@ -35,6 +37,10 @@ pub mod market_write {
         conn: &mut PgConnection,
         command: &InvalidateOrganization,
     ) -> Result<InvalidationResult, InvalidationError> {
+        // The fixture supplies non-default snapshots; no command default is valid.
+        assert_eq!(command.policy.source_sha, "organization-fixture-policy");
+        assert!(!command.config.kyc_execution_gate_enabled);
+        assert_eq!(command.config.environment, "test");
         // This double records the call; it does not implement market mutations.
         sqlx::query("INSERT INTO invalidator_calls VALUES($1,$2,$3)")
             .bind(command.organization_id)
@@ -233,6 +239,25 @@ impl Fixture {
             approve,
             reason: None,
             now: Utc::now(),
+            policy: Arc::new(verdaxis_read::MarketPolicy {
+                source_sha: "organization-fixture-policy".into(),
+                products: vec![],
+                points: vec![],
+            }),
+            config: Arc::new(verdaxis_read::Config {
+                kyc_execution_gate_enabled: false,
+                environment: "test".into(),
+                release_sha: verdaxis_read::compiled_sha().into(),
+                migration_revision: "kycg_20261014_staging".into(),
+                database_url: "postgres://rust_app:fixture@127.0.0.1:12345/verdaxis_rust_test".into(),
+                db_session_time_zone: "UTC".into(),
+                prepared_budget: None,
+                bind: "127.0.0.1:0".parse().unwrap(),
+                read_admission_slots: 4,
+                pool_max: 5,
+                python_budget: 52,
+                configured_max_connections: 100,
+            }),
         }
     }
     async fn count(&mut self, table: &str) -> i64 {
