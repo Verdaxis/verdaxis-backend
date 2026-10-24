@@ -208,7 +208,7 @@ mod tests {
         assert_eq!(limits.preauth_evictions(), 0);
         // A late client spends its whole minute budget. Its first request is a
         // new identity in a full table, so it evicts exactly one entry.
-        for _ in 0..299 {
+        for _ in 0..300 {
             assert!(limits.preauth("203.0.113.7", "/api/admin/users", 100));
         }
         assert!(!limits.preauth("203.0.113.7", "/api/admin/users", 100));
