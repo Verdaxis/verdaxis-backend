@@ -15,7 +15,7 @@ class Round8Contract(unittest.TestCase):
         self.reader = load(READER)
         self.transport = load(TRANSPORT)
 
-    def installed(self, result):
+    def installed(self, result, expected_false):
         # Round trip the exact host serialization before any schema check.
         wire = json.dumps(result, sort_keys=True).encode()
         base = json.loads((ROOT/'tests/rust_contract/phase10/host-dependencies.json').read_text())
@@ -25,8 +25,10 @@ class Round8Contract(unittest.TestCase):
         self.assertEqual(doc['dependency_coverage'],'manual-review-required')
         rows=result['blocking_dependencies']
         self.assertEqual(rows, sorted(rows,key=lambda r:(self.reader.row_priority(r),json.dumps(r,sort_keys=True))))
+        surfaces={'units','dropins','timers','cron','processes','usr_local','packages'}
+        self.assertEqual(result['acquired'],{key:key not in expected_false for key in surfaces})
         for observation in result['observations']:
-            if not result['acquired'][observation['surface']]: self.assertFalse(observation['acquired'])
+            self.assertEqual(observation['acquired'],observation['surface'] not in expected_false)
         return doc
 
     def markers(self, result):
@@ -56,7 +58,7 @@ class Round8Contract(unittest.TestCase):
         self.assertEqual(calls,['/tmp/a.py','/tmp/1.py','/tmp/2.py','/tmp/3.py','/tmp/1.py'])
         self.assertEqual([r['path'] for r in result['scripts']],['/tmp/a.py','/tmp/1.py'])
         self.assertEqual(self.markers(result),{'bound-exceeded:import-queue','bound-exceeded:usr_local'})
-        self.assertFalse(result['acquired']['usr_local']); self.installed(result)
+        self.assertFalse(result['acquired']['usr_local']); self.installed(result, expected_false={'usr_local'})
 
     def test_collection_graph_bound_matrix(self):
         denied='/usr/local/libexec/runtime.env'
@@ -99,7 +101,7 @@ class Round8Contract(unittest.TestCase):
                     if bound!='graph-bytes': expected_paths += [late]
                     if bound=='visited': expected_paths += [late[:-3]+'1.py']
                     self.assertEqual([r['path'] for r in result['scripts']],expected_paths)
-                    self.installed(result)
+                    self.installed(result, expected_false={'usr_local'})
 
     def test_real_parser_dual_class_overflow_installed(self):
         for kind in ('credential-denied','removed-package'):
@@ -115,7 +117,7 @@ class Round8Contract(unittest.TestCase):
                         with patch.object(self.reader,'MAX_ITEMS',2): return original(*a,**kw)
                     def command(argv): return ('\n'.join(paths)+'\n',True) if argv[0]=='find' else ('',True)
                     with patch.object(self.reader,'inspect_graph',graph): result=self.reader.collect(command,cron_files=[])
-                    doc=self.installed(result)
+                    doc=self.installed(result, expected_false={'usr_local'})
                     for snapshot in doc['host_snapshots'].values():
                         self.assertEqual(sum(r['status']=='overflow:'+kind for r in snapshot['blocking_dependencies']),1)
                     self.assertEqual(self.markers(result),{'overflow:'+kind,'bound-exceeded:references','bound-exceeded:blocking-rows','bound-exceeded:usr_local'})
@@ -136,7 +138,7 @@ class Round8Contract(unittest.TestCase):
         result=self.reader.collect(command,cron_files=[])
         self.assertEqual(result['observations'][1]['fields'],[{'key':'User','values':['kept']}])
         self.assertEqual(self.markers(result),{'bound-exceeded:dropins'})
-        self.assertFalse(result['acquired']['dropins']); self.installed(result)
+        self.assertFalse(result['acquired']['dropins']); self.installed(result, expected_false={'dropins'})
 
     def test_deadline_wait_downstream(self):
         import subprocess
@@ -165,7 +167,7 @@ class Round8Contract(unittest.TestCase):
                 self.assertEqual(result['scripts'],[])
                 self.assertEqual(self.markers(result),{'bound-exceeded:'+x for x in ('units','timers','processes','usr_local','packages','cron')})
                 self.assertTrue(all(not flag for flag in result['acquired'].values()))
-                self.installed(result)
+                self.installed(result, expected_false={'units','dropins','timers','processes','usr_local','packages','cron'})
 
     def test_transport_deadline_wait_downstream(self):
         import subprocess
@@ -204,7 +206,7 @@ class Round8Contract(unittest.TestCase):
         base=json.loads((ROOT/'tests/rust_contract/phase10/host-dependencies.json').read_text())
         self.assertEqual(self.transport.collect_hosts(base,lambda a,d:raw),{'host_refusals':{'staging':{'refusal':'transport-error'},'production':{'refusal':'transport-error'}}})
         result=self.reader.collect(lambda argv:('',True),cron_files=[])
-        doc=self.installed(result)
+        doc=self.installed(result, expected_false=set())
         real_open=self.transport.os.open
         def guarded_open(path,*args,**kwargs):
             if isinstance(path,str) and str(self.transport.EVIDENCE_ROOT).startswith(path) and path not in ('/', '/Users', '/Users/jonathanjie'):
