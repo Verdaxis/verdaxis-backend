@@ -12,31 +12,134 @@
 
 pub use verdaxis_read::*;
 
-// The production modules join the doubles under the same module paths the
-// real crate uses, so `crate::analytics::…` and `crate::providers::…` resolve
-// exactly as they will after integration. `#[path]` is resolved after the
-// attribute is applied, relative to the directory named after the inline
-// module: two levels up from `tests/<module>/` is the crate's `src/`.
+// Production modules sit at the test-crate root, where `#[path]` resolves
+// relative to this file (the same form the other Phase 4 provider suites use).
+// The `analytics` and `providers` modules re-export them, so `crate::analytics
+// ::events`, `crate::analytics::behavioral` and `crate::providers::umami`
+// resolve exactly as they will after integration.
+#[path = "../src/analytics/events.rs"]
+pub mod events;
+
+#[path = "../src/analytics/behavioral.rs"]
+pub mod behavioral;
+
+#[path = "../src/providers/umami.rs"]
+pub mod umami;
+
 pub mod analytics {
+    pub use crate::{behavioral, events};
+
     pub mod query {
-        include!("phase4_umami_support/analytics/query.rs");
-    }
-    pub mod types {
-        include!("phase4_umami_support/analytics/types.rs");
-    }
-    pub mod policy {
-        include!("phase4_umami_support/analytics/policy.rs");
+        use chrono::{DateTime, Utc};
+        use uuid::Uuid;
+
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        pub enum AnalyticsAudience {
+            All,
+            Buyer,
+            Supplier,
+        }
+
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        pub enum AnalyticsActivity {
+            Live,
+            Demo,
+            Reference,
+            All,
+        }
+
+        /// CF4_03 `AnalyticsQuery`, with the defaults the shared parser applies.
+        #[derive(Clone, Debug, PartialEq, Eq)]
+        pub struct AnalyticsQuery {
+            pub start: DateTime<Utc>,
+            pub end: DateTime<Utc>,
+            pub previous: Option<(DateTime<Utc>, DateTime<Utc>)>,
+            pub compare: bool,
+            pub audience: AnalyticsAudience,
+            pub activity: AnalyticsActivity,
+            pub product_id: Option<Uuid>,
+            pub delivery_point_id: Option<Uuid>,
+            pub availability_window: Option<String>,
+        }
     }
 
-    #[path = "../../src/analytics/events.rs"]
-    pub mod events;
-    #[path = "../../src/analytics/behavioral.rs"]
-    pub mod behavioral;
+    pub mod types {
+        use chrono::{DateTime, Utc};
+        use serde::{Deserialize, Serialize};
+
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+        #[serde(rename_all = "snake_case")]
+        pub enum AnalyticsDiagnostic {
+            Disabled,
+            Configuration,
+            Authentication,
+            Timeout,
+            Upstream,
+            MalformedResponse,
+            InsufficientCoverage,
+        }
+
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+        #[serde(rename_all = "snake_case")]
+        pub enum AnalyticsSourceStatus {
+            Available,
+            Partial,
+            Unavailable,
+            NotApplicable,
+        }
+
+        #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+        pub struct AnalyticsSourceCoverage {
+            pub coverage_start: Option<DateTime<Utc>>,
+            pub coverage_end: Option<DateTime<Utc>>,
+            pub observed_at: Option<DateTime<Utc>>,
+            pub status: AnalyticsSourceStatus,
+            pub diagnostic: Option<AnalyticsDiagnostic>,
+        }
+
+        #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+        pub struct AggregateCell {
+            pub key: String,
+            pub count: Option<u64>,
+            pub suppressed: bool,
+        }
+
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+        #[serde(rename_all = "snake_case")]
+        pub enum ComponentStatus {
+            Available,
+            Partial,
+            Unavailable,
+            NotRequested,
+        }
+
+        #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+        pub struct ProviderComponent<T> {
+            pub status: ComponentStatus,
+            pub diagnostic: Option<AnalyticsDiagnostic>,
+            pub data: Option<T>,
+        }
+    }
+
+    pub mod policy {
+        use crate::analytics::types::AggregateCell;
+
+        /// CF4_03 `suppress`: a positive count or entity basis of 1 or 2
+        /// suppresses the count; zero stays a genuine zero.
+        pub fn suppress(count: Option<u64>, entities: Option<u64>) -> AggregateCell {
+            let basis = entities.or(count);
+            let suppressed = matches!(basis, Some(1 | 2));
+            AggregateCell {
+                key: String::new(),
+                count: if suppressed { None } else { count },
+                suppressed,
+            }
+        }
+    }
 }
 
 pub mod providers {
-    #[path = "../../src/providers/umami.rs"]
-    pub mod umami;
+    pub use crate::umami;
 }
 
 // ---------------------------------------------------------------------------
