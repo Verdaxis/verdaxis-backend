@@ -222,10 +222,12 @@ mod tests {
         }
         assert_eq!(limits.preauth_evictions(), 11);
         assert!(!limits.preauth_store.buckets.contains_key(&evicted));
-        assert!(limits
-            .preauth_store
-            .buckets
-            .contains_key(&("203.0.113.7".to_string(), "/api/admin/".to_string())));
+        assert!(
+            limits
+                .preauth_store
+                .buckets
+                .contains_key(&("203.0.113.7".to_string(), "/api/admin/".to_string()))
+        );
         assert!(!limits.preauth("203.0.113.7", "/api/admin/users", 100));
     }
 
