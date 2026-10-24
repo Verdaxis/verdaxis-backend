@@ -106,11 +106,13 @@ if [[ -e $state_file || -L $state_file ]]; then
     expected_state=$(printf 'DEPLOYMENT_STATE=restart-authorized\nENVIRONMENT=%s\nRELEASE_SHA=%s\nx' \
         "$environment" "$expected_release_sha")
     [[ $state_text == "$expected_state" ]] || deny
+else
+    # A normal start: no deploy is in progress for this environment.
+    exit 0
 fi
 
 # Restart authorization needs both the durable deploy lock and the restart
-# window lock to be held by the deploy. An absent state is the only path that
-# needs no lock.
+# window lock to be held by the deploy that wrote this state.
 if ! lock_is_busy "$deploy_directory/$environment.lock" \
     || ! lock_is_busy "$deploy_directory/$environment.restart.lock"; then
     deny

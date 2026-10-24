@@ -533,7 +533,9 @@ fn health_guard_accepts_exactly_four_keys() {
         ),
         (
             "missing db",
-            format!("{{\"status\":\"ok\",\"environment\":\"staging\",\"release_sha\":\"{SHA_A}\"}}"),
+            format!(
+                "{{\"status\":\"ok\",\"environment\":\"staging\",\"release_sha\":\"{SHA_A}\"}}"
+            ),
         ),
         (
             "missing environment",
