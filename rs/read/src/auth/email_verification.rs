@@ -31,15 +31,7 @@ impl EmailSettings {
         self
     }
     fn monitor_admitted(&self, headers: &HeaderMap) -> bool {
-        use sha2::{Digest, Sha256, digest::CtOutput};
-        let Some(expected) = self.monitor_token.as_deref() else {
-            return false;
-        };
-        let Some(presented) = headers.get("x-monitor-token") else {
-            return false;
-        };
-        CtOutput::<Sha256>::new(Sha256::digest(expected.as_bytes()))
-            == CtOutput::<Sha256>::new(Sha256::digest(presented.as_bytes()))
+        super::email::monitor_admitted(self.monitor_token.as_deref(), headers)
     }
     pub fn new(pool: PgPool, mail: MailDispatcher) -> Self {
         Self {

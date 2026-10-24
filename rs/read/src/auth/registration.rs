@@ -27,6 +27,8 @@ pub struct RegistrationSettings {
     pub mail: MailDispatcher,
     pub limits: SharedLimits,
     excluded_domains: Option<Arc<HashSet<String>>>,
+    monitor_token: Option<Arc<str>>,
+    environment: Arc<str>,
 }
 impl RegistrationSettings {
     pub fn new(pool: PgPool, mail: MailDispatcher) -> Self {
@@ -35,7 +37,19 @@ impl RegistrationSettings {
             mail,
             limits: SharedLimits::default(),
             excluded_domains: None,
+            monitor_token: None,
+            environment: "development".into(),
         }
+    }
+    pub fn with_monitor_token(mut self, token: String) -> Self {
+        self.monitor_token = (!token.is_empty()).then(|| token.into()); self
+    }
+    pub fn with_environment(mut self, environment: String) -> Self { self.environment = environment.into(); self }
+    fn suppressed(&self, headers: &HeaderMap, address: &str) -> bool {
+        super::email::suppress_verification(super::email::monitor_admitted(self.monitor_token.as_deref(), headers), address)
+    }
+    fn alert(&self, id: Uuid, input: &Registration, organization: &str) -> AuthMail {
+        AuthMail::SignupAlert {user_id:id,environment:self.environment.to_string(),email:input.email.clone(),name:format!("{} {}",input.first_name.as_deref().unwrap_or(""),input.last_name.as_deref().unwrap_or("")),role:input.role.clone(),organization:organization.into()}
     }
     /// Composition supplies both release-owned domain lists. Missing data disables matching.
     pub fn with_domain_lists(
@@ -169,9 +183,9 @@ async fn register_route(
         .await
         .map_err(|_| validation())?;
     for attempt in 0..3 {
-        match register_attempt(&settings, &input, &hash).await {
+        match register_attempt(&settings, &input, &hash, settings.suppressed(&headers, &input.email)).await {
             Ok(mail) => {
-                settings.mail.dispatch(mail);
+                for mail in mail { settings.mail.dispatch(mail); }
                 return Ok((StatusCode::ACCEPTED, Json(json!({"status":"check_email"}))));
             }
             Err(error)
@@ -192,7 +206,8 @@ async fn register_attempt(
     settings: &RegistrationSettings,
     input: &Registration,
     hash: &str,
-) -> Result<AuthMail, sqlx::Error> {
+    suppressed: bool,
+) -> Result<Vec<AuthMail>, sqlx::Error> {
     let mut tx = settings.pool.begin().await?;
     let exists: Option<Uuid> = sqlx::query_scalar("SELECT id FROM users WHERE email=$1 FOR UPDATE")
         .bind(&input.email)
@@ -200,9 +215,7 @@ async fn register_attempt(
         .await?;
     if exists.is_some() {
         tx.commit().await?;
-        return Ok(AuthMail::AccountExists {
-            to: input.email.clone(),
-        });
+        return Ok(if suppressed {vec![]} else {vec![AuthMail::AccountExists { to: input.email.clone() }]});
     }
     let token = generate_token();
     let now = Utc::now();
@@ -212,10 +225,14 @@ async fn register_attempt(
             .bind(domain)
             .fetch_optional(&mut *tx)
             .await?;
+    let mut mail = Vec::new();
     if let Some((org_id, kind)) = org.filter(|(_, kind)| matches_role(&input.role, kind)) {
         let id = Uuid::new_v4();
         insert_user(&mut tx, id, input, hash, &token).await?;
-        join_and_attribute(&mut tx, id, org_id, input).await?;
+        if !suppressed {
+            join_and_attribute(&mut tx, id, org_id, input).await?;
+            mail.push(settings.alert(id,input,&kind));
+        }
         let _ = kind;
     } else {
         sqlx::query(
@@ -229,12 +246,13 @@ async fn register_attempt(
             .bind(Uuid::new_v4()).bind(token_digest(&token)).bind(&input.email).bind(hash).bind(&input.first_name).bind(&input.last_name).bind(&input.role).bind(&input.referral_code).bind(now+Duration::minutes(30)).bind(now).execute(&mut *tx).await?;
     }
     tx.commit().await?;
-    Ok(AuthMail::Verification {
+    if !suppressed { mail.push(AuthMail::Verification {
         to: input.email.clone(),
         name: input.first_name.clone().unwrap_or_else(|| "there".into()),
         token,
         pending: None,
-    })
+    }); }
+    Ok(mail)
 }
 async fn insert_user(
     conn: &mut PgConnection,
@@ -321,7 +339,7 @@ async fn with_org_route(
         return Err(invalid_token());
     }
     for attempt in 0..3 {
-        match with_org_attempt(&settings, &input).await {
+        match with_org_attempt(&settings, &input, &headers).await {
             Ok(result) => return result.map(Json),
             Err(error)
                 if attempt < 2 && crate::auth::lock::WriteConflict::is_write_conflict(&error) =>
@@ -343,6 +361,7 @@ async fn with_org_route(
 async fn with_org_attempt(
     settings: &RegistrationSettings,
     input: &WithOrganization,
+    headers: &HeaderMap,
 ) -> Result<Result<Value, ApiError>, sqlx::Error> {
     let mut tx = settings.pool.begin().await?;
     let pending:Option<Pending>=sqlx::query_as("SELECT id,email,password_hash,first_name,last_name,role,referral_code FROM pending_registrations WHERE token_hash=$1 AND used_at IS NULL AND expires_at>$2 FOR UPDATE").bind(token_digest(&input.registration_token)).bind(Utc::now()).fetch_optional(&mut *tx).await?;
@@ -382,13 +401,16 @@ async fn with_org_attempt(
         &verification,
     )
     .await?;
-    join_and_attribute(&mut tx, id, org, &registration).await?;
+    let suppressed = settings.suppressed(headers, &registration.email);
+    if !suppressed { join_and_attribute(&mut tx, id, org, &registration).await?; }
     sqlx::query("UPDATE pending_registrations SET used_at=$2 WHERE id=$1")
         .bind(pending.id)
         .bind(Utc::now())
         .execute(&mut *tx)
         .await?;
     tx.commit().await?;
+    if !suppressed {
+    settings.mail.dispatch(settings.alert(id,&registration,&input.organization.name));
     settings.mail.dispatch(AuthMail::Verification {
         to: registration.email.clone(),
         name: registration
@@ -398,6 +420,7 @@ async fn with_org_attempt(
         token: verification,
         pending: None,
     });
+    }
     Ok(Ok(
         json!({"id":id,"email":registration.email,"first_name":registration.first_name,"last_name":registration.last_name,"role":registration.role,"status":"PENDING","organization_id":null,"referral_code":null,"must_change_password":false,"kyc_status":"PENDING","execution_eligibility":{"eligible":false,"reason":"KYC_REQUIRED","grace_expires_at":null}}),
     ))
