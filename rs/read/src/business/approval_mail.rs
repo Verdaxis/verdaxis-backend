@@ -201,7 +201,10 @@ pub async fn finalize_approval_mail(
     let retry_at = if accepted {
         None
     } else {
-        Some(now.checked_add_signed(Duration::hours(1)).ok_or(MailError::ClockRange)?)
+        Some(
+            now.checked_add_signed(Duration::hours(1))
+                .ok_or(MailError::ClockRange)?,
+        )
     };
     sqlx::query(
         "UPDATE users SET \

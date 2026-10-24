@@ -88,15 +88,26 @@ mod postgres {
             sqlx::query("INSERT INTO users(id,status,role,email_verified) VALUES($1,'APPROVED','BUYER',true)")
                 .bind(user).execute(&mut admin).await.unwrap();
             let path = format!("SET search_path TO {schema}");
-            let pool = PgPoolOptions::new().max_connections(1)
+            let pool = PgPoolOptions::new()
+                .max_connections(1)
                 .after_connect(move |conn, _| {
                     let path = path.clone();
                     Box::pin(async move {
-                        sqlx::raw_sql(sqlx::AssertSqlSafe(path)).execute(conn).await?;
+                        sqlx::raw_sql(sqlx::AssertSqlSafe(path))
+                            .execute(conn)
+                            .await?;
                         Ok(())
                     })
-                }).connect(&runtime).await.unwrap();
-            Self { admin, pool, schema, user }
+                })
+                .connect(&runtime)
+                .await
+                .unwrap();
+            Self {
+                admin,
+                pool,
+                schema,
+                user,
+            }
         }
 
         async fn freeze(&self, marker: &ApprovalMailMarker) {
@@ -105,9 +116,15 @@ mod postgres {
             tx.commit().await.unwrap();
         }
 
-        async fn claim(&self, marker: &ApprovalMailMarker, now: DateTime<Utc>) -> Option<ApprovalMailClaim> {
+        async fn claim(
+            &self,
+            marker: &ApprovalMailMarker,
+            now: DateTime<Utc>,
+        ) -> Option<ApprovalMailClaim> {
             let mut tx = self.pool.begin().await.unwrap();
-            let claim = claim_approval_mail(&mut tx, marker.user_id, marker.transition_id, now).await.unwrap();
+            let claim = claim_approval_mail(&mut tx, marker.user_id, marker.transition_id, now)
+                .await
+                .unwrap();
             tx.commit().await.unwrap();
             claim
         }
@@ -119,8 +136,13 @@ mod postgres {
 
         async fn finish(mut self) {
             self.pool.close().await;
-            sqlx::raw_sql(sqlx::AssertSqlSafe(format!("DROP SCHEMA {} CASCADE", self.schema)))
-                .execute(&mut self.admin).await.unwrap();
+            sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+                "DROP SCHEMA {} CASCADE",
+                self.schema
+            )))
+            .execute(&mut self.admin)
+            .await
+            .unwrap();
         }
     }
 
@@ -136,14 +158,21 @@ mod postgres {
         let current = f.claim(&newer, instant()).await.unwrap();
         for accepted in [true, false] {
             let mut tx = f.pool.begin().await.unwrap();
-            finalize_approval_mail(&mut tx, &claimed, accepted, instant()).await.unwrap();
+            finalize_approval_mail(&mut tx, &claimed, accepted, instant())
+                .await
+                .unwrap();
             tx.commit().await.unwrap();
-            assert_eq!(f.pending().await, (Some(newer.transition_id), Some(current.claim_until)));
+            assert_eq!(
+                f.pending().await,
+                (Some(newer.transition_id), Some(current.claim_until))
+            );
         }
         // A later lease for the same transition also fences the old attempt.
         let next = f.claim(&newer, current.claim_until).await.unwrap();
         let mut tx = f.pool.begin().await.unwrap();
-        finalize_approval_mail(&mut tx, &current, true, instant()).await.unwrap();
+        finalize_approval_mail(&mut tx, &current, true, instant())
+            .await
+            .unwrap();
         tx.commit().await.unwrap();
         assert_eq!(f.pending().await.1, Some(next.claim_until));
         f.finish().await;
@@ -170,8 +199,12 @@ mod postgres {
         }).await.unwrap();
         assert_eq!(result, ApprovalDelivery::Sent);
         assert_eq!(f.pending().await, (None, None));
-        let absent: (bool,) = sqlx::query_as("SELECT pending_approval_email_payload IS NULL FROM users WHERE id=$1")
-            .bind(user).fetch_one(&mut f.admin).await.unwrap();
+        let absent: (bool,) =
+            sqlx::query_as("SELECT pending_approval_email_payload IS NULL FROM users WHERE id=$1")
+                .bind(user)
+                .fetch_one(&mut f.admin)
+                .await
+                .unwrap();
         assert!(absent.0);
         f.finish().await;
     }
@@ -182,14 +215,39 @@ mod postgres {
         let marker = marker(f.user, instant());
         f.freeze(&marker).await;
         let expected = serde_json::to_value(&marker.payload).unwrap();
-        let result = deliver_account_approval_mail(&f.pool, f.user, marker.transition_id, instant, |payload, _| async move {
-            assert!(serde_json::to_value(payload).unwrap() == expected);
-            false
-        }).await.unwrap();
+        let result = deliver_account_approval_mail(
+            &f.pool,
+            f.user,
+            marker.transition_id,
+            instant,
+            |payload, _| async move {
+                assert!(serde_json::to_value(payload).unwrap() == expected);
+                false
+            },
+        )
+        .await
+        .unwrap();
         assert_eq!(result, ApprovalDelivery::Deferred);
-        assert_eq!(f.pending().await, (Some(marker.transition_id), Some(instant() + Duration::hours(1))));
-        assert!(f.claim(&marker, instant() + Duration::hours(1) - Duration::microseconds(1)).await.is_none());
-        assert!(f.claim(&marker, instant() + Duration::hours(1)).await.is_some());
+        assert_eq!(
+            f.pending().await,
+            (
+                Some(marker.transition_id),
+                Some(instant() + Duration::hours(1))
+            )
+        );
+        assert!(
+            f.claim(
+                &marker,
+                instant() + Duration::hours(1) - Duration::microseconds(1)
+            )
+            .await
+            .is_none()
+        );
+        assert!(
+            f.claim(&marker, instant() + Duration::hours(1))
+                .await
+                .is_some()
+        );
         f.finish().await;
     }
 
@@ -204,14 +262,20 @@ mod postgres {
         let transition = marker.transition_id;
         let attempt = |pool: sqlx::PgPool| async move {
             let mut tx = pool.begin().await.unwrap();
-            let claim = claim_approval_mail(&mut tx, user, transition, instant()).await.unwrap();
+            let claim = claim_approval_mail(&mut tx, user, transition, instant())
+                .await
+                .unwrap();
             tx.commit().await.unwrap();
             claim
         };
-        let (a,b) = tokio::join!(attempt(a), attempt(b));
+        let (a, b) = tokio::join!(attempt(a), attempt(b));
         assert_eq!(usize::from(a.is_some()) + usize::from(b.is_some()), 1);
         let claim = a.or(b).unwrap();
-        assert!(f.claim(&marker, claim.claim_until - Duration::microseconds(1)).await.is_none());
+        assert!(
+            f.claim(&marker, claim.claim_until - Duration::microseconds(1))
+                .await
+                .is_none()
+        );
         assert!(f.claim(&marker, claim.claim_until).await.is_some());
         f.finish().await;
     }
@@ -223,16 +287,21 @@ mod postgres {
         let mut tx = f.pool.begin().await.unwrap();
         freeze_approval_mail(&mut tx, &marker).await.unwrap();
         tx.rollback().await.unwrap();
-        assert_eq!(f.pending().await, (None,None));
+        assert_eq!(f.pending().await, (None, None));
         f.freeze(&marker).await;
         let mut tx = f.pool.begin().await.unwrap();
-        let claim = claim_approval_mail(&mut tx, f.user, marker.transition_id, instant()).await.unwrap().unwrap();
+        let claim = claim_approval_mail(&mut tx, f.user, marker.transition_id, instant())
+            .await
+            .unwrap()
+            .unwrap();
         tx.rollback().await.unwrap();
         assert_eq!(f.pending().await.1, Some(instant()));
         let claim2 = f.claim(&marker, instant()).await.unwrap();
         assert_eq!(claim.claim_until, claim2.claim_until);
         let mut tx = f.pool.begin().await.unwrap();
-        finalize_approval_mail(&mut tx, &claim2, true, instant()).await.unwrap();
+        finalize_approval_mail(&mut tx, &claim2, true, instant())
+            .await
+            .unwrap();
         tx.rollback().await.unwrap();
         assert_eq!(f.pending().await.0, Some(marker.transition_id));
         f.finish().await;
@@ -242,19 +311,27 @@ mod postgres {
     async fn p4_t11a_c06() {
         let mut f = Fixture::new().await;
         for (status, role, verified, malformed) in [
-            ("REJECTED", "BUYER", true, false), ("PENDING", "BUYER", true, false),
-            ("APPROVED", "ADMIN", true, false), ("APPROVED", "BUYER", false, false),
+            ("REJECTED", "BUYER", true, false),
+            ("PENDING", "BUYER", true, false),
+            ("APPROVED", "ADMIN", true, false),
+            ("APPROVED", "BUYER", false, false),
             ("APPROVED", "BUYER", true, true),
         ] {
             let marker = marker(f.user, instant());
             f.freeze(&marker).await;
             sqlx::query("UPDATE users SET status=$2,role=$3,email_verified=$4,pending_approval_email_payload=CASE WHEN $5 THEN '[]'::jsonb ELSE pending_approval_email_payload END WHERE id=$1")
                 .bind(f.user).bind(status).bind(role).bind(verified).bind(malformed).execute(&mut f.admin).await.unwrap();
-            let result = deliver_account_approval_mail(&f.pool, f.user, marker.transition_id, instant, |_,_| async {
-                panic!("unexpected transport invocation")
-            }).await.unwrap();
+            let result = deliver_account_approval_mail(
+                &f.pool,
+                f.user,
+                marker.transition_id,
+                instant,
+                |_, _| async { panic!("unexpected transport invocation") },
+            )
+            .await
+            .unwrap();
             assert_eq!(result, ApprovalDelivery::Skipped);
-            assert_eq!(f.pending().await, (None,None));
+            assert_eq!(f.pending().await, (None, None));
         }
         f.finish().await;
     }
@@ -263,19 +340,37 @@ mod postgres {
     async fn p4_t11a_c07() {
         let mut f = Fixture::new().await;
         for n in 0..105 {
-            let id = Uuid::from_u128(n+1);
+            let id = Uuid::from_u128(n + 1);
             sqlx::query("INSERT INTO users(id,status,role,email_verified) VALUES($1,'APPROVED','BUYER',true)")
                 .bind(id).execute(&mut f.admin).await.unwrap();
-            f.freeze(&marker(id, instant() - Duration::seconds(105-n as i64))).await;
+            f.freeze(&marker(id, instant() - Duration::seconds(105 - n as i64)))
+                .await;
         }
         let mut conn = f.pool.acquire().await.unwrap();
-        let default = due_approval_mail(&mut conn, instant(), ApprovalMailBatchSize::default()).await.unwrap();
-        assert_eq!(default.len(),20);
-        assert_eq!(default.first().unwrap().user_id,Uuid::from_u128(1));
-        let max = due_approval_mail(&mut conn, instant(), ApprovalMailBatchSize::new(100).unwrap()).await.unwrap();
-        assert_eq!(max.len(),100);
-        assert_eq!(max.last().unwrap().user_id,Uuid::from_u128(100));
-        assert!(due_approval_mail(&mut conn, instant()-Duration::hours(1), ApprovalMailBatchSize::default()).await.unwrap().is_empty());
+        let default = due_approval_mail(&mut conn, instant(), ApprovalMailBatchSize::default())
+            .await
+            .unwrap();
+        assert_eq!(default.len(), 20);
+        assert_eq!(default.first().unwrap().user_id, Uuid::from_u128(1));
+        let max = due_approval_mail(
+            &mut conn,
+            instant(),
+            ApprovalMailBatchSize::new(100).unwrap(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(max.len(), 100);
+        assert_eq!(max.last().unwrap().user_id, Uuid::from_u128(100));
+        assert!(
+            due_approval_mail(
+                &mut conn,
+                instant() - Duration::hours(1),
+                ApprovalMailBatchSize::default()
+            )
+            .await
+            .unwrap()
+            .is_empty()
+        );
         drop(conn);
         f.finish().await;
     }
