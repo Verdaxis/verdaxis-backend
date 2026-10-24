@@ -6,7 +6,6 @@ mod policy;
 use chrono::{DateTime, Duration, Utc};
 use grace::{Grace, grace_applies, notice_is_due};
 use policy::{KycParty, KycPolicy, KycReason, KycStatus, eligibility};
-#[cfg(feature = "contract-tests")]
 use policy::{KycSqlParty, bind_eligibility_sql};
 use uuid::Uuid;
 
@@ -24,7 +23,9 @@ fn party(status: KycStatus) -> KycParty {
 }
 
 fn policy(enabled: bool) -> KycPolicy {
-    KycPolicy { execution_gate_enabled: enabled }
+    KycPolicy {
+        execution_gate_enabled: enabled,
+    }
 }
 
 fn grace() -> Grace {
@@ -38,7 +39,12 @@ fn grace() -> Grace {
 #[test]
 fn p4_t9_c03() {
     for enabled in [false, true] {
-        let result = eligibility(&policy(enabled), &party(KycStatus::Rejected), Some(&grace()), now());
+        let result = eligibility(
+            &policy(enabled),
+            &party(KycStatus::Rejected),
+            Some(&grace()),
+            now(),
+        );
         assert!(!result.eligible);
         assert_eq!(result.reason, KycReason::Rejected);
     }
@@ -49,7 +55,12 @@ fn p4_t9_c04() {
     let mut grace = grace();
     grace.expires_at = now();
     assert!(!grace_applies(&party(KycStatus::Pending), &grace, now()));
-    let result = eligibility(&policy(true), &party(KycStatus::Pending), Some(&grace), now());
+    let result = eligibility(
+        &policy(true),
+        &party(KycStatus::Pending),
+        Some(&grace),
+        now(),
+    );
     assert!(!result.eligible);
     assert_eq!(result.reason, KycReason::Required);
     assert_eq!(result.grace_expires_at, Some(now()));
@@ -66,7 +77,23 @@ fn p4_t9_c05() {
     assert_eq!(result.grace_expires_at, None);
     party.kyc_organization_id = Some(Uuid::from_u128(3));
     assert!(!eligibility(&policy(false), &party, None, now()).eligible);
-    assert_eq!(serde_json::to_value(result).unwrap()["reason"], "KYC_NOT_ENFORCED");
+    assert_eq!(
+        serde_json::to_value(result).unwrap()["reason"],
+        "KYC_NOT_ENFORCED"
+    );
+}
+
+#[test]
+fn p4_t9_c08() {
+    assert!(KycPolicy::default().execution_gate_enabled);
+    for sql_party in [KycSqlParty::USER, KycSqlParty::MEMBER] {
+        let mut builder = sqlx::QueryBuilder::<sqlx::Postgres>::new("SELECT ");
+        bind_eligibility_sql(&mut builder, &policy(true), sql_party, now());
+        let sql = builder.sql();
+        assert!(sql.contains("$1::boolean"));
+        assert!(sql.contains("$2::timestamptz"));
+        assert!(!sql.contains("2026"));
+    }
 }
 
 #[test]
@@ -97,8 +124,10 @@ mod postgres {
 
     impl Fixture {
         async fn new() -> Self {
-            let admin_url = std::env::var("RUST_TEST_MIGRATOR_DATABASE_URL").expect("explicit disposable migrator URL required");
-            let runtime_url = std::env::var("RUST_TEST_DATABASE_URL").expect("explicit disposable runtime URL required");
+            let admin_url = std::env::var("RUST_TEST_MIGRATOR_DATABASE_URL")
+                .expect("explicit disposable migrator URL required");
+            let runtime_url = std::env::var("RUST_TEST_DATABASE_URL")
+                .expect("explicit disposable runtime URL required");
             let admin_target = url::Url::parse(&admin_url).unwrap();
             let runtime_target = url::Url::parse(&runtime_url).unwrap();
             for target in [&admin_target, &runtime_target] {
@@ -120,26 +149,55 @@ mod postgres {
                  CREATE TABLE kyc_execution_grace(user_id uuid,organization_id uuid,expires_at timestamptz,PRIMARY KEY(user_id,organization_id)); \
                  GRANT USAGE ON SCHEMA {schema} TO rust_app; GRANT SELECT ON ALL TABLES IN SCHEMA {schema} TO rust_app"
             ))).execute(&mut admin).await.unwrap();
-            sqlx::raw_sql(sqlx::AssertSqlSafe(format!("SET search_path TO {schema}"))).execute(&mut runtime).await.unwrap();
-            Self { admin, runtime, schema }
+            sqlx::raw_sql(sqlx::AssertSqlSafe(format!("SET search_path TO {schema}")))
+                .execute(&mut runtime)
+                .await
+                .unwrap();
+            Self {
+                admin,
+                runtime,
+                schema,
+            }
         }
 
         async fn store(&mut self, party: &KycParty, grace: Option<&Grace>) {
-            sqlx::raw_sql("TRUNCATE users,kyc_execution_grace").execute(&mut self.admin).await.unwrap();
+            sqlx::raw_sql("TRUNCATE users,kyc_execution_grace")
+                .execute(&mut self.admin)
+                .await
+                .unwrap();
             sqlx::query("INSERT INTO users VALUES($1,$2,$3,$4,'BUYER','APPROVED',true,false)")
-                .bind(party.user_id).bind(party.organization_id).bind(party.kyc_organization_id)
-                .bind(serde_json::to_value(party.kyc_status).unwrap().as_str().unwrap())
-                .execute(&mut self.admin).await.unwrap();
+                .bind(party.user_id)
+                .bind(party.organization_id)
+                .bind(party.kyc_organization_id)
+                .bind(
+                    serde_json::to_value(party.kyc_status)
+                        .unwrap()
+                        .as_str()
+                        .unwrap(),
+                )
+                .execute(&mut self.admin)
+                .await
+                .unwrap();
             if let Some(grace) = grace {
                 sqlx::query("INSERT INTO kyc_execution_grace VALUES($1,$2,$3)")
-                    .bind(grace.user_id).bind(grace.organization_id).bind(grace.expires_at)
-                    .execute(&mut self.admin).await.unwrap();
+                    .bind(grace.user_id)
+                    .bind(grace.organization_id)
+                    .bind(grace.expires_at)
+                    .execute(&mut self.admin)
+                    .await
+                    .unwrap();
             }
         }
 
         async fn finish(mut self) {
             self.runtime.close().await.unwrap();
-            sqlx::raw_sql(sqlx::AssertSqlSafe(format!("DROP SCHEMA {} CASCADE", self.schema))).execute(&mut self.admin).await.unwrap();
+            sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+                "DROP SCHEMA {} CASCADE",
+                self.schema
+            )))
+            .execute(&mut self.admin)
+            .await
+            .unwrap();
         }
     }
 
@@ -147,7 +205,12 @@ mod postgres {
     async fn p4_t9_c02() {
         let mut fixture = Fixture::new().await;
         for enabled in [false, true] {
-            for status in [KycStatus::Pending, KycStatus::Submitted, KycStatus::Approved, KycStatus::Rejected] {
+            for status in [
+                KycStatus::Pending,
+                KycStatus::Submitted,
+                KycStatus::Approved,
+                KycStatus::Rejected,
+            ] {
                 for organization in [None, Some(Uuid::from_u128(2))] {
                     for binding in [None, Some(Uuid::from_u128(2)), Some(Uuid::from_u128(3))] {
                         for grace_case in 0..7 {
@@ -160,27 +223,71 @@ mod postgres {
                                 3 => grace.expires_at = now() - Duration::seconds(1),
                                 4 => grace.organization_id = Uuid::from_u128(3),
                                 5 => grace.user_id = Uuid::from_u128(3),
-                                6 => { grace.organization_id = Uuid::from_u128(3); grace.user_id = Uuid::from_u128(3); }
+                                6 => {
+                                    grace.organization_id = Uuid::from_u128(3);
+                                    grace.user_id = Uuid::from_u128(3);
+                                }
                                 _ => {}
                             }
                             let grace = (grace_case != 0).then_some(grace);
                             let rejected = status == KycStatus::Rejected;
-                            let approved = status == KycStatus::Approved && organization.is_some() && binding == organization;
-                            let matching_grace = grace.as_ref().filter(|g| Some(g.organization_id) == organization && g.user_id == party.user_id);
+                            let approved = status == KycStatus::Approved
+                                && organization.is_some()
+                                && binding == organization;
+                            let matching_grace = grace.as_ref().filter(|g| {
+                                Some(g.organization_id) == organization
+                                    && g.user_id == party.user_id
+                            });
                             let active_grace = matching_grace.is_some_and(|g| now() < g.expires_at);
-                            let expected = !rejected && if enabled { approved || active_grace } else { binding.is_none() || binding == organization };
-                            let reason = if rejected { KycReason::Rejected } else if !enabled && expected { KycReason::NotEnforced } else if enabled && approved { KycReason::Approved } else if enabled && active_grace { KycReason::Grace } else { KycReason::Required };
-                            let scalar = eligibility(&policy(enabled), &party, grace.as_ref(), now());
+                            let expected = !rejected
+                                && if enabled {
+                                    approved || active_grace
+                                } else {
+                                    binding.is_none() || binding == organization
+                                };
+                            let reason = if rejected {
+                                KycReason::Rejected
+                            } else if !enabled && expected {
+                                KycReason::NotEnforced
+                            } else if enabled && approved {
+                                KycReason::Approved
+                            } else if enabled && active_grace {
+                                KycReason::Grace
+                            } else {
+                                KycReason::Required
+                            };
+                            let scalar =
+                                eligibility(&policy(enabled), &party, grace.as_ref(), now());
                             assert_eq!(scalar.eligible, expected);
                             assert_eq!(scalar.reason, reason);
-                            assert_eq!(scalar.grace_expires_at, if enabled && !approved { matching_grace.map(|g| g.expires_at) } else { None });
+                            assert_eq!(
+                                scalar.grace_expires_at,
+                                if enabled && !approved {
+                                    matching_grace.map(|g| g.expires_at)
+                                } else {
+                                    None
+                                }
+                            );
                             fixture.store(&party, grace.as_ref()).await;
                             for sql_party in [KycSqlParty::USER, KycSqlParty::MEMBER] {
-                                let alias = if sql_party == KycSqlParty::USER { "u" } else { "m" };
+                                let alias = if sql_party == KycSqlParty::USER {
+                                    "u"
+                                } else {
+                                    "m"
+                                };
                                 let mut builder = QueryBuilder::<Postgres>::new("SELECT COALESCE(");
-                                bind_eligibility_sql(&mut builder, &policy(enabled), sql_party, now());
+                                bind_eligibility_sql(
+                                    &mut builder,
+                                    &policy(enabled),
+                                    sql_party,
+                                    now(),
+                                );
                                 builder.push(format!(",false) FROM users {alias}"));
-                                let sql: bool = builder.build_query_scalar().fetch_one(&mut fixture.runtime).await.unwrap();
+                                let sql: bool = builder
+                                    .build_query_scalar()
+                                    .fetch_one(&mut fixture.runtime)
+                                    .await
+                                    .unwrap();
                                 assert_eq!(sql, expected, "{party:?} {grace:?} enabled={enabled}");
                             }
                         }
@@ -194,15 +301,29 @@ mod postgres {
     #[tokio::test]
     async fn p4_t9_c01() {
         let mut fixture = Fixture::new().await;
-        sqlx::query("INSERT INTO organizations VALUES($1,'APPROVED','REAL')").bind(Uuid::from_u128(2)).execute(&mut fixture.admin).await.unwrap();
+        sqlx::query("INSERT INTO organizations VALUES($1,'APPROVED','REAL')")
+            .bind(Uuid::from_u128(2))
+            .execute(&mut fixture.admin)
+            .await
+            .unwrap();
         for enabled in [false, true] {
             for status in [KycStatus::Pending, KycStatus::Approved, KycStatus::Rejected] {
                 let party = party(status);
                 fixture.store(&party, None).await;
                 let sql = verdaxis_read::market::visibility::eligibility_sets_sql("$1");
-                let statement = format!("WITH policy_products AS (SELECT 1) {sql} SELECT user_id FROM eligible_owners");
-                let ids: Vec<Uuid> = sqlx::query_scalar(sqlx::AssertSqlSafe(statement)).bind(enabled).bind(now()).fetch_all(&mut fixture.runtime).await.unwrap();
-                assert_eq!(ids.contains(&party.user_id), eligibility(&policy(enabled), &party, None, now()).eligible);
+                let statement = format!(
+                    "WITH policy_products AS (SELECT 1) {sql} SELECT user_id FROM eligible_owners"
+                );
+                let ids: Vec<Uuid> = sqlx::query_scalar(sqlx::AssertSqlSafe(statement))
+                    .bind(enabled)
+                    .bind(now())
+                    .fetch_all(&mut fixture.runtime)
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    ids.contains(&party.user_id),
+                    eligibility(&policy(enabled), &party, None, now()).eligible
+                );
             }
         }
         fixture.finish().await;
@@ -211,10 +332,22 @@ mod postgres {
     #[tokio::test]
     async fn p4_t9_c06() {
         let mut fixture = Fixture::new().await;
-        fixture.store(&party(KycStatus::Pending), Some(&grace())).await;
-        for sql in ["UPDATE kyc_execution_grace SET expires_at=expires_at", "DELETE FROM kyc_execution_grace", "INSERT INTO kyc_execution_grace SELECT * FROM kyc_execution_grace"] {
-            let error = sqlx::raw_sql(sqlx::AssertSqlSafe(sql)).execute(&mut fixture.runtime).await.unwrap_err();
-            assert_eq!(error.as_database_error().and_then(|e| e.code()).as_deref(), Some("42501"));
+        fixture
+            .store(&party(KycStatus::Pending), Some(&grace()))
+            .await;
+        for sql in [
+            "UPDATE kyc_execution_grace SET expires_at=expires_at",
+            "DELETE FROM kyc_execution_grace",
+            "INSERT INTO kyc_execution_grace SELECT * FROM kyc_execution_grace",
+        ] {
+            let error = sqlx::raw_sql(sqlx::AssertSqlSafe(sql))
+                .execute(&mut fixture.runtime)
+                .await
+                .unwrap_err();
+            assert_eq!(
+                error.as_database_error().and_then(|e| e.code()).as_deref(),
+                Some("42501")
+            );
         }
         fixture.finish().await;
     }
