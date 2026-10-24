@@ -266,7 +266,6 @@ async fn register_attempt(
             join_and_attribute(&mut tx, id, org_id, input).await?;
             mail.push(settings.alert(id, input, &name));
         }
-        let _ = kind;
     } else {
         sqlx::query(
             "UPDATE pending_registrations SET used_at=$2 WHERE email=$1 AND used_at IS NULL",
