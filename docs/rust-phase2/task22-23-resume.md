@@ -9,6 +9,64 @@ below. The final review's F1/F2 gate repairs are committed and qualified in
 the "Review fix round" section. No staging or production deployment was
 attempted. Task 24 has not started. No measurement was run (decision 110).
 
+## Staging merge qualification — 24 October
+
+Merged exact staging `539fe2a2e7735a301955e71d6797e3c565a11112` with
+`--no-ff` in `2b719ad5c38529c0a776bb08cdee80958775c079`. No conflicts,
+assertion removal, test-attribute removal, or branch-specific re-pinning was
+needed. PR #122's inventory/digest updates were retained unchanged. The merge
+includes ctutils 0.4.4 and PR #120's meaning-runner changes.
+
+| Gate at `2b719ad5` | Host / UTC | Exit |
+| --- | --- | --- |
+| fmt; Clippy plain; Clippy contract-tests | this Mac, Oct 23 20:16:04–20:17:57, decision 134/shared lock | 0 each |
+| Offline workspace | staging, Oct 23 20:41:34–21:02:06 | 0 |
+| `cd rs && cargo audit` | staging, Oct 23 20:33:17–24 | 0 |
+| Rust PostgreSQL workspace | staging, Oct 23 21:02:06–21:20:49 | 0 |
+| Python unit, monitor, rust_contract | staging, Oct 23 21:20:49–21:46:46 | 0; 4739 passed, two skipped |
+| All Phase 2 scenarios | staging, Oct 23 22:58:30–Oct 24 00:10:18 | 0; fresh report `work/merge-scenarios-resume2.json` |
+| Standalone races | staging, Oct 23 21:52:36–22:38:29 | 0; nine scenarios, 27 races |
+| Changed Phase 1 meaning gate, once | staging, Oct 24 00:10:18–00:17:32 | 1; disposable integration stage, cancelled-order trade case |
+
+Meaning failed at
+`tests/integration/test_trades.py::TestCreateTrade::test_cannot_hit_cancelled_order`
+(`tests/integration/test_trades.py:84`), with 78 passed and one failed. No
+passing meaning report is claimed and no rerun or tolerance change was made.
+This blocks the conditional push: the merge remains local pending PM follow-up.
+Current PR #88 checks at the older `6a619a1a` are green for offline, contract,
+backend and both PostgreSQL jobs; publish is skipped. They do not qualify this
+merge revision.
+
+Logs: `work/pd2-merge-mac.log`, `work/pd2-merge-staging.log`,
+`work/pd2-merge-staging-resume.log`, `work/pd2-merge-final-resume2.log`.
+The first local offline attempt failed because the Python oracle interpreter
+was absent; Linux offline passed. Interrupted calls are not successful gates.
+An earlier scenario attempt failed adapter startup; its printed report named
+an older SHA and was not used. The fresh scenario invocation above passed.
+Local `rs/target` (3.0 GB) was inspected and removed at round end as requested.
+No local venv was created. Task 24 has not started.
+
+### Signed candidate production (read-only investigation)
+
+`.github/workflows/rust-read-ci.yml` runs offline and contract for PRs targeting
+staging/prod and for manual `workflow_dispatch`. Neither trigger can run
+`publish`: its condition requires a **push** to staging/prod and both prerequisite
+jobs exactly successful. A feature-branch PR therefore produces test/build
+artifacts but no published attested release bundle. Manual dispatch alone also
+cannot satisfy entry condition 3. A separately authorized promotion to a live
+branch, or a separately reviewed workflow change for candidate publication,
+is needed; neither was performed here.
+
+On the permitted push, `publish` checks the tested binary digest against the
+release binary, packages `rust-read-release`, and uses GitHub's
+`attest-build-provenance` with OIDC (`id-token: write`, `attestations: write`).
+It uses no repository production private signing key. The deployment provenance
+signature is a second, operator-owned step: `scripts/verify_rust_artifact.py
+--attest` on the PM workstation verifies both GitHub subjects and signs the
+bound record with the workstation-held Ed25519 private key. The deploy host
+holds only its public key. No signing, dispatch, release, key access, or live
+operation was performed in this round.
+
 ## Commits in the review fix round
 
 | Item | Tests first | Change |
