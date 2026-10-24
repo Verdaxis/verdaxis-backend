@@ -943,6 +943,7 @@ fn config_for(url: &str) -> Config {
         pool_max: 2,
         python_budget: 0,
         configured_max_connections: 100,
+        phase2: Default::default(),
     }
 }
 

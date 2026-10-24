@@ -71,15 +71,16 @@ impl SharedLimits {
         path: &str,
         now: u64,
     ) -> Result<(), crate::ApiError> {
-        if self.endpoint_check(user, path, now).is_ok() {
+        let Err(refusal) = self
+            .0
+            .lock()
+            .expect("quota authority lock")
+            .endpoint_check(user, path, now)
+        else {
             return Ok(());
-        }
+        };
         if auth_endpoint_policy(path).is_some() {
-            return Err(Refusal {
-                retry_after_seconds: AUTH_ENDPOINT_WINDOW_SECONDS,
-            }
-            .auth_failure()
-            .into());
+            return Err(refusal.auth_failure().into());
         }
         let (_, limit, window) = endpoint_policy(path).expect("limited endpoint");
         let unit = if window == 3600 { "hour" } else { "minute" };
@@ -89,22 +90,9 @@ impl SharedLimits {
                 "code": "RATE_LIMITED",
                 "message": format!("Rate limit exceeded: {limit} per 1 {unit}"),
             }),
-            retry_after: None,
+            retry_after: Some(refusal.retry_after_seconds as u32),
             kind: crate::ApiErrorKind::Expected,
         })
-    }
-
-    fn endpoint_check(&self, user: &str, path: &str, now: u64) -> Result<(), ()> {
-        if self
-            .0
-            .lock()
-            .expect("quota authority lock")
-            .endpoint(user, path, now)
-        {
-            Ok(())
-        } else {
-            Err(())
-        }
     }
 }
 
@@ -136,6 +124,20 @@ impl QuotaStore {
         now: u64,
         evict: bool,
     ) -> bool {
+        self.accept_check(owner, key, limit, window, now, evict)
+            .is_ok()
+    }
+
+    /// The refused window's remaining seconds, at least one.
+    fn accept_check(
+        &mut self,
+        owner: &str,
+        key: &str,
+        limit: u32,
+        window: u64,
+        now: u64,
+        evict: bool,
+    ) -> Result<(), u64> {
         while let Some((expires_at, _)) = self.expiration.first() {
             if *expires_at > now {
                 break;
@@ -147,7 +149,7 @@ impl QuotaStore {
         if !self.buckets.contains_key(&identity) {
             if self.buckets.len() >= MAX_BUCKETS {
                 if !evict {
-                    return false;
+                    return Err(window.max(1));
                 }
                 // Only the pre-auth store evicts (PM decision PD2-SEC-1). Every
                 // entry shares one window length, so the soonest-expiring entry
@@ -175,10 +177,10 @@ impl QuotaStore {
         let bucket = self.buckets.get_mut(&identity).expect("quota entry");
         debug_assert!(bucket.expires_at > now);
         if bucket.count >= limit {
-            return false;
+            return Err(bucket.expires_at.saturating_sub(now).max(1));
         }
         bucket.count += 1;
-        true
+        Ok(())
     }
 }
 
@@ -225,31 +227,23 @@ impl Phase2Limits {
     /// The Phase 3 auth routes use this refusal-with-retry form; it shares the
     /// same bounded pre-auth store and policy as [`Phase2Limits::preauth`].
     pub fn preauth_check(&mut self, client: &str, path: &str, now: u64) -> Result<(), Refusal> {
-        let Some((_, _, window)) = preauth_policy(path) else {
+        let Some((key, limit, window)) = preauth_policy(path) else {
             return Ok(());
         };
-        if self.preauth(client, path, now) {
-            Ok(())
-        } else {
-            Err(Refusal {
-                retry_after_seconds: window.max(1),
-            })
-        }
+        self.preauth_store
+            .accept_check(&network_identity(client), key, limit, window, now, true)
+            .map_err(|retry_after_seconds| Refusal { retry_after_seconds })
     }
 
     /// The Phase 3 endpoint form with the same user-keyed store as
     /// [`Phase2Limits::endpoint`].
     pub fn endpoint_check(&mut self, user: &str, path: &str, now: u64) -> Result<(), Refusal> {
-        let Some((_, _, window)) = endpoint_policy(path) else {
+        let Some((key, limit, window)) = endpoint_policy(path) else {
             return Ok(());
         };
-        if self.endpoint(user, path, now) {
-            Ok(())
-        } else {
-            Err(Refusal {
-                retry_after_seconds: window.max(1),
-            })
-        }
+        self.user_store
+            .accept_check(user, key, limit, window, now, false)
+            .map_err(|retry_after_seconds| Refusal { retry_after_seconds })
     }
 
     /// Pre-auth evictions since start. A plain number: it names no client.

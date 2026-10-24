@@ -302,7 +302,12 @@ fn every_profile_requires_a_present_expiry() {
 
 #[test]
 fn verified_token_exposes_the_verified_expiry() {
-    let expected = now() + Duration::minutes(15);
+    // JWT NumericDate is whole seconds, so compare at that precision.
+    let expected = DateTime::<Utc>::from_timestamp(
+        (now() + Duration::minutes(15)).timestamp(),
+        0,
+    )
+    .unwrap();
     let mut claims = claims(TokenType::Access);
     claims["exp"] = json!(expected.timestamp());
     let token = sign(SECRET, &claims);
