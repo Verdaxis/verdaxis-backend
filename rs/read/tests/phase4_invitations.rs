@@ -795,7 +795,7 @@ mod postgres {
         }
         let mut connection = f.pool.acquire().await.unwrap();
         let page = store::list_organizations(
-            &mut *connection,
+            &mut connection,
             &InvitationListQuery::parse(Some(100), Some(0)).unwrap(),
         )
         .await
@@ -819,7 +819,7 @@ mod postgres {
                 .unwrap();
         }
         let page = store::list_organizations(
-            &mut *connection,
+            &mut connection,
             &InvitationListQuery::parse(Some(500), Some(0)).unwrap(),
         )
         .await
@@ -828,7 +828,7 @@ mod postgres {
         assert!(page.truncated);
         // Ordering is deterministic on (name,id).
         let page = store::list_organizations(
-            &mut *connection,
+            &mut connection,
             &InvitationListQuery::parse(Some(500), Some(0)).unwrap(),
         )
         .await
@@ -1059,7 +1059,7 @@ mod postgres {
         let secret = token_from(&created);
         let mut connection = f.pool.acquire().await.unwrap();
         let resolved = resolve::resolve(
-            &mut *connection,
+            &mut connection,
             &ResolveToken::parse(&json!({"token": secret})).unwrap(),
             now,
         )
@@ -1074,7 +1074,7 @@ mod postgres {
         assert_eq!(resolved.expires_at, created.expires_at);
         // Resolve does not consume the secret.
         let again = resolve::resolve(
-            &mut *connection,
+            &mut connection,
             &ResolveToken::parse(&json!({"token": secret})).unwrap(),
             now,
         )
@@ -1082,7 +1082,7 @@ mod postgres {
         assert!(again.is_ok());
         // Wrong, expired and mismatched secrets share one refusal.
         let wrong = resolve::resolve(
-            &mut *connection,
+            &mut connection,
             &ResolveToken::parse(&json!({"token": "z".repeat(43)})).unwrap(),
             now,
         )
@@ -1091,7 +1091,7 @@ mod postgres {
         assert_eq!(wrong.status.as_u16(), 400);
         assert_eq!(wrong.detail["code"], "INVITATION_INVALID");
         let expired = resolve::resolve(
-            &mut *connection,
+            &mut connection,
             &ResolveToken::parse(&json!({"token": secret})).unwrap(),
             created.expires_at + Duration::seconds(1),
         )
@@ -1107,7 +1107,7 @@ mod postgres {
             .await
             .unwrap();
         let mismatched = resolve::resolve(
-            &mut *connection,
+            &mut connection,
             &ResolveToken::parse(&json!({"token": secret})).unwrap(),
             now,
         )
