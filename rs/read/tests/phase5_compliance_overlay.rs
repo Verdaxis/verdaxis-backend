@@ -454,29 +454,23 @@ async fn no_organization_user(pool: &sqlx::PgPool) -> Uuid {
     id
 }
 
-/// The runtime role may read every table but the market-contract runner grants
-/// it no write privilege. The route's transaction takes the current-account row
-/// in update mode, and PostgreSQL requires `UPDATE` privilege for that row lock,
-/// so the authenticated cases grant it on the disposable database first. This is
-/// what the deployed runtime role already holds for its own account writes.
+/// The market-contract runner grants its app role `SELECT` on every table and
+/// no write privilege. The route's transaction takes the current-account row in
+/// update mode, which PostgreSQL lets only a role with `UPDATE` on the table
+/// perform, so the authenticated cases grant that one privilege on the
+/// disposable database first, as the deployed runtime role already holds it for
+/// its own account writes.
 #[cfg(feature = "contract-tests")]
 async fn grant_actor_lock(writer: &sqlx::PgPool, database_url: &str) {
-    use sqlx::ConnectOptions as _;
     let options = database_url
         .parse::<sqlx::postgres::PgConnectOptions>()
         .expect("disposable fixture URL");
-    let role = options
-        .get_username()
-        .to_owned();
-    assert!(
-        role.bytes()
-            .enumerate()
-            .all(|(index, byte)| byte.is_ascii_lowercase()
-                || byte == b'_'
-                || (index > 0 && byte.is_ascii_digit())),
-        "unexpected disposable role name"
+    assert_eq!(
+        options.get_username(),
+        "rust_app",
+        "the market-contract runner's app role"
     );
-    sqlx::query(&format!("GRANT UPDATE ON users TO {role}"))
+    sqlx::query("GRANT UPDATE ON users TO rust_app")
         .execute(writer)
         .await
         .expect("current-account lock privilege");
