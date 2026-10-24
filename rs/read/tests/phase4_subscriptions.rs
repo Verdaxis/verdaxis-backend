@@ -399,7 +399,7 @@ mod postgres {
             // pg_locks is independent of the holder's transaction snapshot.
             // Each contender holds a granted relation RowShareLock while its
             // SELECT FOR UPDATE waits on the held organization row.
-            let waiting:i64=sqlx::query_scalar("SELECT count(DISTINCT l.pid) FROM pg_locks l JOIN pg_stat_activity a ON a.pid=l.pid WHERE l.relation=($1::text)::regclass AND l.mode='RowShareLock' AND l.granted AND a.wait_event_type='Lock' AND cardinality(pg_blocking_pids(l.pid))>0 AND l.pid<>$2")
+            let waiting:i64=sqlx::query_scalar("SELECT count(DISTINCT l.pid) FROM pg_locks l WHERE l.relation=($1::text)::regclass AND l.mode='RowShareLock' AND l.granted AND cardinality(pg_blocking_pids(l.pid))>0 AND l.pid<>$2")
                 .bind(format!("{}.organizations",f.schema)).bind(holder_pid).fetch_one(&mut f.admin).await.unwrap();
             if waiting == 3 {
                 break;
