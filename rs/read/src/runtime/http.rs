@@ -335,10 +335,10 @@ async fn dispatch_boundary(
         .headers()
         .get(PREAUTH_COUNTED_HEADER)
         .is_some_and(|value| value == "1");
-    if !counted {
-        if let Err(refusal) = state.phase2_limits.preauth_check(&client, path, now) {
-            return preauth_refusal(path, refusal);
-        }
+    if !counted
+        && let Err(refusal) = state.phase2_limits.preauth_check(&client, path, now)
+    {
+        return preauth_refusal(path, refusal);
     }
     if let Some(response) = crate::auth::scope::known_get_refusal(request.method().as_str(), path) {
         return response;

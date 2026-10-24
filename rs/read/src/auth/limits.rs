@@ -11,9 +11,6 @@ use std::net::{IpAddr, Ipv6Addr};
 
 use super::error::{AuthCode, AuthFailure};
 
-/// Buckets older than this are dropped; it is the longest window in use.
-const BUCKET_RETENTION_SECONDS: u64 = 3600;
-
 /// A refused request and the seconds until its window resets (at least 1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Refusal {
@@ -38,20 +35,20 @@ impl SharedLimits {
 
     /// The pre-auth check with the time until a refused window resets.
     pub fn preauth_check(&self, client: &str, path: &str, now: u64) -> Result<(), Refusal> {
-        let Some((_, limit, window)) = preauth_policy(path) else {
+        let Some((_, _, window)) = preauth_policy(path) else {
             return Ok(());
         };
-        let owner = network_identity(client);
-        let key = preauth_key(path);
-        let accepted = self
+        if self
             .0
             .lock()
             .expect("quota authority lock")
-            .preauth_store_accept(&owner, key, limit, window, now);
-        if accepted {
+            .preauth(client, path, now)
+        {
             Ok(())
         } else {
-            Err(Refusal { retry_after_seconds: window })
+            Err(Refusal {
+                retry_after_seconds: window.max(1),
+            })
         }
     }
 
@@ -60,7 +57,7 @@ impl SharedLimits {
         self.0
             .lock()
             .expect("quota authority lock")
-            .preauth_store_accept(&network_identity(client), "/api/admin/", 300, 60, now)
+            .preauth(client, "/api/admin/", now)
     }
 
     /// Route adapters call this after bearer/current-account admission and
@@ -98,14 +95,11 @@ impl SharedLimits {
     }
 
     fn endpoint_check(&self, user: &str, path: &str, now: u64) -> Result<(), ()> {
-        let Some((key, limit, window)) = endpoint_policy(path) else {
-            return Ok(());
-        };
         if self
             .0
             .lock()
             .expect("quota authority lock")
-            .user_store_accept(user, key, limit, window, now)
+            .endpoint(user, path, now)
         {
             Ok(())
         } else {
@@ -209,32 +203,28 @@ fn network_identity(client: &str) -> String {
 }
 
 impl Phase2Limits {
-    fn preauth_store_accept(
-        &mut self,
-        owner: &str,
-        key: &str,
-        limit: u32,
-        window: u64,
-        now: u64,
-    ) -> bool {
-        self.preauth_store.accept(owner, key, limit, window, now, true)
+    /// Pre-auth admission by client address. The bounded store evicts the
+    /// soonest-expiring entry rather than refusing a new client under a flood.
+    pub fn preauth(&mut self, client: &str, path: &str, now: u64) -> bool {
+        let Some((key, limit, window)) = preauth_policy(path) else {
+            return true;
+        };
+        self.preauth_store
+            .accept(&network_identity(client), key, limit, window, now, true)
+    }
+
+    /// Endpoint admission by verified user ID. The user store never evicts, so
+    /// one account cannot displace another account's accounting.
+    pub fn endpoint(&mut self, user: &str, path: &str, now: u64) -> bool {
+        let Some((key, limit, window)) = endpoint_policy(path) else {
+            return true;
+        };
+        self.user_store.accept(user, key, limit, window, now, false)
     }
 
     /// Pre-auth evictions since start. A plain number: it names no client.
     pub fn preauth_evictions(&self) -> u64 {
         self.preauth_store.evictions
-    }
-
-    /// The owner is the current verified user ID, never a transport address.
-    fn user_store_accept(
-        &mut self,
-        user: &str,
-        key: &str,
-        limit: u32,
-        window: u64,
-        now: u64,
-    ) -> bool {
-        self.user_store.accept(user, key, limit, window, now, false)
     }
 }
 
@@ -248,12 +238,6 @@ const PREAUTH_POLICIES: &[(&str, u32, u64)] = &[
     ("/api/auth/forgot-password", 15, 60),
     ("/api/auth/register", 30, 60),
 ];
-
-fn preauth_key(path: &str) -> &str {
-    preauth_policy(path)
-        .map(|(prefix, _, _)| prefix)
-        .unwrap_or("")
-}
 
 pub fn preauth_policy(path: &str) -> Option<(&'static str, u32, u64)> {
     PREAUTH_POLICIES
