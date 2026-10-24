@@ -616,7 +616,12 @@ mod postgres {
             .unwrap();
         assert!(second.reissued);
         assert_eq!(first.user_id, second.user_id);
-        assert_ne!(token_from(&first), token_from(&second));
+        // Compare stored digests, never the secrets: a failing assertion must
+        // not print either credential.
+        assert_ne!(
+            store::digest_of(&token_from(&first)),
+            store::digest_of(&token_from(&second))
+        );
         // The rotation replaces the digest: the earlier secret no longer
         // resolves, and only the newer one is stored.
         let second_stored = stored_digest(&f, second.user_id).await;
@@ -1364,6 +1369,20 @@ mod postgres {
 
         // A06 is public: one refusal shape, then the declared 20/minute.
         let router = app(&f, auth::limits::SharedLimits::default());
+        // An oversized body is the shared auth refusal and consumes no quota:
+        // all twenty following refusals still fit inside the minute.
+        let oversized = json!({"token": "z".repeat(131_073)});
+        let (status, _, body) = send(
+            &router,
+            "POST",
+            request::RESOLVE_PATH,
+            None,
+            Some(oversized),
+        )
+        .await;
+        assert_eq!(status, 413);
+        assert_eq!(body["detail"]["code"], "REQUEST_TOO_LARGE");
+        assert_eq!(body["detail"]["message"], "Authentication request is too large");
         let mut refusals = Vec::new();
         for _ in 0..20 {
             let (status, _, body) = send(
