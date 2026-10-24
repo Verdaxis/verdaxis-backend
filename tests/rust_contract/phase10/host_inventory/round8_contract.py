@@ -89,6 +89,21 @@ class Round8Contract(unittest.TestCase):
                         result=self.reader.collect(command,cron_files=[],script_reader=acquisition)
                     statuses={r['status'] for r in result['blocking_dependencies']}
                     self.assertIn('credential-denied',statuses); self.assertIn('removed-package',statuses)
+                    self.assertEqual([row for row in result['blocking_dependencies'] if row['status'] in ('credential-denied','removed-package')], [
+                        {'source':self.reader.resolved(late),'reference':self.reader.unresolved(denied),'status':'credential-denied'},
+                        {'source':self.reader.resolved(late),'reference':self.reader.unresolved('app.hidden'),'status':'removed-package'}])
+                    for script in result['scripts']:
+                        if script['path']==first:
+                            count=3 if bound=='visited' else 2
+                            self.assertEqual(script['imports'],[self.reader.unresolved(name) for name in ('ordinary_a','ordinary_b','ordinary_c')[:count]])
+                            self.assertEqual(script['executables'],[])
+                            self.assertEqual(script['credential_references'],[])
+                        elif script['path']==late:
+                            self.assertEqual(script['imports'],[self.reader.unresolved('app.hidden')])
+                            self.assertEqual(script['credential_references'],[self.reader.unresolved(denied)])
+                            self.assertEqual(script['executables'],[])
+                        else:
+                            self.assertEqual((script['imports'],script['executables'],script['credential_references']),([],[],[]))
                     self.assertNotIn(denied,json.dumps(result))
                     expected={'bound-exceeded:blocking-rows','bound-exceeded:usr_local'}
                     if bound in ('blocking-rows','graph-bytes','depth'): expected.add('bound-exceeded:references')
