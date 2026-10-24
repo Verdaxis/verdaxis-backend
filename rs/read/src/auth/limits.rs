@@ -141,11 +141,9 @@ mod tests {
     fn endpoint_refusal_has_a_machine_readable_code_and_retry() {
         let limits = SharedLimits::default();
         for _ in 0..5 {
-            assert!(
-                limits
-                    .check_endpoint("client", "/api/feedback", 100)
-                    .is_ok()
-            );
+            assert!(limits
+                .check_endpoint("client", "/api/feedback", 100)
+                .is_ok());
         }
         let error = limits
             .check_endpoint("client", "/api/feedback", 100)
@@ -156,17 +154,41 @@ mod tests {
     }
 
     #[test]
-    fn capacity_keeps_unexpired_quota_accounting() {
+    fn capacity_admits_new_preauth_clients() {
         let mut limits = Phase2Limits::default();
-        for _ in 0..300 {
-            assert!(limits.preauth("limited", "/api/admin/users", 100));
+        for client in 0..50_100_u32 {
+            let address = std::net::Ipv4Addr::from(client).to_string();
+            assert!(limits.preauth(&address, "/api/admin/users", 100));
         }
-        for client in 0..50_000 {
-            let _ = limits.preauth(&format!("client-{client}"), "/api/admin/users", 100);
+        assert!(limits.preauth("203.0.113.99", "/api/admin/users", 100));
+    }
+
+    #[test]
+    fn preauth_capacity_does_not_consume_user_capacity() {
+        let mut limits = Phase2Limits::default();
+        for client in 0..50_100_u32 {
+            let address = std::net::Ipv4Addr::from(client).to_string();
+            let _ = limits.preauth(&address, "/api/admin/users", 100);
         }
-        assert!(!limits.preauth("limited", "/api/admin/users", 100));
-        assert!(!limits.preauth("new-client", "/api/admin/users", 100));
-        assert!(limits.preauth("new-client", "/api/admin/users", 160));
+        for _ in 0..5 {
+            assert!(limits.endpoint("verified-user", "/api/feedback", 100));
+        }
+        assert!(!limits.endpoint("verified-user", "/api/feedback", 100));
+        assert!(limits.endpoint("another-user", "/api/feedback", 100));
+    }
+
+    #[test]
+    fn ipv6_clients_share_a_prefix_bucket() {
+        let mut limits = Phase2Limits::default();
+        for address in 0..1000_u32 {
+            let admitted = limits.preauth(
+                &format!("2001:db8:1:2::{address:x}"),
+                "/api/admin/users",
+                100,
+            );
+            assert_eq!(admitted, address < 300);
+        }
+        assert!(limits.preauth("2001:db8:1:3::1", "/api/admin/users", 100));
     }
 
     #[test]
@@ -175,15 +197,11 @@ mod tests {
         assert!(limits.preauth("admin", "/api/admin/users", 100));
         assert!(limits.endpoint("inviter", "/api/referrals/invite", 100));
         assert!(limits.preauth("next", "/api/admin/users", 160));
-        assert!(
-            !limits
-                .buckets
-                .contains_key(&("admin".into(), "/api/admin/".into()))
-        );
-        assert!(
-            limits
-                .buckets
-                .contains_key(&("inviter".into(), "invite".into()))
-        );
+        assert!(!limits
+            .buckets
+            .contains_key(&("admin".into(), "/api/admin/".into())));
+        assert!(limits
+            .buckets
+            .contains_key(&("inviter".into(), "invite".into())));
     }
 }
