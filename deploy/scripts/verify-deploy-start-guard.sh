@@ -151,7 +151,8 @@ read_state() (
     [[ $opened == "$current" ]] || exit 11
     IFS=: read -r _device _inode owner mode links <<< "$opened"
     [[ $owner == "$EUID" && $links == 1 ]] || exit 12
-    (( (8#$mode & 8#077) == 0 )) || exit 12
+    # Group and other may read the deploy's own state; they must not write it.
+    (( (8#$mode & 8#022) == 0 )) || exit 12
     size=$(fd_size 7) || exit 11
     # The deploy writes this file atomically, so a grow past the bound means it
     # is not deploy state any more.
@@ -176,7 +177,7 @@ lock_state() (
     [[ $opened == "$current" ]] || exit 22
     IFS=: read -r _device _inode owner mode links <<< "$opened"
     [[ $owner == "$EUID" && $links == 1 ]] || exit 21
-    (( (8#$mode & 8#077) == 0 )) || exit 21
+    (( (8#$mode & 8#022) == 0 )) || exit 21
     if flock -n -E 75 8; then
         exit 1
     else
