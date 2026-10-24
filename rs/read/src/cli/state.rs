@@ -242,9 +242,15 @@ impl Drop for StateLock {
 
 /// Open the stable lock file, creating it privately on first use.
 ///
-/// The file is never replaced: an existing entry keeps its mode and identity.
-/// A symlink, a non-regular entry, a foreign-owned file or a file that has
-/// another link is refused before the lock is taken.
+/// The file is never replaced and its mode is never changed: an existing entry
+/// keeps both. A symlink, a non-regular entry, a foreign-owned file or a file
+/// that has another link is refused before the lock is taken.
+///
+/// A wider existing mode is tolerated on purpose. Shared lock paths are also
+/// opened by the Python code that still writes, which creates them 0644 under
+/// the usual umask; narrowing or refusing those would lock out a coexisting
+/// release. The parent is private (0700) and the entry must be owned by the
+/// parent's owner, so no other identity can reach the path to use that mode.
 fn open_lock_file(path: &Path) -> Result<File, Exit> {
     let created = OpenOptions::new()
         .read(true)
