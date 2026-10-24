@@ -348,6 +348,9 @@ mod postgres {
             now,
         )
         .unwrap();
+        let members: i64 = sqlx::query_scalar("SELECT count(*) FROM users WHERE organization_id=$1 AND role<>'ADMIN' AND status='APPROVED'")
+            .bind(f.org).fetch_one(&mut f.admin).await.unwrap();
+        assert_eq!(members, 2, "two independent nonadmin users required");
         let member_command = run_ordered_write(
             f.pool.clone(),
             Arc::new(Semaphore::new(1)),
@@ -592,6 +595,64 @@ mod postgres {
             stored.get::<Decimal, _>("seller_fee_per_mt_usd"),
             Decimal::new(99, 2)
         );
+        sqlx::raw_sql("ALTER TABLE audit_logs DROP CONSTRAINT audit_gate")
+            .execute(&mut f.admin)
+            .await
+            .unwrap();
+        f.command(routes::Operation::Update(
+            f.org,
+            store::SubscriptionUpdate::parse(json!({"tier":"standard"})).unwrap(),
+        ))
+        .await
+        .unwrap();
+        let preserved =
+            sqlx::query("SELECT tier,seller_fee_per_mt_usd FROM subscriptions WHERE org_id=$1")
+                .bind(f.org)
+                .fetch_one(&mut f.admin)
+                .await
+                .unwrap();
+        assert_eq!(preserved.get::<String, _>("tier"), "standard");
+        assert_eq!(
+            preserved.get::<Decimal, _>("seller_fee_per_mt_usd"),
+            Decimal::new(99, 2)
+        );
+        let cleared = f
+            .command(routes::Operation::Update(
+                f.org,
+                store::SubscriptionUpdate::parse(
+                    json!({"tier":"standard","seller_fee_per_mt_usd":null}),
+                )
+                .unwrap(),
+            ))
+            .await
+            .unwrap();
+        assert!(cleared.body["seller_fee_per_mt_usd"].is_null());
+        let persisted =
+            sqlx::query("SELECT tier,seller_fee_per_mt_usd FROM subscriptions WHERE org_id=$1")
+                .bind(f.org)
+                .fetch_one(&mut f.admin)
+                .await
+                .unwrap();
+        assert_eq!(persisted.get::<String, _>("tier"), "standard");
+        assert_eq!(
+            persisted.get::<Option<Decimal>, _>("seller_fee_per_mt_usd"),
+            None
+        );
+        let changes: Vec<serde_json::Value> = sqlx::query_scalar(
+            "SELECT changes FROM audit_logs WHERE action='subscription.updated' AND resource_id=$1",
+        )
+        .bind(f.org.to_string())
+        .fetch_all(&mut f.admin)
+        .await
+        .unwrap();
+        assert_eq!(changes.len(), 4);
+        assert!(
+            changes
+                .iter()
+                .any(|change| change["tier"]["to"] == "standard"
+                    && change.get("seller_fee_per_mt_usd").is_none())
+        );
+        assert_eq!(changes.iter().filter(|change|change["seller_fee_per_mt_usd"]==json!({"from":"0.99","to":null})).count(),1);
         f.finish().await;
     }
 }
