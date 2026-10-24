@@ -132,7 +132,7 @@ class Round8Contract(unittest.TestCase):
                     critical=[{'source':self.reader.resolved(late),'reference':self.reader.unresolved(denied),'status':'credential-denied'}, {'source':self.reader.resolved(late),'reference':self.reader.unresolved('app.hidden'),'status':'removed-package'}]
                     expected_blocking=ordered(self.reader,critical+[self.reader.bound_row(status.split(':',1)[1]) for status in expected]+([{'source':self.reader.resolved(late),'reference':self.reader.unresolved('app.hidden'),'status':'unresolved'}] if bound=='visited' else []))
                     obs=self.observations(seeds,failed={'usr_local'})
-                    if bound in ('graph-bytes','file'):
+                    if bound in ('graph-bytes','file','visited'):
                         retained=set(expected_paths)
                         obs[3]['fields']=[{'key':'executable','values':[p]} for p in sorted(seeds) if p in retained]
                         from round10_contract import unparsed
