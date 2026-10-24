@@ -445,15 +445,23 @@ pub fn compose(
 }
 
 /// The bucket identity of the presented bearer token.
+///
+/// The header is normalized exactly as `verify_authorization` normalizes it —
+/// case-insensitive scheme, then every leading space removed — so re-spelling
+/// one token cannot open a second quota bucket. The key is the full 32-byte
+/// SHA-256 digest of the normalized token, never a truncated prefix.
 pub fn token_identity(authorization: Option<&str>) -> String {
     use sha2::{Digest, Sha256};
-    match authorization {
-        Some(header) if !header.is_empty() => {
-            let digest = Sha256::digest(header.as_bytes());
-            format!("tok:{}", hex(&digest[..8]))
-        }
-        _ => "client".into(),
+    let raw = authorization.unwrap_or("");
+    let (scheme, token) = raw.split_once(' ').unwrap_or((raw, ""));
+    if !scheme.eq_ignore_ascii_case("bearer") || token.is_empty() {
+        // Authentication refuses this header before any quota is charged; one
+        // shared fallback bucket keeps the function total without inventing an
+        // identity for an unauthenticated caller.
+        return "client".into();
     }
+    let digest = Sha256::digest(token.trim_start_matches(' ').as_bytes());
+    format!("tok:{}", hex(&digest))
 }
 
 fn hex(bytes: &[u8]) -> String {
