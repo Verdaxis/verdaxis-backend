@@ -72,6 +72,9 @@ impl PendingWrite {
     /// `create_new` refuses an existing name, and the UUID keeps two writers
     /// from choosing the same name even after a crash left one behind.
     pub fn create<T: Serialize>(path: &Path, value: &T) -> Result<Self, Exit> {
+        if !path.is_absolute() {
+            return Err(Exit::Precondition);
+        }
         let parent = path.parent().ok_or(Exit::Precondition)?;
         let name = path
             .file_name()
