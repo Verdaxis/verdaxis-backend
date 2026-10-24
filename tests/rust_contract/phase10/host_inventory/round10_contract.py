@@ -25,7 +25,7 @@ class Round10Contract(unittest.TestCase):
                 seed='/tmp/critical.py'; denied='/usr/local/libexec/runtime.env'
                 source_text=''
                 if branch=='structural':source_text='User=first\nGroup=second\nWorkingDirectory=/third\n'
-                if branch=='entries':source_text='ExecStart=/missing/a.py\nExecStart=/missing/b.py\nExecStart=/missing/c.py\n'
+                if branch=='entries':source_text='ExecStart=/zzz/a.py\nExecStart=/zzz/b.py\nExecStart=/zzz/c.py\n'
                 if branch=='shared-entries':source_text='EnvironmentFile=/private/a.env\nEnvironmentFile=/private/b.env\n'
                 if branch=='statements':source_text='ExecStart="'+'x'*80
                 if branch=='logical-lines':source_text='Description="'+'x'*80
@@ -64,7 +64,7 @@ class Round10Contract(unittest.TestCase):
                 if branch=='structural':
                     drop_fields=[{'key':'User','values':['first']},{'key':'Group','values':['second']}];drop_trunc=['structural-items']
                 elif branch=='entries':
-                    drop_unparsed=[unparsed(json.dumps({'key':'ExecStart','values':['/missing/a.py']})),unparsed(json.dumps({'key':'ExecStart','values':['/missing/b.py']}))];drop_trunc=['structural-items']
+                    drop_unparsed=[unparsed(json.dumps({'key':'ExecStart','values':['/zzz/a.py']})),unparsed(json.dumps({'key':'ExecStart','values':['/zzz/b.py']}))];drop_trunc=['structural-items']
                 elif branch=='shared-entries':
                     drop_unparsed=[unparsed(json.dumps({'key':'EnvironmentFile','values':['/private/a.env']})),unparsed(json.dumps({'key':'EnvironmentFile','values':['/private/b.env']}))]
                 elif branch=='statements':drop_unparsed=[unparsed(source_text)]
