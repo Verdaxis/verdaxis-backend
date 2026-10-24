@@ -403,7 +403,10 @@ fn p4_t18_c05() {
     assert_eq!(stage("registered").total.count, Some(2));
     assert!(!stage("registered").total.suppressed);
     assert!(stage("registered").buyer.as_ref().unwrap().suppressed);
-    assert_eq!(stage("registered").supplier.as_ref().unwrap().count, Some(0));
+    assert_eq!(
+        stage("registered").supplier.as_ref().unwrap().count,
+        Some(0)
+    );
     assert!(stage("approved").total.suppressed);
     assert!(stage("first_login").total.suppressed);
     assert!(stage("first_live_order").total.suppressed);
@@ -1029,7 +1032,10 @@ mod postgres {
         };
         assert_eq!(stage("registered").total.count, Some(1));
         assert!(stage("registered").buyer.as_ref().unwrap().suppressed);
-        assert_eq!(stage("registered").supplier.as_ref().unwrap().count, Some(0));
+        assert_eq!(
+            stage("registered").supplier.as_ref().unwrap().count,
+            Some(0)
+        );
         assert!(stage("approved").total.suppressed);
         assert!(stage("first_login").total.suppressed);
         assert!(stage("first_live_order").total.suppressed);

@@ -8,6 +8,11 @@
 //! never inferred from organization names.
 //!
 //! Unavailable or uncovered values stay `None`; a genuine zero stays `0`.
+// The SQL loaders are exercised by the PostgreSQL contract tests. An offline
+// build of this module has no caller, so their absence from the offline test
+// binary is expected, not dead code.
+#![cfg_attr(not(feature = "contract-tests"), allow(dead_code))]
+
 
 use std::collections::BTreeMap;
 
