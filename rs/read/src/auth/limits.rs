@@ -200,7 +200,11 @@ fn network_identity(client: &str) -> String {
             Ipv6Addr::from(prefix).to_string()
         }
         Ok(IpAddr::V4(address)) => address.to_string(),
-        Err(_) => "unknown".into(),
+        // A value that is not an address is still its own pre-auth identity.
+        // Collapsing every such value into one bucket would let one client
+        // spend another's budget; only the middleware's own literal "unknown"
+        // groups requests that had no peer address at all.
+        Err(_) => client.to_string(),
     }
 }
 

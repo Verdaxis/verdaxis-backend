@@ -95,6 +95,7 @@ fn config() -> Config {
         python_budget: 52,
         configured_max_connections: 100,
         prepared_budget: None,
+        phase2: Default::default(),
     }
 }
 
