@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod business;
 pub mod crud;
+pub mod kyc;
 pub mod market;
 pub mod mcp;
 pub mod routes;
