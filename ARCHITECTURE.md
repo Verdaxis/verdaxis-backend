@@ -37,6 +37,16 @@ assisted customer members. The runtime config remains the single switch
 source; profile-only NOT_APPLICABLE is not execution eligibility. No route,
 grace mutation, notice sender or timer is added here.
 
+## Rust subscriptions
+
+`rs/read/src/subscriptions/` provides the five subscription component routes,
+conflict-safe organization bootstrap/upsert, and seller fee policy. Commands use
+the ordered business transaction owner; subscription updates and audit append
+commit together. `resolve_seller_fee` only reads on the trade creator's borrowed
+connection. Phase 9 freezes its plan and Decimal rate on each new trade; later
+subscription changes do not reprice existing trades. Component routes are not
+activated in the serving router by this module.
+
 ## Rust Phase 2 feedback
 
 `rs/read/src/crud/feedback.rs` provides the Task 10 feedback submission and

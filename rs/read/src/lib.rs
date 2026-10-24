@@ -194,3 +194,4 @@ pub fn verify_release(value: &str) -> Result<(), &'static str> {
 }
 
 pub mod kyc;
+pub mod subscriptions;
