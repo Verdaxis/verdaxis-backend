@@ -718,8 +718,7 @@ mod postgres {
         let error =
             documents::handle_download(&state, context, headers(other, now), "fixture".into(), &id)
                 .await
-                .err()
-                .expect("foreign nonadmin download");
+                .expect_err("foreign nonadmin download");
         assert_eq!(error.status, StatusCode::FORBIDDEN);
         drop(state);
         f.finish().await;
@@ -789,8 +788,7 @@ mod postgres {
             &id.to_string(),
         )
         .await
-        .err()
-        .expect("download quota");
+        .expect_err("download quota");
         assert_eq!(error.status, StatusCode::TOO_MANY_REQUESTS);
         assert!(error.retry_after.is_some());
         drop(state);
@@ -826,8 +824,7 @@ mod postgres {
             &id.to_string(),
         )
         .await
-        .err()
-        .expect("missing decryption key");
+        .expect_err("missing decryption key");
         assert_eq!(error.status, StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(error.detail["code"], "KYC_DOCUMENT_DECRYPTION_FAILED");
         assert!(
