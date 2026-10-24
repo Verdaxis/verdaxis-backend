@@ -331,14 +331,14 @@ mod postgres {
     async fn p4_t13_c02() {
         let mut f = Fixture::new().await;
         let member = Uuid::new_v4();
-        sqlx::query(
-            "INSERT INTO users(id,organization_id,role,status) VALUES($1,$2,'SUPPLIER','APPROVED')",
-        )
-        .bind(member)
-        .bind(f.org)
-        .execute(&mut f.admin)
-        .await
-        .unwrap();
+        let second_member = Uuid::new_v4();
+        for id in [member, second_member] {
+            sqlx::query("INSERT INTO users(id,organization_id,role,status) VALUES($1,$2,'SUPPLIER','APPROVED')")
+                .bind(id).bind(f.org).execute(&mut f.admin).await.unwrap();
+        }
+        assert_ne!(member, second_member);
+        assert_ne!(member, f.actor);
+        assert_ne!(second_member, f.actor);
         let key = "test-secret-key-for-testing-minimum-32-chars";
         let now = Utc::now();
         let token=jsonwebtoken::encode(&jsonwebtoken::Header::default(),&json!({"sub":member,"iat":now.timestamp(),"exp":now.timestamp()+3600,"type":"access","iss":"test","aud":"test"}),&jsonwebtoken::EncodingKey::from_secret(key.as_bytes())).unwrap();
@@ -351,26 +351,82 @@ mod postgres {
         let members: i64 = sqlx::query_scalar("SELECT count(*) FROM users WHERE organization_id=$1 AND role<>'ADMIN' AND status='APPROVED'")
             .bind(f.org).fetch_one(&mut f.admin).await.unwrap();
         assert_eq!(members, 2, "two independent nonadmin users required");
-        let member_command = run_ordered_write(
-            f.pool.clone(),
-            Arc::new(Semaphore::new(1)),
-            access,
-            routes::SubscriptionCommand::new(member, routes::Operation::Mine, now),
+        let token=jsonwebtoken::encode(&jsonwebtoken::Header::default(),&json!({"sub":second_member,"iat":now.timestamp(),"exp":now.timestamp()+3600,"type":"access","iss":"test","aud":"test"}),&jsonwebtoken::EncodingKey::from_secret(key.as_bytes())).unwrap();
+        let second_access = auth::verify_access(
+            &token,
+            &auth::VerificationSettings::new(key.into(), None, "test".into(), "test".into()),
+            now,
+        )
+        .unwrap();
+        // Hold the organization row outside the competing commands. All three
+        // identities must reach PostgreSQL lock contention before release.
+        let mut holder = f.pool.acquire().await.unwrap();
+        let mut held = holder.begin().await.unwrap();
+        let holder_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(&mut *held)
+            .await
+            .unwrap();
+        sqlx::query("SELECT id FROM organizations WHERE id=$1 FOR UPDATE")
+            .bind(f.org)
+            .fetch_one(&mut *held)
+            .await
+            .unwrap();
+        let start = Arc::new(tokio::sync::Barrier::new(4));
+        let mut workers = Vec::new();
+        for (actor, access) in [
+            (member, access),
+            (second_member, second_access),
+            (f.actor, f.access()),
+        ] {
+            let pool = f.pool.clone();
+            let start = start.clone();
+            let org = f.org;
+            let admin = f.actor;
+            workers.push(tokio::spawn(async move {
+                start.wait().await;
+                let first=run_ordered_write(pool.clone(),Arc::new(Semaphore::new(1)),access,routes::SubscriptionCommand::new(actor,routes::Operation::Mine,now)).await?;
+                if actor==admin {
+                    let token=jsonwebtoken::encode(&jsonwebtoken::Header::default(),&json!({"sub":actor,"iat":now.timestamp(),"exp":now.timestamp()+3600,"type":"access","iss":"test","aud":"test"}),&jsonwebtoken::EncodingKey::from_secret(key.as_bytes())).unwrap();
+                    let access=auth::verify_access(&token,&auth::VerificationSettings::new(key.into(),None,"test".into(),"test".into()),now).unwrap();
+                    run_ordered_write(pool,Arc::new(Semaphore::new(1)),access,routes::SubscriptionCommand::new(actor,routes::Operation::Update(org,store::SubscriptionUpdate::parse(json!({"tier":"enterprise","seller_fee_per_mt_usd":"0.75"})).unwrap()),now)).await?;
+                }
+                Ok::<_,ApiError>(first)
+            }));
+        }
+        start.wait().await;
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            // pg_locks is independent of the holder's transaction snapshot.
+            // Each contender holds a granted relation RowShareLock while its
+            // SELECT FOR UPDATE waits on the held organization row.
+            let waiting:i64=sqlx::query_scalar("SELECT count(DISTINCT l.pid) FROM pg_locks l JOIN pg_stat_activity a ON a.pid=l.pid WHERE l.relation=($1::text)::regclass AND l.mode='RowShareLock' AND l.granted AND a.wait_event_type='Lock' AND cardinality(pg_blocking_pids(l.pid))>0 AND l.pid<>$2")
+                .bind(format!("{}.organizations",f.schema)).bind(holder_pid).fetch_one(&mut f.admin).await.unwrap();
+            if waiting == 3 {
+                break;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "three subscription actors did not reach organization lock contention"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM subscriptions")
+                .fetch_one(&mut f.admin)
+                .await
+                .unwrap(),
+            0
         );
-        let (a, b, c) = tokio::join!(
-            f.command(routes::Operation::Mine),
-            member_command,
-            f.command(routes::Operation::Update(
-                f.org,
-                store::SubscriptionUpdate::parse(
-                    json!({"tier":"enterprise","seller_fee_per_mt_usd":"0.75"})
-                )
-                .unwrap()
-            ))
-        );
-        a.unwrap();
-        b.unwrap();
-        c.unwrap();
+        held.commit().await.unwrap();
+        drop(holder);
+        for worker in workers {
+            worker.await.unwrap().unwrap();
+        }
+        let audits: Vec<(Uuid, String)> = sqlx::query_as("SELECT user_id,action FROM audit_logs")
+            .fetch_all(&mut f.admin)
+            .await
+            .unwrap();
+        assert_eq!(audits, vec![(f.actor, "subscription.updated".into())]);
         let mut conn = f.pool.acquire().await.unwrap();
         assert_eq!(
             sqlx::query_scalar::<_, i64>("SELECT count(*) FROM subscriptions")
