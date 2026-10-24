@@ -11,8 +11,9 @@ SURFACES = ('units','dropins','timers','processes','usr_local','packages','cron'
 
 
 def assert_collection(case, reader, result, *, scripts, blocking, markers,
-                      acquired, observations):
+                      acquired, observations, truncations):
     case.assertEqual(set(acquired), set(SURFACES))
+    case.assertEqual(result['truncations'], truncations)
     case.assertEqual(result['acquired'], acquired)
     case.assertEqual(result['dependency_coverage'], 'manual-review-required')
     case.assertEqual(result['scripts'], scripts)

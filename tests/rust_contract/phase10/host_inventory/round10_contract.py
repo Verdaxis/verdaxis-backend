@@ -42,6 +42,7 @@ class Round10Contract(unittest.TestCase):
                     if path!=seed:raise OSError('fixture absent')
                     return critical
                 acquired=flags()
+                reasons={'usr_local':['blocking-rows']}
                 if branch in ('structural','entries','statements','logical-lines'):
                     acquired['dropins']=False
                 if branch=='shared-entries':acquired['dropins']=False;acquired['cron']=False
@@ -99,8 +100,15 @@ class Round10Contract(unittest.TestCase):
                 if branch.startswith('cron-'):
                     self.assertEqual(read_paths,['/etc/cron.d/a','/etc/crontab'] if branch=='cron-enumeration' else ['/etc/cron.d/a','/etc/cron.d/b'])
                     for _ in range(2):expected.append(observation('cron','',acquired=False))
+                if branch=='structural':reasons['dropins']=['structural-items']
+                if branch=='entries':reasons.update(dropins=['entries','structural-items'],usr_local=['blocking-rows','import-queue'])
+                if branch=='shared-entries':reasons.update(dropins=['entries'],cron=['entries'])
+                if branch=='unit-count':reasons['units']=['unit-count']
+                if branch.startswith('cron-'):reasons['cron']=['cron-count']
+                if branch=='statements':reasons['dropins']=['statements']
+                if branch=='logical-lines':reasons['dropins']=['logical-lines']
                 markers={row['status'] for row in block if row['status'].startswith('bound-exceeded:')}
-                assert_collection(self,reader,result,scripts=[expected_script],blocking=ordered(reader,block),markers=markers,acquired=acquired,observations=expected)
+                assert_collection(self,reader,result,scripts=[expected_script],blocking=ordered(reader,block),markers=markers,acquired=acquired,observations=expected,truncations=[{'surface':x,'reasons':y} for x,y in sorted(reasons.items())])
 
     def test_nonregular_and_popped_depth_collection(self):
         import os
@@ -118,7 +126,7 @@ class Round10Contract(unittest.TestCase):
                     failed={'usr_local'} if branch=='popped-depth' else set()
                     block=ordered(self.reader,[self.reader.bound_row('import-queue'),self.reader.bound_row('usr_local')]) if failed else [{'source':self.reader.unresolved(seed),'reference':self.reader.unresolved('<unreadable-or-forbidden>'),'status':'unresolved'}]
                     observations=[observation('units',''),observation('timers',''),observation('processes',''),observation('usr_local',seed,acquired=not failed,unparsed=[unparsed(json.dumps({'key':'executable','values':[seed]}))]),observation('packages',''),*[observation('cron','') for _ in range(3)]]
-                    assert_collection(self,self.reader,result,scripts=[],blocking=block,markers={r['status'] for r in block if r['status'].startswith('bound-exceeded:')},acquired=flags(*failed),observations=observations)
+                    assert_collection(self,self.reader,result,scripts=[],blocking=block,markers={r['status'] for r in block if r['status'].startswith('bound-exceeded:')},acquired=flags(*failed),observations=observations,truncations=[{'surface':'usr_local','reasons':['import-queue']}] if failed else [])
 
     def test_received_response_limit_refusal(self):
         from reader_contract import TRANSPORT

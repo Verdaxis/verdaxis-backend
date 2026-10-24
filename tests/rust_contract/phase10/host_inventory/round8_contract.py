@@ -17,10 +17,10 @@ class Round8Contract(unittest.TestCase):
         self.reader = load(READER)
         self.transport = load(TRANSPORT)
 
-    def installed(self,result,expected_false,*,scripts,blocking,observations):
+    def installed(self,result,expected_false,*,scripts,blocking,observations,truncations):
         markers={row['status'] for row in blocking if row['status'].startswith(('bound-exceeded:','overflow:'))}
         return assert_collection(self,self.reader,result,scripts=scripts,blocking=blocking,
-                                 markers=markers,acquired=flags(*expected_false),observations=observations)
+                                 markers=markers,acquired=flags(*expected_false),observations=observations,truncations=truncations)
 
     def observations(self,paths,failed=(),unit_text='',drop_text=None,drop_fields=()):
         fields=[{'key':'unit','values':unit_text.split()}] if unit_text else []
@@ -63,7 +63,7 @@ class Round8Contract(unittest.TestCase):
         self.assertFalse(result['acquired']['usr_local'])
         expected_scripts=[dict(record('/tmp/a.py'),executables=[self.reader.resolved('/tmp/'+str(i)+'.py') for i in (1,2,3)],truncations=[]),dict(record('/tmp/1.py'),truncations=[])]
         expected_rows=ordered(self.reader,[self.reader.bound_row('import-queue'),self.reader.bound_row('usr_local')])
-        self.installed(result,expected_false={'usr_local'},scripts=expected_scripts,blocking=expected_rows,observations=self.observations(['/tmp/a.py'],failed={'usr_local'}))
+        self.installed(result,expected_false={'usr_local'},scripts=expected_scripts,blocking=expected_rows,observations=self.observations(['/tmp/a.py'],failed={'usr_local'}),truncations=[{'surface':'usr_local','reasons':['import-queue']}])
 
     def test_collection_graph_bound_matrix(self):
         denied='/usr/local/libexec/runtime.env'
@@ -137,7 +137,7 @@ class Round8Contract(unittest.TestCase):
                         obs[3]['fields']=[{'key':'executable','values':[p]} for p in sorted(seeds) if p in retained]
                         from round10_contract import unparsed
                         obs[3]['unparsed']=[unparsed(json.dumps({'key':'executable','values':[p]})) for p in sorted(seeds) if p not in retained]
-                    self.installed(result,expected_false={'usr_local'},scripts=script_expectations,blocking=expected_blocking,observations=obs)
+                    self.installed(result,expected_false={'usr_local'},scripts=script_expectations,blocking=expected_blocking,observations=obs,truncations=[{'surface':'usr_local','reasons':sorted(status.split(':',1)[1] for status in expected if status!='bound-exceeded:usr_local')}])
 
     def test_real_parser_dual_class_overflow_installed(self):
         for kind in ('credential-denied','removed-package'):
@@ -162,7 +162,7 @@ class Round8Contract(unittest.TestCase):
                     retained=ordered(self.reader,candidates)[:2]
                     overflow=dict(self.reader.bound_row(kind),status='overflow:'+kind)
                     expected_rows=ordered(self.reader,retained+[overflow]+[self.reader.bound_row(x) for x in ('references','blocking-rows','usr_local')])
-                    doc=self.installed(result,expected_false={'usr_local'},scripts=expected_scripts,blocking=expected_rows,observations=self.observations(paths,failed={'usr_local'}))
+                    doc=self.installed(result,expected_false={'usr_local'},scripts=expected_scripts,blocking=expected_rows,observations=self.observations(paths,failed={'usr_local'}),truncations=[{'surface':'usr_local','reasons':['blocking-rows','references']}])
                     for snapshot in doc['host_snapshots'].values():
                         self.assertEqual(sum(r['status']=='overflow:'+kind for r in snapshot['blocking_dependencies']),1)
                     self.assertEqual(self.markers(result),{'overflow:'+kind,'bound-exceeded:references','bound-exceeded:blocking-rows','bound-exceeded:usr_local'})
@@ -184,7 +184,7 @@ class Round8Contract(unittest.TestCase):
         self.assertEqual(result['observations'][1]['fields'],[{'key':'User','values':['kept']}])
         self.assertEqual(self.markers(result),{'bound-exceeded:dropins'})
         self.assertFalse(result['acquired']['dropins'])
-        self.installed(result,expected_false={'dropins'},scripts=[],blocking=[self.reader.bound_row('dropins')],observations=self.observations([],failed={'dropins'},unit_text='a.service\n',drop_text=text,drop_fields=[{'key':'User','values':['kept']}]))
+        self.installed(result,expected_false={'dropins'},scripts=[],blocking=[self.reader.bound_row('dropins')],observations=self.observations([],failed={'dropins'},unit_text='a.service\n',drop_text=text,drop_fields=[{'key':'User','values':['kept']}]),truncations=[{'surface':'dropins','reasons':['command-bytes']}])
 
     def test_deadline_wait_downstream(self):
         import subprocess
@@ -214,7 +214,7 @@ class Round8Contract(unittest.TestCase):
                 self.assertEqual(self.markers(result),{'bound-exceeded:'+x for x in ('units','timers','processes','usr_local','packages','cron')})
                 self.assertTrue(all(not flag for flag in result['acquired'].values()))
                 failed={'units','dropins','timers','processes','usr_local','packages','cron'}
-                self.installed(result,expected_false=failed,scripts=[],blocking=ordered(self.reader,[self.reader.bound_row(x) for x in failed if x!='dropins']),observations=self.observations([],failed=failed))
+                self.installed(result,expected_false=failed,scripts=[],blocking=ordered(self.reader,[self.reader.bound_row(x) for x in failed if x!='dropins']),observations=self.observations([],failed=failed),truncations=[{'surface':x,'reasons':['command-bytes']} for x in sorted(failed-{'dropins'})])
 
     def test_transport_deadline_wait_downstream(self):
         import subprocess
@@ -253,7 +253,7 @@ class Round8Contract(unittest.TestCase):
         base=json.loads((ROOT/'tests/rust_contract/phase10/host-dependencies.json').read_text())
         self.assertEqual(self.transport.collect_hosts(base,lambda a,d:raw),{'host_refusals':{'staging':{'refusal':'transport-error'},'production':{'refusal':'transport-error'}}})
         result=self.reader.collect(lambda argv:('',True),cron_files=[])
-        doc=self.installed(result,expected_false=set(),scripts=[],blocking=[],observations=self.observations([]))
+        doc=self.installed(result,expected_false=set(),scripts=[],blocking=[],observations=self.observations([]),truncations=[])
         real_open=self.transport.os.open
         def guarded_open(path,*args,**kwargs):
             if isinstance(path,str) and str(self.transport.EVIDENCE_ROOT).startswith(path) and path not in ('/', '/Users', '/Users/jonathanjie'):

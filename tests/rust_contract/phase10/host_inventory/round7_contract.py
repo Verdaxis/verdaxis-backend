@@ -22,8 +22,8 @@ class Round7Contract(unittest.TestCase):
 
 
     def test_late_priority_before_graph_bytes(self):
-        from round8_contract import Round8Contract
-        case=Round8Contract('test_collection_graph_bound_matrix');case.setUp();case.test_collection_graph_bound_matrix()
+        from round11_contract import Round11Contract
+        case=Round11Contract('test_acquired_overflow_survives_byte_rejection');case.setUp();case.test_acquired_overflow_survives_byte_rejection()
 
     def test_marker_canonicalization(self):
         from round8_contract import Round8Contract

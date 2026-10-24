@@ -17,7 +17,7 @@ class Round9Contract(unittest.TestCase):
 
     def installed(self,result,expected_false,*,scripts,blocking,observations):
         return assert_collection(self,self.reader,result,scripts=scripts,blocking=blocking,
-                                 markers=set(),acquired=flags(*expected_false),observations=observations)
+                                 markers=set(),acquired=flags(*expected_false),observations=observations,truncations=[])
 
     def observations(self,paths):
         text='\n'.join(sorted(paths))
