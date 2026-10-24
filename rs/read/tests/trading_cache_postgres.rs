@@ -63,6 +63,8 @@ fn state_config(url: &str) -> Config {
         pool_max: 5,
         python_budget: 52,
         configured_max_connections: 100,
+        compliance_eur_usd_rate: None,
+        fleet_artifact_path: "data/fleet_demand.json".into(),
     }
 }
 
