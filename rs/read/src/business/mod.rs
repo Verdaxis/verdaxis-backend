@@ -1,5 +1,6 @@
 //! Caller-owned business facts and ordered command execution.
 pub mod admission;
+pub mod approval_mail;
 pub mod audit;
 pub mod error;
 pub mod joins;
