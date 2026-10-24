@@ -304,7 +304,46 @@ mod postgres {
     }
 
     #[tokio::test]
-    async fn p4_t9_c01() {
+    async fn p4_t9_c09() {
+        let mut fixture = Fixture::new().await;
+        for enabled in [false, true] {
+            for with_grace in [false, true] {
+                for status in ["UNKNOWN", "", "pending", "REVIEW_REQUIRED"] {
+                    fixture
+                        .store(&party(KycStatus::Pending), with_grace.then(grace).as_ref())
+                        .await;
+                    sqlx::query("UPDATE users SET kyc_status=$1,kyc_organization_id=NULL")
+                        .bind(status)
+                        .execute(&mut fixture.admin)
+                        .await
+                        .unwrap();
+                    for sql_party in [KycSqlParty::USER, KycSqlParty::MEMBER] {
+                        let alias = if sql_party == KycSqlParty::USER {
+                            "u"
+                        } else {
+                            "m"
+                        };
+                        let mut builder = QueryBuilder::<Postgres>::new("SELECT COALESCE(");
+                        bind_eligibility_sql(&mut builder, &policy(enabled), sql_party, now());
+                        builder.push(format!(",false) FROM users {alias}"));
+                        let admitted: bool = builder
+                            .build_query_scalar()
+                            .fetch_one(&mut fixture.runtime)
+                            .await
+                            .unwrap();
+                        assert!(
+                            !admitted,
+                            "status={status:?} enabled={enabled} grace={with_grace}"
+                        );
+                    }
+                }
+            }
+        }
+        fixture.finish().await;
+    }
+
+    #[tokio::test]
+    async fn p4_t9_c11() {
         let mut fixture = Fixture::new().await;
         sqlx::query("INSERT INTO organizations VALUES($1,'APPROVED','REAL')")
             .bind(Uuid::from_u128(2))
@@ -332,6 +371,186 @@ mod postgres {
             }
         }
         fixture.finish().await;
+    }
+
+    #[tokio::test]
+    #[ignore = "requires migrated synthetic market fixture and integration overlay"]
+    async fn p4_t9_c01() {
+        use axum::{
+            body::{Body, to_bytes},
+            http::Request,
+        };
+        use std::collections::BTreeSet;
+        use tower::ServiceExt;
+        use verdaxis_read::{AppState, Config, MarketPolicy};
+
+        let expected: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(std::env::var("RUST_MARKET_TEST_EXPECTED").unwrap()).unwrap(),
+        )
+        .unwrap();
+        let url = std::env::var("RUST_MARKET_TEST_DATABASE_URL").unwrap();
+        let target = url::Url::parse(&url).unwrap();
+        assert_eq!(target.host_str(), Some("127.0.0.1"));
+        assert!(target.path().ends_with("_test"));
+        let admin_url = std::env::var("RUST_MARKET_TEST_MIGRATOR_URL").unwrap();
+        let admin_target = url::Url::parse(&admin_url).unwrap();
+        assert_eq!(admin_target.host_str(), target.host_str());
+        assert_eq!(admin_target.port(), target.port());
+        assert_eq!(admin_target.path(), target.path());
+        let mut admin = PgConnection::connect(&admin_url).await.unwrap();
+        let clock: DateTime<Utc> = expected["clock"].as_str().unwrap().parse().unwrap();
+        assert_eq!(
+            std::env::var("RUST_CONTRACT_CLOCK")
+                .unwrap()
+                .parse::<DateTime<Utc>>()
+                .unwrap(),
+            clock
+        );
+        let sharing = std::env::var("RUST_KYC_SHARING_REQUIRED").as_deref() == Ok("1");
+        if sharing {
+            assert!(
+                verdaxis_read::market::visibility::eligibility_sets_sql("$13")
+                    .contains("kyc_status IN")
+            );
+        }
+        for enabled in [false, true] {
+            let config = Config {
+                kyc_execution_gate_enabled: enabled,
+                db_session_time_zone: "Asia/Singapore".into(),
+                environment: "test".into(),
+                release_sha: verdaxis_read::compiled_sha().into(),
+                migration_revision: "kycg_20261014_staging".into(),
+                database_url: url.clone(),
+                bind: "127.0.0.1:0".parse().unwrap(),
+                read_admission_slots: 16,
+                pool_max: 17,
+                python_budget: 52,
+                configured_max_connections: 100,
+                prepared_budget: None,
+            };
+            let pools = verdaxis_read::runtime::db::Pools {
+                read: sqlx::postgres::PgPoolOptions::new()
+                    .max_connections(4)
+                    .connect(&url)
+                    .await
+                    .unwrap(),
+                health: sqlx::postgres::PgPoolOptions::new()
+                    .max_connections(1)
+                    .connect(&url)
+                    .await
+                    .unwrap(),
+            };
+            let market: MarketPolicy =
+                serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json"))
+                    .unwrap();
+            let state = AppState::new(config, pools, market).unwrap();
+            let app = verdaxis_read::routes::orderbook_lists::routes().with_state(state);
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri("/api/orderbook?limit=100")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), 200);
+            let body: serde_json::Value = serde_json::from_slice(
+                &to_bytes(response.into_body(), 4 * 1024 * 1024)
+                    .await
+                    .unwrap(),
+            )
+            .unwrap();
+            let actual: BTreeSet<String> = body
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| row["id"].as_str().unwrap().to_owned())
+                .collect();
+            let run = expected["kyc_gate_runs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|run| run["enabled"] == enabled)
+                .unwrap();
+            let wanted: BTreeSet<String> = run["selected"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|id| id.as_str().unwrap().to_owned())
+                .collect();
+            assert_eq!(actual, wanted, "baseline public HTTP gate={enabled}");
+
+            // This tenant has one customer member and one assisted order; the
+            // administrator's own KYC cannot authorize that customer's tenant.
+            let order_id: Uuid = expected["cases"]["assisted_foreign_grace"]["id"]
+                .as_str()
+                .unwrap()
+                .parse()
+                .unwrap();
+            let (member, org): (Uuid, Uuid) = sqlx::query_as("SELECT u.id,u.organization_id FROM users u JOIN orderbook_orders o ON o.organization_id=u.organization_id WHERE o.id=$1 AND u.role='SUPPLIER'")
+                .bind(order_id).fetch_one(&mut admin).await.unwrap();
+            for (status, bound, grace_offset, grace_bound, strict, advisory) in [
+                ("APPROVED", true, None, true, true, true),
+                ("APPROVED", false, None, true, false, false),
+                ("PENDING", true, Some(1), true, true, true),
+                ("PENDING", true, Some(0), true, false, true),
+                ("PENDING", true, Some(-1), true, false, true),
+                ("PENDING", true, Some(1), false, false, true),
+                ("REJECTED", true, Some(1), true, false, false),
+                ("SUBMITTED", true, None, true, false, true),
+            ] {
+                sqlx::query("UPDATE users SET kyc_status=$1,kyc_organization_id=CASE WHEN $2 THEN organization_id ELSE (SELECT id FROM organizations WHERE id<>$3 LIMIT 1) END WHERE id=$4")
+                    .bind(status).bind(bound).bind(org).bind(member).execute(&mut admin).await.unwrap();
+                sqlx::query("DELETE FROM kyc_execution_grace WHERE user_id=$1")
+                    .bind(member)
+                    .execute(&mut admin)
+                    .await
+                    .unwrap();
+                if let Some(offset) = grace_offset {
+                    sqlx::query("INSERT INTO kyc_execution_grace(id,user_id,organization_id,expires_at) VALUES($1,$2,CASE WHEN $3 THEN $4 ELSE (SELECT id FROM organizations WHERE id<>$4 LIMIT 1) END,$5)")
+                        .bind(Uuid::new_v4()).bind(member).bind(grace_bound).bind(org).bind(clock + Duration::microseconds(offset)).execute(&mut admin).await.unwrap();
+                }
+                let response = app
+                    .clone()
+                    .oneshot(
+                        Request::builder()
+                            .uri("/api/orderbook?limit=100")
+                            .body(Body::empty())
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(response.status(), 200);
+                let body: serde_json::Value = serde_json::from_slice(
+                    &to_bytes(response.into_body(), 4 * 1024 * 1024)
+                        .await
+                        .unwrap(),
+                )
+                .unwrap();
+                let visible = body
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|row| row["id"] == order_id.to_string());
+                assert_eq!(
+                    visible,
+                    if enabled { strict } else { advisory },
+                    "assisted HTTP status={status} gate={enabled} grace={grace_offset:?}"
+                );
+            }
+            // Restore the frozen fixture before the next switch-state baseline.
+            sqlx::query("UPDATE users SET kyc_status='APPROVED',kyc_organization_id=(SELECT id FROM organizations WHERE id<>$1 ORDER BY id LIMIT 1) WHERE id=$2")
+                .bind(org).bind(member).execute(&mut admin).await.unwrap();
+            sqlx::query("DELETE FROM kyc_execution_grace WHERE user_id=$1")
+                .bind(member)
+                .execute(&mut admin)
+                .await
+                .unwrap();
+            sqlx::query("INSERT INTO kyc_execution_grace(id,user_id,organization_id,expires_at) VALUES($1,$2,$3,$4)")
+                .bind(Uuid::new_v4()).bind(member).bind(org).bind(clock + Duration::hours(1)).execute(&mut admin).await.unwrap();
+        }
     }
 
     #[tokio::test]
