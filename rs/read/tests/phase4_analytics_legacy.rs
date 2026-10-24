@@ -36,7 +36,7 @@ use std::{net::SocketAddr, sync::Arc};
 use tower::ServiceExt;
 use uuid::Uuid;
 
-use verdaxis_read::auth::{self, VerificationSettings};
+use verdaxis_read::auth::VerificationSettings;
 
 const SECRET: &str = "analytics-legacy-test-secret-at-least-32-chars";
 const ISSUER: &str = "analytics-legacy-test";
@@ -101,10 +101,7 @@ fn app(pool: sqlx::PgPool, url: String, limits: auth::limits::SharedLimits) -> R
         .unwrap();
     let state = AppState::new(
         config(url),
-        runtime::db::Pools {
-            read: pool,
-            health,
-        },
+        runtime::db::Pools { read: pool, health },
         MarketPolicy {
             source_sha: compiled_sha().into(),
             products: vec![],
@@ -137,10 +134,9 @@ fn send(path: &str, bearer: Option<&str>, forwarded: &str) -> Request<Body> {
         .headers_mut()
         .insert("x-forwarded-for", forwarded.parse().unwrap());
     if let Some(bearer) = bearer {
-        request.headers_mut().insert(
-            "authorization",
-            format!("Bearer {bearer}").parse().unwrap(),
-        );
+        request
+            .headers_mut()
+            .insert("authorization", format!("Bearer {bearer}").parse().unwrap());
     }
     request
 }
@@ -171,6 +167,7 @@ struct Fixture {
     pool: sqlx::PgPool,
     admin: PgConnection,
     schema: String,
+    url: String,
     app: Router,
 }
 
@@ -178,8 +175,8 @@ impl Fixture {
     async fn new() -> Self {
         let migrator = std::env::var("RUST_TEST_MIGRATOR_DATABASE_URL")
             .expect("explicit disposable migrator required");
-        let runtime = std::env::var("RUST_TEST_DATABASE_URL")
-            .expect("explicit disposable runtime required");
+        let runtime =
+            std::env::var("RUST_TEST_DATABASE_URL").expect("explicit disposable runtime required");
         let m = url::Url::parse(&migrator).unwrap();
         let r = url::Url::parse(&runtime).unwrap();
         assert_eq!(m.host_str(), Some("127.0.0.1"));
@@ -230,11 +227,12 @@ impl Fixture {
             .await
             .unwrap();
         let limits = auth::limits::SharedLimits::default();
-        let app = app(pool.clone(), runtime, limits);
+        let app = app(pool.clone(), runtime.clone(), limits);
         Self {
             pool,
             admin,
             schema,
+            url: runtime,
             app,
         }
     }
@@ -312,7 +310,9 @@ async fn p4_t17b_c01() {
     // The same window in the daily read counts calendar days in UTC. The
     // demo, administrator-only and NULL-role organizations are excluded by
     // the same definition even though their rows exist.
-    let (status, body) = f.get("/api/admin/analytics/daily?days=3", Some(&admin)).await;
+    let (status, body) = f
+        .get("/api/admin/analytics/daily?days=3", Some(&admin))
+        .await;
     assert_eq!(status, StatusCode::OK, "{body}");
     let rows = body.as_array().unwrap();
     assert_eq!(rows.len(), 3, "{body}");
@@ -491,12 +491,7 @@ async fn p4_t17b_c02() {
     }
 
     // Name and email search are case-insensitive substring matches.
-    for (search, expected) in [
-        ("pat", 1),
-        ("PARK", 1),
-        ("example.test", 5),
-        ("nobody", 0),
-    ] {
+    for (search, expected) in [("pat", 1), ("PARK", 1), ("example.test", 5), ("nobody", 0)] {
         let (status, body) = f
             .get(
                 &format!("/api/admin/analytics/users?search={search}"),
@@ -529,14 +524,21 @@ async fn p4_t17b_c03() {
     }
 
     // The account row decides admission, not the token alone.
-    let (status, body) = f.get("/api/admin/analytics/users", Some(&token(USER_UNKNOWN_TOKEN))).await;
+    let (status, body) = f
+        .get(
+            "/api/admin/analytics/users",
+            Some(&token(USER_UNKNOWN_TOKEN)),
+        )
+        .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
 
     // Refusals that happen before the quota is consumed never spend it: 60
     // authentication refusals and 60 authority refusals leave the identity
     // able to make an ordinary request afterwards.
     for _ in 0..60 {
-        let (status, _) = f.get("/api/admin/analytics/overview", Some("not-a-token")).await;
+        let (status, _) = f
+            .get("/api/admin/analytics/overview", Some("not-a-token"))
+            .await;
         assert_eq!(status, StatusCode::UNAUTHORIZED);
     }
     for _ in 0..60 {
@@ -574,12 +576,22 @@ async fn p4_t17b_c03() {
     // window reset. The three routes do not share a counter.
     let f_app = &f.app;
     for _ in 0..60 {
-        let (status, body, _) =
-            get(f_app, "/api/admin/analytics/users?limit=1", Some(&admin), FORWARDED).await;
+        let (status, body, _) = get(
+            f_app,
+            "/api/admin/analytics/users?limit=1",
+            Some(&admin),
+            FORWARDED,
+        )
+        .await;
         assert_eq!(status, StatusCode::OK, "{body}");
     }
-    let (status, body, retry_after) =
-        get(f_app, "/api/admin/analytics/users?limit=1", Some(&admin), FORWARDED).await;
+    let (status, body, retry_after) = get(
+        f_app,
+        "/api/admin/analytics/users?limit=1",
+        Some(&admin),
+        FORWARDED,
+    )
+    .await;
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
     assert_eq!(body["detail"]["code"], "RATE_LIMITED");
     assert!(
@@ -591,12 +603,24 @@ async fn p4_t17b_c03() {
     );
     // Another token has its own bucket.
     let second = token(USER_ADMIN_TWO);
-    let (status, body, _) = get(f_app, "/api/admin/analytics/users", Some(&second), FORWARDED).await;
+    let (status, body, _) = get(
+        f_app,
+        "/api/admin/analytics/users",
+        Some(&second),
+        FORWARDED,
+    )
+    .await;
     assert_eq!(status, StatusCode::OK, "{body}");
     // The daily and overview buckets are still fresh.
     let (status, body, _) = get(f_app, "/api/admin/analytics/daily", Some(&admin), FORWARDED).await;
     assert_eq!(status, StatusCode::OK, "{body}");
-    let (status, body, _) = get(f_app, "/api/admin/analytics/overview", Some(&admin), FORWARDED).await;
+    let (status, body, _) = get(
+        f_app,
+        "/api/admin/analytics/overview",
+        Some(&admin),
+        FORWARDED,
+    )
+    .await;
     assert_eq!(status, StatusCode::OK, "{body}");
 
     // The limit counts a fresh window for a different forwarded client. A
@@ -604,14 +628,24 @@ async fn p4_t17b_c03() {
     // address and is admitted, so the counter is keyed by identity, not by
     // the process.
     let second_limits = auth::limits::SharedLimits::default();
-    let isolated = app(f.pool.clone(), String::new(), second_limits);
+    let isolated = app(f.pool.clone(), f.url.clone(), second_limits);
     for _ in 0..60 {
-        let (status, _, _) =
-            get(&isolated, "/api/admin/analytics/users", Some(&second), FORWARDED).await;
+        let (status, _, _) = get(
+            &isolated,
+            "/api/admin/analytics/users",
+            Some(&second),
+            FORWARDED,
+        )
+        .await;
         assert_eq!(status, StatusCode::OK);
     }
-    let (status, _, _) =
-        get(&isolated, "/api/admin/analytics/users", Some(&second), FORWARDED).await;
+    let (status, _, _) = get(
+        &isolated,
+        "/api/admin/analytics/users",
+        Some(&second),
+        FORWARDED,
+    )
+    .await;
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
     drop(isolated);
     f.finish().await;
@@ -634,10 +668,7 @@ async fn p4_t17b_c04() {
         ("offset=10000", 0, USER_UNKNOWN_TOKEN),
     ] {
         let (status, body) = f
-            .get(
-                &format!("/api/admin/analytics/users?{query}"),
-                Some(&admin),
-            )
+            .get(&format!("/api/admin/analytics/users?{query}"), Some(&admin))
             .await;
         assert_eq!(status, StatusCode::OK, "{query}: {body}");
         assert_eq!(body["total"], 5, "{query}");
@@ -657,10 +688,7 @@ async fn p4_t17b_c04() {
         "offset=abc",
     ] {
         let (status, body) = f
-            .get(
-                &format!("/api/admin/analytics/users?{query}"),
-                Some(&admin),
-            )
+            .get(&format!("/api/admin/analytics/users?{query}"), Some(&admin))
             .await;
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{query}: {body}");
         assert!(body["detail"].is_array(), "{query}: {body}");

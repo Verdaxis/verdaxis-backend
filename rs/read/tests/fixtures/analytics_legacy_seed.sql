@@ -8,8 +8,9 @@
 --   ...d2 Operations       REAL, administrators only
 --   ...d3 Legacy Holdings  REAL, one account with a NULL role
 --
--- Times are UTC. A row placed at `date_trunc('day', now())` is today's bucket,
--- so the 3-day series is [two days ago, yesterday, today] on every host.
+-- Times are UTC. A row placed at `(date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')`
+-- is today's UTC bucket, so the 3-day series is [two days ago, yesterday, today]
+-- on every host, whatever its session time zone.
 INSERT INTO organizations (id, name, domain, type, verification_status, provenance) VALUES
     ('00000000-0000-4000-8000-0000000000a1', 'Alpha Shipping', 'alpha.test', 'SHIPPING_LINE', 'APPROVED', 'REAL'),
     ('00000000-0000-4000-8000-0000000000a2', 'Bravo Fuels', 'bravo.test', 'FUEL_SUPPLIER', 'APPROVED', 'REAL'),
@@ -38,27 +39,28 @@ INSERT INTO users (id, email, first_name, last_name, role, status, organization_
      '00000000-0000-4000-8000-0000000000d3', false, false, NULL, now() - interval '7 days');
 
 -- Five orders from the two market organizations: three today, one yesterday,
--- one expired five days ago. Two are open (OPEN / PARTIALLY_FILLED, unexpired).
+-- one five days ago. Three are live (OPEN / PARTIALLY_FILLED with no expiry or a
+-- future one); the other two are not.
 INSERT INTO orderbook_orders (id, organization_id, side, status, expires_at, created_at) VALUES
     ('00000000-0000-4000-8000-0000000000c1', '00000000-0000-4000-8000-0000000000a1', 'BID', 'OPEN', NULL,
-     date_trunc('day', now()) + interval '9 hours'),
+     (date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC') + interval '9 hours'),
     ('00000000-0000-4000-8000-0000000000c2', '00000000-0000-4000-8000-0000000000a2', 'ASK', 'PARTIALLY_FILLED', NULL,
-     date_trunc('day', now()) + interval '10 hours'),
+     (date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC') + interval '10 hours'),
     ('00000000-0000-4000-8000-0000000000c3', '00000000-0000-4000-8000-0000000000a1', 'ASK', 'OPEN', now() + interval '1 day',
-     date_trunc('day', now()) + interval '11 hours'),
+     (date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC') + interval '11 hours'),
     ('00000000-0000-4000-8000-0000000000c4', '00000000-0000-4000-8000-0000000000a1', 'BID', 'FILLED', NULL,
-     date_trunc('day', now() - interval '1 day') + interval '9 hours'),
+     (date_trunc('day', (now() - interval '1 days') AT TIME ZONE 'UTC') AT TIME ZONE 'UTC') + interval '9 hours'),
     ('00000000-0000-4000-8000-0000000000c5', '00000000-0000-4000-8000-0000000000a2', 'ASK', 'OPEN', now() - interval '1 day',
-     date_trunc('day', now() - interval '5 days') + interval '9 hours');
+     (date_trunc('day', (now() - interval '5 days') AT TIME ZONE 'UTC') AT TIME ZONE 'UTC') + interval '9 hours');
 
 -- Four trades between market organizations. Only CONFIRMED/DELIVERED/PAID are
 -- "executed"; the pending trade still counts in `total_trades`.
 INSERT INTO trades (id, buyer_id, seller_id, status, quantity_mt, final_total_usd, commission_amount_usd, created_at) VALUES
     ('00000000-0000-4000-8000-0000000000e1', '00000000-0000-4000-8000-0000000000a1', '00000000-0000-4000-8000-0000000000a2',
-     'PENDING_CONFIRMATION', 5, NULL, 2.5, date_trunc('day', now()) + interval '12 hours'),
+     'PENDING_CONFIRMATION', 5, NULL, 2.5, (date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC') + interval '12 hours'),
     ('00000000-0000-4000-8000-0000000000e2', '00000000-0000-4000-8000-0000000000a1', '00000000-0000-4000-8000-0000000000a2',
-     'CONFIRMED', 10, 1000.00, 5.00, date_trunc('day', now()) + interval '13 hours'),
+     'CONFIRMED', 10, 1000.00, 5.00, (date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC') + interval '13 hours'),
     ('00000000-0000-4000-8000-0000000000e3', '00000000-0000-4000-8000-0000000000a1', '00000000-0000-4000-8000-0000000000a3',
-     'DELIVERED', 20, 2000.00, 10.00, date_trunc('day', now() - interval '1 day') + interval '9 hours'),
+     'DELIVERED', 20, 2000.00, 10.00, (date_trunc('day', (now() - interval '1 days') AT TIME ZONE 'UTC') AT TIME ZONE 'UTC') + interval '9 hours'),
     ('00000000-0000-4000-8000-0000000000e4', '00000000-0000-4000-8000-0000000000a1', '00000000-0000-4000-8000-0000000000a2',
-     'PAID', 5, 1000.00, 5.00, date_trunc('day', now() - interval '3 days') + interval '9 hours');
+     'PAID', 5, 1000.00, 5.00, (date_trunc('day', (now() - interval '3 days') AT TIME ZONE 'UTC') AT TIME ZONE 'UTC') + interval '9 hours');
