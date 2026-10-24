@@ -124,7 +124,7 @@ impl Fixture {
             .execute(&mut admin)
             .await
             .unwrap();
-        sqlx::query("INSERT INTO orderbook_orders(id,organization_id,side,product_id,delivery_point_id,availability_window,remaining_quantity_mt,inventory_item_id) VALUES($1,$2,'ASK',$3,$4,'SPOT',60,$5)")
+        sqlx::query(include_str!("fixtures/i1_order_insert.sql"))
             .bind(order).bind(org).bind(product).bind(point).bind(inventory)
             .execute(&mut admin).await.unwrap();
         sqlx::raw_sql(sqlx::AssertSqlSafe(format!(

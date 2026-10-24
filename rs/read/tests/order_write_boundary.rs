@@ -345,11 +345,6 @@ fn scan_repository() -> Vec<String> {
     collect(&root.join("rs"), "rs", &mut rust_files);
     rust_files.sort();
     for path in &rust_files {
-        // The released Task 7 fixture writes only to its attested disposable
-        // schema, checked below by its own URL, port and schema-name assertions.
-        if path == &root.join("rs/read/tests/phase4_market_invalidation.rs") {
-            continue;
-        }
         let text = std::fs::read_to_string(path).expect("readable Rust source");
         let inside_boundary = path.starts_with(&boundary);
         let gated = gated_ranges(&text);
@@ -368,17 +363,7 @@ fn scan_repository() -> Vec<String> {
                 }
                 continue;
             }
-            // One exact integration-round fixture creates its own order row in
-            // a schema it names per run. Every other rule below still applies
-            // to that file, and no other file may copy this spelling.
-            // Built from parts so this scanner's own source cannot contain the
-            // full statement the rule refuses.
-            let orders_insert = ["INSERT INTO ", "ORDERBOOK", "_ORDERS("].concat();
-            let approved_fixture_insert = path == &root.join("rs/read/tests/integration_i1.rs")
-                && literal.starts_with(&orders_insert);
-            if let Some(rule) = orderbook_dml(&literal)
-                && !approved_fixture_insert
-            {
+            if let Some(rule) = orderbook_dml(&literal) {
                 violations.push(format!("{}: {rule}", path.display()));
             }
             if orderbook_row_lock(&literal) {
@@ -693,7 +678,6 @@ fn only_the_registration_line_names_the_boundary() {
             || path == root.join("rs/read/src/lib.rs")
             || path == owned_test
             || path == root.join("rs/read/examples/order_write.rs")
-            || path == root.join("rs/read/tests/phase4_market_invalidation.rs")
         {
             continue;
         }

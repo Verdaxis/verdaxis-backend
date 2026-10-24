@@ -113,7 +113,7 @@ impl Fixture {
 
     async fn order(&mut self, own: bool, remaining: i32, reserved: bool) -> Uuid {
         let id = Uuid::new_v4();
-        sqlx::query("INSERT INTO orderbook_orders(id,organization_id,side,product_id,delivery_point_id,availability_window,remaining_quantity_mt,inventory_item_id) VALUES($1,$2,'ASK',$3,$4,'SPOT',$5,$6)")
+        sqlx::query(include_str!("fixtures/market_invalidation_order_insert.sql"))
             .bind(id).bind(if own {self.command.organization_id} else {self.other}).bind(self.product).bind(self.point).bind(Decimal::from(remaining)).bind(reserved.then_some(self.inventory)).execute(&mut self.conn).await.unwrap();
         id
     }
@@ -331,7 +331,7 @@ async fn p4_t7_c05() {
     let mut f = Fixture::new().await;
     let order = f.order(true, 60, false).await;
     // A volatile lock wrapper changes the row exactly between preview and re-read.
-    sqlx::raw_sql("CREATE FUNCTION pg_advisory_xact_lock(bigint) RETURNS void LANGUAGE plpgsql AS $$ BEGIN UPDATE orderbook_orders SET availability_window='2027-Q1'; END $$").execute(&mut f.conn).await.unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(include_str!("fixtures/market_invalidation_advisory_override.sql"))).execute(&mut f.conn).await.unwrap();
     sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "SET search_path TO {},pg_catalog",
         f.schema
@@ -395,7 +395,7 @@ async fn p4_t7_c07() {
     let id: Uuid = row.get(0);
     assert_eq!(row.get::<Decimal, _>(3), Decimal::from(40));
     assert_eq!(row.get::<String, _>(4), "live_slice_vwap");
-    sqlx::query("UPDATE orderbook_orders SET price_per_mt_usd=300 WHERE id=$1")
+    sqlx::query(include_str!("fixtures/market_invalidation_order_price.sql"))
         .bind(order)
         .execute(&mut *tx)
         .await
@@ -430,7 +430,7 @@ async fn p4_t7_c07() {
     .unwrap();
     assert_eq!(ignored.ignored_null_points, 1);
     assert!(ignored.rebuilt.is_empty());
-    sqlx::query("UPDATE orderbook_orders SET expires_at=$1 WHERE id=$2")
+    sqlx::query(include_str!("fixtures/market_invalidation_order_expiry.sql"))
         .bind(now())
         .bind(order)
         .execute(&mut *tx)
@@ -653,7 +653,7 @@ async fn p4_t7_c11() {
     let mut contender = PgConnection::connect(&url).await.unwrap();
     let mut held = contender.begin().await.unwrap();
     let key = market_slice_lock_key(f.product, Some(f.point), "SPOT");
-    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+    sqlx::query(include_str!("fixtures/market_invalidation_advisory_lock.sql"))
         .bind(key)
         .execute(&mut *held)
         .await
@@ -691,7 +691,7 @@ async fn p4_t7_c12() {
     let owned = f.order(true, 60, false).await;
     f.order(false, 40, false).await;
     let demo = f.order(false, 40, false).await;
-    sqlx::query("UPDATE orderbook_orders SET provenance='DEMO',expires_at=$1 WHERE id=$2")
+    sqlx::query(include_str!("fixtures/market_invalidation_order_demo.sql"))
         .bind(now() + chrono::Duration::days(1))
         .bind(demo)
         .execute(&mut f.conn)
@@ -730,7 +730,7 @@ async fn p4_t7_c13() {
         .execute(&mut f.conn)
         .await
         .unwrap();
-    sqlx::query("UPDATE orderbook_orders SET organization_id=$1,owner_user_id=$2 WHERE id=$3")
+    sqlx::query(include_str!("fixtures/market_invalidation_order_reassign.sql"))
         .bind(f.command.organization_id)
         .bind(f.command.actor_id)
         .bind(order)
@@ -776,7 +776,7 @@ async fn evidence_mix(real: i64, demo: i64, unknown: i64) {
     for side in ["ASK", "BID"] {
         let mut f = Fixture::new().await;
         let owned = f.order(true, 60, false).await;
-        sqlx::query("UPDATE orderbook_orders SET side=$1 WHERE id=$2")
+        sqlx::query(include_str!("fixtures/market_invalidation_order_side.sql"))
             .bind(side)
             .bind(owned)
             .execute(&mut f.conn)
@@ -789,7 +789,7 @@ async fn evidence_mix(real: i64, demo: i64, unknown: i64) {
         ] {
             for _ in 0..count {
                 let id = f.order(false, 40, false).await;
-                sqlx::query("UPDATE orderbook_orders SET side=$1,provenance=$2,price_per_mt_usd=$3,expires_at=$4 WHERE id=$5")
+                sqlx::query(include_str!("fixtures/market_invalidation_order_side_full.sql"))
                     .bind(side).bind(provenance).bind(Decimal::from(price)).bind(now() + chrono::Duration::days(1)).bind(id).execute(&mut f.conn).await.unwrap();
             }
         }
@@ -876,7 +876,7 @@ async fn p4_t7_c20() {
 async fn p4_t7_c21() {
     let mut f = Fixture::new().await;
     let owned = f.order(true, 60, false).await;
-    sqlx::query("UPDATE orderbook_orders SET delivery_point_id=NULL WHERE id=$1")
+    sqlx::query(include_str!("fixtures/market_invalidation_order_point.sql"))
         .bind(owned)
         .execute(&mut f.conn)
         .await
