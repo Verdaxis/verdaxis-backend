@@ -137,13 +137,14 @@ fn write_shim(directory: &Path, name: &str, body: &str) {
     set_mode(&path, 0o755);
 }
 
-/// Reports a different inode for the state descriptor, simulating a swap
-/// between the path check and the read.
+/// Reports a different inode for the state path, simulating a swap between the
+/// open and the read. Bumping the path identity differs from the descriptor
+/// identity on every platform.
 const STAT_SHIM: &str = r#"#!/usr/bin/env bash
 real=${REAL_STAT:?}
 for argument in "$@"; do
     case $argument in
-        */fd/7)
+        *.state)
             output=$("$real" "$@") || exit $?
             printf '%s\n' "$output" | awk -F: 'BEGIN { OFS = ":" } { $2 = $2 + 1; print }'
             exit 0

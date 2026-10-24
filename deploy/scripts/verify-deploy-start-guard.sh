@@ -43,6 +43,10 @@ if [[ -d /proc/self/fd ]]; then
     fd_root=/proc/self/fd
 else
     fd_root=/dev/fd
+    command -v perl >/dev/null || {
+        printf 'Backend start denied by deployment guard: descriptor identity is unavailable\n' >&2
+        exit 1
+    }
 fi
 
 # Identity of a path or of an open descriptor: device, inode, owner, mode, links.
@@ -51,7 +55,7 @@ stat_identity() {
     if [[ $stat_style == gnu ]]; then
         stat -Lc '%d:%i:%u:%a:%h' -- "$1" 2>/dev/null
     else
-        stat -f '%d:%i:%u:%Lp:%l' -- "$1" 2>/dev/null
+        stat -Lf '%d:%i:%u:%Lp:%l' -- "$1" 2>/dev/null
     fi
 }
 
@@ -59,7 +63,7 @@ stat_mode() {
     if [[ $stat_style == gnu ]]; then
         stat -Lc '%a' -- "$1" 2>/dev/null
     else
-        stat -f '%Lp' -- "$1" 2>/dev/null
+        stat -Lf '%Lp' -- "$1" 2>/dev/null
     fi
 }
 
@@ -67,7 +71,33 @@ stat_size() {
     if [[ $stat_style == gnu ]]; then
         stat -Lc '%s' -- "$1" 2>/dev/null
     else
-        stat -f '%z' -- "$1" 2>/dev/null
+        stat -Lf '%z' -- "$1" 2>/dev/null
+    fi
+}
+
+# Identity and size of an open descriptor. Linux exposes it through
+# /proc/self/fd; elsewhere perl's fstat reads the descriptor itself, because
+# /dev/fd would report the descriptor device instead of the file.
+fd_identity() {
+    local fd=$1
+    if [[ $fd_root == /proc/self/fd ]]; then
+        stat_identity "$fd_root/$fd"
+    else
+        perl -e 'open(my $handle, "<&=", $ARGV[0]) or exit 1;
+            my @entry = stat($handle) or exit 1;
+            printf "%d:%d:%d:%o:%d\n", @entry[0, 1, 4], $entry[2] & 07777, $entry[3]' \
+            "$fd" 2>/dev/null
+    fi
+}
+
+fd_size() {
+    local fd=$1
+    if [[ $fd_root == /proc/self/fd ]]; then
+        stat_size "$fd_root/$fd"
+    else
+        perl -e 'open(my $handle, "<&=", $ARGV[0]) or exit 1;
+            my @entry = stat($handle) or exit 1;
+            print "$entry[7]\n"' "$fd" 2>/dev/null
     fi
 }
 
@@ -106,74 +136,62 @@ private_entry "$deploy_directory" || deny 'deploy state is not a private directo
 deploy_mode=$(stat_mode "$deploy_directory") || deny 'deploy state is unsearchable'
 (( (8#$deploy_mode & 8#500) == 8#500 )) || deny 'deploy state is unsearchable'
 
-# Reads the state through one descriptor and prints its exact bytes. The
-# redirection on the group opens the file once; every check and the read use
-# that descriptor. A failed open returns 1 instead of ending the guard.
-read_state() {
-    local path=$1 descriptor=$fd_root/7 opened current owner mode links size text
-    if ! {
-        if [[ ! -f $descriptor ]]; then
-            exit 10
-        fi
-        [[ ! -L $path ]] || exit 10
-        opened=$(stat_identity "$descriptor") || exit 11
-        current=$(stat_identity "$path") || exit 11
-        [[ $opened == "$current" ]] || exit 11
-        IFS=: read -r _device _inode owner mode links <<< "$opened"
-        [[ $owner == "$EUID" && $links == 1 ]] || exit 12
-        (( (8#$mode & 8#077) == 0 )) || exit 12
-        size=$(stat_size "$descriptor") || exit 11
-        # The deploy writes this file atomically, so a grow past the bound means
-        # it is not deploy state any more.
-        (( size <= 256 )) || exit 13
-        text=$(dd bs=257 count=1 2>/dev/null <&7; printf x)
-        current=$(stat_identity "$path") || exit 11
-        [[ $current == "$opened" ]] || exit 11
-        printf '%s' "$text"
-    } 7<"$path" 2>/dev/null; then
-        # Only a path that does not exist at all is a normal start. A dangling
-        # symlink or a directory is an unexpected input.
-        if [[ -e $path || -L $path ]]; then
-            exit 10
-        fi
-        exit 15
+# Reads the state through one descriptor and prints its exact bytes. The whole
+# check runs in a subshell that opens the file itself, so a failed open returns
+# a code instead of ending the guard, and every check runs on the opened
+# descriptor. Exit 0 means the bytes were printed; other codes name the refusal.
+read_state() (
+    local path=$1 descriptor=$fd_root/7
+    exec 7<"$path" || exit 14
+    if [[ ! -f $descriptor ]] || [[ -L $path ]]; then
+        exit 10
     fi
-}
+    opened=$(fd_identity 7) || exit 11
+    current=$(stat_identity "$path") || exit 11
+    [[ $opened == "$current" ]] || exit 11
+    IFS=: read -r _device _inode owner mode links <<< "$opened"
+    [[ $owner == "$EUID" && $links == 1 ]] || exit 12
+    (( (8#$mode & 8#077) == 0 )) || exit 12
+    size=$(fd_size 7) || exit 11
+    # The deploy writes this file atomically, so a grow past the bound means it
+    # is not deploy state any more.
+    (( size <= 256 )) || exit 13
+    text=$(dd bs=257 count=1 2>/dev/null <&7; printf x)
+    current=$(stat_identity "$path") || exit 11
+    [[ $current == "$opened" ]] || exit 11
+    printf '%s' "$text"
+)
 
 # Busy and refused are separate outcomes: only flock's conflict code (75) is a
 # held lock. Every other result, including a missing or unopenable file and a
-# kernel error, denies.
-lock_state() {
-    local path=$1 descriptor=$fd_root/8 opened current owner mode links status
-    if ! {
-        if [[ ! -f $descriptor ]]; then
-            exit 20
-        fi
-        [[ ! -L $path ]] || exit 20
-        opened=$(stat_identity "$descriptor") || exit 22
-        current=$(stat_identity "$path") || exit 22
-        [[ $opened == "$current" ]] || exit 22
-        IFS=: read -r _device _inode owner mode links <<< "$opened"
-        [[ $owner == "$EUID" && $links == 1 ]] || exit 21
-        (( (8#$mode & 8#077) == 0 )) || exit 21
-        if flock -n -E 75 8; then
-            exit 1
-        else
-            status=$?
-        fi
-        (( status == 75 )) || exit 22
-        exit 0
-    } 8<"$path" 2>/dev/null; then
+# kernel error, denies. Exit 0 means held, 1 means free.
+lock_state() (
+    local path=$1 descriptor=$fd_root/8 status
+    exec 8<"$path" || exit 20
+    if [[ ! -f $descriptor ]] || [[ -L $path ]]; then
         exit 20
     fi
-}
+    opened=$(fd_identity 8) || exit 22
+    current=$(stat_identity "$path") || exit 22
+    [[ $opened == "$current" ]] || exit 22
+    IFS=: read -r _device _inode owner mode links <<< "$opened"
+    [[ $owner == "$EUID" && $links == 1 ]] || exit 21
+    (( (8#$mode & 8#077) == 0 )) || exit 21
+    if flock -n -E 75 8; then
+        exit 1
+    else
+        status=$?
+    fi
+    (( status == 75 )) || exit 22
+    exit 0
+)
 
 # require_lock LABEL PATH: a held lock passes; a free lock is the caller's
 # decision; every refusal denies with the reason for that outcome. The check
 # runs in a subshell so its outcome codes never become the guard's exit status.
 require_lock() {
     local label=$1 path=$2 status=0
-    ( lock_state "$path" ) || status=$?
+    lock_state "$path" 2>/dev/null || status=$?
     case $status in
         0) return 0 ;;
         1) return 1 ;;
@@ -185,10 +203,17 @@ require_lock() {
 
 state_file=$deploy_directory/$environment.state
 state_status=0
-state_text=$(read_state "$state_file") || state_status=$?
+state_text=$(read_state "$state_file" 2>/dev/null) || state_status=$?
 case $state_status in
     0) ;;
-    15) exit 0 ;;
+    14)
+        # Only a path that does not exist at all is a normal start. A dangling
+        # symlink or a directory is an unexpected input.
+        if [[ -e $state_file || -L $state_file ]]; then
+            deny 'deployment state is not a regular file'
+        fi
+        exit 0
+        ;;
     10) deny 'deployment state is not a regular file' ;;
     11) deny 'deployment state changed during validation' ;;
     12) deny 'deployment state is not owner-controlled' ;;

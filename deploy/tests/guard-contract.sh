@@ -160,7 +160,7 @@ cat >"$work/stat-shim/stat" <<SHIM
 real=\${REAL_STAT:?}
 for argument in "\$@"; do
     case \$argument in
-        */fd/7)
+        *.state)
             output=\$("\$real" "\$@") || exit \$?
             printf '%s\n' "\$output" | awk -F: 'BEGIN { OFS = ":" } { \$2 = \$2 + 1; print }'
             exit 0
