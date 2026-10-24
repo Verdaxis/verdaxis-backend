@@ -77,10 +77,38 @@ impl Fixture {
         })).unwrap();
         sqlx::query("INSERT INTO products(id,name,fuel_type,fuel_grade) VALUES($1,'fixture-product','Methanol','fixture')").bind(product).execute(&mut conn).await.unwrap();
         sqlx::query("INSERT INTO delivery_points(id,name,region) VALUES($1,'fixture-point','fixture-region')").bind(point).execute(&mut conn).await.unwrap();
-        sqlx::query("INSERT INTO organizations(id) VALUES($1),($2)").bind(organization).bind(other).execute(&mut conn).await.unwrap();
-        sqlx::query("INSERT INTO users(id,organization_id) VALUES($1,$2)").bind(actor).bind(organization).execute(&mut conn).await.unwrap();
-        sqlx::query("INSERT INTO inventory_items VALUES($1,20,80)").bind(inventory).execute(&mut conn).await.unwrap();
-        Self { conn, schema, command: InvalidateOrganization { organization_id:organization,actor_id:actor,now:now(),policy:Arc::new(policy),config:Arc::new(config) },product,point,inventory,other }
+        sqlx::query("INSERT INTO organizations(id) VALUES($1),($2)")
+            .bind(organization)
+            .bind(other)
+            .execute(&mut conn)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO users(id,organization_id) VALUES($1,$2)")
+            .bind(actor)
+            .bind(organization)
+            .execute(&mut conn)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO inventory_items VALUES($1,20,80)")
+            .bind(inventory)
+            .execute(&mut conn)
+            .await
+            .unwrap();
+        Self {
+            conn,
+            schema,
+            command: InvalidateOrganization {
+                organization_id: organization,
+                actor_id: actor,
+                now: now(),
+                policy: Arc::new(policy),
+                config: Arc::new(config),
+            },
+            product,
+            point,
+            inventory,
+            other,
+        }
     }
 
     async fn order(&mut self, own: bool, remaining: i32, reserved: bool) -> Uuid {
@@ -98,7 +126,12 @@ impl Fixture {
     }
 
     fn key(&self) -> BenchmarkRebuildKey {
-        BenchmarkRebuildKey { side:"ASK".into(), market_product:Some("fixture-product".into()),delivery_point_id:Some(self.point),availability_window:Some("SPOT".into()) }
+        BenchmarkRebuildKey {
+            side: "ASK".into(),
+            market_product: Some("fixture-product".into()),
+            delivery_point_id: Some(self.point),
+            availability_window: Some("SPOT".into()),
+        }
     }
 
     async fn snapshot(&mut self) -> serde_json::Value {
@@ -106,33 +139,74 @@ impl Fixture {
     }
 
     async fn finish(mut self) {
-        sqlx::raw_sql(sqlx::AssertSqlSafe(format!("DROP SCHEMA {} CASCADE",self.schema))).execute(&mut self.conn).await.unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "DROP SCHEMA {} CASCADE",
+            self.schema
+        )))
+        .execute(&mut self.conn)
+        .await
+        .unwrap();
     }
 }
 
 #[test]
 fn p4_t7_c06() {
-    let p=Uuid::from_u128(1); let d=Uuid::from_u128(2);
-    let slices=vec![SliceKey{product_id:p,delivery_point_id:Some(d),availability_window:"SPOT".into()},SliceKey{product_id:p,delivery_point_id:None,availability_window:"SPOT".into()},SliceKey{product_id:p,delivery_point_id:Some(d),availability_window:"SPOT".into()}];
-    assert_eq!(ordered_slice_lock_keys(&slices).unwrap(),vec![market_slice_lock_key(p,None,"SPOT"),market_slice_lock_key(p,Some(d),"SPOT")]);
-    let vectors:serde_json::Value=serde_json::from_str(include_str!("../../../tests/rust_contract/phase2/market-write-spec.json")).unwrap();
+    let p = Uuid::from_u128(1);
+    let d = Uuid::from_u128(2);
+    let slices = vec![
+        SliceKey {
+            product_id: p,
+            delivery_point_id: Some(d),
+            availability_window: "SPOT".into(),
+        },
+        SliceKey {
+            product_id: p,
+            delivery_point_id: None,
+            availability_window: "SPOT".into(),
+        },
+        SliceKey {
+            product_id: p,
+            delivery_point_id: Some(d),
+            availability_window: "SPOT".into(),
+        },
+    ];
+    assert_eq!(
+        ordered_slice_lock_keys(&slices).unwrap(),
+        vec![
+            market_slice_lock_key(p, None, "SPOT"),
+            market_slice_lock_key(p, Some(d), "SPOT")
+        ]
+    );
+    let vectors: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../tests/rust_contract/phase2/market-write-spec.json"
+    ))
+    .unwrap();
     assert!(vectors.is_object());
 }
 
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL authority"]
 async fn p4_t7_c01() {
-    for commitments in [false,true] {
-        let mut f=Fixture::new().await;
-        let order=f.order(true,60,false).await;
-        if commitments { for _ in 0..101 {f.trade(order,"PENDING_CONFIRMATION").await;} }
-        else {for _ in 0..100 {f.order(true,60,false).await;} }
-        let before=f.snapshot().await;
-        let mut tx=f.conn.begin().await.unwrap();
-        let error=invalidate_organization(&mut tx,&f.command).await.unwrap_err();
+    for commitments in [false, true] {
+        let mut f = Fixture::new().await;
+        let order = f.order(true, 60, false).await;
+        if commitments {
+            for _ in 0..101 {
+                f.trade(order, "PENDING_CONFIRMATION").await;
+            }
+        } else {
+            for _ in 0..100 {
+                f.order(true, 60, false).await;
+            }
+        }
+        let before = f.snapshot().await;
+        let mut tx = f.conn.begin().await.unwrap();
+        let error = invalidate_organization(&mut tx, &f.command)
+            .await
+            .unwrap_err();
         assert!(matches!(error,InvalidationError::Application(ref e) if e.status==409));
         tx.rollback().await.unwrap();
-        assert_eq!(f.snapshot().await,before);
+        assert_eq!(f.snapshot().await, before);
         f.finish().await;
     }
 }
@@ -140,69 +214,100 @@ async fn p4_t7_c01() {
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL authority"]
 async fn p4_t7_c02() {
-    let mut f=Fixture::new().await;
-    let order=f.order(true,60,true).await;
-    let trade=f.trade(order,"PENDING_CONFIRMATION").await;
-    let other=f.order(false,40,false).await;
-    let before=f.snapshot().await;
-    let mut tx=f.conn.begin().await.unwrap();
-    let result=invalidate_organization(&mut tx,&f.command).await.unwrap();
-    assert_eq!(result.withdrawn_orders,vec![order]);
-    assert_eq!(result.preserved_trade_ids,vec![trade]);
-    assert_eq!(result.released_uncommitted_quantity,Decimal::from(60));
-    assert_eq!(result.outbox_ids.len(),1);
+    let mut f = Fixture::new().await;
+    let order = f.order(true, 60, true).await;
+    let trade = f.trade(order, "PENDING_CONFIRMATION").await;
+    let other = f.order(false, 40, false).await;
+    let before = f.snapshot().await;
+    let mut tx = f.conn.begin().await.unwrap();
+    let result = invalidate_organization(&mut tx, &f.command).await.unwrap();
+    assert_eq!(result.withdrawn_orders, vec![order]);
+    assert_eq!(result.preserved_trade_ids, vec![trade]);
+    assert_eq!(result.released_uncommitted_quantity, Decimal::from(60));
+    assert_eq!(result.outbox_ids.len(), 1);
     tx.commit().await.unwrap();
-    let after=f.snapshot().await;
-    assert_eq!(after["trades"],before["trades"]);
-    let row=sqlx::query("SELECT status,remaining_quantity_mt,version FROM orderbook_orders WHERE id=$1").bind(order).fetch_one(&mut f.conn).await.unwrap();
-    assert_eq!(row.get::<String,_>("status"),"CANCELLED");
-    assert_eq!(row.get::<Decimal,_>("remaining_quantity_mt"),Decimal::from(60));
-    assert_eq!(row.get::<i32,_>("version"),2);
-    let status:String=sqlx::query_scalar("SELECT status FROM orderbook_orders WHERE id=$1").bind(other).fetch_one(&mut f.conn).await.unwrap();
-    assert_eq!(status,"OPEN");
+    let after = f.snapshot().await;
+    assert_eq!(after["trades"], before["trades"]);
+    let row = sqlx::query(
+        "SELECT status,remaining_quantity_mt,version FROM orderbook_orders WHERE id=$1",
+    )
+    .bind(order)
+    .fetch_one(&mut f.conn)
+    .await
+    .unwrap();
+    assert_eq!(row.get::<String, _>("status"), "CANCELLED");
+    assert_eq!(
+        row.get::<Decimal, _>("remaining_quantity_mt"),
+        Decimal::from(60)
+    );
+    assert_eq!(row.get::<i32, _>("version"), 2);
+    let status: String = sqlx::query_scalar("SELECT status FROM orderbook_orders WHERE id=$1")
+        .bind(other)
+        .fetch_one(&mut f.conn)
+        .await
+        .unwrap();
+    assert_eq!(status, "OPEN");
     assert!(after["outbox"][0]["dispatched_at"].is_null());
-    assert_eq!(after["outbox"][0]["payload"]["_public_market_invalidation"],true);
+    assert_eq!(
+        after["outbox"][0]["payload"]["_public_market_invalidation"],
+        true
+    );
     f.finish().await;
 }
 
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL authority"]
 async fn p4_t7_c03() {
-    let mut f=Fixture::new().await;
-    f.order(true,60,true).await;
-    let mut tx=f.conn.begin().await.unwrap();
-    invalidate_organization(&mut tx,&f.command).await.unwrap();
+    let mut f = Fixture::new().await;
+    f.order(true, 60, true).await;
+    let mut tx = f.conn.begin().await.unwrap();
+    invalidate_organization(&mut tx, &f.command).await.unwrap();
     tx.commit().await.unwrap();
-    let row=sqlx::query("SELECT current_stock_mt,reserved_stock_mt FROM inventory_items").fetch_one(&mut f.conn).await.unwrap();
-    assert_eq!(row.get::<Decimal,_>(0),Decimal::from(80));
-    assert_eq!(row.get::<Decimal,_>(1),Decimal::from(20));
-    let before=f.snapshot().await;
-    let mut tx=f.conn.begin().await.unwrap();
-    let result=invalidate_organization(&mut tx,&f.command).await.unwrap();
+    let row = sqlx::query("SELECT current_stock_mt,reserved_stock_mt FROM inventory_items")
+        .fetch_one(&mut f.conn)
+        .await
+        .unwrap();
+    assert_eq!(row.get::<Decimal, _>(0), Decimal::from(80));
+    assert_eq!(row.get::<Decimal, _>(1), Decimal::from(20));
+    let before = f.snapshot().await;
+    let mut tx = f.conn.begin().await.unwrap();
+    let result = invalidate_organization(&mut tx, &f.command).await.unwrap();
     assert!(result.withdrawn_orders.is_empty());
     tx.rollback().await.unwrap();
-    assert_eq!(before,f.snapshot().await);
-    f.order(true,30,true).await;
-    let before=f.snapshot().await;
-    let mut tx=f.conn.begin().await.unwrap();
-    assert!(matches!(invalidate_organization(&mut tx,&f.command).await,Err(InvalidationError::Application(_))));
+    assert_eq!(before, f.snapshot().await);
+    f.order(true, 30, true).await;
+    let before = f.snapshot().await;
+    let mut tx = f.conn.begin().await.unwrap();
+    assert!(matches!(
+        invalidate_organization(&mut tx, &f.command).await,
+        Err(InvalidationError::Application(_))
+    ));
     tx.rollback().await.unwrap();
-    assert_eq!(before,f.snapshot().await);
+    assert_eq!(before, f.snapshot().await);
     f.finish().await;
 }
 
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL authority"]
 async fn p4_t7_c04() {
-    let mut f=Fixture::new().await;
-    let order=f.order(true,0,false).await;
-    for state in ["PENDING_CONFIRMATION","CONFIRMED","DELIVERED","PAID","CANCELLED","DECLINED"] { f.trade(order,state).await; }
-    let before=f.snapshot().await;
-    let mut tx=f.conn.begin().await.unwrap();
-    let result=invalidate_organization(&mut tx,&f.command).await.unwrap();
-    assert_eq!(result.preserved_trade_ids.len(),3);
+    let mut f = Fixture::new().await;
+    let order = f.order(true, 0, false).await;
+    for state in [
+        "PENDING_CONFIRMATION",
+        "CONFIRMED",
+        "DELIVERED",
+        "PAID",
+        "CANCELLED",
+        "DECLINED",
+    ] {
+        f.trade(order, state).await;
+    }
+    let before = f.snapshot().await;
+    let mut tx = f.conn.begin().await.unwrap();
+    let result = invalidate_organization(&mut tx, &f.command).await.unwrap();
+    assert_eq!(result.preserved_trade_ids.len(), 3);
     tx.commit().await.unwrap();
-    assert_eq!(before["trades"],f.snapshot().await["trades"]);
+    assert_eq!(before["trades"], f.snapshot().await["trades"]);
     f.finish().await;
 }
 
@@ -210,53 +315,131 @@ async fn p4_t7_c04() {
 #[ignore = "requires explicit disposable PostgreSQL authority"]
 async fn p4_t7_c05() {
     use verdaxis_read::auth::lock::WriteConflict;
-    let mut f=Fixture::new().await;
-    let order=f.order(true,60,false).await;
+    let mut f = Fixture::new().await;
+    let order = f.order(true, 60, false).await;
     // A volatile lock wrapper changes the row exactly between preview and re-read.
     sqlx::raw_sql("CREATE FUNCTION pg_advisory_xact_lock(bigint) RETURNS void LANGUAGE plpgsql AS $$ BEGIN UPDATE orderbook_orders SET availability_window='2027-Q1'; END $$").execute(&mut f.conn).await.unwrap();
-    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("SET search_path TO {},pg_catalog",f.schema))).execute(&mut f.conn).await.unwrap();
-    let before=f.snapshot().await;
-    let mut tx=f.conn.begin().await.unwrap();
-    let error=invalidate_organization(&mut tx,&f.command).await.unwrap_err();
-    let attempt:verdaxis_read::business::transaction::AttemptError=error.into();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "SET search_path TO {},pg_catalog",
+        f.schema
+    )))
+    .execute(&mut f.conn)
+    .await
+    .unwrap();
+    let before = f.snapshot().await;
+    let mut tx = f.conn.begin().await.unwrap();
+    let error = invalidate_organization(&mut tx, &f.command)
+        .await
+        .unwrap_err();
+    let attempt: verdaxis_read::business::transaction::AttemptError = error.into();
     assert!(attempt.is_write_conflict());
     tx.rollback().await.unwrap();
-    assert_eq!(before,f.snapshot().await);
-    let window:String=sqlx::query_scalar("SELECT availability_window FROM orderbook_orders WHERE id=$1").bind(order).fetch_one(&mut f.conn).await.unwrap();
-    assert_eq!(window,"SPOT");
+    assert_eq!(before, f.snapshot().await);
+    let window: String =
+        sqlx::query_scalar("SELECT availability_window FROM orderbook_orders WHERE id=$1")
+            .bind(order)
+            .fetch_one(&mut f.conn)
+            .await
+            .unwrap();
+    assert_eq!(window, "SPOT");
     f.finish().await;
 }
 
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL authority"]
 async fn p4_t7_c07() {
-    let mut f=Fixture::new().await;
-    let order=f.order(false,40,false).await;
-    let key=f.key();
-    let mut tx=f.conn.begin().await.unwrap();
-    let result=rebuild_live_slice_benchmarks_for_keys(&mut tx,&f.command.policy,&f.command.config,&[key.clone(),key.clone()],now()).await.unwrap();
-    assert_eq!(result.rebuilt.len(),1);
-    let read_key=LiveBenchmarkKey{side:"ASK".into(),product:"fixture-product".into(),point:f.point,window:"SPOT".into()};
-    let read=live_benchmarks(&mut tx,&f.command.policy,&f.command.config,std::slice::from_ref(&read_key),now()).await.unwrap();
-    assert_eq!(read[&read_key].price,Decimal::from(200));
+    let mut f = Fixture::new().await;
+    let order = f.order(false, 40, false).await;
+    let key = f.key();
+    let mut tx = f.conn.begin().await.unwrap();
+    let result = rebuild_live_slice_benchmarks_for_keys(
+        &mut tx,
+        &f.command.policy,
+        &f.command.config,
+        &[key.clone(), key.clone()],
+        now(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(result.rebuilt.len(), 1);
+    let read_key = LiveBenchmarkKey {
+        side: "ASK".into(),
+        product: "fixture-product".into(),
+        point: f.point,
+        window: "SPOT".into(),
+    };
+    let read = live_benchmarks(
+        &mut tx,
+        &f.command.policy,
+        &f.command.config,
+        std::slice::from_ref(&read_key),
+        now(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(read[&read_key].price, Decimal::from(200));
     let row=sqlx::query("SELECT id,created_at,benchmark_price_per_mt_usd,total_remaining_quantity_mt,source FROM live_slice_benchmarks").fetch_one(&mut *tx).await.unwrap();
-    let id:Uuid=row.get(0);
-    assert_eq!(row.get::<Decimal,_>(3),Decimal::from(40));
-    assert_eq!(row.get::<String,_>(4),"live_slice_vwap");
-    sqlx::query("UPDATE orderbook_orders SET price_per_mt_usd=300 WHERE id=$1").bind(order).execute(&mut *tx).await.unwrap();
-    rebuild_live_slice_benchmarks_for_keys(&mut tx,&f.command.policy,&f.command.config,std::slice::from_ref(&key),now()).await.unwrap();
-    let updated=sqlx::query("SELECT id,created_at,benchmark_price_per_mt_usd FROM live_slice_benchmarks").fetch_one(&mut *tx).await.unwrap();
-    assert_eq!(updated.get::<Uuid,_>(0),id);
-    assert_eq!(updated.get::<DateTime<Utc>,_>(1),now());
-    assert_eq!(updated.get::<Decimal,_>(2),Decimal::from(300));
-    let mut null=key.clone(); null.delivery_point_id=None;
-    let ignored=rebuild_live_slice_benchmarks_for_keys(&mut tx,&f.command.policy,&f.command.config,&[null],now()).await.unwrap();
-    assert_eq!(ignored.ignored_null_points,1);
+    let id: Uuid = row.get(0);
+    assert_eq!(row.get::<Decimal, _>(3), Decimal::from(40));
+    assert_eq!(row.get::<String, _>(4), "live_slice_vwap");
+    sqlx::query("UPDATE orderbook_orders SET price_per_mt_usd=300 WHERE id=$1")
+        .bind(order)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    rebuild_live_slice_benchmarks_for_keys(
+        &mut tx,
+        &f.command.policy,
+        &f.command.config,
+        std::slice::from_ref(&key),
+        now(),
+    )
+    .await
+    .unwrap();
+    let updated =
+        sqlx::query("SELECT id,created_at,benchmark_price_per_mt_usd FROM live_slice_benchmarks")
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+    assert_eq!(updated.get::<Uuid, _>(0), id);
+    assert_eq!(updated.get::<DateTime<Utc>, _>(1), now());
+    assert_eq!(updated.get::<Decimal, _>(2), Decimal::from(300));
+    let mut null = key.clone();
+    null.delivery_point_id = None;
+    let ignored = rebuild_live_slice_benchmarks_for_keys(
+        &mut tx,
+        &f.command.policy,
+        &f.command.config,
+        &[null],
+        now(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(ignored.ignored_null_points, 1);
     assert!(ignored.rebuilt.is_empty());
-    sqlx::query("UPDATE orderbook_orders SET expires_at=$1 WHERE id=$2").bind(now()).bind(order).execute(&mut *tx).await.unwrap();
-    let deleted=rebuild_live_slice_benchmarks_for_keys(&mut tx,&f.command.policy,&f.command.config,&[key],now()).await.unwrap();
-    assert_eq!(deleted.deleted.len(),1);
-    assert_eq!(sqlx::query_scalar::<_,i64>("SELECT count(*) FROM live_slice_benchmarks").fetch_one(&mut *tx).await.unwrap(),0);
+    sqlx::query("UPDATE orderbook_orders SET expires_at=$1 WHERE id=$2")
+        .bind(now())
+        .bind(order)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let deleted = rebuild_live_slice_benchmarks_for_keys(
+        &mut tx,
+        &f.command.policy,
+        &f.command.config,
+        &[key],
+        now(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(deleted.deleted.len(), 1);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM live_slice_benchmarks")
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap(),
+        0
+    );
     tx.rollback().await.unwrap();
     assert!(f.snapshot().await["benchmarks"].is_null());
     f.finish().await;
@@ -265,19 +448,29 @@ async fn p4_t7_c07() {
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL authority"]
 async fn p4_t7_c08() {
-    for table in ["live_slice_benchmarks","watchlist_events","audit_logs","market_event_outbox"] {
-        let mut f=Fixture::new().await;
-        let order=f.order(true,60,true).await;
-        f.order(false,40,false).await;
+    for table in [
+        "live_slice_benchmarks",
+        "watchlist_events",
+        "audit_logs",
+        "market_event_outbox",
+    ] {
+        let mut f = Fixture::new().await;
+        let order = f.order(true, 60, true).await;
+        f.order(false, 40, false).await;
         sqlx::query("INSERT INTO watchlist_targets(id,watchlist_id,target_type,order_id,market_product_code,delivery_point_id,availability_window_code) VALUES($1,$2,'PIN',$3,'fixture-product',$4,'SPOT')")
             .bind(Uuid::new_v4()).bind(Uuid::new_v4()).bind(order).bind(f.point).execute(&mut f.conn).await.unwrap();
         sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE FUNCTION fail_effect() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'fixture refusal' USING ERRCODE='40001'; END $$; CREATE TRIGGER fail_effect BEFORE INSERT OR UPDATE OR DELETE ON {table} FOR EACH STATEMENT EXECUTE FUNCTION fail_effect()"))).execute(&mut f.conn).await.unwrap();
-        let before=f.snapshot().await;
-        let mut tx=f.conn.begin().await.unwrap();
-        let error=invalidate_organization(&mut tx,&f.command).await.unwrap_err();
-        assert!(matches!(error,InvalidationError::Database(ref e) if e.as_database_error().and_then(|e|e.code()).as_deref()==Some("40001")),"{table}: {error:?}");
+        let before = f.snapshot().await;
+        let mut tx = f.conn.begin().await.unwrap();
+        let error = invalidate_organization(&mut tx, &f.command)
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(error,InvalidationError::Database(ref e) if e.as_database_error().and_then(|e|e.code()).as_deref()==Some("40001")),
+            "{table}: {error:?}"
+        );
         tx.rollback().await.unwrap();
-        assert_eq!(before,f.snapshot().await,"{table}");
+        assert_eq!(before, f.snapshot().await, "{table}");
         f.finish().await;
     }
 }
@@ -285,18 +478,102 @@ async fn p4_t7_c08() {
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL authority"]
 async fn p4_t7_c09() {
-    let mut f=Fixture::new().await;
-    for _ in 0..100 {f.order(true,0,false).await;}
-    let mut tx=f.conn.begin().await.unwrap();
-    let result=invalidate_organization(&mut tx,&f.command).await.unwrap();
-    assert_eq!(result.withdrawn_orders.len(),100);
+    let mut f = Fixture::new().await;
+    for _ in 0..100 {
+        f.order(true, 0, false).await;
+    }
+    let mut tx = f.conn.begin().await.unwrap();
+    let result = invalidate_organization(&mut tx, &f.command).await.unwrap();
+    assert_eq!(result.withdrawn_orders.len(), 100);
     tx.rollback().await.unwrap();
-    let key=f.key();
-    let mut bad=key.clone();bad.availability_window=Some("bad-window".into());
-    let mut tx=f.conn.begin().await.unwrap();
-    assert!(matches!(rebuild_live_slice_benchmarks_for_keys(&mut tx,&f.command.policy,&f.command.config,&[bad],now()).await,Err(InvalidationError::Application(_))));
-    let empty=rebuild_live_slice_benchmarks_for_keys(&mut tx,&f.command.policy,&f.command.config,&[],now()).await.unwrap();
+    let key = f.key();
+    let mut bad = key.clone();
+    bad.availability_window = Some("bad-window".into());
+    let mut tx = f.conn.begin().await.unwrap();
+    assert!(matches!(
+        rebuild_live_slice_benchmarks_for_keys(
+            &mut tx,
+            &f.command.policy,
+            &f.command.config,
+            &[bad],
+            now()
+        )
+        .await,
+        Err(InvalidationError::Application(_))
+    ));
+    let empty = rebuild_live_slice_benchmarks_for_keys(
+        &mut tx,
+        &f.command.policy,
+        &f.command.config,
+        &[],
+        now(),
+    )
+    .await
+    .unwrap();
     assert!(empty.rebuilt.is_empty() && empty.deleted.is_empty());
     tx.rollback().await.unwrap();
+    f.finish().await;
+}
+
+struct OrderedInvalidation {
+    command: InvalidateOrganization,
+}
+
+impl verdaxis_read::business::transaction::BusinessCommand for OrderedInvalidation {
+    type Output = verdaxis_read::order_write::InvalidationResult;
+    fn preview<'a>(&'a self, _conn: &'a mut PgConnection) -> verdaxis_read::business::transaction::CommandFuture<'a,verdaxis_read::business::transaction::OrganizationWritePlan,verdaxis_read::business::transaction::AttemptError> {
+        Box::pin(async move { Ok(verdaxis_read::business::transaction::OrganizationWritePlan::new([self.command.organization_id],[self.command.actor_id],[],serde_json::json!({"organization":self.command.organization_id}))) })
+    }
+    fn execute<'a>(&'a self, conn: &'a mut PgConnection, actor: &'a verdaxis_read::auth::CurrentActor) -> verdaxis_read::business::transaction::CommandFuture<'a,Self::Output,verdaxis_read::business::transaction::AttemptError> {
+        Box::pin(async move { assert_eq!(actor.id,self.command.actor_id); Ok(invalidate_organization(conn,&self.command).await?) })
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires explicit disposable PostgreSQL authority"]
+async fn p4_t7_c10() {
+    use verdaxis_read::{auth::{VerificationSettings,verify_access},business::transaction::run_ordered_write};
+    let mut f=Fixture::new().await;
+    f.order(true,60,true).await;
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("GRANT USAGE ON SCHEMA {} TO rust_app; GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA {} TO rust_app; CREATE SEQUENCE attempt_number; GRANT USAGE ON SEQUENCE attempt_number TO rust_app; CREATE FUNCTION retry_effect() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF nextval('attempt_number')<3 THEN RAISE EXCEPTION 'retry fixture' USING ERRCODE='40001'; END IF; RETURN NEW; END $$; CREATE TRIGGER retry_effect BEFORE INSERT ON market_event_outbox FOR EACH ROW EXECUTE FUNCTION retry_effect()",f.schema,f.schema))).execute(&mut f.conn).await.unwrap();
+    let runtime=std::env::var("RUST_TEST_DATABASE_URL").expect("explicit disposable runtime URL required");
+    let url=url::Url::parse(&runtime).unwrap();
+    assert_eq!(url.username(),"rust_app");assert_eq!(url.host_str(),Some("127.0.0.1"));
+    assert!(url.path().ends_with("_test"));
+    let search=format!("SET search_path TO {}",f.schema);
+    let pool=sqlx::postgres::PgPoolOptions::new().max_connections(3).after_connect(move |conn,_| {let sql=search.clone(); Box::pin(async move {sqlx::raw_sql(sqlx::AssertSqlSafe(sql)).execute(conn).await?;Ok(())})}).connect(&runtime).await.unwrap();
+    let secret="test-secret-key-for-testing-minimum-32-chars";
+    let claims=serde_json::json!({"sub":f.command.actor_id,"iat":Utc::now().timestamp(),"exp":Utc::now().timestamp()+3600,"type":"access","iss":"test","aud":"test"});
+    let token=jsonwebtoken::encode(&jsonwebtoken::Header::default(),&claims,&jsonwebtoken::EncodingKey::from_secret(secret.as_bytes())).unwrap();
+    let access=verify_access(&token,&VerificationSettings::new(secret.into(),None,"test".into(),"test".into()),Utc::now()).unwrap();
+    let command=InvalidateOrganization{organization_id:f.command.organization_id,actor_id:f.command.actor_id,now:f.command.now,policy:f.command.policy.clone(),config:f.command.config.clone()};
+    let result=run_ordered_write(pool.clone(),Arc::new(tokio::sync::Semaphore::new(1)),access,OrderedInvalidation{command}).await.unwrap();
+    assert_eq!(result.withdrawn_orders.len(),1);
+    let row=sqlx::query("SELECT (SELECT last_value FROM attempt_number) AS attempts,(SELECT count(*) FROM market_event_outbox) AS events,(SELECT count(*) FROM audit_logs) AS audits").fetch_one(&mut f.conn).await.unwrap();
+    assert_eq!(row.get::<i64,_>("attempts"),3); assert_eq!(row.get::<i64,_>("events"),1); assert_eq!(row.get::<i64,_>("audits"),2);
+    let stock:Decimal=sqlx::query_scalar("SELECT reserved_stock_mt FROM inventory_items").fetch_one(&mut f.conn).await.unwrap();assert_eq!(stock,Decimal::from(20));
+    pool.close().await;f.finish().await;
+}
+
+#[tokio::test]
+#[ignore = "requires explicit disposable PostgreSQL authority"]
+async fn p4_t7_c11() {
+    let mut f=Fixture::new().await;
+    f.order(true,60,true).await;
+    let before=f.snapshot().await;
+    let url=std::env::var("RUST_TEST_MIGRATOR_DATABASE_URL").unwrap();
+    let mut contender=PgConnection::connect(&url).await.unwrap();
+    let mut held=contender.begin().await.unwrap();
+    let key=market_slice_lock_key(f.product,Some(f.point),"SPOT");
+    sqlx::query("SELECT pg_advisory_xact_lock($1)").bind(key).execute(&mut *held).await.unwrap();
+    let mut tx=f.conn.begin().await.unwrap();
+    sqlx::query("SELECT id FROM organizations WHERE id=$1 FOR UPDATE").bind(f.command.organization_id).execute(&mut *tx).await.unwrap();
+    let error=invalidate_organization(&mut tx,&f.command).await.unwrap_err();
+    assert!(matches!(error,InvalidationError::Database(ref e) if e.as_database_error().and_then(|e|e.code()).as_deref()==Some("55P03")));
+    tx.rollback().await.unwrap();held.rollback().await.unwrap();
+    assert_eq!(before,f.snapshot().await);
+    let mut tx=f.conn.begin().await.unwrap();
+    invalidate_organization(&mut tx,&f.command).await.unwrap();tx.commit().await.unwrap();
+    let reserved:Decimal=sqlx::query_scalar("SELECT reserved_stock_mt FROM inventory_items").fetch_one(&mut f.conn).await.unwrap();assert_eq!(reserved,Decimal::from(20));
     f.finish().await;
 }
