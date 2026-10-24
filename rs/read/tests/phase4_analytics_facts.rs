@@ -195,18 +195,21 @@ fn p4_t18_c03() {
 
     let response = overview(&facts, None, None, &query(), observed());
 
-    let lifecycle: BTreeMap<_, _> = response
-        .lifecycle
-        .iter()
-        .map(|stage| (stage.key, (stage.count, stage.previous, stage.coverage)))
-        .collect();
-    assert_eq!(lifecycle[&LifecycleStageKey::Registered].0, Some(9));
-    assert_eq!(lifecycle[&LifecycleStageKey::Trading].0, Some(6));
-    assert_eq!(lifecycle[&LifecycleStageKey::Retained].1, Some(2));
+    let stage = |key: LifecycleStageKey| {
+        let found = response
+            .lifecycle
+            .iter()
+            .find(|stage| stage.key == key)
+            .expect("declared lifecycle stage");
+        (found.count, found.previous, found.coverage)
+    };
+    assert_eq!(stage(LifecycleStageKey::Registered).0, Some(9));
+    assert_eq!(stage(LifecycleStageKey::Trading).0, Some(6));
+    assert_eq!(stage(LifecycleStageKey::Retained).1, Some(2));
     // The behavioural visitor stage is unavailable, not zero.
-    assert_eq!(lifecycle[&LifecycleStageKey::Visitors].0, None);
+    assert_eq!(stage(LifecycleStageKey::Visitors).0, None);
     assert_eq!(
-        lifecycle[&LifecycleStageKey::Visitors].2,
+        stage(LifecycleStageKey::Visitors).2,
         AnalyticsSourceStatus::Unavailable
     );
     assert!(response.activity_trend.visitors.is_empty());
@@ -384,24 +387,26 @@ fn p4_t18_c05() {
     };
 
     let response = activation(&facts, Some(&window), &query(), observed());
-    let stages: BTreeMap<_, _> = response
-        .journey
-        .iter()
-        .map(|stage| (stage.key.as_str(), stage))
-        .collect();
-    assert_eq!(stages["signup_started"].total.count, Some(10));
-    assert_eq!(stages["signup_started"].source, JourneySource::Behavioral);
-    assert_eq!(stages["signup_submitted"].total.count, Some(0));
+    let stage = |key: &str| {
+        response
+            .journey
+            .iter()
+            .find(|stage| stage.key == key)
+            .expect("declared journey stage")
+    };
+    assert_eq!(stage("signup_started").total.count, Some(10));
+    assert_eq!(stage("signup_started").source, JourneySource::Behavioral);
+    assert_eq!(stage("signup_submitted").total.count, Some(0));
     // One or two events suppress; the key stays.
-    assert!(stages["signup_organization_required"].total.suppressed);
-    assert_eq!(stages["signup_organization_required"].total.count, None);
-    assert_eq!(stages["registered"].total.count, Some(2));
-    assert!(!stages["registered"].total.suppressed);
-    assert!(stages["registered"].buyer.unwrap().suppressed);
-    assert_eq!(stages["registered"].supplier.unwrap().count, Some(0));
-    assert!(stages["approved"].total.suppressed);
-    assert!(stages["first_login"].total.suppressed);
-    assert!(stages["first_live_order"].total.suppressed);
+    assert!(stage("signup_organization_required").total.suppressed);
+    assert_eq!(stage("signup_organization_required").total.count, None);
+    assert_eq!(stage("registered").total.count, Some(2));
+    assert!(!stage("registered").total.suppressed);
+    assert!(stage("registered").buyer.as_ref().unwrap().suppressed);
+    assert_eq!(stage("registered").supplier.as_ref().unwrap().count, Some(0));
+    assert!(stage("approved").total.suppressed);
+    assert!(stage("first_login").total.suppressed);
+    assert!(stage("first_live_order").total.suppressed);
 
     let drop_off: BTreeMap<_, _> = response
         .drop_off
@@ -1015,17 +1020,19 @@ mod postgres {
         assert_eq!(facts.status.approved_current, 1);
 
         let response = activation(&facts, None, &query(), observed());
-        let stages: BTreeMap<_, _> = response
-            .journey
-            .iter()
-            .map(|stage| (stage.key.as_str(), stage))
-            .collect();
-        assert_eq!(stages["registered"].total.count, Some(1));
-        assert!(stages["registered"].buyer.unwrap().suppressed);
-        assert_eq!(stages["registered"].supplier.unwrap().count, Some(0));
-        assert!(stages["approved"].total.suppressed);
-        assert!(stages["first_login"].total.suppressed);
-        assert!(stages["first_live_order"].total.suppressed);
+        let stage = |key: &str| {
+            response
+                .journey
+                .iter()
+                .find(|stage| stage.key == key)
+                .expect("declared journey stage")
+        };
+        assert_eq!(stage("registered").total.count, Some(1));
+        assert!(stage("registered").buyer.as_ref().unwrap().suppressed);
+        assert_eq!(stage("registered").supplier.as_ref().unwrap().count, Some(0));
+        assert!(stage("approved").total.suppressed);
+        assert!(stage("first_login").total.suppressed);
+        assert!(stage("first_live_order").total.suppressed);
         assert!(response.meta.data_quality.cohort_complete);
         f.finish().await;
     }

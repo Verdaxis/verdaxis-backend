@@ -591,24 +591,3 @@ pub struct CohortCell {
     pub cell: AggregateCell,
     pub pct: Option<Decimal>,
 }
-
-/// Helper shared by the composed responses and their tests.
-pub fn by_event<'a>(window: &'a BehavioralWindow, event: &str) -> Option<&'a AggregateCell> {
-    window
-        .event_totals
-        .data()
-        .and_then(|rows| rows.iter().find(|row| row.event == event))
-        .map(|row| &row.count)
-}
-
-pub fn totals_map(window: &BehavioralWindow) -> BTreeMap<&str, &AggregateCell> {
-    window
-        .event_totals
-        .data()
-        .map(|rows| {
-            rows.iter()
-                .map(|row| (row.event.as_str(), &row.count))
-                .collect()
-        })
-        .unwrap_or_default()
-}

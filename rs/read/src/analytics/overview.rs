@@ -84,6 +84,9 @@ pub fn overview(
     let asks = live_orders.map_or(0, |row| row.asks_current);
 
     let active_members = login_metric(&facts.login, query);
+    // The stage table and the KPI share the same values; read them once.
+    let active_value = active_members.value;
+    let active_previous = active_members.previous;
     let status_coverage = facts.status.coverage_start;
     // As-of qualification from the append-only transition history: available
     // only when the history already covers the as-of instant.
@@ -149,8 +152,8 @@ pub fn overview(
         },
         LifecycleStage {
             key: LifecycleStageKey::Active,
-            count: active_members.value,
-            previous: active_members.previous,
+            count: active_value,
+            previous: active_previous,
             coverage: login_coverage.status,
             detail_tab: "engagement".into(),
         },

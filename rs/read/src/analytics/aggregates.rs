@@ -516,9 +516,11 @@ fn window_bounds(
 ) {
     let (current_lower, current_upper) = date_window(Some(query.start), Some(query.end))
         .unwrap_or((query.start.date_naive(), query.end.date_naive()));
-    match (query.previous_start(), query.previous_end())
-        .and_then(|(start, end)| date_window(Some(start), Some(end)))
-    {
+    let previous = match (query.previous_start(), query.previous_end()) {
+        (Some(start), Some(end)) => date_window(Some(start), Some(end)),
+        _ => None,
+    };
+    match previous {
         Some((lower, upper)) => (
             Some(current_lower),
             Some(current_upper),
