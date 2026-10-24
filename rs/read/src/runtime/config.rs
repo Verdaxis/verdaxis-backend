@@ -1,4 +1,4 @@
-use crate::{verify_release, Config, DEFAULT_READ_ADMISSION_SLOTS};
+use crate::{Config, DEFAULT_READ_ADMISSION_SLOTS, verify_release};
 use percent_encoding::percent_decode_str;
 use std::net::IpAddr;
 
