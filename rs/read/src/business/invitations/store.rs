@@ -108,12 +108,11 @@ pub struct InvitationOrganization {
     pub provenance: String,
 }
 
-/// A04's response: the page plus the P3 bounded-read truncation marker, which
-/// the adapter also sends as `X-Result-Truncated`.
+/// A04's response body: exactly Python's `{items}`. The bounded read's
+/// truncation marker travels in the `X-Result-Truncated` header, not the body.
 #[derive(Debug, Serialize)]
 pub struct InvitationOrganizationResponse {
     pub items: Vec<InvitationOrganization>,
-    pub truncated: bool,
 }
 
 pub struct OrganizationPage {
@@ -369,7 +368,7 @@ impl BusinessCommand for CreateInvitationCommand {
                         .bind(self.now)
                         .execute(&mut *conn)
                         .await
-                        .map_err(integrity_conflict)?;
+                        .map_err(integrity_domain_conflict)?;
                     let name = organization.name.clone();
                     let kind = organization.kind.clone();
                     let country = Some(organization.country_code.clone());
@@ -550,6 +549,20 @@ fn integrity_conflict(error: sqlx::Error) -> AttemptError {
         .as_deref()
     {
         Some("23505") => email_conflict(),
+        _ => AttemptError::Database(error),
+    }
+}
+
+/// The organization insert's own unique violation is the email-domain
+/// conflict, exactly as Python maps the `flush()` failure; the pre-check cannot
+/// see a concurrent creator.
+fn integrity_domain_conflict(error: sqlx::Error) -> AttemptError {
+    match error
+        .as_database_error()
+        .and_then(|error| error.code())
+        .as_deref()
+    {
+        Some("23505") => domain_conflict(),
         _ => AttemptError::Database(error),
     }
 }

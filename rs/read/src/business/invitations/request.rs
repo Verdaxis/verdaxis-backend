@@ -499,7 +499,6 @@ async fn list_route(
     };
     let mut response = axum::Json(store::InvitationOrganizationResponse {
         items: page.items,
-        truncated: page.truncated,
     })
     .into_response();
     response.headers_mut().insert(
