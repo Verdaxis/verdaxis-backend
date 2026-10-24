@@ -1,0 +1,1928 @@
+{
+  "version": 2,
+  "status": "partial_acceptance_with_proposals_and_delayed_settlement",
+  "source_sha": "f8627807a01cee35ddb9d43d1ce81fa5882b10cd",
+  "acceptance": "PD4-CF4a accepts CF4_01, CF4_02, CF4_05 at v1 source/digest. Others are not accepted. PM starts lanes; each lane reconfirms consumed digest and stops on a defect.",
+  "contracts": [
+    {
+      "id": "CF4_01",
+      "owners": [
+        "6",
+        "11a",
+        "integration"
+      ],
+      "signature_status": "proposed_for_review",
+      "signatures": [
+        {
+          "declaration": "pub async fn freeze_approval_mail(conn: &mut PgConnection, marker: &ApprovalMailMarker) -> Result<(), MailError>",
+          "sha256": "411eb944c0f0ed14a071fff4cf968e5e7fbf69003fb83426ea122aeaa2794a47"
+        },
+        {
+          "declaration": "pub async fn claim_approval_mail(conn: &mut PgConnection, user_id: Uuid, transition_id: Uuid, now: DateTime<Utc>) -> Result<Option<ApprovalMailClaim>, MailError>",
+          "sha256": "f4cc95668550e4887a45ec19a303333db092cc64845ab0452cf3617deced1618"
+        },
+        {
+          "declaration": "pub async fn finalize_approval_mail(conn: &mut PgConnection, claim: &ApprovalMailClaim, accepted: bool, now: DateTime<Utc>) -> Result<(), MailError>",
+          "sha256": "594ba5d1a5510ef28445284e549e14284490a8ce284d27d8a43efffa96f79fc7"
+        }
+      ],
+      "schemas": {
+        "ApprovalMailMarker": {
+          "user_id": "Uuid",
+          "transition_id": "Uuid",
+          "payload": "FrozenApprovalPayload",
+          "retry_at": "DateTime<Utc>"
+        },
+        "FrozenApprovalPayload": {
+          "from": "String",
+          "to": "[String;1]",
+          "subject": "String",
+          "html": "String",
+          "reply_to": "Option<String>; omitted for retained payload without field"
+        },
+        "ApprovalMailClaim": {
+          "marker": "ApprovalMailMarker",
+          "claim_until": "DateTime<Utc>"
+        },
+        "columns": {
+          "users.pending_approval_email_transition_id": "uuid nullable",
+          "users.pending_approval_email_payload": "jsonb nullable",
+          "users.pending_approval_email_retry_at": "timestamptz nullable"
+        }
+      },
+      "rules": {
+        "claim_seconds": 300,
+        "failure_defer_seconds": 3600,
+        "batch_default": 20,
+        "batch_max": 100,
+        "idempotency_key": "account-approval/{transition_id}",
+        "finalize_match": [
+          "user_id",
+          "transition_id",
+          "claim_until"
+        ],
+        "payload": "freeze at approval; never rebuild on retry; preserve retained optional field omission",
+        "eligibility": "APPROVED, email verified, nonadmin",
+        "transaction": "all helpers borrow caller connection; no commit; claim committed by owner before bounded send without user lock",
+        "reapproval": "new transition; old finalization cannot clear newer claim",
+        "notification": "one bounded send per claim; no new timer; uncertain send not exactly-once guaranteed"
+      },
+      "source_digests": [
+        {
+          "path": "app/services/account_approval_email.py",
+          "sha256": "34f6b8e8a2c05b1e8bf9de64385d92acd5280a6da2debab99ce0cfe194604dab"
+        },
+        {
+          "path": "app/services/email.py",
+          "sha256": "e6b295f955cfe0c5001b694811977336bb7ca473e3625dbc07c03741b11f63fe"
+        },
+        {
+          "path": "app/models/user.py",
+          "sha256": "fda40d53a1e63f61b1b3055da23df202cc8816be494194a3da26203dd0328de8"
+        }
+      ],
+      "status": "accepted",
+      "acceptance_record": {
+        "decision": "PD4-CF4a",
+        "source_sha": "f8627807a01cee35ddb9d43d1ce81fa5882b10cd",
+        "artifact_sha256": "f075109fb4c3097525f20b9264c5a6654399122c632f27eedf83a7bd45e8ff57",
+        "declarations": "identical to reviewed v1; acceptance does not assert producer completion"
+      }
+    },
+    {
+      "id": "CF4_02",
+      "owners": [
+        "3",
+        "8",
+        "9",
+        "10",
+        "11b",
+        "integration"
+      ],
+      "signature_status": "proposed_for_review",
+      "signatures": [
+        {
+          "declaration": "pub fn eligibility(policy: &KycPolicy, party: &KycParty, grace: Option<&Grace>, now: DateTime<Utc>) -> KycEligibility",
+          "sha256": "c27f64dc891b9ec1064529f5bdd275e3855a12044a6296b5bf5da58c79b13673"
+        },
+        {
+          "declaration": "pub fn bind_eligibility_sql(builder: &mut QueryBuilder<Postgres>, policy: &KycPolicy, party: KycSqlParty, now: DateTime<Utc>)",
+          "sha256": "87a7b1a8a9ce011b83ac52a0765bb6897c7b2f44273487ca22999a2e657aceb9"
+        }
+      ],
+      "schemas": {
+        "KycPolicy": {
+          "execution_gate_enabled": "bool; runtime Config.kyc_execution_gate_enabled only"
+        },
+        "KycParty": {
+          "user_id": "Uuid",
+          "organization_id": "Option<Uuid>",
+          "kyc_organization_id": "Option<Uuid>",
+          "kyc_status": "Pending|Submitted|Approved|Rejected"
+        },
+        "Grace": {
+          "user_id": "Uuid",
+          "organization_id": "Uuid",
+          "expires_at": "DateTime<Utc>"
+        },
+        "KycEligibility": {
+          "eligible": "bool",
+          "reason": "KYC_NOT_ENFORCED|KYC_APPROVED|KYC_REJECTED|KYC_GRACE|KYC_REQUIRED",
+          "grace_expires_at": "Option<DateTime<Utc>>"
+        },
+        "KycSqlParty": {
+          "user_alias": "closed developer-owned alias",
+          "organization_alias": "closed developer-owned alias"
+        },
+        "profile_not_applicable": "separate presentation state; never market eligibility",
+        "KycSqlBinding": {
+          "user": "u",
+          "grace": "g",
+          "binds": [
+            "execution_gate_enabled bool",
+            "now timestamptz"
+          ],
+          "strict_sql": "u.kyc_status <> 'REJECTED' AND ((u.kyc_status = 'APPROVED' AND u.kyc_organization_id = u.organization_id) OR EXISTS (SELECT 1 FROM kyc_execution_grace g WHERE g.user_id = u.id AND g.organization_id = u.organization_id AND g.expires_at > $now))",
+          "advisory_sql": "u.kyc_status <> 'REJECTED' AND (u.kyc_organization_id IS NULL OR u.kyc_organization_id = u.organization_id)",
+          "combined": "(NOT $enabled AND advisory_sql) OR ($enabled AND strict_sql)"
+        }
+      },
+      "rules": {
+        "switch": "one runtime switch; no route copies",
+        "enabled": "current organization required; bound approved or current unexpired organization-bound grace; rejection always blocks; cross-organization grace never applies",
+        "disabled": "advisory: rejection or review bound to another organization blocks; otherwise eligible with KYC_NOT_ENFORCED",
+        "grace_expiry": "now < expires_at; equality refuses",
+        "sql": "same decision truth table and bound switch/now; reuse market visibility; no untrusted SQL identifiers",
+        "authority": "grace SELECT-only; no fake KYC",
+        "evidence": "vault has no provider dependency; encrypted rows and history retained"
+      },
+      "source_digests": [
+        {
+          "path": "app/services/kyc_execution.py",
+          "sha256": "beba3a3f78b6c2c582aeee1cebf27e4fe9fd8099416151f94f41b18b20b529e2"
+        },
+        {
+          "path": "rs/read/src/market/visibility.rs",
+          "sha256": "750193b9b57a1428faf44ba5cf3fded16fa6f205810dc60928531229e23c02fc"
+        }
+      ],
+      "status": "accepted",
+      "acceptance_record": {
+        "decision": "PD4-CF4a",
+        "source_sha": "f8627807a01cee35ddb9d43d1ce81fa5882b10cd",
+        "artifact_sha256": "f075109fb4c3097525f20b9264c5a6654399122c632f27eedf83a7bd45e8ff57",
+        "declarations": "identical to reviewed v1; acceptance does not assert producer completion"
+      }
+    },
+    {
+      "id": "CF4_03",
+      "owners": [
+        "15",
+        "16",
+        "17a",
+        "17b",
+        "18",
+        "19",
+        "integration"
+      ],
+      "signature_status": "proposed_for_review",
+      "signatures": [
+        {
+          "declaration": "pub fn validate_query(input: QueryInput) -> Result<AnalyticsQuery, ApiError>",
+          "sha256": "07229cea8084d90e6db988cf1795b42930e712f5951d1693ae5650fdc2d04edc"
+        },
+        {
+          "declaration": "pub fn suppress(count: Option<u64>, entities: Option<u64>) -> AggregateCell",
+          "sha256": "67b0b129c199481221676439ea93fbcf534ce8b0c03e7d8856fdc3fb23c27e8b"
+        },
+        {
+          "declaration": "pub async fn window(&self, query: &AnalyticsQuery, properties: AllowedPropertySet) -> BehavioralWindow",
+          "sha256": "0e1851ecd051a1b2a6827234d0e9f8eac71e6f441d467d4448b50a46d12fa183"
+        }
+      ],
+      "schemas": {
+        "source_response_types": {
+          "AnalyticsAudience": {
+            "fields": {},
+            "variants": {
+              "ALL": "ALL",
+              "BUYER": "BUYER",
+              "SUPPLIER": "SUPPLIER"
+            }
+          },
+          "AnalyticsActivity": {
+            "fields": {},
+            "variants": {
+              "LIVE": "LIVE",
+              "DEMO": "DEMO",
+              "REFERENCE": "REFERENCE",
+              "ALL": "ALL"
+            }
+          },
+          "ProductAnalyticsQuery": {
+            "fields": {
+              "start": "datetime",
+              "end": "datetime",
+              "compare": "bool",
+              "audience": "AnalyticsAudience",
+              "activity": "AnalyticsActivity",
+              "product_id": "UUID | None",
+              "delivery_point_id": "UUID | None",
+              "availability_window": "str | None"
+            },
+            "variants": {},
+            "input_schema": "QueryInput (normative defaults and validation)"
+          },
+          "AnalyticsDiagnostic": {
+            "fields": {},
+            "variants": {
+              "DISABLED": "disabled",
+              "CONFIGURATION": "configuration",
+              "AUTHENTICATION": "authentication",
+              "TIMEOUT": "timeout",
+              "UPSTREAM": "upstream",
+              "MALFORMED_RESPONSE": "malformed_response",
+              "INSUFFICIENT_COVERAGE": "insufficient_coverage"
+            }
+          },
+          "AnalyticsDataQuality": {
+            "fields": {
+              "legacy_timestamp_fallback_count": "int",
+              "missing_paid_at_count": "int",
+              "missing_commission_payment_date_count": "int",
+              "suppressed_cell_count": "int",
+              "cohort_complete": "bool"
+            },
+            "variants": {}
+          },
+          "AnalyticsSourceStatus": {
+            "fields": {},
+            "variants": {
+              "AVAILABLE": "available",
+              "PARTIAL": "partial",
+              "UNAVAILABLE": "unavailable",
+              "NOT_APPLICABLE": "not_applicable"
+            }
+          },
+          "AnalyticsSourceCoverage": {
+            "fields": {
+              "coverage_start": "datetime | None",
+              "coverage_end": "datetime | None",
+              "observed_at": "datetime | None",
+              "status": "AnalyticsSourceStatus",
+              "diagnostic": "AnalyticsDiagnostic | None"
+            },
+            "variants": {}
+          },
+          "AnalyticsCoverage": {
+            "fields": {
+              "authoritative": "AnalyticsSourceCoverage",
+              "behavioral": "AnalyticsSourceCoverage",
+              "login_history": "AnalyticsSourceCoverage",
+              "status_history": "AnalyticsSourceCoverage",
+              "reference": "AnalyticsSourceCoverage"
+            },
+            "variants": {}
+          },
+          "AnalyticsMeta": {
+            "fields": {
+              "start": "datetime",
+              "end": "datetime",
+              "previous_start": "datetime | None",
+              "previous_end": "datetime | None",
+              "observed_at": "datetime",
+              "coverage": "AnalyticsCoverage",
+              "data_quality": "AnalyticsDataQuality"
+            },
+            "variants": {}
+          },
+          "AggregateCell": {
+            "fields": {
+              "key": "str",
+              "count": "int | None",
+              "suppressed": "bool"
+            },
+            "variants": {}
+          },
+          "MetricValue": {
+            "fields": {
+              "value": "int | None",
+              "previous": "int | None",
+              "suppressed": "bool"
+            },
+            "variants": {}
+          },
+          "DecimalMetricValue": {
+            "fields": {
+              "value": "Decimal | None",
+              "previous": "Decimal | None",
+              "suppressed": "bool"
+            },
+            "variants": {}
+          },
+          "RatioValue": {
+            "fields": {
+              "numerator": "int | None",
+              "denominator": "int | None",
+              "rate_pct": "Decimal | None",
+              "suppressed": "bool",
+              "cohort_complete": "bool"
+            },
+            "variants": {}
+          },
+          "SeriesPoint": {
+            "fields": {
+              "date": "date",
+              "value": "int | None"
+            },
+            "variants": {}
+          },
+          "DecimalSeriesPoint": {
+            "fields": {
+              "date": "date",
+              "value": "Decimal | None"
+            },
+            "variants": {}
+          },
+          "RankedRow": {
+            "fields": {
+              "key": "str",
+              "label": "str",
+              "count": "int | None",
+              "share_pct": "Decimal | None",
+              "suppressed": "bool"
+            },
+            "variants": {}
+          },
+          "RouteFamily": {
+            "fields": {},
+            "variants": {
+              "LANDING": "landing",
+              "SIGNUP": "signup",
+              "PLATFORM": "platform",
+              "ADMIN": "admin"
+            }
+          },
+          "FrontendErrorCategory": {
+            "fields": {},
+            "variants": {
+              "RENDER": "render",
+              "CHUNK": "chunk",
+              "NETWORK": "network",
+              "UNKNOWN": "unknown"
+            }
+          },
+          "NavigationDestination": {
+            "fields": {},
+            "variants": {
+              "HOME": "home",
+              "MAP": "map",
+              "MARKETPLACE": "marketplace",
+              "CURVE": "curve",
+              "WATCHLIST": "watchlist",
+              "ANALYTICS": "analytics",
+              "TRADES": "trades",
+              "QUOTES": "quotes",
+              "COMPLIANCE": "compliance",
+              "TRAINING": "training",
+              "SETTINGS": "settings",
+              "ADMIN": "admin"
+            }
+          },
+          "NavigationLatencyBucket": {
+            "fields": {},
+            "variants": {
+              "LT_250": "lt250",
+              "FROM_250_TO_500": "250_500",
+              "FROM_500_TO_1000": "500_1000",
+              "FROM_1000_TO_2500": "1000_2500",
+              "GTE_2500": "gte2500"
+            }
+          },
+          "LifecycleStageKey": {
+            "fields": {},
+            "variants": {
+              "VISITORS": "visitors",
+              "REGISTERED": "registered",
+              "ACTIVE": "active",
+              "PARTICIPATING": "participating",
+              "TRADING": "trading",
+              "RETAINED": "retained"
+            }
+          },
+          "NeedsAttentionRule": {
+            "fields": {},
+            "variants": {
+              "APPROVED_MEMBERS_NEVER_LOGGED_IN": "approved_members_never_logged_in",
+              "SIGNUP_SUBMISSION_DROP": "signup_submission_drop",
+              "ONE_SIDED_LIVE_MARKET": "one_sided_live_market",
+              "ELEVATED_LOGIN_FAILURES": "elevated_login_failures",
+              "DEGRADED_ANALYTICS_COLLECTION": "degraded_analytics_collection"
+            }
+          },
+          "LifecycleStage": {
+            "fields": {
+              "key": "LifecycleStageKey",
+              "count": "int | None",
+              "previous": "int | None",
+              "coverage": "AnalyticsSourceStatus",
+              "detail_tab": "str"
+            },
+            "variants": {}
+          },
+          "ActivityTrend": {
+            "fields": {
+              "visitors": "list[SeriesPoint]",
+              "active_members": "list[SeriesPoint]",
+              "orders": "list[SeriesPoint]",
+              "confirmed_trades": "list[SeriesPoint]"
+            },
+            "variants": {}
+          },
+          "MarketplaceBalance": {
+            "fields": {
+              "buyer_organizations": "MetricValue",
+              "supplier_organizations": "MetricValue",
+              "bid_orders": "MetricValue",
+              "ask_orders": "MetricValue"
+            },
+            "variants": {}
+          },
+          "NeedsAttentionItem": {
+            "fields": {
+              "rule": "NeedsAttentionRule",
+              "count": "int | None"
+            },
+            "variants": {}
+          },
+          "OverviewKpis": {
+            "fields": {
+              "qualified_organizations": "MetricValue",
+              "active_members": "MetricValue",
+              "participating_organizations": "MetricValue",
+              "live_orders": "MetricValue",
+              "confirmed_trades": "MetricValue"
+            },
+            "variants": {}
+          },
+          "OverviewResponse": {
+            "fields": {
+              "meta": "AnalyticsMeta",
+              "kpis": "OverviewKpis",
+              "lifecycle": "list[LifecycleStage]",
+              "activity_trend": "ActivityTrend",
+              "marketplace_balance": "MarketplaceBalance",
+              "needs_attention": "list[NeedsAttentionItem]"
+            },
+            "variants": {}
+          },
+          "AcquisitionKpis": {
+            "fields": {
+              "visitors": "MetricValue",
+              "visits": "MetricValue",
+              "pageviews": "MetricValue",
+              "average_session_duration_seconds": "DecimalMetricValue",
+              "cta_clicks": "MetricValue"
+            },
+            "variants": {}
+          },
+          "CtaMatrixRow": {
+            "fields": {
+              "cta": "str",
+              "placement": "str",
+              "clicks": "int | None",
+              "share_pct": "Decimal | None",
+              "suppressed": "bool"
+            },
+            "variants": {}
+          },
+          "CalculatorFunnel": {
+            "fields": {
+              "starts": "MetricValue",
+              "completions": "MetricValue"
+            },
+            "variants": {}
+          },
+          "AcquisitionResponse": {
+            "fields": {
+              "meta": "AnalyticsMeta",
+              "kpis": "AcquisitionKpis",
+              "visitors_trend": "list[SeriesPoint]",
+              "previous_visitors_trend": "list[SeriesPoint]",
+              "visits_trend": "list[SeriesPoint]",
+              "referrers": "list[RankedRow]",
+              "entry_pages": "list[RankedRow]",
+              "cta_matrix": "list[CtaMatrixRow]",
+              "languages": "list[RankedRow]",
+              "calculator": "CalculatorFunnel"
+            },
+            "variants": {}
+          },
+          "JourneySource": {
+            "fields": {},
+            "variants": {
+              "BEHAVIORAL": "behavioral",
+              "AUTHORITATIVE": "authoritative"
+            }
+          },
+          "JourneyStage": {
+            "fields": {
+              "key": "str",
+              "source": "JourneySource",
+              "total": "AggregateCell",
+              "buyer": "AggregateCell | None",
+              "supplier": "AggregateCell | None"
+            },
+            "variants": {}
+          },
+          "DurationBucket": {
+            "fields": {
+              "bucket": "str",
+              "cell": "AggregateCell"
+            },
+            "variants": {}
+          },
+          "DurationDistribution": {
+            "fields": {
+              "buckets": "list[DurationBucket]",
+              "median_hours": "Decimal | None",
+              "sample_size": "int | None",
+              "suppressed": "bool"
+            },
+            "variants": {}
+          },
+          "ConversionRatioKind": {
+            "fields": {},
+            "variants": {
+              "USER_COHORT": "user_cohort",
+              "ORGANIZATION_COHORT": "organization_cohort",
+              "AGGREGATE_EVENT": "aggregate_event"
+            }
+          },
+          "LabeledRatio": {
+            "fields": {
+              "key": "str",
+              "kind": "ConversionRatioKind",
+              "ratio": "RatioValue"
+            },
+            "variants": {}
+          },
+          "ActivationResponse": {
+            "fields": {
+              "meta": "AnalyticsMeta",
+              "journey": "list[JourneyStage]",
+              "time_to_first_login": "DurationDistribution",
+              "time_to_first_live_order": "DurationDistribution",
+              "drop_off": "list[AggregateCell]",
+              "ratios": "list[LabeledRatio]"
+            },
+            "variants": {}
+          },
+          "EngagementKpis": {
+            "fields": {
+              "dau": "MetricValue",
+              "wau": "MetricValue",
+              "mau": "MetricValue",
+              "stickiness_pct": "Decimal | None"
+            },
+            "variants": {}
+          },
+          "FeatureAdoptionRow": {
+            "fields": {
+              "family": "str",
+              "events": "int | None",
+              "suppressed": "bool"
+            },
+            "variants": {}
+          },
+          "NavigationDestinationRow": {
+            "fields": {
+              "destination": "NavigationDestination",
+              "total": "AggregateCell",
+              "buyer": "AggregateCell | None",
+              "supplier": "AggregateCell | None"
+            },
+            "variants": {}
+          },
+          "TutorialStepRow": {
+            "fields": {
+              "step": "str",
+              "completed": "AggregateCell",
+              "skipped": "AggregateCell"
+            },
+            "variants": {}
+          },
+          "EngagementResponse": {
+            "fields": {
+              "meta": "AnalyticsMeta",
+              "kpis": "EngagementKpis",
+              "active_members_trend": "list[SeriesPoint]",
+              "feature_adoption": "list[FeatureAdoptionRow]",
+              "workflow_ratios": "list[LabeledRatio]",
+              "navigation_destinations": "list[NavigationDestinationRow]",
+              "tutorial_steps": "list[TutorialStepRow]"
+            },
+            "variants": {}
+          },
+          "MarketplaceKpis": {
+            "fields": {
+              "participating_organizations": "MetricValue",
+              "open_bids": "MetricValue",
+              "open_asks": "MetricValue",
+              "confirmed_trades": "MetricValue",
+              "confirmed_volume_mt": "DecimalMetricValue",
+              "execution_rate": "RatioValue"
+            },
+            "variants": {}
+          },
+          "SliceLiquidityRow": {
+            "fields": {
+              "product_key": "str",
+              "product_label": "str",
+              "delivery_point_key": "str",
+              "delivery_point_label": "str",
+              "availability_window": "str",
+              "availability_window_label": "str",
+              "contributing_organizations": "int | None",
+              "best_bid_usd_per_mt": "Decimal | None",
+              "best_ask_usd_per_mt": "Decimal | None",
+              "spread_usd_per_mt": "Decimal | None",
+              "spread_bps": "Decimal | None",
+              "best_bid_depth_mt": "Decimal | None",
+              "best_ask_depth_mt": "Decimal | None",
+              "one_percent_bid_depth_mt": "Decimal | None",
+              "one_percent_ask_depth_mt": "Decimal | None",
+              "crossed": "bool | None",
+              "suppressed": "bool"
+            },
+            "variants": {}
+          },
+          "LiquiditySummary": {
+            "fields": {
+              "two_sided_slices": "int | None",
+              "one_sided_slices": "int | None",
+              "crossed_slices": "int | None",
+              "median_spread_usd_per_mt": "Decimal | None",
+              "median_spread_bps": "Decimal | None",
+              "median_open_order_age_hours": "Decimal | None",
+              "median_hours_to_first_fill": "Decimal | None",
+              "slices": "list[SliceLiquidityRow]"
+            },
+            "variants": {}
+          },
+          "MarketBalanceTrend": {
+            "fields": {
+              "buyer_organizations": "list[SeriesPoint]",
+              "supplier_organizations": "list[SeriesPoint]",
+              "bids": "list[SeriesPoint]",
+              "asks": "list[SeriesPoint]"
+            },
+            "variants": {}
+          },
+          "ProductPortCell": {
+            "fields": {
+              "product_key": "str",
+              "product_label": "str",
+              "delivery_point_key": "str",
+              "delivery_point_label": "str",
+              "orders": "AggregateCell",
+              "organizations": "AggregateCell"
+            },
+            "variants": {}
+          },
+          "ConcentrationBand": {
+            "fields": {},
+            "variants": {
+              "LOW": "low",
+              "MODERATE": "moderate",
+              "HIGH": "high"
+            }
+          },
+          "OrganizationConcentration": {
+            "fields": {
+              "hhi_band": "ConcentrationBand | None",
+              "suppressed": "bool"
+            },
+            "variants": {}
+          },
+          "CommercialSummary": {
+            "fields": {
+              "realized_gmv_usd": "DecimalMetricValue",
+              "realized_revenue_usd": "DecimalMetricValue",
+              "commission_pending_usd": "Decimal | None",
+              "commission_invoiced_usd": "Decimal | None"
+            },
+            "variants": {}
+          },
+          "MarketActivitySection": {
+            "fields": {
+              "kpis": "MarketplaceKpis",
+              "liquidity": "LiquiditySummary",
+              "balance_trend": "MarketBalanceTrend",
+              "product_port_matrix": "list[ProductPortCell]",
+              "window_distribution": "list[RankedRow]",
+              "order_status_distribution": "list[AggregateCell]",
+              "trade_status_distribution": "list[AggregateCell]",
+              "concentration": "OrganizationConcentration"
+            },
+            "variants": {}
+          },
+          "ReferenceSourceLabel": {
+            "fields": {},
+            "variants": {
+              "MANUAL_OVERRIDE": "MANUAL_OVERRIDE",
+              "SEED_MATRIX": "SEED_MATRIX",
+              "OTHER": "OTHER"
+            }
+          },
+          "ReferenceSourceKind": {
+            "fields": {},
+            "variants": {
+              "ADMIN_BENCHMARK": "ADMIN_BENCHMARK",
+              "SEEDED_BENCHMARK": "SEEDED_BENCHMARK",
+              "TRADE_DERIVED_VWAP": "TRADE_DERIVED_VWAP",
+              "OTHER": "OTHER"
+            }
+          },
+          "ReferenceScope": {
+            "fields": {},
+            "variants": {
+              "EXACT_SLICE": "EXACT_SLICE",
+              "WINDOW_ADJUSTED": "WINDOW_ADJUSTED",
+              "OTHER": "OTHER"
+            }
+          },
+          "ReferenceCoverageRow": {
+            "fields": {
+              "product_key": "str",
+              "product_label": "str",
+              "delivery_point_key": "str",
+              "delivery_point_label": "str",
+              "availability_window": "str",
+              "availability_window_label": "str",
+              "benchmark_price_usd_per_mt": "Decimal | None",
+              "source_label": "ReferenceSourceLabel",
+              "generated_at": "datetime",
+              "observed_at": "datetime | None",
+              "source_kind": "ReferenceSourceKind",
+              "scope": "ReferenceScope",
+              "coverage_status": "Literal['current', 'stale', 'unavailable']"
+            },
+            "variants": {}
+          },
+          "ReferenceCoverageSection": {
+            "fields": {
+              "rows": "list[ReferenceCoverageRow]"
+            },
+            "variants": {}
+          },
+          "MarketplaceResponse": {
+            "fields": {
+              "meta": "AnalyticsMeta",
+              "live": "MarketActivitySection | None",
+              "demo": "MarketActivitySection | None",
+              "unknown": "MarketActivitySection | None",
+              "reference": "ReferenceCoverageSection | None",
+              "commercial": "CommercialSummary | None"
+            },
+            "variants": {}
+          },
+          "CohortCell": {
+            "fields": {
+              "offset": "int",
+              "cell": "AggregateCell",
+              "pct": "Decimal | None"
+            },
+            "variants": {}
+          },
+          "CohortRow": {
+            "fields": {
+              "cohort_start": "date",
+              "size": "AggregateCell",
+              "cells": "list[CohortCell]"
+            },
+            "variants": {}
+          },
+          "RetentionKpis": {
+            "fields": {
+              "returning_members": "MetricValue",
+              "retained_organizations": "MetricValue",
+              "reactivated_organizations": "MetricValue",
+              "dormant_approved_members": "MetricValue"
+            },
+            "variants": {}
+          },
+          "RetentionResponse": {
+            "fields": {
+              "meta": "AnalyticsMeta",
+              "kpis": "RetentionKpis",
+              "member_cohorts": "list[CohortRow]",
+              "organization_cohorts": "list[CohortRow]",
+              "repeat_participation": "list[AggregateCell]"
+            },
+            "variants": {}
+          },
+          "CollectorState": {
+            "fields": {
+              "status": "AnalyticsSourceStatus",
+              "diagnostic": "AnalyticsDiagnostic | None",
+              "last_observation_at": "datetime | None"
+            },
+            "variants": {}
+          },
+          "LoginFailurePanel": {
+            "fields": {
+              "total": "MetricValue",
+              "categories": "list[AggregateCell]",
+              "trend": "list[SeriesPoint]"
+            },
+            "variants": {}
+          },
+          "FrontendErrorPanel": {
+            "fields": {
+              "total": "MetricValue",
+              "by_route_family": "list[AggregateCell]",
+              "by_category": "list[AggregateCell]"
+            },
+            "variants": {}
+          },
+          "BackendUnavailablePanel": {
+            "fields": {
+              "total": "MetricValue",
+              "by_route_family": "list[AggregateCell]"
+            },
+            "variants": {}
+          },
+          "NavigationLatencyRow": {
+            "fields": {
+              "destination": "NavigationDestination | Literal['all']",
+              "buckets": "list[AggregateCell]"
+            },
+            "variants": {}
+          },
+          "AuditActivityRow": {
+            "fields": {
+              "occurred_at": "datetime",
+              "action": "str",
+              "resource_type": "str | None",
+              "actor_role": "str | None"
+            },
+            "variants": {}
+          },
+          "ReliabilityResponse": {
+            "fields": {
+              "meta": "AnalyticsMeta",
+              "collector": "CollectorState",
+              "login_failures": "LoginFailurePanel",
+              "frontend_errors": "FrontendErrorPanel",
+              "backend_unavailable": "BackendUnavailablePanel",
+              "navigation_latency": "list[NavigationLatencyRow]",
+              "audit_activity": "list[AuditActivityRow]"
+            },
+            "variants": {}
+          }
+        },
+        "AnalyticsQuery": {
+          "start": "DateTime<Utc>",
+          "end": "DateTime<Utc>",
+          "previous": "Option<(DateTime<Utc>,DateTime<Utc>)>",
+          "compare": "bool default true",
+          "audience": "AnalyticsAudience",
+          "activity": "AnalyticsActivity",
+          "product_id": "Option<Uuid>",
+          "delivery_point_id": "Option<Uuid>",
+          "availability_window": "Option<String>"
+        },
+        "BehavioralWindow": {
+          "start": "DateTime<Utc>",
+          "end": "DateTime<Utc>",
+          "observed_at": "DateTime<Utc>",
+          "availability": "available|partial|unavailable",
+          "diagnostic": "Option<AnalyticsDiagnostic>",
+          "coverage": "AnalyticsSourceCoverage",
+          "core": "ProviderComponent<CoreMetrics>",
+          "event_totals": "ProviderComponent<Vec<AllowedEventAggregate>>",
+          "daily_visitors": "ProviderComponent<Vec<DailyVisitorRow>>",
+          "event_series": "ProviderComponent<Vec<DailyEventRow>>",
+          "top_entries": "ProviderComponent<Vec<EntryRankingRow>>",
+          "top_referrers": "ProviderComponent<Vec<ReferrerRankingRow>>",
+          "property_results": "Vec<PropertyAvailability>; max 12 distinct requested events, max 500 rows total per event",
+          "bounds": {
+            "daily_visitor_rows": 366,
+            "event_series_rows": "366 * registered event count; maximum 366 * 32 = 11712",
+            "event_totals": "registered event count <=32",
+            "rank_rows_each": 20,
+            "property_rows_per_event": 500,
+            "requested_property_events": 12,
+            "response_body_bytes": 1000000
+          },
+          "consumers": {
+            "16": "all typed components and per-property results",
+            "17a": "core, event_totals, daily_visitors, event_series, top_entries, top_referrers; DB actuals remain independent",
+            "18": "overview visitor trend, feature/event series and requested property_results; unavailable behavior never erases authoritative facts",
+            "19": "acquisition core/trends/rankings/CTA properties and reliability enum breakdowns/latency; marketplace reference independent",
+            "17b": "no provider dependency; consumes QueryInput and source_response_types only"
+          },
+          "composition": "aggregate duplicate allowed labels before suppression; suppress 1/2 event/entity cells and derived values, including series, totals and ranking; unavailable null propagates to every consumer and ratio; no raw upstream JSON; no cache"
+        },
+        "AllowedEventAggregate": {
+          "event": "AllowedServerEvent|AllowedFrontendEvent",
+          "count": "AggregateCell"
+        },
+        "AllowedPropertyAggregate": {
+          "event": "AllowedServerEvent|AllowedFrontendEvent",
+          "property": "AllowedProperty",
+          "value": "AllowedPropertyValue",
+          "count": "AggregateCell"
+        },
+        "QueryInput": {
+          "fields": {
+            "start": {
+              "type": "timestamp string",
+              "required": true
+            },
+            "end": {
+              "type": "timestamp string",
+              "required": true
+            },
+            "compare": {
+              "type": "bool",
+              "default": true
+            },
+            "audience": {
+              "type": "ALL|BUYER|SUPPLIER",
+              "default": "ALL"
+            },
+            "activity": {
+              "type": "LIVE|DEMO|REFERENCE|ALL",
+              "default": "LIVE"
+            },
+            "product_id": {
+              "type": "Option<Uuid>",
+              "default": null
+            },
+            "delivery_point_id": {
+              "type": "Option<Uuid>",
+              "default": null
+            },
+            "availability_window": {
+              "type": "Option<String>",
+              "default": null,
+              "max_characters": 16
+            }
+          },
+          "timestamp_normalization": "naive date-time accepted as UTC; explicit offset converted to UTC; malformed timestamp refused",
+          "unknown_parameters": "ignored; never copied to SQL or provider",
+          "refusal": {
+            "status": 422,
+            "body": {
+              "detail": {
+                "code": "ANALYTICS_QUERY_INVALID",
+                "message": "clear text; wording not frozen"
+              }
+            },
+            "cases": [
+              "missing start/end",
+              "invalid timestamp, UUID, bool or enum",
+              "end <= start",
+              "range > 366 days",
+              "availability_window >16 characters",
+              "checked previous_start underflow when compare=true",
+              "invalid supplied canonical availability window",
+              "supplied inactive or absent product",
+              "supplied absent or inactive delivery point"
+            ]
+          },
+          "previous": "when compare=true: checked start-(end-start), previous_end=start; otherwise both null",
+          "sources": [
+            "app/schemas/product_analytics.py:43-91",
+            "app/routers/admin_analytics.py:952-984"
+          ]
+        },
+        "ProviderComponent<T>": {
+          "status": "available|partial|unavailable|not_requested",
+          "diagnostic": "Option<AnalyticsDiagnostic>",
+          "data": "Option<T>",
+          "rules": [
+            "unavailable/not_requested => data=null, never zero or []",
+            "available empty collection means genuine empty response",
+            "partial has data only for confirmed components; missing metrics stay null",
+            "unknown event/property/value discarded before aggregation; malformed types => component unavailable",
+            "diagnostic closed domain: disabled,configuration,authentication,timeout,upstream,malformed_response,insufficient_coverage"
+          ]
+        },
+        "CoreMetrics": {
+          "visitors": "Option<u64>",
+          "visits": "Option<u64>",
+          "pageviews": "Option<u64>",
+          "total_time_seconds": "Option<u64>",
+          "average_session_duration_seconds": "Option<Decimal>; total_time_seconds/visits only for visits>0 and both inputs available"
+        },
+        "DailyVisitorRow": {
+          "date": "NaiveDate UTC in [start,end)",
+          "visitors": "AggregateCell"
+        },
+        "DailyEventRow": {
+          "date": "NaiveDate UTC in [start,end)",
+          "event": "AllowedServerEvent|AllowedFrontendEvent",
+          "count": "AggregateCell"
+        },
+        "EntryRankingRow": {
+          "entry": "EntryPage",
+          "count": "AggregateCell",
+          "rank": "u8 1..20"
+        },
+        "ReferrerRankingRow": {
+          "referrer": "ReferrerCategory",
+          "count": "AggregateCell",
+          "rank": "u8 1..20"
+        },
+        "PropertyAvailability": {
+          "event": "AllowedServerEvent|AllowedFrontendEvent",
+          "property": "AllowedProperty permitted for event",
+          "result": "ProviderComponent<Vec<AllowedPropertyAggregate>>",
+          "requested": "every requested (event,property) has exactly one status; event endpoint failure marks every requested property of that event unavailable; no inferred zero"
+        },
+        "AllowedPropertySet": {
+          "type": "sorted unique set<(RegisteredEvent,AllowedProperty)>",
+          "validation": "property must exist in EventPropertyDomains[event]; max12 distinct events; invalid caller request returns422 ANALYTICS_PROPERTY_INVALID; no free-text extension"
+        },
+        "EventPropertyDomains": {
+          "registration_completed": {
+            "role": "TradingRole"
+          },
+          "organization_created": {
+            "role": "TradingRole"
+          },
+          "order_created": {
+            "role": "TradingRole",
+            "side": "Side",
+            "canonical_product": "CanonicalProduct",
+            "delivery_point": "DeliveryPoint",
+            "availability_window": "AvailabilityWindow"
+          },
+          "trade_created": {
+            "role": "TradingRole",
+            "side": "Side",
+            "canonical_product": "CanonicalProduct",
+            "delivery_point": "DeliveryPoint",
+            "availability_window": "AvailabilityWindow"
+          },
+          "landing_cta_clicked": {
+            "cta": "LandingCta",
+            "placement": "Placement",
+            "language": "Language"
+          },
+          "energy_calculator_started": {
+            "language": "Language"
+          },
+          "energy_calculator_completed": {
+            "language": "Language",
+            "fuel": "CanonicalProduct",
+            "port": "DeliveryPoint"
+          },
+          "public_language_changed": {
+            "from": "Language",
+            "to": "Language"
+          },
+          "signup_started": {
+            "entry_point": "EntryPoint",
+            "language": "Language"
+          },
+          "signup_role_selected": {
+            "role": "TradingRole"
+          },
+          "signup_submitted": {
+            "role": "TradingRole",
+            "organization_path": "OrganizationPath"
+          },
+          "signup_organization_required": {
+            "role": "TradingRole"
+          },
+          "signup_organization_submitted": {
+            "role": "TradingRole",
+            "organization_type": "OrganizationType",
+            "country": "AssignedCountry"
+          },
+          "login_submitted": {},
+          "login_succeeded": {
+            "role": "Role"
+          },
+          "login_failed": {
+            "reason_category": "LoginFailure"
+          },
+          "platform_navigation": {
+            "destination": "Destination",
+            "view_mode": "TradingRole"
+          },
+          "market_slice_selected": {
+            "product": "CanonicalProduct",
+            "delivery_point": "DeliveryPoint",
+            "window": "AvailabilityWindow"
+          },
+          "listing_opened": {
+            "product": "CanonicalProduct",
+            "delivery_point": "DeliveryPoint",
+            "window": "AvailabilityWindow",
+            "side": "Side",
+            "demo_status": "DemoStatus"
+          },
+          "order_form_opened": {
+            "product": "CanonicalProduct",
+            "delivery_point": "DeliveryPoint",
+            "window": "AvailabilityWindow",
+            "side": "Side"
+          },
+          "order_form_submitted": {
+            "product": "CanonicalProduct",
+            "delivery_point": "DeliveryPoint",
+            "window": "AvailabilityWindow",
+            "side": "Side"
+          },
+          "trade_confirmation_opened": {
+            "side": "Side",
+            "demo_status": "DemoStatus"
+          },
+          "tutorial_started": {
+            "role": "Role"
+          },
+          "tutorial_step_completed": {
+            "step": "TutorialStep",
+            "role": "Role"
+          },
+          "tutorial_step_skipped": {
+            "step": "TutorialStep",
+            "role": "Role"
+          },
+          "tutorial_completed": {
+            "role": "Role"
+          },
+          "estimator_opened": {},
+          "estimator_completed": {
+            "port": "DeliveryPoint",
+            "fuel": "CanonicalProduct"
+          },
+          "frontend_error": {
+            "route_family": "RouteFamily",
+            "category": "ErrorCategory"
+          },
+          "backend_unavailable": {
+            "route_family": "NonlandingRouteFamily"
+          },
+          "navigation_performance": {
+            "destination": "Destination",
+            "view_mode": "TradingRole",
+            "latency_bucket": "LatencyBucket"
+          }
+        },
+        "ValueDomains": {
+          "Role": [
+            "BUYER",
+            "SUPPLIER",
+            "ADMIN"
+          ],
+          "TradingRole": [
+            "BUYER",
+            "SUPPLIER"
+          ],
+          "Language": [
+            "en",
+            "zh"
+          ],
+          "Side": [
+            "BID",
+            "ASK"
+          ],
+          "DemoStatus": [
+            "LIVE",
+            "DEMO",
+            "REFERENCE",
+            "MIXED",
+            "UNKNOWN"
+          ],
+          "LandingCta": [
+            "pilot",
+            "how_it_works",
+            "register",
+            "register_interest",
+            "sign_in"
+          ],
+          "Placement": [
+            "nav",
+            "hero",
+            "calculator",
+            "landing_bottom",
+            "pilot_sidebar",
+            "pilot_bottom"
+          ],
+          "Destination": [
+            "home",
+            "map",
+            "marketplace",
+            "curve",
+            "watchlist",
+            "analytics",
+            "trades",
+            "quotes",
+            "compliance",
+            "training",
+            "settings",
+            "admin"
+          ],
+          "RouteFamily": [
+            "landing",
+            "signup",
+            "platform",
+            "admin"
+          ],
+          "NonlandingRouteFamily": [
+            "signup",
+            "platform",
+            "admin"
+          ],
+          "ErrorCategory": [
+            "render",
+            "chunk",
+            "network",
+            "unknown"
+          ],
+          "LatencyBucket": [
+            "lt250",
+            "250_500",
+            "500_1000",
+            "1000_2500",
+            "gte2500"
+          ],
+          "LoginFailure": [
+            "invalid_credentials",
+            "account_state",
+            "network",
+            "server",
+            "unknown"
+          ],
+          "EntryPoint": [
+            "referral",
+            "direct",
+            "landing",
+            "signup",
+            "pilot",
+            "invite",
+            "other"
+          ],
+          "OrganizationPath": [
+            "create",
+            "existing",
+            "invitation",
+            "other"
+          ],
+          "OrganizationType": [
+            "SHIP_OPERATOR",
+            "FUEL_SUPPLIER",
+            "FUEL_TRADER",
+            "OTHER"
+          ],
+          "TutorialStep": [
+            "buyer_1",
+            "buyer_2",
+            "buyer_3",
+            "buyer_4",
+            "buyer_5",
+            "buyer_6",
+            "buyer_7",
+            "buyer_8",
+            "buyer_9",
+            "buyer_10",
+            "buyer_11",
+            "buyer_12",
+            "buyer_13",
+            "buyer_14",
+            "buyer_15",
+            "buyer_16",
+            "buyer_17",
+            "buyer_18",
+            "buyer_19",
+            "buyer_20",
+            "buyer_21",
+            "buyer_22",
+            "buyer_23",
+            "buyer_24",
+            "buyer_25",
+            "buyer_26",
+            "buyer_27",
+            "buyer_28",
+            "supplier_1",
+            "supplier_2",
+            "supplier_3",
+            "supplier_4",
+            "supplier_5",
+            "supplier_6",
+            "supplier_7",
+            "supplier_8",
+            "supplier_9",
+            "supplier_10",
+            "supplier_11",
+            "supplier_12",
+            "supplier_13",
+            "supplier_14",
+            "supplier_15",
+            "supplier_16",
+            "supplier_17",
+            "supplier_18",
+            "supplier_19",
+            "supplier_20",
+            "supplier_21",
+            "supplier_22",
+            "supplier_23",
+            "supplier_24",
+            "supplier_25",
+            "supplier_26",
+            "supplier_27",
+            "supplier_28",
+            "supplier_29"
+          ],
+          "EntryPage": [
+            "landing",
+            "signup",
+            "login",
+            "pilot",
+            "calculator",
+            "platform",
+            "admin",
+            "other"
+          ],
+          "ReferrerCategory": [
+            "direct",
+            "search",
+            "social",
+            "referral",
+            "other"
+          ],
+          "AssignedCountry": "exact assigned alpha-2 set in pinned app/reference/iso_countries.py; uppercase only",
+          "CanonicalProduct": "code resolved through pinned market-policy.json active product catalog; never arbitrary token/UUID",
+          "DeliveryPoint": "code resolved through pinned market-policy.json active point catalog; never arbitrary token/UUID",
+          "AvailabilityWindow": "SPOT or canonical YYYY-MM (01..12), YYYY-Q[1-4], YYYY-CAL; maximum16; year0001..9999; no labels or free text"
+        },
+        "AllowedServerEvent": [
+          "registration_completed",
+          "organization_created",
+          "order_created",
+          "trade_created"
+        ],
+        "AllowedFrontendEvent": [
+          "landing_cta_clicked",
+          "energy_calculator_started",
+          "energy_calculator_completed",
+          "public_language_changed",
+          "signup_started",
+          "signup_role_selected",
+          "signup_submitted",
+          "signup_organization_required",
+          "signup_organization_submitted",
+          "login_submitted",
+          "login_succeeded",
+          "login_failed",
+          "platform_navigation",
+          "market_slice_selected",
+          "listing_opened",
+          "order_form_opened",
+          "order_form_submitted",
+          "trade_confirmation_opened",
+          "tutorial_started",
+          "tutorial_step_completed",
+          "tutorial_step_skipped",
+          "tutorial_completed",
+          "estimator_opened",
+          "estimator_completed",
+          "frontend_error",
+          "backend_unavailable",
+          "navigation_performance"
+        ],
+        "AllowedProperty": "union of EventPropertyDomains keys; event-specific mapping authoritative",
+        "AllowedPropertyValue": "tagged value from referenced ValueDomains entry, never arbitrary string",
+        "ranking_normalization": {
+          "entries": "strip query and fragment; fixed route-family allowlist maps unknown to other; never expose raw path",
+          "referrers": "parse host internally and map to fixed ReferrerCategory; no raw hostname/URL reaches output",
+          "new_closed_domains": "Proposed closed decoding domains, not a claim that historical token validators imposed them. Existing observed referral/direct and create/existing included. Unknown values are dropped, not echoed; independent analytics review required.",
+          "sources": [
+            "app/services/behavioral_analytics.py:33-58,102-164,337-365,373-470",
+            "app/routers/admin_analytics.py:220-234,890-938,1112-1180,1335-1370,1455-1480",
+            "docs/behavioral-analytics-contract.md:30-56,58-114,116-149"
+          ],
+          "domain_references": [
+            {
+              "repository": "Verdaxis/verdaxis-frontend",
+              "path": "src/services/analytics.ts",
+              "lines": "3-51,68-120"
+            },
+            {
+              "repository": "Verdaxis/verdaxis-frontend",
+              "path": "src/pages/RegisterPage.tsx",
+              "lines": "37-40,120-127"
+            },
+            {
+              "repository": "Verdaxis/verdaxis-frontend",
+              "path": "src/components/GuidedTutorial.tsx",
+              "lines": "42-103,482,531"
+            }
+          ]
+        }
+      },
+      "rules": {
+        "range": "half-open UTC, end > start, <=366 days; checked previous-window arithmetic; underflow 422",
+        "bounds": {
+          "rank": 20,
+          "matrix": 512,
+          "weeks": 54,
+          "provider_events": 12,
+          "provider_property_rows": 500,
+          "provider_body_bytes": 1048576
+        },
+        "suppression": "positive count or entity basis 1 or 2 suppresses count and derived values; zero genuine; missing coverage null not zero; 3 unsuppressed",
+        "sources": "authoritative, behavioral, login, status, reference coverage remain separate; reference never activity or commercial actuals",
+        "provider": "typed unavailable for disabled/config/auth/timeout/upstream/malformed; authoritative tabs remain 200; no raw body",
+        "cache": "none: no aggregate, credential or token cache; no single-flight; no raw upstream DTO exposed",
+        "retention": "today and preceding 799 UTC dates; status facts never pruned",
+        "privacy": "closed event/property/value allowlists; no identifiers, free text, commercial values",
+        "provider_body_bytes": 1000000
+      },
+      "source_digests": [
+        {
+          "path": "app/schemas/product_analytics.py",
+          "sha256": "5d7519bd4b2cdb56640a110349a0e5c626c53aaeddf466c3ee5d2123fa611550"
+        },
+        {
+          "path": "app/services/behavioral_analytics.py",
+          "sha256": "1a3ee6f84d7d30d8b489574e5d62ea3cfeb13dd31c4f03be6cb2b7c9be6f0801"
+        },
+        {
+          "path": "app/routers/admin_analytics.py",
+          "sha256": "648abaaccf0dc54cd1cbf52f02ee68d00acabbbcb83bf0800659d484e881a8c1"
+        },
+        {
+          "path": "app/reference/iso_countries.py",
+          "sha256": "e3ab1f4844d1b949cbdfafe6b9f5e9f59ccf472efaccbfe99ca1c5da50985f0d"
+        },
+        {
+          "path": "deploy/rust/market-policy.json",
+          "sha256": "9832ad27ea20cc47bed94eaa0ddf3dbc518bf8030b2e529ffdbe65d783b0b8aa"
+        },
+        {
+          "path": "docs/behavioral-analytics-contract.md",
+          "sha256": "ad873bdffacead9908884da87675bc5f27ca8cd7d1740d64144155eda6f51236"
+        }
+      ],
+      "status": "proposed",
+      "source_references": [
+        {
+          "path": "app/schemas/product_analytics.py",
+          "lines": "43-91,99-166,340-760"
+        },
+        {
+          "path": "app/services/behavioral_analytics.py",
+          "lines": "33-58,102-164,337-365,373-470"
+        },
+        {
+          "path": "app/routers/admin_analytics.py",
+          "lines": "220-234,890-938,952-984,1112-1180,1335-1370,1455-1480"
+        }
+      ]
+    },
+    {
+      "id": "CF4_04",
+      "owners": [
+        "6",
+        "7",
+        "8",
+        "11b",
+        "21",
+        "22",
+        "phase8",
+        "phase9",
+        "integration"
+      ],
+      "signature_status": "delayed_pending_Phase_8_9_owner_reconciliation",
+      "signatures": [
+        {
+          "declaration": "pub async fn invalidate_organization(conn: &mut PgConnection, command: &InvalidateOrganization) -> Result<InvalidationResult, InvalidationError>",
+          "sha256": "cb12bb3a4d1f965c7df41243eecf5470268e7968690d665f3e8765841bef57af"
+        }
+      ],
+      "schemas": {
+        "InvalidateOrganization": {
+          "organization_id": "Uuid",
+          "actor_id": "Uuid",
+          "now": "DateTime<Utc>; caller already holds canonical organization/user locks"
+        },
+        "InvalidationResult": {
+          "withdrawn_orders": "Vec<Uuid>; max 100",
+          "preserved_trade_ids": "Vec<Uuid>; max 100",
+          "released_uncommitted_quantity": "Decimal",
+          "outbox_ids": "Vec<Uuid>"
+        },
+        "FrozenTradeParticipants": {
+          "trade_id": "Uuid",
+          "buyer_user_id": "Uuid",
+          "seller_user_id": "Uuid",
+          "buyer_organization_id": "Uuid",
+          "seller_organization_id": "Uuid",
+          "initiator_user_id": "Uuid",
+          "state": "TradeState; all six persisted states",
+          "quantity": "Decimal",
+          "settlement_reservation": "immutable existing commitment",
+          "fee_snapshot": "immutable existing snapshot"
+        },
+        "SettlementAction": [
+          "Confirm",
+          "Decline",
+          "Deliver",
+          "Pay"
+        ],
+        "TradeState": {
+          "PendingConfirmation": {
+            "wire": "PENDING_CONFIRMATION",
+            "storage": "PENDING_CONFIRMATION"
+          },
+          "Confirmed": {
+            "wire": "CONFIRMED",
+            "storage": "CONFIRMED"
+          },
+          "Delivered": {
+            "wire": "DELIVERED",
+            "storage": "DELIVERED"
+          },
+          "Paid": {
+            "wire": "PAID",
+            "storage": "PAID"
+          },
+          "Cancelled": {
+            "wire": "CANCELLED",
+            "storage": "CANCELLED"
+          },
+          "Declined": {
+            "wire": "DECLINED",
+            "storage": "DECLINED"
+          }
+        },
+        "authority_interface_candidates": [
+          "pub async fn cleanup_context_for_trade(tx: &mut Tx, actor: &AuthenticatedActor, trade_id: Uuid) -> Result<WriteContext, MarketWriteError>",
+          "pub async fn require_cleanup(tx: &mut Tx, ctx: &WriteContext, trade: &TradeRow, side: TradeSide) -> Result<(), MarketWriteError>"
+        ],
+        "authority_inputs_pending_owner_confirmation": {
+          "AuthenticatedActor": [
+            "verified access type=access",
+            "subject Uuid",
+            "issued_at Option<DateTime<Utc>>",
+            "account status Pending|Approved|Rejected",
+            "password_changed_at Option<DateTime<Utc>>",
+            "authentication_revoked_at Option<DateTime<Utc>>",
+            "role Buyer|Supplier|Admin",
+            "must_change_password bool",
+            "email_verified bool",
+            "current_organization_id Option<Uuid>"
+          ],
+          "recorded_side": [
+            "buyer_user_id Option<Uuid>",
+            "seller_user_id Option<Uuid>",
+            "buyer_organization_id Uuid",
+            "seller_organization_id Uuid",
+            "initiator_user_id Uuid",
+            "assisted-customer side evidence and current membership under locks"
+          ],
+          "WriteContext": "derive effective_organization_id from immutable recorded side; support_context_id=None for concrete cleanup; not caller-selected tenant"
+        }
+      },
+      "rules": {
+        "scope": "sole market_write boundary owns orders/trades/inventory DML; caller connection; no commit or dispatcher",
+        "bounds": "discover limit+1; >100 commitments or >100 active orders => atomic 409",
+        "preserve": "all six persisted states; terminal PAID,CANCELLED,DECLINED rows unchanged; fresh lifecycle commands refused on terminal rows",
+        "release": "withdraw executable uncommitted remainder only; return only its reserved stock",
+        "ownership": "not accepted; use delayed authority matrix and Phase8/9 interfaces only; no parallel authority API",
+        "authentication": "execution vs cleanup distinction is pending exact owner types/codes; no consumers released",
+        "freeze": "no trade freeze column or route",
+        "coexistence": "actual Python deliver/pay proof mandatory at integration; mismatch blocks business group; do not modify Python",
+        "locks": "canonical slice and row keys reused; shared retry up to three full attempts only 40001/40P01; outward exhaustion 503 TRANSACTION_RETRY_EXHAUSTED with Retry-After:1 per CF4_06 proposal; 55P03 409 MARKET_BUSY; 57014 503 TRANSACTION_TIMEOUT; preserve stock/outbox/audit atomically"
+      },
+      "source_digests": [
+        {
+          "path": "app/services/market_invalidation.py",
+          "sha256": "c19b40329b9aa2f90ba96b43914d49a90e92ada1e08ea74a1eac6557defc04fd"
+        },
+        {
+          "path": "rs/read/src/auth/lock.rs",
+          "sha256": "05c2ae79f520f6a09937edc590a8f383ccb2177512d41a3e8e5183794e65b414"
+        },
+        {
+          "path": "app/models/orderbook.py",
+          "sha256": "01ed42519df764c402258366a29a0e8eaa8f78e7836ca991936f56b604b4eb00"
+        },
+        {
+          "path": "app/routers/auth_simple.py",
+          "sha256": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0"
+        }
+      ],
+      "status": "delayed",
+      "authority_matrix_pending_review": {
+        "confirm": {
+          "admission": "full execution: account APPROVED, verified email, current organization APPROVED, role compatible, must_change_password=false, KYC/grace eligible; all access/password/revocation cutoffs",
+          "ownership": "noninitiating recorded counterparty or admitted assisted customer member; current admission required",
+          "from": "PENDING_CONFIRMATION",
+          "to": "CONFIRMED"
+        },
+        "decline": {
+          "admission": "cleanup signed access + password cutoff; revocation skipped only while current status REJECTED, restored on reapproval",
+          "ownership": "noninitiating exact recorded side user or expressly authorized current assisted customer member; not arbitrary organization member or support admin",
+          "from": "PENDING_CONFIRMATION",
+          "to": "DECLINED"
+        },
+        "deliver": {
+          "admission": "same cleanup; no status,email,KYC,organization-approval check",
+          "ownership": "existing recorded-side delivery authority must be confirmed by Phase8/9 owner; no broadened current-org-only authority",
+          "from": "CONFIRMED",
+          "to": "DELIVERED"
+        },
+        "pay": {
+          "admission": "cleanup plus SUPPLIER role",
+          "ownership": "exact recorded seller or authorized assisted seller membership; recorded side organization must match trade",
+          "from": "DELIVERED",
+          "to": "PAID"
+        },
+        "terminal": {
+          "states": [
+            "PAID",
+            "CANCELLED",
+            "DECLINED"
+          ],
+          "invalidation": "leave rows and all commitments/history unchanged",
+          "fresh_commands": "refuse fresh confirm/decline/deliver/pay; no transition leaves terminal state",
+          "committed_replay": "separate authorized receipt replay before business admission; not fresh execution"
+        }
+      },
+      "refusals_pending_owner_confirmation": {
+        "invalid_token_or_password_cutoff": {
+          "status": 401,
+          "code": "must reconcile Phase8/9 MarketWriteError; not frozen"
+        },
+        "revocation_cutoff_after_reapproval": {
+          "status": 401,
+          "code": "must reconcile Phase8/9 MarketWriteError; not frozen"
+        },
+        "foreign_or_unadmitted_assisted_actor": {
+          "status": 403,
+          "code": "pending owner"
+        },
+        "pay_role": {
+          "status": 403,
+          "code": "pending owner"
+        },
+        "missing_trade": {
+          "status": 404,
+          "code": "pending owner"
+        },
+        "wrong_lifecycle_or_fresh_terminal": {
+          "status": 400,
+          "code": "pending owner"
+        },
+        "receipt_resource": {
+          "status": 409,
+          "code": "RECEIPT_RESOURCE_MISMATCH"
+        },
+        "Phase8_9_active_freeze": {
+          "status": 409,
+          "code": "TRADE_FROZEN",
+          "scope": "not implemented in Phase4"
+        }
+      },
+      "delay": {
+        "reason": "Exact cleanup actor/context types, assisted-side representation, delivery-side rule and MarketWriteError codes need Phase8/9 owner confirmation. No parallel admit_existing_settlement API is frozen.",
+        "consumers_blocked": [
+          "6",
+          "7",
+          "8",
+          "11b",
+          "21",
+          "22"
+        ],
+        "release": "independent contract re-review plus Phase8/9 owner reconciliation and PM acceptance; not inferred",
+        "plan_references": [
+          "Phases 8-9 Plan \u00a77.4 lines353-365,378",
+          "Phases 8-9 Plan lines668-672,886-887,1063-1064,1760-1804",
+          "Phase4 Plan \u00a74.3, Tasks21/22"
+        ],
+        "coexistence": "Phase4 actual unchanged-Python deliver/pay success requirement stays blocking. Phase8/9 degraded rollback allowance does not waive it. No Python edit."
+      },
+      "source_references": [
+        {
+          "path": "app/models/orderbook.py",
+          "lines": "75-81"
+        },
+        {
+          "path": "app/routers/auth_simple.py",
+          "lines": "758-783"
+        }
+      ]
+    },
+    {
+      "id": "CF4_05",
+      "owners": [
+        "24",
+        "integration"
+      ],
+      "signature_status": "proposed_for_review",
+      "signatures": [
+        {
+          "declaration": "import rust-phase4 python_upstream rust_upstream B_owner O_owner V_owner I_owner S_owner P_owner",
+          "sha256": "cda710f0ba9dfd7f3c4e06e2c36dff38048c86ea7c5a1f9677730c35d298d6cc"
+        }
+      ],
+      "schemas": {
+        "arguments": {
+          "0": "Python upstream",
+          "1": "Rust upstream",
+          "2": "B",
+          "3": "O",
+          "4": "V",
+          "5": "I",
+          "6": "S",
+          "7": "P"
+        },
+        "owner": "python|rust; all default python",
+        "groups": {
+          "B": 22,
+          "O": 2,
+          "V": 2,
+          "I": 1,
+          "S": 5,
+          "P": 11
+        }
+      },
+      "rules": {
+        "match": "exact method plus path; 43 unique pairs; no auth/admin wildcard",
+        "rollback": "change one group owner argument only; keep valid shared data",
+        "import_order": [
+          "phase4",
+          "phase3_auth",
+          "public_read",
+          "python_catchall"
+        ],
+        "abi": "do not renumber Phase3 auth or public args",
+        "verification": "real disposable Caddy HTTP forward and rollback; no live config edits"
+      },
+      "source_digests": [
+        {
+          "path": "tests/rust_contract/phase4/routes.json",
+          "sha256": "94fa69b1897ae4a08814d372c7b0f2908ad86146e679003c30a39d3224ffa0d3"
+        }
+      ],
+      "status": "accepted",
+      "acceptance_record": {
+        "decision": "PD4-CF4a",
+        "source_sha": "f8627807a01cee35ddb9d43d1ce81fa5882b10cd",
+        "artifact_sha256": "f075109fb4c3097525f20b9264c5a6654399122c632f27eedf83a7bd45e8ff57",
+        "declarations": "identical to reviewed v1; acceptance does not assert producer completion"
+      }
+    },
+    {
+      "id": "CF4_06",
+      "owners": [
+        "Phase 3",
+        "Phase 4 Task 2",
+        "integration"
+      ],
+      "signature_status": "implemented",
+      "signatures": [
+        {
+          "declaration": "pub async fn retry_org_write<T, E, F, Fut>(mut attempt: F) -> Result<T, OrgWriteError<E>> where E: WriteConflict, F: FnMut(usize) -> Fut, Fut: Future<Output = Result<T, E>>",
+          "sha256": "dcae6eb114daf8e7ad24b6546e02201bc4ff8e0f33404819e0ecc13695c4dfa4"
+        },
+        {
+          "declaration": "pub async fn lock_organization_write(connection: &mut PgConnection, scope: &OrganizationWriteScope) -> Result<LockedOrganizationWrite, sqlx::Error>",
+          "sha256": "3f7bb1eaac9cd53fa4b68237fdaed2557dc715d3f05a0de4958c6c4ac2daf0d8"
+        },
+        {
+          "declaration": "org_write_retries_twice_then_stops",
+          "sha256": "4d768fbcd058acfb39474049ad28a4a5335239da11e3498409cacbc687f14f68"
+        },
+        {
+          "declaration": "pub fn retry_exhausted() -> ApiError",
+          "sha256": "6d942c340749f3c306c049cd3e0a7552fe8b46a5949d8c7fd741208bf11c4eb9"
+        }
+      ],
+      "schemas": {
+        "OrganizationWriteScope": {
+          "organizations": "sorted unique Vec<Uuid>",
+          "users": "sorted unique Vec<Uuid>, including actor",
+          "join_requests": "sorted unique Vec<Uuid>"
+        },
+        "OrgWriteError": [
+          "Busy",
+          "Failed(E)"
+        ],
+        "WriteConflict": "is_write_conflict(&self) -> bool",
+        "Phase4RetryAdapter": {
+          "input": "OrgWriteError::Busy from shared retry_org_write",
+          "status": 503,
+          "body": {
+            "detail": {
+              "code": "TRANSACTION_RETRY_EXHAUSTED",
+              "message": "clear text; not wording-frozen"
+            }
+          },
+          "headers": {
+            "Retry-After": "1",
+            "Content-Type": "application/json"
+          },
+          "inherited_Phase3_adapter": {
+            "status": 503,
+            "code": "ORGANIZATION_WRITE_BUSY",
+            "Retry-After": "1",
+            "scope": "unchanged helper/test; do not expose this conversion for Phase4 organization commands"
+          },
+          "other_states": {
+            "55P03": {
+              "status": 409,
+              "code": "MARKET_BUSY"
+            },
+            "57014": {
+              "status": 503,
+              "code": "TRANSACTION_TIMEOUT"
+            },
+            "other_server_error": {
+              "status": 500,
+              "code": "DATABASE_ERROR"
+            },
+            "uncertain_commit": {
+              "status": 503,
+              "code": "COMMIT_OUTCOME_UNKNOWN",
+              "retry": false
+            }
+          }
+        }
+      },
+      "rules": {
+        "attempts": 3,
+        "retryable_sqlstates": [
+          "40001",
+          "40P01"
+        ],
+        "commit": "known server abort passes same classifier; uncertain transport/protocol completion never replayed",
+        "attempt": "fresh preview and full transaction each call; rollback/discard before retry; no provider I/O",
+        "test_target": "auth_store_postgres",
+        "test": "org_write_retries_twice_then_stops",
+        "lock_order": [
+          "organizations UUID ascending",
+          "users including actor UUID ascending",
+          "joins UUID ascending",
+          "market subgraph"
+        ],
+        "ownership": "no actor-first wrapper; no new namespace or retry loop",
+        "Phase4_outward": "Busy mapped only through business::error::retry_exhausted: 503 TRANSACTION_RETRY_EXHAUSTED, Retry-After:1; inherited Phase3 conversion unchanged"
+      },
+      "source_digests": [
+        {
+          "path": "rs/read/src/auth/lock.rs",
+          "sha256": "05c2ae79f520f6a09937edc590a8f383ccb2177512d41a3e8e5183794e65b414"
+        },
+        {
+          "path": "rs/read/tests/auth_store_postgres.rs",
+          "sha256": "2e656847359af86428ece509b53a6f8227759e436a27ae82868eb01629656be6"
+        },
+        {
+          "path": "rs/read/src/business/error.rs",
+          "sha256": "ed64409ad6c64a6ea98be16ea3b4f3f5d8fd50bd3f0568efa2214f70ca8fee52"
+        },
+        {
+          "path": "rs/read/src/business/transaction.rs",
+          "sha256": "08c11710ddbec0762012810e9f212caff160340651ae3f6863f4632dec711f0f"
+        },
+        {
+          "path": "rs/read/src/runtime/error.rs",
+          "sha256": "91be447533c20344c6da54e43914096f7f783d67f2ce0dc815fbee25d3a00477"
+        }
+      ],
+      "status": "proposed",
+      "source_references": [
+        {
+          "path": "rs/read/src/auth/lock.rs",
+          "lines": "131-184,243-246"
+        },
+        {
+          "path": "rs/read/tests/auth_store_postgres.rs",
+          "lines": "120-193"
+        },
+        {
+          "path": "rs/read/src/business/error.rs",
+          "lines": "15-45"
+        },
+        {
+          "path": "rs/read/src/business/transaction.rs",
+          "lines": "160-184"
+        },
+        {
+          "path": "rs/read/src/runtime/error.rs",
+          "lines": "10-28"
+        }
+      ]
+    }
+  ],
+  "supersedes": "contracts-v1.json; v1 retained unchanged"
+}
