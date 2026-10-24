@@ -368,7 +368,10 @@ mod postgres {
         assert_eq!(max.len(), 100);
         assert_eq!(max.last().unwrap().user_id, Uuid::from_u128(100));
         // The due row carries the frozen transition the sender must claim.
-        assert_eq!(default.first().unwrap().transition_id, first_marker.transition_id);
+        assert_eq!(
+            default.first().unwrap().transition_id,
+            first_marker.transition_id
+        );
         assert!(
             due_approval_mail(
                 &mut conn,
