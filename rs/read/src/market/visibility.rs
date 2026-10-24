@@ -18,7 +18,15 @@ use sqlx::{postgres::PgArguments, query::Query};
 /// consumer's gate bind (`$13` for the shared binder, `$5` for the curve
 /// metadata query). Every consumer of `current_order_rule.sql` composes it.
 pub fn eligibility_sets_sql(gate: &str) -> String {
-    include_str!("../../sql/eligibility_sets.sql").replace("/*gate*/", gate)
+    use crate::kyc::policy::{KycSqlParty, eligibility_sql};
+    let render = |party| {
+        eligibility_sql(party)
+            .replace("/*kyc_enabled*/", gate)
+            .replace("/*kyc_now*/", "$2")
+    };
+    include_str!("../../sql/eligibility_sets.sql")
+        .replace("/*kyc_u*/", &render(KycSqlParty::USER))
+        .replace("/*kyc_m*/", &render(KycSqlParty::MEMBER))
 }
 
 /// Expand the shared markers a tail or relation may carry. One composition

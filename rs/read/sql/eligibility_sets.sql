@@ -8,7 +8,7 @@
 --
 -- Leading-comma fragment: append it to a `WITH` clause that already defines
 -- `policy_products`. Binds: `$2` captured instant (shared grace expiry) and the
--- runtime gate placeholder `/*gate*/`. No other parameter.
+-- rendered owner/member KYC policy predicates.
 , eligible_owners AS MATERIALIZED (
     SELECT u.id AS user_id, u.organization_id
     FROM users AS u
@@ -19,20 +19,7 @@
       AND u.status = 'APPROVED'
       AND u.email_verified
       AND NOT u.must_change_password
-      AND u.kyc_status <> 'REJECTED'
-      AND CASE WHEN /*gate*/::boolean THEN (
-          (u.kyc_status = 'APPROVED'
-           AND u.kyc_organization_id = u.organization_id)
-          OR EXISTS (
-              SELECT 1 FROM kyc_execution_grace AS grace
-              WHERE grace.user_id = u.id
-                AND grace.organization_id = u.organization_id
-                AND grace.expires_at > $2::timestamptz
-          )
-      ) ELSE (
-          u.kyc_organization_id IS NULL
-          OR u.kyc_organization_id = u.organization_id
-      ) END
+      AND /*kyc_u*/
 ),
 eligible_assisted AS MATERIALIZED (
     -- The member and organization checks key on the ORDER's organization, not
@@ -52,19 +39,6 @@ eligible_assisted AS MATERIALIZED (
             AND m.status = 'APPROVED'
             AND m.email_verified
             AND NOT m.must_change_password
-            AND m.kyc_status <> 'REJECTED'
-            AND CASE WHEN /*gate*/::boolean THEN (
-                (m.kyc_status = 'APPROVED'
-                 AND m.kyc_organization_id = m.organization_id)
-                OR EXISTS (
-                    SELECT 1 FROM kyc_execution_grace AS grace
-                    WHERE grace.user_id = m.id
-                      AND grace.organization_id = m.organization_id
-                      AND grace.expires_at > $2::timestamptz
-                )
-            ) ELSE (
-                m.kyc_organization_id IS NULL
-                OR m.kyc_organization_id = m.organization_id
-            ) END
+            AND /*kyc_m*/
       )
 )

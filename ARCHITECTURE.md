@@ -28,6 +28,15 @@ adapters use exact method/template pairs from the committed route inventory.
 No business route is mounted by these modules. The foundation remains pending
 integration and database qualification before consumer acceptance.
 
+## Rust KYC policy
+
+`rs/read/src/kyc/policy.rs` owns execution eligibility and its bound SQL
+predicate. `grace.rs` owns read-only grace identity/expiry and notice-claim
+selection rules. Market visibility renders the same predicate for owners and
+assisted customer members. The runtime config remains the single switch
+source; profile-only NOT_APPLICABLE is not execution eligibility. No route,
+grace mutation, notice sender or timer is added here.
+
 ## Rust Phase 2 feedback
 
 `rs/read/src/crud/feedback.rs` provides the Task 10 feedback submission and
