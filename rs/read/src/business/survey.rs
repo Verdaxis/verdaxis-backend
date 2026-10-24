@@ -65,7 +65,11 @@ pub struct SurveySubmission {
 
 pub fn validate_submission(body: Value) -> Result<SurveySubmission, ApiError> {
     let unprocessable = |message: &'static str| {
-        refusal(StatusCode::UNPROCESSABLE_ENTITY, "SURVEY_VALIDATION_FAILED", message)
+        refusal(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "SURVEY_VALIDATION_FAILED",
+            message,
+        )
     };
     let Some(object) = body.as_object() else {
         return Err(unprocessable("A survey object is required."));
@@ -177,7 +181,10 @@ async fn submit(
     // security dependency before it validates the body model.
     let now = Utc::now();
     let access = match verify_authorization(
-        parts.headers.get("authorization").and_then(|value| value.to_str().ok()),
+        parts
+            .headers
+            .get("authorization")
+            .and_then(|value| value.to_str().ok()),
         &authority.verification,
         now,
     ) {

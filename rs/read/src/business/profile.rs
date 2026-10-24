@@ -165,25 +165,24 @@ pub async fn select_profile(
     let organization_id: Option<Uuid> = row.get("organization_id");
     let kyc_organization_id: Option<Uuid> = row.get("kyc_organization_id");
     let kyc_status: String = row.get("kyc_status");
-    let execution_eligibility = if !matches!(role.as_deref(), Some("BUYER" | "SUPPLIER"))
-        || organization_id.is_none()
-    {
-        not_applicable()
-    } else {
-        policy
-            .eligibility(
-                connection,
-                ProfileKycParty {
-                    user_id: user,
-                    organization_id,
-                    kyc_organization_id,
-                    kyc_status,
-                },
-                execution_gate_enabled,
-                now,
-            )
-            .await?
-    };
+    let execution_eligibility =
+        if !matches!(role.as_deref(), Some("BUYER" | "SUPPLIER")) || organization_id.is_none() {
+            not_applicable()
+        } else {
+            policy
+                .eligibility(
+                    connection,
+                    ProfileKycParty {
+                        user_id: user,
+                        organization_id,
+                        kyc_organization_id,
+                        kyc_status,
+                    },
+                    execution_gate_enabled,
+                    now,
+                )
+                .await?
+        };
     Ok(ProfileResponse {
         email: row.get("email"),
         first_name: row.get("first_name"),
@@ -214,15 +213,18 @@ pub fn validate_update(body: Value) -> Result<ProfileUpdate, ApiError> {
         refusal(StatusCode::UNPROCESSABLE_ENTITY, code, message)
     };
     let Some(object) = body.as_object() else {
-        return Err(invalid("VALIDATION_FAILED", "A profile object is required."));
+        return Err(invalid(
+            "VALIDATION_FAILED",
+            "A profile object is required.",
+        ));
     };
     let mut update = ProfileUpdate::default();
     for (field, value) in object {
         match field.as_str() {
             "first_name" | "last_name" => {
-                let name = value.as_str().ok_or_else(|| {
-                    invalid("VALIDATION_FAILED", "Names must be strings.")
-                })?;
+                let name = value
+                    .as_str()
+                    .ok_or_else(|| invalid("VALIDATION_FAILED", "Names must be strings."))?;
                 if field == "first_name" {
                     update.first_name = Some(name.to_owned());
                 } else {
@@ -230,11 +232,14 @@ pub fn validate_update(body: Value) -> Result<ProfileUpdate, ApiError> {
                 }
             }
             "role" => {
-                let role = value.as_str().ok_or_else(|| {
-                    invalid("VALIDATION_FAILED", "The role must be a string.")
-                })?;
+                let role = value
+                    .as_str()
+                    .ok_or_else(|| invalid("VALIDATION_FAILED", "The role must be a string."))?;
                 if !matches!(role, "BUYER" | "SUPPLIER" | "ADMIN") {
-                    return Err(invalid("VALIDATION_FAILED", "The role is not a known value."));
+                    return Err(invalid(
+                        "VALIDATION_FAILED",
+                        "The role is not a known value.",
+                    ));
                 }
                 update.role = Some(role.to_owned());
             }
@@ -268,15 +273,16 @@ impl BusinessCommand for UpdateProfile {
     ) -> CommandFuture<'a, OrganizationWritePlan, AttemptError> {
         Box::pin(async move {
             // Values only: no lock may be held across the preview boundary.
-            let row = sqlx::query(
-                "SELECT organization_id,role::text AS role FROM users WHERE id=$1",
-            )
-            .bind(self.actor)
-            .fetch_optional(&mut *conn)
-            .await?
-            .ok_or_else(|| {
-                AttemptError::Application(authentication(crate::auth::AuthError::Credentials))
-            })?;
+            let row =
+                sqlx::query("SELECT organization_id,role::text AS role FROM users WHERE id=$1")
+                    .bind(self.actor)
+                    .fetch_optional(&mut *conn)
+                    .await?
+                    .ok_or_else(|| {
+                        AttemptError::Application(authentication(
+                            crate::auth::AuthError::Credentials,
+                        ))
+                    })?;
             let organization: Option<Uuid> = row.get("organization_id");
             let role: Option<String> = row.get("role");
             // The once-only role rule, decided from values before any lock.
@@ -315,9 +321,7 @@ impl BusinessCommand for UpdateProfile {
                 .fetch_optional(&mut *conn)
                 .await?
                 .ok_or_else(|| {
-                    AttemptError::Application(authentication(
-                        crate::auth::AuthError::Credentials,
-                    ))
+                    AttemptError::Application(authentication(crate::auth::AuthError::Credentials))
                 })?;
             let role: Option<String> = row.get("role");
             let organization_id: Option<Uuid> = row.get("organization_id");
@@ -415,7 +419,10 @@ async fn serve_read(
     let _ = body;
     let now = Utc::now();
     let access = match verify_authorization(
-        parts.headers.get("authorization").and_then(|value| value.to_str().ok()),
+        parts
+            .headers
+            .get("authorization")
+            .and_then(|value| value.to_str().ok()),
         &authority.verification,
         now,
     ) {
@@ -451,15 +458,9 @@ async fn serve_read(
                     &actor,
                     now.timestamp().max(0) as u64,
                 )?;
-                select_profile(
-                    transaction.connection(),
-                    user,
-                    gate,
-                    policy.as_ref(),
-                    now,
-                )
-                .await
-                .map_err(|_| ApiError::database())
+                select_profile(transaction.connection(), user, gate, policy.as_ref(), now)
+                    .await
+                    .map_err(|_| ApiError::database())
             })
         },
     )

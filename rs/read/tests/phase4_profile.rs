@@ -13,27 +13,27 @@ mod profile;
 #[path = "../src/business/survey.rs"]
 mod survey;
 
+#[cfg(feature = "contract-tests")]
+use std::collections::VecDeque;
 use std::net::SocketAddr;
 use std::sync::Arc;
 #[cfg(feature = "contract-tests")]
-use std::collections::VecDeque;
-#[cfg(feature = "contract-tests")]
 use std::sync::Mutex;
 
+#[cfg(feature = "contract-tests")]
+use axum::http::HeaderMap;
 use axum::{
     Router,
     body::{Body, to_bytes},
     http::{Request, StatusCode},
 };
 #[cfg(feature = "contract-tests")]
-use axum::http::HeaderMap;
-use chrono::{DateTime, Utc};
-#[cfg(feature = "contract-tests")]
 use chrono::Duration;
+use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
-use sqlx::{PgConnection, postgres::PgPoolOptions};
 #[cfg(feature = "contract-tests")]
 use sqlx::{Connection, Row};
+use sqlx::{PgConnection, postgres::PgPoolOptions};
 use tower::ServiceExt;
 use uuid::Uuid;
 use verdaxis_read::auth::AuthError;
@@ -121,9 +121,9 @@ async fn send(
             None => Body::empty(),
         })
         .unwrap();
-    request
-        .extensions_mut()
-        .insert(axum::extract::ConnectInfo(peer.parse::<SocketAddr>().unwrap()));
+    request.extensions_mut().insert(axum::extract::ConnectInfo(
+        peer.parse::<SocketAddr>().unwrap(),
+    ));
     let response = app.clone().oneshot(request).await.unwrap();
     let status = response.status();
     #[cfg(feature = "contract-tests")]
@@ -194,8 +194,8 @@ impl KycProfilePolicy for PolicyDouble {
             const KNOWN: [&str; 4] = ["PENDING", "SUBMITTED", "APPROVED", "REJECTED"];
             let known = KNOWN.contains(&party.kyc_status.as_str());
             let rejected = party.kyc_status == "REJECTED";
-            let bound_elsewhere =
-                party.kyc_organization_id.is_some() && party.kyc_organization_id != party.organization_id;
+            let bound_elsewhere = party.kyc_organization_id.is_some()
+                && party.kyc_organization_id != party.organization_id;
             if !execution_gate_enabled {
                 // Gate off: advisory rule, no grace deadline is reported.
                 return Ok(if !known {
@@ -356,7 +356,15 @@ impl ProfileMarketEvents for RecordingEvents {
 /// One fixture row: index, role, status, organization, KYC status, bound KYC
 /// organization, grace offset in days.
 #[cfg(feature = "contract-tests")]
-type ProfileRow = (usize, Option<&str>, &str, Option<Uuid>, &str, Option<Uuid>, Option<i64>);
+type ProfileRow = (
+    usize,
+    Option<&str>,
+    &str,
+    Option<Uuid>,
+    &str,
+    Option<Uuid>,
+    Option<i64>,
+);
 
 #[cfg(feature = "contract-tests")]
 struct Fixture {
@@ -373,8 +381,8 @@ impl Fixture {
     async fn new(gate: bool, events: Arc<RecordingEvents>) -> Self {
         let migrator = std::env::var("RUST_TEST_MIGRATOR_DATABASE_URL")
             .expect("explicit disposable migrator URL");
-        let runtime = std::env::var("RUST_TEST_DATABASE_URL")
-            .expect("explicit disposable runtime URL");
+        let runtime =
+            std::env::var("RUST_TEST_DATABASE_URL").expect("explicit disposable runtime URL");
         let m = url::Url::parse(&migrator).unwrap();
         let r = url::Url::parse(&runtime).unwrap();
         assert_eq!(m.host_str(), Some("127.0.0.1"));
@@ -441,18 +449,82 @@ impl Fixture {
         let [o1, o2] = organizations;
         // index, role, status, org, kyc status, kyc org, grace offset in days.
         let rows: [ProfileRow; 12] = [
-            (0, Some("BUYER"), "APPROVED", Some(o1), "APPROVED", Some(o1), None),
-            (1, Some("SUPPLIER"), "APPROVED", Some(o1), "PENDING", Some(o1), Some(7)),
-            (2, Some("BUYER"), "APPROVED", Some(o1), "REJECTED", Some(o1), Some(7)),
-            (3, Some("BUYER"), "APPROVED", Some(o1), "PENDING", Some(o1), Some(-1)),
-            (4, Some("BUYER"), "APPROVED", Some(o1), "APPROVED", Some(o2), None),
+            (
+                0,
+                Some("BUYER"),
+                "APPROVED",
+                Some(o1),
+                "APPROVED",
+                Some(o1),
+                None,
+            ),
+            (
+                1,
+                Some("SUPPLIER"),
+                "APPROVED",
+                Some(o1),
+                "PENDING",
+                Some(o1),
+                Some(7),
+            ),
+            (
+                2,
+                Some("BUYER"),
+                "APPROVED",
+                Some(o1),
+                "REJECTED",
+                Some(o1),
+                Some(7),
+            ),
+            (
+                3,
+                Some("BUYER"),
+                "APPROVED",
+                Some(o1),
+                "PENDING",
+                Some(o1),
+                Some(-1),
+            ),
+            (
+                4,
+                Some("BUYER"),
+                "APPROVED",
+                Some(o1),
+                "APPROVED",
+                Some(o2),
+                None,
+            ),
             (5, None, "APPROVED", Some(o1), "PENDING", None, None),
             (6, Some("BUYER"), "APPROVED", None, "PENDING", None, None),
             (7, Some("BUYER"), "APPROVED", Some(o1), "WEIRD", None, None),
             (8, Some("BUYER"), "PENDING", Some(o1), "PENDING", None, None),
-            (9, Some("BUYER"), "REJECTED", Some(o1), "PENDING", None, None),
-            (14, Some("BUYER"), "APPROVED", Some(o1), "PENDING", None, None),
-            (15, Some("BUYER"), "APPROVED", Some(o2), "PENDING", None, None),
+            (
+                9,
+                Some("BUYER"),
+                "REJECTED",
+                Some(o1),
+                "PENDING",
+                None,
+                None,
+            ),
+            (
+                14,
+                Some("BUYER"),
+                "APPROVED",
+                Some(o1),
+                "PENDING",
+                None,
+                None,
+            ),
+            (
+                15,
+                Some("BUYER"),
+                "APPROVED",
+                Some(o2),
+                "PENDING",
+                None,
+                None,
+            ),
         ];
         for (index, role, status, organization, kyc_status, kyc_organization, grace_days) in rows {
             sqlx::query(
@@ -494,7 +566,8 @@ impl Fixture {
             .await
             .unwrap();
         }
-        let issued = DateTime::from_timestamp((Utc::now() - Duration::minutes(5)).timestamp(), 0).unwrap();
+        let issued =
+            DateTime::from_timestamp((Utc::now() - Duration::minutes(5)).timestamp(), 0).unwrap();
         sqlx::query("INSERT INTO users(id,email,role,status,organization_id,password_changed_at) VALUES($1,$2,'BUYER','APPROVED',$3,$4)")
             .bind(users[12])
             .bind("user12@example.test")
@@ -559,10 +632,7 @@ impl Fixture {
                 Arc::new(PolicyDouble) as Arc<dyn KycProfilePolicy>,
                 events.clone() as Arc<dyn ProfileMarketEvents>,
             )))
-            .merge(survey::routes(SurveyAuthority::new(
-                verification(),
-                limits,
-            )))
+            .merge(survey::routes(SurveyAuthority::new(verification(), limits)))
             .with_state(state);
         Self {
             admin,
@@ -621,7 +691,13 @@ mod postgres {
             for index in [0usize, 1, 2, 3, 4, 5, 6, 7] {
                 let reply = read(index, "/api/auth/me").await;
                 assert_eq!(reply.status, StatusCode::OK, "user {index}");
-                let mut keys: Vec<&str> = reply.body.as_object().unwrap().keys().map(String::as_str).collect();
+                let mut keys: Vec<&str> = reply
+                    .body
+                    .as_object()
+                    .unwrap()
+                    .keys()
+                    .map(String::as_str)
+                    .collect();
                 keys.sort_unstable();
                 assert_eq!(
                     keys,
@@ -768,10 +844,12 @@ mod postgres {
             // The route never writes.
             assert_eq!(f.count("SELECT count(*) FROM market_event_outbox").await, 0);
             assert_eq!(
-                sqlx::query_scalar::<_, i64>("SELECT count(*) FROM users WHERE onboarding_use_case IS NOT NULL")
-                    .fetch_one(&f.pool)
-                    .await
-                    .unwrap(),
+                sqlx::query_scalar::<_, i64>(
+                    "SELECT count(*) FROM users WHERE onboarding_use_case IS NOT NULL"
+                )
+                .fetch_one(&f.pool)
+                .await
+                .unwrap(),
                 0
             );
             f.finish().await;
@@ -784,7 +862,10 @@ mod postgres {
         let f = Fixture::new(true, RecordingEvents::new()).await;
         let bearer = token(f.users[14]);
         for _ in 0..120 {
-            assert_eq!(get(&f.app, "/api/auth/me", Some(&bearer)).await.status, StatusCode::OK);
+            assert_eq!(
+                get(&f.app, "/api/auth/me", Some(&bearer)).await.status,
+                StatusCode::OK
+            );
         }
         let refused = get(&f.app, "/api/auth/me", Some(&bearer)).await;
         assert_eq!(refused.status, StatusCode::TOO_MANY_REQUESTS);
@@ -800,9 +881,16 @@ mod postgres {
         assert!((1..=60).contains(&retry_after));
         // A different client has its own window.
         assert_eq!(
-            send(&f.app, "GET", "/api/auth/me", Some(&bearer), None, "198.51.100.9")
-                .await
-                .status,
+            send(
+                &f.app,
+                "GET",
+                "/api/auth/me",
+                Some(&bearer),
+                None,
+                "198.51.100.9"
+            )
+            .await
+            .status,
             StatusCode::OK
         );
         // The PUT window is separate and smaller.
@@ -837,16 +925,30 @@ mod postgres {
         // Unauthorized calls never consume a client's quota.
         for _ in 0..130 {
             assert_eq!(
-                send(&f.app, "GET", "/api/auth/me", Some("bad"), None, "192.0.2.44")
-                    .await
-                    .status,
+                send(
+                    &f.app,
+                    "GET",
+                    "/api/auth/me",
+                    Some("bad"),
+                    None,
+                    "192.0.2.44"
+                )
+                .await
+                .status,
                 StatusCode::UNAUTHORIZED
             );
         }
         assert_eq!(
-            send(&f.app, "GET", "/api/auth/me", Some(&bearer), None, "192.0.2.44")
-                .await
-                .status,
+            send(
+                &f.app,
+                "GET",
+                "/api/auth/me",
+                Some(&bearer),
+                None,
+                "192.0.2.44"
+            )
+            .await
+            .status,
             StatusCode::OK
         );
         for _ in 0..11 {
@@ -891,7 +993,9 @@ mod postgres {
         // A role that is already assigned cannot change, for the user themselves
         // or across tenants.
         assert_eq!(
-            put(&f.app, "/api/auth/me", &other, &json!({"role": "SUPPLIER"})).await.status,
+            put(&f.app, "/api/auth/me", &other, &json!({"role": "SUPPLIER"}))
+                .await
+                .status,
             StatusCode::FORBIDDEN
         );
         assert_eq!(
@@ -906,7 +1010,10 @@ mod postgres {
         // ADMIN is never assignable, even from an empty role.
         let reply = put(&f.app, "/api/auth/me", &plain, &json!({"role": "ADMIN"})).await;
         assert_eq!(reply.status, StatusCode::FORBIDDEN);
-        assert_eq!(reply.body["detail"]["code"], "PROFILE_ROLE_CHANGE_NOT_ALLOWED");
+        assert_eq!(
+            reply.body["detail"]["code"],
+            "PROFILE_ROLE_CHANGE_NOT_ALLOWED"
+        );
         assert_eq!(
             sqlx::query_scalar::<_, Option<String>>("SELECT role FROM users WHERE id=$1")
                 .bind(f.users[14])
@@ -917,11 +1024,15 @@ mod postgres {
         );
         // Unknown role labels are a typed refusal, not a value.
         assert_eq!(
-            put(&f.app, "/api/auth/me", &plain, &json!({"role": "admin"})).await.status,
+            put(&f.app, "/api/auth/me", &plain, &json!({"role": "admin"}))
+                .await
+                .status,
             StatusCode::UNPROCESSABLE_ENTITY
         );
         assert_eq!(
-            put(&f.app, "/api/auth/me", &plain, &json!({"role": "OWNER"})).await.status,
+            put(&f.app, "/api/auth/me", &plain, &json!({"role": "OWNER"}))
+                .await
+                .status,
             StatusCode::UNPROCESSABLE_ENTITY
         );
         // An organization-bound profile gets its admission event exactly once.
@@ -938,7 +1049,10 @@ mod postgres {
         assert_eq!(reply.body["role"], "BUYER");
         assert_eq!(reply.body["first_name"], "Ada");
         assert_eq!(reply.body["last_name"], "Lovelace");
-        assert_eq!(reply.body["execution_eligibility"]["reason"], "NOT_APPLICABLE");
+        assert_eq!(
+            reply.body["execution_eligibility"]["reason"],
+            "NOT_APPLICABLE"
+        );
         assert_eq!(events.visible_calls(), vec![f.users[14], f.users[14]]);
         assert_eq!(
             events.appends(),
@@ -965,18 +1079,28 @@ mod postgres {
         assert_eq!(events.appends().len(), appends);
         assert_eq!(events.visible_calls().len(), 2);
         assert_eq!(
-            put(&f.app, "/api/auth/me", &plain, &json!({"role": "ADMIN"})).await.status,
+            put(&f.app, "/api/auth/me", &plain, &json!({"role": "ADMIN"}))
+                .await
+                .status,
             StatusCode::FORBIDDEN
         );
         assert_eq!(
-            put(&f.app, "/api/auth/me", &plain, &json!({"role": "SUPPLIER"})).await.status,
+            put(&f.app, "/api/auth/me", &plain, &json!({"role": "SUPPLIER"}))
+                .await
+                .status,
             StatusCode::FORBIDDEN
         );
         // No public projection: the role is still assigned and no event exists.
         let no_projection = token(f.users[5]);
         events.push_visible(false);
         events.push_visible(false);
-        let reply = put(&f.app, "/api/auth/me", &no_projection, &json!({"role": "SUPPLIER"})).await;
+        let reply = put(
+            &f.app,
+            "/api/auth/me",
+            &no_projection,
+            &json!({"role": "SUPPLIER"}),
+        )
+        .await;
         assert_eq!(reply.status, StatusCode::OK);
         assert_eq!(reply.body["role"], "SUPPLIER");
         assert_eq!(events.appends().len(), 1);
@@ -992,13 +1116,15 @@ mod postgres {
         let first = Uuid::new_v4();
         let second = Uuid::new_v4();
         for id in [first, second] {
-            sqlx::query("INSERT INTO users(id,email,status,organization_id) VALUES($1,$2,'APPROVED',$3)")
-                .bind(id)
-                .bind(format!("{id}@example.test"))
-                .bind(f.organizations[0])
-                .execute(&f.pool)
-                .await
-                .unwrap();
+            sqlx::query(
+                "INSERT INTO users(id,email,status,organization_id) VALUES($1,$2,'APPROVED',$3)",
+            )
+            .bind(id)
+            .bind(format!("{id}@example.test"))
+            .bind(f.organizations[0])
+            .execute(&f.pool)
+            .await
+            .unwrap();
         }
         events.push_visible(false);
         events.push_visible(false);
@@ -1087,7 +1213,10 @@ mod postgres {
             .await
             .unwrap();
         assert_eq!(row.get::<Option<String>, _>("role"), None);
-        assert_eq!(row.get::<Option<String>, _>("first_name").as_deref(), Some("User14"));
+        assert_eq!(
+            row.get::<Option<String>, _>("first_name").as_deref(),
+            Some("User14")
+        );
         assert_eq!(f.count("SELECT count(*) FROM market_event_outbox").await, 0);
         f.finish().await;
     }
@@ -1101,26 +1230,46 @@ mod postgres {
         let stored = || {
             let pool = f.pool.clone();
             async move {
-                sqlx::query("SELECT onboarding_use_case,onboarding_referral_source FROM users WHERE id=$1")
-                    .bind(f.users[14])
-                    .fetch_one(&pool)
-                    .await
-                    .unwrap()
+                sqlx::query(
+                    "SELECT onboarding_use_case,onboarding_referral_source FROM users WHERE id=$1",
+                )
+                .bind(f.users[14])
+                .fetch_one(&pool)
+                .await
+                .unwrap()
             }
         };
         let long: String = "é".repeat(501);
-        let reply = survey(&f.app, Some(&bearer), &json!({"use_case": "buyer", "referral_source": long})).await;
+        let reply = survey(
+            &f.app,
+            Some(&bearer),
+            &json!({"use_case": "buyer", "referral_source": long}),
+        )
+        .await;
         assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY);
-        assert_eq!(reply.body["detail"]["code"], "SURVEY_REFERRAL_SOURCE_TOO_LONG");
+        assert_eq!(
+            reply.body["detail"]["code"],
+            "SURVEY_REFERRAL_SOURCE_TOO_LONG"
+        );
         // Character count, not byte count: 500 non-ASCII characters fit.
         let exact: String = "é".repeat(500);
-        let reply = survey(&f.app, Some(&bearer), &json!({"use_case": "buyer", "referral_source": exact})).await;
+        let reply = survey(
+            &f.app,
+            Some(&bearer),
+            &json!({"use_case": "buyer", "referral_source": exact}),
+        )
+        .await;
         assert_eq!(reply.status, StatusCode::NO_CONTENT);
         assert!(reply.raw.is_empty());
         let row = stored().await;
-        assert_eq!(row.get::<Option<String>, _>("onboarding_use_case").as_deref(), Some("buyer"));
         assert_eq!(
-            row.get::<Option<String>, _>("onboarding_referral_source").as_deref(),
+            row.get::<Option<String>, _>("onboarding_use_case")
+                .as_deref(),
+            Some("buyer")
+        );
+        assert_eq!(
+            row.get::<Option<String>, _>("onboarding_referral_source")
+                .as_deref(),
             Some(exact.as_str())
         );
         // A finite use_case and a closed body shape.
@@ -1135,7 +1284,10 @@ mod postgres {
         ] {
             let reply = survey(&f.app, Some(&bearer), &body).await;
             assert!(
-                matches!(reply.status, StatusCode::BAD_REQUEST | StatusCode::UNPROCESSABLE_ENTITY),
+                matches!(
+                    reply.status,
+                    StatusCode::BAD_REQUEST | StatusCode::UNPROCESSABLE_ENTITY
+                ),
                 "{body} -> {:?}",
                 reply.status
             );
@@ -1143,23 +1295,29 @@ mod postgres {
         }
         // The invalid use_case path is 400 and writes nothing anywhere.
         let fresh = Uuid::new_v4();
-        sqlx::query("INSERT INTO users(id,email,status,organization_id) VALUES($1,$2,'APPROVED',$3)")
-            .bind(fresh)
-            .bind(format!("{fresh}@example.test"))
-            .bind(f.organizations[0])
-            .execute(&f.pool)
-            .await
-            .unwrap();
+        sqlx::query(
+            "INSERT INTO users(id,email,status,organization_id) VALUES($1,$2,'APPROVED',$3)",
+        )
+        .bind(fresh)
+        .bind(format!("{fresh}@example.test"))
+        .bind(f.organizations[0])
+        .execute(&f.pool)
+        .await
+        .unwrap();
         assert_eq!(
-            survey(&f.app, Some(&token(fresh)), &json!({"use_case": "pirate"})).await.status,
+            survey(&f.app, Some(&token(fresh)), &json!({"use_case": "pirate"}))
+                .await
+                .status,
             StatusCode::BAD_REQUEST
         );
         assert_eq!(
-            sqlx::query_scalar::<_, Option<String>>("SELECT onboarding_use_case FROM users WHERE id=$1")
-                .bind(fresh)
-                .fetch_one(&f.pool)
-                .await
-                .unwrap(),
+            sqlx::query_scalar::<_, Option<String>>(
+                "SELECT onboarding_use_case FROM users WHERE id=$1"
+            )
+            .bind(fresh)
+            .fetch_one(&f.pool)
+            .await
+            .unwrap(),
             None
         );
         // A foreign email in the body never retargets the write, and an
@@ -1172,20 +1330,24 @@ mod postgres {
         .await;
         assert_eq!(reply.status, StatusCode::NO_CONTENT);
         assert_eq!(
-            sqlx::query_scalar::<_, Option<String>>("SELECT onboarding_use_case FROM users WHERE id=$1")
-                .bind(fresh)
-                .fetch_one(&f.pool)
-                .await
-                .unwrap()
-                .as_deref(),
+            sqlx::query_scalar::<_, Option<String>>(
+                "SELECT onboarding_use_case FROM users WHERE id=$1"
+            )
+            .bind(fresh)
+            .fetch_one(&f.pool)
+            .await
+            .unwrap()
+            .as_deref(),
             Some("supplier")
         );
         assert_eq!(
-            sqlx::query_scalar::<_, Option<String>>("SELECT onboarding_use_case FROM users WHERE id=$1")
-                .bind(f.users[15])
-                .fetch_one(&f.pool)
-                .await
-                .unwrap(),
+            sqlx::query_scalar::<_, Option<String>>(
+                "SELECT onboarding_use_case FROM users WHERE id=$1"
+            )
+            .bind(f.users[15])
+            .fetch_one(&f.pool)
+            .await
+            .unwrap(),
             None
         );
         let unauth = Uuid::new_v4();
@@ -1196,31 +1358,56 @@ mod postgres {
             .await
             .unwrap();
         assert_eq!(
-            survey(&f.app, None, &json!({"use_case": "buyer"})).await.status,
+            survey(&f.app, None, &json!({"use_case": "buyer"}))
+                .await
+                .status,
             StatusCode::UNAUTHORIZED
         );
         assert_eq!(
-            sqlx::query_scalar::<_, Option<String>>("SELECT onboarding_use_case FROM users WHERE id=$1")
-                .bind(unauth)
-                .fetch_one(&f.pool)
-                .await
-                .unwrap(),
+            sqlx::query_scalar::<_, Option<String>>(
+                "SELECT onboarding_use_case FROM users WHERE id=$1"
+            )
+            .bind(unauth)
+            .fetch_one(&f.pool)
+            .await
+            .unwrap(),
             None
         );
         // The declared body limit refuses before parsing or writing.
-        let huge = format!("{{\"use_case\":\"buyer\",\"referral_source\":\"{}\"}}", "x".repeat(140_000));
-        let reply = send(&f.app, "POST", "/api/auth/survey", Some(&token(unauth)), Some(huge.as_bytes()), CLIENT).await;
+        let huge = format!(
+            "{{\"use_case\":\"buyer\",\"referral_source\":\"{}\"}}",
+            "x".repeat(140_000)
+        );
+        let reply = send(
+            &f.app,
+            "POST",
+            "/api/auth/survey",
+            Some(&token(unauth)),
+            Some(huge.as_bytes()),
+            CLIENT,
+        )
+        .await;
         assert_eq!(reply.status, StatusCode::PAYLOAD_TOO_LARGE);
         assert_eq!(reply.body["detail"]["code"], "BODY_TOO_LARGE");
         // Malformed JSON is a typed refusal, not a crash.
-        let reply = send(&f.app, "POST", "/api/auth/survey", Some(&token(unauth)), Some(b"{"), CLIENT).await;
+        let reply = send(
+            &f.app,
+            "POST",
+            "/api/auth/survey",
+            Some(&token(unauth)),
+            Some(b"{"),
+            CLIENT,
+        )
+        .await;
         assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY);
         assert_eq!(
-            sqlx::query_scalar::<_, Option<String>>("SELECT onboarding_use_case FROM users WHERE id=$1")
-                .bind(unauth)
-                .fetch_one(&f.pool)
-                .await
-                .unwrap(),
+            sqlx::query_scalar::<_, Option<String>>(
+                "SELECT onboarding_use_case FROM users WHERE id=$1"
+            )
+            .bind(unauth)
+            .fetch_one(&f.pool)
+            .await
+            .unwrap(),
             None
         );
         f.finish().await;
@@ -1246,14 +1433,21 @@ mod postgres {
         )
         .await;
         assert_eq!(reply.status, StatusCode::NO_CONTENT);
-        let row = sqlx::query("SELECT onboarding_use_case,onboarding_referral_source FROM users WHERE id=$1")
-            .bind(f.users[14])
-            .fetch_one(&f.pool)
-            .await
-            .unwrap();
-        assert_eq!(row.get::<Option<String>, _>("onboarding_use_case").as_deref(), Some("buyer"));
+        let row = sqlx::query(
+            "SELECT onboarding_use_case,onboarding_referral_source FROM users WHERE id=$1",
+        )
+        .bind(f.users[14])
+        .fetch_one(&f.pool)
+        .await
+        .unwrap();
         assert_eq!(
-            row.get::<Option<String>, _>("onboarding_referral_source").as_deref(),
+            row.get::<Option<String>, _>("onboarding_use_case")
+                .as_deref(),
+            Some("buyer")
+        );
+        assert_eq!(
+            row.get::<Option<String>, _>("onboarding_referral_source")
+                .as_deref(),
             Some("conference")
         );
         assert_eq!(
@@ -1274,13 +1468,15 @@ mod postgres {
         // submit. Each accepted request is its own transaction and socket.
         for _ in 0..5 {
             let user = Uuid::new_v4();
-            sqlx::query("INSERT INTO users(id,email,status,organization_id) VALUES($1,$2,'APPROVED',$3)")
-                .bind(user)
-                .bind(format!("{user}@example.test"))
-                .bind(f.organizations[0])
-                .execute(&f.pool)
-                .await
-                .unwrap();
+            sqlx::query(
+                "INSERT INTO users(id,email,status,organization_id) VALUES($1,$2,'APPROVED',$3)",
+            )
+            .bind(user)
+            .bind(format!("{user}@example.test"))
+            .bind(f.organizations[0])
+            .execute(&f.pool)
+            .await
+            .unwrap();
             let before: i64 = sqlx::query_scalar("SELECT last_value FROM survey_updates")
                 .fetch_one(&f.pool)
                 .await
@@ -1289,18 +1485,36 @@ mod postgres {
             let a = token(user);
             let b = token(user);
             let (left, right) = tokio::join!(
-                async { survey(&app, Some(&a), &json!({"use_case": "buyer", "referral_source": "left"})).await },
-                async { survey(&app, Some(&b), &json!({"use_case": "supplier", "referral_source": "right"})).await }
+                async {
+                    survey(
+                        &app,
+                        Some(&a),
+                        &json!({"use_case": "buyer", "referral_source": "left"}),
+                    )
+                    .await
+                },
+                async {
+                    survey(
+                        &app,
+                        Some(&b),
+                        &json!({"use_case": "supplier", "referral_source": "right"}),
+                    )
+                    .await
+                }
             );
             assert_eq!(left.status, StatusCode::NO_CONTENT);
             assert_eq!(right.status, StatusCode::NO_CONTENT);
-            let row = sqlx::query("SELECT onboarding_use_case,onboarding_referral_source FROM users WHERE id=$1")
-                .bind(user)
-                .fetch_one(&f.pool)
-                .await
-                .unwrap();
+            let row = sqlx::query(
+                "SELECT onboarding_use_case,onboarding_referral_source FROM users WHERE id=$1",
+            )
+            .bind(user)
+            .fetch_one(&f.pool)
+            .await
+            .unwrap();
             let answer = row.get::<Option<String>, _>("onboarding_use_case").unwrap();
-            let source = row.get::<Option<String>, _>("onboarding_referral_source").unwrap();
+            let source = row
+                .get::<Option<String>, _>("onboarding_referral_source")
+                .unwrap();
             assert!(
                 matches!(
                     (answer.as_str(), source.as_str()),
@@ -1389,23 +1603,42 @@ fn p4_t3_c09() {
         token: Some("token"),
     };
     for _ in 0..120 {
-        limits.check_business("GET", "/api/auth/me", keys, 1_000).unwrap();
+        limits
+            .check_business("GET", "/api/auth/me", keys, 1_000)
+            .unwrap();
     }
-    assert!(limits.check_business("GET", "/api/auth/me", keys, 1_000).is_err());
+    assert!(
+        limits
+            .check_business("GET", "/api/auth/me", keys, 1_000)
+            .is_err()
+    );
     for _ in 0..10 {
-        limits.check_business("PUT", "/api/auth/me", keys, 1_000).unwrap();
+        limits
+            .check_business("PUT", "/api/auth/me", keys, 1_000)
+            .unwrap();
     }
-    let refused = limits.check_business("PUT", "/api/auth/me", keys, 1_010).unwrap_err();
+    let refused = limits
+        .check_business("PUT", "/api/auth/me", keys, 1_010)
+        .unwrap_err();
     assert_eq!(refused.status, StatusCode::TOO_MANY_REQUESTS);
     assert_eq!(refused.detail["code"], "RATE_LIMITED");
     assert_eq!(refused.retry_after, Some(50));
     for _ in 0..5 {
-        limits.check_business("POST", "/api/auth/survey", keys, 1_000).unwrap();
+        limits
+            .check_business("POST", "/api/auth/survey", keys, 1_000)
+            .unwrap();
     }
-    assert!(limits.check_business("POST", "/api/auth/survey", keys, 1_000).is_err());
+    assert!(
+        limits
+            .check_business("POST", "/api/auth/survey", keys, 1_000)
+            .is_err()
+    );
     // An unowned method/template pair is refused, never silently unlimited.
     assert_eq!(
-        limits.check_business("DELETE", "/api/auth/me", keys, 1_000).unwrap_err().status,
+        limits
+            .check_business("DELETE", "/api/auth/me", keys, 1_000)
+            .unwrap_err()
+            .status,
         StatusCode::NOT_FOUND
     );
     let _ = AuthError::Credentials;
