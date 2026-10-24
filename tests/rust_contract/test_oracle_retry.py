@@ -69,7 +69,7 @@ def test_busy_then_success_compares_and_records_one_retry(harness, monkeypatch, 
 
 
 @pytest.mark.parametrize("failure", [busy(b'{"detail":"other failure"}'),
-    busy(retry_after=None), busy(retry_after="invalid"),
+    busy(retry_after=None),
     urllib.error.HTTPError("http://127.0.0.1:9", 500, "failed", {}, io.BytesIO(b"failed"))])
 def test_nontransient_python_answer_is_not_retried(harness, monkeypatch, failure):
     instance, waits = harness
@@ -78,6 +78,21 @@ def test_nontransient_python_answer_is_not_retried(harness, monkeypatch, failure
     assert len(calls) == 3
     assert waits == []
     assert outcome["outcome"] != "match"
+
+
+# A present Retry-After always bounds the wait: a large, non-finite, negative,
+# non-numeric or HTTP-date value is clamped to the same stated cap. A missing
+# header is not a busy retry instruction and stays non-retried (above).
+@pytest.mark.parametrize("value", ["999999", "inf", "-3", "soon",
+    "Wed, 21 Oct 2015 07:28:00 GMT"])
+def test_retry_after_values_are_clamped_to_the_cap(harness, monkeypatch, value):
+    instance, waits = harness
+    calls = transport(monkeypatch, [busy(retry_after=value), Response(), Response(), Response()])
+    outcome = instance._run_group("simple_reads", [CASE])
+    assert outcome["outcome"] == "match"
+    assert len(calls) == 4
+    assert waits == [record.MAX_RETRY_AFTER_SECONDS]
+    assert outcome["oracle_retries"][0]["delay_seconds"] == record.MAX_RETRY_AFTER_SECONDS
 
 
 def test_rust_busy_is_never_retried(harness, monkeypatch):
@@ -309,3 +324,15 @@ def test_contract_child_capture_retries_only_designated_python(harness, monkeypa
     assert actual[0]["exchange"]["status"] == 503
     assert len(calls) == 3
     assert len(retry_log.read_text().splitlines()) == 1
+
+
+def test_recording_after_a_retry_keeps_the_persisted_shape(harness, monkeypatch):
+    instance, _ = harness
+    monkeypatch.setenv("RUST_CONTRACT_PROFILE", "phase1-meaning-v1")
+    transport(monkeypatch, [busy(retry_after="0"), Response(), Response(), Response()])
+    entries = record.record("http://127.0.0.1:9", instance.token, [CASE], oracle=True,
+                            group="simple_reads", leg="python-before")
+    # The retry decision needs the headers in memory...
+    assert entries[0]["response_headers"]["content-type"] == "application/json"
+    # ...but persisted evidence keeps exactly the pre-retry shape.
+    assert set(record.stable(entries)[0]) == {"id", "request", "exchange", "raw_body_base64"}

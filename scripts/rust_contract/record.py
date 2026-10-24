@@ -11,13 +11,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import time
 import urllib.error
 import urllib.request
 from collections.abc import Mapping, Sequence
-from datetime import datetime, timezone
-from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any
 
@@ -87,6 +86,13 @@ def _transient_reason(error: BaseException) -> str | None:
     return None
 
 
+# A Retry-After is a hint, not an unbounded pause: one busy response must not
+# stall a gate, and a non-finite or unparseable value must not abort it. A
+# present header larger than this, or one that does not parse as delay-seconds,
+# uses this cap instead. A missing header is not a retry instruction at all.
+MAX_RETRY_AFTER_SECONDS = 30.0
+
+
 def _retry_after(entry: Mapping[str, Any]) -> float | None:
     if entry["exchange"]["status"] != 503:
         return None
@@ -102,16 +108,18 @@ def _retry_after(entry: Mapping[str, Any]) -> float | None:
     if not any(body == {"detail": detail} for detail in busy_details):
         return None
     headers = entry.get("response_headers", {})
-    value = next((str(value) for name, value in headers.items() if name.lower() == "retry-after"), "")
-    if value.isascii() and value.isdigit():
-        return float(value)
-    try:
-        date = parsedate_to_datetime(value)
-        if date.tzinfo is None:
-            return None
-        return max(0.0, (date - datetime.now(timezone.utc)).total_seconds())
-    except (TypeError, ValueError, OverflowError):
+    value = next((str(value) for name, value in headers.items() if name.lower() == "retry-after"), None)
+    if value is None:
+        # No Retry-After: this 503 is compared as the Python answer.
         return None
+    try:
+        seconds = float(value)
+    except ValueError:
+        # Includes an HTTP date, which this harness does not chase.
+        return MAX_RETRY_AFTER_SECONDS
+    if not math.isfinite(seconds) or seconds < 0:
+        return MAX_RETRY_AFTER_SECONDS
+    return min(seconds, MAX_RETRY_AFTER_SECONDS)
 
 
 def _perform_oracle(
@@ -286,10 +294,15 @@ def record(
 
 
 def stable(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Strip the raw bytes so a recording can be serialized and reloaded."""
+    """Strip volatile fields so a recording can be serialized and reloaded.
+
+    `response_headers` exists only for the in-memory retry decision (its
+    `Retry-After`); persisting it would add server/date headers to evidence.
+    """
     import base64
     return [
-        {**{key: value for key, value in entry.items() if key != "raw_body"},
+        {**{key: value for key, value in entry.items()
+            if key not in ("raw_body", "response_headers")},
          **({"raw_body_base64": base64.b64encode(entry["raw_body"]).decode()}
             if os.environ.get("RUST_CONTRACT_PROFILE") == "phase1-meaning-v1" and "raw_body" in entry else {})}
         for entry in entries
