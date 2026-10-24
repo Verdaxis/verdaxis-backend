@@ -63,6 +63,7 @@ fn state_config(url: &str) -> Config {
         pool_max: 5,
         python_budget: 52,
         configured_max_connections: 100,
+        phase2: Default::default(),
     }
 }
 

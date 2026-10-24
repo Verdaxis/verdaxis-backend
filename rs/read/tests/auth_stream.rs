@@ -108,6 +108,7 @@ async fn stream_token_uses_current_bearer_actor() {
         pool_max: 3,
         python_budget: 52,
         configured_max_connections: 100,
+        phase2: Default::default(),
     };
     let pools = verdaxis_read::connect(&config).await.unwrap();
     let state = AppState::new(

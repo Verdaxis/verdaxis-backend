@@ -222,6 +222,36 @@ impl Phase2Limits {
         self.user_store.accept(user, key, limit, window, now, false)
     }
 
+    /// The Phase 3 auth routes use this refusal-with-retry form; it shares the
+    /// same bounded pre-auth store and policy as [`Phase2Limits::preauth`].
+    pub fn preauth_check(&mut self, client: &str, path: &str, now: u64) -> Result<(), Refusal> {
+        let Some((_, _, window)) = preauth_policy(path) else {
+            return Ok(());
+        };
+        if self.preauth(client, path, now) {
+            Ok(())
+        } else {
+            Err(Refusal {
+                retry_after_seconds: window.max(1),
+            })
+        }
+    }
+
+    /// The Phase 3 endpoint form with the same user-keyed store as
+    /// [`Phase2Limits::endpoint`].
+    pub fn endpoint_check(&mut self, user: &str, path: &str, now: u64) -> Result<(), Refusal> {
+        let Some((_, _, window)) = endpoint_policy(path) else {
+            return Ok(());
+        };
+        if self.endpoint(user, path, now) {
+            Ok(())
+        } else {
+            Err(Refusal {
+                retry_after_seconds: window.max(1),
+            })
+        }
+    }
+
     /// Pre-auth evictions since start. A plain number: it names no client.
     pub fn preauth_evictions(&self) -> u64 {
         self.preauth_store.evictions
