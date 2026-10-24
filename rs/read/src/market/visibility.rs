@@ -16,13 +16,16 @@ use sqlx::{postgres::PgArguments, query::Query};
 
 /// Rust decision 25: the one shared eligibility-set definition, rendered for a
 /// consumer's gate bind (`$13` for the shared binder, `$5` for the curve
-/// metadata query). Every consumer of `current_order_rule.sql` composes it.
-pub fn eligibility_sets_sql(gate: &str) -> String {
+/// metadata query) and its captured-instant bind. Every consumer of
+/// `current_order_rule.sql` composes it. Both callers today bind the instant at
+/// `$2` and pass that index explicitly, so a future binder cannot silently
+/// inherit the wrong parameter number.
+pub fn eligibility_sets_sql(gate: &str, clock: &str) -> String {
     use crate::kyc::policy::{KycSqlParty, eligibility_sql};
     let render = |party| {
         eligibility_sql(party)
             .replace("/*kyc_enabled*/", gate)
-            .replace("/*kyc_now*/", "$2")
+            .replace("/*kyc_now*/", clock)
     };
     include_str!("../../sql/eligibility_sets.sql")
         .replace("/*kyc_u*/", &render(KycSqlParty::USER))
@@ -31,8 +34,8 @@ pub fn eligibility_sets_sql(gate: &str) -> String {
 
 /// Expand the shared markers a tail or relation may carry. One composition
 /// point keeps every consumer's definition identical.
-pub fn expand_shared_markers(sql: &str, gate: &str) -> String {
-    sql.replace("/* eligibility_sets */", &eligibility_sets_sql(gate))
+pub fn expand_shared_markers(sql: &str, gate: &str, clock: &str) -> String {
+    sql.replace("/* eligibility_sets */", &eligibility_sets_sql(gate, clock))
 }
 
 /// Render the shared relation over a chosen base order scan. The default base is
@@ -76,6 +79,7 @@ fn relation_sql_with_projection(base_orders: &str, projection: &str) -> String {
             .replace("/* shared_projection */o.*,", projection)
             .replace("/* base_orders */", base_orders),
         "$13",
+        "$2",
     )
 }
 

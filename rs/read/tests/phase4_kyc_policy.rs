@@ -95,8 +95,21 @@ fn p4_t9_c08() {
         bind_eligibility_sql(&mut builder, &policy(true), sql_party, now());
         let sql = builder.sql();
         let sql = sql.as_str();
-        assert!(sql.contains("$1::boolean"));
-        assert!(sql.contains("$2::timestamptz"));
+        // The combined form names the switch in both arms, so the one bind at
+        // `$1` must be referenced exactly twice; a duplicate bind would add a
+        // parameter and shift the instant. The instant is bound and referenced
+        // exactly once.
+        assert_eq!(
+            sql.matches("$1::boolean").count(),
+            2,
+            "one switch bind, referenced by both arms: {sql}"
+        );
+        assert_eq!(
+            sql.matches("$2::timestamptz").count(),
+            1,
+            "one instant bind, referenced once: {sql}"
+        );
+        assert!(!sql.contains("$3"));
         assert!(!sql.contains("2026"));
     }
 }
@@ -376,7 +389,7 @@ mod postgres {
             for status in [KycStatus::Pending, KycStatus::Approved, KycStatus::Rejected] {
                 let party = party(status);
                 fixture.store(&party, None).await;
-                let sql = verdaxis_read::market::visibility::eligibility_sets_sql("$1");
+                let sql = verdaxis_read::market::visibility::eligibility_sets_sql("$1", "$2");
                 let statement = format!(
                     "WITH policy_products AS (SELECT 1) {sql} SELECT user_id FROM eligible_owners"
                 );
@@ -431,7 +444,7 @@ mod postgres {
         let sharing = std::env::var("RUST_KYC_SHARING_REQUIRED").as_deref() == Ok("1");
         if sharing {
             assert!(
-                verdaxis_read::market::visibility::eligibility_sets_sql("$13")
+                verdaxis_read::market::visibility::eligibility_sets_sql("$13", "$2")
                     .contains("kyc_status IN")
             );
         }
