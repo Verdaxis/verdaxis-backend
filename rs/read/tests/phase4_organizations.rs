@@ -249,7 +249,8 @@ impl Fixture {
                 environment: "test".into(),
                 release_sha: verdaxis_read::compiled_sha().into(),
                 migration_revision: "kycg_20261014_staging".into(),
-                database_url: "postgres://rust_app:fixture@127.0.0.1:12345/verdaxis_rust_test".into(),
+                database_url: "postgres://rust_app:fixture@127.0.0.1:12345/verdaxis_rust_test"
+                    .into(),
                 db_session_time_zone: "UTC".into(),
                 prepared_budget: None,
                 bind: "127.0.0.1:0".parse().unwrap(),
