@@ -28,5 +28,7 @@ def test_e5_e6_postgres(analytics_pg_url):
         "e6_concurrent_consumption_has_one_result",
         "e3_e6_pending_expiry_boundaries",
         "e5_e6_http_limits",
+        "e5_e6_monitor_admission_controls_cleanup",
+        "e5_e6_mail_logs_exclude_credentials",
     ):
         assert f"test {name} ... ok" in run.stdout, run.stdout

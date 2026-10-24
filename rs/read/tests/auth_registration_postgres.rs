@@ -257,7 +257,7 @@ async fn e5_response_and_delivery_boundary() {
         let alerts: Vec<_> = mail.iter().filter(|m|m["subject"].as_str().is_some_and(|s|s.contains("New Verdaxis account application"))).collect();
         assert_eq!(alerts.len(),1);
         assert!(alerts[0]["subject"].as_str().unwrap().contains("[development]"));
-        assert_eq!(alerts[0]["to"][0],"support@verdaxis.exchange");
+        assert_eq!(alerts[0]["to"][0],"admin@verdaxis.exchange");
         let id: Uuid = sqlx::query_scalar("SELECT id FROM users WHERE email=$1").bind(format!("user0@{domain}")).fetch_one(&f.owner).await.unwrap();
         assert_eq!(alerts[0]["test_idempotency"],format!("signup-alert/development/{id}"));
         assert!(alerts[0]["html"].as_str().unwrap().contains(&format!("user0@{domain}")));
@@ -737,5 +737,44 @@ async fn e5_e6_mail_logs_exclude_credentials() {
     let log=String::from_utf8(captured.0.lock().unwrap().clone()).unwrap();
     assert!(log.contains("auth_mail_delivery_failed"));
     for token in [&pending,&verification,&reset] {assert!(!log.contains(token),"credential appeared in logs");}
+    f.stop().await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL authority"]
+async fn e5_e6_monitor_admission_controls_cleanup() {
+    let f=Fixture::new(false).await;
+    for (header,narrow) in [(Some("synthetic-monitor"),true),(None,true),(Some("wrong"),true),(Some("synthetic-monitor"),false)] {
+        let address=if narrow {format!("canary+{}@one.canary.verdaxis.exchange",Uuid::new_v4())} else {format!("{}@gmail.com",Uuid::new_v4())};
+        let settings=f.settings.clone().with_monitor_token("synthetic-monitor".into());
+        let send=|path: &'static str,body:Value| {
+            let app=router(settings.clone());
+            async move {
+                let mut request=Request::post(path).header("content-type","application/json");
+                if let Some(token)=header {request=request.header("x-monitor-token",token);}
+                let response=app.oneshot(request.body(Body::from(body.to_string())).unwrap()).await.unwrap();
+                let status=response.status();
+                let body:Value=serde_json::from_slice(&to_bytes(response.into_body(),4096).await.unwrap()).unwrap();
+                (status,body)
+            }
+        };
+        let before=f.mail.lock().await.len();
+        assert_eq!(send("/api/auth/register",signup(&address,None)).await.0,StatusCode::ACCEPTED);
+        let token=if header==Some("synthetic-monitor") && narrow {
+            // Suppressed probes retain only a hashed pending credential; use a fixture credential for E6.
+            let token=auth::token_bytes::generate_token();
+            sqlx::query("UPDATE pending_registrations SET token_hash=$2 WHERE email=$1").bind(&address).bind(auth::token_bytes::token_digest(&token)).execute(&f.owner).await.unwrap();
+            token
+        } else {f.token(&address).await};
+        let result=send("/api/auth/register-with-org",organization(&token)).await;
+        assert_eq!(result.0,StatusCode::OK);
+        f.drain().await;
+        let suppressed=header==Some("synthetic-monitor") && narrow;
+        for sql in ["SELECT count(*) FROM audit_logs a JOIN users u ON a.user_id=u.id WHERE u.email=$1","SELECT count(*) FROM organization_join_requests a JOIN users u ON a.user_id=u.id WHERE u.email=$1"] {
+            assert_eq!(count(&f.owner,sql,&address).await,if suppressed {0} else if sql.contains("audit_logs") {2} else {1});
+        }
+        if suppressed {assert_eq!(f.mail.lock().await.len(),before);}
+        else {assert!(f.mail.lock().await.len()>before);}
+    }
     f.stop().await;
 }
