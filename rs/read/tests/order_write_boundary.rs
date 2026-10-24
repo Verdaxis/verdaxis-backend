@@ -352,7 +352,10 @@ fn scan_repository() -> Vec<String> {
             let literal = normalized(&text[start..end]);
             if inside_boundary {
                 // Inside the boundary the only reviewed insert targets are the
-                // receipt and the outbox; every other insert belongs elsewhere.
+                // receipt and the outbox (`WRITE_TABLES`), plus the two leaves
+                // PD4-INT-4 assigns to this boundary as plan work: the
+                // benchmark slice table and the watchlist event table. Every
+                // other insert belongs elsewhere.
                 for target in insert_targets(&literal) {
                     let approved_leaf = (path == &boundary.join("benchmarks.rs")
                         && target == "LIVE_SLICE_BENCHMARKS")
@@ -392,7 +395,7 @@ fn scan_repository() -> Vec<String> {
             && !is_manifest
             && path != &owned_test
             && path != &root.join("rs/read/examples/order_write.rs")
-            && !boundary_reference_allowed(&text)
+            && !boundary_reference_allowed(&text, path.starts_with(&root.join("rs/read/tests")))
         {
             violations.push(format!("{}: names the write boundary", path.display()));
         }
@@ -476,7 +479,19 @@ fn rust_tokens(text: &str) -> Vec<String> {
     tokens
 }
 
-fn boundary_reference_allowed(text: &str) -> bool {
+/// PD4-INT-5 (PM decision, 24 Oct 16:47Z): test code under `rs/read/tests/` may
+/// name the three existing public lock helpers, to assert lock order and to
+/// create real lock contention. They are pure key functions with no write path,
+/// and copying their formula into a test could drift. The allowance is this
+/// named list and applies only when `test_path` is true: production code
+/// outside the boundary still names only CF4_04's declared exports (PD4-INT-2).
+const TEST_LOCK_HELPERS: &[&str] = &[
+    "SliceKey",
+    "market_slice_lock_key",
+    "ordered_slice_lock_keys",
+];
+
+fn boundary_reference_allowed(text: &str, test_path: bool) -> bool {
     let tokens = rust_tokens(text);
     for (index, token) in tokens.iter().enumerate() {
         if token != "order_write" {
@@ -537,7 +552,12 @@ fn boundary_reference_allowed(text: &str) -> bool {
                     break;
                 }
                 if expect_item {
-                    if !BUSINESS_EXPORTS.contains(&token.as_str()) {
+                    // The test-only lock helpers may be named from a test file;
+                    // a production file reaches this branch with `test_path`
+                    // false, so only the CF4_04 exports pass there.
+                    let allowed = BUSINESS_EXPORTS.contains(&token.as_str())
+                        || (test_path && TEST_LOCK_HELPERS.contains(&token.as_str()));
+                    if !allowed {
                         return false;
                     }
                     expect_item = false;
@@ -562,7 +582,8 @@ fn boundary_reference_allowed(text: &str) -> bool {
             if tokens.get(cursor).map(String::as_str) != Some("}") {
                 return false;
             }
-        } else if !BUSINESS_EXPORTS.contains(&item.as_str())
+        } else if !(BUSINESS_EXPORTS.contains(&item.as_str())
+            || (test_path && TEST_LOCK_HELPERS.contains(&item.as_str())))
             || tokens.get(index + 3).map(String::as_str) == Some("::")
         {
             return false;
@@ -588,30 +609,64 @@ fn declared_business_exports_do_not_open_the_write_boundary() {
     assert_eq!(declared, BUSINESS_EXPORTS);
     let business = "use crate::order_write::{InvalidateOrganization, invalidate_organization};";
     assert!(
-        boundary_reference_allowed(business),
+        boundary_reference_allowed(business, false),
         "declared business export"
     );
     assert!(boundary_reference_allowed(
-        "crate::order_write::invalidate_organization(conn, command)"
+        "crate::order_write::invalidate_organization(conn, command)",
+        false
     ));
     assert!(!boundary_reference_allowed(
-        "use crate::order_write::execute_order_command;"
+        "use crate::order_write::execute_order_command;",
+        false
     ));
     assert!(!boundary_reference_allowed(
-        "use crate::order_write::{InvalidateOrganization, locks::SliceKey};"
+        "use crate::order_write::{InvalidateOrganization, locks::SliceKey};",
+        true
     ));
-    assert!(!boundary_reference_allowed("use crate::order_write::*;"));
+    assert!(!boundary_reference_allowed("use crate::order_write::*;", true));
     assert!(boundary_reference_allowed(
-        "pub mod order_write { pub struct InvalidateOrganization { pub id: Uuid } pub type InvalidationError = Error; pub async fn invalidate_organization() {} }"
+        "pub mod order_write { pub struct InvalidateOrganization { pub id: Uuid } pub type InvalidationError = Error; pub async fn invalidate_organization() {} }",
+        false
     ));
     assert!(!boundary_reference_allowed(
-        "pub mod order_write { pub fn execute_order_command() {} }"
+        "pub mod order_write { pub fn execute_order_command() {} }",
+        false
     ));
     assert!(!boundary_reference_allowed(
-        "use crate::order_write as other;"
+        "use crate::order_write as other;",
+        false
     ));
     assert!(!boundary_reference_allowed(
-        "use crate::order_write::{InvalidateOrganization, execute_order_command};"
+        "use crate::order_write::{InvalidateOrganization, execute_order_command};",
+        false
+    ));
+
+    // PD4-INT-5: the three lock helpers are allowed only from test paths.
+    for helper in TEST_LOCK_HELPERS {
+        let production = format!("use crate::order_write::{{{helper}}};");
+        assert!(
+            !boundary_reference_allowed(&production, false),
+            "production must not name {helper}"
+        );
+        assert!(
+            boundary_reference_allowed(&production, true),
+            "tests may name {helper}"
+        );
+    }
+    assert!(boundary_reference_allowed(
+        "use verdaxis_read::order_write::{SliceKey, market_slice_lock_key, ordered_slice_lock_keys};",
+        true
+    ));
+    assert!(!boundary_reference_allowed(
+        "use verdaxis_read::order_write::{SliceKey, market_slice_lock_key, ordered_slice_lock_keys};",
+        false
+    ));
+    // A double may still not redefine a lock helper: the allowance is for
+    // naming the real functions, not for widening the consumer-double port.
+    assert!(!boundary_reference_allowed(
+        "pub mod order_write { pub fn market_slice_lock_key() {} }",
+        true
     ));
     let direct_write = ["UPDATE ", "order", "book_orders SET version=2"].concat();
     assert_eq!(
@@ -682,7 +737,7 @@ fn only_the_registration_line_names_the_boundary() {
             continue;
         }
         let text = std::fs::read_to_string(&path).expect("readable source");
-        if !boundary_reference_allowed(&text) {
+        if !boundary_reference_allowed(&text, path.starts_with(&root.join("rs/read/tests"))) {
             mentions.push(path.display().to_string());
         }
     }
