@@ -576,6 +576,17 @@ mod postgres {
         }
     }
 
+    async fn stored_digest(f: &Fixture, user: Uuid) -> String {
+        sqlx::query_scalar::<_, Option<String>>(
+            "SELECT password_reset_token_hash FROM users WHERE id=$1",
+        )
+        .bind(user)
+        .fetch_one(&f.pool)
+        .await
+        .unwrap()
+        .expect("stored digest")
+    }
+
     fn token_from(response: &store::CreatedInvitation) -> String {
         response
             .acceptance_url
@@ -593,6 +604,12 @@ mod postgres {
         let payload = existing_payload(f.organization);
         let first = f.create(body(&payload), now).await.unwrap();
         assert!(!first.reissued);
+        // Right after the first issuance the stored digest is the first
+        // secret's digest and never the secret itself.
+        let first_stored = stored_digest(&f, first.user_id).await;
+        assert_eq!(first_stored.len(), 64);
+        assert_ne!(first_stored, token_from(&first));
+        assert_eq!(first_stored, store::digest_of(&token_from(&first)));
         let second = f
             .create(body(&payload), now + Duration::minutes(1))
             .await
@@ -600,6 +617,11 @@ mod postgres {
         assert!(second.reissued);
         assert_eq!(first.user_id, second.user_id);
         assert_ne!(token_from(&first), token_from(&second));
+        // The rotation replaces the digest: the earlier secret no longer
+        // resolves, and only the newer one is stored.
+        let second_stored = stored_digest(&f, second.user_id).await;
+        assert_eq!(second_stored, store::digest_of(&token_from(&second)));
+        assert_ne!(second_stored, first_stored);
 
         // The invited account is pre-approved, unverified, must change the
         // password, and is attributed to the inviting administrator.
@@ -662,17 +684,6 @@ mod postgres {
         }
         reissued.sort_unstable();
         assert_eq!(reissued, [false, true]);
-        // Only the digest is stored, and it matches the returned secret.
-        let stored: Option<String> =
-            sqlx::query_scalar("SELECT password_reset_token_hash FROM users WHERE id=$1")
-                .bind(first.user_id)
-                .fetch_one(&f.pool)
-                .await
-                .unwrap();
-        let stored = stored.expect("stored digest");
-        assert_eq!(stored.len(), 64);
-        assert_ne!(stored, token_from(&first));
-        assert_eq!(stored, store::digest_of(&token_from(&first)));
         assert!(
             first
                 .acceptance_url
