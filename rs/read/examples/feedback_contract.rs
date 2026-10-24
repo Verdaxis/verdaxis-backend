@@ -51,7 +51,6 @@ mod adapter {
             "verdaxis".into(),
             "verdaxis-api".into(),
         ));
-        let limits = SharedLimits::default();
         let app =
             Router::new()
                 .route(
@@ -66,8 +65,13 @@ mod adapter {
                 .fallback(move |request: Request| {
                     let state = state.clone();
                     let settings = settings.clone();
-                    let limits = limits.clone();
                     async move {
+                        // Deployment keys these quotas by verified user, and the
+                        // scenario replays many requests as one user. Giving each
+                        // request its own store keeps the scenario a route oracle;
+                        // quota itself is covered by the quota contract and the
+                        // PostgreSQL route tests.
+                        let limits = SharedLimits::default();
                         let instant: DateTime<Utc> = request.headers()["x-feedback-clock"]
                             .to_str()
                             .unwrap()
