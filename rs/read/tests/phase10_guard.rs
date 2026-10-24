@@ -17,6 +17,11 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const SHA_A: &str = "1111111111111111111111111111111111111111";
 const SHA_B: &str = "2222222222222222222222222222222222222222";
+const DENIAL: &str = "Backend start denied by deployment guard";
+
+fn denial(reason: &str) -> String {
+    format!("{DENIAL}: {reason}\n")
+}
 
 struct Fixture {
     root: PathBuf,
@@ -69,13 +74,17 @@ impl Fixture {
     }
 
     fn write_state(&self, environment: &str, sha: &str) {
+        self.write_phase(environment, sha, "restart-authorized");
+    }
+
+    fn write_phase(&self, environment: &str, sha: &str, phase: &str) {
         fs::create_dir_all(self.deploy_dir()).expect("deploy directory");
         fs::set_permissions(self.deploy_dir(), fs::Permissions::from_mode(0o755))
             .expect("deploy directory mode");
         fs::write(
             self.state(environment),
             format!(
-                "DEPLOYMENT_STATE=restart-authorized\nENVIRONMENT={environment}\nRELEASE_SHA={sha}\n"
+                "DEPLOYMENT_STATE={phase}\nENVIRONMENT={environment}\nRELEASE_SHA={sha}\n"
             ),
         )
         .expect("state");
@@ -121,18 +130,66 @@ fn set_mode(path: &Path, mode: u32) {
     fs::set_permissions(path, fs::Permissions::from_mode(mode)).expect("mode");
 }
 
+fn write_shim(directory: &Path, name: &str, body: &str) {
+    fs::create_dir_all(directory).expect("shim directory");
+    let path = directory.join(name);
+    fs::write(&path, body).expect("shim");
+    set_mode(&path, 0o755);
+}
+
+/// Reports a different inode for the state descriptor, simulating a swap
+/// between the path check and the read.
+const STAT_SHIM: &str = r#"#!/usr/bin/env bash
+real=${REAL_STAT:?}
+for argument in "$@"; do
+    case $argument in
+        */fd/7)
+            output=$("$real" "$@") || exit $?
+            printf '%s\n' "$output" | awk -F: 'BEGIN { OFS = ":" } { $2 = $2 + 1; print }'
+            exit 0
+            ;;
+    esac
+done
+exec "$real" "$@"
+"#;
+
+/// Fails the way flock does on a kernel error, never with its conflict code.
+const FLOCK_SHIM: &str = "#!/usr/bin/env bash\nexit 1\n";
+
 fn guard_source() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../deploy/scripts/verify-deploy-start-guard.sh")
 }
 
 fn run_guard(fixture: &Fixture, arguments: &[&str]) -> Output {
+    run_guard_with_path(fixture, None, arguments)
+}
+
+/// Run the guard with an optional PATH prefix that supplies a shim.
+fn run_guard_with_path(fixture: &Fixture, shim: Option<&Path>, arguments: &[&str]) -> Output {
+    let base = std::env::var("PATH").unwrap_or_default();
+    let path = match shim {
+        Some(directory) => format!("{}:{base}", directory.display()),
+        None => base,
+    };
     Command::new("bash")
         .arg(fixture.guard())
         .args(arguments)
         .env_clear()
-        .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+        .env("PATH", path)
+        .env("REAL_STAT", real_stat())
         .output()
         .expect("run deploy-start guard")
+}
+
+/// The first `stat` on PATH, which the shims delegate to.
+fn real_stat() -> PathBuf {
+    for directory in std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()) {
+        let candidate = directory.join("stat");
+        if candidate.is_file() {
+            return candidate;
+        }
+    }
+    panic!("stat is not on PATH");
 }
 
 fn run_for(fixture: &Fixture, environment: &str, sha: &str) -> Output {
@@ -152,13 +209,18 @@ fn assert_allowed(output: &Output, label: &str) {
     assert!(output.stderr.is_empty(), "{label}: stderr must stay empty");
 }
 
-fn assert_denied(output: &Output, label: &str) {
+fn assert_denied(output: &Output, label: &str, reason: &str) {
     assert_eq!(
         output.status.code(),
         Some(1),
         "{label}: guard must deny with exit 1"
     );
-    assert!(!output.stderr.is_empty(), "{label}: denial is reported");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr),
+        denial(reason),
+        "{label}: denial reason"
+    );
+    assert!(output.stdout.is_empty(), "{label}: denial wrote to stdout");
 }
 
 fn wait_until_busy(path: &Path) {
@@ -203,7 +265,7 @@ fn deploy_guard_allows_absent_state() {
         .args(["--environment", "staging", "--expected-release-sha", SHA_A])
         .output()
         .expect("run misplaced guard");
-    assert_denied(&output, "misplaced helper");
+    assert_denied(&output, "misplaced helper", "misplaced helper");
 
     for arguments in [
         vec![],
@@ -237,7 +299,11 @@ fn deploy_guard_allows_absent_state() {
             "--apply",
         ],
     ] {
-        assert_denied(&run_guard(&fixture, &arguments), "usage refusal");
+        assert_denied(
+            &run_guard(&fixture, &arguments),
+            "usage refusal",
+            "invalid arguments",
+        );
     }
 }
 
@@ -252,10 +318,15 @@ fn deploy_guard_requires_both_locks_for_restart_authorization() {
     assert_denied(
         &run_for(&fixture, environment, SHA_A),
         "stale authorization",
+        "restart authorization is not held",
     );
 
     fixture.hold(&main);
-    assert_denied(&run_for(&fixture, environment, SHA_A), "main lock only");
+    assert_denied(
+        &run_for(&fixture, environment, SHA_A),
+        "main lock only",
+        "restart authorization is not held",
+    );
 
     fixture.hold(&restart);
     assert_allowed(&run_for(&fixture, environment, SHA_A), "both locks held");
@@ -264,14 +335,22 @@ fn deploy_guard_requires_both_locks_for_restart_authorization() {
     let mut main_holder = fixture.holders.remove(0);
     main_holder.kill().expect("stop main holder");
     main_holder.wait().expect("reap main holder");
-    assert_denied(&run_for(&fixture, environment, SHA_A), "restart lock only");
+    assert_denied(
+        &run_for(&fixture, environment, SHA_A),
+        "restart lock only",
+        "restart authorization is not held",
+    );
 
     for holder in &mut fixture.holders {
         holder.kill().expect("stop holder");
         holder.wait().expect("reap holder");
     }
     fixture.holders.clear();
-    assert_denied(&run_for(&fixture, environment, SHA_A), "no locks");
+    assert_denied(
+        &run_for(&fixture, environment, SHA_A),
+        "no locks",
+        "restart authorization is not held",
+    );
 }
 
 #[test]
@@ -285,15 +364,27 @@ fn deploy_guard_rejects_dangling_state_and_wrong_sha() {
     fixture.hold(&restart);
     let state = fixture.state(environment);
     assert_allowed(&run_for(&fixture, environment, SHA_A), "exact state");
-    assert_denied(&run_for(&fixture, environment, SHA_B), "wrong release SHA");
+    assert_denied(
+        &run_for(&fixture, environment, SHA_B),
+        "wrong release SHA",
+        "deployment state does not authorize a restart",
+    );
 
     let valid = fixture.root.join("valid.state");
     fs::rename(&state, &valid).expect("move state");
     std::os::unix::fs::symlink(fixture.root.join("missing.state"), &state).expect("dangling");
-    assert_denied(&run_for(&fixture, environment, SHA_A), "dangling state");
+    assert_denied(
+        &run_for(&fixture, environment, SHA_A),
+        "dangling state",
+        "deployment state is not a regular file",
+    );
     fs::remove_file(&state).expect("remove symlink");
     std::os::unix::fs::symlink(&valid, &state).expect("state symlink");
-    assert_denied(&run_for(&fixture, environment, SHA_A), "state symlink");
+    assert_denied(
+        &run_for(&fixture, environment, SHA_A),
+        "state symlink",
+        "deployment state is not a regular file",
+    );
     fs::remove_file(&state).expect("remove symlink");
     fs::rename(&valid, &state).expect("restore state");
 
@@ -304,7 +395,11 @@ fn deploy_guard_rejects_dangling_state_and_wrong_sha() {
         ),
     )
     .expect("extra line");
-    assert_denied(&run_for(&fixture, environment, SHA_A), "extra state line");
+    assert_denied(
+        &run_for(&fixture, environment, SHA_A),
+        "extra state line",
+        "deployment state does not authorize a restart",
+    );
 
     fs::write(
         &state,
@@ -313,37 +408,79 @@ fn deploy_guard_rejects_dangling_state_and_wrong_sha() {
         ),
     )
     .expect("extra newline");
-    assert_denied(&run_for(&fixture, environment, SHA_A), "trailing newline");
+    assert_denied(
+        &run_for(&fixture, environment, SHA_A),
+        "trailing newline",
+        "deployment state does not authorize a restart",
+    );
 
     fs::write(&state, "x".repeat(257)).expect("oversize state");
     set_mode(&state, 0o644);
-    assert_denied(&run_for(&fixture, environment, SHA_A), "oversize state");
+    assert_denied(
+        &run_for(&fixture, environment, SHA_A),
+        "oversize state",
+        "deployment state is too large",
+    );
 
     fixture.write_state(environment, SHA_A);
     set_mode(&state, 0o666);
-    assert_denied(&run_for(&fixture, environment, SHA_A), "writable state");
+    assert_denied(
+        &run_for(&fixture, environment, SHA_A),
+        "writable state",
+        "deployment state is not owner-controlled",
+    );
+
+    fixture.write_state(environment, SHA_A);
+    let state_link = fixture.root.join("state-link");
+    fs::hard_link(&state, &state_link).expect("state hard link");
+    assert_denied(
+        &run_for(&fixture, environment, SHA_A),
+        "hard-linked state",
+        "deployment state is not owner-controlled",
+    );
+    fs::remove_file(&state_link).expect("remove state hard link");
 
     fixture.write_state(environment, SHA_A);
     fs::remove_file(&state).expect("remove state");
     fs::create_dir(&state).expect("state directory");
-    assert_denied(&run_for(&fixture, environment, SHA_A), "state directory");
+    assert_denied(
+        &run_for(&fixture, environment, SHA_A),
+        "state directory",
+        "deployment state is not a regular file",
+    );
     fs::remove_dir(&state).expect("remove state directory");
 
     fixture.write_state(environment, SHA_A);
     fs::remove_file(&main).expect("remove main lock");
     fs::create_dir(&main).expect("lock directory");
-    assert_denied(&run_for(&fixture, environment, SHA_A), "lock directory");
+    assert_denied(
+        &run_for(&fixture, environment, SHA_A),
+        "lock directory",
+        "main lock is not a regular file",
+    );
     fs::remove_dir(&main).expect("remove lock directory");
     fixture.create_lock(&main);
     set_mode(&main, 0o666);
-    assert_denied(&run_for(&fixture, environment, SHA_A), "writable lock");
+    assert_denied(
+        &run_for(&fixture, environment, SHA_A),
+        "writable lock",
+        "main lock is not owner-controlled",
+    );
     set_mode(&main, 0o600);
-    assert_denied(&run_for(&fixture, environment, SHA_A), "replaced main lock");
-
+    // Hold the main lock so these cases reach the restart-lock checks.
+    fixture.hold(&main);
     fs::remove_file(&restart).expect("remove restart lock");
+    fs::create_dir(&restart).expect("restart lock directory");
+    assert_denied(
+        &run_for(&fixture, environment, SHA_A),
+        "replaced restart lock",
+        "restart lock is not a regular file",
+    );
+    fs::remove_dir(&restart).expect("remove restart lock directory");
     assert_denied(
         &run_for(&fixture, environment, SHA_A),
         "missing restart lock",
+        "restart lock is not a regular file",
     );
 
     // A linked or writable deploy directory is not deploy authority.
@@ -353,6 +490,7 @@ fn deploy_guard_rejects_dangling_state_and_wrong_sha() {
     assert_denied(
         &run_for(&fixture, environment, SHA_A),
         "linked deploy directory",
+        "deploy state is not a private directory",
     );
     fs::remove_file(fixture.deploy_dir()).expect("remove deploy symlink");
     fs::rename(&real_dir, fixture.deploy_dir()).expect("restore deploy directory");
@@ -361,7 +499,96 @@ fn deploy_guard_rejects_dangling_state_and_wrong_sha() {
     assert_denied(
         &run_for(&fixture, environment, SHA_A),
         "writable deploy directory",
+        "deploy state is not a private directory",
     );
+}
+
+#[test]
+fn deploy_guard_denies_unsearchable_state_and_any_other_phase() {
+    let mut fixture = Fixture::new("unsearchable");
+    let environment = "staging";
+    fixture.write_state(environment, SHA_A);
+    let main = fixture.lock(environment);
+    let restart = fixture.restart_lock(environment);
+    fixture.hold(&main);
+    fixture.hold(&restart);
+    assert_allowed(
+        &run_for(&fixture, environment, SHA_A),
+        "private searchable state",
+    );
+
+    for phase in [
+        "deploying",
+        "failed",
+        "blocked",
+        "rust-failed",
+        "readiness-pending",
+        "unknown",
+    ] {
+        fixture.write_phase(environment, SHA_A, phase);
+        assert_denied(
+            &run_for(&fixture, environment, SHA_A),
+            phase,
+            "deployment state does not authorize a restart",
+        );
+    }
+    fixture.write_state(environment, SHA_A);
+
+    // An unsearchable directory must deny, never read as an absent state.
+    set_mode(&fixture.deploy_dir(), 0o000);
+    assert_denied(
+        &run_for(&fixture, environment, SHA_A),
+        "unsearchable deploy directory",
+        "deploy state is unsearchable",
+    );
+    set_mode(&fixture.deploy_dir(), 0o755);
+    assert_allowed(
+        &run_for(&fixture, environment, SHA_A),
+        "restored deploy directory",
+    );
+    set_mode(&fixture.deploy_dir(), 0o644);
+    assert_denied(
+        &run_for(&fixture, environment, SHA_A),
+        "unreadable deploy directory",
+        "deploy state is unsearchable",
+    );
+    set_mode(&fixture.deploy_dir(), 0o755);
+}
+
+#[test]
+fn deploy_guard_denies_flock_and_descriptor_identity_errors() {
+    let mut fixture = Fixture::new("shims");
+    let environment = "staging";
+    fixture.write_state(environment, SHA_A);
+    let main = fixture.lock(environment);
+    let restart = fixture.restart_lock(environment);
+    fixture.hold(&main);
+    fixture.hold(&restart);
+    let arguments = [
+        "--environment",
+        environment,
+        "--expected-release-sha",
+        SHA_A,
+    ];
+
+    let stat_shim = fixture.root.join("stat-shim");
+    write_shim(&stat_shim, "stat", STAT_SHIM);
+    assert_denied(
+        &run_guard_with_path(&fixture, Some(&stat_shim), &arguments),
+        "descriptor identity mismatch",
+        "deployment state changed during validation",
+    );
+
+    let flock_shim = fixture.root.join("flock-shim");
+    write_shim(&flock_shim, "flock", FLOCK_SHIM);
+    assert_denied(
+        &run_guard_with_path(&fixture, Some(&flock_shim), &arguments),
+        "flock error denies",
+        "main lock check failed",
+    );
+
+    // Without the shims the same fixture still authorizes the restart.
+    assert_allowed(&run_guard(&fixture, &arguments), "unshimmed restart");
 }
 
 #[test]

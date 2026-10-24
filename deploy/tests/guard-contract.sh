@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Disposable corpus for the deploy-start guard. Every case builds a private
 # temporary runtime root, runs the real guard file against it, and contacts no
-# host, database or network.
+# host, database or network. Every denial is compared against the exact reason.
 set -euo pipefail
 export LC_ALL=C
 umask 077
@@ -19,6 +19,9 @@ bash -n "$guard"
     printf 'missing reviewed list: %s\n' "$reviewed" >&2
     exit 1
 }
+denial='Backend start denied by deployment guard'
+# The shims below delegate to the same stat the guard would see without them.
+real_stat=$(type -ap stat | head -n 1)
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/verdaxis-guard-contract.XXXXXX")
 held_pids=()
@@ -28,6 +31,7 @@ cleanup() {
         kill "$pid" 2>/dev/null || true
         wait "$pid" 2>/dev/null || true
     done
+    chmod -R u+rwx -- "$work" 2>/dev/null || true
     rm -rf -- "$work"
 }
 trap cleanup EXIT
@@ -48,60 +52,76 @@ new_fixture() {
     printf '%s\n' "$fixture"
 }
 
-run_guard() {
-    local fixture=$1
-    shift
-    bash "$fixture/scripts/verify-deploy-start-guard.sh" "$@" \
-        >"$work/stdout" 2>"$work/stderr"
+run_at() {
+    local target=$1 prefix=$2
+    shift 2
+    if [[ -n "$prefix" ]]; then
+        PATH="$prefix:$PATH" bash "$target" "$@" >"$work/stdout" 2>"$work/stderr"
+    else
+        bash "$target" "$@" >"$work/stdout" 2>"$work/stderr"
+    fi
 }
 
-check_outcome() {
-    local label=$1 status=$2
-    if [[ "$status" -eq 0 ]]; then
-        [[ ! -s "$work/stdout" ]] || record "$label: stdout is not empty"
-        [[ ! -s "$work/stderr" ]] || record "$label: stderr is not empty"
-    elif [[ "$status" -ne 1 ]]; then
+check_allowed_output() {
+    local label=$1
+    [[ ! -s "$work/stdout" ]] || record "$label: stdout is not empty"
+    [[ ! -s "$work/stderr" ]] || record "$label: stderr is not empty"
+}
+
+check_denied_output() {
+    local label=$1 status=$2 reason=$3 expected
+    [[ ! -s "$work/stdout" ]] || record "$label: denial wrote to stdout"
+    if [[ "$status" -ne 1 ]]; then
         record "$label: exit $status, expected 1"
-    elif [[ ! -s "$work/stderr" ]]; then
-        record "$label: denial was silent"
+    fi
+    expected="$denial: $reason"
+    if ! grep -Fxq -- "$expected" "$work/stderr"; then
+        record "$label: reason is '$(head -n 1 "$work/stderr")', expected '$expected'"
     fi
 }
 
 expect_allowed() {
-    local label=$1 status=0
-    shift
-    run_guard "$@" || status=$?
+    local label=$1 fixture=$2 status=0
+    shift 2
+    run_at "$fixture/scripts/verify-deploy-start-guard.sh" '' "$@" || status=$?
     if [[ "$status" -ne 0 ]]; then
-        record "$label: a permitted start was denied"
+        record "$label: a permitted start was denied: $(head -n 1 "$work/stderr")"
     else
-        check_outcome "$label" 0
+        check_allowed_output "$label"
     fi
 }
 
 expect_denied_at() {
-    local label=$1 path=$2 status=0
-    shift 2
-    bash "$path" "$@" >"$work/stdout" 2>"$work/stderr" || status=$?
+    local label=$1 reason=$2 prefix=$3 path=$4 status=0
+    shift 4
+    run_at "$path" "$prefix" "$@" || status=$?
     if [[ "$status" -eq 0 ]]; then
         record "$label: an invalid start was allowed"
     else
-        check_outcome "$label" "$status"
+        check_denied_output "$label" "$status" "$reason"
     fi
 }
 
 expect_denied() {
-    local label=$1 fixture=$2
-    shift 2
-    expect_denied_at "$label" \
+    local label=$1 reason=$2 fixture=$3
+    shift 3
+    expect_denied_at "$label" "$reason" '' \
+        "$fixture/scripts/verify-deploy-start-guard.sh" "$@"
+}
+
+expect_denied_with_shim() {
+    local label=$1 reason=$2 prefix=$3 fixture=$4
+    shift 4
+    expect_denied_at "$label" "$reason" "$prefix" \
         "$fixture/scripts/verify-deploy-start-guard.sh" "$@"
 }
 
 write_state() {
-    local fixture=$1 environment=$2 sha=$3
+    local fixture=$1 environment=$2 sha=$3 phase=${4:-restart-authorized}
     mkdir -p -- "$fixture/.runtime-deploy"
     chmod 0755 "$fixture/.runtime-deploy"
-    printf 'DEPLOYMENT_STATE=restart-authorized\nENVIRONMENT=%s\nRELEASE_SHA=%s\n' \
-        "$environment" "$sha" \
+    printf 'DEPLOYMENT_STATE=%s\nENVIRONMENT=%s\nRELEASE_SHA=%s\n' \
+        "$phase" "$environment" "$sha" \
         >"$fixture/.runtime-deploy/$environment.state"
     chmod 0644 "$fixture/.runtime-deploy/$environment.state"
 }
@@ -130,6 +150,27 @@ hold_lock() {
     exit 1
 }
 
+# Two controlled shims prove the guard does not fail open on a bad descriptor
+# identity or on a flock error that is not contention.
+mkdir -p -- "$work/stat-shim" "$work/flock-shim"
+cat >"$work/stat-shim/stat" <<SHIM
+#!/usr/bin/env bash
+real=\${REAL_STAT:?}
+for argument in "\$@"; do
+    case \$argument in
+        */fd/7)
+            output=\$("\$real" "\$@") || exit \$?
+            printf '%s\n' "\$output" | awk -F: 'BEGIN { OFS = ":" } { \$2 = \$2 + 1; print }'
+            exit 0
+            ;;
+    esac
+done
+exec "\$real" "\$@"
+SHIM
+printf '#!/usr/bin/env bash\nexit 1\n' >"$work/flock-shim/flock"
+chmod 0755 "$work/stat-shim/stat" "$work/flock-shim/flock"
+export REAL_STAT=$real_stat
+
 # An absent state file is the normal start path.
 fixture=$(new_fixture absent)
 expect_allowed 'absent state directory' "$fixture" \
@@ -140,40 +181,63 @@ expect_allowed 'empty state directory' "$fixture" \
     --environment production --expected-release-sha "$sha_b"
 mkdir -p -- "$fixture/bin"
 cp -- "$guard" "$fixture/bin/verify-deploy-start-guard.sh"
-expect_denied_at 'misplaced helper' "$fixture/bin/verify-deploy-start-guard.sh" \
+expect_denied_at 'misplaced helper' 'misplaced helper' '' \
+    "$fixture/bin/verify-deploy-start-guard.sh" \
     --environment staging --expected-release-sha "$sha_a"
 
-expect_denied 'no arguments' "$fixture"
-expect_denied 'missing value' "$fixture" --environment staging
-expect_denied 'extra argument' "$fixture" \
+expect_denied 'no arguments' 'invalid arguments' "$fixture"
+expect_denied 'missing value' 'invalid arguments' "$fixture" --environment staging
+expect_denied 'extra argument' 'invalid arguments' "$fixture" \
     --environment staging --expected-release-sha "$sha_a" extra
-expect_denied 'reordered flags' "$fixture" \
+expect_denied 'reordered flags' 'invalid arguments' "$fixture" \
     --expected-release-sha "$sha_a" --environment staging
-expect_denied 'test environment' "$fixture" \
+expect_denied 'test environment' 'unsupported environment' "$fixture" \
     --environment test --expected-release-sha "$sha_a"
-expect_denied 'short release' "$fixture" \
+expect_denied 'short release' 'invalid release sha' "$fixture" \
     --environment staging --expected-release-sha short
-expect_denied 'uppercase release' "$fixture" \
+expect_denied 'uppercase release' 'invalid release sha' "$fixture" \
     --environment staging --expected-release-sha \
     111111111111111111111111111111111111111A
-expect_denied 'unknown flag' "$fixture" \
+expect_denied 'unknown flag' 'invalid arguments' "$fixture" \
     --environment staging --expected-release-sha "$sha_a" --apply
+
+# An unsearchable state directory denies instead of reading as absent.
+fixture=$(new_fixture unsearchable)
+mkdir -p -- "$fixture/.runtime-deploy"
+write_state "$fixture" staging "$sha_a"
+hold_lock "$fixture/.runtime-deploy/staging.lock"
+hold_lock "$fixture/.runtime-deploy/staging.restart.lock"
+chmod 0000 "$fixture/.runtime-deploy"
+expect_denied 'unsearchable deploy directory' 'deploy state is unsearchable' \
+    "$fixture" --environment staging --expected-release-sha "$sha_a"
+chmod 0755 "$fixture/.runtime-deploy"
+expect_allowed 'searchable deploy directory restored' "$fixture" \
+    --environment staging --expected-release-sha "$sha_a"
+chmod 0644 "$fixture/.runtime-deploy"
+expect_denied 'unreadable deploy directory' 'deploy state is unsearchable' \
+    "$fixture" --environment staging --expected-release-sha "$sha_a"
+chmod 0755 "$fixture/.runtime-deploy"
 
 # Stale authorization and restart windows require both locks.
 fixture=$(new_fixture locks)
 state_dir=$fixture/.runtime-deploy
 write_state "$fixture" staging "$sha_a"
-expect_denied 'stale authorization' "$fixture" \
-    --environment staging --expected-release-sha "$sha_a"
+expect_denied 'stale authorization' 'restart authorization is not held' \
+    "$fixture" --environment staging --expected-release-sha "$sha_a"
 hold_lock "$state_dir/staging.lock"
-expect_denied 'main lock only' "$fixture" \
-    --environment staging --expected-release-sha "$sha_a"
+expect_denied 'main lock only' 'restart authorization is not held' \
+    "$fixture" --environment staging --expected-release-sha "$sha_a"
 hold_lock "$state_dir/staging.restart.lock"
 expect_allowed 'both locks held' "$fixture" \
     --environment staging --expected-release-sha "$sha_a"
 kill "${held_pids[0]}" 2>/dev/null || true
 wait "${held_pids[0]}" 2>/dev/null || true
-expect_denied 'restart lock only' "$fixture" \
+expect_denied 'restart lock only' 'restart authorization is not held' \
+    "$fixture" --environment staging --expected-release-sha "$sha_a"
+
+# A flock error that is not contention must deny, not authorize.
+expect_denied_with_shim 'flock error denies' 'main lock check failed' \
+    "$work/flock-shim" "$fixture" \
     --environment staging --expected-release-sha "$sha_a"
 
 # Exact state, wrong release and unsafe state paths.
@@ -185,71 +249,96 @@ hold_lock "$state_dir/staging.lock"
 hold_lock "$state_dir/staging.restart.lock"
 expect_allowed 'exact state' "$fixture" \
     --environment staging --expected-release-sha "$sha_a"
-expect_denied 'wrong release' "$fixture" \
-    --environment staging --expected-release-sha "$sha_b"
+expect_denied 'wrong release' 'deployment state does not authorize a restart' \
+    "$fixture" --environment staging --expected-release-sha "$sha_b"
+
+# A descriptor identity that differs from the path identity denies.
+expect_denied_with_shim 'descriptor identity mismatch' \
+    'deployment state changed during validation' "$work/stat-shim" "$fixture" \
+    --environment staging --expected-release-sha "$sha_a"
+
+for phase in deploying failed blocked rust-failed readiness-pending unknown; do
+    write_state "$fixture" staging "$sha_a" "$phase"
+    expect_denied "phase $phase" 'deployment state does not authorize a restart' \
+        "$fixture" --environment staging --expected-release-sha "$sha_a"
+done
+write_state "$fixture" staging "$sha_a"
 
 mv -- "$state" "$fixture/valid.state"
 ln -s -- "$fixture/missing.state" "$state"
-expect_denied 'dangling state' "$fixture" \
-    --environment staging --expected-release-sha "$sha_a"
+expect_denied 'dangling state' 'deployment state is not a regular file' \
+    "$fixture" --environment staging --expected-release-sha "$sha_a"
 rm -- "$state"
 ln -s -- "$fixture/valid.state" "$state"
-expect_denied 'state symlink' "$fixture" \
-    --environment staging --expected-release-sha "$sha_a"
+expect_denied 'state symlink' 'deployment state is not a regular file' \
+    "$fixture" --environment staging --expected-release-sha "$sha_a"
 rm -- "$state"
 mv -- "$fixture/valid.state" "$state"
 
 printf 'EXTRA=denied\n' >>"$state"
-expect_denied 'extra state line' "$fixture" \
-    --environment staging --expected-release-sha "$sha_a"
+expect_denied 'extra state line' 'deployment state does not authorize a restart' \
+    "$fixture" --environment staging --expected-release-sha "$sha_a"
 printf '\n' >>"$state"
-expect_denied 'trailing blank line' "$fixture" \
-    --environment staging --expected-release-sha "$sha_a"
+expect_denied 'trailing blank line' 'deployment state does not authorize a restart' \
+    "$fixture" --environment staging --expected-release-sha "$sha_a"
 
 printf '%0257d' 0 >"$state"
 chmod 0644 "$state"
-expect_denied 'oversize state' "$fixture" \
-    --environment staging --expected-release-sha "$sha_a"
+expect_denied 'oversize state' 'deployment state is too large' \
+    "$fixture" --environment staging --expected-release-sha "$sha_a"
 
 write_state "$fixture" staging "$sha_a"
 chmod 0666 "$state"
-expect_denied 'writable state' "$fixture" \
-    --environment staging --expected-release-sha "$sha_a"
+expect_denied 'writable state' 'deployment state is not owner-controlled' \
+    "$fixture" --environment staging --expected-release-sha "$sha_a"
+
+write_state "$fixture" staging "$sha_a"
+ln -- "$state" "$fixture/state-link"
+expect_denied 'hard-linked state' 'deployment state is not owner-controlled' \
+    "$fixture" --environment staging --expected-release-sha "$sha_a"
+rm -- "$fixture/state-link"
 
 write_state "$fixture" staging "$sha_a"
 rm -- "$state"
 mkdir -- "$state"
-expect_denied 'state directory' "$fixture" \
-    --environment staging --expected-release-sha "$sha_a"
+expect_denied 'state directory' 'deployment state is not a regular file' \
+    "$fixture" --environment staging --expected-release-sha "$sha_a"
 rmdir -- "$state"
 
 write_state "$fixture" staging "$sha_a"
 rm -- "$state_dir/staging.lock"
 mkdir -- "$state_dir/staging.lock"
-expect_denied 'lock directory' "$fixture" \
-    --environment staging --expected-release-sha "$sha_a"
+expect_denied 'lock directory' 'main lock is not a regular file' \
+    "$fixture" --environment staging --expected-release-sha "$sha_a"
 rmdir -- "$state_dir/staging.lock"
 create_lock "$state_dir/staging.lock"
-expect_denied 'replaced main lock' "$fixture" \
-    --environment staging --expected-release-sha "$sha_a"
+# The main lock is now released again; hold it so the restart path is reached.
+expect_denied 'released main lock' 'restart authorization is not held' \
+    "$fixture" --environment staging --expected-release-sha "$sha_a"
+hold_lock "$state_dir/staging.lock"
 chmod 0666 "$state_dir/staging.lock"
-expect_denied 'writable lock' "$fixture" \
-    --environment staging --expected-release-sha "$sha_a"
+expect_denied 'writable lock' 'main lock is not owner-controlled' \
+    "$fixture" --environment staging --expected-release-sha "$sha_a"
 chmod 0600 "$state_dir/staging.lock"
 
+# With the main lock held, replacing the restart lock is the failing path.
 rm -- "$state_dir/staging.restart.lock"
-expect_denied 'missing restart lock' "$fixture" \
-    --environment staging --expected-release-sha "$sha_a"
+mkdir -- "$state_dir/staging.restart.lock"
+expect_denied 'replaced restart lock' 'restart lock is not a regular file' \
+    "$fixture" --environment staging --expected-release-sha "$sha_a"
+rmdir -- "$state_dir/staging.restart.lock"
+expect_denied 'missing restart lock' 'restart lock is not a regular file' \
+    "$fixture" --environment staging --expected-release-sha "$sha_a"
 
 mv -- "$state_dir" "$fixture/real-deploy"
 ln -s -- "$fixture/real-deploy" "$state_dir"
-expect_denied 'linked deploy directory' "$fixture" \
-    --environment staging --expected-release-sha "$sha_a"
+expect_denied 'linked deploy directory' 'deploy state is not a private directory' \
+    "$fixture" --environment staging --expected-release-sha "$sha_a"
 rm -- "$state_dir"
 mv -- "$fixture/real-deploy" "$state_dir"
 chmod 0777 "$state_dir"
-expect_denied 'writable deploy directory' "$fixture" \
-    --environment staging --expected-release-sha "$sha_a"
+expect_denied 'writable deploy directory' 'deploy state is not a private directory' \
+    "$fixture" --environment staging --expected-release-sha "$sha_a"
 chmod 0755 "$state_dir"
 
 # The guard files are reviewed and independent of any interpreter.
