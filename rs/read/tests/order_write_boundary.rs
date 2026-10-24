@@ -624,7 +624,10 @@ fn declared_business_exports_do_not_open_the_write_boundary() {
         "use crate::order_write::{InvalidateOrganization, locks::SliceKey};",
         true
     ));
-    assert!(!boundary_reference_allowed("use crate::order_write::*;", true));
+    assert!(!boundary_reference_allowed(
+        "use crate::order_write::*;",
+        true
+    ));
     assert!(boundary_reference_allowed(
         "pub mod order_write { pub struct InvalidateOrganization { pub id: Uuid } pub type InvalidationError = Error; pub async fn invalidate_organization() {} }",
         false
