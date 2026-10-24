@@ -98,6 +98,21 @@ fn write_state_is_atomic_and_0600() {
 }
 
 #[test]
+fn write_state_refuses_a_relative_path() {
+    // Every planned caller publishes an absolute path in a private directory.
+    // A relative path would make the directory fsync and the owner check
+    // depend on the process working directory, so it is refused.
+    assert_eq!(
+        write_atomic(Path::new("phase10-state.json"), &record(1, "old")),
+        Err(Exit::Precondition)
+    );
+    assert!(
+        std::fs::symlink_metadata("phase10-state.json").is_err(),
+        "a refused path leaves no temp file behind"
+    );
+}
+
+#[test]
 fn state_reader_refuses_oversize_symlink_and_invalid_json() {
     let directory = TempDir::new();
     let path = directory.path().join("state.json");
