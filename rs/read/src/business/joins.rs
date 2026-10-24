@@ -156,18 +156,12 @@ pub async fn review(
     } else {
         "/api/auth/organization-joins/{join_request_id}/reject"
     };
-    limits.check_business(
-        "PUT",
+    super::transaction::run_organization_write(state, access, LimitedReview {
+        command,
+        limits: limits.clone(),
+        client: client.into(),
         template,
-        crate::auth::limits::BusinessLimitKeys {
-            client,
-            user: None,
-            organization: None,
-            token: None,
-        },
-        Utc::now().timestamp().max(0) as u64,
-    )?;
-    super::transaction::run_organization_write(state, access, command).await
+    }).await
 }
 
 pub async fn read(
@@ -207,6 +201,28 @@ pub async fn read(
         AuthenticatedError::Database(error) => error,
         AuthenticatedError::AmbiguousCommit => super::error::database_failure(None),
     })
+}
+
+struct LimitedReview {
+    command: ReviewJoin,
+    limits: crate::auth::limits::SharedLimits,
+    client: String,
+    template: &'static str,
+}
+impl BusinessCommand for LimitedReview {
+    type Output = JoinDecision;
+    fn preview<'a>(&'a self, conn: &'a mut PgConnection) -> CommandFuture<'a,OrganizationWritePlan,AttemptError> {
+        self.command.preview(conn)
+    }
+    fn execute<'a>(&'a self, conn: &'a mut PgConnection, actor: &'a CurrentActor) -> CommandFuture<'a,Self::Output,AttemptError> {
+        Box::pin(async move {
+            require_admin(actor)?;
+            self.limits.check_business("PUT",self.template,crate::auth::limits::BusinessLimitKeys {
+                client: &self.client,user:None,organization:None,token:None,
+            },Utc::now().timestamp().max(0) as u64)?;
+            self.command.execute(conn,actor).await
+        })
+    }
 }
 
 pub struct ReviewJoin {
