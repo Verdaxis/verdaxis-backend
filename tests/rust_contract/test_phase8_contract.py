@@ -1045,10 +1045,17 @@ def test_phase8_inventory_gate_accepts_reviewed_other_phase(tmp_path):
     assert any(extra in reason for reason in checker(tmp_path, predecessor, reviewed, other, [path]))
 
 
-def test_phase8_other_phase_list_starts_empty():
+def test_phase8_other_phase_list_pins_the_reviewed_phase_three_revision():
+    # PD89-13: the PM approved exactly this entry, with this digest and owner.
+    # Any further entry needs its own PM review and a change here.
     path = ROOT / "tests/rust_contract/phase8/other-phase-migrations.json"
     assert path.is_file(), "reviewed other-phase list missing"
-    assert json.loads(path.read_text()) == {}
+    assert json.loads(path.read_text()) == {
+        "alembic/versions/p3_20261020_auth_tokens.py": {
+            "sha256": "40dfc632214a9504e26f7892184b50dbe15c28323ac0ba8d366c15160705e699",
+            "owning_phase": 3,
+        }
+    }
 
 
 def task5a_fixture():
