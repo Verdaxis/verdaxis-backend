@@ -47,10 +47,13 @@ mod postgres {
     use super::*;
     use chrono::Duration;
     use sqlx::{Connection, PgConnection, postgres::PgPoolOptions};
+    use std::sync::Arc;
+    use tokio::sync::Barrier;
 
     struct Fixture {
         admin: PgConnection,
         pool: sqlx::PgPool,
+        runtime: String,
         schema: String,
         user: Uuid,
     }
@@ -106,9 +109,30 @@ mod postgres {
             Self {
                 admin,
                 pool,
+                runtime,
                 schema,
                 user,
             }
+        }
+
+        /// A pool with its own connection budget, so a second claimer holds a
+        /// real second connection instead of queueing behind the first.
+        async fn second_pool(&self) -> sqlx::PgPool {
+            let path = format!("SET search_path TO {}", self.schema);
+            PgPoolOptions::new()
+                .max_connections(1)
+                .after_connect(move |conn, _| {
+                    let path = path.clone();
+                    Box::pin(async move {
+                        sqlx::raw_sql(sqlx::AssertSqlSafe(path))
+                            .execute(conn)
+                            .await?;
+                        Ok(())
+                    })
+                })
+                .connect(&self.runtime)
+                .await
+                .unwrap()
         }
 
         async fn freeze(&self, marker: &ApprovalMailMarker) {
@@ -252,32 +276,92 @@ mod postgres {
         f.finish().await;
     }
 
+    /// PostgreSQL blocks a claimant on the row lock the holder keeps open.
+    async fn wait_until_blocked(observer: &mut PgConnection, pid: i32) {
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            loop {
+                let blocked: bool =
+                    sqlx::query_scalar("SELECT cardinality(pg_blocking_pids($1)) > 0")
+                        .bind(pid)
+                        .fetch_one(&mut *observer)
+                        .await
+                        .unwrap();
+                if blocked {
+                    return;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("second claimer must reach a database lock wait");
+    }
+
     #[tokio::test]
     async fn p4_t11a_c04() {
-        let f = Fixture::new().await;
-        let marker = marker(f.user, instant());
-        f.freeze(&marker).await;
-        let a = f.pool.clone();
-        let b = f.pool.clone();
+        let mut f = Fixture::new().await;
+        let raced = marker(f.user, instant());
+        f.freeze(&raced).await;
+        let second = f.second_pool().await;
+        let barrier = Arc::new(Barrier::new(2));
         let user = f.user;
-        let transition = marker.transition_id;
-        let attempt = |pool: sqlx::PgPool| async move {
+        let transition = raced.transition_id;
+        // Each claimer owns its own connection, and both transactions are open
+        // before either claim runs. A shared single-connection pool would only
+        // serialise them and prove nothing about the row lock.
+        let attempt = |pool: sqlx::PgPool, barrier: Arc<Barrier>| async move {
             let mut tx = pool.begin().await.unwrap();
+            barrier.wait().await;
             let claim = claim_approval_mail(&mut tx, user, transition, instant())
                 .await
                 .unwrap();
             tx.commit().await.unwrap();
             claim
         };
-        let (a, b) = tokio::join!(attempt(a), attempt(b));
-        assert_eq!(usize::from(a.is_some()) + usize::from(b.is_some()), 1);
+        let (a, b) = tokio::join!(
+            attempt(f.pool.clone(), barrier.clone()),
+            attempt(second, barrier)
+        );
+        assert_eq!(
+            usize::from(a.is_some()) + usize::from(b.is_some()),
+            1,
+            "exactly one concurrent claimer wins the row"
+        );
         let claim = a.or(b).unwrap();
         assert!(
-            f.claim(&marker, claim.claim_until - Duration::microseconds(1))
+            f.claim(&raced, claim.claim_until - Duration::microseconds(1))
                 .await
                 .is_none()
         );
-        assert!(f.claim(&marker, claim.claim_until).await.is_some());
+        assert!(f.claim(&raced, claim.claim_until).await.is_some());
+
+        // A claim the holder has not committed makes the next claimer wait on
+        // the row lock, and that claim loses once the holder commits.
+        let held = marker(f.user, instant());
+        f.freeze(&held).await;
+        let mut holder = f.pool.begin().await.unwrap();
+        let held_claim = claim_approval_mail(&mut holder, f.user, held.transition_id, instant())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(held_claim.claim_until, instant() + Duration::minutes(5));
+        let waiting = f.second_pool().await;
+        let held_transition = held.transition_id;
+        let (pid_tx, pid_rx) = tokio::sync::oneshot::channel();
+        let waiter = tokio::spawn(async move {
+            let mut tx = waiting.begin().await.unwrap();
+            let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+                .fetch_one(&mut *tx)
+                .await
+                .unwrap();
+            pid_tx.send(pid).unwrap();
+            let claim = claim_approval_mail(&mut tx, user, held_transition, instant()).await;
+            tx.commit().await.unwrap();
+            claim.unwrap()
+        });
+        let pid = pid_rx.await.unwrap();
+        wait_until_blocked(&mut f.admin, pid).await;
+        holder.commit().await.unwrap();
+        assert!(waiter.await.unwrap().is_none());
         f.finish().await;
     }
 
@@ -415,6 +499,57 @@ mod postgres {
         );
         assert_eq!(format!("{error:?}"), "MailError::Database");
         assert_eq!(format!("{error}"), "MailError::Database");
+        f.finish().await;
+    }
+
+    /// CF4_01 `rules.idempotency_key`: the frozen transition key must reach the
+    /// provider on the send, so an uncertain retry collapses at the transport.
+    #[tokio::test]
+    async fn p4_t11a_c10() {
+        use std::sync::Mutex;
+        use verdaxis_read::crud::referrals::invite::MailClient;
+        let captured = Arc::new(Mutex::new(None::<String>));
+        let seen = captured.clone();
+        let app = axum::Router::new().route(
+            "/emails",
+            axum::routing::post(move |headers: axum::http::HeaderMap| {
+                let seen = seen.clone();
+                async move {
+                    *seen.lock().unwrap() = headers
+                        .get("idempotency-key")
+                        .and_then(|value| value.to_str().ok())
+                        .map(str::to_owned);
+                    axum::http::StatusCode::OK
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let client =
+            MailClient::loopback(format!("http://{address}/emails"), "test-key".into()).unwrap();
+        let f = Fixture::new().await;
+        let marker = marker(f.user, instant());
+        f.freeze(&marker).await;
+        let transition = marker.transition_id;
+        let expected = format!("account-approval/{transition}");
+        let result = deliver_account_approval_mail(
+            &f.pool,
+            f.user,
+            transition,
+            instant,
+            |payload, key| async move {
+                assert_eq!(key, format!("account-approval/{transition}"));
+                let payload = serde_json::to_value(payload).unwrap();
+                client.send(&payload).await
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(result, ApprovalDelivery::Sent);
+        assert_eq!(*captured.lock().unwrap(), Some(expected));
+        server.abort();
+        let _ = server.await;
         f.finish().await;
     }
 }
