@@ -3,7 +3,7 @@
 mod approval_mail;
 
 use approval_mail::*;
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 fn instant() -> DateTime<Utc> {
@@ -45,6 +45,7 @@ fn p4_t11a_c08() {
 #[cfg(feature = "contract-tests")]
 mod postgres {
     use super::*;
+    use chrono::Duration;
     use sqlx::{Connection, PgConnection, postgres::PgPoolOptions};
 
     struct Fixture {
@@ -339,12 +340,17 @@ mod postgres {
     #[tokio::test]
     async fn p4_t11a_c07() {
         let mut f = Fixture::new().await;
+        let first_marker = marker(Uuid::from_u128(1), instant() - Duration::seconds(105));
         for n in 0..105 {
             let id = Uuid::from_u128(n + 1);
             sqlx::query("INSERT INTO users(id,status,role,email_verified) VALUES($1,'APPROVED','BUYER',true)")
                 .bind(id).execute(&mut f.admin).await.unwrap();
-            f.freeze(&marker(id, instant() - Duration::seconds(105 - n as i64)))
-                .await;
+            let marker = if n == 0 {
+                first_marker.clone()
+            } else {
+                marker(id, instant() - Duration::seconds(105 - n as i64))
+            };
+            f.freeze(&marker).await;
         }
         let mut conn = f.pool.acquire().await.unwrap();
         let default = due_approval_mail(&mut conn, instant(), ApprovalMailBatchSize::default())
@@ -361,6 +367,8 @@ mod postgres {
         .unwrap();
         assert_eq!(max.len(), 100);
         assert_eq!(max.last().unwrap().user_id, Uuid::from_u128(100));
+        // The due row carries the frozen transition the sender must claim.
+        assert_eq!(default.first().unwrap().transition_id, first_marker.transition_id);
         assert!(
             due_approval_mail(
                 &mut conn,
@@ -372,6 +380,38 @@ mod postgres {
             .is_empty()
         );
         drop(conn);
+        f.finish().await;
+    }
+
+    #[tokio::test]
+    async fn p4_t11a_c09() {
+        let mut f = Fixture::new().await;
+        let marker = marker(f.user, instant());
+        f.freeze(&marker).await;
+        // A schema the claim does not expect surfaces only its SQLSTATE, never
+        // the driver's message.
+        sqlx::query("ALTER TABLE users DROP COLUMN pending_approval_email_payload")
+            .execute(&mut f.admin)
+            .await
+            .unwrap();
+        let mut tx = f.pool.begin().await.unwrap();
+        let error = claim_approval_mail(&mut tx, f.user, marker.transition_id, instant())
+            .await
+            .unwrap_err();
+        tx.rollback().await.unwrap();
+        // The SQLSTATE survives for the caller; the driver message never does.
+        let MailError::Database(driver) = &error else {
+            panic!("expected a database failure");
+        };
+        assert_eq!(
+            driver
+                .as_database_error()
+                .and_then(|failure| failure.code())
+                .as_deref(),
+            Some("42703")
+        );
+        assert_eq!(format!("{error:?}"), "MailError::Database");
+        assert_eq!(format!("{error}"), "MailError::Database");
         f.finish().await;
     }
 }
