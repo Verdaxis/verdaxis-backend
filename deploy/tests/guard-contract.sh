@@ -114,13 +114,13 @@ create_lock() {
 }
 
 hold_lock() {
-    local path=$1 attempt
+    local path=$1
     create_lock "$path"
     # `-o` closes the descriptor before the command runs, so killing the holder
     # releases the lock even though its sleep child keeps running.
     flock -o "$path" sleep 60 &
     held_pids+=("$!")
-    for attempt in $(seq 1 200); do
+    for _ in $(seq 1 200); do
         if ! flock -n "$path" true 2>/dev/null; then
             return 0
         fi
