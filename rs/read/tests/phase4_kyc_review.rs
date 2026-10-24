@@ -7,7 +7,7 @@ use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
 use axum::{Router, extract::State, http::StatusCode, routing::post};
 use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
-use sqlx::{Connection, PgConnection, Row, postgres::PgPoolOptions};
+use sqlx::{Connection, PgConnection, postgres::PgPoolOptions};
 use tokio::sync::Semaphore;
 use uuid::Uuid;
 use business::{admission::AdmissionEvents, transaction::{AttemptError, CommandFuture}};
