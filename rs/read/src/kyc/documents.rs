@@ -220,7 +220,7 @@ pub async fn handle_download(
     .map(Download::into_response)
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct Submitted {
     pub kyc_status: String,
     pub message: String,
@@ -330,6 +330,11 @@ pub struct Download {
     content: Zeroizing<Vec<u8>>,
     mime: String,
     disposition: String,
+}
+impl std::fmt::Debug for Download {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Download([REDACTED])")
+    }
 }
 impl Download {
     pub fn into_response(mut self) -> Response {

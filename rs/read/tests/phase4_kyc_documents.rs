@@ -54,8 +54,7 @@ async fn p4_t10_c03() {
         },
     )
     .await
-    .err()
-    .expect("bounded upload");
+    .expect_err("bounded upload");
     assert_eq!(error.status, StatusCode::PAYLOAD_TOO_LARGE);
 }
 
@@ -67,8 +66,7 @@ async fn p4_t10_c12() {
     ] {
         let error = parse(payload(bytes, mime, None), UploadLimits::default())
             .await
-            .err()
-            .expect("closed content set");
+            .expect_err("closed content set");
         assert_eq!(error.status, StatusCode::UNSUPPORTED_MEDIA_TYPE);
     }
     assert!(
@@ -115,10 +113,9 @@ async fn p4_t10_c16() {
         },
     )
     .await
-    .err()
-    .expect("stream limit");
+    .expect_err("stream limit");
     assert_eq!(error.status, StatusCode::PAYLOAD_TOO_LARGE);
-    let raw = payload(&vec![b'x'; 100], "application/pdf", None);
+    let raw = payload(&[b'x'; 100], "application/pdf", None);
     assert_eq!(
         parse(
             raw,
@@ -128,8 +125,7 @@ async fn p4_t10_c16() {
             }
         )
         .await
-        .err()
-        .expect("file limit")
+        .expect_err("file limit")
         .status,
         StatusCode::PAYLOAD_TOO_LARGE
     );
@@ -154,8 +150,7 @@ fn p4_t10_c10() {
     }
     let error = limits
         .check_business("POST", "/api/kyc/submit", keys, 1)
-        .err()
-        .expect("quota");
+        .expect_err("quota");
     assert_eq!(error.status, StatusCode::TOO_MANY_REQUESTS);
     assert!(error.retry_after.is_some());
 }
@@ -178,8 +173,7 @@ fn p4_t10_c11() {
     }
     let error = limits
         .check_business("GET", "/api/kyc/admin/documents/{document_id}", keys, 1)
-        .err()
-        .expect("quota");
+        .expect_err("quota");
     assert_eq!(error.status, StatusCode::TOO_MANY_REQUESTS);
     assert!(error.retry_after.is_some());
 }
@@ -329,7 +323,7 @@ mod postgres {
             .await
             .expect("count");
         assert_eq!(n, 4);
-        sqlx::raw_sql("ALTER TABLE audit_logs ADD CHECK(action <> 'kyc.submitted')")
+        sqlx::raw_sql("ALTER TABLE audit_logs ADD CHECK(action <> 'kyc.submitted') NOT VALID")
             .execute(&mut f.admin)
             .await
             .expect("injection");
@@ -368,7 +362,7 @@ mod postgres {
         let response = output.into_response();
         assert_eq!(response.headers()["cache-control"], "no-store");
         assert_eq!(response.headers()["x-content-type-options"], "nosniff");
-        sqlx::raw_sql("ALTER TABLE audit_logs ADD CHECK(action <> 'kyc.document_viewed')")
+        sqlx::raw_sql("ALTER TABLE audit_logs ADD CHECK(action <> 'kyc.document_viewed') NOT VALID")
             .execute(&mut f.admin)
             .await
             .expect("injection");
@@ -423,7 +417,7 @@ mod postgres {
             .await
             .expect("membership");
         assert_eq!(
-            f.submit().await.err().expect("refusal").status,
+            f.submit().await.expect_err("refusal").status,
             StatusCode::FORBIDDEN
         );
         f.finish().await;
@@ -438,7 +432,7 @@ mod postgres {
             .await
             .expect("account");
         assert_eq!(
-            f.submit().await.err().expect("refusal").status,
+            f.submit().await.expect_err("refusal").status,
             StatusCode::FORBIDDEN
         );
         f.finish().await;
@@ -495,8 +489,7 @@ mod postgres {
         let error = write
             .await
             .expect("owner")
-            .err()
-            .expect("membership refusal");
+            .expect_err("membership refusal");
         assert_eq!(error.status, StatusCode::CONFLICT);
         assert_eq!(error.detail["code"], "KYC_MEMBERSHIP_CHANGED");
         let n: i64 = sqlx::query_scalar("SELECT count(*) FROM kyc_documents")
@@ -527,8 +520,7 @@ mod postgres {
             DownloadCommand::new(id, f.keys(), chrono::Utc::now()),
         )
         .await
-        .err()
-        .expect("refusal");
+        .expect_err("refusal");
         assert_eq!(error.status, StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(error.detail["code"], "KYC_DOCUMENT_DECRYPTION_FAILED");
         f.finish().await;
