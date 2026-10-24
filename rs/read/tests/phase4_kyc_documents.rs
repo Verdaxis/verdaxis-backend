@@ -362,10 +362,12 @@ mod postgres {
         let response = output.into_response();
         assert_eq!(response.headers()["cache-control"], "no-store");
         assert_eq!(response.headers()["x-content-type-options"], "nosniff");
-        sqlx::raw_sql("ALTER TABLE audit_logs ADD CHECK(action <> 'kyc.document_viewed') NOT VALID")
-            .execute(&mut f.admin)
-            .await
-            .expect("injection");
+        sqlx::raw_sql(
+            "ALTER TABLE audit_logs ADD CHECK(action <> 'kyc.document_viewed') NOT VALID",
+        )
+        .execute(&mut f.admin)
+        .await
+        .expect("injection");
         assert!(
             run_ordered_write(
                 f.pool.clone(),
@@ -486,10 +488,7 @@ mod postgres {
             tokio::task::yield_now().await;
         }
         blocker.commit().await.expect("membership commit");
-        let error = write
-            .await
-            .expect("owner")
-            .expect_err("membership refusal");
+        let error = write.await.expect("owner").expect_err("membership refusal");
         assert_eq!(error.status, StatusCode::CONFLICT);
         assert_eq!(error.detail["code"], "KYC_MEMBERSHIP_CHANGED");
         let n: i64 = sqlx::query_scalar("SELECT count(*) FROM kyc_documents")
