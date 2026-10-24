@@ -26,6 +26,11 @@ class Round13Contract(unittest.TestCase):
                 self.assertEqual(result,expected)
                 self.assertEqual(rows.dropped,{'1' if status=='credential-denied' else '2':2})
 
+    def test_priority_class_assignment(self):
+        reader=load(READER)
+        for status,priority in (('credential-denied',1),('removed-package',2),('bound-exceeded:units',3),('unresolved',4)):
+            with self.subTest(status=status):self.assertEqual(reader.row_priority({'status':status}),priority)
+
     def test_failure_before_site_other_vector_is_invalid(self):
         with tempfile.TemporaryDirectory(prefix='w0-vector-probe-') as folder:
             test=Path(folder)/'synthetic.py';output=Path(folder)/'result.json'

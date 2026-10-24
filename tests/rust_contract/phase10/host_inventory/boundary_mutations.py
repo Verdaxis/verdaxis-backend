@@ -14,7 +14,7 @@ B='tests/rust_contract/phase10/host_inventory/'
 SITES=[
  ('priority',R,'if sum(len(items) for items in self.rows.values()) > self.capacity:','if False:', 'round8_contract.py','Round8Contract.test_real_parser_dual_class_overflow_installed'),
  ('critical-overflow',R,'if worst_priority in (1, 2):','if False:','round13_contract.py','Round13Contract.test_eviction_overflow_guard'),
- ('priority-credential',R,"if status == 'credential-denied':",'if False:','round8_contract.py','Round8Contract.test_real_parser_dual_class_overflow_installed'),
+ ('priority-credential',R,"if status == 'credential-denied':",'if False:','round13_contract.py','Round13Contract.test_priority_class_assignment'),
  ('priority-removed',R,"if status == 'removed-package':",'if False:','round8_contract.py','Round8Contract.test_real_parser_dual_class_overflow_installed'),
  ('priority-marker',R,'if priority == 3:','if False:','round8_contract.py','Round8Contract.test_real_parser_dual_class_overflow_installed'),
  ('evicted-class',R,"worst_priority == 1",'False','round13_contract.py','Round13Contract.test_eviction_overflow_guard'),

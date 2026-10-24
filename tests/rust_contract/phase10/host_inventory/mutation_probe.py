@@ -14,7 +14,7 @@ def main():
     active=[None]
     target=Path(source).resolve()
     def trace(frame,event,arg):
-        if event=='line' and frame.f_lineno==int(line) and Path(frame.f_code.co_filename).resolve()==target:
+        if event=='line' and frame.f_lineno==int(line) and frame.f_code.co_filename==str(target):
             reached.append(True)
             if active[0] is not None:
                 vector=getattr(active[0],'_subtest',None) or active[0]
