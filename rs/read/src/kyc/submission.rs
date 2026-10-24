@@ -321,6 +321,7 @@ pub struct SubmitCommand {
     upload: Submission,
     keys: Arc<KeyRing>,
     now: DateTime<Utc>,
+    admission: Option<(axum::http::HeaderMap, Arc<super::documents::EvidenceContext>)>,
 }
 impl SubmitCommand {
     pub fn new(
@@ -336,7 +337,12 @@ impl SubmitCommand {
             upload,
             keys,
             now,
+            admission: None,
         }
+    }
+    fn with_admission(mut self, headers: axum::http::HeaderMap, context: Arc<super::documents::EvidenceContext>) -> Self {
+        self.admission = Some((headers, context));
+        self
     }
 }
 impl BusinessCommand for SubmitCommand {
@@ -388,6 +394,14 @@ impl BusinessCommand for SubmitCommand {
         actor: &'a CurrentActor,
     ) -> CommandFuture<'a, Submitted, AttemptError> {
         Box::pin(async move {
+            // Execute starts only after canonical locks and account/cutoff checks.
+            // Reuse the shared signature verifier, but never the upload clock.
+            if let Some((headers, context)) = &self.admission {
+                let access = super::documents::authorize(headers, context, Utc::now())?;
+                if access.subject != actor.id {
+                    return Err(super::documents::invalid_credentials().into());
+                }
+            }
             if actor.id != self.user || actor.organization_id != Some(self.organization) {
                 return Err(refusal(
                     StatusCode::CONFLICT,
@@ -505,11 +519,11 @@ pub async fn handle_submit(
         .and_then(|v| v.to_str().ok())
         .ok_or_else(malformed)?;
     let upload = parse_multipart(body, content_type, context.upload_limits).await?;
-    let access = super::documents::authorize(&headers, &context, now)?;
+    let access = super::documents::authorize(&headers, &context, Utc::now())?;
     crate::business::transaction::run_organization_write(
         state,
         access,
-        SubmitCommand::new(user, organization, upload, keys, now),
+        SubmitCommand::new(user, organization, upload, keys, now).with_admission(headers, context),
     )
     .await
     .map(axum::Json)
