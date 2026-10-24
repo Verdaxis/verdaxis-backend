@@ -156,12 +156,17 @@ pub async fn review(
     } else {
         "/api/auth/organization-joins/{join_request_id}/reject"
     };
-    super::transaction::run_organization_write(state, access, LimitedReview {
-        command,
-        limits: limits.clone(),
-        client: client.into(),
-        template,
-    }).await
+    super::transaction::run_organization_write(
+        state,
+        access,
+        LimitedReview {
+            command,
+            limits: limits.clone(),
+            client: client.into(),
+            template,
+        },
+    )
+    .await
 }
 
 pub async fn read(
@@ -211,16 +216,31 @@ struct LimitedReview {
 }
 impl BusinessCommand for LimitedReview {
     type Output = JoinDecision;
-    fn preview<'a>(&'a self, conn: &'a mut PgConnection) -> CommandFuture<'a,OrganizationWritePlan,AttemptError> {
+    fn preview<'a>(
+        &'a self,
+        conn: &'a mut PgConnection,
+    ) -> CommandFuture<'a, OrganizationWritePlan, AttemptError> {
         self.command.preview(conn)
     }
-    fn execute<'a>(&'a self, conn: &'a mut PgConnection, actor: &'a CurrentActor) -> CommandFuture<'a,Self::Output,AttemptError> {
+    fn execute<'a>(
+        &'a self,
+        conn: &'a mut PgConnection,
+        actor: &'a CurrentActor,
+    ) -> CommandFuture<'a, Self::Output, AttemptError> {
         Box::pin(async move {
             require_admin(actor)?;
-            self.limits.check_business("PUT",self.template,crate::auth::limits::BusinessLimitKeys {
-                client: &self.client,user:None,organization:None,token:None,
-            },Utc::now().timestamp().max(0) as u64)?;
-            self.command.execute(conn,actor).await
+            self.limits.check_business(
+                "PUT",
+                self.template,
+                crate::auth::limits::BusinessLimitKeys {
+                    client: &self.client,
+                    user: None,
+                    organization: None,
+                    token: None,
+                },
+                Utc::now().timestamp().max(0) as u64,
+            )?;
+            self.command.execute(conn, actor).await
         })
     }
 }

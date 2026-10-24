@@ -408,24 +408,77 @@ async fn p4_t8_c04() {
             sqlx::raw_sql("TRUNCATE audit_logs,invalidator_calls; UPDATE organizations SET verification_status='APPROVED'; UPDATE users SET organization_id=NULL,kyc_status='PENDING',kyc_organization_id=NULL; UPDATE organization_join_requests SET status='PENDING',reviewed_by=NULL,reviewed_at=NULL,review_note=NULL").execute(&mut f.admin).await.unwrap();
             let (entered, mut reached) = tokio::sync::mpsc::channel(1);
             let release = Arc::new(tokio::sync::Notify::new());
-            let first: Box<dyn FnOnce() -> tokio::task::JoinHandle<Result<(), ApiError>>> = if join_first {
-                let command = HeldCommand { inner: f.review(true), entered, release: release.clone() };
-                let pool=f.pool.clone(); let access=f.access();
-                Box::new(move || tokio::spawn(async move { transaction::run_ordered_write(pool,Arc::new(Semaphore::new(1)),access,command).await }))
+            let first: Box<dyn FnOnce() -> tokio::task::JoinHandle<Result<(), ApiError>>> =
+                if join_first {
+                    let command = HeldCommand {
+                        inner: f.review(true),
+                        entered,
+                        release: release.clone(),
+                    };
+                    let pool = f.pool.clone();
+                    let access = f.access();
+                    Box::new(move || {
+                        tokio::spawn(async move {
+                            transaction::run_ordered_write(
+                                pool,
+                                Arc::new(Semaphore::new(1)),
+                                access,
+                                command,
+                            )
+                            .await
+                        })
+                    })
+                } else {
+                    let command = HeldCommand {
+                        inner: f.organization(false),
+                        entered,
+                        release: release.clone(),
+                    };
+                    let pool = f.pool.clone();
+                    let access = f.access();
+                    Box::new(move || {
+                        tokio::spawn(async move {
+                            transaction::run_ordered_write(
+                                pool,
+                                Arc::new(Semaphore::new(1)),
+                                access,
+                                command,
+                            )
+                            .await
+                        })
+                    })
+                };
+            let first = first();
+            let blocker = tokio::time::timeout(std::time::Duration::from_secs(20), reached.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            let pool = f.pool.clone();
+            let access = f.access();
+            let second = if join_first {
+                let command = f.organization(false);
+                tokio::spawn(async move {
+                    transaction::run_ordered_write(
+                        pool,
+                        Arc::new(Semaphore::new(1)),
+                        access,
+                        command,
+                    )
+                    .await
+                    .map(|_| ())
+                })
             } else {
-                let command = HeldCommand { inner: f.organization(false), entered, release: release.clone() };
-                let pool=f.pool.clone(); let access=f.access();
-                Box::new(move || tokio::spawn(async move { transaction::run_ordered_write(pool,Arc::new(Semaphore::new(1)),access,command).await }))
-            };
-            let first=first();
-            let blocker=tokio::time::timeout(std::time::Duration::from_secs(20),reached.recv()).await.unwrap().unwrap();
-            let pool=f.pool.clone(); let access=f.access();
-            let second=if join_first {
-                let command=f.organization(false);
-                tokio::spawn(async move {transaction::run_ordered_write(pool,Arc::new(Semaphore::new(1)),access,command).await.map(|_|())})
-            } else {
-                let command=f.review(true);
-                tokio::spawn(async move {transaction::run_ordered_write(pool,Arc::new(Semaphore::new(1)),access,command).await.map(|_|())})
+                let command = f.review(true);
+                tokio::spawn(async move {
+                    transaction::run_ordered_write(
+                        pool,
+                        Arc::new(Semaphore::new(1)),
+                        access,
+                        command,
+                    )
+                    .await
+                    .map(|_| ())
+                })
             };
             tokio::time::timeout(std::time::Duration::from_secs(20),async {
                 loop {
@@ -437,16 +490,30 @@ async fn p4_t8_c04() {
             }).await.expect("competing command must wait on held PostgreSQL locks");
             release.notify_one();
             first.await.unwrap().unwrap();
-            let result=second.await.unwrap();
-            if join_first {result.unwrap();} else {assert_eq!(result.unwrap_err().detail["code"],"ORGANIZATION_JOIN_ORG_INELIGIBLE");}
+            let result = second.await.unwrap();
+            if join_first {
+                result.unwrap();
+            } else {
+                assert_eq!(
+                    result.unwrap_err().detail["code"],
+                    "ORGANIZATION_JOIN_ORG_INELIGIBLE"
+                );
+            }
             let row=sqlx::query("SELECT verification_status,(SELECT count(*) FROM users WHERE organization_id=$1) AS members,(SELECT status FROM organization_join_requests WHERE id=$2) AS join_status FROM organizations WHERE id=$1")
                 .bind(f.org).bind(f.join).fetch_one(&mut f.admin).await.unwrap();
-            assert_eq!(row.get::<String,_>("verification_status"),"REJECTED","iteration {iteration}");
-            assert_eq!(row.get::<i64,_>("members"),0);
-            assert_eq!(row.get::<String,_>("join_status"),if join_first {"APPROVED"}else{"PENDING"});
-            assert_eq!(f.count("audit_logs").await,if join_first {2}else{1});
-            assert_eq!(f.count("invalidator_calls").await,1);
-            assert_eq!(f.count("market_event_outbox").await,0);
+            assert_eq!(
+                row.get::<String, _>("verification_status"),
+                "REJECTED",
+                "iteration {iteration}"
+            );
+            assert_eq!(row.get::<i64, _>("members"), 0);
+            assert_eq!(
+                row.get::<String, _>("join_status"),
+                if join_first { "APPROVED" } else { "PENDING" }
+            );
+            assert_eq!(f.count("audit_logs").await, if join_first { 2 } else { 1 });
+            assert_eq!(f.count("invalidator_calls").await, 1);
+            assert_eq!(f.count("market_event_outbox").await, 0);
         }
     }
     f.finish().await;
@@ -631,87 +698,173 @@ async fn p4_t8_c10() {
     f.finish().await;
 }
 
-
 struct HeldCommand<C> {
-    inner:C,
-    entered:tokio::sync::mpsc::Sender<i32>,
-    release:Arc<tokio::sync::Notify>,
+    inner: C,
+    entered: tokio::sync::mpsc::Sender<i32>,
+    release: Arc<tokio::sync::Notify>,
 }
-impl<C:transaction::BusinessCommand> transaction::BusinessCommand for HeldCommand<C> {
-    type Output=();
-    fn preview<'a>(&'a self,conn:&'a mut PgConnection)->transaction::CommandFuture<'a,transaction::OrganizationWritePlan,transaction::AttemptError> {
+impl<C: transaction::BusinessCommand> transaction::BusinessCommand for HeldCommand<C> {
+    type Output = ();
+    fn preview<'a>(
+        &'a self,
+        conn: &'a mut PgConnection,
+    ) -> transaction::CommandFuture<'a, transaction::OrganizationWritePlan, transaction::AttemptError>
+    {
         self.inner.preview(conn)
     }
-    fn execute<'a>(&'a self,conn:&'a mut PgConnection,actor:&'a auth::CurrentActor)->transaction::CommandFuture<'a,(),transaction::AttemptError> {
+    fn execute<'a>(
+        &'a self,
+        conn: &'a mut PgConnection,
+        actor: &'a auth::CurrentActor,
+    ) -> transaction::CommandFuture<'a, (), transaction::AttemptError> {
         Box::pin(async move {
-            let pid=sqlx::query_scalar("SELECT pg_backend_pid()").fetch_one(&mut *conn).await?;
+            let pid = sqlx::query_scalar("SELECT pg_backend_pid()")
+                .fetch_one(&mut *conn)
+                .await?;
             self.entered.send(pid).await.expect("stage observer");
             self.release.notified().await;
-            self.inner.execute(conn,actor).await.map(|_|())
+            self.inner.execute(conn, actor).await.map(|_| ())
         })
     }
 }
 
 impl Fixture {
-    async fn app(&self)->AppState {
-        let command=self.organization(false);
-        let mut config=(*command.config).clone();
-        config.database_url=std::env::var("RUST_TEST_DATABASE_URL").unwrap();
-        let health=PgPoolOptions::new().max_connections(1).connect_lazy(&config.database_url).unwrap();
-        AppState::new(config,verdaxis_read::runtime::db::Pools {read:self.pool.clone(),health},(*command.policy).clone()).unwrap()
+    async fn app(&self) -> AppState {
+        let command = self.organization(false);
+        let mut config = (*command.config).clone();
+        config.database_url = std::env::var("RUST_TEST_DATABASE_URL").unwrap();
+        let health = PgPoolOptions::new()
+            .max_connections(1)
+            .connect_lazy(&config.database_url)
+            .unwrap();
+        AppState::new(
+            config,
+            verdaxis_read::runtime::db::Pools {
+                read: self.pool.clone(),
+                health,
+            },
+            (*command.policy).clone(),
+        )
+        .unwrap()
     }
-    fn bearer(&self,user:Uuid)->String {
-        let key="test-secret-key-for-testing-minimum-32-chars";
-        let claims=json!({"sub":user,"iat":Utc::now().timestamp(),"exp":Utc::now().timestamp()+3600,"type":"access","iss":"test","aud":"test"});
-        format!("Bearer {}",jsonwebtoken::encode(&jsonwebtoken::Header::default(),&claims,&jsonwebtoken::EncodingKey::from_secret(key.as_bytes())).unwrap())
+    fn bearer(&self, user: Uuid) -> String {
+        let key = "test-secret-key-for-testing-minimum-32-chars";
+        let claims = json!({"sub":user,"iat":Utc::now().timestamp(),"exp":Utc::now().timestamp()+3600,"type":"access","iss":"test","aud":"test"});
+        format!(
+            "Bearer {}",
+            jsonwebtoken::encode(
+                &jsonwebtoken::Header::default(),
+                &claims,
+                &jsonwebtoken::EncodingKey::from_secret(key.as_bytes())
+            )
+            .unwrap()
+        )
     }
 }
 
 // Request boundary uses the same verifier and consumer adapters as integration.
-async fn join_request(f:&Fixture,app:&AppState,limits:auth::limits::SharedLimits,bearer:Option<&str>,reject:bool)->axum::response::Response {
+async fn join_request(
+    f: &Fixture,
+    app: &AppState,
+    limits: auth::limits::SharedLimits,
+    bearer: Option<&str>,
+    reject: bool,
+) -> axum::response::Response {
     use axum::response::IntoResponse;
-    let verification=auth::VerificationSettings::new("test-secret-key-for-testing-minimum-32-chars".into(),None,"test".into(),"test".into());
-    let access=match auth::verify_authorization(bearer,&verification,Utc::now()) {
-        Ok(access)=>access,
-        Err(error)=>return error::authentication(error).into_response(),
+    let verification = auth::VerificationSettings::new(
+        "test-secret-key-for-testing-minimum-32-chars".into(),
+        None,
+        "test".into(),
+        "test".into(),
+    );
+    let access = match auth::verify_authorization(bearer, &verification, Utc::now()) {
+        Ok(access) => access,
+        Err(error) => return error::authentication(error).into_response(),
     };
     if reject {
-        match joins::review(app,access,&limits,"fixture",f.review(false)).await {
-            Ok(value)=>axum::Json(value).into_response(),Err(error)=>error.into_response(),
+        match joins::review(app, access, &limits, "fixture", f.review(false)).await {
+            Ok(value) => axum::Json(value).into_response(),
+            Err(error) => error.into_response(),
         }
     } else {
-        match joins::read(app,access,limits,"fixture".into(),joins::JoinListQuery::parse(Some("PENDING"),100,0).unwrap()).await {
-            Ok(value)=>([("X-Result-Truncated",value.truncated.to_string())],axum::Json(value.items)).into_response(),Err(error)=>error.into_response(),
+        match joins::read(
+            app,
+            access,
+            limits,
+            "fixture".into(),
+            joins::JoinListQuery::parse(Some("PENDING"), 100, 0).unwrap(),
+        )
+        .await
+        {
+            Ok(value) => (
+                [("X-Result-Truncated", value.truncated.to_string())],
+                axum::Json(value.items),
+            )
+                .into_response(),
+            Err(error) => error.into_response(),
         }
     }
 }
-async fn response_code(response:axum::response::Response,status:u16,code:&str) {
-    assert_eq!(response.status().as_u16(),status);
-    let body=axum::body::to_bytes(response.into_body(),65536).await.unwrap();
-    let value:serde_json::Value=serde_json::from_slice(&body).unwrap();
-    assert_eq!(value["detail"]["code"],code);
+async fn response_code(response: axum::response::Response, status: u16, code: &str) {
+    assert_eq!(response.status().as_u16(), status);
+    let body = axum::body::to_bytes(response.into_body(), 65536)
+        .await
+        .unwrap();
+    let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(value["detail"]["code"], code);
 }
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL authority"]
 async fn p4_t8_c12() {
-    let mut f=Fixture::new().await; let app=f.app().await;
-    for reject in [false,true] {
-        let limits=auth::limits::SharedLimits::default();
-        response_code(join_request(&f,&app,limits.clone(),None,reject).await,401,"INVALID_CREDENTIALS").await;
-        response_code(join_request(&f,&app,limits.clone(),Some("Bearer invalid"),reject).await,401,"INVALID_CREDENTIALS").await;
-        let wrong=f.bearer(f.user);
-        for _ in 0..61 {response_code(join_request(&f,&app,limits.clone(),Some(&wrong),reject).await,403,"ADMIN_REQUIRED").await;}
-        let admin=f.bearer(f.actor);
-        for _ in 0..60 {
-            if reject {sqlx::query("UPDATE organization_join_requests SET status='PENDING'").execute(&mut f.admin).await.unwrap();}
-            let response=join_request(&f,&app,limits.clone(),Some(&admin),reject).await;
-            assert_eq!(response.status(),axum::http::StatusCode::OK);
-            if !reject {assert_eq!(response.headers()["X-Result-Truncated"],"false");}
+    let mut f = Fixture::new().await;
+    let app = f.app().await;
+    for reject in [false, true] {
+        let limits = auth::limits::SharedLimits::default();
+        response_code(
+            join_request(&f, &app, limits.clone(), None, reject).await,
+            401,
+            "INVALID_CREDENTIALS",
+        )
+        .await;
+        response_code(
+            join_request(&f, &app, limits.clone(), Some("Bearer invalid"), reject).await,
+            401,
+            "INVALID_CREDENTIALS",
+        )
+        .await;
+        let wrong = f.bearer(f.user);
+        for _ in 0..61 {
+            response_code(
+                join_request(&f, &app, limits.clone(), Some(&wrong), reject).await,
+                403,
+                "ADMIN_REQUIRED",
+            )
+            .await;
         }
-        let response=join_request(&f,&app,limits,Some(&admin),reject).await;
-        let retry=response.headers()["Retry-After"].to_str().unwrap().parse::<u32>().unwrap();
+        let admin = f.bearer(f.actor);
+        for _ in 0..60 {
+            if reject {
+                sqlx::query("UPDATE organization_join_requests SET status='PENDING'")
+                    .execute(&mut f.admin)
+                    .await
+                    .unwrap();
+            }
+            let response = join_request(&f, &app, limits.clone(), Some(&admin), reject).await;
+            assert_eq!(response.status(), axum::http::StatusCode::OK);
+            if !reject {
+                assert_eq!(response.headers()["X-Result-Truncated"], "false");
+            }
+        }
+        let response = join_request(&f, &app, limits, Some(&admin), reject).await;
+        let retry = response.headers()["Retry-After"]
+            .to_str()
+            .unwrap()
+            .parse::<u32>()
+            .unwrap();
         assert!((1..=60).contains(&retry));
-        response_code(response,429,"RATE_LIMITED").await;
+        response_code(response, 429, "RATE_LIMITED").await;
     }
-    app.reads.close(); drop(app); f.finish().await;
+    app.reads.close();
+    drop(app);
+    f.finish().await;
 }
