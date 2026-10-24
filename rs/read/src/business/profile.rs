@@ -545,8 +545,7 @@ async fn serve_update(
                 let actor = transaction.actor();
                 // A refused role change is an authority refusal: it must not
                 // spend the caller's quota.
-                if let Some(denied) =
-                    role_refusal(actor.role.as_deref(), requested_role.as_deref())
+                if let Some(denied) = role_refusal(actor.role.as_deref(), requested_role.as_deref())
                 {
                     return Err(denied);
                 }

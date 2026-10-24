@@ -52,6 +52,7 @@ const CLIENT: &str = "203.0.113.7:40000";
 /// Each fixture account arrives from its own address. The declared `/me` and
 /// survey limits are keyed by client, so one account must not spend another
 /// account's quota.
+#[cfg(feature = "contract-tests")]
 fn peer(index: usize) -> String {
     format!("198.51.100.{}:40000", index + 1)
 }
@@ -1010,8 +1011,8 @@ mod postgres {
                 &other,
                 &json!({"role": "SUPPLIER"})
             )
-                .await
-                .status,
+            .await
+            .status,
             StatusCode::FORBIDDEN
         );
         assert_eq!(
@@ -1054,8 +1055,8 @@ mod postgres {
                 &plain,
                 &json!({"role": "admin"})
             )
-                .await
-                .status,
+            .await
+            .status,
             StatusCode::UNPROCESSABLE_ENTITY
         );
         assert_eq!(
@@ -1066,8 +1067,8 @@ mod postgres {
                 &plain,
                 &json!({"role": "OWNER"})
             )
-                .await
-                .status,
+            .await
+            .status,
             StatusCode::UNPROCESSABLE_ENTITY
         );
         // An organization-bound profile gets its admission event exactly once.
@@ -1121,8 +1122,8 @@ mod postgres {
                 &plain,
                 &json!({"role": "ADMIN"})
             )
-                .await
-                .status,
+            .await
+            .status,
             StatusCode::FORBIDDEN
         );
         assert_eq!(
@@ -1133,8 +1134,8 @@ mod postgres {
                 &plain,
                 &json!({"role": "SUPPLIER"})
             )
-                .await
-                .status,
+            .await
+            .status,
             StatusCode::FORBIDDEN
         );
         // No public projection: the role is still assigned and no event exists.
@@ -1188,8 +1189,26 @@ mod postgres {
         let b = token(second);
         let app = f.app.clone();
         let (left, right) = tokio::join!(
-            async { put(&app, &peer(20), "/api/auth/me", &a, &json!({"role": "BUYER"})).await },
-            async { put(&app, &peer(21), "/api/auth/me", &b, &json!({"role": "SUPPLIER"})).await }
+            async {
+                put(
+                    &app,
+                    &peer(20),
+                    "/api/auth/me",
+                    &a,
+                    &json!({"role": "BUYER"}),
+                )
+                .await
+            },
+            async {
+                put(
+                    &app,
+                    &peer(21),
+                    "/api/auth/me",
+                    &b,
+                    &json!({"role": "SUPPLIER"}),
+                )
+                .await
+            }
         );
         assert_eq!(left.status, StatusCode::OK);
         assert_eq!(right.status, StatusCode::OK);
@@ -1213,8 +1232,26 @@ mod postgres {
         let a = token(third);
         let b = token(third);
         let (left, right) = tokio::join!(
-            async { put(&app, &peer(22), "/api/auth/me", &a, &json!({"role": "BUYER"})).await },
-            async { put(&app, &peer(22), "/api/auth/me", &b, &json!({"role": "SUPPLIER"})).await }
+            async {
+                put(
+                    &app,
+                    &peer(22),
+                    "/api/auth/me",
+                    &a,
+                    &json!({"role": "BUYER"}),
+                )
+                .await
+            },
+            async {
+                put(
+                    &app,
+                    &peer(22),
+                    "/api/auth/me",
+                    &b,
+                    &json!({"role": "SUPPLIER"}),
+                )
+                .await
+            }
         );
         // Both attempts are admitted by a valid token; the row lock serializes
         // the two ordered writes, so one commits its role and the other then
@@ -1420,8 +1457,8 @@ mod postgres {
                 Some(&token(fresh)),
                 &json!({"use_case": "pirate"})
             )
-                .await
-                .status,
+            .await
+            .status,
             StatusCode::BAD_REQUEST
         );
         assert_eq!(
