@@ -104,11 +104,9 @@ fn non_admin_paths_are_not_charged_to_the_preauth_bucket() {
 fn endpoint_refusal_keeps_the_rate_limited_code_and_retry_after() {
     let limits = SharedLimits::default();
     for _ in 0..5 {
-        assert!(
-            limits
-                .check_endpoint("verified-user", "/api/feedback", 100)
-                .is_ok()
-        );
+        assert!(limits
+            .check_endpoint("verified-user", "/api/feedback", 100)
+            .is_ok());
     }
     let error = limits
         .check_endpoint("verified-user", "/api/feedback", 100)
@@ -127,8 +125,10 @@ fn evictions_are_counted_and_carry_no_client_data() {
         let address = std::net::Ipv4Addr::from(client).to_string();
         assert!(limits.preauth(&address, "/api/admin/users", 100));
     }
-    // 50,000 fill the table; the next 100 and the final new client each evict.
-    assert_eq!(limits.preauth_evictions(), 101);
+    // Fifty thousand distinct addresses fill the table; the remaining hundred
+    // each evict exactly one entry, and every one of them was admitted. No
+    // address is refused merely because the table is full.
+    assert_eq!(limits.preauth_evictions(), 100);
 }
 
 /// A bucket is released when its own window ends, independently of the other
