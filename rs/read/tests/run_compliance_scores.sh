@@ -71,6 +71,9 @@ port=${port##*:}
 docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 <<SQL
 CREATE ROLE task9_writer LOGIN NOINHERIT NOSUPERUSER PASSWORD 'disposable_writer_pw';
 CREATE ROLE task9_app LOGIN NOINHERIT PASSWORD 'disposable_app_pw';
+-- Deployed app sessions carry a short lock deadline; an unscoped route
+-- inherits it instead of setting a transaction-local one.
+ALTER ROLE task9_app SET lock_timeout = '150ms';
 CREATE DATABASE $db OWNER task9_writer;
 \connect $db
 CREATE EXTENSION IF NOT EXISTS postgis;
@@ -96,6 +99,8 @@ docker exec -i "$container" psql -q -U postgres -d "$db" -v ON_ERROR_STOP=1 -c \
 
 export RUST_COMPLIANCE_TEST_DATABASE_URL="postgres://task9_app:disposable_app_pw@127.0.0.1:$port/$db"
 export RUST_COMPLIANCE_TEST_WRITER_URL="postgres://task9_writer:disposable_writer_pw@127.0.0.1:$port/$db"
+# This runner supplies the database, so a missing URL is a failure, not a skip.
+export RUST_COMPLIANCE_REQUIRED=1
 
 log=$(mktemp "${test_home}/runs/task9-tests.XXXXXX")
 stamp cargo-test
