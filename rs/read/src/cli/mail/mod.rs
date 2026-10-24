@@ -7,7 +7,7 @@ use crate::crud::referrals::invite::MailClient;
 use serde_json::Value;
 use sha2::Digest;
 
-const DIGEST_BYTES: usize = 8;
+const DIGEST_BYTES: usize = 16;
 
 /// The result of one provider call.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -25,10 +25,13 @@ impl Delivery {
     }
 }
 
-/// A stable, non-reversible recipient label for logs and state records.
+/// A stable, correlatable recipient label for logs and state records.
 ///
 /// Case and surrounding whitespace are normalized first, because a provider
-/// treats those addresses as the same recipient.
+/// treats those addresses as the same recipient. Sixteen bytes of unsalted
+/// SHA-256 over the address is not a secret: it defeats reading the log, not
+/// exhaustive enumeration of a known candidate set. Use it only to correlate
+/// records, never as an authorization decision.
 pub fn recipient_digest(address: &str) -> String {
     let digest = sha2::Sha256::digest(address.trim().to_lowercase().as_bytes());
     digest[..DIGEST_BYTES]

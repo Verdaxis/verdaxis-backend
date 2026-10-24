@@ -3300,6 +3300,7 @@ dependencies = [
  "clap",
  "futures-util",
  "jsonwebtoken",
+ "libc",
  "num-bigint",
  "num-traits",
  "percent-encoding",

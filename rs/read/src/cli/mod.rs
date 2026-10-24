@@ -22,6 +22,10 @@ pub const RETRY_TIMEOUT: Duration = Duration::from_secs(10);
 /// The helper retries only calls the caller marks retryable. Ambiguous sends,
 /// committed claims and business transaction conflicts have their own owners
 /// and must not be wrapped here.
+///
+/// The bound covers scheduling, not one in-flight attempt: a hung future stays
+/// hung until its own timeout or the systemd unit deadline. Network calls keep
+/// their own client timeout (the Phase 2 `MailClient` uses 10 s).
 pub async fn retry_bounded<T, E, F, Fut>(mut operation: F) -> Result<T, E>
 where
     F: FnMut() -> Fut,

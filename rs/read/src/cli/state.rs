@@ -8,7 +8,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -19,8 +19,10 @@ const LOCK_POLL: Duration = Duration::from_millis(10);
 
 /// Read one bounded, regular, non-symlink JSON state file.
 ///
-/// The size check runs on the opened file, and the bound is applied while
-/// reading, so a file that grows after the metadata check is still refused.
+/// The path is opened with `O_NOFOLLOW` and its open descriptor must be the
+/// file the path named, owned by the directory's owner, with one link. The size
+/// check runs on the opened file, and the bound is applied while reading, so a
+/// file that grows after the metadata check is still refused.
 pub fn read_bounded<T: DeserializeOwned>(path: &Path, max_bytes: u64) -> Result<T, Exit> {
     let file = open_regular(path)?;
     let size = file.metadata().map_err(|_| Exit::Dependency)?.len();
@@ -40,9 +42,13 @@ pub fn read_bounded<T: DeserializeOwned>(path: &Path, max_bytes: u64) -> Result<
 
 /// Publish `value` as one private regular file.
 ///
-/// The sequence is: create a fresh same-directory temp file with mode 0600,
-/// write and `fsync` it, rename it over the target, then `fsync` the directory.
-/// A caller that needs to set ACLs before publication uses [`PendingWrite`].
+/// `path` must be an absolute path in a private directory: a relative path or
+/// one without a parent is refused. The sequence is: create a fresh
+/// same-directory temp file with mode 0600, write and `fsync` it, rename it over
+/// the target, then `fsync` the directory. A directory `fsync` failure returns
+/// `Dependency` after publication, so an error does not always mean the old
+/// value is still in place. A caller that needs to set ACLs before publication
+/// uses [`PendingWrite`].
 pub fn write_atomic<T: Serialize>(path: &Path, value: &T) -> Result<(), Exit> {
     let pending = PendingWrite::create(path, value)?;
     pending.file().sync_all().map_err(|_| Exit::Dependency)?;
@@ -133,23 +139,60 @@ impl Drop for PendingWrite {
     }
 }
 
+/// Open one state file that must already be a private regular file.
+///
+/// `O_NOFOLLOW` refuses a symlink at the path itself; the `fstat` comparison
+/// then refuses an entry replaced between the check and the open.
 pub fn open_regular(path: &Path) -> Result<File, Exit> {
-    let metadata = std::fs::symlink_metadata(path).map_err(|_| Exit::Precondition)?;
-    if !metadata.file_type().is_file() {
+    let before = std::fs::symlink_metadata(path).map_err(|_| Exit::Precondition)?;
+    if !before.file_type().is_file() {
         return Err(Exit::Precondition);
     }
     let file = OpenOptions::new()
         .read(true)
+        .custom_flags(NO_FOLLOW_FLAGS)
         .open(path)
-        .map_err(|_| Exit::Dependency)?;
+        .map_err(|_| Exit::Precondition)?;
+    verify_opened(&file, &before, path)?;
+    Ok(file)
+}
+
+/// Flags every private state or lock path is opened with.
+///
+/// `O_NOFOLLOW` turns a symlinked entry into an error instead of following it;
+/// `O_CLOEXEC` keeps the descriptor out of an exec'd child.
+const NO_FOLLOW_FLAGS: i32 = libc::O_NOFOLLOW | libc::O_CLOEXEC;
+
+/// Check that the open descriptor is the same private regular file the path
+/// named, is owned by the directory's owner, and has no other link.
+fn verify_opened(file: &File, before: &std::fs::Metadata, path: &Path) -> Result<(), Exit> {
     let opened = file.metadata().map_err(|_| Exit::Dependency)?;
     if !opened.file_type().is_file()
-        || opened.dev() != metadata.dev()
-        || opened.ino() != metadata.ino()
+        || opened.dev() != before.dev()
+        || opened.ino() != before.ino()
+        || opened.nlink() != 1
     {
         return Err(Exit::Precondition);
     }
-    Ok(file)
+    if opened.uid() != parent_owner(path)? {
+        return Err(Exit::Precondition);
+    }
+    Ok(())
+}
+
+/// The owner of the directory that contains `path`.
+///
+/// A private state directory belongs to the running identity, so its owner is
+/// the only identity that may have created entries inside it. Comparing with
+/// the parent avoids a process-wide identity lookup and keeps the check tied to
+/// this path.
+fn parent_owner(path: &Path) -> Result<u32, Exit> {
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let metadata = std::fs::metadata(parent).map_err(|_| Exit::Dependency)?;
+    Ok(metadata.uid())
 }
 
 /// One nonblocking exclusive lock on a stable lock file.
@@ -194,23 +237,40 @@ impl Drop for StateLock {
     }
 }
 
+/// Open the stable lock file, creating it privately on first use.
+///
+/// The file is never replaced: an existing entry keeps its mode and identity.
+/// A symlink, a non-regular entry, a foreign-owned file or a file that has
+/// another link is refused before the lock is taken.
 fn open_lock_file(path: &Path) -> Result<File, Exit> {
-    let create = || {
-        OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .mode(0o600)
-            .open(path)
-            .map_err(|_| Exit::Dependency)
+    let created = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .custom_flags(NO_FOLLOW_FLAGS)
+        .open(path);
+    let file = match created {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            let before = std::fs::symlink_metadata(path).map_err(|_| Exit::Precondition)?;
+            if !before.file_type().is_file() {
+                return Err(Exit::Precondition);
+            }
+            let file = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .custom_flags(NO_FOLLOW_FLAGS)
+                .open(path)
+                .map_err(|_| Exit::Precondition)?;
+            verify_opened(&file, &before, path)?;
+            return Ok(file);
+        }
+        Err(_) => return Err(Exit::Dependency),
     };
-    let file = create()?;
-    // An existing file keeps its mode; converge it so a shared lock path never
-    // stays wider than private even if it was created by an older release.
-    if file.metadata().map_err(|_| Exit::Dependency)?.mode() & 0o777 != 0o600 {
-        file.set_permissions(std::fs::Permissions::from_mode(0o600))
-            .map_err(|_| Exit::Dependency)?;
+    let opened = file.metadata().map_err(|_| Exit::Dependency)?;
+    if !opened.file_type().is_file() || opened.nlink() != 1 || opened.uid() != parent_owner(path)? {
+        return Err(Exit::Precondition);
     }
     Ok(file)
 }
