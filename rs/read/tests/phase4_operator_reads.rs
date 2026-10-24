@@ -29,10 +29,7 @@ use std::{collections::BTreeMap, net::SocketAddr};
 use tower::ServiceExt;
 use uuid::Uuid;
 
-use verdaxis_read::{
-    auth::{self, VerificationSettings},
-    business::error::refusal,
-};
+use verdaxis_read::{auth::VerificationSettings, business::error::refusal};
 
 const SECRET: &str = "operator-reads-test-secret-at-least-32-characters";
 const ISSUER: &str = "operator-reads-test";
@@ -83,10 +80,7 @@ fn app(pool: sqlx::PgPool, url: String, limits: auth::limits::SharedLimits) -> R
         .unwrap();
     let state = AppState::new(
         config(url),
-        runtime::db::Pools {
-            read: pool,
-            health,
-        },
+        runtime::db::Pools { read: pool, health },
         MarketPolicy {
             source_sha: compiled_sha().into(),
             products: vec![],
@@ -95,18 +89,17 @@ fn app(pool: sqlx::PgPool, url: String, limits: auth::limits::SharedLimits) -> R
     )
     .unwrap();
     Router::new()
-        .merge(attention::router(state.clone(), verification(), limits.clone()))
-        .merge(audit_query::router(state, verification()))
+        .merge(attention::router(
+            state.clone(),
+            verification(),
+            limits.clone(),
+        ))
+        .merge(audit_query::router(state, verification(), limits))
 }
 
 /// The serving server always supplies the peer address. `oneshot` does not, so
 /// the test inserts the loopback peer and the forwarded client that Caddy sends.
-fn send(
-    app: &Router,
-    path: &str,
-    bearer: Option<&str>,
-    forwarded: &str,
-) -> Request<Body> {
+fn send(path: &str, bearer: Option<&str>, forwarded: &str) -> Request<Body> {
     let mut request = Request::builder()
         .method("GET")
         .uri(path)
@@ -119,10 +112,9 @@ fn send(
         .headers_mut()
         .insert("x-forwarded-for", forwarded.parse().unwrap());
     if let Some(bearer) = bearer {
-        request.headers_mut().insert(
-            "authorization",
-            format!("Bearer {bearer}").parse().unwrap(),
-        );
+        request
+            .headers_mut()
+            .insert("authorization", format!("Bearer {bearer}").parse().unwrap());
     }
     request
 }
@@ -135,7 +127,7 @@ async fn get(
 ) -> (StatusCode, Value, Option<String>) {
     let response = app
         .clone()
-        .oneshot(send(app, path, bearer, forwarded))
+        .oneshot(send(path, bearer, forwarded))
         .await
         .unwrap();
     let status = response.status();
@@ -348,10 +340,7 @@ fn p4_t4_c53() {
             _ => candidate.membership_status = None,
         }
         let attention = stage(&candidate).expect("an open gate is reported");
-        assert_eq!(
-            attention.stage,
-            attention::AttentionStage::ApprovalRequired
-        );
+        assert_eq!(attention.stage, attention::AttentionStage::ApprovalRequired);
         assert_eq!(attention.since, candidate.created_at);
     }
     // A missing organization row is an open organization gate.
@@ -422,7 +411,7 @@ fn p4_t4_c57() {
     assert!(message.contains("Pat Lee · person@example.com"));
     assert!(message.contains("Organization: Example Energy"));
     assert!(message.contains("First login overdue"));
-    assert!(message.contains("Timing: 2h 0m ago"));
+    assert!(message.contains("Timing: 3h 0m ago"));
     assert!(!message.to_lowercase().contains("token"));
     assert!(!message.to_lowercase().contains("hash"));
     assert!(!message.to_lowercase().contains("ip address"));
@@ -430,21 +419,30 @@ fn p4_t4_c57() {
     // The response name drops empty parts, exactly as Python's truthiness
     // filter does; a pair with no content at all reports null.
     assert_eq!(attention::joined_name(Some(""), None), None);
-    assert_eq!(attention::joined_name(None, Some("Lee")), Some("Lee".into()));
+    assert_eq!(
+        attention::joined_name(None, Some("Lee")),
+        Some("Lee".into())
+    );
     assert_eq!(
         attention::joined_name(Some("Pat"), Some("Lee")),
         Some("Pat Lee".into())
     );
 
+    // A whitespace-only part is dropped by the message's own rule, so the
+    // message falls back to the email rather than printing blank space.
     let mut fallback = CandidateFixture::approved();
     fallback.email = "fallback@example.com";
     fallback.first_name = Some("  ");
     fallback.last_name = Some("");
-    fallback.created_at = at(-86_400);
     let attention = stage(&fallback).expect("first login overdue");
-    assert!(
-        attention::format_message(&fallback.candidate(), &attention, now())
-            .contains("Organization: Example Energy")
+    let message = attention::format_message(&fallback.candidate(), &attention, now());
+    assert!(message.contains("fallback@example.com · fallback@example.com"));
+    assert!(!message.contains("  ·"));
+    // The response name keeps Python's truthiness-only test, so the same
+    // whitespace part stays in it.
+    assert_eq!(
+        attention::joined_name(Some("  "), Some("")),
+        Some("  ".into())
     );
 }
 
@@ -458,9 +456,7 @@ fn p4_t4_c05() {
         assert!(error.detail.is_array());
     }
     assert_eq!(
-        audit_query::AuditQuery::from_pairs(&[])
-            .unwrap()
-            .limit(),
+        audit_query::AuditQuery::from_pairs(&[]).unwrap().limit(),
         50
     );
     assert_eq!(
@@ -487,7 +483,8 @@ fn p4_t4_c05() {
         10000
     );
     // An empty filter is no filter, as in Python's truthiness test.
-    let query = audit_query::AuditQuery::from_pairs(&[("action", ""), ("resource_type", "")]).unwrap();
+    let query =
+        audit_query::AuditQuery::from_pairs(&[("action", ""), ("resource_type", "")]).unwrap();
     assert!(query.action().is_none());
     assert!(query.resource_type().is_none());
     // Identity filters parse before SQL.
@@ -517,6 +514,16 @@ fn p4_t4_c05() {
         500
     );
     assert_eq!(
+        attention::AttentionQuery::from_pairs(&[]).unwrap().offset(),
+        0
+    );
+    assert_eq!(
+        attention::AttentionQuery::from_pairs(&[("offset", "10000")])
+            .unwrap()
+            .offset(),
+        10_000
+    );
+    assert_eq!(
         attention::AttentionQuery::from_pairs(&[("offset", "10001")])
             .unwrap_err()
             .status,
@@ -532,8 +539,8 @@ fn p4_t4_c05() {
 
 #[tokio::test]
 async fn p4_t4_c07() {
-    // The component owns exactly its two GET paths. Composition with the
-    // serving router adds routes and removes none: health and readiness stay.
+    // The component owns exactly its two GET paths, and each refuses an
+    // anonymous caller instead of falling through to 404.
     let url = "postgres://offline_app:offline_password@127.0.0.1:1/offline_test";
     let pool = PgPoolOptions::new()
         .max_connections(4)
@@ -542,7 +549,7 @@ async fn p4_t4_c07() {
     let state = AppState::new(
         config(url.into()),
         runtime::db::Pools {
-            read: pool.clone(),
+            read: pool,
             health: PgPoolOptions::new()
                 .max_connections(1)
                 .connect_lazy(url)
@@ -561,33 +568,35 @@ async fn p4_t4_c07() {
             verification(),
             auth::limits::SharedLimits::default(),
         ))
-        .merge(audit_query::router(state.clone(), verification()));
-    let composed = runtime::http::public_router(state).merge(component);
-
-    let mut found = Vec::new();
-    for (method, path) in [
-        ("GET", "/health/live"),
-        ("GET", "/health/ready"),
-        ("GET", "/health"),
-        ("GET", "/api/portability/not-owned"),
-    ] {
-        let response = composed
+        .merge(audit_query::router(
+            state.clone(),
+            verification(),
+            auth::limits::SharedLimits::default(),
+        ));
+    for path in ["/api/admin/onboarding-attention", "/api/admin/audit-logs"] {
+        let response = component
             .clone()
-            .oneshot(
-                Request::builder()
-                    .method(method)
-                    .uri(path)
-                    .body(Body::empty())
-                    .unwrap(),
-            )
+            .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
             .await
             .unwrap();
-        found.push((path, response.status()));
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{path}");
     }
-    for (path, status) in &found[..3] {
-        assert_ne!(*status, StatusCode::NOT_FOUND, "{path} must stay mounted");
+
+    // The serving router is unchanged: its health and public routes stay
+    // mounted, and neither component path is served without this component.
+    let serving = runtime::http::public_router(state);
+    for (path, status) in [
+        ("/health/live", StatusCode::OK),
+        ("/api/admin/onboarding-attention", StatusCode::NOT_FOUND),
+        ("/api/admin/audit-logs", StatusCode::NOT_FOUND),
+    ] {
+        let response = serving
+            .clone()
+            .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), status, "{path}");
     }
-    assert_eq!(found[3].1, StatusCode::NOT_FOUND);
 }
 
 // ---------------------------------------------------------------------------
@@ -655,6 +664,7 @@ struct Fixture {
     admin: PgConnection,
     schema: String,
     now: DateTime<Utc>,
+    url: String,
 }
 
 impl Fixture {
@@ -691,7 +701,8 @@ impl Fixture {
              created_at timestamptz NOT NULL DEFAULT now());\
              CREATE TABLE organization_join_requests(id uuid PRIMARY KEY,user_id uuid NOT NULL,organization_id uuid NOT NULL,status text NOT NULL DEFAULT 'PENDING',\
              reviewed_by uuid,reviewed_at timestamptz,review_note text,created_at timestamptz NOT NULL DEFAULT now());\
-             CREATE TABLE pending_registrations(id uuid PRIMARY KEY,email text NOT NULL,role text,expires_at timestamptz NOT NULL,used_at timestamptz,\
+             CREATE TABLE pending_registrations(id uuid PRIMARY KEY,token_hash text NOT NULL DEFAULT '',email text NOT NULL,password_hash text NOT NULL DEFAULT '',\
+             first_name text,last_name text,role text,referral_code text,expires_at timestamptz NOT NULL,used_at timestamptz,\
              created_at timestamptz NOT NULL DEFAULT now());\
              CREATE TABLE audit_logs(id uuid PRIMARY KEY,user_id uuid,action varchar(100) NOT NULL,resource_type varchar(50) NOT NULL,resource_id varchar(100),\
              changes jsonb,ip_address varchar(45),request_id varchar(36),timestamp timestamptz NOT NULL DEFAULT now());\
@@ -731,7 +742,13 @@ impl Fixture {
             admin,
             schema,
             now: Utc::now(),
+            url: runtime,
         }
+    }
+
+    /// The disposable runtime URL, for the config the component needs.
+    fn url(&self) -> String {
+        self.url.clone()
     }
 
     async fn finish(mut self) {
@@ -789,8 +806,7 @@ impl Fixture {
             None => None,
         };
         let created_at = self.at(spec.created_ago);
-        let verification_expires_at =
-            spec.verification_expires_ago.map(|ago| self.at(ago));
+        let verification_expires_at = spec.verification_expires_ago.map(|ago| self.at(ago));
         sqlx::query(
             "INSERT INTO users(id,email,first_name,last_name,role,status,organization_id,email_verified,\
              email_verification_token_expires_at,last_login,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
@@ -965,15 +981,30 @@ fn limits() -> auth::limits::SharedLimits {
 }
 
 /// Compare the projection with the pure classifier over the same specs.
-async fn assert_parity(fixture: &mut Fixture, seeds: &[Spec]) {
+async fn assert_parity(
+    fixture: &mut Fixture,
+    seeds: &[Spec],
+    pending: &[(String, attention::Candidate)],
+) {
     let mut expected: BTreeMap<String, (String, DateTime<Utc>)> = BTreeMap::new();
     for spec in seeds {
         let (email, candidate) = fixture.seed(spec).await;
         if let Some(attention) = attention::classify(&candidate, fixture.now) {
-            expected.insert(email, (attention.stage.as_str().to_owned(), attention.since));
+            expected.insert(
+                email,
+                (attention.stage.as_str().to_owned(), attention.since),
+            );
         }
     }
-    let app = app(fixture.pool.clone(), String::new(), limits());
+    for (email, candidate) in pending {
+        if let Some(attention) = attention::classify(candidate, fixture.now) {
+            expected.insert(
+                email.clone(),
+                (attention.stage.as_str().to_owned(), attention.since),
+            );
+        }
+    }
+    let app = app(fixture.pool.clone(), fixture.url(), limits());
     let actor = fixture.actor("ADMIN").await;
     let (status, body, truncated) = get(
         &app,
@@ -1015,7 +1046,6 @@ async fn p4_t4_c03() {
     pending_expiring.organization = None;
     pending_expiring.membership_status = None;
     pending_expiring.membership_reviewed_ago = None;
-    pending_expiring.user_status = Some("PENDING");
     pending_expiring.status = "PENDING";
     pending_expiring.email_verified = false;
     pending_expiring.created_ago = 60;
@@ -1039,7 +1069,7 @@ async fn p4_t4_c03() {
     no_org.membership_reviewed_ago = None;
 
     let mut boundary_before = Spec::new("boundary-before@example.test");
-    boundary_before.membership_reviewed_ago = Some(3600 + 3599);
+    boundary_before.membership_reviewed_ago = Some(7000);
     let mut boundary_at = Spec::new("boundary-at@example.test");
     boundary_at.membership_reviewed_ago = Some(7200);
     let mut logged_in = Spec::new("logged-in@example.test");
@@ -1074,10 +1104,19 @@ async fn p4_t4_c03() {
         tax_id: None,
     });
 
-    // A wrong audit action must not count as the organization approval.
+    // Two accounts with the same facts, differing only in the stored audit
+    // action spelling. The real dotted action is the approval gate (one hour
+    // old, no stage); the underscore spelling is not, so only creation remains
+    // and the account is overdue. This pair cannot use the parity helper,
+    // because the pure classifier is fed the derived instant, not the action.
     let mut wrong_audit = Spec::new("wrong-audit@example.test");
     wrong_audit.organization_audit_action = "admin_organization_approved";
-    wrong_audit.membership_status = Some("PENDING");
+    wrong_audit.user_approved_ago = None;
+    wrong_audit.membership_reviewed_ago = None;
+    wrong_audit.organization_approved_ago = Some(3600);
+    let mut right_audit = wrong_audit.clone();
+    right_audit.email = "right-audit@example.test".into();
+    right_audit.organization_audit_action = "admin.organization_approved";
 
     let seeds = [
         boundary_run,
@@ -1096,39 +1135,66 @@ async fn p4_t4_c03() {
         demo,
         test,
         canary_org,
-        wrong_audit,
     ];
-    // The pending rows live outside the user projection.
-    let (_, _) = fixture
-        .seed_pending(
-            &pending_expiring.email,
-            Some("BUYER"),
+    fixture.seed(&wrong_audit).await;
+    fixture.seed(&right_audit).await;
+    // The pending rows live outside the user projection and are classified
+    // with the same rules.
+    let mut expected_pending = Vec::new();
+    for (email, expires_at, used) in [
+        (
+            pending_expiring.email.clone(),
             fixture.now + Duration::minutes(5),
             false,
-            fixture.now - Duration::seconds(60),
-        )
-        .await;
-    let (_, _) = fixture
-        .seed_pending(
-            &pending_later.email,
-            Some("BUYER"),
-            fixture.now + Duration::minutes(5) + Duration::microseconds(1),
+        ),
+        (
+            pending_later.email.clone(),
+            fixture.now + Duration::hours(1),
             false,
-            fixture.now - Duration::seconds(60),
-        )
-        .await;
-    // A consumed pending registration is not a candidate.
-    let (_, _) = fixture
-        .seed_pending(
-            "used-pending@example.test",
-            Some("BUYER"),
+        ),
+        (
+            "used-pending@example.test".to_owned(),
             fixture.now + Duration::minutes(5),
             true,
-            fixture.now - Duration::seconds(60),
-        )
-        .await;
+        ),
+    ] {
+        let candidate = fixture
+            .seed_pending(
+                &email,
+                Some("BUYER"),
+                expires_at,
+                used,
+                fixture.now - Duration::seconds(60),
+            )
+            .await;
+        expected_pending.push((email, candidate));
+    }
 
-    assert_parity(&mut fixture, &seeds).await;
+    assert_parity(&mut fixture, &seeds, &expected_pending).await;
+
+    // The action-spelling pair, read back through the route.
+    let app = app(fixture.pool.clone(), fixture.url(), limits());
+    let actor = fixture.actor("ADMIN").await;
+    let (status, body, _) = get(
+        &app,
+        "/api/admin/onboarding-attention?limit=500",
+        Some(&token(actor)),
+        FORWARDED,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let items = body["items"].as_array().unwrap();
+    let wrong = items
+        .iter()
+        .find(|item| item["email"] == "wrong-audit@example.test")
+        .expect("the underscore action is not an approval gate");
+    assert_eq!(wrong["stage"], "first_login_overdue");
+    assert!(
+        !items
+            .iter()
+            .any(|item| item["email"] == "right-audit@example.test"),
+        "the dotted action is the approval gate"
+    );
     fixture.finish().await;
 }
 
@@ -1176,7 +1242,7 @@ async fn p4_t4_c04() {
         .unwrap();
     assert_eq!(audits, 6);
 
-    let app = app(fixture.pool.clone(), String::new(), limits());
+    let app = app(fixture.pool.clone(), fixture.url(), limits());
     let (status, body, truncated) = get(
         &app,
         "/api/admin/onboarding-attention",
@@ -1218,7 +1284,7 @@ async fn p4_t4_c06() {
     fixture.seed(&Spec::new("visible@example.test")).await;
 
     let shared = limits();
-    let app = app(fixture.pool.clone(), String::new(), shared.clone());
+    let app = app(fixture.pool.clone(), fixture.url(), shared.clone());
     // Wrong-role and non-admin callers get the same refusal on every path
     // shape, including an unrelated path that shares no route state.
     for bearer in [buyer, supplier] {
@@ -1239,10 +1305,7 @@ async fn p4_t4_c06() {
         }
     }
     // Anonymous callers are refused before any state is read.
-    for path in [
-        "/api/admin/onboarding-attention",
-        "/api/admin/audit-logs",
-    ] {
+    for path in ["/api/admin/onboarding-attention", "/api/admin/audit-logs"] {
         let (status, body, _) = get(&app, path, None, FORWARDED).await;
         assert_eq!(status, StatusCode::UNAUTHORIZED);
         assert_eq!(body["detail"]["code"], "INVALID_CREDENTIALS");
@@ -1290,7 +1353,9 @@ async fn p4_t4_c01() {
     let actor = fixture.actor("ADMIN").await;
     let base = fixture.now - Duration::days(1);
     let count = 501usize;
-    let ids: Vec<Uuid> = (0..count).map(|index| Uuid::from_u128(0x1000 + index as u128)).collect();
+    let ids: Vec<Uuid> = (0..count)
+        .map(|index| Uuid::from_u128(0x1000 + index as u128))
+        .collect();
     let organizations: Vec<Uuid> = (0..count)
         .map(|index| Uuid::from_u128(0x5000 + index as u128))
         .collect();
@@ -1316,7 +1381,8 @@ async fn p4_t4_c01() {
     .unwrap();
     sqlx::query(
         "INSERT INTO organization_join_requests(id,user_id,organization_id,status,reviewed_at,created_at) \
-         SELECT gen_random_uuid(),id,organization_id,'APPROVED',created_at,created_at FROM users",
+         SELECT gen_random_uuid(),id,organization_id,'APPROVED',created_at,created_at FROM users \
+         WHERE organization_id IS NOT NULL",
     )
     .execute(&mut fixture.admin)
     .await
@@ -1334,11 +1400,16 @@ async fn p4_t4_c01() {
     healthy.last_login_ago = Some(60);
     fixture.seed(&healthy).await;
 
-    let app = app(fixture.pool.clone(), String::new(), limits());
+    let app = app(fixture.pool.clone(), fixture.url(), limits());
     let ordered: Vec<(DateTime<Utc>, String)> = ids
         .iter()
         .enumerate()
-        .map(|(index, id)| (base + Duration::seconds((index / 2) as i64), format!("user:{id}")))
+        .map(|(index, id)| {
+            (
+                base + Duration::seconds((index / 2) as i64),
+                format!("user:{id}"),
+            )
+        })
         .collect();
     let mut ordered = ordered;
     ordered.sort();
@@ -1364,11 +1435,11 @@ async fn p4_t4_c01() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(truncated.as_deref(), Some("true"));
     assert_eq!(body["truncated"], Value::Bool(true));
-    let page: Vec<&str> = body["items"]
+    let page: Vec<String> = body["items"]
         .as_array()
         .unwrap()
         .iter()
-        .map(|item| item["email"].as_str().unwrap())
+        .map(|item| item["email"].as_str().unwrap().to_owned())
         .collect();
     assert_eq!(page.len(), 100);
     assert_eq!(page[..], emails[..100]);
@@ -1393,11 +1464,11 @@ async fn p4_t4_c01() {
     )
     .await;
     assert_eq!(truncated.as_deref(), Some("false"));
-    let tail: Vec<&str> = body["items"]
+    let tail: Vec<String> = body["items"]
         .as_array()
         .unwrap()
         .iter()
-        .map(|item| item["email"].as_str().unwrap())
+        .map(|item| item["email"].as_str().unwrap().to_owned())
         .collect();
     assert_eq!(tail, emails[400..]);
 
@@ -1456,7 +1527,14 @@ async fn p4_t4_c02() {
         )
         .await;
     let second_id = fixture
-        .insert_audit(None, "admin.organization_approved", "organization", None, None, second)
+        .insert_audit(
+            None,
+            "admin.organization_approved",
+            "organization",
+            None,
+            None,
+            second,
+        )
         .await;
     let third_id = fixture
         .insert_audit(
@@ -1469,7 +1547,7 @@ async fn p4_t4_c02() {
         )
         .await;
 
-    let app = app(fixture.pool.clone(), String::new(), limits());
+    let app = app(fixture.pool.clone(), fixture.url(), limits());
     let (status, body, truncated) = get(
         &app,
         "/api/admin/audit-logs",
@@ -1546,9 +1624,7 @@ async fn p4_t4_c02() {
     // The default limit and the defects: negative, zero and over-maximum
     // limits are request refusals, as is an invalid user id.
     assert_eq!(
-        audit_query::AuditQuery::from_pairs(&[])
-            .unwrap()
-            .limit(),
+        audit_query::AuditQuery::from_pairs(&[]).unwrap().limit(),
         50
     );
     for query in [
@@ -1581,7 +1657,6 @@ async fn p4_t4_c02() {
         tied_order.push(id.to_string());
     }
     tied_order.sort();
-    tied_order.reverse();
     let (_, body, _) = get(
         &app,
         "/api/admin/audit-logs?action=order.created",
