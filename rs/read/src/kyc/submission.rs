@@ -321,7 +321,10 @@ pub struct SubmitCommand {
     upload: Submission,
     keys: Arc<KeyRing>,
     now: DateTime<Utc>,
-    admission: Option<(axum::http::HeaderMap, Arc<super::documents::EvidenceContext>)>,
+    admission: Option<(
+        axum::http::HeaderMap,
+        Arc<super::documents::EvidenceContext>,
+    )>,
 }
 impl SubmitCommand {
     pub fn new(
@@ -340,7 +343,11 @@ impl SubmitCommand {
             admission: None,
         }
     }
-    fn with_admission(mut self, headers: axum::http::HeaderMap, context: Arc<super::documents::EvidenceContext>) -> Self {
+    fn with_admission(
+        mut self,
+        headers: axum::http::HeaderMap,
+        context: Arc<super::documents::EvidenceContext>,
+    ) -> Self {
         self.admission = Some((headers, context));
         self
     }

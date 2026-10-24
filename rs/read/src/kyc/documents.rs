@@ -62,25 +62,39 @@ pub(crate) fn authorize(
             "This operation does not accept support authority.",
         ));
     }
-    let authorization = headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok());
-    let access = crate::auth::verify_authorization(authorization, &context.settings, now)
-        .map_err(|error| match error {
+    let authorization = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok());
+    let access = crate::auth::verify_authorization(authorization, &context.settings, now).map_err(
+        |error| match error {
             crate::auth::AuthError::Credentials => invalid_credentials(),
             _ => crate::business::error::authentication(error),
-        })?;
+        },
+    )?;
     // Until PD3-EXP-1 is integrated, the shared verifier validates exp when
     // present but permits its absence. Require that signed field here; all
     // signature, value and expiry decisions still belong to the shared verifier.
     use base64::Engine;
-    let payload = authorization.and_then(|value| value.split('.').nth(1))
-        .and_then(|value| base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(value).ok())
+    let payload = authorization
+        .and_then(|value| value.split('.').nth(1))
+        .and_then(|value| {
+            base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .decode(value)
+                .ok()
+        })
         .and_then(|raw| serde_json::from_slice::<serde_json::Value>(&raw).ok());
-    if !payload.is_some_and(|claims| claims.get("exp").is_some()) { return Err(invalid_credentials()); }
+    if payload.is_none_or(|claims| claims.get("exp").is_none()) {
+        return Err(invalid_credentials());
+    }
     Ok(access)
 }
 
 pub(crate) fn invalid_credentials() -> ApiError {
-    refusal(StatusCode::UNAUTHORIZED, "AUTH_CREDENTIALS_INVALID", "The access credential is invalid or expired.")
+    refusal(
+        StatusCode::UNAUTHORIZED,
+        "AUTH_CREDENTIALS_INVALID",
+        "The access credential is invalid or expired.",
+    )
 }
 
 pub(crate) fn quota(
