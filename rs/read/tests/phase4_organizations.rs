@@ -71,6 +71,14 @@ pub mod market_write {
 }
 
 #[test]
+fn p4_t8_c11() {
+    let source = include_str!("../src/business/organizations.rs");
+    assert!(source.contains("order_write::{InvalidateOrganization, invalidate_organization}"));
+    assert!(source.contains("policy: Arc::clone(&self.policy)"));
+    assert!(source.contains("config: Arc::clone(&self.config)"));
+}
+
+#[test]
 fn p4_t8_c08() {
     assert!(joins::JoinListQuery::parse(Some("PENDING"), 100, 0).is_ok());
     for (status, limit, offset) in [
