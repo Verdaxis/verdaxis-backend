@@ -1166,8 +1166,18 @@ mod postgres {
                 .iter()
                 .all(|row| row.size.suppressed && row.size.count.is_none())
         );
-        // Organization cohorts ride order/trade activity, not logins.
-        assert_eq!(response.organization_cohorts.len(), 2);
+        // Organization cohorts ride order/trade activity, not logins: the
+        // returning trader starts on 15 May, the buyer on 20 May and the
+        // supplier on 3 June, so three Monday-anchored weeks exist.
+        let organization_starts: Vec<_> = response
+            .organization_cohorts
+            .iter()
+            .map(|row| row.cohort_start)
+            .collect();
+        assert_eq!(
+            organization_starts,
+            vec![day(2026, 5, 11), day(2026, 5, 18), day(2026, 6, 1)]
+        );
         assert!(
             response
                 .organization_cohorts
