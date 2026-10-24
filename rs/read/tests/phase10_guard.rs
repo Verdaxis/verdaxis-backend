@@ -268,42 +268,55 @@ fn deploy_guard_allows_absent_state() {
         .expect("run misplaced guard");
     assert_denied(&output, "misplaced helper", "misplaced helper");
 
-    for arguments in [
-        vec![],
-        vec!["--environment", "staging"],
-        vec![
-            "--environment",
-            "staging",
-            "--expected-release-sha",
-            SHA_A,
-            "extra",
-        ],
-        vec!["--expected-release-sha", SHA_A, "--environment", "staging"],
-        vec!["--environment", "test", "--expected-release-sha", SHA_A],
-        vec![
-            "--environment",
-            "staging",
-            "--expected-release-sha",
-            "short",
-        ],
-        vec![
-            "--environment",
-            "staging",
-            "--expected-release-sha",
-            "111111111111111111111111111111111111111A",
-        ],
-        vec![
-            "--environment",
-            "staging",
-            "--expected-release-sha",
-            SHA_A,
-            "--apply",
-        ],
+    for (arguments, reason) in [
+        (vec![], "invalid arguments"),
+        (vec!["--environment", "staging"], "invalid arguments"),
+        (
+            vec![
+                "--environment",
+                "staging",
+                "--expected-release-sha",
+                SHA_A,
+                "extra",
+            ],
+            "invalid arguments",
+        ),
+        (
+            vec!["--expected-release-sha", SHA_A, "--environment", "staging"],
+            "invalid arguments",
+        ),
+        (
+            vec!["--environment", "test", "--expected-release-sha", SHA_A],
+            "unsupported environment",
+        ),
+        (
+            vec!["--environment", "staging", "--expected-release-sha", "short"],
+            "invalid release sha",
+        ),
+        (
+            vec![
+                "--environment",
+                "staging",
+                "--expected-release-sha",
+                "111111111111111111111111111111111111111A",
+            ],
+            "invalid release sha",
+        ),
+        (
+            vec![
+                "--environment",
+                "staging",
+                "--expected-release-sha",
+                SHA_A,
+                "--apply",
+            ],
+            "invalid arguments",
+        ),
     ] {
         assert_denied(
             &run_guard(&fixture, &arguments),
             "usage refusal",
-            "invalid arguments",
+            reason,
         );
     }
 }
