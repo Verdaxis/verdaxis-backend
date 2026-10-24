@@ -11,10 +11,9 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::time::Duration;
 
-/// Bounded attempts for one dependency call: the first try plus two retries.
-pub const RETRY_ATTEMPTS: u32 = 3;
-/// Delay before each retry, in seconds. The third attempt starts at 4 s elapsed.
-pub const RETRY_DELAYS_SECONDS: [u64; 2] = [1, 3];
+/// Delay before each retry. With the first attempt, this caps a call at three
+/// attempts: it starts at 0 s, retries at 1 s and 4 s.
+pub const RETRY_DELAYS: [Duration; 2] = [Duration::from_secs(1), Duration::from_secs(3)];
 /// Total deadline the delays fit inside.
 pub const RETRY_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -29,15 +28,12 @@ where
     Fut: Future<Output = Result<T, E>>,
 {
     let started = tokio::time::Instant::now();
-    let mut attempt = 0_u32;
+    let mut attempt = 0_usize;
     loop {
         match operation().await {
             Ok(value) => return Ok(value),
             Err(error) => {
-                let Some(delay) = RETRY_DELAYS_SECONDS
-                    .get(attempt as usize)
-                    .map(|seconds| Duration::from_secs(*seconds))
-                else {
+                let Some(delay) = RETRY_DELAYS.get(attempt).copied() else {
                     return Err(error);
                 };
                 if started.elapsed() + delay >= RETRY_TIMEOUT {
