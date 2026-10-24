@@ -34,7 +34,10 @@ pub struct VesselAuthority {
 
 impl VesselAuthority {
     pub fn new(verification: VerificationSettings, limits: SharedLimits) -> Self {
-        Self { verification, limits }
+        Self {
+            verification,
+            limits,
+        }
     }
 }
 
@@ -117,11 +120,19 @@ async fn read(
 ) -> Result<Response, ApiError> {
     let now = Utc::now();
     let access = verify_authorization(
-        request.headers().get("authorization").and_then(|value| value.to_str().ok()),
+        request
+            .headers()
+            .get("authorization")
+            .and_then(|value| value.to_str().ok()),
         &authority.verification,
         now,
-    ).map_err(authentication)?;
-    let template = if raw_id.is_some() { DETAIL_PATH } else { LIST_PATH };
+    )
+    .map_err(authentication)?;
+    let template = if raw_id.is_some() {
+        DETAIL_PATH
+    } else {
+        LIST_PATH
+    };
     let authenticated = AuthenticatedRequest::new("GET", template, false);
     let rows = run_authenticated(&state, access, authenticated, move |transaction| {
         Box::pin(async move {
@@ -129,22 +140,49 @@ async fn read(
             let user = actor.id.to_string();
             let organization = actor.organization_id.map(|id| id.to_string());
             // The frozen inventory declares no endpoint quota for these reads.
-            authority.limits.check_business("GET", template, BusinessLimitKeys {
-                client: "", user: Some(&user), organization: organization.as_deref(), token: None,
-            }, now.timestamp().max(0) as u64)?;
-            let id = raw_id.as_deref().map(|raw| Uuid::parse_str(raw).map_err(|_| refusal(
-                StatusCode::UNPROCESSABLE_ENTITY, "INVALID_VESSEL_ID", "The vessel identifier must be a UUID.",
-            ))).transpose()?;
+            authority.limits.check_business(
+                "GET",
+                template,
+                BusinessLimitKeys {
+                    client: "",
+                    user: Some(&user),
+                    organization: organization.as_deref(),
+                    token: None,
+                },
+                now.timestamp().max(0) as u64,
+            )?;
+            let id = raw_id
+                .as_deref()
+                .map(|raw| {
+                    Uuid::parse_str(raw).map_err(|_| {
+                        refusal(
+                            StatusCode::UNPROCESSABLE_ENTITY,
+                            "INVALID_VESSEL_ID",
+                            "The vessel identifier must be a UUID.",
+                        )
+                    })
+                })
+                .transpose()?;
             let rows = select_vessels(transaction.connection(), &actor, id).await?;
             if id.is_some() && rows.is_empty() {
-                return Err(refusal(StatusCode::NOT_FOUND, "VESSEL_NOT_FOUND", "The vessel was not found."));
+                return Err(refusal(
+                    StatusCode::NOT_FOUND,
+                    "VESSEL_NOT_FOUND",
+                    "The vessel was not found.",
+                ));
             }
             Ok(rows)
         })
-    }).await.map_err(|error| match error {
+    })
+    .await
+    .map_err(|error| match error {
         AuthenticatedError::Authentication(error) => authentication(error),
         AuthenticatedError::Database(error) => error,
-        AuthenticatedError::AmbiguousCommit => refusal(StatusCode::SERVICE_UNAVAILABLE, "COMMIT_OUTCOME_UNKNOWN", "The request outcome is unknown."),
+        AuthenticatedError::AmbiguousCommit => refusal(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "COMMIT_OUTCOME_UNKNOWN",
+            "The request outcome is unknown.",
+        ),
     })?;
     if template == DETAIL_PATH {
         let row = rows.into_iter().next().ok_or_else(ApiError::internal)?;
