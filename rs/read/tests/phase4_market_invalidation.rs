@@ -181,7 +181,11 @@ fn p4_t7_c06() {
         "../../../tests/rust_contract/phase2/market-write-spec.json"
     ))
     .unwrap();
-    assert!(vectors.is_object());
+    for vector in vectors["slice_lock_keys"].as_array().unwrap() {
+        let product=vector["product_id"].as_str().unwrap().parse().unwrap();
+        let point=vector["delivery_point_id"].as_str().map(|v|v.parse().unwrap());
+        assert_eq!(market_slice_lock_key(product,point,vector["normalized_window"].as_str().unwrap()),vector["lock_key"].as_i64().unwrap());
+    }
 }
 
 #[tokio::test]
@@ -576,4 +580,41 @@ async fn p4_t7_c11() {
     invalidate_organization(&mut tx,&f.command).await.unwrap();tx.commit().await.unwrap();
     let reserved:Decimal=sqlx::query_scalar("SELECT reserved_stock_mt FROM inventory_items").fetch_one(&mut f.conn).await.unwrap();assert_eq!(reserved,Decimal::from(20));
     f.finish().await;
+}
+
+#[tokio::test]
+#[ignore = "requires explicit disposable PostgreSQL authority"]
+async fn p4_t7_c12() {
+    let mut f=Fixture::new().await;
+    let owned=f.order(true,60,false).await;
+    f.order(false,40,false).await;
+    let demo=f.order(false,40,false).await;
+    sqlx::query("UPDATE orderbook_orders SET provenance='DEMO',expires_at=$1 WHERE id=$2").bind(now()+chrono::Duration::days(1)).bind(demo).execute(&mut f.conn).await.unwrap();
+    sqlx::query("INSERT INTO watchlist_targets(id,watchlist_id,target_type,order_id,market_product_code,delivery_point_id,availability_window_code) VALUES($1,$2,'SLICE',NULL,'fixture-product',$3,'SPOT'),($4,$2,'PIN',$5,'fixture-product',$3,'SPOT')").bind(Uuid::new_v4()).bind(Uuid::new_v4()).bind(f.point).bind(Uuid::new_v4()).bind(owned).execute(&mut f.conn).await.unwrap();
+    let mut tx=f.conn.begin().await.unwrap();
+    invalidate_organization(&mut tx,&f.command).await.unwrap();
+    let payload:serde_json::Value=sqlx::query_scalar("SELECT event_payload FROM watchlist_events WHERE event_type='SLICE_BEST_PRICE_MOVED'").fetch_one(&mut *tx).await.unwrap();
+    assert_eq!(payload["real_count"],1);
+    assert_eq!(payload["demo_count"],1);
+    assert_eq!(payload["demo_status"],"REAL_ONLY");
+    let pin:serde_json::Value=sqlx::query_scalar("SELECT event_payload FROM watchlist_events WHERE event_type='PIN_WITHDRAWN'").fetch_one(&mut *tx).await.unwrap();
+    assert_eq!(pin["demo_status"],"REAL_ONLY");
+    tx.rollback().await.unwrap();f.finish().await;
+}
+
+#[tokio::test]
+#[ignore = "requires explicit disposable PostgreSQL authority"]
+async fn p4_t7_c13() {
+    let mut f=Fixture::new().await;
+    let order=f.order(false,40,false).await;
+    sqlx::query("UPDATE users SET role='SUPPLIER' WHERE id=$1").bind(f.command.actor_id).execute(&mut f.conn).await.unwrap();
+    sqlx::query("UPDATE orderbook_orders SET organization_id=$1,owner_user_id=$2 WHERE id=$3").bind(f.command.organization_id).bind(f.command.actor_id).bind(order).execute(&mut f.conn).await.unwrap();
+    let key=f.key();
+    let mut strict=(*f.command.config).clone();strict.kyc_execution_gate_enabled=true;
+    let mut tx=f.conn.begin().await.unwrap();
+    let strict_result=rebuild_live_slice_benchmarks_for_keys(&mut tx,&f.command.policy,&strict,std::slice::from_ref(&key),now()).await.unwrap();assert_eq!(strict_result.deleted.len(),1);
+    let advisory=rebuild_live_slice_benchmarks_for_keys(&mut tx,&f.command.policy,&f.command.config,std::slice::from_ref(&key),now()).await.unwrap();assert_eq!(advisory.rebuilt.len(),1);
+    let mut policy=(*f.command.policy).clone();policy.products[0].lanes.clear();
+    let excluded=rebuild_live_slice_benchmarks_for_keys(&mut tx,&policy,&f.command.config,&[key],now()).await.unwrap();assert_eq!(excluded.deleted.len(),1);
+    tx.rollback().await.unwrap();f.finish().await;
 }
