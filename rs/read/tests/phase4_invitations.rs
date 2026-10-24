@@ -1036,6 +1036,43 @@ mod postgres {
 
     #[tokio::test]
     #[ignore = "requires explicit disposable PostgreSQL authority"]
+    async fn p4_t5_c06() {
+        // The organization insert's unique violation is the domain conflict:
+        // the pre-check cannot see a concurrent creator, so the insert itself
+        // must map 23505 to ORGANIZATION_DOMAIN_CONFLICT, not to the email one.
+        let f = Fixture::new().await;
+        let sql = "CREATE FUNCTION refuse_domain() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'duplicate key value violates unique constraint \"organizations_domain_key\"' USING ERRCODE='23505'; END $$; \
+                   CREATE TRIGGER refuse_domain BEFORE INSERT ON organizations FOR EACH ROW EXECUTE FUNCTION refuse_domain();";
+        sqlx::raw_sql(sqlx::AssertSqlSafe(sql))
+            .execute(&mut f.admin)
+            .await
+            .unwrap();
+        let error = f
+            .create(body(&new_organization_payload()), instant())
+            .await
+            .unwrap_err();
+        assert_eq!(error.status.as_u16(), 409);
+        assert_eq!(error.detail["code"], "ORGANIZATION_DOMAIN_CONFLICT");
+        for table in ["organizations", "users", "audit_logs"] {
+            let count: i64 =
+                sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {table}")))
+                    .fetch_one(&f.pool)
+                    .await
+                    .unwrap();
+            assert!(count <= 1, "{table} has {count} rows");
+        }
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM audit_logs")
+                .fetch_one(&f.pool)
+                .await
+                .unwrap(),
+            0
+        );
+        f.finish().await;
+    }
+
+    #[tokio::test]
+    #[ignore = "requires explicit disposable PostgreSQL authority"]
     async fn p4_t5_c61() {
         // The write requires an administrator and an eligible organization; a
         // demoted administrator is refused and no target is read.
@@ -1339,7 +1376,9 @@ mod postgres {
             send(&router, "GET", request::LIST_PATH, Some(&admin_token), None).await;
         assert_eq!(status, 200);
         assert_eq!(body["items"].as_array().unwrap().len(), 1);
-        assert_eq!(body["truncated"], false);
+        // Python's body carries only `items`; the truncation marker is the
+        // header, so the body shape stays byte-compatible with the source.
+        assert!(body.get("truncated").is_none());
         assert_eq!(body["truncated_header"], "false");
         // A05's 30/minute limit is per declared route.
         let mut last = 0;
@@ -1382,7 +1421,10 @@ mod postgres {
         .await;
         assert_eq!(status, 413);
         assert_eq!(body["detail"]["code"], "REQUEST_TOO_LARGE");
-        assert_eq!(body["detail"]["message"], "Authentication request is too large");
+        assert_eq!(
+            body["detail"]["message"],
+            "Authentication request is too large"
+        );
         let mut refusals = Vec::new();
         for _ in 0..20 {
             let (status, _, body) = send(
