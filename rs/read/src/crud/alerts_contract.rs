@@ -134,6 +134,8 @@ pub async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     let pools = crate::runtime::db::Pools { read: pool, health };
     let policy: MarketPolicy =
         serde_json::from_str(include_str!("../../../../deploy/rust/market-policy.json"))?;
+    let policy_identity =
+        crate::market::cache_dependencies::policy_identity(&config, &policy);
     let state = AppState {
         config: Arc::new(config),
         pools,
@@ -142,6 +144,11 @@ pub async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         reference_cache: Arc::new(crate::runtime::cache::ReferenceCache::default()),
         // The contract harness serves one group and does not project Phase 2.
         phase2: None,
+        trading_caches: Arc::new(crate::runtime::cache::TradingCaches::default()),
+        trading_cache: None,
+        public_trading_cache: Arc::new(crate::runtime::cache::TradingCache::default()),
+        trading_read_observer: Arc::new(crate::runtime::admission::RealtimeTradingRead),
+        policy_identity,
     };
     let app = super::router(
         state,

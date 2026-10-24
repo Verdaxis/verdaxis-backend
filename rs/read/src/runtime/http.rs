@@ -275,6 +275,19 @@ fn public_get_path(path: &str) -> bool {
             .is_some_and(|id| !id.is_empty() && !id.contains('/'))
 }
 
+/// The pre-auth 429 for every non-auth route, including the shared admin path.
+fn rate_limit_response() -> Response {
+    (
+        StatusCode::TOO_MANY_REQUESTS,
+        [("retry-after", "60")],
+        axum::Json(serde_json::json!({"detail": {
+            "code": "RATE_LIMITED",
+            "message": "Rate limit exceeded",
+        }})),
+    )
+        .into_response()
+}
+
 /// The pre-auth 429. An auth route gets the auth envelope and the seconds until
 /// its window resets; the Phase 2 admin prefix keeps its bounded envelope.
 fn preauth_refusal(path: &str, refusal: Refusal) -> Response {

@@ -126,6 +126,7 @@ pub fn verify_access(
     let verified = verify_token(token, settings, TokenType::Access, now)?;
     Ok(VerifiedAccess {
         subject: verified.subject,
+        expires_at: verified.expires_at,
         issued_at: verified.issuance.issued_at,
         issuance_out_of_range: verified.issuance.out_of_range,
     })

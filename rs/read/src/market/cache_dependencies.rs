@@ -707,6 +707,7 @@ mod tests {
             database_url: "postgres://app:secret@127.0.0.1/verdaxis_test".into(),
             db_session_time_zone: "UTC".into(),
             prepared_budget: None,
+            phase2: crate::Phase2Options::default(),
             bind: "127.0.0.1:0".parse().unwrap(),
             read_admission_slots: 16,
             pool_max: 17,
