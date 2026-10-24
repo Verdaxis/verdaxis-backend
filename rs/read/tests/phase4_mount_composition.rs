@@ -77,9 +77,18 @@ async fn stated_mount_keeps_every_serving_route() {
     // function only composes a group a caller supplies; with an empty group
     // the KYC review and admission paths remain unowned.
     for (method, path) in [
-        ("PUT", "/api/kyc/admin/00000000-0000-4000-8000-000000000001/approve"),
-        ("PUT", "/api/kyc/admin/00000000-0000-4000-8000-000000000001/reject"),
-        ("PUT", "/api/auth/approve/00000000-0000-4000-8000-000000000001"),
+        (
+            "PUT",
+            "/api/kyc/admin/00000000-0000-4000-8000-000000000001/approve",
+        ),
+        (
+            "PUT",
+            "/api/kyc/admin/00000000-0000-4000-8000-000000000001/reject",
+        ),
+        (
+            "PUT",
+            "/api/auth/approve/00000000-0000-4000-8000-000000000001",
+        ),
         ("GET", "/api/auth/organization-joins"),
     ] {
         assert_eq!(
