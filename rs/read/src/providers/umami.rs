@@ -19,11 +19,7 @@
 //! any 403 is a typed authentication failure. Every failure maps onto the
 //! closed diagnostic domain; no upstream text, credential or body is kept.
 
-use std::{
-    fmt,
-    sync::Arc,
-    time::Duration,
-};
+use std::{fmt, sync::Arc, time::Duration};
 
 use chrono::{NaiveDate, Utc};
 use reqwest::StatusCode as HttpStatus;
@@ -36,11 +32,12 @@ use crate::analytics::{
         AllowedPropertyAggregate, BehavioralWindow, CoreMetrics, MAX_PROPERTY_ROWS,
         PropertyAvailability, WindowRows, assemble,
     },
-    events::{AllowedProperty, AllowedPropertySet, DomainCatalog, EntryPage, ReferrerCategory, RegisteredEvent},
-    query::AnalyticsQuery,
-    types::{
-        AnalyticsDiagnostic, ComponentStatus, ProviderComponent,
+    events::{
+        AllowedProperty, AllowedPropertySet, DomainCatalog, EntryPage, ReferrerCategory,
+        RegisteredEvent,
     },
+    query::AnalyticsQuery,
+    types::{AnalyticsDiagnostic, ComponentStatus, ProviderComponent},
 };
 
 /// Hard provider body cap, in bytes. It is the same limit in every call.
@@ -85,7 +82,10 @@ impl fmt::Debug for UmamiConfig {
             .field("base_url", &self.base_url)
             .field("website_id", &self.website_id)
             .field("api_username", &self.api_username)
-            .field("api_password", &self.api_password.as_ref().map(|_| "[redacted]"))
+            .field(
+                "api_password",
+                &self.api_password.as_ref().map(|_| "[redacted]"),
+            )
             .field("policy", &self.policy)
             .finish()
     }
@@ -164,10 +164,7 @@ impl UmamiClient {
     ) -> BehavioralWindow {
         let observed_at = Utc::now();
         let placeholder = unavailable_properties(&properties);
-        let diagnostic = match self.configuration() {
-            Ok(()) => None,
-            Err(diagnostic) => Some(diagnostic),
-        };
+        let diagnostic = self.configuration().err();
         if let Some(diagnostic) = diagnostic {
             return BehavioralWindow::unavailable(
                 query.start,
@@ -223,7 +220,10 @@ impl UmamiClient {
             .ok_or(AnalyticsDiagnostic::Configuration)?;
         let site = format!("{base}/api/websites/{website}");
         let params = vec![
-            ("startAt".to_owned(), query.start.timestamp_millis().to_string()),
+            (
+                "startAt".to_owned(),
+                query.start.timestamp_millis().to_string(),
+            ),
             ("endAt".to_owned(), query.end.timestamp_millis().to_string()),
         ];
 
@@ -237,10 +237,18 @@ impl UmamiClient {
         pageview_params.push(("unit".to_owned(), "day".to_owned()));
         pageview_params.push(("timezone".to_owned(), "UTC".to_owned()));
         let pageviews = self
-            .authorized_get(&format!("{site}/pageviews"), pageview_params.clone(), &mut token)
+            .authorized_get(
+                &format!("{site}/pageviews"),
+                pageview_params.clone(),
+                &mut token,
+            )
             .await?;
         let series = self
-            .authorized_get(&format!("{site}/events/series"), pageview_params, &mut token)
+            .authorized_get(
+                &format!("{site}/events/series"),
+                pageview_params,
+                &mut token,
+            )
             .await?;
         let mut entry_params = params.clone();
         entry_params.push(("type".to_owned(), "entry".to_owned()));
@@ -258,7 +266,7 @@ impl UmamiClient {
         let core = decode_core(&stats)?;
         let sessions = decode_sessions(&pageviews)?;
         let events = decode_event_series(&series)?;
-        let entries = decode_metrics(&entries, |raw| EntryPage::from_raw_path(raw))?;
+        let entries = decode_metrics(&entries, EntryPage::from_raw_path)?;
         let referrers = decode_metrics(&referrers, ReferrerCategory::from_raw)?;
 
         let mut property_results = Vec::with_capacity(properties.pairs().len());
@@ -268,7 +276,11 @@ impl UmamiClient {
             let mut event_params = params.clone();
             event_params.push(("event".to_owned(), event.name().to_owned()));
             let outcome = self
-                .authorized_get(&format!("{site}/event-data/events"), event_params, &mut token)
+                .authorized_get(
+                    &format!("{site}/event-data/events"),
+                    event_params,
+                    &mut token,
+                )
                 .await;
             match outcome {
                 Ok(payload) => {
@@ -329,14 +341,11 @@ impl UmamiClient {
 
     /// One authentication for this request. Nothing is retained afterwards.
     async fn authenticate(&self) -> Result<Zeroizing<String>, AnalyticsDiagnostic> {
-        let (base, username, password) = match (
-            &self.inner.base,
-            &self.inner.username,
-            &self.inner.password,
-        ) {
-            (Some(base), Some(username), Some(password)) => (base, username, password),
-            _ => return Err(AnalyticsDiagnostic::Configuration),
-        };
+        let (base, username, password) =
+            match (&self.inner.base, &self.inner.username, &self.inner.password) {
+                (Some(base), Some(username), Some(password)) => (base, username, password),
+                _ => return Err(AnalyticsDiagnostic::Configuration),
+            };
         let response = self
             .inner
             .http
@@ -544,15 +553,14 @@ fn decode_sessions(document: &Value) -> Result<Vec<(NaiveDate, u64)>, AnalyticsD
         let object = row
             .as_object()
             .ok_or(AnalyticsDiagnostic::MalformedResponse)?;
-        sessions.push((
-            decode_date(object.get("x"))?,
-            count(object.get("y"))?,
-        ));
+        sessions.push((decode_date(object.get("x"))?, count(object.get("y"))?));
     }
     Ok(sessions)
 }
 
-fn decode_event_series(rows: &Value) -> Result<Vec<(NaiveDate, RegisteredEvent, u64)>, AnalyticsDiagnostic> {
+fn decode_event_series(
+    rows: &Value,
+) -> Result<Vec<(NaiveDate, RegisteredEvent, u64)>, AnalyticsDiagnostic> {
     let rows = rows
         .as_array()
         .ok_or(AnalyticsDiagnostic::MalformedResponse)?;
@@ -625,9 +633,9 @@ fn decode_property_rows(
         if !event.properties().contains(&property) {
             continue;
         }
-        let Some(value) = crate::analytics::events::AllowedPropertyValue::parse(
-            event, property, value, catalog,
-        ) else {
+        let Some(value) =
+            crate::analytics::events::AllowedPropertyValue::parse(event, property, value, catalog)
+        else {
             continue;
         };
         match aggregates

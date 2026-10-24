@@ -17,8 +17,8 @@ use axum::http::StatusCode;
 use serde::{Serialize, Serializer};
 
 use crate::{
-    analytics::types::AggregateCell, business::error::refusal, market::terms::ISO_3166_1_ALPHA_2,
-    market::windows::is_canonical_window, ApiError, MarketPolicy,
+    ApiError, MarketPolicy, analytics::types::AggregateCell, business::error::refusal,
+    market::terms::ISO_3166_1_ALPHA_2, market::windows::is_canonical_window,
 };
 
 /// The one refusal shared by every policy violation in this module.

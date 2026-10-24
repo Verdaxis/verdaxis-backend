@@ -269,7 +269,7 @@ pub(crate) fn assemble(
             }
         }
     }
-    event_points.sort_by(|left, right| (left.0, left.1).cmp(&(right.0, right.1)));
+    event_points.sort_by_key(|row| (row.0, row.1));
     event_points.truncate(MAX_SERIES_POINTS);
     let event_series = event_points
         .into_iter()

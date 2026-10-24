@@ -312,9 +312,8 @@ mod cases {
         }
     }
 
-    type Handler = Arc<
-        dyn Fn(RecordedRequest) -> Pin<Box<dyn Future<Output = Reply> + Send>> + Send + Sync,
-    >;
+    type Handler =
+        Arc<dyn Fn(RecordedRequest) -> Pin<Box<dyn Future<Output = Reply> + Send>> + Send + Sync>;
 
     #[derive(Clone)]
     struct Stub {
@@ -339,7 +338,10 @@ mod cases {
         }
 
         fn count(&self, predicate: impl Fn(&RecordedRequest) -> bool) -> usize {
-            self.seen().iter().filter(|request| predicate(request)).count()
+            self.seen()
+                .iter()
+                .filter(|request| predicate(request))
+                .count()
         }
 
         async fn respond(&self, request: axum::extract::Request) -> Response {
@@ -529,7 +531,10 @@ mod cases {
         .expect_err("cta is not an order_created property");
         assert_eq!(refused.status, axum::http::StatusCode::UNPROCESSABLE_ENTITY);
         assert_eq!(refused.detail["code"], "ANALYTICS_PROPERTY_INVALID");
-        assert_eq!(refused.detail["message"], "The requested analytics property is not allowed.");
+        assert_eq!(
+            refused.detail["message"],
+            "The requested analytics property is not allowed."
+        );
 
         // More than twelve distinct events never reaches the provider.
         let thirteen: Vec<_> = RegisteredEvent::ALL
@@ -577,11 +582,22 @@ mod cases {
         // Closed value domains: unknown and wrong-case values are dropped.
         let event = RegisteredEvent::Frontend(AllowedFrontendEvent::PlatformNavigation);
         let catalog = catalog();
-        assert!(AllowedPropertyValue::parse(event, AllowedProperty::Destination, "home", &catalog).is_some());
-        assert!(AllowedPropertyValue::parse(event, AllowedProperty::Destination, "HOME", &catalog).is_none());
         assert!(
-            AllowedPropertyValue::parse(event, AllowedProperty::Destination, "somewhere-private", &catalog)
+            AllowedPropertyValue::parse(event, AllowedProperty::Destination, "home", &catalog)
+                .is_some()
+        );
+        assert!(
+            AllowedPropertyValue::parse(event, AllowedProperty::Destination, "HOME", &catalog)
                 .is_none()
+        );
+        assert!(
+            AllowedPropertyValue::parse(
+                event,
+                AllowedProperty::Destination,
+                "somewhere-private",
+                &catalog
+            )
+            .is_none()
         );
     }
 
@@ -593,7 +609,11 @@ mod cases {
     #[tokio::test]
     async fn p4_t16_c02() {
         let order = RegisteredEvent::Server(AllowedServerEvent::OrderCreated);
-        let names: Vec<_> = order.properties().iter().map(|property| property.name()).collect();
+        let names: Vec<_> = order
+            .properties()
+            .iter()
+            .map(|property| property.name())
+            .collect();
         assert_eq!(
             names,
             [
@@ -656,14 +676,16 @@ mod cases {
         // An upstream row that names an unrequested identifier property or an
         // unknown value is dropped; it is not reflected or fabricated as zero.
         let (address, server) = serve(healthy()).await;
-        let window = client(address)
-            .window(&query(), destination_set())
-            .await;
+        let window = client(address).window(&query(), destination_set()).await;
         server.abort();
         assert_eq!(window.availability, BehavioralAvailability::Available);
         let results = &window.property_results[0].result;
         let rows = results.data.as_ref().expect("typed rows");
-        assert_eq!(rows.len(), 2, "unknown value dropped; email is not a property");
+        assert_eq!(
+            rows.len(),
+            2,
+            "unknown value dropped; email is not a property"
+        );
         assert_eq!(rows[0].value.as_str(), "marketplace");
         assert_eq!(rows[0].count.count, Some(7));
         assert_eq!(rows[1].value.as_str(), "map");
@@ -718,9 +740,7 @@ mod cases {
             None
         });
         let (address, server) = serve(stub).await;
-        let window = client(address)
-            .window(&query(), destination_set())
-            .await;
+        let window = client(address).window(&query(), destination_set()).await;
         server.abort();
 
         let totals = window.event_totals.data.expect("event totals");
@@ -743,7 +763,11 @@ mod cases {
         assert_eq!(daily[2].visitors.count, Some(3));
         assert_eq!(daily[3].visitors.count, Some(0));
 
-        let rows = window.property_results[0].result.data.as_ref().expect("rows");
+        let rows = window.property_results[0]
+            .result
+            .data
+            .as_ref()
+            .expect("rows");
         assert_eq!(rows[0].value.as_str(), "trades");
         assert_eq!(rows[0].count.count, Some(3));
         assert!(rows[1].count.suppressed);
@@ -841,13 +865,15 @@ mod cases {
         assert!(!serialized.contains("secret upstream text"));
 
         // Malformed authentication response.
-        let malformed = stub_with(|request| {
-            is_auth(request).then(|| Reply::body(200, b"not-json".to_vec()))
-        });
+        let malformed =
+            stub_with(|request| is_auth(request).then(|| Reply::body(200, b"not-json".to_vec())));
         let (address, server) = serve(malformed).await;
         let window = client(address).window(&query(), destination_set()).await;
         server.abort();
-        assert_eq!(window.diagnostic, Some(AnalyticsDiagnostic::MalformedResponse));
+        assert_eq!(
+            window.diagnostic,
+            Some(AnalyticsDiagnostic::MalformedResponse)
+        );
     }
 
     // ---------------------------------------------------------------------------
@@ -857,18 +883,18 @@ mod cases {
     /// `umami_body_and_property_rows_are_bounded`.
     #[tokio::test]
     async fn p4_t16_c05() {
-        let announced = stub_with(|request| {
-            is_stats(request).then(|| Reply::body(200, vec![b'x'; 1_000_001]))
-        });
+        let announced =
+            stub_with(|request| is_stats(request).then(|| Reply::body(200, vec![b'x'; 1_000_001])));
         let (address, server) = serve(announced).await;
         let window = client(address).window(&query(), destination_set()).await;
         server.abort();
-        assert_eq!(window.diagnostic, Some(AnalyticsDiagnostic::MalformedResponse));
+        assert_eq!(
+            window.diagnostic,
+            Some(AnalyticsDiagnostic::MalformedResponse)
+        );
 
         let streamed = stub_with(|request| {
-            is_stats(request).then(|| {
-                Reply::stream(vec![vec![b'x'; 600_000], vec![b'x'; 600_000]])
-            })
+            is_stats(request).then(|| Reply::stream(vec![vec![b'x'; 600_000], vec![b'x'; 600_000]]))
         });
         let (address, server) = serve(streamed).await;
         let window = client(address).window(&query(), destination_set()).await;
@@ -893,13 +919,15 @@ mod cases {
         assert_eq!(window.availability, BehavioralAvailability::Available);
         assert_eq!(window.core.data.expect("core").visitors, Some(1));
 
-        let bad_shape = stub_with(|request| {
-            is_stats(request).then(|| Reply::json(200, json!([1, 2, 3])))
-        });
+        let bad_shape =
+            stub_with(|request| is_stats(request).then(|| Reply::json(200, json!([1, 2, 3]))));
         let (address, server) = serve(bad_shape).await;
         let window = client(address).window(&query(), destination_set()).await;
         server.abort();
-        assert_eq!(window.diagnostic, Some(AnalyticsDiagnostic::MalformedResponse));
+        assert_eq!(
+            window.diagnostic,
+            Some(AnalyticsDiagnostic::MalformedResponse)
+        );
     }
 
     // ---------------------------------------------------------------------------
@@ -919,8 +947,8 @@ mod cases {
         let mut properties = Vec::new();
         let mut entries = Vec::new();
         for day in 0..400 {
-            let date = chrono::NaiveDate::from_ymd_opt(2026, 1, 1).unwrap()
-                + chrono::Duration::days(day);
+            let date =
+                chrono::NaiveDate::from_ymd_opt(2026, 1, 1).unwrap() + chrono::Duration::days(day);
             sessions.push(json!({"x": date.to_string(), "y": 3}));
             series.push(json!({"x": "platform_navigation", "t": date.to_string(), "y": 3}));
             entries.push(json!({"x": format!("/marketplace/{day}"), "y": 3}));
@@ -994,8 +1022,16 @@ mod cases {
 
         assert_eq!(first.availability, BehavioralAvailability::Available);
         assert_eq!(second.availability, BehavioralAvailability::Available);
-        assert_eq!(auth_calls.load(Ordering::SeqCst), 2, "authenticate per request");
-        assert_eq!(stub.count(is_stats), 2, "fetch per request; no aggregate cache");
+        assert_eq!(
+            auth_calls.load(Ordering::SeqCst),
+            2,
+            "authenticate per request"
+        );
+        assert_eq!(
+            stub.count(is_stats),
+            2,
+            "fetch per request; no aggregate cache"
+        );
         assert_eq!(
             stub.count(|request| request.path.ends_with("/events/series")),
             2
@@ -1073,7 +1109,11 @@ mod cases {
         let window = client(address).window(&query(), destination_set()).await;
         server.abort();
         assert_eq!(window.diagnostic, Some(AnalyticsDiagnostic::Authentication));
-        assert_eq!(always.count(is_auth), 2, "initial authentication plus one reauth");
+        assert_eq!(
+            always.count(is_auth),
+            2,
+            "initial authentication plus one reauth"
+        );
         assert_eq!(always.count(is_stats), 2);
 
         // 403 is authentication and is not retried.
@@ -1103,9 +1143,7 @@ mod cases {
     async fn p4_t16_c52() {
         let stub = healthy();
         let (address, server) = serve(stub.clone()).await;
-        let window = client(address)
-            .window(&query(), destination_set())
-            .await;
+        let window = client(address).window(&query(), destination_set()).await;
         server.abort();
         assert_eq!(window.availability, BehavioralAvailability::Available);
 
@@ -1135,9 +1173,7 @@ mod cases {
                 .then(|| Reply::json(500, json!({})))
         });
         let (address, server) = serve(failing).await;
-        let window = client(address)
-            .window(&query(), destination_set())
-            .await;
+        let window = client(address).window(&query(), destination_set()).await;
         server.abort();
         assert_eq!(window.availability, BehavioralAvailability::Partial);
         assert_eq!(window.diagnostic, Some(AnalyticsDiagnostic::Upstream));
@@ -1170,14 +1206,54 @@ mod cases {
             ("P02", "GET", "/api/admin/analytics/overview", 60),
             ("P03", "GET", "/api/admin/analytics/daily", 60),
             ("P04", "GET", "/api/admin/analytics/users", 60),
-            ("P05", "GET", "/api/admin/analytics/product-analytics/overview", 30),
-            ("P06", "GET", "/api/admin/analytics/product-analytics/acquisition", 30),
-            ("P07", "GET", "/api/admin/analytics/product-analytics/activation", 30),
-            ("P08", "GET", "/api/admin/analytics/product-analytics/engagement", 30),
-            ("P09", "GET", "/api/admin/analytics/product-analytics/marketplace", 30),
-            ("P10", "GET", "/api/admin/analytics/product-analytics/retention", 30),
-            ("P11", "GET", "/api/admin/analytics/product-analytics/reliability", 30),
-            ("N01", "PUT", "/api/admin/analytics/users/{user_id}/reject", 60),
+            (
+                "P05",
+                "GET",
+                "/api/admin/analytics/product-analytics/overview",
+                30,
+            ),
+            (
+                "P06",
+                "GET",
+                "/api/admin/analytics/product-analytics/acquisition",
+                30,
+            ),
+            (
+                "P07",
+                "GET",
+                "/api/admin/analytics/product-analytics/activation",
+                30,
+            ),
+            (
+                "P08",
+                "GET",
+                "/api/admin/analytics/product-analytics/engagement",
+                30,
+            ),
+            (
+                "P09",
+                "GET",
+                "/api/admin/analytics/product-analytics/marketplace",
+                30,
+            ),
+            (
+                "P10",
+                "GET",
+                "/api/admin/analytics/product-analytics/retention",
+                30,
+            ),
+            (
+                "P11",
+                "GET",
+                "/api/admin/analytics/product-analytics/reliability",
+                30,
+            ),
+            (
+                "N01",
+                "PUT",
+                "/api/admin/analytics/users/{user_id}/reject",
+                60,
+            ),
         ];
         for (id, method, path, count) in expected {
             let route = ROUTES["routes"]
@@ -1248,7 +1324,9 @@ mod cases {
         };
         let path = "/api/admin/analytics/product-analytics/overview";
         for _ in 0..30 {
-            limits.check_business("GET", path, keys(Some("token-a"), "192.0.2.1"), 100).unwrap();
+            limits
+                .check_business("GET", path, keys(Some("token-a"), "192.0.2.1"), 100)
+                .unwrap();
         }
         assert!(
             limits
@@ -1257,11 +1335,15 @@ mod cases {
         );
         // A different token has its own bucket.
         for _ in 0..30 {
-            limits.check_business("GET", path, keys(Some("token-b"), "192.0.2.1"), 100).unwrap();
+            limits
+                .check_business("GET", path, keys(Some("token-b"), "192.0.2.1"), 100)
+                .unwrap();
         }
         // The client fallback is used only when no token identity exists.
         for _ in 0..30 {
-            limits.check_business("GET", path, keys(None, "198.51.100.7"), 100).unwrap();
+            limits
+                .check_business("GET", path, keys(None, "198.51.100.7"), 100)
+                .unwrap();
         }
         assert!(
             limits
@@ -1427,7 +1509,10 @@ mod cases {
             let (address, server) = serve(stub).await;
             let window = client(address).window(&query(), destination_set()).await;
             server.abort();
-            assert_eq!(window.diagnostic, Some(AnalyticsDiagnostic::MalformedResponse));
+            assert_eq!(
+                window.diagnostic,
+                Some(AnalyticsDiagnostic::MalformedResponse)
+            );
         }
     }
 
@@ -1463,7 +1548,11 @@ mod cases {
             .iter()
             .find(|row| row.event.name() == "signup_started")
             .expect("signup total");
-        assert_eq!(signup.count.count, Some(11), "totals include out-of-window rows");
+        assert_eq!(
+            signup.count.count,
+            Some(11),
+            "totals include out-of-window rows"
+        );
         assert!(
             !totals.iter().any(|row| row.event.name() == "unknown_event"),
             "unknown events are discarded from totals"
@@ -1485,7 +1574,10 @@ mod cases {
             let (address, server) = serve(stub).await;
             let window = client(address).window(&query(), destination_set()).await;
             server.abort();
-            assert_eq!(window.diagnostic, Some(AnalyticsDiagnostic::MalformedResponse));
+            assert_eq!(
+                window.diagnostic,
+                Some(AnalyticsDiagnostic::MalformedResponse)
+            );
         }
     }
 
@@ -1502,15 +1594,24 @@ mod cases {
         );
         assert_eq!(EntryPage::from_raw_path("/"), EntryPage::Landing);
         assert_eq!(EntryPage::from_raw_path("/login?next=/x"), EntryPage::Login);
-        assert_eq!(EntryPage::from_raw_path("/private/buyer-123"), EntryPage::Other);
-        assert_eq!(EntryPage::from_raw_path("https://example.com/signup"), EntryPage::Signup);
+        assert_eq!(
+            EntryPage::from_raw_path("/private/buyer-123"),
+            EntryPage::Other
+        );
+        assert_eq!(
+            EntryPage::from_raw_path("https://example.com/signup"),
+            EntryPage::Signup
+        );
 
         assert_eq!(ReferrerCategory::from_raw(""), ReferrerCategory::Direct);
         assert_eq!(
             ReferrerCategory::from_raw("https://www.google.com/search?q=secret"),
             ReferrerCategory::Search
         );
-        assert_eq!(ReferrerCategory::from_raw("bing.com"), ReferrerCategory::Search);
+        assert_eq!(
+            ReferrerCategory::from_raw("bing.com"),
+            ReferrerCategory::Search
+        );
         assert_eq!(
             ReferrerCategory::from_raw("https://facebook.com/page"),
             ReferrerCategory::Social
@@ -1568,7 +1669,10 @@ mod cases {
             "example.com",
             "secret",
         ] {
-            assert!(!serialized.contains(forbidden), "raw ranking leaked {forbidden}");
+            assert!(
+                !serialized.contains(forbidden),
+                "raw ranking leaked {forbidden}"
+            );
         }
     }
 
@@ -1590,7 +1694,10 @@ mod cases {
             let window = client(address).window(&query(), destination_set()).await;
             server.abort();
             assert_eq!(window.availability, BehavioralAvailability::Unavailable);
-            assert_eq!(window.diagnostic, Some(AnalyticsDiagnostic::MalformedResponse));
+            assert_eq!(
+                window.diagnostic,
+                Some(AnalyticsDiagnostic::MalformedResponse)
+            );
         }
     }
 
@@ -1616,7 +1723,10 @@ mod cases {
             let (address, server) = serve(stub).await;
             let window = client(address).window(&query(), destination_set()).await;
             server.abort();
-            assert_eq!(window.diagnostic, Some(AnalyticsDiagnostic::MalformedResponse));
+            assert_eq!(
+                window.diagnostic,
+                Some(AnalyticsDiagnostic::MalformedResponse)
+            );
         }
     }
 
@@ -1793,7 +1903,11 @@ mod cases {
             assert_eq!(window.availability, BehavioralAvailability::Unavailable);
         }
         server.abort();
-        assert_eq!(stub.seen().len(), 0, "configuration failure never calls out");
+        assert_eq!(
+            stub.seen().len(),
+            0,
+            "configuration failure never calls out"
+        );
     }
 
     // ---------------------------------------------------------------------------
@@ -1904,18 +2018,36 @@ mod cases {
         let event = RegisteredEvent::Server(AllowedServerEvent::OrderCreated);
         let catalog = catalog();
         assert!(
-            AllowedPropertyValue::parse(event, AllowedProperty::CanonicalProduct, "B30", &catalog).is_some()
+            AllowedPropertyValue::parse(event, AllowedProperty::CanonicalProduct, "B30", &catalog)
+                .is_some()
         );
         assert!(
-            AllowedPropertyValue::parse(event, AllowedProperty::CanonicalProduct, "UCOME_B100", &catalog)
-                .is_none(),
+            AllowedPropertyValue::parse(
+                event,
+                AllowedProperty::CanonicalProduct,
+                "UCOME_B100",
+                &catalog
+            )
+            .is_none(),
             "a product outside the pinned catalog is not a value"
         );
         assert!(
-            AllowedPropertyValue::parse(event, AllowedProperty::DeliveryPoint, "Singapore", &catalog).is_some()
+            AllowedPropertyValue::parse(
+                event,
+                AllowedProperty::DeliveryPoint,
+                "Singapore",
+                &catalog
+            )
+            .is_some()
         );
         assert!(
-            AllowedPropertyValue::parse(event, AllowedProperty::DeliveryPoint, "Atlantis", &catalog).is_none()
+            AllowedPropertyValue::parse(
+                event,
+                AllowedProperty::DeliveryPoint,
+                "Atlantis",
+                &catalog
+            )
+            .is_none()
         );
         let signup = RegisteredEvent::Frontend(AllowedFrontendEvent::SignupOrganizationSubmitted);
         assert!(
@@ -1955,10 +2087,10 @@ mod cases {
 
         let policy: MarketPolicy = serde_json::from_slice(
             &std::fs::read(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../deploy/rust/market-policy.json"
-        ))
-        .expect("policy artifact"),
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../deploy/rust/market-policy.json"
+            ))
+            .expect("policy artifact"),
         )
         .expect("policy");
         let from_policy = DomainCatalog::from_policy(&policy, ISO_3166_1_ALPHA_2.iter().copied());
