@@ -568,7 +568,7 @@ fn p4_t18_c06() {
         vec![
             ("buyer_1", Some(5), None),
             ("buyer_2", None, None),
-            ("buyer_3", Some(7), None)
+            ("buyer_3", None, Some(7))
         ]
     );
 
@@ -630,7 +630,8 @@ fn p4_t18_c07() {
     assert!(rows[1].size.suppressed);
     assert_eq!(rows[1].size.count, None);
     assert!(rows[1].cells.iter().all(|cell| cell.pct.is_none()));
-    assert!(quality.suppressed_cell_count >= 3);
+    // The single-member cohort suppresses its size and its one cell.
+    assert_eq!(quality.suppressed_cell_count, 2);
 
     // A Sunday start still anchors to the preceding Monday (ISO weeks).
     assert_eq!(week_start(day(2026, 5, 24)), day(2026, 5, 18));
