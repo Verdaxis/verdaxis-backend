@@ -44,10 +44,11 @@ impl Fixture {
         let addr = listener.local_addr().unwrap();
         let app = Router::new().route(
             "/",
-            post(move |Json(payload): Json<Value>| {
+            post(move |headers: axum::http::HeaderMap, Json(mut payload): Json<Value>| {
                 let received = received.clone();
                 let gate = gate.clone();
                 async move {
+                    payload["test_idempotency"] = headers.get("idempotency-key").and_then(|v|v.to_str().ok()).map(Value::from).unwrap_or(Value::Null);
                     received.lock().await.push(payload);
                     gate.acquire().await.unwrap().forget();
                     if fail {
@@ -250,6 +251,16 @@ async fn e5_response_and_delivery_boundary() {
                 assert!(html.contains("/verify-email?token="));
             }
         }
+    }
+    {
+        let mail = f.mail.lock().await;
+        let alerts: Vec<_> = mail.iter().filter(|m|m["subject"].as_str().is_some_and(|s|s.contains("New Verdaxis account application"))).collect();
+        assert_eq!(alerts.len(),1);
+        assert!(alerts[0]["subject"].as_str().unwrap().contains("[development]"));
+        assert_eq!(alerts[0]["to"][0],"support@verdaxis.exchange");
+        let id: Uuid = sqlx::query_scalar("SELECT id FROM users WHERE email=$1").bind(format!("user0@{domain}")).fetch_one(&f.owner).await.unwrap();
+        assert_eq!(alerts[0]["test_idempotency"],format!("signup-alert/development/{id}"));
+        assert!(alerts[0]["html"].as_str().unwrap().contains(&format!("user0@{domain}")));
     }
     let joined: (Option<Uuid>,String,i64) = sqlx::query_as("SELECT u.organization_id,u.status::text,(SELECT count(*) FROM organization_join_requests j WHERE j.user_id=u.id AND j.organization_id=$2) FROM users u WHERE email=$1").bind(format!("user0@{domain}")).bind(org).fetch_one(&f.owner).await.unwrap();
     assert_eq!(joined, (None, "PENDING".into(), 1));
@@ -702,5 +713,29 @@ async fn e5_e6_http_limits() {
             }
         }
     }
+    f.stop().await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL authority"]
+async fn e5_e6_mail_logs_exclude_credentials() {
+    use tracing::instrument::WithSubscriber;
+    let captured=LogCapture(Arc::new(std::sync::Mutex::new(Vec::new())));
+    let subscriber=tracing_subscriber::fmt().without_time().with_ansi(false).with_writer(captured.clone()).finish();
+    let f=Fixture::new(true).await;
+    let email=format!("{}@gmail.com",Uuid::new_v4());
+    f.request("/api/auth/register",signup(&email,None)).with_subscriber(subscriber).await;
+    let pending=f.token(&email).await;
+    let verification=auth::token_bytes::generate_token();
+    let reset=auth::token_bytes::generate_token();
+    let subscriber=tracing_subscriber::fmt().without_time().with_ansi(false).with_writer(captured.clone()).finish();
+    async {
+        f.settings.mail.dispatch(email::AuthMail::Verification{to:email.clone(),name:"Test".into(),token:verification.clone(),pending:None});
+        f.settings.mail.dispatch(email::AuthMail::Reset{to:email.clone(),name:"Test".into(),token:reset.clone()});
+    }.with_subscriber(subscriber).await;
+    f.drain().await;
+    let log=String::from_utf8(captured.0.lock().unwrap().clone()).unwrap();
+    assert!(log.contains("auth_mail_delivery_failed"));
+    for token in [&pending,&verification,&reset] {assert!(!log.contains(token),"credential appeared in logs");}
     f.stop().await;
 }
