@@ -506,20 +506,24 @@ impl AllowedPropertyValue {
             return None;
         }
         let accepted = match property {
+            // `role` is a trading role everywhere except the login and
+            // tutorial events, which also record an administrator session.
             AllowedProperty::Role => {
-                let domain = if matches!(
-                    event.name(),
-                    "login_succeeded"
-                        | "tutorial_started"
-                        | "tutorial_step_completed"
-                        | "tutorial_step_skipped"
-                        | "tutorial_completed"
-                ) {
-                    &ROLES[..]
+                let admin_inclusive = matches!(
+                    event,
+                    RegisteredEvent::Frontend(
+                        AllowedFrontendEvent::LoginSucceeded
+                            | AllowedFrontendEvent::TutorialStarted
+                            | AllowedFrontendEvent::TutorialStepCompleted
+                            | AllowedFrontendEvent::TutorialStepSkipped
+                            | AllowedFrontendEvent::TutorialCompleted
+                    )
+                );
+                if admin_inclusive {
+                    ROLES.contains(&raw)
                 } else {
-                    &TRADING_ROLES[..]
-                };
-                domain.contains(&raw)
+                    TRADING_ROLES.contains(&raw)
+                }
             }
             AllowedProperty::Side => SIDES.contains(&raw),
             AllowedProperty::CanonicalProduct
@@ -539,20 +543,21 @@ impl AllowedPropertyValue {
             AllowedProperty::OrganizationType => ORGANIZATION_TYPES.contains(&raw),
             AllowedProperty::Country => raw.chars().count() == 2 && catalog.is_country(raw),
             AllowedProperty::ReasonCategory => LOGIN_FAILURES.contains(&raw),
-            AllowedProperty::Destination | AllowedProperty::ViewMode => {
-                if property == AllowedProperty::ViewMode {
-                    TRADING_ROLES.contains(&raw)
-                } else {
-                    DESTINATIONS.contains(&raw)
-                }
-            }
+            AllowedProperty::Destination => DESTINATIONS.contains(&raw),
+            AllowedProperty::ViewMode => TRADING_ROLES.contains(&raw),
             AllowedProperty::DemoStatus => DEMO_STATUSES.contains(&raw),
             AllowedProperty::Step => TUTORIAL_STEPS.contains(&raw),
+            // A backend-unavailable report is never raised by the landing
+            // page, so its route family excludes `landing`.
             AllowedProperty::RouteFamily => {
-                if event.name() == "backend_unavailable" {
-                    NONLANDING_ROUTE_FAMILIES.contains(&raw)
-                } else {
+                let includes_landing = matches!(
+                    event,
+                    RegisteredEvent::Frontend(AllowedFrontendEvent::FrontendError)
+                );
+                if includes_landing {
                     ROUTE_FAMILIES.contains(&raw)
+                } else {
+                    NONLANDING_ROUTE_FAMILIES.contains(&raw)
                 }
             }
             AllowedProperty::Category => ERROR_CATEGORIES.contains(&raw),
