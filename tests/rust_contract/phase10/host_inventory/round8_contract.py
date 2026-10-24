@@ -167,6 +167,34 @@ class Round8Contract(unittest.TestCase):
                 self.assertTrue(all(not flag for flag in result['acquired'].values()))
                 self.installed(result)
 
+    def test_transport_deadline_wait_downstream(self):
+        import subprocess
+        for branch in ('deadline','wait'):
+            with self.subTest(branch=branch):
+                original=self.transport.subprocess.Popen
+                def spawn(argv,**kw):
+                    child=original([sys.executable,'-c','import time;time.sleep(60)'],**kw)
+                    if branch=='wait':
+                        real_wait=child.wait; calls=[0]
+                        def wait(*a,**k):
+                            calls[0]+=1
+                            if calls[0]==1:raise subprocess.TimeoutExpired('fixture',.1)
+                            return real_wait(*a,**k)
+                        child.wait=wait
+                    return child
+                class EmptySelector:
+                    def __enter__(self):return self
+                    def __exit__(self,*a):pass
+                    def register(self,*a):pass
+                    def get_map(self):return {}
+                clock=patch.object(self.transport.time,'monotonic',side_effect=[0,10000,10000,10000]) if branch=='deadline' else patch.object(self.transport.selectors,'DefaultSelector',EmptySelector)
+                with patch.object(self.transport.subprocess,'Popen',spawn),clock:
+                    raw=self.transport.ssh_once(['fixture'],b'x')
+                self.assertEqual(raw,(b'',False))
+                self.assertEqual(self.transport.read_host('staging',lambda a,d:raw),{'refusal':'transport-error'})
+                base=json.loads((ROOT/'tests/rust_contract/phase10/host-dependencies.json').read_text())
+                self.assertEqual(self.transport.collect_hosts(base,lambda a,d:raw),{'host_refusals':{'staging':{'refusal':'transport-error'},'production':{'refusal':'transport-error'}}})
+
     def test_transport_and_publisher_downstream(self):
         original=self.transport.subprocess.Popen
         def spawn(argv,**kw):return original([sys.executable,'-c',"import os;os.write(1,b'x'*4096)"],**kw)
