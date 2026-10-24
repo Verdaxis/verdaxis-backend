@@ -373,10 +373,10 @@ fn scan_repository() -> Vec<String> {
             // to that file, and no other file may copy this spelling.
             let approved_fixture_insert = path == &root.join("rs/read/tests/integration_i1.rs")
                 && literal.starts_with("INSERT INTO ORDERBOOK_ORDERS(");
-            if let Some(rule) = orderbook_dml(&literal) {
-                if !approved_fixture_insert {
-                    violations.push(format!("{}: {rule}", path.display()));
-                }
+            if let Some(rule) = orderbook_dml(&literal)
+                && !approved_fixture_insert
+            {
+                violations.push(format!("{}: {rule}", path.display()));
             }
             if orderbook_row_lock(&literal) {
                 violations.push(format!("{}: order-book row FOR UPDATE", path.display()));
