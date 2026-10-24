@@ -1703,7 +1703,7 @@ pub async fn time_to_fill(
     query_ref: &AnalyticsQuery,
 ) -> Result<Vec<FillRow>, ApiError> {
     let text = format!(
-        "SELECT o.created_at, min(t.confirmed_at) AS first_confirmed_at\nFROM orderbook_orders o\nJOIN trades t ON (t.bid_order_id = o.id OR t.ask_order_id = o.id)\nWHERE {ORDER_SLICE}\n  AND {RECOGNIZED_ORGS}\n  AND t.status IN ('CONFIRMED','DELIVERED','PAID')\n  AND t.confirmed_at IS NOT NULL\n  AND t.confirmed_at < $2\nGROUP BY o.id, o.created_at"
+        "SELECT o.created_at, min(t.confirmed_at) AS first_confirmed_at\nFROM orderbook_orders o\nJOIN trades t ON (t.bid_order_id = o.id OR t.ask_order_id = o.id)\nWHERE {ORDER_SLICE}\n  AND {RECOGNIZED_ORGS}\n  AND t.status IN ('CONFIRMED','DELIVERED','PAID')\n  AND t.confirmed_at IS NOT NULL\n  AND t.confirmed_at >= o.created_at\n  AND t.confirmed_at < $2\nGROUP BY o.id, o.created_at"
     );
     let rows = bind_slice(text, query_ref)
         .fetch_all(&mut *conn)
@@ -2697,21 +2697,20 @@ impl std::fmt::Debug for AnalyticsService {
     }
 }
 
-/// A whole-window provider reading is bounded by one budget. This is an
-/// admission bound, not a measurement; expiry yields a typed `timeout`
+/// One budget covers the whole provider phase, current window included. It is
+/// an admission bound, not a measurement: expiry yields a typed `timeout`
 /// diagnostic and never a partial success.
-fn provider_budget() -> std::time::Duration {
-    std::time::Duration::from_secs(10)
-}
+const PROVIDER_BUDGET: std::time::Duration = std::time::Duration::from_secs(10);
 
 async fn read_window(
     service: &AnalyticsService,
     query: &AnalyticsQuery,
     properties: &AllowedPropertySet,
+    deadline: tokio::time::Instant,
 ) -> BehavioralWindow {
     tokio::select! {
         window = service.behavioral.window(query, properties) => window,
-        _ = tokio::time::sleep(provider_budget()) => {
+        _ = tokio::time::sleep_until(deadline) => {
             BehavioralWindow::unavailable(Diagnostic::Timeout, Utc::now())
         }
     }
@@ -2722,14 +2721,17 @@ async fn read_windows(
     query: &AnalyticsQuery,
     properties: &AllowedPropertySet,
 ) -> (BehavioralWindow, Option<BehavioralWindow>) {
-    let current = read_window(service, query, properties).await;
+    // Both windows share one deadline, so a slow provider cannot double the
+    // request's provider time by failing each window separately.
+    let deadline = tokio::time::Instant::now() + PROVIDER_BUDGET;
+    let current = read_window(service, query, properties, deadline).await;
     let previous = match query.previous() {
         Some((start, end)) => {
             let mut comparison = query.clone();
             comparison.start = start;
             comparison.end = end;
             comparison.compare = false;
-            Some(read_window(service, &comparison, properties).await)
+            Some(read_window(service, &comparison, properties, deadline).await)
         }
         None => None,
     };
@@ -3016,8 +3018,16 @@ pub async fn dispatch(
 
     // Provider I/O happens before a pooled connection is taken: the plan
     // forbids holding one through a remote call, and an unavailable provider
-    // must not tie up a database slot for its whole timeout.
+    // must not tie up a database slot for its whole timeout. It still runs
+    // under one owned read-admission permit, so concurrent provider work is
+    // bounded by the same fixed slot count as database work and a saturated
+    // server refuses with the shared busy answer instead of fanning out.
+    let provider_permit = match crate::runtime::admission::try_read(app) {
+        Ok(permit) => permit,
+        Err(error) => return error.into_response(),
+    };
     let readings = service.provider_read(route, &query).await;
+    drop(provider_permit);
 
     // The admitted owner is detached from the caller, so it owns everything it
     // needs: no borrow of `app`, the request or the caller outlives this call.
