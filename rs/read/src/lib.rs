@@ -194,4 +194,3 @@ pub fn verify_release(value: &str) -> Result<(), &'static str> {
         Err("release identity mismatch")
     }
 }
-

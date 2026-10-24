@@ -12,8 +12,7 @@ use sqlx::{Connection, PgConnection, postgres::PgPoolOptions};
 use tokio::sync::Semaphore;
 use uuid::Uuid;
 use verdaxis_read::{
-    Config, MarketPolicy,
-    auth,
+    Config, MarketPolicy, auth,
     business::{organizations, transaction},
     kyc::{
         grace::Grace,
@@ -92,7 +91,10 @@ impl Fixture {
         sqlx::query("INSERT INTO delivery_points(id,name,region) VALUES($1,'fixture-point','fixture-region')")
             .bind(point).execute(&mut admin).await.unwrap();
         sqlx::query("INSERT INTO organizations(id) VALUES($1)")
-            .bind(org).execute(&mut admin).await.unwrap();
+            .bind(org)
+            .execute(&mut admin)
+            .await
+            .unwrap();
         for (id, role, organization, status, kyc_status, kyc_org) in [
             (
                 actor,
@@ -260,17 +262,19 @@ async fn i1_t8_rejection_with_real_t7_and_t9() {
     .unwrap();
     assert_eq!(events, 1);
     // Task 8 effect: exactly one rejection audit, and membership detached.
-    let audits: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM audit_logs WHERE action='admin.organization_rejected'")
+    let audits: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_logs WHERE action='admin.organization_rejected'",
+    )
+    .fetch_one(&mut *conn)
+    .await
+    .unwrap();
+    assert_eq!(audits, 1);
+    let detached: Option<Uuid> =
+        sqlx::query_scalar("SELECT organization_id FROM users WHERE id=$1")
+            .bind(fixture.member)
             .fetch_one(&mut *conn)
             .await
             .unwrap();
-    assert_eq!(audits, 1);
-    let detached: Option<Uuid> = sqlx::query_scalar("SELECT organization_id FROM users WHERE id=$1")
-        .bind(fixture.member)
-        .fetch_one(&mut *conn)
-        .await
-        .unwrap();
     assert_eq!(detached, None);
     drop(conn);
     // The real policy refuses the detached member afterwards.
@@ -317,9 +321,15 @@ fn i1_t10_declarations_with_real_t9_policy() {
             kyc_status: status,
         };
         let strict = eligibility(&enabled, &party, Some(&grace), now());
-        assert_eq!(strict.eligible, expect_enabled, "{status:?} bound={bound:?}");
+        assert_eq!(
+            strict.eligible, expect_enabled,
+            "{status:?} bound={bound:?}"
+        );
         let loose = eligibility(&advisory, &party, Some(&grace), now());
-        assert_eq!(loose.eligible, expect_advisory, "{status:?} bound={bound:?}");
+        assert_eq!(
+            loose.eligible, expect_advisory,
+            "{status:?} bound={bound:?}"
+        );
     }
     // Grace is current-organization bound and must still be unexpired.
     let pending = KycParty {
