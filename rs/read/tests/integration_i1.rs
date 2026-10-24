@@ -125,8 +125,14 @@ impl Fixture {
             .await
             .unwrap();
         sqlx::query(include_str!("fixtures/i1_order_insert.sql"))
-            .bind(order).bind(org).bind(product).bind(point).bind(inventory)
-            .execute(&mut admin).await.unwrap();
+            .bind(order)
+            .bind(org)
+            .bind(product)
+            .bind(point)
+            .bind(inventory)
+            .execute(&mut admin)
+            .await
+            .unwrap();
         sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
             "GRANT USAGE ON SCHEMA {schema} TO rust_app; \
              GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA {schema} TO rust_app"

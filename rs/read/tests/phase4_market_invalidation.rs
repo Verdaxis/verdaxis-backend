@@ -113,8 +113,22 @@ impl Fixture {
 
     async fn order(&mut self, own: bool, remaining: i32, reserved: bool) -> Uuid {
         let id = Uuid::new_v4();
-        sqlx::query(include_str!("fixtures/market_invalidation_order_insert.sql"))
-            .bind(id).bind(if own {self.command.organization_id} else {self.other}).bind(self.product).bind(self.point).bind(Decimal::from(remaining)).bind(reserved.then_some(self.inventory)).execute(&mut self.conn).await.unwrap();
+        sqlx::query(include_str!(
+            "fixtures/market_invalidation_order_insert.sql"
+        ))
+        .bind(id)
+        .bind(if own {
+            self.command.organization_id
+        } else {
+            self.other
+        })
+        .bind(self.product)
+        .bind(self.point)
+        .bind(Decimal::from(remaining))
+        .bind(reserved.then_some(self.inventory))
+        .execute(&mut self.conn)
+        .await
+        .unwrap();
         id
     }
 
@@ -331,7 +345,12 @@ async fn p4_t7_c05() {
     let mut f = Fixture::new().await;
     let order = f.order(true, 60, false).await;
     // A volatile lock wrapper changes the row exactly between preview and re-read.
-    sqlx::raw_sql(sqlx::AssertSqlSafe(include_str!("fixtures/market_invalidation_advisory_override.sql"))).execute(&mut f.conn).await.unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(include_str!(
+        "fixtures/market_invalidation_advisory_override.sql"
+    )))
+    .execute(&mut f.conn)
+    .await
+    .unwrap();
     sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "SET search_path TO {},pg_catalog",
         f.schema
@@ -430,12 +449,14 @@ async fn p4_t7_c07() {
     .unwrap();
     assert_eq!(ignored.ignored_null_points, 1);
     assert!(ignored.rebuilt.is_empty());
-    sqlx::query(include_str!("fixtures/market_invalidation_order_expiry.sql"))
-        .bind(now())
-        .bind(order)
-        .execute(&mut *tx)
-        .await
-        .unwrap();
+    sqlx::query(include_str!(
+        "fixtures/market_invalidation_order_expiry.sql"
+    ))
+    .bind(now())
+    .bind(order)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
     let deleted = rebuild_live_slice_benchmarks_for_keys(
         &mut tx,
         &f.command.policy,
@@ -653,11 +674,13 @@ async fn p4_t7_c11() {
     let mut contender = PgConnection::connect(&url).await.unwrap();
     let mut held = contender.begin().await.unwrap();
     let key = market_slice_lock_key(f.product, Some(f.point), "SPOT");
-    sqlx::query(include_str!("fixtures/market_invalidation_advisory_lock.sql"))
-        .bind(key)
-        .execute(&mut *held)
-        .await
-        .unwrap();
+    sqlx::query(include_str!(
+        "fixtures/market_invalidation_advisory_lock.sql"
+    ))
+    .bind(key)
+    .execute(&mut *held)
+    .await
+    .unwrap();
     let mut tx = f.conn.begin().await.unwrap();
     sqlx::query("SELECT id FROM organizations WHERE id=$1 FOR UPDATE")
         .bind(f.command.organization_id)
@@ -730,13 +753,15 @@ async fn p4_t7_c13() {
         .execute(&mut f.conn)
         .await
         .unwrap();
-    sqlx::query(include_str!("fixtures/market_invalidation_order_reassign.sql"))
-        .bind(f.command.organization_id)
-        .bind(f.command.actor_id)
-        .bind(order)
-        .execute(&mut f.conn)
-        .await
-        .unwrap();
+    sqlx::query(include_str!(
+        "fixtures/market_invalidation_order_reassign.sql"
+    ))
+    .bind(f.command.organization_id)
+    .bind(f.command.actor_id)
+    .bind(order)
+    .execute(&mut f.conn)
+    .await
+    .unwrap();
     let key = f.key();
     let mut strict = (*f.command.config).clone();
     strict.kyc_execution_gate_enabled = true;
@@ -789,8 +814,17 @@ async fn evidence_mix(real: i64, demo: i64, unknown: i64) {
         ] {
             for _ in 0..count {
                 let id = f.order(false, 40, false).await;
-                sqlx::query(include_str!("fixtures/market_invalidation_order_side_full.sql"))
-                    .bind(side).bind(provenance).bind(Decimal::from(price)).bind(now() + chrono::Duration::days(1)).bind(id).execute(&mut f.conn).await.unwrap();
+                sqlx::query(include_str!(
+                    "fixtures/market_invalidation_order_side_full.sql"
+                ))
+                .bind(side)
+                .bind(provenance)
+                .bind(Decimal::from(price))
+                .bind(now() + chrono::Duration::days(1))
+                .bind(id)
+                .execute(&mut f.conn)
+                .await
+                .unwrap();
             }
         }
         sqlx::query("INSERT INTO watchlist_targets(id,watchlist_id,target_type,market_product_code,delivery_point_id,availability_window_code) VALUES($1,$2,'SLICE','fixture-product',$3,'SPOT')")
