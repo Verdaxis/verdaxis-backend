@@ -2,12 +2,61 @@
 
 ## Status
 
-The Task 22 review fixes, the Task 23 runtime projection and the two PM items
-for this round (watchlist settings from release metadata; one payload order
-rule) are committed. The final gate batch records its results in the section
+The Task 22 review fixes, the Task 23 runtime projection, the two PM items
+for that round (watchlist settings from release metadata; one payload order
+rule) and PD2-SEC-1 are committed. The final gate batch records its results in the section
 below. The final review's F1/F2 gate repairs are committed and qualified in
 the "Review fix round" section. No staging or production deployment was
 attempted. Task 24 has not started. No measurement was run (decision 110).
+
+## PD2-SEC-1 — pre-auth quota cannot lock out new clients, 24 October 2026
+
+The automated review of `373dc817` found that one 50,000-bucket map, keyed by
+client address, refused **every** new identity once full. An address flood
+therefore locked out legitimate clients, administrators included. Fixed at
+`9a8639576da12194bbd6e9bd1e26f93f9cb7bcb5`; not pushed, pending independent
+security review.
+
+- **Authenticated quotas** (feedback, invite, preferences, admin feedback) are
+  keyed by verified user ID, in their own store. Every limited endpoint
+  requires a verified user; none is reachable unauthenticated, so no limited
+  route needed address keying.
+- **Pre-auth `/api/admin/` quota** keeps its own store, keyed by client
+  address; IPv4 per address, IPv6 grouped to its /64 (IPv4-mapped spellings
+  fold to the IPv4 bucket). A full table **evicts the soonest-expiring**
+  entry, which is the oldest accounting because both windows are uniform, and
+  counts it in a number-only warn log. The user store never evicts.
+- **Client derivation** is `runtime/http.rs::client_ip`: the forwarded hop is
+  read only when the socket peer is loopback, and then only its last element;
+  a direct caller cannot choose its key. `rate_limit_is_per_client_and_route`
+  (`rs/read/tests/http_contract.rs`) pins that a non-loopback peer's header is
+  ignored. Caddy sets `X-Forwarded-For {client_ip}` on every group proxy.
+
+Tests first: `10df338d3` is tests-only and fails on **assertion**, not compile,
+against `373dc817` — 4 of 8 cases red (`preauth_flood_admits_…`,
+`preauth_flood_does_not_consume_user_quota`, `ipv6_clients_share_one_prefix_bucket`,
+`ipv4_mapped_ipv6_shares_the_ipv4_bucket`); evidence `work/pd2-sec1-red.log`.
+Green at the fix: `work/pd2-sec1-green.log`.
+
+Two adapters needed a change, found by running the scenarios rather than by
+inspection: user keying made one scenario user exceed 5/min (feedback) and
+30/min (preferences) where rotating addresses had hidden it. Proven first:
+`work/pd2-sec1-scenario-red.log` shows `schema-page-url: unexpected HTTP
+status 429`. `feedback_contract` and `preferences_server` now build their
+quota authority per request, so the scenarios stay route oracles; quota is
+owned by the quota contract file and the PostgreSQL route tests.
+
+| Gate at `9a8639576` | Host / UTC | Exit |
+| --- | --- | --- |
+| fmt; Clippy plain; Clippy contract-tests; `cargo check` | M1, 11:59:47–12:02:32 | 0 each |
+| Offline workspace | M1 | 0; 407 passed, one ignored |
+| `cd rs && cargo audit` | M1 | 0; `rs/.cargo/audit.toml` now staging's (PD-SEC-2), so both inherited IDs are suppressed |
+| Rust PostgreSQL workspace | prod test host, 12:03:48–12:13:16 | 0; 417 passed, one ignored |
+| All Phase 2 scenarios | prod test host, 12:13:16–12:38:31 | 0; 21 scenarios, 367 actions |
+| Standalone races | prod test host, 12:38:31–12:51:55 | 0; 9 scenarios, 27 races |
+
+Evidence: `work/pd2-sec1-m1.log`, `work/pd2-sec1-prod.log`. The meaning gate
+was not required for this round (PM). No Mac build or test was run.
 
 ## PD2-M2 — stricter load wait and one unchanged rerun
 
