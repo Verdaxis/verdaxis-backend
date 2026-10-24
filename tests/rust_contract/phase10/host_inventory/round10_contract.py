@@ -102,6 +102,30 @@ class Round10Contract(unittest.TestCase):
                 markers={row['status'] for row in block if row['status'].startswith('bound-exceeded:')}
                 assert_collection(self,reader,result,scripts=[expected_script],blocking=ordered(reader,block),markers=markers,acquired=acquired,observations=expected)
 
+    def test_nonregular_and_popped_depth_collection(self):
+        import os
+        for branch in ('nonregular','popped-depth'):
+            with self.subTest(branch=branch):
+                with tempfile.TemporaryDirectory(prefix='w0-r10-') as temp:
+                    seed=str(Path(temp)/'a.py')
+                    if branch=='nonregular':os.mkfifo(seed)
+                    else:Path(seed).write_text('')
+                    def command(argv):return (seed,True) if argv[0]=='find' else ('',True)
+                    original=self.reader.inspect_graph
+                    def graph(*args,**kwargs):return original(*args,max_depth=-1,**kwargs)
+                    context=patch.object(self.reader,'inspect_graph',graph) if branch=='popped-depth' else patch.dict({}, {})
+                    with context:result=self.reader.collect(command,cron_files=[])
+                    failed={'usr_local'} if branch=='popped-depth' else set()
+                    block=ordered(self.reader,[self.reader.bound_row('import-queue'),self.reader.bound_row('usr_local')]) if failed else [{'source':self.reader.unresolved(seed),'reference':self.reader.unresolved('<unreadable-or-forbidden>'),'status':'unresolved'}]
+                    observations=[observation('units',''),observation('timers',''),observation('processes',''),observation('usr_local',seed,acquired=not failed,unparsed=[unparsed(json.dumps({'key':'executable','values':[seed]}))]),observation('packages',''),*[observation('cron','') for _ in range(3)]]
+                    assert_collection(self,self.reader,result,scripts=[],blocking=block,markers={r['status'] for r in block if r['status'].startswith('bound-exceeded:')},acquired=flags(*failed),observations=observations)
+
+    def test_received_response_limit_refusal(self):
+        from reader_contract import TRANSPORT
+        transport=load(TRANSPORT)
+        with patch.object(transport,'MAX_BYTES',8):
+            self.assertEqual(transport.read_host('staging',lambda argv,data:(b'x'*9,True)),{'refusal':'output-bytes'})
+
     def test_prior_surface_proof_is_missing(self):
         # This is a test-code audit, not runtime RED. An old source tree is
         # optionally supplied by the batch to demonstrate the missing contract.
