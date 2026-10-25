@@ -11,10 +11,13 @@
 //! Stock and remainders allow zero, because inventory is created at zero stock
 //! and a filled order has a zero remainder. Order, trade and price values must
 //! stay positive, because every creation path refuses zero.
+// The declaration-only test target includes this leaf directly. Task 3 removes
+// this allowance when the test target uses the wired exports.
+#![allow(dead_code)]
 #![deny(clippy::float_arithmetic)]
 
 use rust_decimal::{Decimal, RoundingStrategy};
-use serde::{de, Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, de};
 
 use super::error::{MarketErrorCode, MarketWriteError};
 
