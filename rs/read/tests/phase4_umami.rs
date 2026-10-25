@@ -900,6 +900,36 @@ mod cases {
         assert_eq!(rows[0].count.count, Some(36));
     }
 
+    #[tokio::test]
+    async fn p4_t16_c74() {
+        let events = ["signup_started", "platform_navigation", "listing_opened", "tutorial_started"];
+        let mut series = Vec::new();
+        for day in 0..365 {
+            let date = chrono::NaiveDate::from_ymd_opt(2026, 1, 1).unwrap()
+                + chrono::Duration::days(day);
+            for event in events {
+                series.push(json!({"x": event, "t": date.to_string(), "y": 3}));
+            }
+        }
+        let stub = stub_with(move |request| {
+            request.path.ends_with("/events/series")
+                .then(|| Reply::json(200, Value::Array(series.clone())))
+        });
+        let (address, server) = serve(stub).await;
+        let annual = AnalyticsQuery {
+            start: at("2026-01-01T00:00:00Z"),
+            end: at("2027-01-01T00:00:00Z"),
+            ..query()
+        };
+        let window = client(address).window(&annual, destination_set()).await;
+        server.abort();
+        let rows = window.event_series.data().expect("annual series");
+        assert_eq!(rows.len(), 365 * events.len());
+        for event in events {
+            assert_eq!(rows.iter().filter(|row| row.event == event).count(), 365);
+        }
+    }
+
     // ---------------------------------------------------------------------------
     // c50: no cross-request state of any kind.
     // ---------------------------------------------------------------------------
