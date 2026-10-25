@@ -25,10 +25,10 @@ use rust_decimal::Decimal;
 use sqlx::{Connection, PgConnection, Row};
 use uuid::Uuid;
 
-use decimal::StockQuantity;
 pub use authority::AuthenticatedActor;
-pub use error::MarketWriteError;
+use decimal::StockQuantity;
 use error::MarketErrorCode;
+pub use error::MarketWriteError;
 use transaction::stock_contract as stock;
 
 fn d(value: &str) -> Decimal {
