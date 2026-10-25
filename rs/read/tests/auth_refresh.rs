@@ -214,12 +214,19 @@ async fn refresh_address_churn_preserves_new_clients_and_verified_user_quota() {
     );
 }
 
-
 #[tokio::test]
 async fn refresh_mapped_ipv4_and_plain_ipv4_share_the_endpoint_budget() {
     let app = refresh::router(state());
     for _ in 0..10 {
-        assert_eq!(refresh_from(app.clone(),"[::ffff:192.0.2.20]:1234").await.0,StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            refresh_from(app.clone(), "[::ffff:192.0.2.20]:1234")
+                .await
+                .0,
+            StatusCode::UNAUTHORIZED
+        );
     }
-    assert_eq!(refresh_from(app,"192.0.2.20:1234").await.0,StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(
+        refresh_from(app, "192.0.2.20:1234").await.0,
+        StatusCode::TOO_MANY_REQUESTS
+    );
 }
