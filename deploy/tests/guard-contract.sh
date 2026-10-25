@@ -160,13 +160,13 @@ hold_lock() {
 # identity or on a flock error that is not contention.
 mkdir -p -- "$work/stat-shim" "$work/stat-lock-shim" "$work/flock-shim"
 for entry in "stat-shim *.state" "stat-lock-shim *.restart.lock"; do
-    set -- $entry
-    cat >"$work/$1/stat" <<SHIM
+    read -r shim_name shim_glob <<< "$entry"
+    cat >"$work/$shim_name/stat" <<SHIM
 #!/usr/bin/env bash
 real=\${REAL_STAT:?}
 for argument in "\$@"; do
     case \$argument in
-        $2)
+        $shim_glob)
             output=\$("\$real" "\$@") || exit \$?
             printf '%s\n' "\$output" | awk -F: 'BEGIN { OFS = ":" } { \$2 = \$2 + 1; print }'
             exit 0
@@ -175,7 +175,7 @@ for argument in "\$@"; do
 done
 exec "\$real" "\$@"
 SHIM
-    chmod 0755 "$work/$1/stat"
+    chmod 0755 "$work/$shim_name/stat"
 done
 printf '#!/usr/bin/env bash\nexit 1\n' >"$work/flock-shim/flock"
 chmod 0755 "$work/flock-shim/flock"
