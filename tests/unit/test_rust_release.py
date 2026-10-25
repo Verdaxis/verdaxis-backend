@@ -489,8 +489,10 @@ exit 0
         environment = self.deploy_environment(self.old_sha)
         return environment
 
-    def deploy(self, release_sha: str, *, fail_phase: str = "", **overrides) -> subprocess.CompletedProcess[str]:
-        self._write_deployed_env(release_sha)
+    def deploy(self, release_sha: str, *, fail_phase: str = "", cache_listener: str | None = None, **overrides) -> subprocess.CompletedProcess[str]:
+        (self.checkout / ".env").write_text(
+            self.deployed_env_text(release_sha, cache_listener=cache_listener)
+        )
         environment = self.deploy_environment(release_sha, fail_phase=fail_phase)
         environment.update(overrides)
         return subprocess.run(
@@ -506,7 +508,13 @@ exit 0
         """The deployed .env names the release being deployed, as on the host."""
         (self.checkout / ".env").write_text(self.deployed_env_text(release_sha))
 
-    def deployed_env_text(self, release_sha: str, *, kyc_gate: str | None = "false") -> str:
+    def deployed_env_text(
+        self,
+        release_sha: str,
+        *,
+        kyc_gate: str | None = "false",
+        cache_listener: str | None = None,
+    ) -> str:
         """The deployed `.env` body, with the Private Beta KYC switch state."""
         body = (
             "ENVIRONMENT=staging\n"
@@ -524,7 +532,11 @@ exit 0
             "MIGRATOR_DATABASE_URL=postgresql+asyncpg://verdaxis_migrator_staging"
             ":fixture-password@127.0.0.1:5432/verdaxis_staging\n"
         )
-        return body if kyc_gate is None else body + f"KYC_EXECUTION_GATE_ENABLED={kyc_gate}\n"
+        if kyc_gate is not None:
+            body += f"KYC_EXECUTION_GATE_ENABLED={kyc_gate}\n"
+        if cache_listener is not None:
+            body += f"RUST_CACHE_LISTENER={cache_listener}\n"
+        return body
 
     def prepare_runtime_environment(
         self, release_sha: str, *, kyc_gate: str | None = "false"
@@ -908,6 +920,93 @@ def test_changed_budget_refuses_and_blocks(release_fixture):
     assert result.returncode != 0
     assert "DEPLOYMENT_STATE=blocked" in release_fixture.state_text()
     assert release_fixture.stopped_services() == set()
+
+
+def test_deploy_without_the_listener_key_keeps_the_budget_byte_identical(release_fixture):
+    """No key, or 0: the deployed artifact equals a flag-less preparation."""
+    for cache_listener in (None, "0"):
+        new_sha = release_fixture.push_rust_release(enabled=True)
+        release_fixture.build_artifact(new_sha)
+        result = release_fixture.deploy(new_sha, cache_listener=cache_listener)
+        assert result.returncode == 0, result.stderr
+        deployed = release_fixture.checkout / ".runtime-rust/budget.json"
+        with tempfile.TemporaryDirectory() as directory:
+            reference = Path(directory) / "reference-budget.json"
+            _budget_module().prepare(
+                release_fixture.checkout / ".env", new_sha, reference
+            )
+            assert deployed.read_bytes() == reference.read_bytes()
+        assert "cache_listener" not in json.loads(deployed.read_text())
+        assert "--cache-listener 0" in _budget_line(release_fixture.ledger)
+
+
+def test_deploy_with_the_listener_flag_budgets_the_dedicated_connection(release_fixture):
+    """`RUST_CACHE_LISTENER=1` carries `cache_listener: 1` and its connection."""
+    new_sha = release_fixture.push_rust_release(enabled=True)
+    release_fixture.build_artifact(new_sha)
+    result = release_fixture.deploy(new_sha, cache_listener="1")
+    assert result.returncode == 0, result.stderr
+    deployed = json.loads(
+        (release_fixture.checkout / ".runtime-rust/budget.json").read_text()
+    )
+    assert deployed["cache_listener"] == 1
+    with tempfile.TemporaryDirectory() as directory:
+        reference = Path(directory) / "reference-budget.json"
+        _budget_module().prepare(
+            release_fixture.checkout / ".env", new_sha, reference, 1
+        )
+        plain = Path(directory) / "plain-budget.json"
+        _budget_module().prepare(
+            release_fixture.checkout / ".env", new_sha, plain
+        )
+        assert deployed == json.loads(reference.read_text())
+        assert deployed["total"] == json.loads(plain.read_text())["total"] + 1
+    ledger = release_fixture.ledger
+    assert "--cache-listener 1" in _budget_line(ledger)
+    # The deploy's own drift recheck accepts the recorded listener choice.
+    assert any(
+        "--verify" in e for e in ledger if "prepare_rust_budget.py" in e
+    )
+
+
+@pytest.mark.parametrize("value", ["2", "yes", "true", ""])
+def test_deploy_refuses_an_invalid_listener_value_before_schema_change(
+    release_fixture, value
+):
+    """Any other value refuses before the migration checkpoint helper runs."""
+    new_sha = release_fixture.push_rust_release(enabled=True)
+    release_fixture.build_artifact(new_sha)
+    result = release_fixture.deploy(new_sha, cache_listener=value)
+    assert result.returncode != 0
+    assert "RUST_CACHE_LISTENER" in (result.stderr + result.stdout)
+    # The refusal happens at the budget step, before any schema change or
+    # service restart.
+    assert not any("apply_migration_checkpoint.py" in e for e in release_fixture.ledger)
+    assert not any(e.startswith("sudo:systemctl restart") for e in release_fixture.ledger)
+    # ...and leaves the deploy in the fail-closed blocked state.
+    assert "DEPLOYMENT_STATE=blocked" in release_fixture.state_text()
+    assert release_fixture.stopped_services() == set()
+
+
+def _budget_line(ledger: list[str]) -> str:
+    return next(e for e in ledger if "prepare_rust_budget.py" in e and "--verify" not in e)
+
+
+_BUDGET_MODULE = None
+
+
+def _budget_module():
+    """The one loaded instance, like `_load_preparer` above."""
+    global _BUDGET_MODULE
+    if _BUDGET_MODULE is None:
+        spec = importlib.util.spec_from_file_location(
+            "prepare_rust_budget", ROOT / "scripts" / "prepare_rust_budget.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(module)
+        _BUDGET_MODULE = module
+    return _BUDGET_MODULE
 
 
 def test_stale_authorization_does_not_authorize_a_unit_start(release_fixture):
