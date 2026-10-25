@@ -415,6 +415,51 @@ pub struct Receipt {
     pub response_body: Value,
 }
 
+/// Validate a receipt after the transaction owner has authorized the actor and
+/// derived the effective organization (recorded participation for cleanup).
+/// Actor/operation/key scope is enforced by the database lookup, not by a tenant
+/// value from an HTTP request.
+pub fn validate_receipt(
+    receipt: &Receipt,
+    context: &CommandContext,
+    operation: Operation,
+    resource_id: Uuid,
+    request_hash: &str,
+) -> Result<(), super::error::MarketWriteError> {
+    use super::error::{MarketErrorCode, MarketWriteError};
+    if receipt.resource_id != resource_id {
+        return Err(MarketWriteError::new(MarketErrorCode::ReceiptResourceMismatch));
+    }
+    if receipt.request_hash != request_hash
+        || Some(receipt.effective_organization_id) != context.effective_organization_id
+        || receipt.support_context_id != context.support_context_id
+        || receipt.resource_type != operation.resource_type()
+        || !(200..300).contains(&receipt.response_status)
+    {
+        return Err(MarketWriteError::new(MarketErrorCode::IdempotencyConflict));
+    }
+    Ok(())
+}
+
+/// Publication replay is narrower than current organization membership. Both
+/// concrete ownership and accountability must identify the authenticated actor.
+pub fn validate_inventory_replay(
+    actor: Uuid,
+    owner_user_id: Option<Uuid>,
+    accountable_actor_user_id: Option<Uuid>,
+    stored_hash: &str,
+    request_hash: &str,
+) -> Result<(), super::error::MarketWriteError> {
+    use super::error::{MarketErrorCode, MarketWriteError};
+    if owner_user_id != Some(actor) || accountable_actor_user_id != Some(actor) {
+        return Err(MarketWriteError::new(MarketErrorCode::ReplayPrincipalMismatch));
+    }
+    if stored_hash != request_hash {
+        return Err(MarketWriteError::new(MarketErrorCode::IdempotencyConflict));
+    }
+    Ok(())
+}
+
 /// One receipt row to insert with the successful economic transaction.
 #[derive(Clone, Debug)]
 pub struct ReceiptRecord {
