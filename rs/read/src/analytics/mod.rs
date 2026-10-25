@@ -17,19 +17,20 @@ pub mod events;
 pub mod facts;
 pub mod liquidity;
 pub mod marketplace;
-pub mod reliability;
-pub mod policy;
 pub mod overview;
+pub mod policy;
 pub mod query;
+pub mod reliability;
 pub mod retention;
 pub mod types;
 pub mod usage;
 
 pub use activation::activation;
 pub use aggregates::{
-    ActivationFacts, ActivityFacts, DropOffFacts, EngagementFacts, LoginFacts, LoginSummary, OverviewFacts, ProvenanceRow, QualityTracker, RetentionFacts,
-    RoleCounts, StatusFacts, TradeFacts, load_activation_facts, load_engagement_facts,
-    load_overview_facts, load_retention_facts,
+    ActivationFacts, ActivityFacts, DropOffFacts, EngagementFacts, LoginFacts, LoginSummary,
+    OverviewFacts, ProvenanceRow, QualityTracker, RetentionFacts, RoleCounts, StatusFacts,
+    TradeFacts, load_activation_facts, load_engagement_facts, load_overview_facts,
+    load_retention_facts,
 };
 pub use cohorts::{cohorts, retention};
 pub use engagement::engagement;

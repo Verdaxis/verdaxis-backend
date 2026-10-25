@@ -1943,7 +1943,10 @@ pub async fn dispatch(
     let raw_query = request.uri().query().unwrap_or("").to_owned();
     // The quota key is the token exactly as the verifier checked it; there is
     // no second header parse to drift from the accepted spelling.
-    let token = format!("tok:{}", crate::auth::token_bytes::token_digest(&checked_token));
+    let token = format!(
+        "tok:{}",
+        crate::auth::token_bytes::token_digest(&checked_token)
+    );
     let limits = limits.clone();
     let now_seconds = now.timestamp().max(0) as u64;
 
