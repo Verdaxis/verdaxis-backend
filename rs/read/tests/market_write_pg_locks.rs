@@ -528,7 +528,11 @@ fn maintenance_and_phase7_sources_keep_canonical_locks_and_columns() {
     let demo = include_str!("../../../app/services/demo_activity.py");
     assert!(demo.contains("acquire_market_slice_locks("));
     assert!(demo.contains("remaining_quantity_mt"));
-    assert!(demo.contains("buyer_user_id"));
+    assert!(demo.contains("trades = await match_order("));
+    let matcher = include_str!("../../../app/services/matching_engine.py");
+    for column in ["buyer_user_id", "seller_user_id"] {
+        assert!(matcher.contains(column));
+    }
     let seed = include_str!("../../../app/seeds/market_seed.py");
     for column in [
         "buyer_user_id",
