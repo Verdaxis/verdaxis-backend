@@ -471,7 +471,7 @@ async def test_rust_public_route_cache_schedules(route_market, market_pg_url):
     }
     subprocess.run(
         ["cargo", "test", "--manifest-path", "rs/Cargo.toml", "-p", "verdaxis-read",
-         "--test", "trading_cache_postgres", "public_route_wrappers_check_generations_and_time_without_listener_wakes", "--", "--test-threads=1"],
+         "--test", "trading_cache_postgres", "public_", "--", "--test-threads=1"],
         cwd=ROOT, env=environment, check=True, timeout=1200,
     )
 
