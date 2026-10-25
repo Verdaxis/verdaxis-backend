@@ -25,6 +25,7 @@ use crate::{
         order_projection::PublicOrder,
         terms::{
             QualificationInput, normalize_certification_scheme, order_is_execution_qualified_at,
+            redact_terms,
         },
         visibility::{PublicOrderFilters, VisibilityClock, bind_order_query, order_query_sql},
     },
@@ -166,6 +167,7 @@ struct Order {
     organization: Uuid,
     remaining: Decimal,
     created: chrono::DateTime<Utc>,
+    compatibility_terms: Value,
 }
 impl Order {
     fn qualified(&self, policy: &MarketPolicy, clock: &VisibilityClock) -> bool {
@@ -206,7 +208,7 @@ async fn suggestions(
     let clock = VisibilityClock::at(Utc::now());
     // The complete relation applies before candidate selection or economic projection.
     let sql = order_query_sql(
-        "SELECT e.*, /* private_digest_input(e) */ FROM eligible_orders e WHERE (e.organization_id=$14 AND e.side=$15) OR (e.organization_id<>$14 AND e.side<>$15 AND NOT EXISTS (SELECT 1 FROM match_suggestions s WHERE s.recipient_org_id=$14 AND s.status='DISMISSED' AND (s.bid_order_id=e.id OR s.ask_order_id=e.id))) ORDER BY e.created_at,e.id",
+        "SELECT e.*, COALESCE(org.supplier_tier, 'INDEPENDENT') AS tier_label, /* private_digest_input(e) */ FROM eligible_orders e LEFT JOIN organizations org ON org.id=e.organization_id WHERE (e.organization_id=$14 AND e.side=$15) OR (e.organization_id<>$14 AND e.side<>$15 AND NOT EXISTS (SELECT 1 FROM match_suggestions s WHERE s.recipient_org_id=$14 AND s.status='DISMISSED' AND (s.bid_order_id=e.id OR s.ask_order_id=e.id))) ORDER BY e.created_at,e.id",
     );
     let rows = bind_order_query(&sql, policy, &clock, config, &PublicOrderFilters::default())
         .map_err(|_| ApiError::database())?
@@ -218,8 +220,9 @@ async fn suggestions(
     let mut sources = Vec::new();
     let mut candidates = Vec::new();
     for row in rows {
-        let order = Order {
+        let mut order = Order {
             public: PublicOrder::from_row(&row)?,
+            compatibility_terms: Value::Null,
             id: row.try_get("id").map_err(|_| ApiError::internal())?,
             organization: row
                 .try_get("organization_id")
@@ -233,6 +236,15 @@ async fn suggestions(
         };
         if !order.qualified(policy, &clock) {
             continue;
+        }
+        let profile = policy.products.iter().find(|product| {
+            Some(product.id.to_string().as_str()) == order.public.private["product_id"].as_str()
+        }).map(|product| product.qualification_profile.as_str()).unwrap_or("scalar");
+        if let Some(field) = match profile { "lng_v1" => Some("lng_terms"), "fame_v1" => Some("fame_terms"), _ => None } {
+            // Shared typed normalization supplies schema defaults once per order,
+            // after execution qualification and before any pair comparison.
+            order.compatibility_terms = redact_terms(profile, &order.public.private[field])
+                .map_err(|_| ApiError::internal())?;
         }
         if order.organization == org {
             sources.push(order)
@@ -291,11 +303,16 @@ fn compatible(policy: &MarketPolicy, source: &Order, candidate: &Order) -> bool 
         .find(|p| Some(p.id.to_string().as_str()) == a["product_id"].as_str())
         .map(|p| p.qualification_profile.as_str())
         .unwrap_or("scalar");
+    let (bid_terms, ask_terms) = if source.public.side == "BID" {
+        (&source.compatibility_terms, &candidate.compatibility_terms)
+    } else {
+        (&candidate.compatibility_terms, &source.compatibility_terms)
+    };
     if profile == "lng_v1" {
-        return lng_compatible(&bid["lng_terms"], &ask["lng_terms"]);
+        return lng_compatible(bid_terms, ask_terms);
     }
     if profile == "fame_v1" {
-        return fame_compatible(&bid["fame_terms"], &ask["fame_terms"]);
+        return fame_compatible(bid_terms, ask_terms);
     }
     let scheme = normalize_certification_scheme(ask["certification_scheme"].as_str());
     let required: Vec<_> = bid["certifications"]
