@@ -1064,8 +1064,7 @@ fn p4_t15_c13() {
         "diagnostic": "authentication",
         "data": [],
     });
-    let fabricated: types::BehavioralWindow =
-        serde_json::from_value(fabricated).unwrap();
+    let fabricated: types::BehavioralWindow = serde_json::from_value(fabricated).unwrap();
     assert_eq!(
         fabricated.validate(),
         Err(types::BehavioralWindowError::IncoherentComponent)
@@ -1077,8 +1076,7 @@ fn p4_t15_c13() {
         "status": "available",
         "data": [],
     });
-    let fabricated: types::BehavioralWindow =
-        serde_json::from_value(fabricated).unwrap();
+    let fabricated: types::BehavioralWindow = serde_json::from_value(fabricated).unwrap();
     assert_eq!(
         fabricated.validate(),
         Err(types::BehavioralWindowError::IncoherentAvailability)
