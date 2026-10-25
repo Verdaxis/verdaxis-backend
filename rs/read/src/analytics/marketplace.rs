@@ -1921,11 +1921,14 @@ pub async fn dispatch(
         .get("authorization")
         .and_then(|value| value.to_str().ok())
         .map(str::to_owned);
-    let access =
-        match crate::auth::verify_authorization(authorization.as_deref(), verification, now) {
-            Ok(value) => value,
-            Err(error) => return crate::business::error::authentication(error).into_response(),
-        };
+    let (access, checked_token) = match crate::auth::verify_authorization_with_token(
+        authorization.as_deref(),
+        verification,
+        now,
+    ) {
+        Ok(value) => value,
+        Err(error) => return crate::business::error::authentication(error).into_response(),
+    };
     let peer = request
         .extensions()
         .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
@@ -1938,14 +1941,9 @@ pub async fn dispatch(
             .and_then(|value| value.to_str().ok()),
     );
     let raw_query = request.uri().query().unwrap_or("").to_owned();
-    // Match the verifier's accepted spelling, then retain only the shared
-    // full SHA-256 token identity in the quota store.
-    let normalized = authorization
-        .as_deref()
-        .and_then(|header| header.split_once(' '))
-        .map(|(_, token)| token.trim_start_matches(' '))
-        .unwrap_or("");
-    let token = format!("tok:{}", crate::auth::token_bytes::token_digest(normalized));
+    // The quota key is the token exactly as the verifier checked it; there is
+    // no second header parse to drift from the accepted spelling.
+    let token = format!("tok:{}", crate::auth::token_bytes::token_digest(&checked_token));
     let limits = limits.clone();
     let now_seconds = now.timestamp().max(0) as u64;
 
