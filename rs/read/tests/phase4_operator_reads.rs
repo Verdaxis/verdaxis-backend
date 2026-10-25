@@ -1202,6 +1202,11 @@ async fn p4_t4_c03() {
             .any(|item| item["email"] == "used-pending@example.test"),
         "a used registration is never a candidate"
     );
+    // Every attention row is exactly the seven AttentionItem fields; an
+    // accidentally added eighth (for example a projected secret) fails here.
+    for item in items {
+        assert_eq!(item.as_object().unwrap().len(), 7, "{item}");
+    }
     let wrong = items
         .iter()
         .find(|item| item["email"] == "wrong-audit@example.test")
@@ -1299,13 +1304,26 @@ async fn p4_t4_c06() {
     let admin = fixture.actor("ADMIN").await;
     let buyer = fixture.actor("BUYER").await;
     let supplier = fixture.actor("SUPPLIER").await;
+    // A NULL-role authenticated caller meets the same != ADMIN refusal.
+    let null_role_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO users(id,email,role,status,email_verified,must_change_password,created_at) \
+         VALUES($1,$2,NULL,'APPROVED',true,false,$3)",
+    )
+    .bind(null_role_id)
+    .bind(format!("{null_role_id}@example.test"))
+    .bind(fixture.now)
+    .execute(&mut fixture.admin)
+    .await
+    .unwrap();
+    let null_role = token(null_role_id);
     fixture.seed(&Spec::new("visible@example.test")).await;
 
     let shared = limits();
     let app = app(fixture.pool.clone(), fixture.url(), shared.clone());
     // Wrong-role and non-admin callers get the same refusal on every path
     // shape, including an unrelated path that shares no route state.
-    for bearer in [buyer, supplier] {
+    for bearer in [buyer, supplier, null_role] {
         let mut first_refusal = None;
         for path in [
             "/api/admin/onboarding-attention",

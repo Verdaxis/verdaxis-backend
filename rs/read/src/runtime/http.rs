@@ -203,7 +203,9 @@ async fn cors(State(environment): State<String>, request: Request, next: Next) -
     if !preflight {
         response.headers_mut().insert(
             "access-control-expose-headers",
-            "Retry-After, X-Request-ID, X-Verdaxis-Market-Support-Context-Invalid"
+            // The read-cap truncation header joins the exposed set so a
+            // cross-origin operator UI can read it (Task 4 review m1).
+            "Retry-After, X-Request-ID, X-Result-Truncated, X-Verdaxis-Market-Support-Context-Invalid"
                 .parse()
                 .unwrap(),
         );
