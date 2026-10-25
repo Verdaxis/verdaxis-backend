@@ -118,7 +118,7 @@ async fn a_distinct_client_flood_never_locks_out_or_silences_a_limited_client() 
                 .body(Body::empty())
                 .unwrap();
             request.extensions_mut().insert(axum::extract::ConnectInfo(
-                "127.0.0.1:5000".parse().unwrap(),
+                "127.0.0.1:5000".parse::<std::net::SocketAddr>().unwrap(),
             ));
             app.oneshot(request).await.unwrap()
         }
@@ -132,7 +132,9 @@ async fn a_distinct_client_flood_never_locks_out_or_silences_a_limited_client() 
     assert!(refused.headers().get("retry-after").is_none());
     assert_eq!(
         serde_json::from_slice::<serde_json::Value>(
-            &axum::body::to_bytes(refused.into_body(), 1024).await.unwrap()
+            &axum::body::to_bytes(refused.into_body(), 1024)
+                .await
+                .unwrap()
         )
         .unwrap(),
         serde_json::json!({"detail":"Rate limit exceeded: 60 per 1 minute"})
