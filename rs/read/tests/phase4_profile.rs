@@ -1492,7 +1492,7 @@ mod postgres {
                 "email": "user15@example.test",
                 "use_case": "supplier",
                 "referral_source": "web"
-            })
+            }),
         )
         .await;
         assert_eq!(
@@ -1526,7 +1526,7 @@ mod postgres {
             &f.app,
             CLIENT,
             Some(&token(fresh)),
-            &json!({"use_case": "supplier", "referral_source": "web"})
+            &json!({"use_case": "supplier", "referral_source": "web"}),
         )
         .await;
         assert_eq!(reply.status, StatusCode::NO_CONTENT);
