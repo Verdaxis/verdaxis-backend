@@ -797,6 +797,7 @@ async fn assisted_context_uses_locked_customer_authority() {
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL"]
 async fn continuing_python_protocols_run_against_ordered_rust() {
+    assert!(include_str!("fixtures/phase8_protocol_plugin.py").contains("assert python_outcome == rust_outcome"));
     let binary = std::env::current_exe().unwrap();
     let status = std::process::Command::new(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../venv/bin/python"),
@@ -846,6 +847,15 @@ async fn ordered_protocol_contender() {
             ));
             println!("PROTOCOL_BOUNDED");
         }
+    }
+    if let Ok(ready) = std::env::var("RUST_PROTOCOL_READY") {
+        std::fs::write(ready, "locked").unwrap();
+        let release = std::env::var("RUST_PROTOCOL_RELEASE").unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(20), async {
+            while !std::path::Path::new(&release).exists() {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        }).await.unwrap();
     }
     tx.rollback().await.unwrap();
 }
