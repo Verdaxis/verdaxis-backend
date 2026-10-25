@@ -15,7 +15,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config {
         environment: "test".into(),
         release_sha: verdaxis_read::compiled_sha().into(),
-        migration_revision: "p3_20261020_auth_tokens".into(),
+        // This adapter does not prepare a release or move the production pin.
+        migration_revision: "prc_20261018_cache".into(),
         database_url: std::env::var("PHASE3_DATABASE_URL")?,
         db_session_time_zone: "UTC".into(),
         prepared_budget: None,
