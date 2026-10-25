@@ -1022,7 +1022,6 @@ fn p4_t15_c13() {
         "top_entries",
         "top_referrers",
     ] {
-        let diagnostic = AnalyticsDiagnostic::Authentication;
         property_partial[key] = json!({
             "status": "available",
             "data": null,
