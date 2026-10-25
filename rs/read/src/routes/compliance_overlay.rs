@@ -33,7 +33,8 @@ use crate::compliance::http::{
     CompliancePost, OVERLAY_PATH, authenticated_request, bounded_body, parse_post_body,
 };
 use crate::compliance::pricing::{
-    AlcoholFamily, LifecycleOverlayCore, ListingOverlay, OverlayAssumptions, PricingError,
+    AlcoholFamily, FinancialBenefitStatus, LifecycleOverlayCore, ListingOverlay,
+    OverlayAssumptions, PricingError, ValueBasis,
 };
 use crate::market::visibility::{
     PublicOrderFilters, VisibilityClock, bind_order_query, order_query_sql,
@@ -117,8 +118,44 @@ impl std::error::Error for OverlayError {}
 
 #[derive(Serialize)]
 pub struct OverlayResponse {
-    pub overlays: BTreeMap<Uuid, Option<ListingOverlay>>,
+    pub overlays: BTreeMap<Uuid, Option<OverlayListing>>,
     pub assumptions: OverlayAssumptions,
+}
+
+/// The two legacy cash fields are `Decimal("0.00")` in Python, and its JSON
+/// encoder keeps the two decimal places. This constant carries that scale.
+const ZERO_CASH_AMOUNT: Decimal = Decimal::from_parts(0, 0, 0, false, 2);
+
+/// One visible ASK's declared-lifecycle comparison as the client reads it.
+///
+/// The pricing core computes the values; this projection fixes only the
+/// penalty fields' decimal spelling, so a client that formats the string the
+/// way Python's route produced it sees the same `"0.00"`.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct OverlayListing {
+    pub financial_benefit_status: FinancialBenefitStatus,
+    pub penalty_avoided_eur_per_mt: Decimal,
+    pub penalty_avoided_usd_per_mt: Decimal,
+    pub tco2e_avoided_per_mt: Decimal,
+    pub ci_gco2_mj: Decimal,
+    pub ci_basis: ValueBasis,
+    pub lcv_mj_kg: Decimal,
+    pub lcv_basis: ValueBasis,
+}
+
+impl From<ListingOverlay> for OverlayListing {
+    fn from(overlay: ListingOverlay) -> Self {
+        Self {
+            financial_benefit_status: overlay.financial_benefit_status,
+            penalty_avoided_eur_per_mt: ZERO_CASH_AMOUNT,
+            penalty_avoided_usd_per_mt: ZERO_CASH_AMOUNT,
+            tco2e_avoided_per_mt: overlay.tco2e_avoided_per_mt,
+            ci_gco2_mj: overlay.ci_gco2_mj,
+            ci_basis: overlay.ci_basis,
+            lcv_mj_kg: overlay.lcv_mj_kg,
+            lcv_basis: overlay.lcv_basis,
+        }
+    }
 }
 
 pub struct OverlayRow {
@@ -139,9 +176,15 @@ pub fn alcohol_family(fuel_type: &str) -> Option<AlcoholFamily> {
     }
 }
 
+/// Build the response from the statement rows.
+///
+/// `eur_usd_rate` is the configured `COMPLIANCE_EUR_USD_RATE`; `None` keeps the
+/// pricing core's published default, exactly as Python's
+/// `_effective_eur_usd_rate` does.
 pub fn project(
     request: &OverlayRequest,
     rows: Vec<OverlayRow>,
+    eur_usd_rate: Option<Decimal>,
 ) -> Result<OverlayResponse, OverlayError> {
     let count = rows
         .first()
@@ -163,13 +206,18 @@ pub fn project(
         // An unmatched ASK projection has no catalog family or listing values.
         if let Some(fuel_type) = row.fuel_type {
             *target = LifecycleOverlayCore::compute(alcohol_family(&fuel_type), row.ci, row.lcv)
-                .map_err(OverlayError::Pricing)?;
+                .map_err(OverlayError::Pricing)?
+                .map(OverlayListing::from);
         }
     }
     Ok(OverlayResponse {
         overlays,
-        assumptions: LifecycleOverlayCore::assumptions(request.year, fleet_vessel_count, None)
-            .map_err(OverlayError::Pricing)?,
+        assumptions: LifecycleOverlayCore::assumptions(
+            request.year,
+            fleet_vessel_count,
+            eur_usd_rate,
+        )
+        .map_err(OverlayError::Pricing)?,
     })
 }
 
@@ -210,7 +258,7 @@ pub async fn select_overlay(
         })
         .collect::<Result<Vec<_>, sqlx::Error>>()
         .map_err(OverlayError::Database)?;
-    project(request, rows)
+    project(request, rows, config.compliance_eur_usd_rate)
 }
 
 /// Bearer verification and route quota for the pricing overlay.
@@ -335,7 +383,7 @@ fn invalid_input() -> ApiError {
     )
 }
 
-fn overlay_failure(error: OverlayError) -> ApiError {
+pub fn overlay_failure(error: OverlayError) -> ApiError {
     match error {
         OverlayError::InvalidInput => invalid_input(),
         OverlayError::Database(source) => {
