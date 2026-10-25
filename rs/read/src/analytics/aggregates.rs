@@ -1201,12 +1201,12 @@ const COHORT_GROUPS_SQL: &str = "
 first_weeks AS (SELECT entity_id, min(week) AS cohort_start FROM weeks GROUP BY entity_id),
 selected AS (SELECT cohort_start, COUNT(*)::bigint AS size FROM first_weeks
     GROUP BY cohort_start ORDER BY cohort_start LIMIT $4),
-cells AS (SELECT f.cohort_start, s.size, (w.week - f.cohort_start) / 7 AS offset,
+cells AS (SELECT f.cohort_start, s.size, (w.week - f.cohort_start) / 7 AS week_offset,
     COUNT(*)::bigint AS count
     FROM first_weeks f JOIN selected s USING (cohort_start) JOIN weeks w USING (entity_id)
     GROUP BY f.cohort_start, s.size, w.week),
-ranked AS (SELECT *, row_number() OVER (PARTITION BY cohort_start ORDER BY offset) AS ordinal FROM cells)
-SELECT cohort_start, size, offset, count FROM ranked WHERE ordinal <= $4 ORDER BY cohort_start, offset";
+ranked AS (SELECT *, row_number() OVER (PARTITION BY cohort_start ORDER BY week_offset) AS ordinal FROM cells)
+SELECT cohort_start, size, week_offset, count FROM ranked WHERE ordinal <= $4 ORDER BY cohort_start, week_offset";
 
 pub async fn load_member_days(
     conn: &mut PgConnection,
@@ -1252,7 +1252,7 @@ fn cohort_facts(rows: Vec<sqlx::postgres::PgRow>) -> Vec<CohortFact> {
         .map(|row| CohortFact {
             cohort_start: row.get("cohort_start"),
             size: count(row.get("size")),
-            offset: u32::try_from(row.get::<i32, _>("offset")).expect("nonnegative cohort offset"),
+            offset: u32::try_from(row.get::<i32, _>("week_offset")).expect("nonnegative cohort offset"),
             count: count(row.get("count")),
         })
         .collect()
