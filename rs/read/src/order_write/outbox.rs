@@ -19,26 +19,26 @@ pub struct ParticipantEvent {
 }
 
 /// Explicit participant activity fields; never an internal row or target snapshot.
-#[derive(Clone,Debug)]
+#[derive(Clone, Debug)]
 pub struct OrderActivity {
-    pub id:Uuid,
-    pub side:String,
-    pub product_name:String,
-    pub fuel_type:String,
-    pub region:String,
-    pub source_kind:String,
-    pub scope:String,
-    pub demo_status:String,
-    pub is_demo_listing:bool,
-    pub unknown_count:u32,
-    pub market_product:String,
-    pub delivery_point_id:Uuid,
-    pub availability_window:String,
-    pub observed_at:Option<DateTime<Utc>>,
-    pub delivery_point:String,
+    pub id: Uuid,
+    pub side: String,
+    pub product_name: String,
+    pub fuel_type: String,
+    pub region: String,
+    pub source_kind: String,
+    pub scope: String,
+    pub demo_status: String,
+    pub is_demo_listing: bool,
+    pub unknown_count: u32,
+    pub market_product: String,
+    pub delivery_point_id: Uuid,
+    pub availability_window: String,
+    pub observed_at: Option<DateTime<Utc>>,
+    pub delivery_point: String,
 }
 impl OrderActivity {
-    fn payload(&self)->Value {
+    fn payload(&self) -> Value {
         json!({"id":self.id,"side":self.side,"product_name":self.product_name,"fuel_type":self.fuel_type,
             "region":self.region,"source_kind":self.source_kind,"scope":self.scope,"demo_status":self.demo_status,
             "is_demo_listing":self.is_demo_listing,"unknown_count":self.unknown_count,"market_product":self.market_product,
@@ -48,27 +48,43 @@ impl OrderActivity {
 }
 
 /// Explicit transport projection. Subscription identities cannot enter this type.
-#[derive(Clone,Debug)]
+#[derive(Clone, Debug)]
 pub enum ParticipantFields {
     OrderCancelled(OrderActivity),
-    OrderCreated {activity:OrderActivity,price:String,quantity:String},
-    OrderExpired {id:Uuid},
-    Inventory {id:Uuid},
+    OrderCreated {
+        activity: OrderActivity,
+        price: String,
+        quantity: String,
+    },
+    OrderExpired {
+        id: Uuid,
+    },
+    Inventory {
+        id: Uuid,
+    },
 }
 
 impl ParticipantEvent {
-    pub(super) fn payload(&self)->Value {
-        let mut value=match &self.fields {
-            ParticipantFields::OrderCancelled(activity)=>activity.payload(),
-            ParticipantFields::OrderCreated {activity,price,quantity}=>{
-                let mut value=activity.payload();
-                value["price"]=json!(price);value["quantity"]=json!(quantity);value
+    pub(super) fn payload(&self) -> Value {
+        let mut value = match &self.fields {
+            ParticipantFields::OrderCancelled(activity) => activity.payload(),
+            ParticipantFields::OrderCreated {
+                activity,
+                price,
+                quantity,
+            } => {
+                let mut value = activity.payload();
+                value["price"] = json!(price);
+                value["quantity"] = json!(quantity);
+                value
             }
-            ParticipantFields::OrderExpired {id}=>json!({"id":id,"status":"EXPIRED"}),
-            ParticipantFields::Inventory {id}=>json!({"id":id}),
+            ParticipantFields::OrderExpired { id } => json!({"id":id,"status":"EXPIRED"}),
+            ParticipantFields::Inventory { id } => json!({"id":id}),
         };
-        value["schema_version"]=json!(1);
-        if self.public_invalidated {value["_public_market_invalidation"]=json!(true);}
+        value["schema_version"] = json!(1);
+        if self.public_invalidated {
+            value["_public_market_invalidation"] = json!(true);
+        }
         value
     }
 }

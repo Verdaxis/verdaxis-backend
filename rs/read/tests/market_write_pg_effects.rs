@@ -147,18 +147,21 @@ async fn outbox_row_carries_mutation_identity_and_before_after() {
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn effect_set_per_mutation_kind() {
     for (kind, audit_count, event_count) in [
-        (MutationKind::OrderCancelled,1,1),
-        (MutationKind::InventoryPublished,1,1),
-        (MutationKind::SupportContextStarted,1,0),
-        (MutationKind::CommissionChanged,1,0),
+        (MutationKind::OrderCancelled, 1, 1),
+        (MutationKind::InventoryPublished, 1, 1),
+        (MutationKind::SupportContextStarted, 1, 0),
+        (MutationKind::CommissionChanged, 1, 0),
     ] {
-        let mut f=Fixture::new().await;
-        run_effect_probe(&f.pool,f.probe(kind)).await.unwrap();
-        let state=effect_state(&mut f.admin).await;
-        assert_eq!(state["audit_logs"].as_array().unwrap().len(),audit_count);
-        assert_eq!(state["market_event_outbox"].as_array().unwrap().len(),event_count);
-        assert_eq!(state["notifications"],json!([]));
-        assert_eq!(state["watchlist_events"],json!([]));
+        let mut f = Fixture::new().await;
+        run_effect_probe(&f.pool, f.probe(kind)).await.unwrap();
+        let state = effect_state(&mut f.admin).await;
+        assert_eq!(state["audit_logs"].as_array().unwrap().len(), audit_count);
+        assert_eq!(
+            state["market_event_outbox"].as_array().unwrap().len(),
+            event_count
+        );
+        assert_eq!(state["notifications"], json!([]));
+        assert_eq!(state["watchlist_events"], json!([]));
     }
 }
 
@@ -277,7 +280,7 @@ async fn transport_payload_excludes_internal_subscription_evidence() {
     let payload: Value = row.get("payload");
     assert_eq!(
         payload,
-        expected_order_payload(&mut f.admin,f.order,false).await
+        expected_order_payload(&mut f.admin, f.order, false).await
     );
     let encoded = payload.to_string();
     for private in [
@@ -390,67 +393,178 @@ async fn effect_state(conn: &mut PgConnection) -> Value {
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn effect_matrix_preserves_each_mutation_contract() {
-    for (kind,action,resource_type,event_type) in [
-        (MutationKind::OrderCancelled,Some("order.cancelled"),"order",Some("order_cancelled")),
-        (MutationKind::InventoryCreated,None,"inventory",Some("inventory_created")),
-        (MutationKind::InventoryUpdated,None,"inventory",Some("inventory_updated")),
-        (MutationKind::InventoryDeleted,None,"inventory",Some("inventory_deleted")),
-        (MutationKind::InventoryPublished,Some("inventory.published"),"inventory",Some("order_created")),
-        (MutationKind::SupportCapabilityGranted,Some("market_support.capability_granted"),"staff_capability_assignment",None),
-        (MutationKind::SupportCapabilityRevoked,Some("market_support.capability_revoked"),"staff_capability_assignment",None),
-        (MutationKind::SupportContextStarted,Some("market_support.context_started"),"market_support_context",None),
-        (MutationKind::SupportContextExited,Some("market_support.context_exited"),"market_support_context",None),
-        (MutationKind::SupportContextRevoked,Some("market_support.context_revoked"),"market_support_context",None),
-        (MutationKind::SupportAuthorizationCreated,None,"market_support_authorization",None),
-        (MutationKind::SupportAuthorizationRevoked,None,"market_support_authorization",None),
-        (MutationKind::CommissionChanged,Some("commission.updated"),"commission",None),
+    for (kind, action, resource_type, event_type) in [
+        (
+            MutationKind::OrderCancelled,
+            Some("order.cancelled"),
+            "order",
+            Some("order_cancelled"),
+        ),
+        (
+            MutationKind::InventoryCreated,
+            None,
+            "inventory",
+            Some("inventory_created"),
+        ),
+        (
+            MutationKind::InventoryUpdated,
+            None,
+            "inventory",
+            Some("inventory_updated"),
+        ),
+        (
+            MutationKind::InventoryDeleted,
+            None,
+            "inventory",
+            Some("inventory_deleted"),
+        ),
+        (
+            MutationKind::InventoryPublished,
+            Some("inventory.published"),
+            "inventory",
+            Some("order_created"),
+        ),
+        (
+            MutationKind::SupportCapabilityGranted,
+            Some("market_support.capability_granted"),
+            "staff_capability_assignment",
+            None,
+        ),
+        (
+            MutationKind::SupportCapabilityRevoked,
+            Some("market_support.capability_revoked"),
+            "staff_capability_assignment",
+            None,
+        ),
+        (
+            MutationKind::SupportContextStarted,
+            Some("market_support.context_started"),
+            "market_support_context",
+            None,
+        ),
+        (
+            MutationKind::SupportContextExited,
+            Some("market_support.context_exited"),
+            "market_support_context",
+            None,
+        ),
+        (
+            MutationKind::SupportContextRevoked,
+            Some("market_support.context_revoked"),
+            "market_support_context",
+            None,
+        ),
+        (
+            MutationKind::SupportAuthorizationCreated,
+            None,
+            "market_support_authorization",
+            None,
+        ),
+        (
+            MutationKind::SupportAuthorizationRevoked,
+            None,
+            "market_support_authorization",
+            None,
+        ),
+        (
+            MutationKind::CommissionChanged,
+            Some("commission.updated"),
+            "commission",
+            None,
+        ),
     ] {
-        let mut f=Fixture::new().await;
-        let initial=effect_state(&mut f.admin).await;
-        let result=run_effect_probe(&f.pool,f.probe(kind)).await;
-        if matches!(kind,MutationKind::SupportAuthorizationCreated|MutationKind::SupportAuthorizationRevoked) {
-            let error=result.err().expect("retired authorization mutation");
-            assert_eq!(error.status.as_u16(),410);
-            assert_eq!(error.code.as_str(),"MARKET_SUPPORT_LEGACY_MUTATION_RETIRED");
-            assert_eq!(effect_state(&mut f.admin).await,initial);
+        let mut f = Fixture::new().await;
+        let initial = effect_state(&mut f.admin).await;
+        let result = run_effect_probe(&f.pool, f.probe(kind)).await;
+        if matches!(
+            kind,
+            MutationKind::SupportAuthorizationCreated | MutationKind::SupportAuthorizationRevoked
+        ) {
+            let error = result.err().expect("retired authorization mutation");
+            assert_eq!(error.status.as_u16(), 410);
+            assert_eq!(
+                error.code.as_str(),
+                "MARKET_SUPPORT_LEGACY_MUTATION_RETIRED"
+            );
+            assert_eq!(effect_state(&mut f.admin).await, initial);
             continue;
         }
         result.unwrap();
-        let state=effect_state(&mut f.admin).await;
-        assert_eq!(state["notifications"],initial["notifications"],"{kind:?}: notification");
-        assert_eq!(state["watchlist_events"],initial["watchlist_events"]);
-        assert_eq!(state["audit_logs"].as_array().unwrap().len(),usize::from(action.is_some()));
-        if let Some(action)=action {
-            let audit=&state["audit_logs"][0];
-            assert_eq!(audit["action"],action);
-            assert_eq!(audit["resource_type"],resource_type);
-            assert_eq!(audit["resource_id"],f.order.to_string());
-            assert_eq!(audit["user_id"],f.actor.to_string());
-            assert_eq!(audit["changes"],expected_changes(kind,&f));
+        let state = effect_state(&mut f.admin).await;
+        assert_eq!(
+            state["notifications"], initial["notifications"],
+            "{kind:?}: notification"
+        );
+        assert_eq!(state["watchlist_events"], initial["watchlist_events"]);
+        assert_eq!(
+            state["audit_logs"].as_array().unwrap().len(),
+            usize::from(action.is_some())
+        );
+        if let Some(action) = action {
+            let audit = &state["audit_logs"][0];
+            assert_eq!(audit["action"], action);
+            assert_eq!(audit["resource_type"], resource_type);
+            assert_eq!(audit["resource_id"], f.order.to_string());
+            assert_eq!(audit["user_id"], f.actor.to_string());
+            assert_eq!(audit["changes"], expected_changes(kind, &f));
         }
-        assert_eq!(state["market_event_outbox"].as_array().unwrap().len(),usize::from(event_type.is_some()));
-        if let Some(event_type)=event_type {
-            let event=&state["market_event_outbox"][0];
-            assert_eq!(event["event_type"],event_type);
-            let order_event=matches!(kind,MutationKind::OrderCancelled|MutationKind::InventoryPublished);
-            assert_eq!(event["aggregate_type"],if order_event {"order"} else {"inventory"});
-            assert_eq!(event["aggregate_id"],f.order.to_string());
-            assert_eq!(event["participant_org_ids"],json!([f.organization.to_string()]));
-            let payload=if order_event {
-                expected_order_payload(&mut f.admin,f.order,matches!(kind,MutationKind::InventoryPublished)).await
-            } else {json!({"id":f.order,"schema_version":1,"_public_market_invalidation":true})};
-            assert_eq!(event["payload"],payload);
-            assert_eq!(event["stream_seq"],Value::Null);
-            assert_eq!(event["dispatched_at"],Value::Null);
+        assert_eq!(
+            state["market_event_outbox"].as_array().unwrap().len(),
+            usize::from(event_type.is_some())
+        );
+        if let Some(event_type) = event_type {
+            let event = &state["market_event_outbox"][0];
+            assert_eq!(event["event_type"], event_type);
+            let order_event = matches!(
+                kind,
+                MutationKind::OrderCancelled | MutationKind::InventoryPublished
+            );
+            assert_eq!(
+                event["aggregate_type"],
+                if order_event { "order" } else { "inventory" }
+            );
+            assert_eq!(event["aggregate_id"], f.order.to_string());
+            assert_eq!(
+                event["participant_org_ids"],
+                json!([f.organization.to_string()])
+            );
+            let payload = if order_event {
+                expected_order_payload(
+                    &mut f.admin,
+                    f.order,
+                    matches!(kind, MutationKind::InventoryPublished),
+                )
+                .await
+            } else {
+                json!({"id":f.order,"schema_version":1,"_public_market_invalidation":true})
+            };
+            assert_eq!(event["payload"], payload);
+            assert_eq!(event["stream_seq"], Value::Null);
+            assert_eq!(event["dispatched_at"], Value::Null);
         }
-        if matches!(kind,MutationKind::OrderCancelled|MutationKind::InventoryPublished) {
-            let cancelled=matches!(kind,MutationKind::OrderCancelled);
-            assert_eq!(state["watchlist_targets"][0]["snapshot_status"],if cancelled {"CANCELLED"} else {"OPEN"});
-            assert_eq!(state["watchlist_targets"][0]["snapshot_price_per_mt_usd"],json!(100));
-            assert_eq!(state["live_slice_benchmarks"].as_array().unwrap().len(),if cancelled {1} else {2});
+        if matches!(
+            kind,
+            MutationKind::OrderCancelled | MutationKind::InventoryPublished
+        ) {
+            let cancelled = matches!(kind, MutationKind::OrderCancelled);
+            assert_eq!(
+                state["watchlist_targets"][0]["snapshot_status"],
+                if cancelled { "CANCELLED" } else { "OPEN" }
+            );
+            assert_eq!(
+                state["watchlist_targets"][0]["snapshot_price_per_mt_usd"],
+                json!(100)
+            );
+            assert_eq!(
+                state["live_slice_benchmarks"].as_array().unwrap().len(),
+                if cancelled { 1 } else { 2 }
+            );
         } else {
-            assert_eq!(state["watchlist_targets"],initial["watchlist_targets"]);
-            assert_eq!(state["live_slice_benchmarks"],initial["live_slice_benchmarks"]);
+            assert_eq!(state["watchlist_targets"], initial["watchlist_targets"]);
+            assert_eq!(
+                state["live_slice_benchmarks"],
+                initial["live_slice_benchmarks"]
+            );
         }
     }
 }
@@ -484,7 +598,7 @@ async fn expiry_facts_share_the_transactional_effect_path() {
     );
     let state = effect_state(&mut f.admin).await;
     assert_eq!(state["audit_logs"][0]["action"], "order.expired");
-    assert_eq!(state["notifications"],json!([]));
+    assert_eq!(state["notifications"], json!([]));
     assert_eq!(state["watchlist_targets"][0]["snapshot_status"], "EXPIRED");
     assert_eq!(state["live_slice_benchmarks"].as_array().unwrap().len(), 1);
     assert_eq!(state["live_slice_benchmarks"][0]["side"], "BID");
@@ -546,15 +660,20 @@ async fn aggregate_evidence_separates_real_and_demo_prices_and_quantity() {
     assert_eq!(live, rust_decimal::Decimal::from(80));
 }
 
-
-async fn expected_order_payload(conn:&mut PgConnection,id:Uuid,created:bool)->Value {
+async fn expected_order_payload(conn: &mut PgConnection, id: Uuid, created: bool) -> Value {
     let row=sqlx::query("SELECT o.side::text AS side,o.updated_at,o.provenance::text AS provenance,o.product_id,o.delivery_point_id,o.availability_window,o.price_per_mt_usd::text AS price,o.remaining_quantity_mt::text AS quantity,p.name AS product_name,p.fuel_type,dp.name AS delivery_point,dp.region FROM orderbook_orders o JOIN products p ON p.id=o.product_id JOIN delivery_points dp ON dp.id=o.delivery_point_id WHERE o.id=$1")
         .bind(id).fetch_one(conn).await.unwrap();
-    let policy:Value=serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap();
-    let product_id:Uuid=row.get("product_id");
-    let product=policy["products"].as_array().unwrap().iter().find(|p|p["id"]==product_id.to_string()).unwrap();
-    let at:chrono::DateTime<chrono::Utc>=row.get("updated_at");
-    let mut value=json!({"schema_version":1,"id":id,"side":row.get::<String,_>("side"),
+    let policy: Value =
+        serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap();
+    let product_id: Uuid = row.get("product_id");
+    let product = policy["products"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["id"] == product_id.to_string())
+        .unwrap();
+    let at: chrono::DateTime<chrono::Utc> = row.get("updated_at");
+    let mut value = json!({"schema_version":1,"id":id,"side":row.get::<String,_>("side"),
         "product_name":row.get::<String,_>("product_name"),"fuel_type":row.get::<String,_>("fuel_type"),
         "region":row.get::<String,_>("region"),"source_kind":"LIVE_ORDER","scope":"DELIVERY_POINT",
         "demo_status":"REAL_ONLY","is_demo_listing":false,"unknown_count":0,
@@ -562,24 +681,34 @@ async fn expected_order_payload(conn:&mut PgConnection,id:Uuid,created:bool)->Va
         "availability_window":row.get::<String,_>("availability_window"),"observed_at":at,
         "delivery_point":row.get::<String,_>("delivery_point"),"_public_market_invalidation":true});
     if created {
-        value["price"]=json!(row.get::<String,_>("price"));
-        value["quantity"]=json!(row.get::<String,_>("quantity"));
+        value["price"] = json!(row.get::<String, _>("price"));
+        value["quantity"] = json!(row.get::<String, _>("quantity"));
     }
     value
 }
 
-fn expected_changes(kind:MutationKind,f:&Fixture)->Value {
+fn expected_changes(kind: MutationKind, f: &Fixture) -> Value {
     match kind {
-        MutationKind::OrderCancelled=>json!({"status":"CANCELLED","reason":null,"actor_user_id":f.actor,
+        MutationKind::OrderCancelled => {
+            json!({"status":"CANCELLED","reason":null,"actor_user_id":f.actor,
             "effective_organization_id":f.organization,"original_principal_user_id":f.actor,
-            "cancellation_principal_user_id":f.actor,"support_context_id":null,"original_support_context_id":null,"version":2}),
-        MutationKind::InventoryPublished=>json!({"inventory_item_id":f.order,"listing_id":f.order,
-            "quantity_mt":"10","price_per_mt_usd":"100","status":"OPEN"}),
-        MutationKind::SupportCapabilityGranted|MutationKind::SupportCapabilityRevoked=>json!({"target_user_id":f.actor,"capability":"MARKET_SUPPORT_LISTINGS","reason":"Fixture request"}),
-        MutationKind::SupportContextStarted=>json!({"organization_id":f.organization,"support_reference":"Fixture request","scope":"ASSISTED_ORDER_ENTRY","expires_at":"2026-12-01T00:00:00Z"}),
-        MutationKind::SupportContextExited=>json!({"status":"EXITED"}),
-        MutationKind::SupportContextRevoked=>json!({"status":"REVOKED","reason":"Fixture request","capability_assignment_id":f.order}),
-        MutationKind::CommissionChanged=>json!({"status":{"from":"PENDING","to":"PAID"}}),
-        _=>Value::Null,
+            "cancellation_principal_user_id":f.actor,"support_context_id":null,"original_support_context_id":null,"version":2})
+        }
+        MutationKind::InventoryPublished => {
+            json!({"inventory_item_id":f.order,"listing_id":f.order,
+            "quantity_mt":"10","price_per_mt_usd":"100","status":"OPEN"})
+        }
+        MutationKind::SupportCapabilityGranted | MutationKind::SupportCapabilityRevoked => {
+            json!({"target_user_id":f.actor,"capability":"MARKET_SUPPORT_LISTINGS","reason":"Fixture request"})
+        }
+        MutationKind::SupportContextStarted => {
+            json!({"organization_id":f.organization,"support_reference":"Fixture request","scope":"ASSISTED_ORDER_ENTRY","expires_at":"2026-12-01T00:00:00Z"})
+        }
+        MutationKind::SupportContextExited => json!({"status":"EXITED"}),
+        MutationKind::SupportContextRevoked => {
+            json!({"status":"REVOKED","reason":"Fixture request","capability_assignment_id":f.order})
+        }
+        MutationKind::CommissionChanged => json!({"status":{"from":"PENDING","to":"PAID"}}),
+        _ => Value::Null,
     }
 }
