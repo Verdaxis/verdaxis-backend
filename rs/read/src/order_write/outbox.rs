@@ -137,7 +137,7 @@ pub(super) async fn append(
     {
         return Err(invalid_event());
     }
-    let event_id=Uuid::new_v4();
+    let event_id = Uuid::new_v4();
     super::transaction::append_market_effect(
         conn,
         event,

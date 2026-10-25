@@ -4,9 +4,9 @@ use serde_json::{Value, json};
 use sqlx::{Connection, PgConnection, Row, postgres::PgPoolOptions};
 use uuid::Uuid;
 use verdaxis_read::market_contract::effects::{
-    EffectProbe, MutationKind, run_effect_probe, run_expiry_effect_probe, run_ordered_effect_probe,
-    run_terminal_phase_probe, run_new_order_effect_probe, run_revoke_batch_probe,
-    run_expiry_batch_probe,
+    EffectProbe, MutationKind, run_effect_probe, run_expiry_batch_probe, run_expiry_effect_probe,
+    run_new_order_effect_probe, run_ordered_effect_probe, run_revoke_batch_probe,
+    run_terminal_phase_probe,
 };
 
 struct Fixture {
@@ -508,9 +508,9 @@ async fn effect_matrix_preserves_each_mutation_contract() {
             assert_eq!(audit["resource_id"], f.order.to_string());
             assert_eq!(audit["user_id"], f.actor.to_string());
             assert_eq!(audit["changes"], expected_changes(kind, &f));
-            if matches!(kind,MutationKind::CommissionChanged) {
-                assert_eq!(audit["ip_address"],"192.0.2.44");
-                assert_eq!(audit["request_id"],"11111111-2222-4333-8444-555555555555");
+            if matches!(kind, MutationKind::CommissionChanged) {
+                assert_eq!(audit["ip_address"], "192.0.2.44");
+                assert_eq!(audit["request_id"], "11111111-2222-4333-8444-555555555555");
             }
         }
         assert_eq!(
@@ -718,76 +718,164 @@ fn expected_changes(kind: MutationKind, f: &Fixture) -> Value {
     }
 }
 
-
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn new_order_keeps_preinsert_slice_and_target_evidence() {
-    let mut f=Fixture::new().await;
-    let new_order=Uuid::new_v4();
-    let slice_target=Uuid::new_v4();
-    sqlx::query("SELECT effect_fixture_slice_target($1,$2)").bind(f.order).bind(slice_target)
-        .execute(&mut f.admin).await.unwrap();
-    run_new_order_effect_probe(&f.pool,f.probe(MutationKind::InventoryPublished),new_order).await.unwrap();
-    let event=f.row().await;
-    let evidence:Value=event.get("producer_evidence");
-    assert_eq!(evidence["orders"].as_array().unwrap().len(),1);
-    assert_eq!(evidence["orders"][0]["order_id"],new_order.to_string());
-    assert_eq!(evidence["orders"][0]["before"],Value::Null);
-    assert_eq!(evidence["orders"][0]["after"]["status"],"OPEN");
-    assert_eq!(evidence["orders"][0]["after"]["public_admitted"],true);
-    assert!(evidence["targets"].as_array().unwrap().iter().any(|t|t["target_id"]==slice_target.to_string()));
-    let ask=|name:&str|evidence[name].as_array().unwrap().iter().find(|a|a["side"]=="ASK").unwrap();
-    assert_eq!(ask("aggregates_before")["real"]["best_price_per_mt_usd"],"100");
-    assert_eq!(ask("aggregates_after")["real"]["best_price_per_mt_usd"],"95");
-    assert_eq!(ask("aggregates_before")["quantity_mt"],"10");
-    assert_eq!(ask("aggregates_after")["quantity_mt"],"20");
-    let state=effect_state(&mut f.admin).await;
-    assert_eq!(state["audit_logs"][0]["action"],"inventory.published");
-    assert_eq!(state["market_event_outbox"][0]["aggregate_id"],new_order.to_string());
-    assert_eq!(state["market_event_outbox"][0]["payload"]["id"],new_order.to_string());
-    let benchmarks=state["live_slice_benchmarks"].as_array().unwrap();
-    assert_eq!(benchmarks.len(),2);
-    let price=|side:&str|benchmarks.iter().find(|r|r["side"]==side).unwrap()["benchmark_price_per_mt_usd"].clone();
-    assert_eq!(price("ASK"),json!(97.50));
-    assert_eq!(price("BID"),json!(90));
+    let mut f = Fixture::new().await;
+    let new_order = Uuid::new_v4();
+    let slice_target = Uuid::new_v4();
+    sqlx::query("SELECT effect_fixture_slice_target($1,$2)")
+        .bind(f.order)
+        .bind(slice_target)
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
+    run_new_order_effect_probe(
+        &f.pool,
+        f.probe(MutationKind::InventoryPublished),
+        new_order,
+    )
+    .await
+    .unwrap();
+    let event = f.row().await;
+    let evidence: Value = event.get("producer_evidence");
+    assert_eq!(evidence["orders"].as_array().unwrap().len(), 1);
+    assert_eq!(evidence["orders"][0]["order_id"], new_order.to_string());
+    assert_eq!(evidence["orders"][0]["before"], Value::Null);
+    assert_eq!(evidence["orders"][0]["after"]["status"], "OPEN");
+    assert_eq!(evidence["orders"][0]["after"]["public_admitted"], true);
+    assert!(
+        evidence["targets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|t| t["target_id"] == slice_target.to_string())
+    );
+    let ask = |name: &str| {
+        evidence[name]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|a| a["side"] == "ASK")
+            .unwrap()
+    };
+    assert_eq!(
+        ask("aggregates_before")["real"]["best_price_per_mt_usd"],
+        "100"
+    );
+    assert_eq!(
+        ask("aggregates_after")["real"]["best_price_per_mt_usd"],
+        "95"
+    );
+    assert_eq!(ask("aggregates_before")["quantity_mt"], "10");
+    assert_eq!(ask("aggregates_after")["quantity_mt"], "20");
+    let state = effect_state(&mut f.admin).await;
+    assert_eq!(state["audit_logs"][0]["action"], "inventory.published");
+    assert_eq!(
+        state["market_event_outbox"][0]["aggregate_id"],
+        new_order.to_string()
+    );
+    assert_eq!(
+        state["market_event_outbox"][0]["payload"]["id"],
+        new_order.to_string()
+    );
+    let benchmarks = state["live_slice_benchmarks"].as_array().unwrap();
+    assert_eq!(benchmarks.len(), 2);
+    let price = |side: &str| {
+        benchmarks.iter().find(|r| r["side"] == side).unwrap()["benchmark_price_per_mt_usd"].clone()
+    };
+    assert_eq!(price("ASK"), json!(97.50));
+    assert_eq!(price("BID"), json!(90));
 }
 
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn capability_and_context_audits_commit_as_one_effect_set() {
-    for commit in [false,true] {
-        let mut f=Fixture::new().await;
-        let assignment=Uuid::new_v4();
-        let contexts=[Uuid::new_v4(),Uuid::new_v4(),Uuid::new_v4()];
+    for commit in [false, true] {
+        let mut f = Fixture::new().await;
+        let assignment = Uuid::new_v4();
+        let contexts = [Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4()];
         sqlx::query("SELECT effect_fixture_capability_contexts($1,$2,$3,$4)")
-            .bind(f.actor).bind(f.organization).bind(assignment).bind(&contexts[..])
-            .execute(&mut f.admin).await.unwrap();
-        let before=effect_state(&mut f.admin).await;
-        let result=run_revoke_batch_probe(&f.pool,f.probe(MutationKind::SupportCapabilityRevoked),assignment,contexts.to_vec(),commit).await.unwrap();
-        assert_eq!(result.staged_audits,4);
-        assert_eq!(result.observer_audits,0);
-        assert_eq!(result.late_lock_code,"MARKET_SLICE_CHANGED");
-        let state=effect_state(&mut f.admin).await;
+            .bind(f.actor)
+            .bind(f.organization)
+            .bind(assignment)
+            .bind(&contexts[..])
+            .execute(&mut f.admin)
+            .await
+            .unwrap();
+        let before = effect_state(&mut f.admin).await;
+        let result = run_revoke_batch_probe(
+            &f.pool,
+            f.probe(MutationKind::SupportCapabilityRevoked),
+            assignment,
+            contexts.to_vec(),
+            commit,
+        )
+        .await
+        .unwrap();
+        assert_eq!(result.staged_audits, 4);
+        assert_eq!(result.observer_audits, 0);
+        assert_eq!(result.late_lock_code, "MARKET_SLICE_CHANGED");
+        let state = effect_state(&mut f.admin).await;
         if !commit {
-            assert_eq!(state,before);
-            assert_eq!(sqlx::query_scalar::<_,i64>("SELECT count(*) FROM market_support_contexts WHERE status='ACTIVE'").fetch_one(&mut f.admin).await.unwrap(),3);
-            assert!(sqlx::query_scalar::<_,Option<chrono::DateTime<chrono::Utc>>>("SELECT revoked_at FROM staff_capability_assignments WHERE id=$1").bind(assignment).fetch_one(&mut f.admin).await.unwrap().is_none());
+            assert_eq!(state, before);
+            assert_eq!(
+                sqlx::query_scalar::<_, i64>(
+                    "SELECT count(*) FROM market_support_contexts WHERE status='ACTIVE'"
+                )
+                .fetch_one(&mut f.admin)
+                .await
+                .unwrap(),
+                3
+            );
+            assert!(
+                sqlx::query_scalar::<_, Option<chrono::DateTime<chrono::Utc>>>(
+                    "SELECT revoked_at FROM staff_capability_assignments WHERE id=$1"
+                )
+                .bind(assignment)
+                .fetch_one(&mut f.admin)
+                .await
+                .unwrap()
+                .is_none()
+            );
             continue;
         }
-        let audits=state["audit_logs"].as_array().unwrap();
-        assert_eq!(audits.len(),4);
-        let capability=audits.iter().find(|a|a["resource_id"]==assignment.to_string()).unwrap();
-        assert_eq!(capability["action"],"market_support.capability_revoked");
-        assert_eq!(capability["resource_type"],"staff_capability_assignment");
+        let audits = state["audit_logs"].as_array().unwrap();
+        assert_eq!(audits.len(), 4);
+        let capability = audits
+            .iter()
+            .find(|a| a["resource_id"] == assignment.to_string())
+            .unwrap();
+        assert_eq!(capability["action"], "market_support.capability_revoked");
+        assert_eq!(capability["resource_type"], "staff_capability_assignment");
         for context in contexts {
-            let audit=audits.iter().find(|a|a["resource_id"]==context.to_string()).unwrap();
-            assert_eq!(audit["action"],"market_support.context_revoked");
-            assert_eq!(audit["resource_type"],"market_support_context");
-            assert_eq!(audit["changes"],json!({"status":"REVOKED","reason":"Fixture request","capability_assignment_id":assignment}));
+            let audit = audits
+                .iter()
+                .find(|a| a["resource_id"] == context.to_string())
+                .unwrap();
+            assert_eq!(audit["action"], "market_support.context_revoked");
+            assert_eq!(audit["resource_type"], "market_support_context");
+            assert_eq!(
+                audit["changes"],
+                json!({"status":"REVOKED","reason":"Fixture request","capability_assignment_id":assignment})
+            );
         }
-        assert_eq!(sqlx::query_scalar::<_,i64>("SELECT count(*) FROM market_support_contexts WHERE status='REVOKED' AND version=2").fetch_one(&mut f.admin).await.unwrap(),3);
-        for table in ["notifications","market_event_outbox","watchlist_targets","live_slice_benchmarks"] {
-            assert_eq!(state[table],before[table]);
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT count(*) FROM market_support_contexts WHERE status='REVOKED' AND version=2"
+            )
+            .fetch_one(&mut f.admin)
+            .await
+            .unwrap(),
+            3
+        );
+        for table in [
+            "notifications",
+            "market_event_outbox",
+            "watchlist_targets",
+            "live_slice_benchmarks",
+        ] {
+            assert_eq!(state[table], before[table]);
         }
     }
 }
@@ -795,44 +883,79 @@ async fn capability_and_context_audits_commit_as_one_effect_set() {
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn expiry_batch_keeps_each_order_audit_and_participant_event() {
-    for commit in [false,true] {
-        let mut f=Fixture::new().await;
-        let other=Uuid::new_v4();
-        let other_org=Uuid::new_v4();
-        let other_actor=Uuid::new_v4();
+    for commit in [false, true] {
+        let mut f = Fixture::new().await;
+        let other = Uuid::new_v4();
+        let other_org = Uuid::new_v4();
+        let other_actor = Uuid::new_v4();
         sqlx::query("SELECT effect_fixture_second_expiry($1,$2,$3,$4)")
-            .bind(f.order).bind(other).bind(other_org).bind(other_actor).execute(&mut f.admin).await.unwrap();
-        let initial=effect_state(&mut f.admin).await;
-        let result=run_expiry_batch_probe(&f.pool,f.probe(MutationKind::OrderExpired),vec![f.order,other],commit).await.unwrap();
-        assert_eq!(result.staged_audits,2);
-        assert_eq!(result.staged_events,2);
-        assert_eq!(result.observer_audits,0);
-        assert_eq!(result.observer_events,0);
-        assert_eq!(result.late_lock_code,"MARKET_SLICE_CHANGED");
-        let state=effect_state(&mut f.admin).await;
+            .bind(f.order)
+            .bind(other)
+            .bind(other_org)
+            .bind(other_actor)
+            .execute(&mut f.admin)
+            .await
+            .unwrap();
+        let initial = effect_state(&mut f.admin).await;
+        let result = run_expiry_batch_probe(
+            &f.pool,
+            f.probe(MutationKind::OrderExpired),
+            vec![f.order, other],
+            commit,
+        )
+        .await
+        .unwrap();
+        assert_eq!(result.staged_audits, 2);
+        assert_eq!(result.staged_events, 2);
+        assert_eq!(result.observer_audits, 0);
+        assert_eq!(result.observer_events, 0);
+        assert_eq!(result.late_lock_code, "MARKET_SLICE_CHANGED");
+        let state = effect_state(&mut f.admin).await;
         if !commit {
-            assert_eq!(state,initial);
+            assert_eq!(state, initial);
             assert_eq!(sqlx::query_scalar::<_,i64>("SELECT count(*) FROM orderbook_orders WHERE id=ANY($1) AND status='OPEN' AND version=1").bind(vec![f.order,other]).fetch_one(&mut f.admin).await.unwrap(),2);
             continue;
         }
-        assert_eq!(state["audit_logs"].as_array().unwrap().len(),2);
-        assert_eq!(state["market_event_outbox"].as_array().unwrap().len(),2);
-        for (id,org) in [(f.order,f.organization),(other,other_org)] {
-            let audit=state["audit_logs"].as_array().unwrap().iter().find(|a|a["resource_id"]==id.to_string()).unwrap();
-            assert_eq!(audit["action"],"order.expired");
-            assert_eq!(audit["user_id"],Value::Null);
-            assert_eq!(audit["ip_address"],Value::Null);
-            assert_eq!(audit["request_id"],Value::Null);
-            assert_eq!(audit["changes"],json!({"status":"EXPIRED","released_quantity_mt":"10"}));
-            let event=state["market_event_outbox"].as_array().unwrap().iter().find(|e|e["aggregate_id"]==id.to_string()).unwrap();
-            assert_eq!(event["event_type"],"order_expired");
-            assert_eq!(event["aggregate_type"],"order");
-            assert_eq!(event["participant_org_ids"],json!([org]));
-            assert_eq!(event["payload"],json!({"schema_version":1,"id":id,"status":"EXPIRED"}));
-            assert_eq!(event["producer_evidence"]["orders"].as_array().unwrap().len(),2);
+        assert_eq!(state["audit_logs"].as_array().unwrap().len(), 2);
+        assert_eq!(state["market_event_outbox"].as_array().unwrap().len(), 2);
+        for (id, org) in [(f.order, f.organization), (other, other_org)] {
+            let audit = state["audit_logs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|a| a["resource_id"] == id.to_string())
+                .unwrap();
+            assert_eq!(audit["action"], "order.expired");
+            assert_eq!(audit["user_id"], Value::Null);
+            assert_eq!(audit["ip_address"], Value::Null);
+            assert_eq!(audit["request_id"], Value::Null);
+            assert_eq!(
+                audit["changes"],
+                json!({"status":"EXPIRED","released_quantity_mt":"10"})
+            );
+            let event = state["market_event_outbox"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["aggregate_id"] == id.to_string())
+                .unwrap();
+            assert_eq!(event["event_type"], "order_expired");
+            assert_eq!(event["aggregate_type"], "order");
+            assert_eq!(event["participant_org_ids"], json!([org]));
+            assert_eq!(
+                event["payload"],
+                json!({"schema_version":1,"id":id,"status":"EXPIRED"})
+            );
+            assert_eq!(
+                event["producer_evidence"]["orders"]
+                    .as_array()
+                    .unwrap()
+                    .len(),
+                2
+            );
         }
-        assert_eq!(state["notifications"],initial["notifications"]);
-        assert_eq!(state["live_slice_benchmarks"].as_array().unwrap().len(),1);
-        assert_eq!(state["live_slice_benchmarks"][0]["side"],"BID");
+        assert_eq!(state["notifications"], initial["notifications"]);
+        assert_eq!(state["live_slice_benchmarks"].as_array().unwrap().len(), 1);
+        assert_eq!(state["live_slice_benchmarks"][0]["side"], "BID");
     }
 }
