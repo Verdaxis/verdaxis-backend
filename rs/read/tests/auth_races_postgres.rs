@@ -523,3 +523,52 @@ async fn r12_cutoff_downgrade_fails_fast() {
     assert!(waiting.await.unwrap() > later);
     f.remove().await;
 }
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL"]
+async fn r9_refresh_vs_invitation_accept_serializes() {
+    let f = Fixture::new().await;
+    let organization = Uuid::new_v4();
+    let invitation = generate_token();
+    sqlx::query("INSERT INTO organizations (id,name,type,verification_status,provenance) VALUES ($1,'Race fixture','FUEL_BUYER','APPROVED','UNKNOWN')")
+        .bind(organization).execute(&f.owner).await.unwrap();
+    sqlx::query("UPDATE users SET organization_id=$2,email_verified=false,must_change_password=true,password_reset_token_hash=$3,password_reset_expires=now()+interval '1 hour' WHERE id=$1")
+        .bind(f.user).bind(organization).bind(token_digest(&invitation)).execute(&f.owner).await.unwrap();
+    let held = Arc::new(Barrier::new(2));
+    let rotation = tokio::spawn(refresh(f.refresh(Some(held.clone())),f.token.clone(),f.device.clone()));
+    held.wait().await;
+    let accept = auth::invitation_accept::router(auth::invitation_accept::InvitationAcceptState::new(f.runtime.clone(),"production",SECRET,"verdaxis","verdaxis-api",ORIGIN,SharedLimits::default()));
+    let device = f.device.clone();
+    let accepting = tokio::spawn(async move { send(accept,"/api/auth/invitations/accept",None,&device,json!({"token":invitation,"new_password":"AcceptedPassword123","accept_terms":true})).await });
+    blocked(&f.owner).await;
+    held.wait().await;
+    assert_eq!(rotation.await.unwrap().0,200);
+    assert_eq!(accepting.await.unwrap().0,200);
+    assert_eq!(f.live().await,1);
+    assert_eq!(refresh(f.refresh(None),f.token.clone(),f.device.clone()).await.0,401);
+    let pool = f.owner.clone();
+    f.remove().await;
+    sqlx::query("DELETE FROM organizations WHERE id=$1").bind(organization).execute(&pool).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL"]
+async fn r10_login_vs_password_reset_serializes() {
+    let f = Fixture::new().await;
+    let token = generate_token();
+    sqlx::query("INSERT INTO password_reset_tokens (user_id,token_hash,expires_at) VALUES ($1,$2,now()+interval '1 hour')")
+        .bind(f.user).bind(token_digest(&token)).execute(&f.owner).await.unwrap();
+    // Hold the login after its user lock while reset reaches that same row.
+    let held = Arc::new(Barrier::new(2));
+    let logging_in = tokio::spawn(login(f.runtime.clone(),f.email.clone(),f.device.clone(),Some(held.clone())));
+    held.wait().await;
+    let settings = auth::email_verification::EmailSettings::new(f.runtime.clone(),auth::email::MailDispatcher::new(verdaxis_read::crud::referrals::invite::MailClient::disabled()));
+    let resetting = tokio::spawn(async move { auth::password_reset::reset(&settings,&token,"ResetPassword456").await });
+    blocked(&f.owner).await;
+    held.wait().await;
+    assert_eq!(logging_in.await.unwrap(),200);
+    assert!(resetting.await.unwrap().is_ok());
+    assert_eq!(f.live().await,0);
+    assert_eq!(login(f.runtime.clone(),f.email.clone(),f.device.clone(),None).await,401);
+    f.remove().await;
+}

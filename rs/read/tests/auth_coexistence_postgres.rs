@@ -13,6 +13,7 @@ async fn python_and_rust_device_lock_contend_on_one_key() {
         .unwrap();
     let digest = token_digest("synthetic-device-for-cross-stack-lock-check");
     let output = std::process::Command::new(std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "venv/bin/python".into()))
+        .current_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
         .args(["-c", "import sys; from app.routers.auth_simple import _device_advisory_lock_key; print(_device_advisory_lock_key(sys.argv[1]))", &digest])
         .output().unwrap();
     assert!(output.status.success(), "Python key derivation failed");

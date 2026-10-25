@@ -32,6 +32,8 @@ RUST_RACE_CASES = (
     "r6_login_vs_account_status_change_writes_no_session",
     "r7_device_session_limit_is_one_live_family",
     "r8_login_vs_login_different_devices_both_live",
+    "r9_refresh_vs_invitation_accept_serializes",
+    "r10_login_vs_password_reset_serializes",
     "r12_cutoff_downgrade_fails_fast",
 )
 
