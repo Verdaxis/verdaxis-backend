@@ -130,6 +130,7 @@ class Runner:
         require_complete_ledger: bool = False,
         report: Path | None = None,
         release: bool = False,
+        server_binary: Path | None = None,
     ) -> None:
         self.mixed_caddy = mixed_caddy
         self.record_all = record_all
@@ -142,6 +143,7 @@ class Runner:
         # overflow and so catches more defects). Latency measurements must use
         # the release profile, or they time unoptimized code. PM decision.
         self.release = release
+        self.server_binary = server_binary
         # Which Rust contract targets to run. A single group defaults to its own
         # target; `--group all` alone runs none (integration only), while
         # `--rust-target all` runs every target once in this shared database.
@@ -304,6 +306,8 @@ CREATE EXTENSION IF NOT EXISTS postgis;
 
     def server_path(self) -> Path:
         """The contract-server binary this run's build produced."""
+        if self.server_binary is not None:
+            return self.server_binary
         flavour = "release" if self.release else "debug"
         return ROOT / "rs" / "target" / flavour / "examples" / "contract_server"
 
@@ -1110,6 +1114,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--phase2-measure", action="store_true")
     parser.add_argument("--phase2-order-write-benchmark", action="store_true")
     parser.add_argument("--release-binary", type=Path)
+    parser.add_argument("--server-binary", type=Path, help="Built contract_server path, including a shared Cargo target directory")
     parser.add_argument("--profile", choices=("phase1-meaning-v1",))
     parser.add_argument("--rules-sha256")
     args = parser.parse_args(argv)
@@ -1154,6 +1159,7 @@ def main(argv: list[str] | None = None) -> int:
         require_complete_ledger=args.require_complete_ledger,
         report=args.report,
         release=args.release,
+        server_binary=args.server_binary,
     )
     try:
         if args.phase2:
