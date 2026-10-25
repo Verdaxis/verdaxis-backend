@@ -36,6 +36,7 @@ pub async fn read<T>(
     load: impl for<'c> FnOnce(
         &'c mut PgConnection,
     ) -> Pin<Box<dyn Future<Output = Result<T, ApiError>> + Send + 'c>>
+    + Clone
     + Send
     + 'static,
 ) -> Result<T, ApiError>

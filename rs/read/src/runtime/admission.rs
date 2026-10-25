@@ -48,7 +48,8 @@ pub async fn run_admitted<T: Send + 'static>(
         &'c mut sqlx::PgConnection,
     ) -> std::pin::Pin<
         Box<dyn std::future::Future<Output = Result<T, ApiError>> + Send + 'c>,
-    > + Send
+    > + Clone
+    + Send
     + 'static,
 ) -> Result<T, ApiError> {
     // The request middleware already admitted selected GETs; reuse its permit so
@@ -159,8 +160,8 @@ pub struct TradingFill<T> {
 /// on opens one read-only REPEATABLE READ snapshot, reads the generation in
 /// that snapshot, and serves a cached payload only when the authority token,
 /// fence, generation, policy identity and time boundary all still match. An
-/// unknown authority returns the existing database error. An underivable
-/// boundary bypasses storage, but never the publication fence.
+/// unavailable authority bypasses storage. A changed fence discards the old
+/// result and reloads in a fresh uncached snapshot under the same admission.
 pub async fn run_trading_read<K, T>(
     state: &AppState,
     cache: &Arc<TradingCache<K>>,
@@ -172,11 +173,12 @@ pub async fn run_trading_read<K, T>(
         TradingClock,
     ) -> std::pin::Pin<
         Box<dyn std::future::Future<Output = Result<TradingFill<T>, ApiError>> + Send + 'c>,
-    > + Send
+    > + Clone
+    + Send
     + 'static,
 ) -> Result<T, ApiError>
 where
-    K: Eq + Send + 'static,
+    K: Clone + Eq + Send + 'static,
     T: serde::Serialize + serde::de::DeserializeOwned + Send + 'static,
 {
     let Some(runtime) = state.trading_cache.clone() else {
@@ -198,13 +200,14 @@ where
                 .execute(&mut *transaction)
                 .await
                 .map_err(|_| ApiError::database())?;
+            let reload = load.clone();
             let admitted = admit_connection(&authority, &mut transaction, observer.now().monotonic)
                 .await
                 .map_err(|_| ApiError::database())?;
-            // Even an uncached answer needs an authoritative connection: without
-            // a token there is no fence to check before publication.
             let Some((token, generation)) = admitted else {
-                return Err(ApiError::database());
+                let value = load(&mut transaction, clock).await?.value;
+                transaction.rollback().await.map_err(|_| ApiError::database())?;
+                return Ok(value);
             };
             observer
                 .checkpoint(TradingReadStage::SnapshotEstablished)
@@ -216,7 +219,7 @@ where
                     .rollback()
                     .await
                     .map_err(|_| ApiError::database())?;
-                return Err(ApiError::database());
+                return uncached_trading_read(connection, clock, reload).await;
             }
             let ticket = FillTicket::new(token, generation);
             // `hit` keeps only entries whose boundary is still ahead of now.
@@ -236,7 +239,8 @@ where
                             .map_err(|_| ApiError::database())?;
                         observer.checkpoint(TradingReadStage::BeforePublish).await;
                         if !authority.accepts(ticket.token(), observer.now().monotonic) {
-                            return Err(ApiError::database());
+                            cache.remove(&key);
+                            return uncached_trading_read(connection, clock, reload).await;
                         }
                         return Ok(value);
                     }
@@ -259,7 +263,8 @@ where
             // Stale-fill barriers. A fill started under one authority and
             // fence may neither be stored nor answered after either moved.
             if !authority.accepts(ticket.token(), observer.now().monotonic) {
-                return Err(ApiError::database());
+                cache.remove(&key);
+                return uncached_trading_read(connection, clock, reload).await;
             }
             // A newer generation verified by this process since the fill
             // started also retires it from the cache. The value itself is a
@@ -275,7 +280,7 @@ where
                 // against the current time, not the route's capture: a change
                 // that fell during admission or the query is refused here.
                 cache.insert(
-                    key,
+                    key.clone(),
                     TradingEntry::new(&ticket, payload, clock, boundary, policy),
                     observer.now().monotonic,
                 );
@@ -284,12 +289,34 @@ where
             // Publishing the response repeats the fence check, so a change
             // after the insertion cannot let an old authority answer.
             if !authority.accepts(ticket.token(), observer.now().monotonic) {
-                return Err(ApiError::database());
+                cache.remove(&key);
+                return uncached_trading_read(connection, clock, reload).await;
             }
             Ok(fill.value)
         })
     })
     .await
+}
+
+/// Reload after a fence change without consulting or populating the cache.
+async fn uncached_trading_read<T>(
+    connection: &mut sqlx::PgConnection,
+    clock: TradingClock,
+    load: impl for<'c> FnOnce(
+        &'c mut sqlx::PgConnection,
+        TradingClock,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<TradingFill<T>, ApiError>> + Send + 'c>,
+    >,
+) -> Result<T, ApiError> {
+    let mut transaction = connection.begin().await.map_err(|_| ApiError::database())?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| ApiError::database())?;
+    let value = load(&mut transaction, clock).await?.value;
+    transaction.rollback().await.map_err(|_| ApiError::database())?;
+    Ok(value)
 }
 
 /// Log only bounded database failure metadata, never SQL text or values.

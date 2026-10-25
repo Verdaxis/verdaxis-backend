@@ -287,8 +287,9 @@ hook starts its loop only with `cache_listener=1` in the prepared budget; otherw
 no cache runtime or extra connection is created. `runtime/admission.rs::run_trading_read`
 checks identity and generation in one admitted read-only REPEATABLE READ snapshot
 and checks the fence again before insertion and before publication. With the
-runtime on, a read on a connection that is not admitted returns the database
-error, also when it would not cache. Overlapping snapshots each answer at their
+runtime on, unavailable cache authority uses an uncached database read. A fence
+change before publication discards the previous result and reloads it in a fresh
+read-only snapshot under the same admission permit. Overlapping snapshots each answer at their
 own generation; an older fill never replaces a newer entry. Restore detection
 belongs to the external activation protocol. `AppState::trading_read_observer`
 supplies the read clock and lifecycle checkpoints: serving uses the real clock,
