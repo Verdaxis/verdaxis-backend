@@ -46,6 +46,7 @@ fn assert_refusal<T: std::fmt::Debug>(result: Result<T, MarketWriteError>, code:
 
 /// A database failure without a live server. The SQLSTATE and the constraint
 /// name are the only inputs the one mapping reads.
+#[derive(Debug)]
 struct FixtureDatabaseError {
     message: &'static str,
     code: Option<&'static str>,
