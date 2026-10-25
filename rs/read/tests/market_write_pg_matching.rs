@@ -5,7 +5,7 @@ use rust_decimal::Decimal;
 use sqlx::{Connection, PgConnection, Row};
 use uuid::Uuid;
 use verdaxis_read::MarketErrorCode;
-use verdaxis_read::market_contract::matching::{apply, lock_and_plan, preview};
+use verdaxis_read::market_contract::matching::{apply, lock_and_plan, preview, probe_order_lock};
 use verdaxis_read::market_matching::MatchBound;
 
 fn now() -> DateTime<Utc> {
@@ -271,18 +271,11 @@ async fn lookahead_row_is_not_locked_or_changed() {
         .await
         .unwrap();
     let mut probe = f.observer.begin().await.unwrap();
-    let unlocked: Uuid =
-        sqlx::query_scalar("SELECT id FROM orderbook_orders WHERE id=$1 FOR UPDATE NOWAIT")
-            .bind(f.resting[100])
-            .fetch_one(&mut *probe)
-            .await
-            .unwrap();
+    let unlocked = probe_order_lock(&mut probe, f.resting[100]).await.unwrap();
     assert_eq!(unlocked, f.resting[100]);
     probe.rollback().await.unwrap();
     let mut probe = f.observer.begin().await.unwrap();
-    let busy = sqlx::query("SELECT id FROM orderbook_orders WHERE id=$1 FOR UPDATE NOWAIT")
-        .bind(f.resting[0])
-        .fetch_one(&mut *probe)
+    let busy = probe_order_lock(&mut probe, f.resting[0])
         .await
         .unwrap_err();
     assert_eq!(

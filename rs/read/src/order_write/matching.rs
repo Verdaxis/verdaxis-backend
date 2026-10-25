@@ -528,6 +528,12 @@ pub mod contract {
     pub struct PlannedMatch {
         pub plan: MatchPlan,
     }
+    pub async fn probe_order_lock(conn: &mut PgConnection, id: Uuid) -> Result<Uuid, sqlx::Error> {
+        sqlx::query_scalar("SELECT id FROM orderbook_orders WHERE id=$1 FOR UPDATE NOWAIT")
+            .bind(id)
+            .fetch_one(conn)
+            .await
+    }
     pub async fn preview(
         conn: &mut PgConnection,
         aggressor: Uuid,
