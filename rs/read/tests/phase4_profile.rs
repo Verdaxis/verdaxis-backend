@@ -1541,6 +1541,13 @@ mod postgres {
             .as_deref(),
             Some("supplier")
         );
+        let unauth = Uuid::new_v4();
+        sqlx::query("INSERT INTO users(id,email,status) VALUES($1,$2,'APPROVED')")
+            .bind(unauth)
+            .bind(format!("{unauth}@example.test"))
+            .execute(&f.pool)
+            .await
+            .unwrap();
         // The declared body limit refuses before parsing or writing.
         let huge = format!(
             "{{\"use_case\":\"buyer\",\"referral_source\":\"{}\"}}",
