@@ -1057,28 +1057,32 @@ fn p4_t15_c13() {
         serde_json::from_value(provider_unavailable).unwrap();
     assert_eq!(provider_unavailable.validate(), Ok(()));
 
-    // An unavailable property that carries data, or reports available, is
-    // incoherent in an unavailable window.
-    for bad in [
-        json!({
-            "status": "unavailable",
-            "diagnostic": "authentication",
-            "data": [],
-        }),
-        json!({
-            "status": "available",
-            "data": null,
-        }),
-    ] {
-        let mut fabricated = serde_json::to_value(&provider_unavailable).unwrap();
-        fabricated["property_results"][0]["result"] = bad;
-        let fabricated: types::BehavioralWindow =
-            serde_json::from_value(fabricated).unwrap();
-        assert_eq!(
-            fabricated.validate(),
-            Err(types::BehavioralWindowError::IncoherentAvailability)
-        );
-    }
+    // An unavailable property that carries data is incoherent as a component.
+    let mut fabricated = serde_json::to_value(&provider_unavailable).unwrap();
+    fabricated["property_results"][0]["result"] = json!({
+        "status": "unavailable",
+        "diagnostic": "authentication",
+        "data": [],
+    });
+    let fabricated: types::BehavioralWindow =
+        serde_json::from_value(fabricated).unwrap();
+    assert_eq!(
+        fabricated.validate(),
+        Err(types::BehavioralWindowError::IncoherentComponent)
+    );
+
+    // An unavailable window refuses a property that reports available.
+    let mut fabricated = serde_json::to_value(&provider_unavailable).unwrap();
+    fabricated["property_results"][0]["result"] = json!({
+        "status": "available",
+        "data": [],
+    });
+    let fabricated: types::BehavioralWindow =
+        serde_json::from_value(fabricated).unwrap();
+    assert_eq!(
+        fabricated.validate(),
+        Err(types::BehavioralWindowError::IncoherentAvailability)
+    );
 
     // An available window refuses any property that is partial or
     // unavailable, and accepts when every property is available.
