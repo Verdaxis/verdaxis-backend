@@ -42,7 +42,7 @@ async fn access_vectors_match_python_http_outcomes() {
             .get("rust_expected")
             .unwrap_or(&vector["python"])
             .clone();
-        // Every recorded difference names its review record; no expectation is
+        // Every recorded difference names its contract case; no expectation is
         // derived from Rust's own output here.
         if vector.get("rust_expected").is_some() {
             let approved = &vector["approved_difference"];
@@ -53,7 +53,7 @@ async fn access_vectors_match_python_http_outcomes() {
             };
             if approved.get("case").is_some() {
                 assert_eq!(approved["case"], "ISSUANCE-RANGE", "{id}: case record");
-                assert_eq!(approved["decision"], 94, "{id}: decision record");
+                assert_eq!(approved["contract"], "ISSUANCE-RANGE", "{id}: contract record");
                 assert_eq!(vector["python"]["status"], 500, "{id}: issuance-range baseline");
             } else if approved["decision"] == "ACCESS-EXPIRY" {
                 // Rust requires `exp`; Python accepts this token. The code is
