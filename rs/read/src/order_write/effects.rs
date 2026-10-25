@@ -331,7 +331,7 @@ async fn load_orders(
 ) -> Result<Vec<OrderState>, MarketWriteError> {
     let clock = VisibilityClock::at(at);
     let sql = order_query_sql(
-        "SELECT e.*, /* private_digest_input(e) */ FROM eligible_orders e WHERE e.id=ANY($14)",
+        "SELECT e.*, /* private_digest_input(base) */, COALESCE(org.supplier_tier, 'INDEPENDENT') AS tier_label FROM eligible_orders e JOIN orderbook_orders base ON base.id=e.id JOIN organizations org ON org.id=e.organization_id WHERE e.id=ANY($14)",
     );
     let rows = bind_order_query(&sql, policy, &clock, config, &PublicOrderFilters::default())?
         .bind(ids)
