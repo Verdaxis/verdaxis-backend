@@ -746,6 +746,15 @@ mod replay_tests {
                 .as_u16(),
             409
         );
+        let mut f = f;
+        let publication = Uuid::new_v4();
+        sqlx::query("INSERT INTO orderbook_orders(id,organization_id,owner_user_id,created_by_actor_user_id,idempotency_operation,idempotency_key,idempotency_request_hash) VALUES($1,$2,$3,$3,'inventory.publish','publication','same')")
+            .bind(publication).bind(f.org).bind(owner).execute(&mut f.admin).await.unwrap();
+        assert_eq!(transaction::inventory_replay_probe(&f.pool, owner, f.org, "publication", "same").await.unwrap(), Some(publication));
+        let stranger = transaction::inventory_replay_probe(&f.pool, Uuid::new_v4(), f.org, "publication", "same").await.unwrap_err();
+        assert_eq!(stranger.code.as_str(), "REPLAY_PRINCIPAL_MISMATCH");
+        // Admission or membership changes do not rewrite recorded ownership.
+        assert_eq!(transaction::inventory_replay_probe(&f.pool, owner, f.org, "publication", "same").await.unwrap(), Some(publication));
         assert_eq!(f.effects().await, 0);
         f.finish().await;
     }
