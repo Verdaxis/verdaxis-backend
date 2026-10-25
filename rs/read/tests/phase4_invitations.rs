@@ -936,6 +936,38 @@ mod postgres {
         sorted.sort();
         assert_eq!(keys, sorted);
         drop(connection);
+        // The same page over HTTP carries the truncation fact in both the
+        // pinned body field and the header: `truncated` is a boolean, true at
+        // the 501-row cap and false under it.
+        let router = app(&f, auth::limits::SharedLimits::default());
+        let (status, _, body) = send(
+            &router,
+            "GET",
+            format!("{}?limit=500", request::LIST_PATH),
+            Some(&token(f.actor)),
+            None,
+        )
+        .await;
+        assert_eq!(status, 200);
+        assert_eq!(
+            body["truncated"],
+            Value::Bool(true),
+            "501 eligible rows must mark the 500-row page truncated"
+        );
+        assert_eq!(body["truncated_header"], "true");
+        assert_eq!(body["items"].as_array().unwrap().len(), 500);
+        let (status, _, body) = send(
+            &router,
+            "GET",
+            format!("{}?limit=100", request::LIST_PATH),
+            Some(&token(f.actor)),
+            None,
+        )
+        .await;
+        assert_eq!(status, 200);
+        assert_eq!(body["truncated"], Value::Bool(false));
+        assert_eq!(body["truncated_header"], "false");
+        assert_eq!(body["items"].as_array().unwrap().len(), 100);
         f.finish().await;
     }
 
@@ -1454,9 +1486,9 @@ mod postgres {
             send(&router, "GET", request::LIST_PATH, Some(&admin_token), None).await;
         assert_eq!(status, 200);
         assert_eq!(body["items"].as_array().unwrap().len(), 1);
-        // Python's body carries only `items`; the truncation marker is the
-        // header, so the body shape stays byte-compatible with the source.
-        assert!(body.get("truncated").is_none());
+        // The body carries the pinned `truncated` field, a boolean that says
+        // the same as the `X-Result-Truncated` header.
+        assert_eq!(body["truncated"], Value::Bool(false));
         assert_eq!(body["truncated_header"], "false");
         // A05's 30/minute limit is per declared route.
         let mut last = 0;
