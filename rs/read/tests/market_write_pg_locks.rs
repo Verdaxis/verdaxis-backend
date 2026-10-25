@@ -645,7 +645,7 @@ mod ordered_cases {
                 let retry=matches!(state,"40001"|"40P01");
                 assert_eq!(result.is_ok(),retry,"{state}/{acquisition}");
                 assert_eq!(previews.load(Ordering::SeqCst),if retry {if acquisition {3}else{4}} else {if acquisition {1}else{2}});
-                let effects:i64=sqlx::query_scalar("SELECT count(*) FROM lock_effects").fetch_one(&mut f.admin).await.unwrap();
+                let effects:i64=sqlx::query_scalar("SELECT value::bigint FROM lock_effects WHERE id=1").fetch_one(&mut f.admin).await.unwrap();
                 assert_eq!(effects,if retry {1}else{0}); f.finish().await;
             }
         }

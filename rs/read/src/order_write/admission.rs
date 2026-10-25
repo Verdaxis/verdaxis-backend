@@ -310,3 +310,68 @@ pub async fn require_cleanup(
     }
     Ok(())
 }
+
+
+/// Construct execution authority only from the verified actor and held evidence.
+pub async fn execution_context(
+    conn: &mut PgConnection, locked: &Locked, actor: AuthenticatedActor,
+    organization_id: Uuid, support_context_id: Option<Uuid>, now: DateTime<Utc>,
+    gate_enabled: bool,
+) -> Result<WriteContext, MarketWriteError> {
+    require_locked(locked, LockClass::User, actor.user_id())?;
+    require_locked(locked, LockClass::Organization, organization_id)?;
+    if actor.account.status != AccountState::Approved || actor.account.must_change_password || !actor.account.email_verified {
+        return Err(MarketWriteError::new(MarketErrorCode::ExecutionNotAvailable));
+    }
+    let support = if let Some(context_id) = support_context_id {
+        if actor.account.role != ActorRole::Admin { return Err(denied()); }
+        require_locked(locked, LockClass::Context, context_id)?;
+        let context=sqlx::query("SELECT actor_user_id,organization_id,scope::text AS scope,status::text AS status,expires_at FROM market_support_contexts WHERE id=$1")
+            .bind(context_id).fetch_optional(&mut *conn).await?.ok_or_else(invalid)?;
+        if context.get::<Uuid,_>("actor_user_id")!=actor.user_id() || context.get::<Uuid,_>("organization_id")!=organization_id || context.get::<String,_>("scope")!="ASSISTED_ORDER_ENTRY" || context.get::<String,_>("status")!="ACTIVE" || context.get::<DateTime<Utc>,_>("expires_at")<=now { return Err(denied()); }
+        let org=sqlx::query("SELECT verification_status::text AS status,provenance::text AS provenance FROM organizations WHERE id=$1").bind(organization_id).fetch_one(&mut *conn).await?;
+        if org.get::<String,_>("status")!="APPROVED" || org.get::<String,_>("provenance")!="REAL" {return Err(denied());}
+        for capability in ["MARKET_SUPPORT_AUTHORIZATIONS","MARKET_SUPPORT_LISTINGS"] {
+            let row=sqlx::query("SELECT id,revoked_at,expires_at FROM staff_capability_assignments WHERE user_id=$1 AND capability::text=$2")
+                .bind(actor.user_id()).bind(capability).fetch_optional(&mut *conn).await?.ok_or_else(denied)?;
+            require_locked(locked,LockClass::Capability,row.get("id"))?;
+            if row.get::<Option<DateTime<Utc>>,_>("revoked_at").is_some() || row.get::<Option<DateTime<Utc>>,_>("expires_at").is_some_and(|expiry|expiry<=now) {return Err(denied());}
+        }
+        let members=sqlx::query("SELECT id,role::text AS role FROM users WHERE organization_id=$1 AND role::text IN ('BUYER','SUPPLIER') ORDER BY id")
+            .bind(organization_id).fetch_all(&mut *conn).await?;
+        let mut eligible=false;
+        for member in members {
+            let user_id=member.get("id");
+            // Discovery must have included every possible authorizing member.
+            require_locked(locked,LockClass::User,user_id)?;
+            let party=PartyRef{user_id,organization_id,role:role(&member.get::<String,_>("role"))?};
+            match require_execution(conn,locked,&party,now,gate_enabled).await {
+                Ok(())=>eligible=true,
+                Err(error) if error.is_retryable()=>return Err(error),
+                Err(error) if matches!(error.code,MarketErrorCode::ExecutionNotAvailable|MarketErrorCode::KycRequired)=>{},
+                Err(error)=>return Err(error),
+            }
+        }
+        if !eligible {return Err(MarketWriteError::new(MarketErrorCode::KycRequired));}
+        Some(super::SupportContextRef{id:context_id})
+    } else {
+        require_execution(conn,locked,&PartyRef{user_id:actor.user_id(),organization_id,role:actor.account.role},now,gate_enabled).await?;
+        None
+    };
+    Ok(WriteContext{actor,effective_organization_id:organization_id,support,now,settlement_trade_id:None,settlement_ownership:None})
+}
+
+#[cfg(test)]
+pub async fn test_seed_assisted(conn:&mut PgConnection,change:&str) {
+    sqlx::raw_sql(include_str!("../../../tests/fixtures/phase8_assisted.sql")).execute(&mut *conn).await.unwrap();
+    let sql=match change {
+        "member_rejected"=>"UPDATE users SET kyc_status='REJECTED' WHERE id='00000000-0000-0000-0000-000000000004'",
+        "member_absent"=>"UPDATE users SET organization_id=NULL WHERE id='00000000-0000-0000-0000-000000000004'",
+        "wrong_org"=>"UPDATE market_support_contexts SET organization_id='00000000-0000-0000-0000-000000000014'",
+        "unknown_provenance"=>"UPDATE organizations SET provenance='UNKNOWN'",
+        "revoked_capability"=>"UPDATE staff_capability_assignments SET revoked_at=now()",
+        "expired_context"=>"UPDATE market_support_contexts SET expires_at=now()-interval '1 minute'",
+        _=>"SELECT 1",
+    };
+    sqlx::raw_sql(sql).execute(conn).await.unwrap();
+}
