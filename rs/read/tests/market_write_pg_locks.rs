@@ -793,3 +793,35 @@ async fn assisted_context_uses_locked_customer_authority() {
     }
     f.finish().await;
 }
+
+
+#[cfg(feature = "contract-tests")]
+#[tokio::test]
+#[ignore = "requires explicit disposable PostgreSQL"]
+async fn continuing_python_protocols_run_against_ordered_rust() {
+    let binary=std::env::current_exe().unwrap();
+    let status=std::process::Command::new("venv/bin/python")
+        .args(["rs/read/tests/fixtures/phase8_writer_protocols.py"])
+        .env("RUST_LOCK_PROTOCOL_BINARY",binary).status().unwrap();
+    assert!(status.success(),"each continuing writer must execute its database protocol");
+}
+
+#[cfg(feature = "contract-tests")]
+#[tokio::test]
+#[ignore = "requires explicit disposable PostgreSQL"]
+async fn ordered_protocol_contender() {
+    let Ok(url)=std::env::var("RUST_PROTOCOL_DATABASE_URL") else {return;};
+    let parsed=url::Url::parse(&url).unwrap();assert_eq!(parsed.host_str(),Some("127.0.0.1"));assert!(parsed.path().ends_with("_test"));
+    let mut conn=PgConnection::connect(&url).await.unwrap();
+    let (organizations,users,orders,slices)=transaction::protocol_preview(&mut conn).await;
+    let actor=users.first().copied().unwrap_or_else(||id(1));
+    if users.is_empty() {println!("PROTOCOL_EMPTY");return;}
+    let parties=PartyLockPreview::new(organizations,users,actor,serde_json::Value::Null);
+    let mut plan=OperationLockPlan::new(MarketOperation::Cancel);plan.parties(&parties).unwrap();plan.slices(slices).unwrap();plan.orders(orders).unwrap();
+    let mut tx=conn.begin().await.unwrap();
+    match plan.acquire(&mut tx).await {
+        Ok(_)=>println!("PROTOCOL_SERIAL"),
+        Err(error)=>{assert!(matches!(error.code,MarketErrorCode::MarketBusy|MarketErrorCode::MarketTimeout|MarketErrorCode::TransactionRetryExhausted));println!("PROTOCOL_BOUNDED");}
+    }
+    tx.rollback().await.unwrap();
+}
