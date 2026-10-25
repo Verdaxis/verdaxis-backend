@@ -7,19 +7,33 @@ use std::net::{IpAddr, Ipv6Addr};
 pub struct SharedLimits(std::sync::Arc<std::sync::Mutex<Phase2Limits>>);
 
 impl SharedLimits {
+    /// One lock acquisition that recovers from poisoning instead of
+    /// panicking: a caller that panicked under the lock must not take the
+    /// quota authority down with it. The counters are kept as they were —
+    /// clearing them would grant fresh quota — and the poison flag is cleared
+    /// while holding the recovered guard, so only that one recovery warns,
+    /// with a plain count that names no client.
+    fn lock_recovering(&self) -> std::sync::MutexGuard<'_, Phase2Limits> {
+        match self.0.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                let guard = poisoned.into_inner();
+                // Clear the poison flag while holding the recovered guard so
+                // only this recovery warns, not every later request.
+                self.0.clear_poison();
+                tracing::warn!(recoveries = 1_u64, "quota authority lock recovery");
+                guard
+            }
+        }
+    }
+
     pub fn preauth(&self, client: &str, path: &str, now: u64) -> bool {
-        self.0
-            .lock()
-            .expect("quota authority lock")
-            .preauth(client, path, now)
+        self.lock_recovering().preauth(client, path, now)
     }
 
     /// The one `/api/admin/` authority every ingress path draws from.
     pub fn admit_admin(&self, client: &str, now: u64) -> bool {
-        self.0
-            .lock()
-            .expect("quota authority lock")
-            .preauth(client, "/api/admin/", now)
+        self.lock_recovering().preauth(client, "/api/admin/", now)
     }
 
     /// Route adapters call this after bearer/current-account admission and
@@ -30,12 +44,7 @@ impl SharedLimits {
         path: &str,
         now: u64,
     ) -> Result<(), crate::ApiError> {
-        if self
-            .0
-            .lock()
-            .expect("quota authority lock")
-            .endpoint(client, path, now)
-        {
+        if self.lock_recovering().endpoint(client, path, now) {
             return Ok(());
         }
         let (_, limit, window) = endpoint_policy(path).expect("limited endpoint");
@@ -55,6 +64,10 @@ impl SharedLimits {
 // Each authority has its own cap. The ordered expiration index keeps eviction
 // and expiry bounded without scanning the client map on each request.
 const MAX_BUCKETS: usize = 50_000;
+
+// At 32 entries per request, stale accounting drains faster than new clients
+// can add it, without making one caller release all 50,000 expired entries.
+const EXPIRED_CLEANUP_BUDGET: usize = 32;
 
 type Identity = (String, String);
 
@@ -80,14 +93,28 @@ impl QuotaStore {
         now: u64,
         evict: bool,
     ) -> bool {
-        while let Some((expires_at, _)) = self.expiration.first() {
+        // The caller's own expired accounting resets directly, without waiting
+        // for the bounded cleanup below to reach it.
+        let identity = (owner.into(), key.into());
+        if let Some(bucket) = self.buckets.get(&identity)
+            && bucket.expires_at <= now
+        {
+            self.expiration.remove(&(bucket.expires_at, identity.clone()));
+            self.buckets.remove(&identity);
+        }
+        // A small fixed batch bounds synchronous cleanup under the shared
+        // lock: stale accounting drains faster than new identities can add
+        // it, without one caller releasing every expired entry at once.
+        for _ in 0..EXPIRED_CLEANUP_BUDGET {
+            let Some((expires_at, _)) = self.expiration.first() else {
+                break;
+            };
             if *expires_at > now {
                 break;
             }
-            let (_, identity) = self.expiration.pop_first().expect("expiration entry");
-            self.buckets.remove(&identity);
+            let (_, expired) = self.expiration.pop_first().expect("expiration entry");
+            self.buckets.remove(&expired);
         }
-        let identity = (owner.into(), key.into());
         if !self.buckets.contains_key(&identity) {
             if self.buckets.len() >= MAX_BUCKETS {
                 if !evict {
