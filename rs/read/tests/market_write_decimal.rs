@@ -365,9 +365,24 @@ fn sqlstate_mapping_table_is_total() {
             StatusCode::SERVICE_UNAVAILABLE,
             MarketErrorCode::MarketTimeout,
         ),
+        // 23505 follows plan §11.2: only the named idempotency-key constraints
+        // and the one active freeze map to their own code; every other unique
+        // violation is an unclassified database failure.
         (
             Some("23505"),
             Some("uq_market_command_results_actor_operation_key"),
+            StatusCode::CONFLICT,
+            MarketErrorCode::IdempotencyConflict,
+        ),
+        (
+            Some("23505"),
+            Some("uq_orderbook_orders_org_operation_idempotency"),
+            StatusCode::CONFLICT,
+            MarketErrorCode::IdempotencyConflict,
+        ),
+        (
+            Some("23505"),
+            Some("uq_trades_initiator_operation_idempotency"),
             StatusCode::CONFLICT,
             MarketErrorCode::IdempotencyConflict,
         ),
@@ -379,9 +394,21 @@ fn sqlstate_mapping_table_is_total() {
         ),
         (
             Some("23505"),
+            Some("uq_orderbook_orders_acceptance_ordinal"),
+            StatusCode::INTERNAL_SERVER_ERROR,
+            MarketErrorCode::DatabaseError,
+        ),
+        (
+            Some("23505"),
+            Some("uq_orderbook_support_authorization"),
+            StatusCode::INTERNAL_SERVER_ERROR,
+            MarketErrorCode::DatabaseError,
+        ),
+        (
+            Some("23505"),
             Some("some_other_unique_key"),
-            StatusCode::CONFLICT,
-            MarketErrorCode::IdempotencyConflict,
+            StatusCode::INTERNAL_SERVER_ERROR,
+            MarketErrorCode::DatabaseError,
         ),
         (
             Some("23514"),
@@ -531,6 +558,18 @@ fn sqlstate_mapping_table_is_total() {
             code.as_str()
         );
     }
+
+    // The pinned statuses the plan and Python both fix: a retired support
+    // body is gone (410), and a post-only order that would cross the book is
+    // a conflict (409), the same as its indeterminate sibling.
+    assert_eq!(
+        MarketErrorCode::MarketSupportLegacyMutationRetired.status(),
+        StatusCode::GONE
+    );
+    assert_eq!(
+        MarketErrorCode::PostOnlyWouldCross.status(),
+        StatusCode::CONFLICT
+    );
 }
 
 #[tokio::test]
