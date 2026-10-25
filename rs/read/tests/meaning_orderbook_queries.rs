@@ -374,8 +374,12 @@ async fn orderbook_distinct_labels_keep_order_and_nulls() {
         .execute(&mut *connection)
         .await
         .unwrap();
-    let distinct = include_str!("../sql/orderbook/distinct.sql");
     for field in ["products", "regions", "fuel-types"] {
+        let distinct = match field {
+            "products" => include_str!("../sql/orderbook/distinct_products.sql"),
+            "fuel-types" => include_str!("../sql/orderbook/distinct_fuel_types.sql"),
+            _ => include_str!("../sql/orderbook/distinct.sql"),
+        };
         for gate in [true, false] {
             let mut config = config.clone();
             config.kyc_execution_gate_enabled = gate;
@@ -425,7 +429,7 @@ async fn orderbook_distinct_labels_keep_order_and_nulls() {
                     &clock,
                     &config,
                     &filters,
-                    &[Extra::Text(field)],
+                    &[],
                 )
                 .await;
                 assert_eq!(old.is_empty(), empty, "fixture must exercise both cases");

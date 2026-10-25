@@ -127,6 +127,9 @@ digest input remains separate. `market/map_decimal.rs` preserves exact aggregate
 arithmetic, and `market/listing_terms.rs` retains compatibility schema ordering.
 R18/R26 use decision 23's created-time/UUID descending pagination in both languages.
 All projections apply shared eligibility before sorting, grouping and pagination.
+Distinct product, fuel-type and region labels use static `orderbook/distinct*.sql`
+tails with one bounded eligible-order probe per catalog product/point pair;
+SQL DISTINCT and collation order remain database-owned.
 
 Task 6a adds `market/live_benchmarks.rs` and `sql/live_benchmarks.sql` for
 read-only, request-cached same-side benchmarks. It applies full typed/scalar
