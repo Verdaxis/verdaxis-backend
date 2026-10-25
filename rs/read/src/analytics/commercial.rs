@@ -9,19 +9,10 @@
 //! Money is quantized to cents and stays a Decimal on the wire.
 
 use rust_decimal::Decimal;
-use serde::Serialize;
 
-use super::marketplace::{CommissionAggregate, DecimalMetricValue, TradeAggregate, money, wire};
+use super::marketplace::{CommissionAggregate, DecimalMetricValue, TradeAggregate, money};
 
-#[derive(Clone, Debug, Serialize)]
-pub struct CommercialSummary {
-    pub realized_gmv_usd: DecimalMetricValue,
-    pub realized_revenue_usd: DecimalMetricValue,
-    #[serde(serialize_with = "wire::decimal_option")]
-    pub commission_pending_usd: Option<Decimal>,
-    #[serde(serialize_with = "wire::decimal_option")]
-    pub commission_invoiced_usd: Option<Decimal>,
-}
+pub use crate::analytics::types::CommercialSummary;
 
 /// Compose the live commercial summary.
 ///

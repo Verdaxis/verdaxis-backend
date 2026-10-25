@@ -1,9 +1,8 @@
 //! Marketplace tab composition and the shared analytics response primitives.
 //!
 //! Phase 4 Task 19 owns three product-analytics tabs: acquisition (P06),
-//! marketplace (P09) and reliability (P11). They share one query vocabulary,
-//! one suppression rule, one provenance rule and one meta/coverage shape, so
-//! those live here. `liquidity`, `commercial`, `acquisition` and `reliability`
+//! marketplace (P09) and reliability (P11). The analytics foundation owns
+//! the query, suppression, provenance and response vocabulary. `liquidity`, `commercial`, `acquisition` and `reliability`
 //! compose tabs; only this module touches market rows.
 //!
 //! Rules carried over from the Python business reference
@@ -21,18 +20,10 @@
 //! - Unavailable and not-requested provider components carry `null`, never a
 //!   fabricated zero or empty collection.
 //!
-//! Scope note: the CF4_03 query/suppression ABI (`analytics::policy::
-//! validate_query` and `analytics::policy::suppress`) belongs to Task 15, not
-//! this lane. This module implements the same rules locally as `parse_query`
-//! and `suppress_cell` because Task 15's source is not integrated yet; the
-//! names are deliberately different so the lane publishes no competing ABI.
-//! Integration binds the real policy and deletes the local copies before
-//! acceptance.
-
 use std::collections::BTreeMap;
 
 use chrono::{DateTime, NaiveDate, TimeDelta, Utc};
-use rust_decimal::{Decimal, RoundingStrategy};
+use rust_decimal::Decimal;
 use serde::Serialize;
 use sqlx::{PgConnection, Row};
 use uuid::Uuid;
@@ -40,155 +31,22 @@ use uuid::Uuid;
 use crate::market::{policy as catalog, windows};
 use crate::{ApiError, Json, MarketPolicy};
 
-/// Small-cell threshold: one or two underlying entities stay private.
-pub const SUPPRESSION_THRESHOLD: i64 = 3;
-
-/// Bounds mirrored from the Python schemas (`MAX_SERIES_POINTS`,
-/// `_MAX_RANKED_ROWS`, `_MAX_MATRIX_CELLS`, reliability audit sample).
-pub const MAX_SERIES_POINTS: usize = 366;
-pub const MAX_RANKED_ROWS: usize = 20;
-pub const MAX_MATRIX_CELLS: usize = 512;
+pub use crate::analytics::policy::{
+    AllowedProperty as Property, AllowedPropertySet, MAX_MATRIX_CELLS, MAX_RANKED_ROWS,
+    MAX_SERIES_POINTS, RegisteredEvent as Event,
+};
+pub use crate::analytics::query::{AnalyticsQuery, QueryInput, validate_query as parse_query};
+pub use crate::analytics::types::{
+    AggregateCell, AnalyticsActivity as Activity, AnalyticsCoverage as Coverage,
+    AnalyticsDataQuality as DataQuality, AnalyticsDiagnostic as Diagnostic, AnalyticsMeta as Meta,
+    AnalyticsSourceCoverage as SourceCoverage, AnalyticsSourceStatus as SourceStatus,
+    BehavioralWindow, ComponentStatus, ConcentrationBand, DecimalMetricValue,
+    MarketActivitySection, MarketBalanceTrend, MarketplaceKpis, MarketplaceResponse, MetricValue,
+    OrganizationConcentration, ProductPortCell, RankedRow, RatioValue, ReferenceCoverageRow,
+    ReferenceCoverageSection, ReferenceCoverageStatus as CoverageStatus, ReferenceScope,
+    ReferenceSourceKind, ReferenceSourceLabel, SeriesPoint,
+};
 pub const MAX_AUDIT_ROWS: usize = 20;
-
-// ---------------------------------------------------------------------------
-// Decimal wire helpers
-// ---------------------------------------------------------------------------
-
-/// Decimal fields keep Python's string spelling on the wire: the frontend
-/// applies `Number()` itself (`client-contract.json` decimal policy).
-pub mod wire {
-    use rust_decimal::Decimal;
-    use serde::Serializer;
-
-    pub fn decimal<S: Serializer>(value: &Decimal, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(&value.to_string())
-    }
-
-    pub fn decimal_option<S: Serializer>(
-        value: &Option<Decimal>,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error> {
-        match value {
-            Some(value) => serializer.serialize_some(&value.to_string()),
-            None => serializer.serialize_none(),
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Query
-// ---------------------------------------------------------------------------
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Audience {
-    All,
-    Buyer,
-    Supplier,
-}
-
-impl Audience {
-    pub fn parse(value: &str) -> Option<Self> {
-        match value {
-            "ALL" => Some(Self::All),
-            "BUYER" => Some(Self::Buyer),
-            "SUPPLIER" => Some(Self::Supplier),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Activity {
-    Live,
-    Demo,
-    Reference,
-    All,
-}
-
-impl Activity {
-    pub fn parse(value: &str) -> Option<Self> {
-        match value {
-            "LIVE" => Some(Self::Live),
-            "DEMO" => Some(Self::Demo),
-            "REFERENCE" => Some(Self::Reference),
-            "ALL" => Some(Self::All),
-            _ => None,
-        }
-    }
-
-    /// Whether this request asks for order/trade aggregates at all.
-    pub fn wants_activity(self) -> bool {
-        matches!(self, Self::Live | Self::Demo | Self::All)
-    }
-
-    pub fn wants_live(self) -> bool {
-        matches!(self, Self::Live | Self::All)
-    }
-
-    pub fn wants_demo(self) -> bool {
-        matches!(self, Self::Demo | Self::All)
-    }
-
-    pub fn wants_unknown(self) -> bool {
-        matches!(self, Self::All)
-    }
-
-    pub fn wants_reference(self) -> bool {
-        matches!(self, Self::Reference | Self::All)
-    }
-}
-
-/// A validated analytics period. Construction is the parser's job: every
-/// field here has already passed the CF4_03 checks, including the checked
-/// previous-window subtraction.
-#[derive(Clone, Debug, PartialEq)]
-pub struct AnalyticsQuery {
-    pub start: DateTime<Utc>,
-    pub end: DateTime<Utc>,
-    pub compare: bool,
-    pub audience: Audience,
-    pub activity: Activity,
-    pub product_id: Option<Uuid>,
-    pub delivery_point_id: Option<Uuid>,
-    pub availability_window: Option<String>,
-}
-
-impl AnalyticsQuery {
-    /// The comparison window, or `None` when comparison is off. Callers build a
-    /// query through the parser, which refuses an underflowing subtraction.
-    pub fn previous(&self) -> Option<(DateTime<Utc>, DateTime<Utc>)> {
-        if !self.compare {
-            return None;
-        }
-        let elapsed = self.end - self.start;
-        Some((self.start.checked_sub_signed(elapsed)?, self.start))
-    }
-
-    pub fn filters(&self) -> Filters {
-        Filters {
-            product_id: self.product_id,
-            delivery_point_id: self.delivery_point_id,
-            availability_window: self.availability_window.clone(),
-        }
-    }
-}
-
-/// The canonical marketplace slice filters. Trades and commissions qualify
-/// through a linked order, never through guessed legacy columns.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Filters {
-    pub product_id: Option<Uuid>,
-    pub delivery_point_id: Option<Uuid>,
-    pub availability_window: Option<String>,
-}
-
-impl Filters {
-    pub fn active(&self) -> bool {
-        self.product_id.is_some()
-            || self.delivery_point_id.is_some()
-            || self.availability_window.is_some()
-    }
-}
 
 /// Reference activity is accepted only by the marketplace tab.
 pub fn refuse_reference(query: &AnalyticsQuery) -> Result<(), ApiError> {
@@ -216,146 +74,23 @@ pub fn invalid_property(message: &'static str) -> ApiError {
     )
 }
 
-// ---------------------------------------------------------------------------
-// Meta, coverage and data quality
-// ---------------------------------------------------------------------------
+/// Per-request counters use the foundation-owned data-quality type.
+pub type Quality = DataQuality;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SourceStatus {
-    Available,
-    Partial,
-    Unavailable,
-    NotApplicable,
+/// Adapt signed SQL counts to the foundation's nonnegative count domain.
+fn unsigned(value: Option<i64>) -> Option<u64> {
+    value.and_then(|value| u64::try_from(value).ok())
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Diagnostic {
-    Disabled,
-    Configuration,
-    Authentication,
-    Timeout,
-    Upstream,
-    MalformedResponse,
-    InsufficientCoverage,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct SourceCoverage {
-    pub coverage_start: Option<DateTime<Utc>>,
-    pub coverage_end: Option<DateTime<Utc>>,
-    pub observed_at: Option<DateTime<Utc>>,
-    pub status: SourceStatus,
-    pub diagnostic: Option<Diagnostic>,
-}
-
-impl SourceCoverage {
-    pub fn not_applicable() -> Self {
-        Self {
-            coverage_start: None,
-            coverage_end: None,
-            observed_at: None,
-            status: SourceStatus::NotApplicable,
-            diagnostic: None,
-        }
-    }
-
-    pub fn available(observed_at: DateTime<Utc>) -> Self {
-        Self {
-            coverage_start: None,
-            coverage_end: None,
-            observed_at: Some(observed_at),
-            status: SourceStatus::Available,
-            diagnostic: None,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct Coverage {
-    pub authoritative: SourceCoverage,
-    pub behavioral: SourceCoverage,
-    pub login_history: SourceCoverage,
-    pub status_history: SourceCoverage,
-    pub reference: SourceCoverage,
-}
-
-#[derive(Clone, Debug, Default, Serialize)]
-pub struct DataQuality {
-    pub legacy_timestamp_fallback_count: i64,
-    pub missing_paid_at_count: i64,
-    pub missing_commission_payment_date_count: i64,
-    pub suppressed_cell_count: i64,
-    pub cohort_complete: bool,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct Meta {
-    pub start: DateTime<Utc>,
-    pub end: DateTime<Utc>,
-    pub previous_start: Option<DateTime<Utc>>,
-    pub previous_end: Option<DateTime<Utc>>,
-    pub observed_at: DateTime<Utc>,
-    pub coverage: Coverage,
-    pub data_quality: DataQuality,
-}
-
-/// Per-request suppression accounting. Every suppressed cell increments the
-/// count that `meta.data_quality.suppressed_cell_count` publishes.
-#[derive(Clone, Debug)]
-pub struct Quality {
-    pub legacy_timestamp_fallback_count: i64,
-    pub missing_paid_at_count: i64,
-    pub missing_commission_payment_date_count: i64,
-    pub suppressed_cell_count: i64,
-    pub cohort_complete: bool,
-}
-
-impl Default for Quality {
-    fn default() -> Self {
-        Self {
-            legacy_timestamp_fallback_count: 0,
-            missing_paid_at_count: 0,
-            missing_commission_payment_date_count: 0,
-            suppressed_cell_count: 0,
-            cohort_complete: true,
-        }
-    }
-}
-
-impl Quality {
-    pub fn data_quality(&self) -> DataQuality {
-        DataQuality {
-            legacy_timestamp_fallback_count: self.legacy_timestamp_fallback_count,
-            missing_paid_at_count: self.missing_paid_at_count,
-            missing_commission_payment_date_count: self.missing_commission_payment_date_count,
-            suppressed_cell_count: self.suppressed_cell_count,
-            cohort_complete: self.cohort_complete,
-        }
-    }
-}
-
-/// Suppression decision, shared with Task 15's exported `suppress`.
-///
-/// `0 < basis < 3` suppresses; a genuine zero stays visible; an unknown count
-/// stays unknown and is never suppressed. `entities` falls back to the event
-/// count when no distinct-entity count exists.
 pub fn suppress_cell(
     count: Option<i64>,
     entities: Option<i64>,
     quality: &mut Quality,
-) -> (Option<i64>, bool) {
-    let Some(count) = count else {
-        return (None, false);
-    };
-    let basis = entities.unwrap_or(count);
-    if basis > 0 && basis < SUPPRESSION_THRESHOLD {
-        quality.suppressed_cell_count += 1;
-        (None, true)
-    } else {
-        (Some(count), false)
-    }
+) -> (Option<u64>, bool) {
+    let (count, suppressed) =
+        crate::analytics::policy::suppress_value(unsigned(count), unsigned(entities));
+    quality.suppressed_cell_count += u64::from(suppressed);
+    (count, suppressed)
 }
 
 pub fn cell(
@@ -380,8 +115,8 @@ pub fn metric(
 ) -> MetricValue {
     if !segmented {
         return MetricValue {
-            value,
-            previous,
+            value: unsigned(value),
+            previous: unsigned(previous),
             suppressed: false,
         };
     }
@@ -392,59 +127,6 @@ pub fn metric(
         previous,
         suppressed: suppressed_value || suppressed_previous,
     }
-}
-
-// ---------------------------------------------------------------------------
-// Response primitives
-// ---------------------------------------------------------------------------
-
-#[derive(Clone, Debug, Serialize)]
-pub struct AggregateCell {
-    pub key: String,
-    pub count: Option<i64>,
-    pub suppressed: bool,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct MetricValue {
-    pub value: Option<i64>,
-    pub previous: Option<i64>,
-    pub suppressed: bool,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct DecimalMetricValue {
-    #[serde(serialize_with = "wire::decimal_option")]
-    pub value: Option<Decimal>,
-    #[serde(serialize_with = "wire::decimal_option")]
-    pub previous: Option<Decimal>,
-    pub suppressed: bool,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct RatioValue {
-    pub numerator: Option<i64>,
-    pub denominator: Option<i64>,
-    #[serde(serialize_with = "wire::decimal_option")]
-    pub rate_pct: Option<Decimal>,
-    pub suppressed: bool,
-    pub cohort_complete: bool,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct SeriesPoint {
-    pub date: NaiveDate,
-    pub value: Option<i64>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct RankedRow {
-    pub key: String,
-    pub label: String,
-    pub count: Option<i64>,
-    #[serde(serialize_with = "wire::decimal_option")]
-    pub share_pct: Option<Decimal>,
-    pub suppressed: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -468,13 +150,13 @@ pub fn one_decimal(value: Decimal) -> Decimal {
 
 /// `ROUND_HALF_UP` percentage, `None` for a non-positive denominator.
 pub fn rate_pct(numerator: i64, denominator: i64) -> Option<Decimal> {
-    if denominator <= 0 {
-        return None;
-    }
-    let mut value = (Decimal::from(numerator) / Decimal::from(denominator) * Decimal::from(100))
-        .round_dp_with_strategy(2, RoundingStrategy::MidpointAwayFromZero);
-    value.rescale(2);
-    Some(value)
+    crate::analytics::policy::ratio_from_counts(
+        unsigned(Some(numerator)),
+        unsigned(Some(denominator)),
+        true,
+    )
+    .rate_pct
+    .map(money)
 }
 
 /// Share of a total, `None` when the total is zero.
@@ -631,667 +313,73 @@ pub fn database(error: sqlx::Error) -> ApiError {
     )
 }
 
-// ---------------------------------------------------------------------------
-// Marketplace response vocabulary
-// ---------------------------------------------------------------------------
-
-#[derive(Clone, Debug, Serialize)]
-pub struct MarketplaceKpis {
-    pub participating_organizations: MetricValue,
-    pub open_bids: MetricValue,
-    pub open_asks: MetricValue,
-    pub confirmed_trades: MetricValue,
-    pub confirmed_volume_mt: DecimalMetricValue,
-    pub execution_rate: RatioValue,
-}
-
-#[derive(Clone, Debug, Default, Serialize)]
-pub struct MarketBalanceTrend {
-    pub buyer_organizations: Vec<SeriesPoint>,
-    pub supplier_organizations: Vec<SeriesPoint>,
-    pub bids: Vec<SeriesPoint>,
-    pub asks: Vec<SeriesPoint>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct ProductPortCell {
-    pub product_key: String,
-    pub product_label: String,
-    pub delivery_point_key: String,
-    pub delivery_point_label: String,
-    pub orders: AggregateCell,
-    pub organizations: AggregateCell,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ConcentrationBand {
-    Low,
-    Moderate,
-    High,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct OrganizationConcentration {
-    pub hhi_band: Option<ConcentrationBand>,
-    pub suppressed: bool,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct MarketActivitySection {
-    pub kpis: MarketplaceKpis,
-    pub liquidity: super::liquidity::LiquiditySummary,
-    pub balance_trend: MarketBalanceTrend,
-    pub product_port_matrix: Vec<ProductPortCell>,
-    pub window_distribution: Vec<RankedRow>,
-    pub order_status_distribution: Vec<AggregateCell>,
-    pub trade_status_distribution: Vec<AggregateCell>,
-    pub concentration: OrganizationConcentration,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-pub enum ReferenceSourceLabel {
-    #[serde(rename = "MANUAL_OVERRIDE")]
-    ManualOverride,
-    #[serde(rename = "SEED_MATRIX")]
-    SeedMatrix,
-    #[serde(rename = "OTHER")]
-    Other,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-pub enum ReferenceSourceKind {
-    #[serde(rename = "ADMIN_BENCHMARK")]
-    AdminBenchmark,
-    #[serde(rename = "SEEDED_BENCHMARK")]
-    SeededBenchmark,
-    #[serde(rename = "TRADE_DERIVED_VWAP")]
-    TradeDerivedVwap,
-    #[serde(rename = "OTHER")]
-    Other,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-pub enum ReferenceScope {
-    #[serde(rename = "EXACT_SLICE")]
-    ExactSlice,
-    #[serde(rename = "WINDOW_ADJUSTED")]
-    WindowAdjusted,
-    #[serde(rename = "OTHER")]
-    Other,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum CoverageStatus {
-    Current,
-    Stale,
-    Unavailable,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct ReferenceCoverageRow {
-    pub product_key: String,
-    pub product_label: String,
-    pub delivery_point_key: String,
-    pub delivery_point_label: String,
-    pub availability_window: String,
-    pub availability_window_label: String,
-    #[serde(serialize_with = "wire::decimal_option")]
-    pub benchmark_price_usd_per_mt: Option<Decimal>,
-    pub source_label: ReferenceSourceLabel,
-    pub generated_at: DateTime<Utc>,
-    pub observed_at: Option<DateTime<Utc>>,
-    pub source_kind: ReferenceSourceKind,
-    pub scope: ReferenceScope,
-    pub coverage_status: CoverageStatus,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct ReferenceCoverageSection {
-    pub rows: Vec<ReferenceCoverageRow>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct MarketplaceResponse {
-    pub meta: Meta,
-    pub live: Option<MarketActivitySection>,
-    pub demo: Option<MarketActivitySection>,
-    pub unknown: Option<MarketActivitySection>,
-    pub reference: Option<ReferenceCoverageSection>,
-    pub commercial: Option<super::commercial::CommercialSummary>,
-}
-
-// ---------------------------------------------------------------------------
-// Provider view (consumed from Task 16; typed availability, never raw JSON)
-// ---------------------------------------------------------------------------
-
-/// One registered analytics event. Closed: no free-text event name reaches a
-/// query or an output.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Event {
-    RegistrationCompleted,
-    OrganizationCreated,
-    OrderCreated,
-    TradeCreated,
-    LandingCtaClicked,
-    EnergyCalculatorStarted,
-    EnergyCalculatorCompleted,
-    PublicLanguageChanged,
-    SignupStarted,
-    SignupRoleSelected,
-    SignupSubmitted,
-    SignupOrganizationRequired,
-    SignupOrganizationSubmitted,
-    LoginSubmitted,
-    LoginSucceeded,
-    LoginFailed,
-    PlatformNavigation,
-    MarketSliceSelected,
-    ListingOpened,
-    OrderFormOpened,
-    OrderFormSubmitted,
-    TradeConfirmationOpened,
-    TutorialStarted,
-    TutorialStepCompleted,
-    TutorialStepSkipped,
-    TutorialCompleted,
-    EstimatorOpened,
-    EstimatorCompleted,
-    FrontendError,
-    BackendUnavailable,
-    NavigationPerformance,
-}
-
-impl Event {
-    pub const ALL: [Event; 31] = [
-        Event::RegistrationCompleted,
-        Event::OrganizationCreated,
-        Event::OrderCreated,
-        Event::TradeCreated,
-        Event::LandingCtaClicked,
-        Event::EnergyCalculatorStarted,
-        Event::EnergyCalculatorCompleted,
-        Event::PublicLanguageChanged,
-        Event::SignupStarted,
-        Event::SignupRoleSelected,
-        Event::SignupSubmitted,
-        Event::SignupOrganizationRequired,
-        Event::SignupOrganizationSubmitted,
-        Event::LoginSubmitted,
-        Event::LoginSucceeded,
-        Event::LoginFailed,
-        Event::PlatformNavigation,
-        Event::MarketSliceSelected,
-        Event::ListingOpened,
-        Event::OrderFormOpened,
-        Event::OrderFormSubmitted,
-        Event::TradeConfirmationOpened,
-        Event::TutorialStarted,
-        Event::TutorialStepCompleted,
-        Event::TutorialStepSkipped,
-        Event::TutorialCompleted,
-        Event::EstimatorOpened,
-        Event::EstimatorCompleted,
-        Event::FrontendError,
-        Event::BackendUnavailable,
-        Event::NavigationPerformance,
-    ];
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Event::RegistrationCompleted => "registration_completed",
-            Event::OrganizationCreated => "organization_created",
-            Event::OrderCreated => "order_created",
-            Event::TradeCreated => "trade_created",
-            Event::LandingCtaClicked => "landing_cta_clicked",
-            Event::EnergyCalculatorStarted => "energy_calculator_started",
-            Event::EnergyCalculatorCompleted => "energy_calculator_completed",
-            Event::PublicLanguageChanged => "public_language_changed",
-            Event::SignupStarted => "signup_started",
-            Event::SignupRoleSelected => "signup_role_selected",
-            Event::SignupSubmitted => "signup_submitted",
-            Event::SignupOrganizationRequired => "signup_organization_required",
-            Event::SignupOrganizationSubmitted => "signup_organization_submitted",
-            Event::LoginSubmitted => "login_submitted",
-            Event::LoginSucceeded => "login_succeeded",
-            Event::LoginFailed => "login_failed",
-            Event::PlatformNavigation => "platform_navigation",
-            Event::MarketSliceSelected => "market_slice_selected",
-            Event::ListingOpened => "listing_opened",
-            Event::OrderFormOpened => "order_form_opened",
-            Event::OrderFormSubmitted => "order_form_submitted",
-            Event::TradeConfirmationOpened => "trade_confirmation_opened",
-            Event::TutorialStarted => "tutorial_started",
-            Event::TutorialStepCompleted => "tutorial_step_completed",
-            Event::TutorialStepSkipped => "tutorial_step_skipped",
-            Event::TutorialCompleted => "tutorial_completed",
-            Event::EstimatorOpened => "estimator_opened",
-            Event::EstimatorCompleted => "estimator_completed",
-            Event::FrontendError => "frontend_error",
-            Event::BackendUnavailable => "backend_unavailable",
-            Event::NavigationPerformance => "navigation_performance",
-        }
-    }
-
-    pub fn parse(value: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|event| event.as_str() == value)
+/// Keep a foundation-owned provider cell private through tab composition.
+pub fn provider_cell(cell: &AggregateCell, quality: &mut Quality) -> (Option<u64>, bool) {
+    if cell.suppressed {
+        quality.suppressed_cell_count += 1;
+        (None, true)
+    } else {
+        let (count, suppressed) = crate::analytics::policy::suppress_value(cell.count, None);
+        quality.suppressed_cell_count += u64::from(suppressed);
+        (count, suppressed)
     }
 }
 
-/// One registered event property. The event decides which of these are legal.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Property {
-    Role,
-    Side,
-    CanonicalProduct,
-    DeliveryPoint,
-    AvailabilityWindow,
-    Cta,
-    Placement,
-    Language,
-    Fuel,
-    Port,
-    From,
-    To,
-    EntryPoint,
-    OrganizationPath,
-    OrganizationType,
-    Country,
-    ReasonCategory,
-    Destination,
-    ViewMode,
-    Product,
-    Window,
-    DemoStatus,
-    Step,
-    RouteFamily,
-    Category,
-    LatencyBucket,
-}
-
-impl Property {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Property::Role => "role",
-            Property::Side => "side",
-            Property::CanonicalProduct => "canonical_product",
-            Property::DeliveryPoint => "delivery_point",
-            Property::AvailabilityWindow => "availability_window",
-            Property::Cta => "cta",
-            Property::Placement => "placement",
-            Property::Language => "language",
-            Property::Fuel => "fuel",
-            Property::Port => "port",
-            Property::From => "from",
-            Property::To => "to",
-            Property::EntryPoint => "entry_point",
-            Property::OrganizationPath => "organization_path",
-            Property::OrganizationType => "organization_type",
-            Property::Country => "country",
-            Property::ReasonCategory => "reason_category",
-            Property::Destination => "destination",
-            Property::ViewMode => "view_mode",
-            Property::Product => "product",
-            Property::Window => "window",
-            Property::DemoStatus => "demo_status",
-            Property::Step => "step",
-            Property::RouteFamily => "route_family",
-            Property::Category => "category",
-            Property::LatencyBucket => "latency_bucket",
-        }
+pub fn provider_series(
+    query: &AnalyticsQuery,
+    rows: impl IntoIterator<Item = (NaiveDate, AggregateCell)>,
+    quality: &mut Quality,
+) -> Vec<SeriesPoint> {
+    let cells: BTreeMap<_, _> = rows.into_iter().collect();
+    let mut points = Vec::new();
+    let mut day = query.start.date_naive();
+    while day < query.end.date_naive() && points.len() < MAX_SERIES_POINTS {
+        let (value, _) = match cells.get(&day) {
+            Some(cell) => provider_cell(cell, quality),
+            None => (Some(0), false),
+        };
+        points.push(SeriesPoint { date: day, value });
+        let Some(next) = day.succ_opt() else { break };
+        day = next;
     }
+    points
 }
 
-/// The event→property registry of CF4_03 `EventPropertyDomains`.
-pub fn event_properties(event: Event) -> &'static [Property] {
-    use Property::*;
-    match event {
-        Event::RegistrationCompleted | Event::OrganizationCreated => &[Role],
-        Event::OrderCreated | Event::TradeCreated => &[
-            Role,
-            Side,
-            CanonicalProduct,
-            DeliveryPoint,
-            AvailabilityWindow,
-        ],
-        Event::LandingCtaClicked => &[Cta, Placement, Language],
-        Event::EnergyCalculatorStarted => &[Language],
-        Event::EnergyCalculatorCompleted => &[Language, Fuel, Port],
-        Event::PublicLanguageChanged => &[From, To],
-        Event::SignupStarted => &[EntryPoint, Language],
-        Event::SignupRoleSelected => &[Role],
-        Event::SignupSubmitted => &[Role, OrganizationPath],
-        Event::SignupOrganizationRequired => &[Role],
-        Event::SignupOrganizationSubmitted => &[Role, OrganizationType, Country],
-        Event::LoginSubmitted => &[],
-        Event::LoginSucceeded => &[Role],
-        Event::LoginFailed => &[ReasonCategory],
-        Event::PlatformNavigation => &[Destination, ViewMode],
-        Event::MarketSliceSelected => &[Product, DeliveryPoint, Window],
-        Event::ListingOpened => &[Product, DeliveryPoint, Window, Side, DemoStatus],
-        Event::OrderFormOpened | Event::OrderFormSubmitted => {
-            &[Product, DeliveryPoint, Window, Side]
-        }
-        Event::TradeConfirmationOpened => &[Side, DemoStatus],
-        Event::TutorialStarted => &[Role],
-        Event::TutorialStepCompleted | Event::TutorialStepSkipped => &[Step, Role],
-        Event::TutorialCompleted => &[Role],
-        Event::EstimatorOpened => &[],
-        Event::EstimatorCompleted => &[Port, Fuel],
-        Event::FrontendError => &[RouteFamily, Category],
-        Event::BackendUnavailable => &[RouteFamily],
-        Event::NavigationPerformance => &[Destination, ViewMode, LatencyBucket],
+/// Read-only accessors over the foundation-owned provider envelope.
+pub trait BehavioralWindowView {
+    fn status(&self) -> SourceStatus;
+    fn property(
+        &self,
+        event: Event,
+        property: Property,
+    ) -> Option<&crate::analytics::types::PropertyAvailability>;
+    fn event_total(&self, event: Event) -> Option<i64>;
+}
+
+impl BehavioralWindowView for BehavioralWindow {
+    fn status(&self) -> SourceStatus {
+        self.coverage.status
     }
-}
-
-/// Sorted, deduplicated, validated `(event, property)` request set.
-///
-/// A property that the event does not register is refused with
-/// `ANALYTICS_PROPERTY_INVALID`; at most twelve distinct events may be asked
-/// for in one window.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct AllowedPropertySet {
-    pairs: Vec<(Event, Property)>,
-}
-
-/// CF4_03 bound: at most twelve distinct events per window request.
-pub const MAX_PROPERTY_EVENTS: usize = 12;
-
-impl AllowedPropertySet {
-    pub fn new(requests: impl IntoIterator<Item = (Event, Property)>) -> Result<Self, ApiError> {
-        let mut pairs: Vec<(Event, Property)> = requests.into_iter().collect();
-        pairs.sort();
-        pairs.dedup();
-        for (event, property) in &pairs {
-            if !event_properties(*event).contains(property) {
-                return Err(invalid_property(
-                    "the requested property is not registered for that event",
-                ));
-            }
-        }
-        let mut events: Vec<Event> = pairs.iter().map(|(event, _)| *event).collect();
-        events.dedup();
-        if events.len() > MAX_PROPERTY_EVENTS {
-            return Err(invalid_property(
-                "at most twelve event breakdowns are allowed per request",
-            ));
-        }
-        Ok(Self { pairs })
-    }
-
-    pub fn pairs(&self) -> &[(Event, Property)] {
-        &self.pairs
-    }
-
-    pub fn events(&self) -> Vec<Event> {
-        let mut events: Vec<Event> = self.pairs.iter().map(|(event, _)| *event).collect();
-        events.dedup();
-        events
-    }
-
-    /// No breakdown requested. Distinct from an empty request that was
-    /// answered: this set was never sent anywhere.
-    pub fn not_requested() -> Self {
-        Self::default()
-    }
-
-    pub fn contains(&self, event: Event, property: Property) -> bool {
-        self.pairs.binary_search(&(event, property)).is_ok()
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ComponentStatus {
-    Available,
-    Partial,
-    Unavailable,
-    NotRequested,
-}
-
-/// One typed provider component. Unavailable and not-requested components carry
-/// no data at all: never a zero and never an empty collection.
-#[derive(Clone, Debug)]
-pub struct ProviderComponent<T> {
-    pub status: ComponentStatus,
-    pub diagnostic: Option<Diagnostic>,
-    pub data: Option<T>,
-}
-
-impl<T> ProviderComponent<T> {
-    pub fn available(data: T) -> Self {
-        Self {
-            status: ComponentStatus::Available,
-            diagnostic: None,
-            data: Some(data),
-        }
-    }
-
-    pub fn partial(diagnostic: Option<Diagnostic>, data: Option<T>) -> Self {
-        Self {
-            status: ComponentStatus::Partial,
-            diagnostic,
-            data,
-        }
-    }
-
-    pub fn unavailable(diagnostic: Diagnostic) -> Self {
-        Self {
-            status: ComponentStatus::Unavailable,
-            diagnostic: Some(diagnostic),
-            data: None,
-        }
-    }
-
-    pub fn not_requested() -> Self {
-        Self {
-            status: ComponentStatus::NotRequested,
-            diagnostic: None,
-            data: None,
-        }
-    }
-
-    pub fn data(&self) -> Option<&T> {
-        self.data.as_ref()
-    }
-
-    pub fn status(&self) -> ComponentStatus {
-        self.status
-    }
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct CoreMetrics {
-    pub visitors: Option<u64>,
-    pub visits: Option<u64>,
-    pub pageviews: Option<u64>,
-    pub total_time_seconds: Option<u64>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum EntryPage {
-    Landing,
-    Signup,
-    Login,
-    Pilot,
-    Calculator,
-    Platform,
-    Admin,
-    Other,
-}
-
-impl EntryPage {
-    pub const ALL: [EntryPage; 8] = [
-        EntryPage::Landing,
-        EntryPage::Signup,
-        EntryPage::Login,
-        EntryPage::Pilot,
-        EntryPage::Calculator,
-        EntryPage::Platform,
-        EntryPage::Admin,
-        EntryPage::Other,
-    ];
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            EntryPage::Landing => "landing",
-            EntryPage::Signup => "signup",
-            EntryPage::Login => "login",
-            EntryPage::Pilot => "pilot",
-            EntryPage::Calculator => "calculator",
-            EntryPage::Platform => "platform",
-            EntryPage::Admin => "admin",
-            EntryPage::Other => "other",
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum ReferrerCategory {
-    Direct,
-    Search,
-    Social,
-    Referral,
-    Other,
-}
-
-impl ReferrerCategory {
-    pub const ALL: [ReferrerCategory; 5] = [
-        ReferrerCategory::Direct,
-        ReferrerCategory::Search,
-        ReferrerCategory::Social,
-        ReferrerCategory::Referral,
-        ReferrerCategory::Other,
-    ];
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            ReferrerCategory::Direct => "direct",
-            ReferrerCategory::Search => "search",
-            ReferrerCategory::Social => "social",
-            ReferrerCategory::Referral => "referral",
-            ReferrerCategory::Other => "other",
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct DailyVisitor {
-    pub date: NaiveDate,
-    pub visitors: u64,
-}
-
-#[derive(Clone, Debug)]
-pub struct DailyEvent {
-    pub date: NaiveDate,
-    pub event: Event,
-    pub value: u64,
-}
-
-#[derive(Clone, Debug)]
-pub struct EntryRanking {
-    pub entry: EntryPage,
-    pub count: u64,
-}
-
-#[derive(Clone, Debug)]
-pub struct ReferrerRanking {
-    pub referrer: ReferrerCategory,
-    pub count: u64,
-}
-
-#[derive(Clone, Debug)]
-pub struct PropertyValueCount {
-    pub value: String,
-    pub total: u64,
-}
-
-#[derive(Clone, Debug)]
-pub struct PropertyResult {
-    pub event: Event,
-    pub property: Property,
-    pub result: ProviderComponent<Vec<PropertyValueCount>>,
-}
-
-/// The typed view of one behavioral window that these tabs consume. The
-/// provider adapter (Task 16) produces it; nothing here is raw upstream JSON.
-#[derive(Clone, Debug)]
-pub struct BehavioralWindow {
-    pub observed_at: DateTime<Utc>,
-    pub core: ProviderComponent<CoreMetrics>,
-    pub event_totals: ProviderComponent<Vec<(Event, u64)>>,
-    pub daily_visitors: ProviderComponent<Vec<DailyVisitor>>,
-    pub event_series: ProviderComponent<Vec<DailyEvent>>,
-    pub top_entries: ProviderComponent<Vec<EntryRanking>>,
-    pub top_referrers: ProviderComponent<Vec<ReferrerRanking>>,
-    pub property_results: Vec<PropertyResult>,
-}
-
-impl BehavioralWindow {
-    pub fn unavailable(diagnostic: Diagnostic, observed_at: DateTime<Utc>) -> Self {
-        Self {
-            observed_at,
-            core: ProviderComponent::unavailable(diagnostic),
-            event_totals: ProviderComponent::unavailable(diagnostic),
-            daily_visitors: ProviderComponent::unavailable(diagnostic),
-            event_series: ProviderComponent::unavailable(diagnostic),
-            top_entries: ProviderComponent::unavailable(diagnostic),
-            top_referrers: ProviderComponent::unavailable(diagnostic),
-            property_results: Vec::new(),
-        }
-    }
-
-    /// The published source status, from the core component.
-    pub fn status(&self) -> SourceStatus {
-        match self.core.status {
-            ComponentStatus::Available => SourceStatus::Available,
-            ComponentStatus::Partial => SourceStatus::Partial,
-            _ => SourceStatus::Unavailable,
-        }
-    }
-
-    pub fn diagnostic(&self) -> Option<Diagnostic> {
-        self.core.diagnostic.or_else(|| {
-            self.event_totals
-                .diagnostic
-                .or(self.daily_visitors.diagnostic)
-                .or(self.event_series.diagnostic)
-        })
-    }
-
-    pub fn property(&self, event: Event, property: Property) -> Option<&PropertyResult> {
+    fn property(
+        &self,
+        event: Event,
+        property: Property,
+    ) -> Option<&crate::analytics::types::PropertyAvailability> {
         self.property_results
             .iter()
-            .find(|result| result.event == event && result.property == property)
+            .find(|row| row.event == event.name() && row.property == property.name())
     }
-
-    pub fn event_total(&self, event: Event) -> Option<i64> {
-        self.event_totals.data().map(|totals| {
-            totals
-                .iter()
-                .filter(|(name, _)| *name == event)
-                .map(|(_, count)| *count as i64)
-                .sum()
-        })
-    }
-
-    pub fn daily_value(&self, date: NaiveDate) -> Option<i64> {
-        self.daily_visitors.data().map(|rows| {
-            rows.iter()
-                .filter(|row| row.date == date)
-                .map(|row| row.visitors as i64)
-                .sum()
-        })
-    }
-
-    pub fn event_day(&self, event: Event) -> Option<BTreeMap<NaiveDate, i64>> {
-        self.event_series.data().map(|rows| {
-            let mut values: BTreeMap<NaiveDate, i64> = BTreeMap::new();
-            for row in rows.iter().filter(|row| row.event == event) {
-                *values.entry(row.date).or_insert(0) += row.value as i64;
-            }
-            values
-        })
+    fn event_total(&self, event: Event) -> Option<i64> {
+        self.event_totals
+            .data()?
+            .iter()
+            .filter(|row| row.event == event.name())
+            .try_fold(0_i64, |total, row| {
+                if row.count.suppressed {
+                    return None;
+                }
+                total.checked_add(i64::try_from(row.count.count?).ok()?)
+            })
     }
 }
 
@@ -1494,11 +582,11 @@ type Slice = sqlx::query::Query<'static, sqlx::Postgres, sqlx::postgres::PgArgum
 /// over reviewed text, and every value below is a bound parameter.
 fn bind_slice(text: String, query_ref: &AnalyticsQuery) -> Slice {
     let mut query = sqlx::query(sqlx::AssertSqlSafe(text));
-    let (previous_start, previous_end) = match query_ref.previous() {
+    let (previous_start, previous_end) = match query_ref.previous {
         Some((start, end)) => (Some(start), Some(end)),
         None => (None, None),
     };
-    let filters = query_ref.filters();
+    let filters = query_ref;
     query = query
         .bind(query_ref.start)
         .bind(query_ref.end)
@@ -1507,7 +595,7 @@ fn bind_slice(text: String, query_ref: &AnalyticsQuery) -> Slice {
         .bind(DEMO_MARKET_ORG_IDS.to_vec())
         .bind(filters.product_id)
         .bind(filters.delivery_point_id)
-        .bind(filters.availability_window);
+        .bind(filters.availability_window.clone());
     query
 }
 
@@ -1571,9 +659,9 @@ pub async fn aggregate_commissions(
     conn: &mut PgConnection,
     query_ref: &AnalyticsQuery,
 ) -> Result<CommissionAggregate, ApiError> {
-    let filters = query_ref.filters();
+    let filters = query_ref;
     let current = date_window(Some(query_ref.start), Some(query_ref.end));
-    let previous = match query_ref.previous() {
+    let previous = match query_ref.previous {
         Some((start, end)) => date_window(Some(start), Some(end)),
         None => None,
     };
@@ -1583,10 +671,10 @@ pub async fn aggregate_commissions(
         "SELECT\n    COALESCE(sum(c.amount_usd) FILTER (WHERE c.status = 'PAID' AND c.payment_date IS NOT NULL AND c.payment_date >= $6 AND c.payment_date < $7), 0) AS revenue_current,\n    COALESCE(sum(c.amount_usd) FILTER (WHERE c.status = 'PAID' AND c.payment_date IS NOT NULL AND $8::date IS NOT NULL AND c.payment_date >= $8 AND c.payment_date < $9), 0) AS revenue_previous,\n    count(*) FILTER (WHERE c.status = 'PAID' AND c.payment_date IS NULL) AS missing_payment_date,\n    COALESCE(sum(c.amount_usd) FILTER (WHERE c.status = 'PENDING'), 0) AS pending_total,\n    COALESCE(sum(c.amount_usd) FILTER (WHERE c.status = 'INVOICED'), 0) AS invoiced_total\nFROM commissions c\nLEFT JOIN trades t ON t.id = c.trade_id\nWHERE NOT (t.id IS NOT NULL AND (t.buyer_id = ANY($1::uuid[]) OR t.seller_id = ANY($1::uuid[])))\n  AND (NOT $2::boolean OR (t.id IS NOT NULL AND EXISTS (\n        SELECT 1 FROM orderbook_orders f\n        WHERE f.id IN (t.bid_order_id, t.ask_order_id)\n          AND ($3::uuid IS NULL OR f.product_id = $3)\n          AND ($4::uuid IS NULL OR f.delivery_point_id = $4)\n          AND ($5::text IS NULL OR f.availability_window = $5)\n      )))",
     )
     .bind(DEMO_MARKET_ORG_IDS.to_vec())
-    .bind(filters.active())
+    .bind(filters.product_id.is_some() || filters.delivery_point_id.is_some() || filters.availability_window.is_some())
     .bind(filters.product_id)
     .bind(filters.delivery_point_id)
-    .bind(filters.availability_window)
+    .bind(filters.availability_window.clone())
     .bind(current_start)
     .bind(current_end)
     .bind(previous.map(|(lower, _)| lower))
@@ -1782,23 +870,23 @@ fn activity_section(
 
     let kpis = MarketplaceKpis {
         participating_organizations: MetricValue {
-            value: orders.map(|orders| orders.orgs_current).or(Some(0)),
-            previous: orders.map(|orders| orders.orgs_previous).or(Some(0)),
+            value: unsigned(orders.map(|orders| orders.orgs_current)).or(Some(0)),
+            previous: unsigned(orders.map(|orders| orders.orgs_previous)).or(Some(0)),
             suppressed: false,
         },
         open_bids: MetricValue {
-            value: orders.map(|orders| orders.bids_current).or(Some(0)),
+            value: unsigned(orders.map(|orders| orders.bids_current)).or(Some(0)),
             previous: None,
             suppressed: false,
         },
         open_asks: MetricValue {
-            value: orders.map(|orders| orders.asks_current).or(Some(0)),
+            value: unsigned(orders.map(|orders| orders.asks_current)).or(Some(0)),
             previous: None,
             suppressed: false,
         },
         confirmed_trades: MetricValue {
-            value: Some(confirmed_current),
-            previous: Some(confirmed_previous),
+            value: unsigned(Some(confirmed_current)),
+            previous: unsigned(Some(confirmed_previous)),
             suppressed: false,
         },
         confirmed_volume_mt: DecimalMetricValue {
@@ -1806,13 +894,11 @@ fn activity_section(
             previous: Some(volume_previous),
             suppressed: false,
         },
-        execution_rate: RatioValue {
-            numerator: Some(executed),
-            denominator: Some(created),
-            rate_pct: rate_pct(executed, created),
-            suppressed: false,
+        execution_rate: crate::analytics::policy::ratio_from_counts(
+            unsigned(Some(executed)),
+            unsigned(Some(created)),
             cohort_complete,
-        },
+        ),
     };
 
     let liquidity = super::liquidity::summarize(
@@ -1826,7 +912,12 @@ fn activity_section(
 
     let mut matrix_cells: Vec<ProductPortCell> = Vec::new();
     let mut window_rows: Vec<RankedRow> = Vec::new();
-    let mut trend = MarketBalanceTrend::default();
+    let mut trend = MarketBalanceTrend {
+        buyer_organizations: Vec::new(),
+        supplier_organizations: Vec::new(),
+        bids: Vec::new(),
+        asks: Vec::new(),
+    };
     if provenance == "live" {
         let (cells, windows) = matrix_and_window_rows(policy, rows.matrix, quality);
         matrix_cells = cells;
@@ -1875,7 +966,7 @@ fn activity_section(
 /// the band derives from the participating-organization count alone. Fewer
 /// than three organizations is definitionally concentrated and suppressed.
 fn concentration(organizations: i64, quality: &mut Quality) -> OrganizationConcentration {
-    if organizations > 0 && organizations < SUPPRESSION_THRESHOLD {
+    if organizations > 0 && organizations < crate::analytics::policy::SUPPRESSION_THRESHOLD as i64 {
         quality.suppressed_cell_count += 1;
         return OrganizationConcentration {
             hhi_band: None,
@@ -2235,7 +1326,7 @@ pub async fn compose(
     let mut unknown = None;
     let mut commercial = None;
 
-    if query_ref.activity.wants_activity() {
+    if query_ref.activity != Activity::Reference {
         let orders = aggregate_orders(conn, query_ref).await?;
         let trades = aggregate_trades(conn, query_ref).await?;
         let commissions = aggregate_commissions(conn, query_ref).await?;
@@ -2246,11 +1337,13 @@ pub async fn compose(
         let fill_rows = time_to_fill(conn, query_ref).await?;
 
         let live_trades = provenance_row(&trades, "live", |row| row.provenance.as_str());
-        quality.missing_commission_payment_date_count = commissions.missing_payment_date;
+        quality.missing_commission_payment_date_count =
+            unsigned(Some(commissions.missing_payment_date)).unwrap_or_default();
         if let Some(trades) = live_trades {
             quality.legacy_timestamp_fallback_count =
-                trades.legacy_current + trades.legacy_previous;
-            quality.missing_paid_at_count = trades.missing_paid_at_current;
+                unsigned(Some(trades.legacy_current + trades.legacy_previous)).unwrap_or_default();
+            quality.missing_paid_at_count =
+                unsigned(Some(trades.missing_paid_at_current)).unwrap_or_default();
         }
 
         let rows = SectionRows {
@@ -2278,21 +1371,33 @@ pub async fn compose(
             })
             .collect::<BTreeMap<_, _>>();
 
-        if query_ref.activity.wants_live() {
+        if query_ref
+            .activity
+            .includes(crate::analytics::facts::MarketProvenance::Live)
+        {
             live = sections.get("live").cloned();
         }
-        if query_ref.activity.wants_demo() {
+        if query_ref
+            .activity
+            .includes(crate::analytics::facts::MarketProvenance::Demo)
+        {
             demo = sections.get("demo").cloned();
         }
-        if query_ref.activity.wants_unknown() {
+        if query_ref
+            .activity
+            .includes(crate::analytics::facts::MarketProvenance::Unknown)
+        {
             unknown = sections.get("unknown").cloned();
         }
-        if query_ref.activity.wants_live() {
+        if query_ref
+            .activity
+            .includes(crate::analytics::facts::MarketProvenance::Live)
+        {
             commercial = Some(super::commercial::summarize(live_trades, &commissions));
         }
     }
 
-    let reference_section = if query_ref.activity.wants_reference() {
+    let reference_section = if matches!(query_ref.activity, Activity::Reference | Activity::All) {
         Some(reference_section(conn, policy, query_ref, reference, now).await?)
     } else {
         None
@@ -2306,11 +1411,14 @@ pub async fn compose(
     let meta = Meta {
         start: query_ref.start,
         end: query_ref.end,
-        previous_start: query_ref.previous().map(|(start, _)| start),
-        previous_end: query_ref.previous().map(|(_, end)| end),
+        previous_start: query_ref.previous.map(|(start, _)| start),
+        previous_end: query_ref.previous.map(|(_, end)| end),
         observed_at: now,
         coverage: Coverage {
-            authoritative: SourceCoverage::available(now),
+            authoritative: SourceCoverage {
+                observed_at: Some(now),
+                ..SourceCoverage::available()
+            },
             behavioral: SourceCoverage::not_applicable(),
             login_history: SourceCoverage::not_applicable(),
             status_history: SourceCoverage::not_applicable(),
@@ -2322,7 +1430,7 @@ pub async fn compose(
                 diagnostic: None,
             },
         },
-        data_quality: quality.data_quality(),
+        data_quality: quality.clone(),
     };
 
     Ok(MarketplaceResponse {
@@ -2360,7 +1468,7 @@ pub fn behavioral_coverage(reading: Option<&BehavioralWindow>) -> SourceCoverage
             coverage_end: None,
             observed_at: Some(window.observed_at),
             status: window.status(),
-            diagnostic: window.diagnostic(),
+            diagnostic: window.diagnostic,
         },
     }
 }
@@ -2385,7 +1493,7 @@ pub fn fact_coverage(
     let start_of_period = query_ref.start.date_naive();
     let fully_covered = coverage_start <= start_of_period
         && query_ref
-            .previous()
+            .previous
             .is_none_or(|(previous_start, _)| coverage_start <= previous_start.date_naive());
     SourceCoverage {
         coverage_start: Some(
@@ -2452,7 +1560,7 @@ impl Default for MetaOptions<'_> {
 }
 
 pub fn meta(query_ref: &AnalyticsQuery, now: DateTime<Utc>, options: MetaOptions<'_>) -> Meta {
-    let (previous_start, previous_end) = match query_ref.previous() {
+    let (previous_start, previous_end) = match query_ref.previous {
         Some((start, end)) => (Some(start), Some(end)),
         None => (None, None),
     };
@@ -2463,7 +1571,10 @@ pub fn meta(query_ref: &AnalyticsQuery, now: DateTime<Utc>, options: MetaOptions
         previous_end,
         observed_at: now,
         coverage: Coverage {
-            authoritative: SourceCoverage::available(now),
+            authoritative: SourceCoverage {
+                observed_at: Some(now),
+                ..SourceCoverage::available()
+            },
             behavioral: match options.behavioral_source {
                 Source::Applicable => behavioral_coverage(options.behavioral),
                 Source::NotApplicable => SourceCoverage::not_applicable(),
@@ -2486,177 +1597,6 @@ pub fn meta(query_ref: &AnalyticsQuery, now: DateTime<Utc>, options: MetaOptions
         },
         data_quality: options.data_quality,
     }
-}
-
-// ---------------------------------------------------------------------------
-// Query-string parsing
-// ---------------------------------------------------------------------------
-
-/// Longest accepted `availability_window`.
-pub const MAX_WINDOW_CHARACTERS: usize = 16;
-/// Longest accepted period, in seconds (365 days).
-pub const MAX_RANGE_SECONDS: i64 = 31_536_000;
-
-/// A raw, unvalidated analytics query: the query-string values as they arrived.
-#[derive(Clone, Debug, Default)]
-pub struct QueryInput {
-    pub start: Option<String>,
-    pub end: Option<String>,
-    pub compare: Option<String>,
-    pub audience: Option<String>,
-    pub activity: Option<String>,
-    pub product_id: Option<String>,
-    pub delivery_point_id: Option<String>,
-    pub availability_window: Option<String>,
-}
-
-impl QueryInput {
-    /// Collect the recognised parameters; unknown parameters are ignored and
-    /// never reach SQL or a provider.
-    pub fn from_query_string(raw: &str) -> Self {
-        let mut input = Self::default();
-        for (key, value) in url::form_urlencoded::parse(raw.as_bytes()) {
-            let slot = match key.as_ref() {
-                "start" => &mut input.start,
-                "end" => &mut input.end,
-                "compare" => &mut input.compare,
-                "audience" => &mut input.audience,
-                "activity" => &mut input.activity,
-                "product_id" => &mut input.product_id,
-                "delivery_point_id" => &mut input.delivery_point_id,
-                "availability_window" => &mut input.availability_window,
-                _ => continue,
-            };
-            // A repeated parameter is ambiguous; the last one wins, as the
-            // framework-level scalar binding this replaces also did.
-            *slot = Some(value.into_owned());
-        }
-        input
-    }
-}
-
-/// Parse one ISO-8601 timestamp. A value without an offset is UTC, an explicit
-/// offset is converted to UTC, and anything else is refused.
-pub fn parse_timestamp(value: &str) -> Option<DateTime<Utc>> {
-    let trimmed = value.trim();
-    if let Ok(parsed) = DateTime::parse_from_rfc3339(trimmed) {
-        return Some(parsed.with_timezone(&Utc));
-    }
-    // A space separator is valid ISO 8601 and accepted by the reference parser.
-    let normalized = trimmed.replacen(' ', "T", 1);
-    if let Ok(parsed) = DateTime::parse_from_rfc3339(&normalized) {
-        return Some(parsed.with_timezone(&Utc));
-    }
-    if let Ok(naive) = chrono::NaiveDateTime::parse_from_str(&normalized, "%Y-%m-%dT%H:%M:%S%.f") {
-        return Some(naive.and_utc());
-    }
-    if let Ok(naive) = chrono::NaiveDateTime::parse_from_str(&normalized, "%Y-%m-%dT%H:%M") {
-        return Some(naive.and_utc());
-    }
-    if let Ok(date) = chrono::NaiveDate::parse_from_str(trimmed, "%Y-%m-%d") {
-        return Some(date.and_hms_opt(0, 0, 0)?.and_utc());
-    }
-    None
-}
-
-fn parse_bool(value: &str) -> Option<bool> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "true" | "1" | "yes" | "on" => Some(true),
-        "false" | "0" | "no" | "off" => Some(false),
-        _ => None,
-    }
-}
-
-/// Validate a raw query into the typed form.
-///
-/// Every refusal is `422 ANALYTICS_QUERY_INVALID`. The previous-window
-/// subtraction is checked: an underflowing period is refused, never wrapped
-/// into a different window.
-pub fn parse_query(input: QueryInput) -> Result<AnalyticsQuery, ApiError> {
-    let start = input
-        .start
-        .as_deref()
-        .and_then(parse_timestamp)
-        .ok_or_else(|| invalid_query("start must be a timestamp"))?;
-    let end = input
-        .end
-        .as_deref()
-        .and_then(parse_timestamp)
-        .ok_or_else(|| invalid_query("end must be a timestamp"))?;
-    if end <= start {
-        return Err(invalid_query("end must be after start"));
-    }
-    let elapsed = end - start;
-    if elapsed.num_seconds() > MAX_RANGE_SECONDS {
-        return Err(invalid_query("the period must not exceed 365 days"));
-    }
-    let compare = match input.compare.as_deref() {
-        None => true,
-        Some(value) => parse_bool(value).ok_or_else(|| invalid_query("compare must be a bool"))?,
-    };
-    // `audience` is validated and carried by the query but applies no SQL
-    // predicate: the Python business reference uses it only in its aggregate
-    // cache key, and CF4_03 forbids a Phase 4 result cache. Accepting it keeps
-    // the client contract; inventing a filter would change every tab's totals.
-    let audience = match input.audience.as_deref() {
-        None => Audience::All,
-        Some(value) => Audience::parse(value)
-            .ok_or_else(|| invalid_query("audience must be ALL, BUYER or SUPPLIER"))?,
-    };
-    let activity = match input.activity.as_deref() {
-        None => Activity::Live,
-        Some(value) => Activity::parse(value)
-            .ok_or_else(|| invalid_query("activity must be LIVE, DEMO, REFERENCE or ALL"))?,
-    };
-    let product_id = match input.product_id.as_deref() {
-        None => None,
-        Some(value) => {
-            Some(Uuid::parse_str(value).map_err(|_| invalid_query("product_id must be a UUID"))?)
-        }
-    };
-    let delivery_point_id = match input.delivery_point_id.as_deref() {
-        None => None,
-        Some(value) => Some(
-            Uuid::parse_str(value)
-                .map_err(|_| invalid_query("delivery_point_id must be a UUID"))?,
-        ),
-    };
-    if let Some(window) = input.availability_window.as_deref()
-        && window.chars().count() > MAX_WINDOW_CHARACTERS
-    {
-        return Err(invalid_query(
-            "availability_window must be at most 16 characters",
-        ));
-    }
-    let query_ref = AnalyticsQuery {
-        start,
-        end,
-        compare,
-        audience,
-        activity,
-        product_id,
-        delivery_point_id,
-        availability_window: input.availability_window,
-    };
-    check_previous(&query_ref)?;
-    Ok(query_ref)
-}
-
-/// Checked period arithmetic.
-///
-/// A comparison request whose subtraction is not representable is refused; it
-/// is never served with a silently missing comparison and never wrapped into a
-/// different window. The guard is exercised directly, because the four-digit
-/// RFC 3339 years a query string can carry stay far inside the representable
-/// range: the check exists for values assembled by a caller, not for hostile
-/// input reaching it through this parser.
-pub fn check_previous(query_ref: &AnalyticsQuery) -> Result<(), ApiError> {
-    if query_ref.compare && query_ref.previous().is_none() {
-        return Err(invalid_query(
-            "the comparison window is not representable for this period",
-        ));
-    }
-    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -2722,7 +1662,7 @@ async fn read_window(
     tokio::select! {
         window = service.behavioral.window(query, properties) => window,
         _ = tokio::time::sleep_until(deadline) => {
-            BehavioralWindow::unavailable(Diagnostic::Timeout, Utc::now())
+            BehavioralWindow::unavailable(query.start, query.end, Utc::now(), Diagnostic::Timeout)
         }
     }
 }
@@ -2736,7 +1676,7 @@ async fn read_windows(
     // request's provider time by failing each window separately.
     let deadline = tokio::time::Instant::now() + PROVIDER_BUDGET;
     let current = read_window(service, query, properties, deadline).await;
-    let previous = match query.previous() {
+    let previous = match query.previous {
         Some((start, end)) => {
             let mut comparison = query.clone();
             comparison.start = start;
@@ -2750,7 +1690,14 @@ async fn read_windows(
 }
 
 fn parse_state(raw: &str) -> Result<AnalyticsQuery, ApiError> {
-    parse_query(QueryInput::from_query_string(raw))
+    {
+        let pairs: Vec<_> = url::form_urlencoded::parse(raw.as_bytes()).collect();
+        parse_query(QueryInput::from_pairs(
+            pairs
+                .iter()
+                .map(|(key, value)| (key.as_ref(), value.as_ref())),
+        ))
+    }
 }
 
 /// Administrator authority, then token quota, in that order.
@@ -2845,7 +1792,7 @@ impl AnalyticsService {
         let properties = match route {
             AnalyticsRoute::Acquisition => super::acquisition::requested_properties(),
             AnalyticsRoute::Reliability => super::reliability::requested_properties(),
-            AnalyticsRoute::Marketplace => AllowedPropertySet::not_requested(),
+            AnalyticsRoute::Marketplace => AllowedPropertySet::new([]).expect("empty property set"),
         };
         if !matches!(
             route,
@@ -2946,7 +1893,7 @@ fn with_suppression(mut body: Json, quality: &Quality) -> Json {
         .get_mut("meta")
         .and_then(|meta| meta.get_mut("data_quality"))
     {
-        *quality_node = to_json(&quality.data_quality());
+        *quality_node = to_json(&quality.clone());
     }
     body
 }

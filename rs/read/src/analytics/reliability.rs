@@ -11,24 +11,24 @@
 //! action, resource type and the actor's role only.
 
 use chrono::{DateTime, Utc};
-use serde::Serialize;
 use sqlx::{PgConnection, Row};
 
 use super::acquisition::{Reading, event_metric};
 use super::marketplace::{
-    AggregateCell, AllowedPropertySet, AnalyticsQuery, BehavioralWindow, ComponentStatus,
-    Diagnostic, Event, MAX_AUDIT_ROWS, MAX_RANKED_ROWS, Meta, MetricValue, Property,
-    PropertyValueCount, Quality, SeriesPoint, SourceStatus, cell, daily_series, database, metric,
+    AggregateCell, AllowedPropertySet, AnalyticsQuery, BehavioralWindow, BehavioralWindowView,
+    ComponentStatus, MAX_AUDIT_ROWS, MAX_RANKED_ROWS, Meta, Property, Quality, SeriesPoint,
+    SourceStatus, database, metric,
 };
+use crate::analytics::policy::AllowedFrontendEvent as Event;
 
 /// Behavioral events this tab requests, with the breakdowns it reads.
 pub fn requested_properties() -> AllowedPropertySet {
     AllowedPropertySet::new([
-        (Event::LoginFailed, Property::ReasonCategory),
-        (Event::FrontendError, Property::RouteFamily),
-        (Event::FrontendError, Property::Category),
-        (Event::BackendUnavailable, Property::RouteFamily),
-        (Event::NavigationPerformance, Property::LatencyBucket),
+        (Event::LoginFailed.into(), Property::ReasonCategory),
+        (Event::FrontendError.into(), Property::RouteFamily),
+        (Event::FrontendError.into(), Property::Category),
+        (Event::BackendUnavailable.into(), Property::RouteFamily),
+        (Event::NavigationPerformance.into(), Property::LatencyBucket),
     ])
     .expect("the reliability property set is static and valid")
 }
@@ -36,57 +36,10 @@ pub fn requested_properties() -> AllowedPropertySet {
 /// Closed latency buckets, in display order.
 pub const LATENCY_BUCKETS: [&str; 5] = ["lt250", "250_500", "500_1000", "1000_2500", "gte2500"];
 
-#[derive(Clone, Debug, Serialize)]
-pub struct CollectorState {
-    pub status: SourceStatus,
-    pub diagnostic: Option<Diagnostic>,
-    pub last_observation_at: Option<DateTime<Utc>>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct LoginFailurePanel {
-    pub total: MetricValue,
-    pub categories: Vec<AggregateCell>,
-    pub trend: Vec<SeriesPoint>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct FrontendErrorPanel {
-    pub total: MetricValue,
-    pub by_route_family: Vec<AggregateCell>,
-    pub by_category: Vec<AggregateCell>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct BackendUnavailablePanel {
-    pub total: MetricValue,
-    pub by_route_family: Vec<AggregateCell>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct NavigationLatencyRow {
-    pub destination: String,
-    pub buckets: Vec<AggregateCell>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct AuditActivityRow {
-    pub occurred_at: DateTime<Utc>,
-    pub action: String,
-    pub resource_type: Option<String>,
-    pub actor_role: Option<String>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct ReliabilityResponse {
-    pub meta: Meta,
-    pub collector: CollectorState,
-    pub login_failures: LoginFailurePanel,
-    pub frontend_errors: FrontendErrorPanel,
-    pub backend_unavailable: BackendUnavailablePanel,
-    pub navigation_latency: Vec<NavigationLatencyRow>,
-    pub audit_activity: Vec<AuditActivityRow>,
-}
+pub use crate::analytics::types::{
+    AuditActivityRow, BackendUnavailablePanel, CollectorState, FrontendErrorPanel,
+    LoginFailurePanel, NavigationLatencyRow, ReliabilityResponse,
+};
 
 /// The audit sample: at most twenty rows inside `[start, end)`, newest first,
 /// ties broken by id so the order is total.
@@ -122,8 +75,8 @@ fn property_rows(
     window: &BehavioralWindow,
     event: Event,
     property: Property,
-) -> Option<&Vec<PropertyValueCount>> {
-    let result = window.property(event, property)?;
+) -> Option<&Vec<crate::analytics::types::AllowedPropertyAggregate>> {
+    let result = window.property(event.into(), property)?;
     if !matches!(
         result.result.status(),
         ComponentStatus::Available | ComponentStatus::Partial
@@ -146,12 +99,12 @@ fn cells(
     rows.iter()
         .take(limit)
         .map(|row| {
-            cell(
-                row.value.clone(),
-                Some(row.total as i64),
-                Some(row.total as i64),
-                quality,
-            )
+            let (count, suppressed) = super::marketplace::provider_cell(&row.count, quality);
+            AggregateCell {
+                key: row.value.clone(),
+                count,
+                suppressed,
+            }
         })
         .collect()
 }
@@ -162,8 +115,14 @@ fn event_trend(
     query: &AnalyticsQuery,
     quality: &mut Quality,
 ) -> Vec<SeriesPoint> {
-    match window.event_day(event) {
-        Some(values) => daily_series(query.start, query.end, &values, quality),
+    match window.event_series.data() {
+        Some(rows) => super::marketplace::provider_series(
+            query,
+            rows.iter()
+                .filter(|row| row.event == event.name())
+                .map(|row| (row.date, row.count.clone())),
+            quality,
+        ),
         None => Vec::new(),
     }
 }
@@ -188,16 +147,28 @@ fn navigation_latency(
     let buckets = LATENCY_BUCKETS
         .iter()
         .map(|bucket| {
-            let total: i64 = rows
+            let matching: Vec<_> = rows.iter().filter(|row| row.value == *bucket).collect();
+            let suppressed = matching.iter().any(|row| row.count.suppressed);
+            let total = matching
                 .iter()
-                .filter(|row| row.value == *bucket)
-                .map(|row| row.total as i64)
-                .sum();
-            cell(*bucket, Some(total), Some(total), quality)
+                .try_fold(0_u64, |total, row| total.checked_add(row.count.count?));
+            let (count, suppressed) = super::marketplace::provider_cell(
+                &AggregateCell {
+                    key: (*bucket).to_owned(),
+                    count: total,
+                    suppressed,
+                },
+                quality,
+            );
+            AggregateCell {
+                key: (*bucket).to_owned(),
+                count,
+                suppressed,
+            }
         })
         .collect();
     vec![NavigationLatencyRow {
-        destination: "all".to_owned(),
+        destination: crate::analytics::types::LatencyDestination::All,
         buckets,
     }]
 }

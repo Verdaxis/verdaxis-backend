@@ -14,59 +14,14 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use chrono::{DateTime, TimeDelta, Utc};
 use rust_decimal::{Decimal, RoundingStrategy};
-use serde::Serialize;
 use uuid::Uuid;
 
 use super::marketplace::{
-    MAX_RANKED_ROWS, Quality, QuoteRow, SUPPRESSION_THRESHOLD, derive_product_code, money,
-    rate_pct, slugify, window_label, wire,
+    MAX_RANKED_ROWS, Quality, QuoteRow, derive_product_code, money, rate_pct, slugify, window_label,
 };
 use crate::MarketPolicy;
 
-#[derive(Clone, Debug, Serialize)]
-pub struct SliceLiquidityRow {
-    pub product_key: String,
-    pub product_label: String,
-    pub delivery_point_key: String,
-    pub delivery_point_label: String,
-    pub availability_window: String,
-    pub availability_window_label: String,
-    pub contributing_organizations: Option<i64>,
-    #[serde(serialize_with = "wire::decimal_option")]
-    pub best_bid_usd_per_mt: Option<Decimal>,
-    #[serde(serialize_with = "wire::decimal_option")]
-    pub best_ask_usd_per_mt: Option<Decimal>,
-    #[serde(serialize_with = "wire::decimal_option")]
-    pub spread_usd_per_mt: Option<Decimal>,
-    #[serde(serialize_with = "wire::decimal_option")]
-    pub spread_bps: Option<Decimal>,
-    #[serde(serialize_with = "wire::decimal_option")]
-    pub best_bid_depth_mt: Option<Decimal>,
-    #[serde(serialize_with = "wire::decimal_option")]
-    pub best_ask_depth_mt: Option<Decimal>,
-    #[serde(serialize_with = "wire::decimal_option")]
-    pub one_percent_bid_depth_mt: Option<Decimal>,
-    #[serde(serialize_with = "wire::decimal_option")]
-    pub one_percent_ask_depth_mt: Option<Decimal>,
-    pub crossed: Option<bool>,
-    pub suppressed: bool,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct LiquiditySummary {
-    pub two_sided_slices: Option<i64>,
-    pub one_sided_slices: Option<i64>,
-    pub crossed_slices: Option<i64>,
-    #[serde(serialize_with = "wire::decimal_option")]
-    pub median_spread_usd_per_mt: Option<Decimal>,
-    #[serde(serialize_with = "wire::decimal_option")]
-    pub median_spread_bps: Option<Decimal>,
-    #[serde(serialize_with = "wire::decimal_option")]
-    pub median_open_order_age_hours: Option<Decimal>,
-    #[serde(serialize_with = "wire::decimal_option")]
-    pub median_hours_to_first_fill: Option<Decimal>,
-    pub slices: Vec<SliceLiquidityRow>,
-}
+pub use crate::analytics::types::{LiquiditySummary, SliceLiquidityRow};
 
 #[derive(Default)]
 struct SliceEntry {
@@ -141,9 +96,9 @@ pub fn summarize(
     }
 
     let mut rows: Vec<SliceLiquidityRow> = Vec::new();
-    let mut two_sided: i64 = 0;
-    let mut one_sided: i64 = 0;
-    let mut crossed: i64 = 0;
+    let mut two_sided: u64 = 0;
+    let mut one_sided: u64 = 0;
+    let mut crossed: u64 = 0;
     let mut spreads_usd: Vec<Decimal> = Vec::new();
     let mut spreads_bps: Vec<Decimal> = Vec::new();
     let mut ages: Vec<TimeDelta> = Vec::new();
@@ -158,8 +113,10 @@ pub fn summarize(
         }
         ages.extend(entry.created.iter().map(|created| as_of - *created));
 
-        let organization_count = entry.organizations.len() as i64;
-        let suppressed = organization_count < SUPPRESSION_THRESHOLD;
+        let organization_count = entry.organizations.len() as u64;
+        let suppressed =
+            crate::analytics::policy::suppress(Some(organization_count), Some(organization_count))
+                .suppressed;
         let best_bid = bids.iter().map(|(price, _)| *price).max();
         let best_ask = asks.iter().map(|(price, _)| *price).min();
 

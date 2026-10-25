@@ -13,67 +13,28 @@
 //! - The property breakdown the provider cannot supply (a CTA × placement
 //!   cross-tab) is not invented: each dimension reports its own rows.
 
-use std::collections::BTreeMap;
-
-use chrono::NaiveDate;
 use rust_decimal::Decimal;
-use serde::Serialize;
 
 use super::marketplace::{
-    AggregateCell, AllowedPropertySet, AnalyticsQuery, BehavioralWindow, ComponentStatus,
-    DecimalMetricValue, Diagnostic, Event, MAX_RANKED_ROWS, Meta, MetricValue, Property, Quality,
-    RankedRow, SeriesPoint, SourceStatus, cell, daily_series, metric, one_decimal, share_pct,
-    suppress_cell, wire,
+    AggregateCell, AllowedPropertySet, AnalyticsQuery, BehavioralWindow, BehavioralWindowView,
+    ComponentStatus, DecimalMetricValue, Diagnostic, MAX_RANKED_ROWS, Meta, MetricValue, Property,
+    Quality, RankedRow, SeriesPoint, SourceStatus, metric, one_decimal, share_pct,
 };
+use crate::analytics::policy::AllowedFrontendEvent as Event;
 
 /// Behavioral events this tab requests property breakdowns for.
 pub fn requested_properties() -> AllowedPropertySet {
     AllowedPropertySet::new([
-        (Event::LandingCtaClicked, Property::Cta),
-        (Event::LandingCtaClicked, Property::Placement),
-        (Event::LandingCtaClicked, Property::Language),
+        (Event::LandingCtaClicked.into(), Property::Cta),
+        (Event::LandingCtaClicked.into(), Property::Placement),
+        (Event::LandingCtaClicked.into(), Property::Language),
     ])
     .expect("the acquisition property set is static and valid")
 }
 
-#[derive(Clone, Debug, Serialize)]
-pub struct AcquisitionKpis {
-    pub visitors: MetricValue,
-    pub visits: MetricValue,
-    pub pageviews: MetricValue,
-    pub average_session_duration_seconds: DecimalMetricValue,
-    pub cta_clicks: MetricValue,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct CalculatorFunnel {
-    pub starts: MetricValue,
-    pub completions: MetricValue,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct CtaMatrixRow {
-    pub cta: String,
-    pub placement: String,
-    pub clicks: Option<i64>,
-    #[serde(serialize_with = "wire::decimal_option")]
-    pub share_pct: Option<Decimal>,
-    pub suppressed: bool,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct AcquisitionResponse {
-    pub meta: Meta,
-    pub kpis: AcquisitionKpis,
-    pub visitors_trend: Vec<SeriesPoint>,
-    pub previous_visitors_trend: Vec<SeriesPoint>,
-    pub visits_trend: Vec<SeriesPoint>,
-    pub referrers: Vec<RankedRow>,
-    pub entry_pages: Vec<RankedRow>,
-    pub cta_matrix: Vec<CtaMatrixRow>,
-    pub languages: Vec<RankedRow>,
-    pub calculator: CalculatorFunnel,
-}
+pub use crate::analytics::types::{
+    AcquisitionKpis, AcquisitionResponse, CalculatorFunnel, CtaMatrixRow,
+};
 
 /// A behavioral reading is either a typed window or an unavailable component
 /// carrying the diagnostic that ended it.
@@ -85,7 +46,12 @@ pub struct Reading {
 impl Reading {
     pub fn unavailable(diagnostic: Diagnostic, observed_at: chrono::DateTime<chrono::Utc>) -> Self {
         Self {
-            window: BehavioralWindow::unavailable(diagnostic, observed_at),
+            window: BehavioralWindow::unavailable(
+                observed_at,
+                observed_at,
+                observed_at,
+                diagnostic,
+            ),
         }
     }
 
@@ -99,7 +65,7 @@ impl Reading {
 
     /// The diagnostic that a degraded window reported, never a default.
     pub fn diagnostic(&self) -> Option<Diagnostic> {
-        self.window.diagnostic()
+        self.window.diagnostic
     }
 }
 
@@ -136,17 +102,41 @@ pub(super) fn event_metric(
     event: Event,
     quality: &mut Quality,
 ) -> MetricValue {
-    int_metric(
-        current,
+    let read = |reading: Option<&Reading>, quality: &mut Quality| {
+        let rows = reading?.window.event_totals.data()?;
+        let mut total = 0_u64;
+        let mut suppressed = false;
+        for row in rows.iter().filter(|row| row.event == event.name()) {
+            suppressed |= row.count.suppressed;
+            total = match row.count.count {
+                Some(count) => total.checked_add(count)?,
+                None => {
+                    quality.suppressed_cell_count += u64::from(suppressed);
+                    return Some((None, suppressed));
+                }
+            };
+        }
+        Some(super::marketplace::provider_cell(
+            &AggregateCell {
+                key: String::new(),
+                count: Some(total),
+                suppressed,
+            },
+            quality,
+        ))
+    };
+    let (value, current_suppressed) = read(current, quality).unwrap_or((None, false));
+    let (previous, previous_suppressed) = read(previous, quality).unwrap_or((None, false));
+    MetricValue {
+        value,
         previous,
-        move |window| window.event_total(event),
-        quality,
-    )
+        suppressed: current_suppressed || previous_suppressed,
+    }
 }
 
-fn share_total(count: Option<i64>, total: Option<i64>) -> Option<Decimal> {
+fn share_total(count: Option<u64>, total: Option<i64>) -> Option<Decimal> {
     match (count, total) {
-        (Some(count), Some(total)) if total > 0 => share_pct(count, total),
+        (Some(count), Some(total)) if total > 0 => share_pct(i64::try_from(count).ok()?, total),
         _ => None,
     }
 }
@@ -158,16 +148,34 @@ enum ComponentKind {
 }
 
 impl ComponentKind {
-    fn rows(self, window: &BehavioralWindow) -> Option<Vec<(String, i64)>> {
+    fn rows(self, window: &BehavioralWindow) -> Option<Vec<(String, AggregateCell)>> {
         match self {
             Self::Referrers => window.top_referrers.data().map(|rows| {
                 rows.iter()
-                    .map(|row| (row.referrer.as_str().to_owned(), row.count as i64))
+                    .map(|row| {
+                        (
+                            serde_json::to_value(row.referrer)
+                                .expect("closed referrer")
+                                .as_str()
+                                .expect("string")
+                                .to_owned(),
+                            row.count.clone(),
+                        )
+                    })
                     .collect()
             }),
             Self::Entries => window.top_entries.data().map(|rows| {
                 rows.iter()
-                    .map(|row| (row.entry.as_str().to_owned(), row.count as i64))
+                    .map(|row| {
+                        (
+                            serde_json::to_value(row.entry)
+                                .expect("closed entry")
+                                .as_str()
+                                .expect("string")
+                                .to_owned(),
+                            row.count.clone(),
+                        )
+                    })
                     .collect()
             }),
         }
@@ -183,11 +191,13 @@ fn ranked(
     let Some(rows) = kind.rows(window) else {
         return Vec::new();
     };
-    let total: Option<i64> = Some(rows.iter().map(|(_, count)| *count).sum());
+    let total: Option<i64> = rows.iter().try_fold(0_i64, |total, (_, cell)| {
+        total.checked_add(i64::try_from(cell.count?).ok()?)
+    });
     rows.into_iter()
         .take(limit)
         .map(|(key, count)| {
-            let (count, suppressed) = suppress_cell(Some(count), Some(count), quality);
+            let (count, suppressed) = super::marketplace::provider_cell(&count, quality);
             RankedRow {
                 share_pct: if suppressed {
                     None
@@ -212,7 +222,7 @@ fn property_cells(
     limit: usize,
     quality: &mut Quality,
 ) -> Vec<(String, AggregateCell)> {
-    let Some(result) = window.property(event, property) else {
+    let Some(result) = window.property(event.into(), property) else {
         return Vec::new();
     };
     if !matches!(
@@ -227,15 +237,14 @@ fn property_cells(
     rows.iter()
         .take(limit)
         .map(|row| {
-            (
-                row.value.clone(),
-                cell(
-                    row.value.clone(),
-                    Some(row.total as i64),
-                    Some(row.total as i64),
-                    quality,
-                ),
-            )
+            (row.value.clone(), {
+                let (count, suppressed) = super::marketplace::provider_cell(&row.count, quality);
+                AggregateCell {
+                    key: row.value.clone(),
+                    count,
+                    suppressed,
+                }
+            })
         })
         .collect()
 }
@@ -263,15 +272,14 @@ pub fn compose(
     };
 
     let visitors_trend: Vec<SeriesPoint> = match current.filter(|reading| reading.available()) {
-        Some(reading) => {
-            let mut values: BTreeMap<NaiveDate, i64> = BTreeMap::new();
-            if let Some(rows) = reading.window.daily_visitors.data() {
-                for row in rows {
-                    *values.entry(row.date).or_insert(0) += row.visitors as i64;
-                }
-            }
-            daily_series(query.start, query.end, &values, quality)
-        }
+        Some(reading) => match reading.window.daily_visitors.data() {
+            Some(rows) => super::marketplace::provider_series(
+                query,
+                rows.iter().map(|row| (row.date, row.visitors.clone())),
+                quality,
+            ),
+            None => Vec::new(),
+        },
         None => Vec::new(),
     };
 
@@ -281,7 +289,7 @@ pub fn compose(
                 let window = &reading.window;
                 let referrers = ranked(window, ComponentKind::Referrers, quality, MAX_RANKED_ROWS);
                 let entry_pages = ranked(window, ComponentKind::Entries, quality, MAX_RANKED_ROWS);
-                let cta_total = window.event_total(Event::LandingCtaClicked);
+                let cta_total = window.event_total(Event::LandingCtaClicked.into());
 
                 let mut cta_matrix: Vec<CtaMatrixRow> = Vec::new();
                 for (value, cta_cell) in
@@ -410,7 +418,13 @@ mod tests {
     fn requested_properties_are_registered_for_the_cta_event() {
         let set = requested_properties();
         assert_eq!(set.pairs().len(), 3);
-        assert!(set.contains(Event::LandingCtaClicked, Property::Cta));
-        assert!(!set.contains(Event::LoginFailed, Property::Cta));
+        assert!(
+            set.pairs()
+                .contains(&(Event::LandingCtaClicked.into(), Property::Cta))
+        );
+        assert!(
+            !set.pairs()
+                .contains(&(Event::LoginFailed.into(), Property::Cta))
+        );
     }
 }

@@ -16,17 +16,17 @@ pub use verdaxis_read::{
     ApiError, AppState, MarketPolicy, PointPolicy, ProductPolicy, auth, business, market, runtime,
 };
 
-#[path = "../src/analytics/types.rs"]
-pub mod types;
-#[path = "../src/analytics/query.rs"]
-pub mod query_policy;
-#[path = "../src/analytics/policy.rs"]
-pub mod policy;
 #[path = "../src/analytics/facts.rs"]
 pub mod facts;
+#[path = "../src/analytics/policy.rs"]
+pub mod policy;
+#[path = "../src/analytics/query.rs"]
+pub mod query_policy;
+#[path = "../src/analytics/types.rs"]
+pub mod types;
 pub mod analytics {
-    pub use super::{types, policy, facts};
     pub use super::query_policy as query;
+    pub use super::{facts, policy, types};
 }
 
 #[allow(dead_code)]
@@ -54,23 +54,26 @@ use serde_json::json;
 use uuid::Uuid;
 
 use marketplace::{
-    AnalyticsRoute, BehavioralRead, MetaOptions, ProviderFuture, Quality,
-    ReferenceFuture, ReferenceQuote, ReferenceRead, ReferenceRequest, Source,
+    AnalyticsRoute, BehavioralRead, MetaOptions, ProviderFuture, Quality, ReferenceFuture,
+    ReferenceQuote, ReferenceRead, ReferenceRequest, Source,
 };
+use policy::{AllowedFrontendEvent as Event, AllowedProperty as Property, AllowedPropertySet};
 use query_policy::{AnalyticsQuery, QueryInput, validate_query as parse_query};
-use policy::{AllowedPropertySet, AllowedProperty as Property, AllowedFrontendEvent as Event};
 use types::{
-    AnalyticsActivity as Activity, AnalyticsAudience as Audience,
-    AnalyticsDiagnostic as Diagnostic, AnalyticsSourceStatus as SourceStatus,
-    BehavioralWindow, ComponentStatus, CoreMetrics, DailyEventRow as DailyEvent,
-    DailyVisitorRow as DailyVisitor, EntryPage, EntryRankingRow as EntryRanking,
-    ProviderComponent, PropertyAvailability as PropertyResult,
-    AllowedPropertyAggregate as PropertyValueCount,
+    AllowedPropertyAggregate as PropertyValueCount, AnalyticsActivity as Activity,
+    AnalyticsAudience as Audience, AnalyticsDiagnostic as Diagnostic,
+    AnalyticsSourceStatus as SourceStatus, BehavioralWindow, ComponentStatus, CoreMetrics,
+    DailyEventRow as DailyEvent, DailyVisitorRow as DailyVisitor, EntryPage,
+    EntryRankingRow as EntryRanking, PropertyAvailability as PropertyResult, ProviderComponent,
 };
 
 fn query_input(raw: &str) -> QueryInput {
     let pairs: Vec<_> = url::form_urlencoded::parse(raw.as_bytes()).collect();
-    QueryInput::from_pairs(pairs.iter().map(|(key, value)| (key.as_ref(), value.as_ref())))
+    QueryInput::from_pairs(
+        pairs
+            .iter()
+            .map(|(key, value)| (key.as_ref(), value.as_ref())),
+    )
 }
 
 fn count(value: u64) -> types::AggregateCell {
@@ -114,7 +117,10 @@ fn query() -> AnalyticsQuery {
     AnalyticsQuery {
         start: "2026-06-01T00:00:00Z".parse::<DateTime<Utc>>().unwrap(),
         end: "2026-07-01T00:00:00Z".parse::<DateTime<Utc>>().unwrap(),
-        previous: Some(("2026-05-02T00:00:00Z".parse().unwrap(), "2026-06-01T00:00:00Z".parse().unwrap())),
+        previous: Some((
+            "2026-05-02T00:00:00Z".parse().unwrap(),
+            "2026-06-01T00:00:00Z".parse().unwrap(),
+        )),
         compare: true,
         audience: Audience::All,
         activity: Activity::Live,
@@ -133,7 +139,12 @@ fn day(text: &str) -> NaiveDate {
 fn reading(status: ComponentStatus) -> BehavioralWindow {
     let observed = Utc::now();
     if status == ComponentStatus::Unavailable {
-        return BehavioralWindow::unavailable(query().start, query().end, observed, Diagnostic::Timeout);
+        return BehavioralWindow::unavailable(
+            query().start,
+            query().end,
+            observed,
+            Diagnostic::Timeout,
+        );
     }
     BehavioralWindow {
         start: query().start,
@@ -150,11 +161,26 @@ fn reading(status: ComponentStatus) -> BehavioralWindow {
             average_session_duration_seconds: Some(Decimal::from(20)),
         }),
         event_totals: ProviderComponent::available(vec![
-            types::AllowedEventAggregate { event: Event::LandingCtaClicked.name().into(), count: count(25) },
-            types::AllowedEventAggregate { event: Event::EnergyCalculatorStarted.name().into(), count: count(1) },
-            types::AllowedEventAggregate { event: Event::LoginFailed.name().into(), count: count(6) },
-            types::AllowedEventAggregate { event: Event::FrontendError.name().into(), count: count(2) },
-            types::AllowedEventAggregate { event: Event::NavigationPerformance.name().into(), count: count(14) },
+            types::AllowedEventAggregate {
+                event: Event::LandingCtaClicked.name().into(),
+                count: count(25),
+            },
+            types::AllowedEventAggregate {
+                event: Event::EnergyCalculatorStarted.name().into(),
+                count: count(1),
+            },
+            types::AllowedEventAggregate {
+                event: Event::LoginFailed.name().into(),
+                count: count(6),
+            },
+            types::AllowedEventAggregate {
+                event: Event::FrontendError.name().into(),
+                count: count(2),
+            },
+            types::AllowedEventAggregate {
+                event: Event::NavigationPerformance.name().into(),
+                count: count(14),
+            },
         ]),
         daily_visitors: ProviderComponent::available(vec![DailyVisitor {
             date: day("2026-06-10"),
@@ -168,21 +194,25 @@ fn reading(status: ComponentStatus) -> BehavioralWindow {
         top_entries: ProviderComponent::available(vec![
             EntryRanking {
                 entry: EntryPage::Signup,
-                count: count(40), rank: 1,
+                count: count(40),
+                rank: 1,
             },
             EntryRanking {
                 entry: EntryPage::Landing,
-                count: count(1), rank: 1,
+                count: count(1),
+                rank: 1,
             },
         ]),
         top_referrers: ProviderComponent::available(vec![
             types::ReferrerRankingRow {
                 referrer: types::ReferrerCategory::Search,
-                count: count(25), rank: 1,
+                count: count(25),
+                rank: 1,
             },
             types::ReferrerRankingRow {
                 referrer: types::ReferrerCategory::Direct,
-                count: count(10), rank: 1,
+                count: count(10),
+                rank: 1,
             },
         ]),
         property_results: vec![
@@ -190,44 +220,94 @@ fn reading(status: ComponentStatus) -> BehavioralWindow {
                 event: Event::LandingCtaClicked.name().into(),
                 property: Property::Cta.name().into(),
                 result: ProviderComponent::available(vec![
-                    PropertyValueCount { event: String::new(), property: String::new(), value: "pilot".into(), count: count(12) },
-                    PropertyValueCount { event: String::new(), property: String::new(), value: "register".into(), count: count(1) },
+                    PropertyValueCount {
+                        event: String::new(),
+                        property: String::new(),
+                        value: "pilot".into(),
+                        count: count(12),
+                    },
+                    PropertyValueCount {
+                        event: String::new(),
+                        property: String::new(),
+                        value: "register".into(),
+                        count: count(1),
+                    },
                 ]),
             },
             PropertyResult {
                 event: Event::LandingCtaClicked.name().into(),
                 property: Property::Placement.name().into(),
-                result: ProviderComponent::available(vec![PropertyValueCount { event: String::new(), property: String::new(), value: "hero".into(), count: count(9) }]),
+                result: ProviderComponent::available(vec![PropertyValueCount {
+                    event: String::new(),
+                    property: String::new(),
+                    value: "hero".into(),
+                    count: count(9),
+                }]),
             },
             PropertyResult {
                 event: Event::LandingCtaClicked.name().into(),
                 property: Property::Language.name().into(),
-                result: ProviderComponent::available(vec![PropertyValueCount { event: String::new(), property: String::new(), value: "en".into(), count: count(7) }]),
+                result: ProviderComponent::available(vec![PropertyValueCount {
+                    event: String::new(),
+                    property: String::new(),
+                    value: "en".into(),
+                    count: count(7),
+                }]),
             },
             PropertyResult {
                 event: Event::LoginFailed.name().into(),
                 property: Property::ReasonCategory.name().into(),
                 result: ProviderComponent::available(vec![
-                    PropertyValueCount { event: String::new(), property: String::new(), value: "invalid_credentials".into(), count: count(4) },
-                    PropertyValueCount { event: String::new(), property: String::new(), value: "account_state".into(), count: count(1) },
+                    PropertyValueCount {
+                        event: String::new(),
+                        property: String::new(),
+                        value: "invalid_credentials".into(),
+                        count: count(4),
+                    },
+                    PropertyValueCount {
+                        event: String::new(),
+                        property: String::new(),
+                        value: "account_state".into(),
+                        count: count(1),
+                    },
                 ]),
             },
             PropertyResult {
                 event: Event::FrontendError.name().into(),
                 property: Property::RouteFamily.name().into(),
-                result: ProviderComponent::available(vec![PropertyValueCount { event: String::new(), property: String::new(), value: "admin".into(), count: count(2) }]),
+                result: ProviderComponent::available(vec![PropertyValueCount {
+                    event: String::new(),
+                    property: String::new(),
+                    value: "admin".into(),
+                    count: count(2),
+                }]),
             },
             PropertyResult {
                 event: Event::FrontendError.name().into(),
                 property: Property::Category.name().into(),
-                result: ProviderComponent::available(vec![PropertyValueCount { event: String::new(), property: String::new(), value: "render".into(), count: count(2) }]),
+                result: ProviderComponent::available(vec![PropertyValueCount {
+                    event: String::new(),
+                    property: String::new(),
+                    value: "render".into(),
+                    count: count(2),
+                }]),
             },
             PropertyResult {
                 event: Event::NavigationPerformance.name().into(),
                 property: Property::LatencyBucket.name().into(),
                 result: ProviderComponent::available(vec![
-                    PropertyValueCount { event: String::new(), property: String::new(), value: "lt250".into(), count: count(14) },
-                    PropertyValueCount { event: String::new(), property: String::new(), value: "250_500".into(), count: count(2) },
+                    PropertyValueCount {
+                        event: String::new(),
+                        property: String::new(),
+                        value: "lt250".into(),
+                        count: count(14),
+                    },
+                    PropertyValueCount {
+                        event: String::new(),
+                        property: String::new(),
+                        value: "250_500".into(),
+                        count: count(2),
+                    },
                 ]),
             },
         ],
@@ -300,13 +380,24 @@ fn service(status: ComponentStatus) -> AnalyticsService {
 fn p4_t19_c01() {
     // The activity flags decide which sections may exist, and they never
     // overlap: no request produces a section the caller did not ask for.
-    assert!(Activity::Live.wants_live() && !Activity::Live.wants_demo());
-    assert!(Activity::Demo.wants_demo() && !Activity::Demo.wants_live());
-    assert!(!Activity::Live.wants_unknown());
     assert!(
-        Activity::All.wants_live() && Activity::All.wants_demo() && Activity::All.wants_unknown()
+        Activity::Live.includes(crate::analytics::facts::MarketProvenance::Live)
+            && !Activity::Live.includes(crate::analytics::facts::MarketProvenance::Demo)
     );
-    assert!(Activity::Reference.wants_reference() && !Activity::Reference.wants_activity());
+    assert!(
+        Activity::Demo.includes(crate::analytics::facts::MarketProvenance::Demo)
+            && !Activity::Demo.includes(crate::analytics::facts::MarketProvenance::Live)
+    );
+    assert!(!Activity::Live.includes(crate::analytics::facts::MarketProvenance::Unknown));
+    assert!(
+        Activity::All.includes(crate::analytics::facts::MarketProvenance::Live)
+            && Activity::All.includes(crate::analytics::facts::MarketProvenance::Demo)
+            && Activity::All.includes(crate::analytics::facts::MarketProvenance::Unknown)
+    );
+    assert!(
+        matches!(Activity::Reference, Activity::Reference | Activity::All)
+            && !(Activity::Reference != Activity::Reference)
+    );
 
     // The live/demo/unknown labels the response and the SQL share are distinct
     // strings, and the demo identity list is the seeded set.
@@ -379,12 +470,16 @@ fn p4_t19_c02() {
 fn p4_t19_c03() {
     // A registered pair is accepted.
     let ok = AllowedPropertySet::new([(Event::LandingCtaClicked.into(), Property::Cta)]).unwrap();
-    assert!(ok.contains(Event::LandingCtaClicked.into(), Property::Cta));
+    assert!(
+        ok.pairs()
+            .contains(&(Event::LandingCtaClicked.into(), Property::Cta))
+    );
 
     // A property that belongs to another event is refused, and the refusal is
     // the structured 422 with the property code.
     let error = AllowedPropertySet::new([(Event::LoginFailed.into(), Property::Cta)])
-        .map_err(AllowedPropertySet::refusal).expect_err("an unregistered property must be refused");
+        .map_err(AllowedPropertySet::refusal)
+        .expect_err("an unregistered property must be refused");
     assert_eq!(error.status, axum::http::StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(error.detail["code"], "ANALYTICS_PROPERTY_INVALID");
 
@@ -408,12 +503,14 @@ fn p4_t19_c03() {
     );
 
     // More than twelve distinct events in one window is refused.
-    let too_many: Vec<(Event, Property)> = policy::RegisteredEvent::all()
+    let too_many: Vec<(policy::RegisteredEvent, Property)> = policy::RegisteredEvent::all()
         .iter()
         .take(13)
         .map(|event| (*event, policy::allowed_properties(*event)[0]))
         .collect();
-    let error = AllowedPropertySet::new(too_many).map_err(AllowedPropertySet::refusal).expect_err("thirteen events must be refused");
+    let error = AllowedPropertySet::new(too_many)
+        .map_err(AllowedPropertySet::refusal)
+        .expect_err("thirteen events must be refused");
     assert_eq!(error.detail["code"], "ANALYTICS_PROPERTY_INVALID");
 }
 
@@ -548,8 +645,7 @@ fn p4_t19_c06() {
         "start=2026-06-01T00:00:00Z&end=2026-07-01T00:00:00Z&product_id=not-a-uuid",
         "start=2026-06-01T00:00:00Z&end=2026-07-01T00:00:00Z&availability_window=THIS-IS-TOO-LONG-X",
     ] {
-        let error =
-            parse_query(query_input(raw)).expect_err("the query must be refused");
+        let error = parse_query(query_input(raw)).expect_err("the query must be refused");
         assert_eq!(
             error.status,
             axum::http::StatusCode::UNPROCESSABLE_ENTITY,
@@ -563,7 +659,10 @@ fn p4_t19_c06() {
     // is exercised on the value it protects.
     let underflow = query();
     assert!(
-        underflow.start.checked_sub_signed(chrono::TimeDelta::MAX).is_none(),
+        underflow
+            .start
+            .checked_sub_signed(chrono::TimeDelta::MAX)
+            .is_none(),
         "the subtraction must report that it is not representable"
     );
     let error = query_policy::previous_window(DateTime::<Utc>::MIN_UTC, chrono::TimeDelta::days(1))
@@ -571,8 +670,10 @@ fn p4_t19_c06() {
     assert_eq!(error.status, axum::http::StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(error.detail["code"], "ANALYTICS_QUERY_INVALID");
     // With comparison off the same early query is accepted without arithmetic.
-    parse_query(query_input("start=0001-01-01T00:00:00Z&end=0001-01-02T00:00:00Z&compare=false"))
-        .expect("no comparison, no arithmetic");
+    parse_query(query_input(
+        "start=0001-01-01T00:00:00Z&end=0001-01-02T00:00:00Z&compare=false",
+    ))
+    .expect("no comparison, no arithmetic");
 
     // Comparison off needs no previous window at all, even for an early period.
     let no_compare = parse_query(query_input(
@@ -839,7 +940,10 @@ fn p4_t19_c12() {
     assert!(render.suppressed);
     // Navigation latency carries the cross-destination distribution.
     assert_eq!(response.navigation_latency.len(), 1);
-    assert_eq!(serde_json::to_value(&response.navigation_latency[0].destination).unwrap(), json!("all"));
+    assert_eq!(
+        serde_json::to_value(response.navigation_latency[0].destination).unwrap(),
+        json!("all")
+    );
     assert_eq!(response.navigation_latency[0].buckets.len(), 5);
     let lt250 = &response.navigation_latency[0].buckets[0];
     assert_eq!(lt250.key, "lt250");
