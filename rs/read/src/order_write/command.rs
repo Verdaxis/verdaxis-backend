@@ -748,7 +748,7 @@ mod replay_tests {
         );
         let mut f = f;
         let publication = Uuid::new_v4();
-        sqlx::query("INSERT INTO orderbook_orders(id,organization_id,owner_user_id,created_by_actor_user_id,idempotency_operation,idempotency_key,idempotency_request_hash) VALUES($1,$2,$3,$3,'inventory.publish','publication','same')")
+        sqlx::query(include_str!("../../tests/fixtures/phase8_publication.sql"))
             .bind(publication).bind(f.org).bind(owner).execute(&mut f.admin).await.unwrap();
         assert_eq!(
             transaction::inventory_replay_probe(&f.pool, owner, f.org, "publication", "same")
