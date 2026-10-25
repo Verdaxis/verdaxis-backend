@@ -275,8 +275,15 @@ impl MarketCommand for SupportCommand {
             let (value, effects) = {
                 let mut port = tx.support()?;
                 self.authorize(port.conn, actor.user_id(), now).await?;
-                port.execute(&self.action, actor.user_id(), now, &self.audit, &self.policy, &self.config)
-                    .await?
+                port.execute(
+                    &self.action,
+                    actor.user_id(),
+                    now,
+                    &self.audit,
+                    &self.policy,
+                    &self.config,
+                )
+                .await?
             };
             if !effects.is_empty() {
                 let mut port = tx.effects()?;
@@ -349,7 +356,7 @@ impl<'a> SupportPort<'a> {
             SupportAction::Authorizations{organization,page}|SupportAction::Listings{organization,page}=> {
                 self.organization(*organization).await?;
                 let listings=matches!(action,SupportAction::Listings{..});
-                self.page(*organization,page,listings,now).await?
+                self.page(*organization,page,listings,now,policy,config).await?
             },
         };
         Ok((result, effects))
@@ -479,17 +486,34 @@ impl<'a> SupportPort<'a> {
             .bind(page.limit)
             .fetch_all(&mut *self.conn)
             .await?;
-        let keys = rows.iter().filter_map(|row| {
-            let product:Uuid=row.get("product_id");
-            let point:Option<Uuid>=row.get("delivery_point_id");
-            Some(crate::market::live_benchmarks::LiveBenchmarkKey {
-                side:row.get("side"),
-                product:policy.products.iter().find(|p|p.id==product)?.code.clone(),
-                point:point?,window:row.get("availability_window"),
+        let keys = rows
+            .iter()
+            .filter_map(|row| {
+                let product: Uuid = row.get("product_id");
+                let point: Option<Uuid> = row.get("delivery_point_id");
+                Some(crate::market::live_benchmarks::LiveBenchmarkKey {
+                    side: row.get("side"),
+                    product: policy
+                        .products
+                        .iter()
+                        .find(|p| p.id == product)?
+                        .code
+                        .clone(),
+                    point: point?,
+                    window: row.get("availability_window"),
+                })
             })
-        }).collect::<Vec<_>>();
-        let mut nested=self.conn.begin().await?;
-        let benchmarks=crate::market::live_benchmarks::live_benchmarks(&mut nested,policy,config,&keys,now).await.map_err(|_|MarketWriteError::new(MarketErrorCode::DatabaseError))?;
+            .collect::<Vec<_>>();
+        let mut nested = self.conn.begin().await?;
+        let benchmarks = crate::market::live_benchmarks::live_benchmarks(
+            &mut nested,
+            policy,
+            config,
+            &keys,
+            now,
+        )
+        .await
+        .map_err(|_| MarketWriteError::new(MarketErrorCode::DatabaseError))?;
         nested.commit().await?;
         let mut items = Vec::new();
         for row in rows {
@@ -503,9 +527,11 @@ impl<'a> SupportPort<'a> {
                     .find(|p| p.id == product_id)
                     .map(|p| p.code.as_str())
             );
-            let key=projection.benchmark_key(now).map_err(|_|validation())?;
-            let benchmark=key.as_ref().and_then(|key|benchmarks.get(key));
-            let order = projection.public(false, benchmark).map_err(|_| validation())?;
+            let key = projection.benchmark_key(now).map_err(|_| validation())?;
+            let benchmark = key.as_ref().and_then(|key| benchmarks.get(key));
+            let order = projection
+                .public(false, benchmark)
+                .map_err(|_| validation())?;
             let id: Uuid = row.try_get("id")?;
             let version: i32 = row.try_get("version")?;
             let etag = format!("W/\"order-{id}-v{version}\"");

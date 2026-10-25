@@ -82,7 +82,11 @@ impl Fixture {
         let policy =
             serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap();
         let config = serde_json::from_value(json!({"environment":"test","release_sha":"test","migration_revision":"p89_20261022_watchlist_producer","database_url":"","db_session_time_zone":"UTC","bind":"127.0.0.1:0","pool_max":4,"python_budget":0,"configured_max_connections":100})).unwrap();
-        let bootstrap_ids = if bootstrap { self.actor.to_string() } else { String::new() };
+        let bootstrap_ids = if bootstrap {
+            self.actor.to_string()
+        } else {
+            String::new()
+        };
         router(SupportState::new(
             self.pool.clone(),
             verification,
@@ -122,7 +126,9 @@ impl Fixture {
             .await
             .unwrap();
         let status = response.status();
-        let bytes = axum::body::to_bytes(response.into_body(), 1048576).await.unwrap();
+        let bytes = axum::body::to_bytes(response.into_body(), 1048576)
+            .await
+            .unwrap();
         (
             status,
             serde_json::from_slice(&bytes).unwrap_or(Value::Null),
@@ -516,7 +522,7 @@ async fn revoke_ends_contexts_in_one_transaction() {
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn support_pages_are_bounded_and_real_only() {
-    let f = Fixture::new().await;
+    let mut f = Fixture::new().await;
     let app = f.app(true, true);
     for capability in ["MARKET_SUPPORT_LISTINGS", "MARKET_SUPPORT_AUTHORIZATIONS"] {
         assert_eq!(
@@ -581,4 +587,24 @@ async fn support_pages_are_bounded_and_real_only() {
         assert_eq!(page["total"], 0);
         assert_eq!(page["limit"], 1);
     }
+    sqlx::query("SELECT support_fixture_listing($1,$2)").bind(f.target).bind(f.organization).execute(&mut f.admin).await.unwrap();
+    let (status,page)=f.request(&app,f.target,"GET",&format!("{ROOT}/organizations/{}/listings?limit=1",f.organization),None).await;
+    assert_eq!(status,StatusCode::OK);
+    assert_eq!(page["items"].as_array().unwrap().len(),1);
+    assert_eq!(page["total"],2);
+    let listing=&page["items"][0];
+    assert_eq!(listing["accountable_user_id"],json!(f.target));
+    assert_eq!(listing["created_by_actor_user_id"],json!(f.target));
+    assert_eq!(listing["creation_method"],"MARKET_SUPPORT");
+    assert_eq!(listing["etag"],format!("W/\"order-{}-v1\"",listing["order"]["id"].as_str().unwrap()));
+    assert!(listing["order"]["terms_digest"].as_str().is_some_and(|s|s.len()==64));
+    assert!(listing["order"].get("organization_id").is_none());
+    assert!(listing["order"]["quantity_mt"].is_string());
+    assert!(listing["order"]["product_name"].as_str().is_some_and(|s|!s.is_empty()));
+    let (status,page)=f.request(&app,f.target,"GET",&format!("{ROOT}/organizations/{}/authorizations?limit=1",f.organization),None).await;
+    assert_eq!(status,StatusCode::OK);
+    assert_eq!(page["total"],2);
+    assert_eq!(page["items"].as_array().unwrap().len(),1);
+    assert_eq!(page["items"][0]["order"]["quantity_mt"],"10.00");
+    assert_eq!(page["items"][0]["support_case_reference"],Value::Null);
 }
