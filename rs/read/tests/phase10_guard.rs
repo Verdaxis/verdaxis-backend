@@ -303,7 +303,11 @@ fn deploy_guard_allows_absent_state() {
     // A top-level scripts directory is not the shipped layout either.
     let top_level = fixture.root.join("scripts");
     fs::create_dir_all(&top_level).expect("top-level scripts");
-    fs::copy(fixture.guard(), top_level.join("verify-deploy-start-guard.sh")).expect("copy");
+    fs::copy(
+        fixture.guard(),
+        top_level.join("verify-deploy-start-guard.sh"),
+    )
+    .expect("copy");
     fixture.write_phase("staging", SHA_A, "blocked");
     let output = Command::new("bash")
         .arg(top_level.join("verify-deploy-start-guard.sh"))
