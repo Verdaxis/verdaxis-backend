@@ -26,6 +26,25 @@ def upgrade():
     connection.execute(sa.text(
         "LOCK TABLE " + ", ".join(f'public."{table}"' for table in DEPENDENCIES)
         + " IN SHARE ROW EXCLUSIVE MODE NOWAIT"))
+    # Readers are compatible with the held lock. Refuse an existing reader
+    # explicitly before DDL; a reader arriving later remains unblocked because
+    # no dependency statement requests a stronger lock.
+    active_reader = connection.execute(sa.text("""
+        SELECT EXISTS (
+            SELECT 1 FROM pg_catalog.pg_locks l
+            WHERE l.locktype = 'relation'
+                AND l.database = (SELECT oid FROM pg_catalog.pg_database
+                                  WHERE datname = current_database())
+                AND l.relation = ANY (
+                    SELECT to_regclass('public.' || name)::oid
+                    FROM unnest(CAST(:dependencies AS text[])) AS dependency(name)
+                )
+                AND l.mode = 'AccessShareLock' AND l.granted
+                AND l.pid IS DISTINCT FROM pg_backend_pid()
+        )
+    """), {"dependencies": list(DEPENDENCIES)}).scalar()
+    if active_reader:
+        raise RuntimeError("cache dependency has an active reader; retry the upgrade")
     for table in DEPENDENCIES:
         ordinary = connection.execute(sa.text("""
             SELECT c.relkind = 'r' AND NOT c.relispartition
@@ -65,7 +84,9 @@ def upgrade():
     """)
     op.execute("REVOKE ALL ON FUNCTION public.bump_public_read_cache_generation() FROM PUBLIC")
     for table in DEPENDENCIES:
-        op.execute(f'DROP TRIGGER public_read_cache_changed ON public."{table}"')
+        # Keep the original trigger disabled: DROP TRIGGER takes a stronger
+        # dependency lock than this checkpoint permits.
+        op.execute(f'ALTER TABLE public."{table}" DISABLE TRIGGER public_read_cache_changed')
         for event, referencing in (
             ("INSERT", "REFERENCING NEW TABLE AS cache_changed_rows"),
             ("UPDATE", "REFERENCING NEW TABLE AS cache_changed_rows"),

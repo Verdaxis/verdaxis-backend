@@ -17,7 +17,23 @@ and statement triggers on existing dependency tables. It changes no existing
 column and drops no object. It takes `SHARE ROW EXCLUSIVE` locks on every
 dependency table with `NOWAIT` before any DDL, so a deploy behind an active
 writer fails fast instead of queueing and blocking later writers; readers are
-not blocked. Downgrade refuses; rollback is a reviewed forward revert. Model
+not blocked. Both revisions also check for granted `ACCESS SHARE` locks owned by
+other sessions after taking all dependency locks and refuse before DDL if one
+exists. This is an explicit existing-reader admission check, not an incompatible
+lock request. A reader arriving after the check remains compatible throughout.
+
+On dependencies, the initial LOCK, CREATE TRIGGER, DISABLE TRIGGER and ENABLE
+ALWAYS statements use at most `SHARE ROW EXCLUSIVE`; catalog inspection uses no
+stronger dependency lock. Function replacement and REVOKE act on the function,
+not dependency relations. Event pruning uses `ROW EXCLUSIVE` on the cache event
+table, not dependencies. No DROP TRIGGER runs. The sixteen original
+`public_read_cache_changed` triggers remain present with `tgenabled = D` so the
+upgrade never requests `ACCESS EXCLUSIVE`. The sixty-four event-specific triggers
+are the active set. The original checkpoint's new-table DDL locks only the new
+cache objects; its dependency locks follow the same ceiling and reader preflight.
+This also covers the two-revision production path in one transaction.
+
+Downgrade refuses; rollback is a reviewed forward revert. Model
 changes are declarations only, registered for Alembic drift checks. The runtime
 receives SELECT only. Migrator ownership remains the canonical DDL and
 trusted-trigger authority. No runtime sequence, UPDATE, INSERT or DELETE
@@ -30,10 +46,13 @@ an intermediate release at the original cache checkpoint.
 
 ## Coarse trading dependency matrix
 
-A nonempty INSERT, UPDATE or DELETE on each listed table advances the single
-`trading` generation once per statement in the same transaction. An UPDATE that
-matches a row but assigns identical values still counts; an empty statement does
-not. Separate AFTER statement triggers supply NEW transition tables for INSERT
+Each statement advances the single `trading` generation at most once per
+nonempty event transition relation, in the same transaction. A plain nonempty
+INSERT, UPDATE or DELETE therefore bumps once. A mixed `INSERT ... ON CONFLICT
+DO UPDATE` that both inserts and updates bumps twice, once for each nonempty
+relation. Insert-only and conflict-only UPSERTs bump once; `DO NOTHING` with only
+conflicts bumps zero times. An UPDATE that matches a row but assigns identical
+values still counts; an empty event relation does not. Separate AFTER statement triggers supply NEW transition tables for INSERT
 and UPDATE and an OLD transition table for DELETE. TRUNCATE always advances the
 generation. The migration checks that dependencies are ordinary, standalone tables
 before installing these triggers. All columns remain covered, including future
@@ -47,10 +66,10 @@ window receives a gap, clears all trading entries and reads the current generati
 Every cache lookup still checks generation in its own database snapshot, so delayed
 event delivery cannot authorize an old entry.
 
-Each trigger is `ENABLE ALWAYS`: it fires under every `session_replication_role`,
+Each active event trigger is `ENABLE ALWAYS`: it fires under every `session_replication_role`,
 so tooling that skips ordinary triggers cannot hide a write from the cache. The
 runtime role cannot change the trigger or that setting (proved by test). The Rust
-listener refuses to attach unless all sixteen triggers still have exactly that
+listener refuses to attach unless all sixty-four active triggers still have exactly that
 shape (`dependency_triggers_complete`).
 
 | Dependency tables | Read meaning |
