@@ -515,15 +515,7 @@ impl Fixture {
                 None,
                 None,
             ),
-            (
-                14,
-                None,
-                "APPROVED",
-                Some(o1),
-                "PENDING",
-                None,
-                None,
-            ),
+            (14, None, "APPROVED", Some(o1), "PENDING", None, None),
             (
                 15,
                 Some("BUYER"),
