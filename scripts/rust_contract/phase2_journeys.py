@@ -74,7 +74,6 @@ class JourneyState:
     event_id: str = EVENT
     target_id: str = ""
     custom_id: str = ""
-    entry_id: str = ""
     alert_id: str = ""
 
 
@@ -311,20 +310,6 @@ def check_events_page(value):
         check_watchlist_event(item)
 
 
-def check_entry(value):
-    mapping(value, "watchlist entry")
-    require({"id", "product_id", "product_name", "delivery_point_id", "delivery_point_name",
-             "best_bid", "best_ask", "created_at"} <= set(value), "entry field set is incomplete")
-    uuid_text(value["id"], "entry.id")
-    uuid_text(value["product_id"], "entry.product_id")
-    nullable(value["product_name"], "entry.product_name", text)
-    nullable(value["delivery_point_id"], "entry.delivery_point_id", text)
-    nullable(value["delivery_point_name"], "entry.delivery_point_name", text)
-    for name in ("best_bid", "best_ask"):
-        require(value[name] is None or type(value[name]) in (int, float), f"entry.{name} is not numeric")
-    instant(value["created_at"], "entry.created_at")
-
-
 ALERT_FIELDS = {"id", "org_id", "product_id", "product_name", "market_product",
                 "delivery_point_id", "direction", "threshold_usd", "is_active",
                 "triggered_at", "created_at"}
@@ -476,12 +461,8 @@ def journeys() -> dict[str, tuple[JourneyCall, ...]]:
              placeholders=("watchlist_id", "target_id")),
         call("watchlists", "create-list", "POST", "/api/watchlists", 201,
              body={"name": "Journey list"}, check=check_watchlist, capture=("custom_id", "id")),
-        call("watchlists", "add-entry", "POST", "/api/watchlists/{custom_id}/entries", 201,
-             body={"product_id": PRODUCT}, check=check_entry, placeholders=("custom_id",),
-             capture=("entry_id", "id")),
-        call("watchlists", "remove-entry", "DELETE",
-             "/api/watchlists/{custom_id}/entries/{entry_id}", 204,
-             placeholders=("custom_id", "entry_id")),
+        # W09/W10 (legacy entries) stay on Python in Phase 2, so the Rust
+        # journey stops at the container routes the frontend shares with it.
         call("watchlists", "delete-list", "DELETE", "/api/watchlists/{custom_id}", 204,
              placeholders=("custom_id",)),
     )
@@ -613,7 +594,6 @@ def _request_path(call: JourneyCall, state: JourneyState) -> str:
             event_id=state.event_id,
             target_id=state.target_id,
             custom_id=state.custom_id,
-            entry_id=state.entry_id,
             alert_id=state.alert_id,
         )
     except KeyError as error:

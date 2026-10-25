@@ -516,12 +516,7 @@
         "events-last-page",
         "events-invalid-cursor",
         "event-mark-read",
-        "event-foreign",
-        "entry-add",
-        "entry-add-duplicate",
-        "entry-remove",
-        "entry-remove-missing",
-        "entry-add-foreign"
+        "event-foreign"
       ],
       "route_qualification": true,
       "task": 24

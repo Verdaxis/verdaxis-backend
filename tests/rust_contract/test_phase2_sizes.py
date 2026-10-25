@@ -86,15 +86,18 @@ def test_notifications_scenario_declares_its_history_and_page_actions():
     assert {action.route_id for action in actions if action.name.startswith("page-")} == {"N01"}
 
 
-def test_watchlist_activity_scenario_covers_the_four_unscenaried_routes():
+def test_watchlist_activity_scenario_covers_the_two_unscenaried_routes():
     item = scenario("watchlist-activity")
     assert item.volume is not None
     actions = item.actions(run_context("large"))
     covered = {action.route_id for action in actions}
-    assert {"W01", "W02", "W07", "W08", "W09", "W10"} <= covered
+    # W09/W10 (legacy entries) stay on Python in Phase 2, so no twin action
+    # may schedule them against the Rust candidate.
+    assert {"W01", "W02", "W07", "W08"} <= covered
+    assert "W09" not in covered and "W10" not in covered
     names = {action.name for action in actions}
     assert {"events-first-page", "events-second-page", "events-last-page",
-            "events-invalid-cursor", "event-mark-read", "entry-add", "entry-remove"} <= names
+            "events-invalid-cursor", "event-mark-read"} <= names
 
 
 def test_feedback_scenario_declares_the_admin_page_boundary():

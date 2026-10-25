@@ -1,8 +1,9 @@
-"""Watchlist activity routes: W07 events, W08 read state, W09/W10 entries.
+"""Watchlist activity routes: W07 events and W08 read state.
 
-These four mounted operations had no twin-stack scenario before Task 24.  The
+The two mounted operations had no twin-stack scenario before Task 24.  The
 schedule also proves the empty container, both cursor pages and the last page at
-the selected history size, plus owner scoping for events and entries.
+the selected history size, plus owner scoping.  W09/W10 (legacy entries) stay on
+Python in Phase 2, so no twin action schedules them.
 """
 import json
 from datetime import UTC, datetime, timedelta
@@ -43,15 +44,12 @@ SECRET = "test-secret-key-for-testing-minimum-32-chars"
 
 EMPTY = "20000000-0000-4000-8000-00000000000e"
 RADAR = uid(70, 1)
-CUSTOM = uid(70, 2)
 FOREIGN = uid(70, 3)
 EMPTY_RADAR = uid(70, 4)
 SLICE = uid(72, 1)
 FOREIGN_SLICE = uid(72, 2)
 FIXTURE_EVENT = uid(73, 1)
 FOREIGN_EVENT = uid(73, 2)
-NEW_ENTRY = uid(75, 9)
-MISSING = uid(70, 99)
 
 # History identifiers and instants are fixed so a cursor is a committed fact,
 # not a value captured from a previous response.
@@ -70,7 +68,6 @@ def setup(connection):
     insert_user(connection, EMPTY, "activity-empty@watchlist.invalid")
     insert_container(connection, RADAR, OWNER, "Market Radar", at(minutes=1), kind="RADAR_DEFAULT")
     insert_slice(connection, SLICE, RADAR, "B30", DALIAN, "SPOT", at(minutes=1))
-    insert_container(connection, CUSTOM, OWNER, "Custom", at(minutes=2))
     insert_container(connection, FOREIGN, GATED_USER, "Foreign", at(minutes=3))
     insert_slice(connection, FOREIGN_SLICE, FOREIGN, "B30", DALIAN, "SPOT", at(minutes=3))
     insert_event(connection, FIXTURE_EVENT, RADAR, SLICE, "PIN_PRICE_CHANGED",
@@ -126,27 +123,6 @@ def _empty_page(_before, _after, response, _mail):
         raise ScenarioError("empty event page is not the declared empty value")
 
 
-def _one_entry(before, after, response, mail):
-    if mail:
-        raise ScenarioError("entry write sent mail")
-    unchanged_except(before, after, "watchlist_entries")
-    added = created(before, after, "watchlist_entries")
-    if len(added) != 1 or added[0]["id"] != NEW_ENTRY or added[0]["product_id"] != B30:
-        raise ScenarioError("entry add did not insert the expected row")
-    if added[0]["delivery_point_id"] is not None:
-        raise ScenarioError("entry add wrote an unexpected delivery point")
-
-
-def _entry_removed(before, after, response, mail):
-    if mail:
-        raise ScenarioError("entry remove sent mail")
-    unchanged_except(before, after, "watchlist_entries")
-    gone = {row["id"] for row in rows(before, "watchlist_entries")} - {
-        row["id"] for row in rows(after, "watchlist_entries")}
-    if gone != {NEW_ENTRY}:
-        raise ScenarioError("entry remove did not delete only the added row")
-
-
 def _one_radar(before, after, response, mail):
     if mail:
         raise ScenarioError("radar create sent mail")
@@ -179,7 +155,6 @@ def actions(context):
     empty_auth = {"authorization": bearer(SECRET, EMPTY), "x-request-id": REQUEST_ID}
     total = profile.watchlist_events + 1
     radar_headers, _clock = schedule.headers(EMPTY, [EMPTY_RADAR])
-    entry_headers, _clock = schedule.headers(OWNER, [NEW_ENTRY])
     return [
         Action("list-empty", "W01", "GET", "/api/watchlists", 200,
                headers=empty_auth, assert_after=no_write),
@@ -206,20 +181,6 @@ def actions(context):
                assert_after=_event_read),
         Action("event-foreign", "W08", "PATCH",
                f"/api/watchlists/{FOREIGN}/events/{FOREIGN_EVENT}", 404, headers=auth,
-               assert_after=no_write),
-        Action("entry-add", "W09", "POST", f"/api/watchlists/{CUSTOM}/entries", 201,
-               body={"product_id": B30}, headers=entry_headers, actor_id=OWNER,
-               assert_after=_one_entry),
-        Action("entry-add-duplicate", "W09", "POST", f"/api/watchlists/{CUSTOM}/entries", 201,
-               body={"product_id": B30}, headers=entry_headers, actor_id=OWNER,
-               assert_after=no_write),
-        Action("entry-remove", "W10", "DELETE", f"/api/watchlists/{CUSTOM}/entries/{NEW_ENTRY}", 204,
-               headers=auth, assert_after=_entry_removed),
-        Action("entry-remove-missing", "W10", "DELETE",
-               f"/api/watchlists/{CUSTOM}/entries/{MISSING}", 404, headers=auth,
-               assert_after=no_write),
-        Action("entry-add-foreign", "W09", "POST", f"/api/watchlists/{FOREIGN}/entries", 404,
-               body={"product_id": B30}, headers=entry_headers, actor_id=OWNER,
                assert_after=no_write),
     ]
 
