@@ -634,21 +634,35 @@ pub mod contract {
             MutationKind::InventoryUpdated => ("inventory_updated", "inventory", "updated"),
             MutationKind::InventoryDeleted => ("inventory_deleted", "inventory", "deleted"),
             MutationKind::InventoryPublished => ("inventory_published", "inventory", "published"),
-            MutationKind::SupportCapabilityGranted => {
-                ("capability_granted", "staff_capability_assignment", "ACTIVE")
+            MutationKind::SupportCapabilityGranted => (
+                "capability_granted",
+                "staff_capability_assignment",
+                "ACTIVE",
+            ),
+            MutationKind::SupportCapabilityRevoked => (
+                "capability_revoked",
+                "staff_capability_assignment",
+                "REVOKED",
+            ),
+            MutationKind::SupportContextStarted => {
+                ("context_started", "market_support_context", "ACTIVE")
             }
-            MutationKind::SupportCapabilityRevoked => {
-                ("capability_revoked", "staff_capability_assignment", "REVOKED")
+            MutationKind::SupportContextExited => {
+                ("context_exited", "market_support_context", "EXITED")
             }
-            MutationKind::SupportContextStarted => ("context_started", "market_support_context", "ACTIVE"),
-            MutationKind::SupportContextExited => ("context_exited", "market_support_context", "EXITED"),
-            MutationKind::SupportContextRevoked => ("context_revoked", "market_support_context", "REVOKED"),
-            MutationKind::SupportAuthorizationCreated => {
-                ("authorization_created", "market_support_authorization", "ACTIVE")
+            MutationKind::SupportContextRevoked => {
+                ("context_revoked", "market_support_context", "REVOKED")
             }
-            MutationKind::SupportAuthorizationRevoked => {
-                ("authorization_revoked", "market_support_authorization", "REVOKED")
-            }
+            MutationKind::SupportAuthorizationCreated => (
+                "authorization_created",
+                "market_support_authorization",
+                "ACTIVE",
+            ),
+            MutationKind::SupportAuthorizationRevoked => (
+                "authorization_revoked",
+                "market_support_authorization",
+                "REVOKED",
+            ),
             MutationKind::CommissionChanged => ("commission_updated", "commission", "PAID"),
         }
     }
@@ -801,9 +815,10 @@ pub mod contract {
         }
     }
     fn cancel_request_hash() -> String {
-        super::super::command_request_hash(&super::super::Canonical::Object(BTreeMap::from([
-            ("operation".into(), super::super::Canonical::Text("order.cancel".into())),
-        ])))
+        super::super::command_request_hash(&super::super::Canonical::Object(BTreeMap::from([(
+            "operation".into(),
+            super::super::Canonical::Text("order.cancel".into()),
+        )])))
     }
     struct OrderedEffectCommand {
         probe: EffectProbe,
