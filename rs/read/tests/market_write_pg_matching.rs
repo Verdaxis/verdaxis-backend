@@ -271,11 +271,12 @@ async fn lookahead_row_is_not_locked_or_changed() {
         .await
         .unwrap();
     let mut probe = f.observer.begin().await.unwrap();
-    let unlocked: Uuid = sqlx::query_scalar("SELECT id FROM orderbook_orders WHERE id=$1 FOR UPDATE NOWAIT")
-        .bind(f.resting[100])
-        .fetch_one(&mut *probe)
-        .await
-        .unwrap();
+    let unlocked: Uuid =
+        sqlx::query_scalar("SELECT id FROM orderbook_orders WHERE id=$1 FOR UPDATE NOWAIT")
+            .bind(f.resting[100])
+            .fetch_one(&mut *probe)
+            .await
+            .unwrap();
     assert_eq!(unlocked, f.resting[100]);
     probe.rollback().await.unwrap();
     let mut probe = f.observer.begin().await.unwrap();
@@ -284,7 +285,10 @@ async fn lookahead_row_is_not_locked_or_changed() {
         .fetch_one(&mut *probe)
         .await
         .unwrap_err();
-    assert_eq!(busy.as_database_error().unwrap().code().as_deref(), Some("55P03"));
+    assert_eq!(
+        busy.as_database_error().unwrap().code().as_deref(),
+        Some("55P03")
+    );
     probe.rollback().await.unwrap();
     apply(&mut tx, planned).await.unwrap();
     tx.rollback().await.unwrap();
@@ -314,21 +318,31 @@ async fn concurrent_matches_do_not_consume_the_same_remainder_twice() {
     });
     let mut waiting = false;
     for _ in 0..100 {
-        waiting = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_locks WHERE pid=$1 AND NOT granted)")
-            .bind(pid)
-            .fetch_one(&mut f.admin)
-            .await
-            .unwrap();
-        if waiting { break; }
+        waiting = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM pg_locks WHERE pid=$1 AND NOT granted)",
+        )
+        .bind(pid)
+        .fetch_one(&mut f.admin)
+        .await
+        .unwrap();
+        if waiting {
+            break;
+        }
         tokio::time::sleep(std::time::Duration::from_millis(2)).await;
     }
-    assert!(waiting, "the independent transaction must reach a held lock");
+    assert!(
+        waiting,
+        "the independent transaction must reach a held lock"
+    );
     apply(&mut tx, first).await.unwrap();
     tx.commit().await.unwrap();
     let result = contender.await.unwrap();
     match result {
         Ok(plan) => assert!(plan.plan.fills().is_empty()),
-        Err(error) => assert!(matches!(error.code, MarketErrorCode::MarketSliceChanged | MarketErrorCode::MarketBusy)),
+        Err(error) => assert!(matches!(
+            error.code,
+            MarketErrorCode::MarketSliceChanged | MarketErrorCode::MarketBusy
+        )),
     }
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM trades")
         .fetch_one(&mut f.observer)
