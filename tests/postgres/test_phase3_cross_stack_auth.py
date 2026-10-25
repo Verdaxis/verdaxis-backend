@@ -210,10 +210,12 @@ async def test_python_maintenance_deletes_a_rust_written_row(analytics_pg_url, r
 @pytest.mark.parametrize("issuer_stack", ["python", "rust"])
 async def test_cross_stack_account_refusals(analytics_pg_url, rust_auth_server, monkeypatch, issuer_stack):
     from datetime import UTC, datetime, timedelta
+
     import jwt
+    from fastapi import Depends
+
     from app.core.security import create_access_token
     from app.routers.auth_simple import get_authenticated_user
-    from fastapi import Depends
     from app.routers.notifications import router as notification_router
 
     monkeypatch.setattr(limiter, "enabled", False)
@@ -276,7 +278,12 @@ async def test_cross_stack_account_refusals(analytics_pg_url, rust_auth_server, 
                 response = await rust.post("/api/test/issue", json={"user":str(user),"issued_at":past.isoformat()})
                 assert response.status_code == 200
                 expired = response.json()["access_token"]
-            assert [r.status_code for r in await pair("/api/auth/me",expired)] == [401,401]
+            expired_responses = await pair("/api/auth/me", expired)
+            assert [r.status_code for r in expired_responses] == [401, 401]
+            # Python's established legacy envelope has no code field. Pin that
+            # exact refusal and the corresponding Rust code, in both directions.
+            assert expired_responses[0].json() == {"detail": "Could not validate credentials"}
+            assert expired_responses[1].json()["detail"]["code"] == "AUTH_CREDENTIALS_INVALID"
 
             # Logout is terminal for the actual refresh cookie retained at login.
             cookie = "; ".join(f"{c.name}={c.value}" for c in producer.cookies.jar)
