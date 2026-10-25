@@ -2,11 +2,11 @@
 
 > **Navigation aid.** Route list and file locations extracted via AST. Read the source files listed below before implementing or modifying this subsystem.
 
-The Rbac subsystem handles **1 routes** and touches: auth.
+The Rbac subsystem handles **1 routes**.
 
 ## Routes
 
-- `POST` `/endpoint` → in: Annotated [auth]
+- `POST` `/endpoint` → in: Annotated
   `app/middleware/rbac.py`
 
 ## Source Files

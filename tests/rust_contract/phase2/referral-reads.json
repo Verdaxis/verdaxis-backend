@@ -1,0 +1,14 @@
+{
+  "scenario": "referral-reads",
+  "group": "referrals",
+  "task": 17,
+  "route_ids": ["R02", "R03", "R05"],
+  "runner_status": "pending the runner lane",
+  "cases": [
+    {"id": "statistics", "route": "R02", "fixtures": ["SIGNED_UP", "VERIFIED", "ACTIVE", "other-referrer", "missing-organization"], "assert": ["actor-scoped", "total=3", "verified=2", "active=1", "newest-first", "exact-four-item-fields"]},
+    {"id": "leaderboard", "route": "R03", "fixtures": ["eleven-referrers", "equal-counts", "missing-user", "blank-name"], "assert": ["top-ten-before-projection", "consecutive-ranks", "python-display-name", "keep-tie-ranks-and-membership"]},
+    {"id": "public-resolution", "route": "R05", "codes": ["invalid", "VDX-ZZZ999", "VDX-AAA111", "VDX-ADMIN1", "VDX-AAA111\n"], "bearers": [null, "invalid", "valid"], "assert": ["public", "exact-code-lookup", "admin-platform-label", "no-private-fields"]},
+    {"id": "read-boundaries", "routes": ["R02", "R03"], "assert": ["missing-bearer-401", "invalid-bearer-401", "unknown-user-401", "market-support-actor-scope", "head-405", "all-business-state-unchanged"]}
+  ],
+  "comparison": {"profile": "phase2-meaning-v1", "response": true, "committed_state": "all-business-tables", "users": "all-columns-unchanged", "leaderboard_ties": "never-drop-ranks-or-change-tenth-member"}
+}

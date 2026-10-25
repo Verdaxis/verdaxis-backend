@@ -1,0 +1,670 @@
+{
+  "source_sha": "5b45319c90b1ac7cba699f945f9ab57fd51b70ce",
+  "scenarios": [
+    {
+      "scenario": "alerts-crud",
+      "group": "alerts",
+      "scope": "route-contract",
+      "route_qualification": true,
+      "seed_sha256": "25d1b83e37f8e162e909bd7bf5b4329ab1e3f83b2e4adb3cc8cf146fffaf6a4a",
+      "acl_sha256": "f75f66a363a6d11587a38e5ad3506c6b5bcf1b5cdbf8de72342b2853a7c7b1c0",
+      "actions": [
+        {
+          "id": "list-all",
+          "outcome": "committed",
+          "transport_errors": [
+            null,
+            null
+          ],
+          "statuses": [
+            200,
+            200
+          ],
+          "state_sha256": [
+            "25d1b83e37f8e162e909bd7bf5b4329ab1e3f83b2e4adb3cc8cf146fffaf6a4a",
+            "25d1b83e37f8e162e909bd7bf5b4329ab1e3f83b2e4adb3cc8cf146fffaf6a4a"
+          ],
+          "mail_sha256": [
+            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          ],
+          "database_clock": [
+            null,
+            null
+          ]
+        },
+        {
+          "id": "foreign-delete",
+          "outcome": "committed",
+          "transport_errors": [
+            null,
+            null
+          ],
+          "statuses": [
+            403,
+            403
+          ],
+          "state_sha256": [
+            "25d1b83e37f8e162e909bd7bf5b4329ab1e3f83b2e4adb3cc8cf146fffaf6a4a",
+            "25d1b83e37f8e162e909bd7bf5b4329ab1e3f83b2e4adb3cc8cf146fffaf6a4a"
+          ],
+          "mail_sha256": [
+            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          ],
+          "database_clock": [
+            null,
+            null
+          ]
+        },
+        {
+          "id": "missing-delete",
+          "outcome": "committed",
+          "transport_errors": [
+            null,
+            null
+          ],
+          "statuses": [
+            404,
+            404
+          ],
+          "state_sha256": [
+            "25d1b83e37f8e162e909bd7bf5b4329ab1e3f83b2e4adb3cc8cf146fffaf6a4a",
+            "25d1b83e37f8e162e909bd7bf5b4329ab1e3f83b2e4adb3cc8cf146fffaf6a4a"
+          ],
+          "mail_sha256": [
+            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          ],
+          "database_clock": [
+            null,
+            null
+          ]
+        },
+        {
+          "id": "no-org-get",
+          "outcome": "committed",
+          "transport_errors": [
+            null,
+            null
+          ],
+          "statuses": [
+            400,
+            400
+          ],
+          "state_sha256": [
+            "25d1b83e37f8e162e909bd7bf5b4329ab1e3f83b2e4adb3cc8cf146fffaf6a4a",
+            "25d1b83e37f8e162e909bd7bf5b4329ab1e3f83b2e4adb3cc8cf146fffaf6a4a"
+          ],
+          "mail_sha256": [
+            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          ],
+          "database_clock": [
+            null,
+            null
+          ]
+        },
+        {
+          "id": "no-org-delete",
+          "outcome": "committed",
+          "transport_errors": [
+            null,
+            null
+          ],
+          "statuses": [
+            400,
+            400
+          ],
+          "state_sha256": [
+            "25d1b83e37f8e162e909bd7bf5b4329ab1e3f83b2e4adb3cc8cf146fffaf6a4a",
+            "25d1b83e37f8e162e909bd7bf5b4329ab1e3f83b2e4adb3cc8cf146fffaf6a4a"
+          ],
+          "mail_sha256": [
+            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          ],
+          "database_clock": [
+            null,
+            null
+          ]
+        },
+        {
+          "id": "no-org-create",
+          "outcome": "committed",
+          "transport_errors": [
+            null,
+            null
+          ],
+          "statuses": [
+            400,
+            400
+          ],
+          "state_sha256": [
+            "25d1b83e37f8e162e909bd7bf5b4329ab1e3f83b2e4adb3cc8cf146fffaf6a4a",
+            "25d1b83e37f8e162e909bd7bf5b4329ab1e3f83b2e4adb3cc8cf146fffaf6a4a"
+          ],
+          "mail_sha256": [
+            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          ],
+          "database_clock": [
+            null,
+            null
+          ]
+        },
+        {
+          "id": "rollback",
+          "outcome": "rolled-back",
+          "transport_errors": [
+            null,
+            null
+          ],
+          "statuses": [
+            500,
+            500
+          ],
+          "state_sha256": [
+            "25d1b83e37f8e162e909bd7bf5b4329ab1e3f83b2e4adb3cc8cf146fffaf6a4a",
+            "25d1b83e37f8e162e909bd7bf5b4329ab1e3f83b2e4adb3cc8cf146fffaf6a4a"
+          ],
+          "mail_sha256": [
+            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          ],
+          "database_clock": [
+            null,
+            null
+          ]
+        },
+        {
+          "id": "lost-response",
+          "outcome": "ambiguous",
+          "transport_errors": [
+            null,
+            null
+          ],
+          "statuses": [
+            503,
+            503
+          ],
+          "state_sha256": [
+            "c6ae4d96e0d7c4e681812c14357d55f15b74b3f490ef43dce5474ca7e2e8b920",
+            "c6ae4d96e0d7c4e681812c14357d55f15b74b3f490ef43dce5474ca7e2e8b920"
+          ],
+          "mail_sha256": [
+            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          ],
+          "database_clock": [
+            null,
+            null
+          ]
+        },
+        {
+          "id": "cap-reached",
+          "outcome": "committed",
+          "transport_errors": [
+            null,
+            null
+          ],
+          "statuses": [
+            403,
+            403
+          ],
+          "state_sha256": [
+            "c6ae4d96e0d7c4e681812c14357d55f15b74b3f490ef43dce5474ca7e2e8b920",
+            "c6ae4d96e0d7c4e681812c14357d55f15b74b3f490ef43dce5474ca7e2e8b920"
+          ],
+          "mail_sha256": [
+            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          ],
+          "database_clock": [
+            null,
+            null
+          ]
+        },
+        {
+          "id": "same-org-delete",
+          "outcome": "committed",
+          "transport_errors": [
+            null,
+            null
+          ],
+          "statuses": [
+            204,
+            204
+          ],
+          "state_sha256": [
+            "25d1b83e37f8e162e909bd7bf5b4329ab1e3f83b2e4adb3cc8cf146fffaf6a4a",
+            "25d1b83e37f8e162e909bd7bf5b4329ab1e3f83b2e4adb3cc8cf146fffaf6a4a"
+          ],
+          "mail_sha256": [
+            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          ],
+          "database_clock": [
+            null,
+            null
+          ]
+        },
+        {
+          "id": "repeat-delete",
+          "outcome": "committed",
+          "transport_errors": [
+            null,
+            null
+          ],
+          "statuses": [
+            404,
+            404
+          ],
+          "state_sha256": [
+            "25d1b83e37f8e162e909bd7bf5b4329ab1e3f83b2e4adb3cc8cf146fffaf6a4a",
+            "25d1b83e37f8e162e909bd7bf5b4329ab1e3f83b2e4adb3cc8cf146fffaf6a4a"
+          ],
+          "mail_sha256": [
+            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          ],
+          "database_clock": [
+            null,
+            null
+          ]
+        }
+      ],
+      "races": [
+        {
+          "seed": 20261018,
+          "actor_order": [
+            "cap-member",
+            "cap-owner"
+          ],
+          "state_sha256": [
+            "2c037f7a83f05e671e500a9264bb18115c76e4e10e42986899ccb767ab39c08c",
+            "2c037f7a83f05e671e500a9264bb18115c76e4e10e42986899ccb767ab39c08c"
+          ]
+        }
+      ],
+      "mixed_writer_dispatch": {
+        "dispatcher": {
+          "delivered": 5,
+          "sequences": [
+            1,
+            2,
+            3,
+            4,
+            5
+          ]
+        },
+        "state_sha256": "c8628bab8541a51024571d51740613a14186d388126600a927230f09e3d384c5"
+      },
+      "sequence_high_water": {
+        "phase2_route_0_python": {
+          "market_event_stream_seq": {
+            "last_value": 1,
+            "is_called": false
+          },
+          "orderbook_acceptance_ordinal_seq": {
+            "last_value": 1,
+            "is_called": false
+          }
+        },
+        "phase2_route_0_rust": {
+          "market_event_stream_seq": {
+            "last_value": 1,
+            "is_called": false
+          },
+          "orderbook_acceptance_ordinal_seq": {
+            "last_value": 1,
+            "is_called": false
+          }
+        },
+        "phase2_route_0_mixed": {
+          "market_event_stream_seq": {
+            "last_value": 5,
+            "is_called": true
+          },
+          "orderbook_acceptance_ordinal_seq": {
+            "last_value": 1,
+            "is_called": false
+          }
+        }
+      }
+    },
+    {
+      "scenario": "alerts-crud-reverse",
+      "group": "alerts",
+      "scope": "route-contract",
+      "route_qualification": true,
+      "seed_sha256": "19077d2c9f732e6025cfffdcddf43d895f2d13d1257317b654133cbbaba30148",
+      "acl_sha256": "f75f66a363a6d11587a38e5ad3506c6b5bcf1b5cdbf8de72342b2853a7c7b1c0",
+      "actions": [
+        {
+          "id": "list-all",
+          "outcome": "committed",
+          "transport_errors": [
+            null,
+            null
+          ],
+          "statuses": [
+            200,
+            200
+          ],
+          "state_sha256": [
+            "19077d2c9f732e6025cfffdcddf43d895f2d13d1257317b654133cbbaba30148",
+            "19077d2c9f732e6025cfffdcddf43d895f2d13d1257317b654133cbbaba30148"
+          ],
+          "mail_sha256": [
+            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          ],
+          "database_clock": [
+            null,
+            null
+          ]
+        },
+        {
+          "id": "foreign-delete",
+          "outcome": "committed",
+          "transport_errors": [
+            null,
+            null
+          ],
+          "statuses": [
+            403,
+            403
+          ],
+          "state_sha256": [
+            "19077d2c9f732e6025cfffdcddf43d895f2d13d1257317b654133cbbaba30148",
+            "19077d2c9f732e6025cfffdcddf43d895f2d13d1257317b654133cbbaba30148"
+          ],
+          "mail_sha256": [
+            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          ],
+          "database_clock": [
+            null,
+            null
+          ]
+        },
+        {
+          "id": "missing-delete",
+          "outcome": "committed",
+          "transport_errors": [
+            null,
+            null
+          ],
+          "statuses": [
+            404,
+            404
+          ],
+          "state_sha256": [
+            "19077d2c9f732e6025cfffdcddf43d895f2d13d1257317b654133cbbaba30148",
+            "19077d2c9f732e6025cfffdcddf43d895f2d13d1257317b654133cbbaba30148"
+          ],
+          "mail_sha256": [
+            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          ],
+          "database_clock": [
+            null,
+            null
+          ]
+        },
+        {
+          "id": "no-org-get",
+          "outcome": "committed",
+          "transport_errors": [
+            null,
+            null
+          ],
+          "statuses": [
+            400,
+            400
+          ],
+          "state_sha256": [
+            "19077d2c9f732e6025cfffdcddf43d895f2d13d1257317b654133cbbaba30148",
+            "19077d2c9f732e6025cfffdcddf43d895f2d13d1257317b654133cbbaba30148"
+          ],
+          "mail_sha256": [
+            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          ],
+          "database_clock": [
+            null,
+            null
+          ]
+        },
+        {
+          "id": "no-org-delete",
+          "outcome": "committed",
+          "transport_errors": [
+            null,
+            null
+          ],
+          "statuses": [
+            400,
+            400
+          ],
+          "state_sha256": [
+            "19077d2c9f732e6025cfffdcddf43d895f2d13d1257317b654133cbbaba30148",
+            "19077d2c9f732e6025cfffdcddf43d895f2d13d1257317b654133cbbaba30148"
+          ],
+          "mail_sha256": [
+            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          ],
+          "database_clock": [
+            null,
+            null
+          ]
+        },
+        {
+          "id": "no-org-create",
+          "outcome": "committed",
+          "transport_errors": [
+            null,
+            null
+          ],
+          "statuses": [
+            400,
+            400
+          ],
+          "state_sha256": [
+            "19077d2c9f732e6025cfffdcddf43d895f2d13d1257317b654133cbbaba30148",
+            "19077d2c9f732e6025cfffdcddf43d895f2d13d1257317b654133cbbaba30148"
+          ],
+          "mail_sha256": [
+            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          ],
+          "database_clock": [
+            null,
+            null
+          ]
+        },
+        {
+          "id": "rollback",
+          "outcome": "rolled-back",
+          "transport_errors": [
+            null,
+            null
+          ],
+          "statuses": [
+            500,
+            500
+          ],
+          "state_sha256": [
+            "19077d2c9f732e6025cfffdcddf43d895f2d13d1257317b654133cbbaba30148",
+            "19077d2c9f732e6025cfffdcddf43d895f2d13d1257317b654133cbbaba30148"
+          ],
+          "mail_sha256": [
+            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          ],
+          "database_clock": [
+            null,
+            null
+          ]
+        },
+        {
+          "id": "lost-response",
+          "outcome": "ambiguous",
+          "transport_errors": [
+            null,
+            null
+          ],
+          "statuses": [
+            503,
+            503
+          ],
+          "state_sha256": [
+            "7175d38147c3da4cdbea1473a095061d1fab6df29bd5893b7aa53e837a35b367",
+            "7175d38147c3da4cdbea1473a095061d1fab6df29bd5893b7aa53e837a35b367"
+          ],
+          "mail_sha256": [
+            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          ],
+          "database_clock": [
+            null,
+            null
+          ]
+        },
+        {
+          "id": "cap-reached",
+          "outcome": "committed",
+          "transport_errors": [
+            null,
+            null
+          ],
+          "statuses": [
+            403,
+            403
+          ],
+          "state_sha256": [
+            "7175d38147c3da4cdbea1473a095061d1fab6df29bd5893b7aa53e837a35b367",
+            "7175d38147c3da4cdbea1473a095061d1fab6df29bd5893b7aa53e837a35b367"
+          ],
+          "mail_sha256": [
+            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          ],
+          "database_clock": [
+            null,
+            null
+          ]
+        },
+        {
+          "id": "same-org-delete",
+          "outcome": "committed",
+          "transport_errors": [
+            null,
+            null
+          ],
+          "statuses": [
+            204,
+            204
+          ],
+          "state_sha256": [
+            "19077d2c9f732e6025cfffdcddf43d895f2d13d1257317b654133cbbaba30148",
+            "19077d2c9f732e6025cfffdcddf43d895f2d13d1257317b654133cbbaba30148"
+          ],
+          "mail_sha256": [
+            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          ],
+          "database_clock": [
+            null,
+            null
+          ]
+        },
+        {
+          "id": "repeat-delete",
+          "outcome": "committed",
+          "transport_errors": [
+            null,
+            null
+          ],
+          "statuses": [
+            404,
+            404
+          ],
+          "state_sha256": [
+            "19077d2c9f732e6025cfffdcddf43d895f2d13d1257317b654133cbbaba30148",
+            "19077d2c9f732e6025cfffdcddf43d895f2d13d1257317b654133cbbaba30148"
+          ],
+          "mail_sha256": [
+            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          ],
+          "database_clock": [
+            null,
+            null
+          ]
+        }
+      ],
+      "races": [
+        {
+          "seed": 20261019,
+          "actor_order": [
+            "cap-member",
+            "cap-owner"
+          ],
+          "state_sha256": [
+            "5272a1fb5a627df43ca5ec40674fbb524ef68ee80bc5dd7b38ba0d48ff988adb",
+            "5272a1fb5a627df43ca5ec40674fbb524ef68ee80bc5dd7b38ba0d48ff988adb"
+          ]
+        }
+      ],
+      "mixed_writer_dispatch": {
+        "dispatcher": {
+          "delivered": 5,
+          "sequences": [
+            1,
+            2,
+            3,
+            4,
+            5
+          ]
+        },
+        "state_sha256": "b3218bdc8374d16cdd3de962120b3bca3f5b79084a39753a8e68e98e9144fbb0"
+      },
+      "sequence_high_water": {
+        "phase2_route_1_python": {
+          "market_event_stream_seq": {
+            "last_value": 1,
+            "is_called": false
+          },
+          "orderbook_acceptance_ordinal_seq": {
+            "last_value": 1,
+            "is_called": false
+          }
+        },
+        "phase2_route_1_rust": {
+          "market_event_stream_seq": {
+            "last_value": 1,
+            "is_called": false
+          },
+          "orderbook_acceptance_ordinal_seq": {
+            "last_value": 1,
+            "is_called": false
+          }
+        },
+        "phase2_route_1_mixed": {
+          "market_event_stream_seq": {
+            "last_value": 5,
+            "is_called": true
+          },
+          "orderbook_acceptance_ordinal_seq": {
+            "last_value": 1,
+            "is_called": false
+          }
+        }
+      }
+    }
+  ],
+  "measurements": false
+}
