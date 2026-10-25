@@ -1,8 +1,11 @@
 //! Per-operation acquisition and locked admission. No serving route is enabled.
+#[allow(dead_code)]
 #[path = "../src/order_write/authority.rs"]
 mod authority;
+#[allow(dead_code)]
 #[path = "../src/order_write/error.rs"]
 mod error;
+#[allow(dead_code)]
 #[path = "../src/order_write/locks.rs"]
 mod locks;
 use authority::admission;
@@ -108,9 +111,9 @@ impl Fixture {
     async fn access(&self, actor: Uuid) -> auth::VerifiedAccess {
         let now = Utc::now();
         let secret = "disposable-fixture-signing-material-at-least-32-bytes";
-        let settings = auth::VerificationSettings::new(secret.into(), None, None, None);
+        let settings = auth::VerificationSettings::new(secret.into(), None, "fixture".into(), "fixture".into());
         let token = jsonwebtoken::encode(&jsonwebtoken::Header::default(), &serde_json::json!({
-            "sub":actor,"type":"access","iat":now.timestamp(),"exp":(now+Duration::hours(1)).timestamp()
+            "sub":actor,"type":"access","iss":"fixture","aud":"fixture","iat":now.timestamp(),"exp":(now+Duration::hours(1)).timestamp()
         }), &jsonwebtoken::EncodingKey::from_secret(secret.as_bytes())).unwrap();
         auth::verify_access(&token, &settings, now).unwrap()
     }
