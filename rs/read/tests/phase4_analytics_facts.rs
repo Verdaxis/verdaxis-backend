@@ -1460,7 +1460,7 @@ mod postgres {
         .await
         .unwrap();
         let mut wide = query();
-        wide.start = utc(2025, 1, 1);
+        wide.start = utc(2026, 1, 1);
         wide.end = utc(2027, 1, 1);
         wide.previous = None;
         wide.compare = false;
@@ -1485,8 +1485,8 @@ mod postgres {
         let activation_facts = aggregates::load_activation_facts(&mut f.app, &wide)
             .await
             .unwrap();
-        assert_eq!(activation_facts.logins.first_login.count, 244);
-        assert_eq!(activation_facts.first_live_orders.count, 243);
+        assert_eq!(activation_facts.logins.first_login.count, 36);
+        assert_eq!(activation_facts.first_live_orders.count, 35);
         assert!(activation_facts.logins.first_login.median_hours.is_some());
         f.finish().await;
     }
