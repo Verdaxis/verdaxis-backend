@@ -1,5 +1,5 @@
 -- section: schema
-CREATE TABLE organizations(id uuid PRIMARY KEY, verification_status text DEFAULT 'APPROVED', provenance text DEFAULT 'REAL');
+CREATE TABLE organizations(id uuid PRIMARY KEY, verification_status text DEFAULT 'APPROVED', provenance text DEFAULT 'REAL', supplier_tier text);
 CREATE TABLE users(id uuid PRIMARY KEY, organization_id uuid REFERENCES organizations, role text DEFAULT 'SUPPLIER', status text DEFAULT 'APPROVED', email_verified boolean DEFAULT true, must_change_password boolean DEFAULT false, password_changed_at timestamptz, authentication_revoked_at timestamptz, kyc_status text DEFAULT 'APPROVED', kyc_organization_id uuid);
 CREATE TABLE kyc_execution_grace(user_id uuid, organization_id uuid, expires_at timestamptz);
 CREATE TABLE products(id uuid PRIMARY KEY, name text, fuel_type text, fuel_grade text, is_active boolean DEFAULT true);
@@ -16,7 +16,7 @@ CREATE TABLE orderbook_orders(
  carbon_intensity_method text DEFAULT 'lifecycle', feedstock text DEFAULT 'declared feedstock', origin text DEFAULT 'SG',
  off_spec boolean DEFAULT false, off_spec_notes text, fame_terms jsonb, lng_terms jsonb,
  energy_density_mj_kg numeric DEFAULT 20, certifications jsonb DEFAULT '[]', is_verdaxis_verified boolean DEFAULT false,
- tier_label text DEFAULT 'Declared', version integer DEFAULT 1, port_id text, created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now(),
+ version integer DEFAULT 1, port_id text, created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now(),
  private_evidence text DEFAULT 'private-document-reference'
 );
 CREATE TABLE match_suggestions(id uuid PRIMARY KEY, bid_order_id uuid REFERENCES orderbook_orders, ask_order_id uuid REFERENCES orderbook_orders, score numeric NOT NULL, match_reasons json NOT NULL, status text NOT NULL, recipient_org_id uuid REFERENCES organizations, created_at timestamptz DEFAULT now());
@@ -52,3 +52,17 @@ CREATE FUNCTION refuse_suggestion() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
 CREATE TRIGGER refuse_suggestion AFTER INSERT ON match_suggestions FOR EACH ROW EXECUTE FUNCTION refuse_suggestion();
 -- section: resume
 DROP TRIGGER refuse_suggestion ON match_suggestions;
+-- section: tier
+UPDATE organizations SET supplier_tier=$2 WHERE id=$1;
+-- section: migrated-reset
+TRUNCATE organizations, watchlists, market_event_outbox, live_slice_benchmarks, audit_logs CASCADE;
+-- section: migrated-organizations
+INSERT INTO organizations(id,name,type,verification_status,provenance,supplier_tier)
+SELECT id,id::text,'FUEL_SUPPLIER','APPROVED','REAL',CASE WHEN id='00000000-0000-0000-0000-000000000014'::uuid THEN 'MAJOR_TRADER' ELSE NULL END FROM unnest($1::uuid[]) id;
+-- section: migrated-users
+INSERT INTO users(id,email,password_hash,organization_id,role,status,email_verified,must_change_password,kyc_status,kyc_organization_id)
+SELECT id,id::text || '@example.test','unused',organization_id,role,'APPROVED',true,false,'APPROVED',organization_id FROM jsonb_to_recordset($1::jsonb) AS u(id uuid,organization_id uuid,role text);
+-- section: migrated-orders
+INSERT INTO orderbook_orders(id,organization_id,owner_user_id,created_by_actor_user_id,creation_method,provenance,side,product_id,delivery_point_id,quantity_mt,remaining_quantity_mt,price_per_mt_usd,availability_window,status,off_spec,certification_declared,certification_scheme,specification_standard,msds_available,carbon_intensity_gco2_mj,carbon_intensity_method,feedstock,origin,fame_terms,lng_terms)
+SELECT id,organization_id,owner_user_id,owner_user_id,'SELF_SERVICE','REAL',side,$2,$3,1000,1000,price,'SPOT','OPEN',false,true,CASE WHEN $4='lng_v1' THEN 'ISCC EU' ELSE 'ISCC_EU' END,$5,true,20,'LIFECYCLE','residue','NL',CASE WHEN $4='fame_v1' THEN terms ELSE NULL END,CASE WHEN $4='lng_v1' THEN terms ELSE NULL END
+FROM jsonb_to_recordset($1::jsonb) AS o(id uuid,organization_id uuid,owner_user_id uuid,side text,price numeric,terms json);
