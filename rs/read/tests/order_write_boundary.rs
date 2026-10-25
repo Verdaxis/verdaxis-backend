@@ -321,31 +321,32 @@ fn repository_root() -> PathBuf {
 /// boundary; a release build never compiles it.
 const ORDER_BOOK_TEST_WRITER: &str = "rs/read/tests/trading_cache_postgres.rs";
 
-/// Every source-boundary violation in the repository, as `path: rule` text.
-/// The one integration test that commits an order-book change as the disposable
-/// owner role, to prove a stale generation replaces a warm cache entry. It
-/// must simulate another writer's change, so it cannot drive the command
-/// boundary; a release build never compiles it.
-const ORDER_BOOK_TEST_WRITER: &str = "rs/read/tests/trading_cache_postgres.rs";
-
 /// The exact statements that file may issue, in `normalized` (uppercase,
-/// whitespace-collapsed) form. Any other order-book DML in it stays a
-/// violation, so a new INSERT, DELETE, TRUNCATE or different UPDATE turns the
-/// scan red. Assembled at run time, so this file carries no forbidden text.
-fn reviewed_order_book_test_writes() -> Vec<String> {
+/// whitespace-collapsed) form, each with the number of times the file issues
+/// it. Any other order-book DML in it stays a violation, so a new INSERT,
+/// DELETE, TRUNCATE, different UPDATE or extra use turns the scan red.
+/// Assembled at run time, so this file carries no forbidden text.
+fn reviewed_order_book_test_writes() -> Vec<(String, usize)> {
     [
-        ["UPDATE ", "orderbook_orders SET expires_at = $1"].concat(),
-        [
-            "UPDATE ",
-            "orderbook_orders SET price_per_mt_usd = price_per_mt_usd + 1",
-        ]
-        .concat(),
+        (
+            ["UPDATE ", "orderbook_orders SET expires_at = $1"].concat(),
+            1,
+        ),
+        // The stale-generation case and the two authority-change cases.
+        (
+            [
+                "UPDATE ",
+                "orderbook_orders SET price_per_mt_usd = price_per_mt_usd + 1",
+            ]
+            .concat(),
+            3,
+        ),
     ]
-    .map(|statement| normalized(&statement))
+    .map(|(statement, uses)| (normalized(&statement), uses))
     .to_vec()
 }
 
-/// Every source-boundary violation in the repository, as `path: rule` text.
+/// Every source-boundary violation in the repository.
 fn scan_repository() -> Vec<String> {
     let root = repository_root();
     let boundary = root.join("rs/read/src/order_write");
@@ -509,7 +510,7 @@ fn the_cache_test_exemption_is_exactly_its_reviewed_writes() {
     assert!(ORDER_BOOK_TEST_WRITER.starts_with("rs/read/tests/"));
     let reviewed = reviewed_order_book_test_writes();
     assert_eq!(reviewed.len(), 2);
-    for statement in &reviewed {
+    for (statement, _) in &reviewed {
         assert_eq!(orderbook_dml(statement), Some("order-book DML"));
     }
     // The exempted file carries exactly the specified statements. A new
@@ -525,12 +526,12 @@ fn the_cache_test_exemption_is_exactly_its_reviewed_writes() {
         .collect();
     assert_eq!(
         found.len(),
-        reviewed.len(),
+        reviewed.iter().map(|(_, uses)| uses).sum::<usize>(),
         "unreviewed order-book DML in the exempted file: {found:?}"
     );
     for literal in &found {
         assert!(
-            reviewed.contains(literal),
+            reviewed.iter().any(|(statement, _)| statement == literal),
             "unreviewed statement: {literal}"
         );
     }

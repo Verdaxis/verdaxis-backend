@@ -18,6 +18,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err("numeric loopback required".into());
     }
     let config = Config {
+        phase2: Default::default(),
         environment: "test".into(),
         release_sha: verdaxis_read::compiled_sha().into(),
         // This adapter does not prepare a release or move the production pin.
