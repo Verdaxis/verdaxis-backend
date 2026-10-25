@@ -38,7 +38,7 @@ impl Fixture {
             .after_connect(move |connection, _| {
                 let tag = observer_tag.clone();
                 Box::pin(async move {
-                    sqlx::query("SELECT set_config('application_name',$1,false)")
+                    sqlx::query("SELECT set_config('application_name',$1,false), set_config('lock_timeout','15s',false)")
                         .bind(tag)
                         .execute(connection)
                         .await?;
@@ -53,7 +53,7 @@ impl Fixture {
             .after_connect(move |connection, _| {
                 let tag = runtime_tag.clone();
                 Box::pin(async move {
-                    sqlx::query("SELECT set_config('application_name',$1,false)")
+                    sqlx::query("SELECT set_config('application_name',$1,false), set_config('lock_timeout','15s',false)")
                         .bind(tag)
                         .execute(connection)
                         .await?;
