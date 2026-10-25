@@ -204,3 +204,79 @@ async def test_python_maintenance_deletes_a_rust_written_row(analytics_pg_url, r
         async with owner.connect() as conn:
             assert (await conn.execute(text("SELECT count(*) FROM refresh_sessions WHERE user_id=:id"),
                                        {"id": user})).scalar_one() == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("issuer_stack", ["python", "rust"])
+async def test_cross_stack_account_refusals(analytics_pg_url, rust_auth_server, monkeypatch, issuer_stack):
+    from datetime import UTC, datetime, timedelta
+    import jwt
+    from app.core.security import create_access_token
+    from app.routers.auth_simple import get_authenticated_user
+    from fastapi import Depends
+    from app.routers.notifications import router as notification_router
+
+    monkeypatch.setattr(limiter, "enabled", False)
+    async with account(analytics_pg_url) as (owner, runtime, user, _, email):
+        app, _ = python_app(runtime)
+        app.include_router(notification_router, prefix="/api")
+
+        @app.get("/api/test/cleanup")
+        async def cleanup(actor=Depends(get_authenticated_user)):
+            return {"id": str(actor.id)}
+
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="https://test", headers={"Origin": ORIGIN}) as python, httpx.AsyncClient(base_url=rust_auth_server, headers={"Origin": ORIGIN}) as rust:
+            producer = python if issuer_stack == "python" else rust
+            login = await producer.post("/api/auth/login", data={"username": email,"password": PASSWORD})
+            assert login.status_code == 200
+            token = login.json()["access_token"]
+            claims = jwt.decode(token, options={"verify_signature": False})
+            issued = datetime.fromtimestamp(claims["iat_us"] // 1000000, UTC).replace(microsecond=claims["iat_us"] % 1000000)
+
+            async def update(**values):
+                assignments = ",".join(f"{key}=:{key}" for key in values)
+                async with owner.begin() as conn:
+                    await conn.execute(text(f"UPDATE users SET {assignments} WHERE id=:id"), {"id":user, **values})
+
+            async def pair(path, bearer=token):
+                return [await client.get(path, headers={"Authorization": f"Bearer {bearer}"}) for client in (python,rust)]
+
+            # Both consumers check actual tokens from either login implementation.
+            for column, code in (("password_changed_at","AUTH_PASSWORD_CHANGED"),("authentication_revoked_at","AUTH_SESSION_REVOKED")):
+                for delta, expected in ((-1,200),(0,401),(1,401)):
+                    await update(**{column:issued+timedelta(microseconds=delta)})
+                    responses = await pair("/api/auth/me")
+                    assert [r.status_code for r in responses] == [expected,expected], (column,delta,[r.text for r in responses])
+                    if expected == 401:
+                        assert all(r.json()["detail"]["code"] == code for r in responses)
+                await update(**{column:None})
+
+            await update(status="REJECTED", authentication_revoked_at=issued)
+            assert [r.status_code for r in await pair("/api/test/cleanup")] == [200,200]
+            assert [r.status_code for r in await pair("/api/auth/me")] == [401,401]
+            await update(status="APPROVED")
+            assert [r.status_code for r in await pair("/api/test/cleanup")] == [401,401]
+            await update(authentication_revoked_at=None, must_change_password=True)
+            assert [r.status_code for r in await pair("/api/auth/me")] == [200,200]
+            assert [r.status_code for r in await pair("/api/notifications")] == [403,403]
+            for client in (python,rust):
+                changed = await client.put("/api/auth/me/password", headers={"Authorization":f"Bearer {token}"}, json={"current_password":"not-the-password","new_password":"ReplacementPassword123"})
+                assert changed.status_code == 400
+            await update(must_change_password=False)
+
+            past = datetime.now(UTC)-timedelta(days=8)
+            if issuer_stack == "python":
+                expired = create_access_token(str(user), issued_at=past)
+            else:
+                response = await rust.post("/api/test/issue", json={"user":str(user),"issued_at":past.isoformat()})
+                assert response.status_code == 200
+                expired = response.json()["access_token"]
+            assert [r.status_code for r in await pair("/api/auth/me",expired)] == [401,401]
+
+            # Logout is terminal for the actual refresh cookie retained at login.
+            cookie = "; ".join(f"{c.name}={c.value}" for c in producer.cookies.jar)
+            other = rust if producer is python else python
+            logged_out = await other.post("/api/auth/logout", headers={"Cookie":cookie})
+            assert logged_out.status_code in (200,204)
+            refused = await other.post("/api/auth/refresh", headers={"Cookie":cookie})
+            assert refused.status_code == 401
