@@ -1182,6 +1182,34 @@ fn p4_t19_c16() {
     assert_eq!(AnalyticsRoute::ALL.len(), 3);
 }
 
+#[test]
+fn p4_t19_c17() {
+    for visits in [0, 1, 2, 3] {
+        for total_time in [None, Some(90)] {
+            for previous_only in [false, true] {
+                let mut window = reading(ComponentStatus::Available);
+                let mut core = window.core.into_data().unwrap();
+                core.visits = Some(visits);
+                core.total_time_seconds = total_time;
+                window.core = ProviderComponent::available(core);
+                let sample = acquisition::Reading { window };
+                let full = acquisition::Reading { window: reading(ComponentStatus::Available) };
+                let (current, previous) = if previous_only { (&full, &sample) } else { (&sample, &full) };
+                let response = acquisition::compose(
+                    &query(), marketplace::meta(&query(), Utc::now(), MetaOptions::default()),
+                    Some(current), Some(previous), &mut Quality::default(),
+                );
+                let duration = response.kpis.average_session_duration_seconds;
+                let value = if previous_only { duration.previous } else { duration.value };
+                assert_eq!(duration.suppressed, visits == 1 || visits == 2);
+                assert_eq!(value, if visits >= 3 { total_time.map(|total| Decimal::from(total) / Decimal::from(visits)) } else { None });
+                let visible_visits = if previous_only { response.kpis.visits.previous } else { response.kpis.visits.value };
+                assert_eq!(visible_visits, if visits == 1 || visits == 2 { None } else { Some(visits) });
+            }
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // c04 / c07 / c08: PostgreSQL cases
 // ---------------------------------------------------------------------------
@@ -1380,6 +1408,86 @@ mod postgres {
          CREATE TABLE trades(id uuid PRIMARY KEY,bid_order_id uuid,ask_order_id uuid,buyer_id uuid NOT NULL,seller_id uuid NOT NULL,buyer_provenance text NOT NULL,seller_provenance text NOT NULL,status text NOT NULL,quantity_mt numeric NOT NULL,final_quantity_mt numeric,final_total_usd numeric,confirmed_at timestamptz,paid_at timestamptz,created_at timestamptz NOT NULL);\
          CREATE TABLE commissions(id uuid PRIMARY KEY,match_id uuid NOT NULL UNIQUE,trade_id uuid,amount_usd numeric(12,2) NOT NULL,status text NOT NULL,payment_date date,created_at timestamptz);\
          CREATE TABLE audit_logs(id uuid PRIMARY KEY,user_id uuid,action varchar(100),resource_type varchar(50),resource_id varchar(100),changes jsonb,ip_address varchar(45),request_id varchar(36),timestamp timestamptz NOT NULL);"
+    }
+
+    #[tokio::test]
+    #[ignore = "requires explicit disposable PostgreSQL authority"]
+    async fn p4_t19_c18() {
+        use tower::ServiceExt;
+        let fixture = Fixture::new().await;
+        let schema = fixture.schema.clone();
+        let pool = sqlx::postgres::PgPoolOptions::new().max_connections(2)
+            .after_connect(move |conn, _| {
+                let statement = format!("SET search_path TO {schema}");
+                Box::pin(async move { sqlx::raw_sql(sqlx::AssertSqlSafe(statement)).execute(conn).await?; Ok(()) })
+            }).connect(&fixture.migrator_url).await.unwrap();
+        let config: verdaxis_read::Config = serde_json::from_value(json!({
+            "environment": "test", "release_sha": verdaxis_read::compiled_sha(),
+            "migration_revision": "kycg_20261014_staging", "database_url": fixture.app_url,
+            "db_session_time_zone": "UTC", "bind": "127.0.0.1:0",
+            "read_admission_slots": 2, "pool_max": 3, "python_budget": 52,
+            "configured_max_connections": 100
+        })).unwrap();
+        let health = sqlx::postgres::PgPoolOptions::new().max_connections(1).connect_lazy(&fixture.app_url).unwrap();
+        let app = AppState::new(config, runtime::db::Pools { read: pool.clone(), health }, policy()).unwrap();
+        let settings = auth::VerificationSettings::hs256(KEY);
+        let now = Utc::now().timestamp();
+        let token = jsonwebtoken::encode(&jsonwebtoken::Header::default(), &json!({
+            "sub": fixture.admin_user.to_string(), "type": "access", "iat": now, "exp": now + 600
+        }), &jsonwebtoken::EncodingKey::from_secret(KEY.as_bytes())).unwrap();
+        let router = marketplace::router(app, settings, auth::limits::SharedLimits::default(), service(ComponentStatus::Unavailable));
+        let uri = format!("{}?start=2026-06-01T00:00:00Z&end=2026-07-01T00:00:00Z", AnalyticsRoute::Acquisition.template());
+        for index in 0..30 {
+            let response = router.clone().oneshot(axum::http::Request::builder().uri(&uri)
+                .header("authorization", format!("Bearer {token}"))
+                .body(axum::body::Body::empty()).unwrap()).await.unwrap();
+            assert_eq!(response.status(), axum::http::StatusCode::OK, "request {index}");
+        }
+        for header in [format!("Bearer {token}"), format!("bearer {token}"), format!("Bearer  {token}"), format!("BEARER   {token}")] {
+            let response = router.clone().oneshot(axum::http::Request::builder().uri(&uri)
+                .header("authorization", header).body(axum::body::Body::empty()).unwrap()).await.unwrap();
+            assert_eq!(response.status(), axum::http::StatusCode::TOO_MANY_REQUESTS);
+            assert!(response.headers().contains_key("retry-after"));
+        }
+        drop(router);
+        pool.close().await;
+        fixture.finish().await;
+    }
+
+    #[tokio::test]
+    #[ignore = "requires explicit disposable PostgreSQL authority"]
+    async fn p4_t19_c19() {
+        let mut fixture = Fixture::new().await;
+        let buyer = fixture.buyer_org;
+        // Previous-only rows have a distinct product, point, window and status.
+        fixture.product = Uuid::from_u128(0x1001);
+        fixture.point = Uuid::from_u128(0x2001);
+        sqlx::query("INSERT INTO products(id,name,fuel_type,fuel_grade,is_active) VALUES($1,'Previous product','Methanol','A',true)")
+            .bind(fixture.product).execute(&mut fixture.admin).await.unwrap();
+        sqlx::query("INSERT INTO delivery_points(id,name,region,is_active) VALUES($1,'Previous point','Europe',true)")
+            .bind(fixture.point).execute(&mut fixture.admin).await.unwrap();
+        for _ in 0..256 {
+            fixture.order(buyer, "ASK", 900, "2026-05-15T00:00:00Z", "REAL").await;
+        }
+        sqlx::query(include_str!("fixtures/analytics_order_previous.sql"))
+            .execute(&mut fixture.admin).await.unwrap();
+        fixture.product = Uuid::from_u128(0x1000);
+        fixture.point = Uuid::from_u128(0x2000);
+        fixture.order(buyer, "BID", 800, "2026-06-15T00:00:00Z", "REAL").await;
+        let mut conn = fixture.connect().await;
+        for compare in [true, false] {
+            let mut query = query(); query.compare = compare;
+            if !compare { query.previous = None; }
+            let statuses = marketplace::status_distribution(&mut conn, &query).await.unwrap();
+            assert_eq!(statuses.len(), 1);
+            assert_eq!(statuses[0].status, "OPEN"); assert_eq!(statuses[0].count, 1);
+            let rows = marketplace::matrix_and_windows(&mut conn, &query).await.unwrap();
+            assert_eq!(rows.len(), 2);
+            assert!(rows.iter().all(|row| row.orders == 1));
+            assert!(rows.iter().any(|row| row.window.as_deref() == Some("SPOT")));
+            assert!(rows.iter().any(|row| row.product_name.as_deref() == Some("Bio Methanol")));
+        }
+        fixture.finish().await;
     }
 
     // c04: the reliability audit sample is restricted to the requested window.
