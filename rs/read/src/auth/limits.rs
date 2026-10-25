@@ -58,8 +58,14 @@ impl SharedLimits {
 
     /// Address-owned auth endpoints use normalized, evicting accounting.
     /// Verified-user endpoint counters are never allocated through this API.
-    pub fn check_address_endpoint(&self, client: &str, path: &str, now: u64) -> Result<(), crate::ApiError> {
-        self.lock_recovering().address_endpoint_check(client,path,now)
+    pub fn check_address_endpoint(
+        &self,
+        client: &str,
+        path: &str,
+        now: u64,
+    ) -> Result<(), crate::ApiError> {
+        self.lock_recovering()
+            .address_endpoint_check(client, path, now)
             .map_err(|refusal| refusal.auth_failure().into())
     }
 
@@ -233,13 +239,32 @@ impl Phase2Limits {
             retry_after_seconds: remaining,
         })
     }
-    pub fn address_endpoint_check(&mut self, client: &str, path: &str, now: u64) -> Result<(), Refusal> {
-        let Some((key,limit,window)) = auth_endpoint_policy(path) else { return Ok(()); };
+    pub fn address_endpoint_check(
+        &mut self,
+        client: &str,
+        path: &str,
+        now: u64,
+    ) -> Result<(), Refusal> {
+        let Some((key, limit, window)) = auth_endpoint_policy(path) else {
+            return Ok(());
+        };
         let owner = network_identity(client);
-        if self.address_endpoint_store.accept(&owner,key,limit,window,now,true) { return Ok(()); }
-        let remaining = self.address_endpoint_store.buckets.get(&(owner,key.into()))
-            .map_or(window,|bucket|bucket.expires_at.saturating_sub(now).max(1));
-        Err(Refusal { retry_after_seconds:remaining })
+        if self
+            .address_endpoint_store
+            .accept(&owner, key, limit, window, now, true)
+        {
+            return Ok(());
+        }
+        let remaining = self
+            .address_endpoint_store
+            .buckets
+            .get(&(owner, key.into()))
+            .map_or(window, |bucket| {
+                bucket.expires_at.saturating_sub(now).max(1)
+            });
+        Err(Refusal {
+            retry_after_seconds: remaining,
+        })
     }
 
     /// Pre-auth evictions since start. A plain number: it names no client.
@@ -252,7 +277,7 @@ impl Phase2Limits {
     }
     pub fn endpoint_check(&mut self, user: &str, path: &str, now: u64) -> Result<(), Refusal> {
         if auth_endpoint_policy(path).is_some() {
-            return self.address_endpoint_check(user,path,now);
+            return self.address_endpoint_check(user, path, now);
         }
         let Some((key, limit, window)) = endpoint_policy(path) else {
             return Ok(());
