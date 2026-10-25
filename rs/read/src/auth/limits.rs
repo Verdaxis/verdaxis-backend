@@ -273,7 +273,7 @@ mod tests {
         // The caller spends its whole window budget, and that window expires
         // with the flood.
         assert!(store.accept("caller", "k", 1, window, 40, false));
-        assert!(!store.accept("caller", "k", 1, window, 99));
+        assert!(!store.accept("caller", "k", 1, window, 99, false));
         // One request at t=101: the caller's own expired bucket is gone, so it
         // is admitted again, while at most EXPIRED_CLEANUP_BUDGET other expired
         // entries were removed around it.
