@@ -1611,12 +1611,11 @@ mod postgres {
                 .as_deref(),
             Some("conference")
         );
-        assert_eq!(
+        assert!(
             sqlx::query_scalar::<_, bool>("SELECT is_called FROM survey_updates")
                 .fetch_one(&f.pool)
                 .await
-                .unwrap(),
-            true
+                .unwrap()
         );
         assert_eq!(
             sqlx::query_scalar::<_, i64>("SELECT last_value FROM survey_updates")
