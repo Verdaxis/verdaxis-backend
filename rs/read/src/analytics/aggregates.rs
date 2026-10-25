@@ -1252,7 +1252,8 @@ fn cohort_facts(rows: Vec<sqlx::postgres::PgRow>) -> Vec<CohortFact> {
         .map(|row| CohortFact {
             cohort_start: row.get("cohort_start"),
             size: count(row.get("size")),
-            offset: u32::try_from(row.get::<i32, _>("week_offset")).expect("nonnegative cohort offset"),
+            offset: u32::try_from(row.get::<i32, _>("week_offset"))
+                .expect("nonnegative cohort offset"),
             count: count(row.get("count")),
         })
         .collect()
