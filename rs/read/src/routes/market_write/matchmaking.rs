@@ -237,10 +237,19 @@ async fn suggestions(
         if !order.qualified(policy, &clock) {
             continue;
         }
-        let profile = policy.products.iter().find(|product| {
-            Some(product.id.to_string().as_str()) == order.public.private["product_id"].as_str()
-        }).map(|product| product.qualification_profile.as_str()).unwrap_or("scalar");
-        if let Some(field) = match profile { "lng_v1" => Some("lng_terms"), "fame_v1" => Some("fame_terms"), _ => None } {
+        let profile = policy
+            .products
+            .iter()
+            .find(|product| {
+                Some(product.id.to_string().as_str()) == order.public.private["product_id"].as_str()
+            })
+            .map(|product| product.qualification_profile.as_str())
+            .unwrap_or("scalar");
+        if let Some(field) = match profile {
+            "lng_v1" => Some("lng_terms"),
+            "fame_v1" => Some("fame_terms"),
+            _ => None,
+        } {
             // Shared typed normalization supplies schema defaults once per order,
             // after execution qualification and before any pair comparison.
             order.compatibility_terms = redact_terms(profile, &order.public.private[field])

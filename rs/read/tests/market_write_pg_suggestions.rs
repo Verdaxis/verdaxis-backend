@@ -71,7 +71,12 @@ impl Fixture {
             .execute(&mut admin)
             .await
             .unwrap();
-        sqlx::query(section("tier")).bind(id(20)).bind("MAJOR_TRADER").execute(&mut admin).await.unwrap();
+        sqlx::query(section("tier"))
+            .bind(id(20))
+            .bind("MAJOR_TRADER")
+            .execute(&mut admin)
+            .await
+            .unwrap();
         sqlx::query(section("users"))
             .bind(json!([
                 {"id":id(1),"organization_id":id(10),"role":"BUYER"},
@@ -373,43 +378,130 @@ async fn dismiss_is_idempotent_and_writes_no_audit() {
     f.finish().await;
 }
 
-
-struct MigratedFixture { _admin: PgConnection, app: Router, pool: sqlx::PgPool }
+struct MigratedFixture {
+    _admin: PgConnection,
+    app: Router,
+    pool: sqlx::PgPool,
+}
 impl MigratedFixture {
     async fn new(profile: &str, bid: Value, ask: Value, incompatible: Value) -> Self {
-        let admin_url=std::env::var("RUST_SUGGESTIONS_ADMIN_DATABASE_URL").expect("explicit migrated disposable administrator URL required");
-        let runtime_url=std::env::var("RUST_SUGGESTIONS_DATABASE_URL").expect("explicit migrated disposable runtime URL required");
-        let a=url::Url::parse(&admin_url).unwrap(); let r=url::Url::parse(&runtime_url).unwrap();
-        assert_eq!(a.host_str(),Some("127.0.0.1")); assert!(a.path().ends_with("_test")); assert_eq!(r.host_str(),a.host_str()); assert_eq!(r.port(),a.port()); assert_eq!(r.path(),a.path()); assert_eq!(r.username(),"rust_app");
-        let mut admin=PgConnection::connect(&admin_url).await.unwrap();
-        let revision:String=sqlx::query_scalar("SELECT version_num FROM alembic_version").fetch_one(&mut admin).await.unwrap();
-        assert_eq!(revision,"p89_20261022_watchlist_producer");
-        let invented:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='orderbook_orders' AND column_name='tier_label')").fetch_one(&mut admin).await.unwrap(); assert!(!invented);
-        sqlx::raw_sql(section("migrated-reset")).execute(&mut admin).await.unwrap();
-        sqlx::query(section("migrated-organizations")).bind(vec![id(10),id(20)]).execute(&mut admin).await.unwrap();
+        let admin_url = std::env::var("RUST_SUGGESTIONS_ADMIN_DATABASE_URL")
+            .expect("explicit migrated disposable administrator URL required");
+        let runtime_url = std::env::var("RUST_SUGGESTIONS_DATABASE_URL")
+            .expect("explicit migrated disposable runtime URL required");
+        let a = url::Url::parse(&admin_url).unwrap();
+        let r = url::Url::parse(&runtime_url).unwrap();
+        assert_eq!(a.host_str(), Some("127.0.0.1"));
+        assert!(a.path().ends_with("_test"));
+        assert_eq!(r.host_str(), a.host_str());
+        assert_eq!(r.port(), a.port());
+        assert_eq!(r.path(), a.path());
+        assert_eq!(r.username(), "rust_app");
+        let mut admin = PgConnection::connect(&admin_url).await.unwrap();
+        let revision: String = sqlx::query_scalar("SELECT version_num FROM alembic_version")
+            .fetch_one(&mut admin)
+            .await
+            .unwrap();
+        assert_eq!(revision, "p89_20261022_watchlist_producer");
+        let invented:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='orderbook_orders' AND column_name='tier_label')").fetch_one(&mut admin).await.unwrap();
+        assert!(!invented);
+        sqlx::raw_sql(section("migrated-reset"))
+            .execute(&mut admin)
+            .await
+            .unwrap();
+        sqlx::query(section("migrated-organizations"))
+            .bind(vec![id(10), id(20)])
+            .execute(&mut admin)
+            .await
+            .unwrap();
         sqlx::query(section("migrated-users")).bind(json!([{"id":id(1),"organization_id":id(10),"role":"BUYER"},{"id":id(2),"organization_id":id(20),"role":"SUPPLIER"}])).execute(&mut admin).await.unwrap();
-        let policy:MarketPolicy=serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap();
-        let product=policy.products.iter().find(|p|p.qualification_profile==profile && p.execution_mode=="ORDERBOOK" && (profile!="scalar" || p.specification_standard.is_none())).unwrap();
-        let point=product.lanes[0];
-        let rows=json!([{"id":id(200),"organization_id":id(10),"owner_user_id":id(1),"side":"BID","price":550,"terms":bid},{"id":id(201),"organization_id":id(20),"owner_user_id":id(2),"side":"ASK","price":500,"terms":ask},{"id":id(202),"organization_id":id(20),"owner_user_id":id(2),"side":"ASK","price":501,"terms":incompatible}]);
-        sqlx::query(section("migrated-orders")).bind(rows).bind(product.id).bind(point).bind(profile).bind(if profile=="lng_v1" {"ISO 23306:2020"} else {"EN_14214 2012+A2:2019"}).execute(&mut admin).await.unwrap();
-        let pool=PgPoolOptions::new().max_connections(4).connect(&runtime_url).await.unwrap();
-        let health=PgPoolOptions::new().max_connections(1).connect_lazy(&runtime_url).unwrap();
-        let config=Config {kyc_execution_gate_enabled:true,environment:"test".into(),release_sha:verdaxis_read::compiled_sha().into(),migration_revision:revision,database_url:runtime_url,db_session_time_zone:"UTC".into(),prepared_budget:None,bind:"127.0.0.1:0".parse().unwrap(),read_admission_slots:4,pool_max:5,python_budget:20,configured_max_connections:100};
-        let state=AppState::new(config,verdaxis_read::runtime::db::Pools {read:pool.clone(),health},policy).unwrap();
-        let authority=MatchmakingAuthority::new(VerificationSettings::new(SECRET.into(),None,"suggestions-test".into(),"suggestions-test".into()),SharedLimits::default());
-        Self {_admin:admin,app:routes(Arc::new(authority)).with_state(state),pool}
+        let policy: MarketPolicy =
+            serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap();
+        let product = policy
+            .products
+            .iter()
+            .find(|p| {
+                p.qualification_profile == profile
+                    && p.execution_mode == "ORDERBOOK"
+                    && (profile != "scalar" || p.specification_standard.is_none())
+            })
+            .unwrap();
+        let point = product.lanes[0];
+        let rows = json!([{"id":id(200),"organization_id":id(10),"owner_user_id":id(1),"side":"BID","price":550,"terms":bid},{"id":id(201),"organization_id":id(20),"owner_user_id":id(2),"side":"ASK","price":500,"terms":ask},{"id":id(202),"organization_id":id(20),"owner_user_id":id(2),"side":"ASK","price":501,"terms":incompatible}]);
+        sqlx::query(section("migrated-orders"))
+            .bind(rows)
+            .bind(product.id)
+            .bind(point)
+            .bind(profile)
+            .bind(if profile == "lng_v1" {
+                "ISO 23306:2020"
+            } else {
+                "EN_14214 2012+A2:2019"
+            })
+            .execute(&mut admin)
+            .await
+            .unwrap();
+        let pool = PgPoolOptions::new()
+            .max_connections(4)
+            .connect(&runtime_url)
+            .await
+            .unwrap();
+        let health = PgPoolOptions::new()
+            .max_connections(1)
+            .connect_lazy(&runtime_url)
+            .unwrap();
+        let config = Config {
+            kyc_execution_gate_enabled: true,
+            environment: "test".into(),
+            release_sha: verdaxis_read::compiled_sha().into(),
+            migration_revision: revision,
+            database_url: runtime_url,
+            db_session_time_zone: "UTC".into(),
+            prepared_budget: None,
+            bind: "127.0.0.1:0".parse().unwrap(),
+            read_admission_slots: 4,
+            pool_max: 5,
+            python_budget: 20,
+            configured_max_connections: 100,
+        };
+        let state = AppState::new(
+            config,
+            verdaxis_read::runtime::db::Pools {
+                read: pool.clone(),
+                health,
+            },
+            policy,
+        )
+        .unwrap();
+        let authority = MatchmakingAuthority::new(
+            VerificationSettings::new(
+                SECRET.into(),
+                None,
+                "suggestions-test".into(),
+                "suggestions-test".into(),
+            ),
+            SharedLimits::default(),
+        );
+        Self {
+            _admin: admin,
+            app: routes(Arc::new(authority)).with_state(state),
+            pool,
+        }
     }
-    async fn finish(self) {drop(self.app);self.pool.close().await;}
+    async fn finish(self) {
+        drop(self.app);
+        self.pool.close().await;
+    }
 }
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn suggestions_derive_organization_tiers_on_migrated_schema() {
-    let f=MigratedFixture::new("scalar",Value::Null,Value::Null,Value::Null).await;
-    let (status,body)=request(f.app.clone(),id(1),"GET",LIST).await;
-    assert_eq!(status,200,"{body}"); assert_eq!(body.as_array().unwrap().len(),2);
-    assert_eq!(body[0]["ask_order"]["tier_label"],"MAJOR_TRADER");
-    assert_eq!(body[0]["bid_order"]["tier_label"],"INDEPENDENT");
+    let f = MigratedFixture::new("scalar", Value::Null, Value::Null, Value::Null).await;
+    let (status, body) = request(f.app.clone(), id(1), "GET", LIST).await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body.as_array().unwrap().len(), 2);
+    assert_eq!(body[0]["ask_order"]["tier_label"], "MAJOR_TRADER");
+    assert_eq!(body[0]["bid_order"]["tier_label"], "INDEPENDENT");
     f.finish().await;
 }
 fn lng_ask() -> Value {
@@ -418,32 +510,53 @@ fn lng_ask() -> Value {
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn suggestions_apply_lng_bid_defaults_on_migrated_schema() {
-    let bid=json!({"side":"BID","accepted_schemes":["ISCC_EU"],"accepted_delivery_methods":["SHIP_TO_SHIP"]});
-    let ask=lng_ask(); let mut incompatible=ask.clone(); incompatible["union_database_registered"]=json!(false);
-    let f=MigratedFixture::new("lng_v1",bid,ask,incompatible).await;
-    let (status,body)=request(f.app.clone(),id(1),"GET",LIST).await;
-    assert_eq!(status,200,"{body}"); assert_eq!(body.as_array().unwrap().len(),1,"{body}");assert_eq!(body[0]["id"],id(201).to_string());
-    assert_eq!(body[0]["bid_order"]["lng_terms"]["require_union_database"],true);
-    assert!(!body.to_string().contains("private-certificate"));assert!(!body.to_string().contains("Private supplier"));
+    let bid = json!({"side":"BID","accepted_schemes":["ISCC_EU"],"accepted_delivery_methods":["SHIP_TO_SHIP"]});
+    let ask = lng_ask();
+    let mut incompatible = ask.clone();
+    incompatible["union_database_registered"] = json!(false);
+    let f = MigratedFixture::new("lng_v1", bid, ask, incompatible).await;
+    let (status, body) = request(f.app.clone(), id(1), "GET", LIST).await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body.as_array().unwrap().len(), 1, "{body}");
+    assert_eq!(body[0]["id"], id(201).to_string());
+    assert_eq!(
+        body[0]["bid_order"]["lng_terms"]["require_union_database"],
+        true
+    );
+    assert!(!body.to_string().contains("private-certificate"));
+    assert!(!body.to_string().contains("Private supplier"));
     f.finish().await;
 }
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn suggestions_require_lng_registration_when_flag_is_omitted() {
-    let bid=json!({"side":"BID","accepted_schemes":["ISCC_EU"],"accepted_custody":["MASS_BALANCE"],"accept_resellers":true,"accepted_delivery_methods":["SHIP_TO_SHIP"]});
-    let ask=lng_ask();let mut incompatible=ask.clone();incompatible["union_database_registered"]=json!(false);
-    let f=MigratedFixture::new("lng_v1",bid,ask,incompatible).await;
-    let (status,body)=request(f.app.clone(),id(1),"GET",LIST).await;
-    assert_eq!(status,200,"{body}");assert_eq!(body.as_array().unwrap().len(),1,"{body}");assert_eq!(body[0]["id"],id(201).to_string());f.finish().await;
+    let bid = json!({"side":"BID","accepted_schemes":["ISCC_EU"],"accepted_custody":["MASS_BALANCE"],"accept_resellers":true,"accepted_delivery_methods":["SHIP_TO_SHIP"]});
+    let ask = lng_ask();
+    let mut incompatible = ask.clone();
+    incompatible["union_database_registered"] = json!(false);
+    let f = MigratedFixture::new("lng_v1", bid, ask, incompatible).await;
+    let (status, body) = request(f.app.clone(), id(1), "GET", LIST).await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body.as_array().unwrap().len(), 1, "{body}");
+    assert_eq!(body[0]["id"], id(201).to_string());
+    f.finish().await;
 }
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn suggestions_apply_fame_evidence_defaults_on_migrated_schema() {
-    let bid=json!({"schema_version":1,"side":"BID","standard":"EN_14214","standard_edition":"2012+A2:2019","sustainability_scheme":"ISCC_EU"});
-    let ask=json!({"schema_version":1,"side":"ASK","uco_mass_pct":100,"standard":"EN_14214","standard_edition":"2012+A2:2019","sustainability_scheme":"ISCC_EU","certificate_reference":"private-cert","certificate_holder":"private-holder","certificate_valid_until":"2099-01-01","evidence_status":"PENDING","evidence_due":"BEFORE_LOADING","batch_reference":"private-batch","producing_site":"private-site"});
-    let mut incompatible=ask.clone();incompatible["evidence_due"]=json!("BEFORE_DELIVERY");
-    let f=MigratedFixture::new("fame_v1",bid,ask,incompatible).await;
-    let (status,body)=request(f.app.clone(),id(1),"GET",LIST).await;
-    assert_eq!(status,200,"{body}");assert_eq!(body.as_array().unwrap().len(),1,"{body}");assert_eq!(body[0]["id"],id(201).to_string());
-    assert_eq!(body[0]["bid_order"]["fame_terms"]["evidence_due"],"BEFORE_LOADING");assert!(!body.to_string().contains("private-cert"));f.finish().await;
+    let bid = json!({"schema_version":1,"side":"BID","standard":"EN_14214","standard_edition":"2012+A2:2019","sustainability_scheme":"ISCC_EU"});
+    let ask = json!({"schema_version":1,"side":"ASK","uco_mass_pct":100,"standard":"EN_14214","standard_edition":"2012+A2:2019","sustainability_scheme":"ISCC_EU","certificate_reference":"private-cert","certificate_holder":"private-holder","certificate_valid_until":"2099-01-01","evidence_status":"PENDING","evidence_due":"BEFORE_LOADING","batch_reference":"private-batch","producing_site":"private-site"});
+    let mut incompatible = ask.clone();
+    incompatible["evidence_due"] = json!("BEFORE_DELIVERY");
+    let f = MigratedFixture::new("fame_v1", bid, ask, incompatible).await;
+    let (status, body) = request(f.app.clone(), id(1), "GET", LIST).await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body.as_array().unwrap().len(), 1, "{body}");
+    assert_eq!(body[0]["id"], id(201).to_string());
+    assert_eq!(
+        body[0]["bid_order"]["fame_terms"]["evidence_due"],
+        "BEFORE_LOADING"
+    );
+    assert!(!body.to_string().contains("private-cert"));
+    f.finish().await;
 }
