@@ -6,6 +6,7 @@ pub mod crud;
 pub mod kyc;
 pub mod market;
 pub mod mcp;
+pub mod providers;
 pub mod routes;
 pub mod runtime;
 pub mod subscriptions;
