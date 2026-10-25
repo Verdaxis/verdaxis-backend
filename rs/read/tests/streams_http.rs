@@ -39,60 +39,7 @@ fn config() -> Config {
 }
 
 fn app(streams: Option<Streams>) -> Router {
-    // Reuse the read-config helper shape: an unreachable pool is fine because
-    // the routes under test never touch it in these cases.
-    let state = AppState {
-        config: Arc::new(config()),
-        pools: crate_pools(),
-        policy: Arc::new(empty_policy()),
-        reads: Arc::new(tokio::sync::Semaphore::new(1)),
-        reference_cache: Arc::new(Default::default()),
-        phase2: Default::default(),
-        streams: streams.map(Arc::new),
-        trading_caches: Arc::new(Default::default()),
-        trading_cache: None,
-        public_trading_cache: Arc::new(Default::default()),
-        trading_read_observer: Arc::new(
-            verdaxis_read::runtime::admission::RealtimeTradingRead,
-        ),
-        policy_identity: String::new(),
-    };
-    routes().with_state(StreamsState { state: Arc::new(state) })
-}
-
-fn crate_pools() -> verdaxis_read::runtime::db::Pools {
-    // A pool typed against a database that is never contacted: sqlx pools are
-    // lazy, so constructing options needs no server.
-    let options: sqlx::postgres::PgConnectOptions =
-        "postgres://unused@127.0.0.1/unused".parse().unwrap();
-    verdaxis_read::runtime::db::Pools {
-        read: sqlx::postgres::PgPoolOptions::new()
-            .max_connections(1)
-            .connect_lazy_with(options.clone()),
-        health: sqlx::postgres::PgPoolOptions::new()
-            .max_connections(1)
-            .connect_lazy_with(options),
-    }
-}
-
-fn empty_policy() -> verdaxis_read::MarketPolicy {
-    verdaxis_read::MarketPolicy {
-        source_sha: verdaxis_read::compiled_sha().into(),
-        products: vec![],
-        points: vec![],
-    }
-}
-
-fn live() -> Router {
-    app(Some(Streams {
-        hub: Default::default(),
-        verification: VerificationSettings::new(
-            "test-secret-key-for-streams-minimum-32".into(),
-            None,
-            "verdaxis-test-api".into(),
-            "verdaxis-test-web".into(),
-        ),
-    }))
+    routes().with_state(StreamsState::for_tests(config(), streams))
 }
 
 async fn send(router: &Router, request: Request<Body>) -> (StatusCode, Vec<(String, String)>, Vec<u8>) {

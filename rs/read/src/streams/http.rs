@@ -43,6 +43,38 @@ pub struct StreamsState {
     pub state: Arc<AppState>,
 }
 
+impl StreamsState {
+    /// Test composition: build a state whose pools are never contacted and
+    /// attach an optional subsystem handle. Production state comes from
+    /// `AppState::new` in the runtime.
+    pub fn for_tests(config: crate::Config, streams: Option<Streams>) -> Self {
+        let options: sqlx::postgres::PgConnectOptions =
+            config.database_url.parse().expect("parse pool URL");
+        let pool = || {
+            sqlx::postgres::PgPoolOptions::new()
+                .max_connections(1)
+                .connect_lazy_with(options.clone())
+        };
+        let policy = crate::MarketPolicy {
+            source_sha: crate::compiled_sha().into(),
+            products: vec![],
+            points: vec![],
+        };
+        let state = crate::AppState::new(
+            config,
+            crate::runtime::db::Pools {
+                read: pool(),
+                health: pool(),
+            },
+            policy,
+        )
+        .expect("test state");
+        let mut state = state;
+        state.streams = streams.map(Arc::new);
+        Self { state: Arc::new(state) }
+    }
+}
+
 #[derive(Deserialize)]
 struct TradesQuery {
     stream_token: Option<String>,
