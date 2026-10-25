@@ -9,14 +9,28 @@
 //! data, `locks` holds the canonical lock identity, and `transaction` holds the
 //! shell and its [`WriteSession`] port.
 
+// Plan §6.1: no float arithmetic anywhere in the write boundary. The copy in
+// `decimal.rs` keeps the rule true for that file under any module owner.
+#![deny(clippy::float_arithmetic)]
+
+mod authority;
 pub mod command;
+pub mod decimal;
+mod error;
 pub mod locks;
 mod transaction;
 
+pub use authority::{AuthenticatedActor, SupportContextRef, WriteContext};
 pub use command::{
     Canonical, CanonicalError, CommandContext, LockPlan, Operation, OrderCommand, OutboxEvent,
     Receipt, ReceiptRecord, command_request_hash, idempotency_request_hash, python_json,
 };
+pub use decimal::{
+    AggregateMoney, CommissionPercent, Domain, ExactValue, FeePerMt, Money, OrderQuantity,
+    OrderRemainder, Price, StockQuantity, TradeQuantity, checked_add, checked_multiply,
+    checked_subtract, cmp_percentage, quantize_cents,
+};
+pub use error::{MarketErrorCode, MarketWriteError};
 pub use locks::{
     IDEMPOTENCY_KEY_BOUNDS, IDEMPOTENCY_KEY_MAX, IDEMPOTENCY_KEY_MIN, IDEMPOTENCY_LOCK_TIMEOUT,
     IDEMPOTENCY_STATEMENT_TIMEOUT, MARKET_LOCK_TIMEOUT, MARKET_STATEMENT_TIMEOUT, SliceKey,
