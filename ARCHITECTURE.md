@@ -377,6 +377,11 @@ request headers are rebuilt. It also supplies bounded trading entries tied to
 an authority/fence token, generation, policy identity and derived time boundary.
 Migration `prc_20261018_cache` adds the generation, event and incarnation tables
 and an always-enabled statement trigger on each trading dependency.
+Revision `prc_20261026_changes` replaces each with four event-specific ALWAYS
+statement triggers. DML transition tables suppress empty-statement bumps; TRUNCATE
+still bumps. It retains the latest 4,096 trading events, preserving generation and
+incarnation. A listener behind the retained window clears trading entries and
+resynchronizes; every read still checks its snapshot's generation.
 `runtime/cache_authority.rs` grants a hit only under an owner record outside the
 database (`scripts/rust_cache_authority.py` writes it), a lease, a matching database
 identity and a bound listener. `runtime/cache_events.rs::TradingCacheRuntime`

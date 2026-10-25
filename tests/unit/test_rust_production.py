@@ -45,7 +45,8 @@ def test_production_policy_is_the_reviewed_activation_with_the_bootstrap_unit():
     assert "venv/bin/python" not in unit
 
 
-def test_production_runtime_projects_its_app_identity_and_phase2(tmp_path):
+@pytest.mark.parametrize("revision", ["p0_20261016_union", "prc_20261026_changes"])
+def test_production_runtime_projects_its_app_identity_and_phase2(tmp_path, revision):
     preparer = _load_preparer()
     env = tmp_path / ".env"
     env.write_text(
@@ -61,7 +62,7 @@ def test_production_runtime_projects_its_app_identity_and_phase2(tmp_path):
         "OPENAI_API_KEY=sk-unrelated\n"
     )
     result = preparer.prepare(
-        env, SHA, tmp_path / "runtime", ROOT, "p0_20261016_union",
+        env, SHA, tmp_path / "runtime", ROOT, revision,
         environment="production",
     )
     text = result["runtime_env"].read_text()
@@ -81,7 +82,7 @@ def test_production_runtime_projects_its_app_identity_and_phase2(tmp_path):
     env.write_text(env.read_text().replace("verdaxis_app:", "verdaxis_app_staging:"))
     with pytest.raises(preparer.RustRuntimeError, match="identity"):
         preparer.prepare(
-            env, SHA, tmp_path / "runtime", ROOT, "p0_20261016_union",
+            env, SHA, tmp_path / "runtime", ROOT, revision,
             environment="production",
         )
     # A partial Phase 2 projection is refused before the transaction commits.
@@ -92,7 +93,7 @@ def test_production_runtime_projects_its_app_identity_and_phase2(tmp_path):
     )
     with pytest.raises(preparer.RustRuntimeError, match="RESEND_API_KEY"):
         preparer.prepare(
-            env, SHA, tmp_path / "runtime", ROOT, "p0_20261016_union",
+            env, SHA, tmp_path / "runtime", ROOT, revision,
             environment="production",
         )
 
