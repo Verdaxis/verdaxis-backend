@@ -176,3 +176,71 @@ fn address_flood_does_not_refuse_a_verified_users_endpoint_quota() {
             .is_ok()
     );
 }
+
+/// Registration and logout draw their endpoint quota from the evicting address
+/// store, so their address-keyed buckets can never fill the verified-user
+/// store. Each route gets its own flood case.
+#[test]
+fn registration_flood_does_not_refuse_a_verified_users_endpoint_quota() {
+    let limits = SharedLimits::default();
+    for client in 0..50_100_u32 {
+        let address = std::net::Ipv4Addr::from(client).to_string();
+        assert!(
+            limits
+                .check_endpoint_by_address(&address, "/api/auth/register", 100)
+                .is_ok(),
+            "register flood client {client} was refused"
+        );
+    }
+    for index in 0..5 {
+        assert!(
+            limits
+                .check_endpoint("verified-user", "/api/feedback", 100)
+                .is_ok(),
+            "verified request {index} lost its quota to the register flood"
+        );
+    }
+    // The registration routes share a pre-auth prefix but keep separate
+    // endpoint buckets, both keyed by address.
+    assert!(
+        limits
+            .check_endpoint_by_address("203.0.113.7", "/api/auth/register-with-org", 100)
+            .is_ok()
+    );
+}
+
+#[test]
+fn logout_route_keeps_no_endpoint_bucket() {
+    let limits = SharedLimits::default();
+    for client in 0..1_000_u32 {
+        let address = std::net::Ipv4Addr::from(client).to_string();
+        for _ in 0..100 {
+            assert!(
+                limits
+                    .check_endpoint_by_address(&address, "/api/auth/logout", 100)
+                    .is_ok()
+            );
+        }
+    }
+    assert!(
+        limits
+            .check_endpoint("verified-user", "/api/feedback", 100)
+            .is_ok()
+    );
+}
+
+/// An address-keyed refusal ten seconds into its window reports the remaining
+/// fifty seconds, not a fixed whole window.
+#[test]
+fn address_refusal_reports_the_remaining_window() {
+    let limits = SharedLimits::default();
+    for _ in 0..5 {
+        limits
+            .check_endpoint_by_address("203.0.113.9", "/api/auth/login", 100)
+            .unwrap();
+    }
+    let error = limits
+        .check_endpoint_by_address("203.0.113.9", "/api/auth/login", 110)
+        .unwrap_err();
+    assert_eq!(error.retry_after, Some(50), "{error:?}");
+}
