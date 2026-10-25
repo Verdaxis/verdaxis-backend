@@ -231,7 +231,10 @@ async fn suggestions_never_project_a_nonpublic_row() {
     let (status, body) = f.request(id(1), "GET", LIST).await;
     assert_eq!(status, 200);
     let rows = body.as_array().unwrap();
-    let public = rows.iter().find(|row| row["id"] == id(201).to_string()).expect("public positive control");
+    let public = rows
+        .iter()
+        .find(|row| row["id"] == id(201).to_string())
+        .expect("public positive control");
     assert_eq!(public["ask_order"]["price_per_mt_usd"], "500");
     let text = body.to_string();
     for hidden_price in ["491", "492", "493", "494"] {
