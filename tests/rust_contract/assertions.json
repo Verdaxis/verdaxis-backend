@@ -117,1272 +117,1272 @@
     {
       "source_id": "tests/unit/test_catalog_models.py::TestProduct::test_create_product",
       "source_file": "tests/unit/test_catalog_models.py",
-      "behavior": "",
+      "behavior": "covered by the simple_reads contract group's Rust cases",
       "owner_task": "5/8",
       "target_id": "simple_reads",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_catalog_models.py::TestProduct::test_product_defaults",
       "source_file": "tests/unit/test_catalog_models.py",
-      "behavior": "",
+      "behavior": "covered by the simple_reads contract group's Rust cases",
       "owner_task": "5/8",
       "target_id": "simple_reads",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_catalog_models.py::TestProduct::test_product_name_unique",
       "source_file": "tests/unit/test_catalog_models.py",
-      "behavior": "",
+      "behavior": "covered by the simple_reads contract group's Rust cases",
       "owner_task": "5/8",
       "target_id": "simple_reads",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_catalog_models.py::TestProduct::test_market_product_maps_supported_products",
       "source_file": "tests/unit/test_catalog_models.py",
-      "behavior": "",
+      "behavior": "covered by the simple_reads contract group's Rust cases",
       "owner_task": "5/8",
       "target_id": "simple_reads",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_catalog_models.py::TestProduct::test_market_product_is_none_for_unsupported_products",
       "source_file": "tests/unit/test_catalog_models.py",
-      "behavior": "",
+      "behavior": "covered by the simple_reads contract group's Rust cases",
       "owner_task": "5/8",
       "target_id": "simple_reads",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_catalog_models.py::TestProduct::test_market_product_does_not_reinterpret_legacy_or_forged_labels",
       "source_file": "tests/unit/test_catalog_models.py",
-      "behavior": "",
+      "behavior": "covered by the simple_reads contract group's Rust cases",
       "owner_task": "5/8",
       "target_id": "simple_reads",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_catalog_models.py::TestDeliveryPoint::test_create_delivery_point",
       "source_file": "tests/unit/test_catalog_models.py",
-      "behavior": "",
+      "behavior": "covered by the simple_reads contract group's Rust cases",
       "owner_task": "5/8",
       "target_id": "simple_reads",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_catalog_models.py::TestDeliveryPoint::test_delivery_point_defaults",
       "source_file": "tests/unit/test_catalog_models.py",
-      "behavior": "",
+      "behavior": "covered by the simple_reads contract group's Rust cases",
       "owner_task": "5/8",
       "target_id": "simple_reads",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_catalog_models.py::TestDeliveryPoint::test_delivery_point_name_unique",
       "source_file": "tests/unit/test_catalog_models.py",
-      "behavior": "",
+      "behavior": "covered by the simple_reads contract group's Rust cases",
       "owner_task": "5/8",
       "target_id": "simple_reads",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_ci_orderbook_fields.py::TestOrderBookOrderCIFields::test_has_carbon_intensity_column",
       "source_file": "tests/unit/test_ci_orderbook_fields.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_ci_orderbook_fields.py::TestOrderBookOrderCIFields::test_has_energy_density_column",
       "source_file": "tests/unit/test_ci_orderbook_fields.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestForwardCurvePointSchema::test_full_two_sided_market",
       "source_file": "tests/unit/test_curves.py",
-      "behavior": "",
+      "behavior": "covered by the curves_legacy,curves_canonical contract group's Rust cases",
       "owner_task": "10a/10b",
       "target_id": "curves_legacy,curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestForwardCurvePointSchema::test_bid_only_market",
       "source_file": "tests/unit/test_curves.py",
-      "behavior": "",
+      "behavior": "covered by the curves_legacy,curves_canonical contract group's Rust cases",
       "owner_task": "10a/10b",
       "target_id": "curves_legacy,curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestForwardCurvePointSchema::test_ask_only_market",
       "source_file": "tests/unit/test_curves.py",
-      "behavior": "",
+      "behavior": "covered by the curves_legacy,curves_canonical contract group's Rust cases",
       "owner_task": "10a/10b",
       "target_id": "curves_legacy,curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestForwardCurvePointSchema::test_serialization",
       "source_file": "tests/unit/test_curves.py",
-      "behavior": "",
+      "behavior": "covered by the curves_legacy,curves_canonical contract group's Rust cases",
       "owner_task": "10a/10b",
       "target_id": "curves_legacy,curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestForwardCurveResponseSchema::test_empty_curve",
       "source_file": "tests/unit/test_curves.py",
-      "behavior": "",
+      "behavior": "covered by the curves_legacy,curves_canonical contract group's Rust cases",
       "owner_task": "10a/10b",
       "target_id": "curves_legacy,curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestForwardCurveResponseSchema::test_with_points",
       "source_file": "tests/unit/test_curves.py",
-      "behavior": "",
+      "behavior": "covered by the curves_legacy,curves_canonical contract group's Rust cases",
       "owner_task": "10a/10b",
       "target_id": "curves_legacy,curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestForwardCurveBoardSchema::test_board_cell_carries_hybrid_market_context",
       "source_file": "tests/unit/test_curves.py",
-      "behavior": "",
+      "behavior": "covered by the curves_legacy,curves_canonical contract group's Rust cases",
       "owner_task": "10a/10b",
       "target_id": "curves_legacy,curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestForwardCurveBoardSchema::test_board_response_groups_ports_products_and_focus",
       "source_file": "tests/unit/test_curves.py",
-      "behavior": "",
+      "behavior": "covered by the curves_legacy,curves_canonical contract group's Rust cases",
       "owner_task": "10a/10b",
       "target_id": "curves_legacy,curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestForwardCurveBoardSchema::test_real_orders_hide_seed_demo_benchmark",
       "source_file": "tests/unit/test_curves.py",
-      "behavior": "",
+      "behavior": "covered by the curves_legacy,curves_canonical contract group's Rust cases",
       "owner_task": "10a/10b",
       "target_id": "curves_legacy,curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestForwardCurveBoardSchema::test_board_cell_prefers_real_headline_without_blending_demo",
       "source_file": "tests/unit/test_curves.py",
-      "behavior": "",
+      "behavior": "covered by the curves_legacy,curves_canonical contract group's Rust cases",
       "owner_task": "10a/10b",
       "target_id": "curves_legacy,curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestForwardCurveBoardSchema::test_board_cell_falls_back_to_visibly_demo_without_unknown_rows",
       "source_file": "tests/unit/test_curves.py",
-      "behavior": "",
+      "behavior": "covered by the curves_legacy,curves_canonical contract group's Rust cases",
       "owner_task": "10a/10b",
       "target_id": "curves_legacy,curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestForwardCurveBoardSchema::test_depth_prefers_real_rows_without_blending_demo_levels",
       "source_file": "tests/unit/test_curves.py",
-      "behavior": "",
+      "behavior": "covered by the curves_legacy,curves_canonical contract group's Rust cases",
       "owner_task": "10a/10b",
       "target_id": "curves_legacy,curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestForwardCurveBoardSchema::test_forward_board_batches_benchmark_quotes",
       "source_file": "tests/unit/test_curves.py",
-      "behavior": "",
+      "behavior": "covered by the curves_legacy,curves_canonical contract group's Rust cases",
       "owner_task": "10a/10b",
       "target_id": "curves_legacy,curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestComputeForwardCurve::test_empty_orderbook_returns_empty_list",
       "source_file": "tests/unit/test_curves.py",
-      "behavior": "",
+      "behavior": "covered by the curves_legacy,curves_canonical contract group's Rust cases",
       "owner_task": "10a/10b",
       "target_id": "curves_legacy,curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestComputeForwardCurve::test_single_bid_window_only",
       "source_file": "tests/unit/test_curves.py",
-      "behavior": "",
+      "behavior": "covered by the curves_legacy,curves_canonical contract group's Rust cases",
       "owner_task": "10a/10b",
       "target_id": "curves_legacy,curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestComputeForwardCurve::test_single_ask_window_only",
       "source_file": "tests/unit/test_curves.py",
-      "behavior": "",
+      "behavior": "covered by the curves_legacy,curves_canonical contract group's Rust cases",
       "owner_task": "10a/10b",
       "target_id": "curves_legacy,curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestComputeForwardCurve::test_two_sided_market_computes_mid_and_spread",
       "source_file": "tests/unit/test_curves.py",
-      "behavior": "",
+      "behavior": "covered by the curves_legacy,curves_canonical contract group's Rust cases",
       "owner_task": "10a/10b",
       "target_id": "curves_legacy,curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestComputeForwardCurve::test_multiple_windows_each_returned_as_separate_point",
       "source_file": "tests/unit/test_curves.py",
-      "behavior": "",
+      "behavior": "covered by the curves_legacy,curves_canonical contract group's Rust cases",
       "owner_task": "10a/10b",
       "target_id": "curves_legacy,curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestComputeForwardCurve::test_filters_by_product_id",
       "source_file": "tests/unit/test_curves.py",
-      "behavior": "",
+      "behavior": "covered by the curves_legacy,curves_canonical contract group's Rust cases",
       "owner_task": "10a/10b",
       "target_id": "curves_legacy,curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestComputeForwardCurve::test_filters_by_delivery_point_id",
       "source_file": "tests/unit/test_curves.py",
-      "behavior": "",
+      "behavior": "covered by the curves_legacy,curves_canonical contract group's Rust cases",
       "owner_task": "10a/10b",
       "target_id": "curves_legacy,curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestComputeForwardCurve::test_excludes_demo_market_orders",
       "source_file": "tests/unit/test_curves.py",
-      "behavior": "",
+      "behavior": "covered by the curves_legacy,curves_canonical contract group's Rust cases",
       "owner_task": "10a/10b",
       "target_id": "curves_legacy,curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestComputeForwardCurve::test_mid_price_rounded_to_two_decimal_places",
       "source_file": "tests/unit/test_curves.py",
-      "behavior": "",
+      "behavior": "covered by the curves_legacy,curves_canonical contract group's Rust cases",
       "owner_task": "10a/10b",
       "target_id": "curves_legacy,curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestComputeForwardCurve::test_asymmetric_volume_and_spread",
       "source_file": "tests/unit/test_curves.py",
-      "behavior": "",
+      "behavior": "covered by the curves_legacy,curves_canonical contract group's Rust cases",
       "owner_task": "10a/10b",
       "target_id": "curves_legacy,curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestBuildCsv::test_csv_has_header_row",
       "source_file": "tests/unit/test_curves.py",
-      "behavior": "",
+      "behavior": "covered by the curves_legacy,curves_canonical contract group's Rust cases",
       "owner_task": "10a/10b",
       "target_id": "curves_legacy,curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestBuildCsv::test_csv_empty_points_has_only_header",
       "source_file": "tests/unit/test_curves.py",
-      "behavior": "",
+      "behavior": "covered by the curves_legacy,curves_canonical contract group's Rust cases",
       "owner_task": "10a/10b",
       "target_id": "curves_legacy,curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestBuildCsv::test_csv_one_point_produces_two_lines",
       "source_file": "tests/unit/test_curves.py",
-      "behavior": "",
+      "behavior": "covered by the curves_legacy,curves_canonical contract group's Rust cases",
       "owner_task": "10a/10b",
       "target_id": "curves_legacy,curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestBuildCsv::test_csv_none_fields_serialized_as_empty_string",
       "source_file": "tests/unit/test_curves.py",
-      "behavior": "",
+      "behavior": "covered by the curves_legacy,curves_canonical contract group's Rust cases",
       "owner_task": "10a/10b",
       "target_id": "curves_legacy,curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestBuildCsv::test_csv_multiple_points",
       "source_file": "tests/unit/test_curves.py",
-      "behavior": "",
+      "behavior": "covered by the curves_legacy,curves_canonical contract group's Rust cases",
       "owner_task": "10a/10b",
       "target_id": "curves_legacy,curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestForwardCurveEndpoint::test_forward_requires_product_id",
       "source_file": "tests/unit/test_curves.py",
-      "behavior": "",
+      "behavior": "covered by the curves_legacy,curves_canonical contract group's Rust cases",
       "owner_task": "10a/10b",
       "target_id": "curves_legacy,curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestForwardCurveEndpoint::test_forward_returns_200_with_product_id",
       "source_file": "tests/unit/test_curves.py",
-      "behavior": "",
+      "behavior": "covered by the curves_legacy,curves_canonical contract group's Rust cases",
       "owner_task": "10a/10b",
       "target_id": "curves_legacy,curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestForwardCurveEndpoint::test_forward_accepts_optional_delivery_point_id",
       "source_file": "tests/unit/test_curves.py",
-      "behavior": "",
+      "behavior": "covered by the curves_legacy,curves_canonical contract group's Rust cases",
       "owner_task": "10a/10b",
       "target_id": "curves_legacy,curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestForwardCurveEndpoint::test_forward_export_returns_csv_content_type",
       "source_file": "tests/unit/test_curves.py",
-      "behavior": "",
+      "behavior": "covered by the curves_legacy,curves_canonical contract group's Rust cases",
       "owner_task": "10a/10b",
       "target_id": "curves_legacy,curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestForwardCurveEndpoint::test_forward_export_csv_body_has_header_and_data",
       "source_file": "tests/unit/test_curves.py",
-      "behavior": "",
+      "behavior": "covered by the curves_legacy,curves_canonical contract group's Rust cases",
       "owner_task": "10a/10b",
       "target_id": "curves_legacy,curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestForwardCurveEndpoint::test_forward_export_requires_product_id",
       "source_file": "tests/unit/test_curves.py",
-      "behavior": "",
+      "behavior": "covered by the curves_legacy,curves_canonical contract group's Rust cases",
       "owner_task": "10a/10b",
       "target_id": "curves_legacy,curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestForwardCurveEndpoint::test_forward_board_returns_matrix_and_focus",
       "source_file": "tests/unit/test_curves.py",
-      "behavior": "",
+      "behavior": "covered by the curves_legacy,curves_canonical contract group's Rust cases",
       "owner_task": "10a/10b",
       "target_id": "curves_legacy,curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_orderbook_aggregate_combines_sides_and_product_ids_without_blending_evidence",
       "source_file": "tests/unit/test_forward_curve_market_slices.py",
-      "behavior": "",
+      "behavior": "covered by the curves_canonical contract group's Rust cases",
       "owner_task": "10b",
       "target_id": "curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_table_uses_only_exact_active_canonical_products_and_approved_ports",
       "source_file": "tests/unit/test_forward_curve_market_slices.py",
-      "behavior": "",
+      "behavior": "covered by the curves_canonical contract group's Rust cases",
       "owner_task": "10b",
       "target_id": "curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_table_cells_are_compact_and_filters_preserve_matrix_identity",
       "source_file": "tests/unit/test_forward_curve_market_slices.py",
-      "behavior": "",
+      "behavior": "covered by the curves_canonical contract group's Rust cases",
       "owner_task": "10b",
       "target_id": "curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_default_four_by_eight_table_payload_is_bounded",
       "source_file": "tests/unit/test_forward_curve_market_slices.py",
-      "behavior": "",
+      "behavior": "covered by the curves_canonical contract group's Rust cases",
       "owner_task": "10b",
       "target_id": "curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_one_sided_orderbook_does_not_create_primary_midpoint",
       "source_file": "tests/unit/test_forward_curve_market_slices.py",
-      "behavior": "",
+      "behavior": "covered by the curves_canonical contract group's Rust cases",
       "owner_task": "10b",
       "target_id": "curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_real_orderbook_headline_never_pairs_with_demo_ask",
       "source_file": "tests/unit/test_forward_curve_market_slices.py",
-      "behavior": "",
+      "behavior": "covered by the curves_canonical contract group's Rust cases",
       "owner_task": "10b",
       "target_id": "curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_demo_only_orderbook_remains_visible_and_explicitly_demo",
       "source_file": "tests/unit/test_forward_curve_market_slices.py",
-      "behavior": "",
+      "behavior": "covered by the curves_canonical contract group's Rust cases",
       "owner_task": "10b",
       "target_id": "curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_managed_demo_book_is_primary_without_rewriting_trade_history",
       "source_file": "tests/unit/test_forward_curve_market_slices.py",
-      "behavior": "",
+      "behavior": "covered by the curves_canonical contract group's Rust cases",
       "owner_task": "10b",
       "target_id": "curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_real_trade_keeps_precedence_over_managed_demo_book",
       "source_file": "tests/unit/test_forward_curve_market_slices.py",
-      "behavior": "",
+      "behavior": "covered by the curves_canonical contract group's Rust cases",
       "owner_task": "10b",
       "target_id": "curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_table_projection_preserves_fields_without_dumping_full_cells",
       "source_file": "tests/unit/test_forward_curve_market_slices.py",
-      "behavior": "",
+      "behavior": "covered by the curves_canonical contract group's Rust cases",
       "owner_task": "10b",
       "target_id": "curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_direct_table_cell_exactly_matches_original_full_cell_projection",
       "source_file": "tests/unit/test_forward_curve_market_slices.py",
-      "behavior": "",
+      "behavior": "covered by the curves_canonical contract group's Rust cases",
       "owner_task": "10b",
       "target_id": "curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_direct_table_cell_skips_detail_only_label_policy_models",
       "source_file": "tests/unit/test_forward_curve_market_slices.py",
-      "behavior": "",
+      "behavior": "covered by the curves_canonical contract group's Rust cases",
       "owner_task": "10b",
       "target_id": "curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_table_skips_physical_summaries_but_full_cells_load_them",
       "source_file": "tests/unit/test_forward_curve_market_slices.py",
-      "behavior": "",
+      "behavior": "covered by the curves_canonical contract group's Rust cases",
       "owner_task": "10b",
       "target_id": "curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_slice_trade_history_reads_once_and_selects_real_before_limit",
       "source_file": "tests/unit/test_forward_curve_market_slices.py",
-      "behavior": "",
+      "behavior": "covered by the curves_canonical contract group's Rust cases",
       "owner_task": "10b",
       "target_id": "curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_demo_trade_precedence_is_unchanged_outside_managed_two_sided_book",
       "source_file": "tests/unit/test_forward_curve_market_slices.py",
-      "behavior": "",
+      "behavior": "covered by the curves_canonical contract group's Rust cases",
       "owner_task": "10b",
       "target_id": "curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_mixed_demo_real_trade_snapshot_fails_closed_in_execution_policy",
       "source_file": "tests/unit/test_forward_curve_market_slices.py",
-      "behavior": "",
+      "behavior": "covered by the curves_canonical contract group's Rust cases",
       "owner_task": "10b",
       "target_id": "curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_slice_endpoint_rejects_legacy_window_alias_before_db_use",
       "source_file": "tests/unit/test_forward_curve_market_slices.py",
-      "behavior": "",
+      "behavior": "covered by the curves_canonical contract group's Rust cases",
       "owner_task": "10b",
       "target_id": "curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_too_many_table_windows_returns_422_before_db_use",
       "source_file": "tests/unit/test_forward_curve_market_slices.py",
-      "behavior": "",
+      "behavior": "covered by the curves_canonical contract group's Rust cases",
       "owner_task": "10b",
       "target_id": "curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_public_serialized_table_and_slice_redact_internal_feed_and_counterparty_fields",
       "source_file": "tests/unit/test_forward_curve_market_slices.py",
-      "behavior": "",
+      "behavior": "covered by the curves_canonical contract group's Rust cases",
       "owner_task": "10b",
       "target_id": "curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_table_wire_projection_is_filterable_and_bounded_for_full_matrix",
       "source_file": "tests/unit/test_forward_curve_market_slices.py",
-      "behavior": "",
+      "behavior": "covered by the curves_canonical contract group's Rust cases",
       "owner_task": "10b",
       "target_id": "curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_b100_curve_is_visible_without_prices_and_only_on_approved_lane",
       "source_file": "tests/unit/test_forward_curve_market_slices.py",
-      "behavior": "",
+      "behavior": "covered by the curves_canonical contract group's Rust cases",
       "owner_task": "10b",
       "target_id": "curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_b100_curve_refuses_unsupported_delivery_lane",
       "source_file": "tests/unit/test_forward_curve_market_slices.py",
-      "behavior": "",
+      "behavior": "covered by the curves_canonical contract group's Rust cases",
       "owner_task": "10b",
       "target_id": "curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_b100_product_midpoint_does_not_claim_specification_compatible_execution",
       "source_file": "tests/unit/test_forward_curve_market_slices.py",
-      "behavior": "",
+      "behavior": "covered by the curves_canonical contract group's Rust cases",
       "owner_task": "10b",
       "target_id": "curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_b100_expired_operator_declaration_cannot_set_curve_price_or_depth",
       "source_file": "tests/unit/test_forward_curve_market_slices.py",
-      "behavior": "",
+      "behavior": "covered by the curves_canonical contract group's Rust cases",
       "owner_task": "10b",
       "target_id": "curves_canonical",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_market_evidence_policy.py::test_evidence_policy_has_only_separate_real_and_demo_scopes",
       "source_file": "tests/unit/test_market_evidence_policy.py",
-      "behavior": "",
+      "behavior": "covered by the live_benchmarks contract group's Rust cases",
       "owner_task": "6/6a",
       "target_id": "live_benchmarks",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_market_evidence_policy.py::test_aggregate_selection_never_blends_evidence_classes",
       "source_file": "tests/unit/test_market_evidence_policy.py",
-      "behavior": "",
+      "behavior": "covered by the live_benchmarks contract group's Rust cases",
       "owner_task": "6/6a",
       "target_id": "live_benchmarks",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_market_evidence_policy.py::test_stored_unknown_snapshot_is_never_upgraded_by_demo_id_registry",
       "source_file": "tests/unit/test_market_evidence_policy.py",
-      "behavior": "",
+      "behavior": "covered by the live_benchmarks contract group's Rust cases",
       "owner_task": "6/6a",
       "target_id": "live_benchmarks",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_market_evidence_policy.py::test_evidence_sql_clauses_select_one_class_before_aggregation",
       "source_file": "tests/unit/test_market_evidence_policy.py",
-      "behavior": "",
+      "behavior": "covered by the live_benchmarks contract group's Rust cases",
       "owner_task": "6/6a",
       "target_id": "live_benchmarks",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_market_evidence_policy.py::test_formal_trade_evidence_rejects_legacy_and_forged_snapshot_shapes",
       "source_file": "tests/unit/test_market_evidence_policy.py",
-      "behavior": "",
+      "behavior": "covered by the live_benchmarks contract group's Rust cases",
       "owner_task": "6/6a",
       "target_id": "live_benchmarks",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_market_evidence_policy.py::test_unknown_test_and_canary_never_receive_public_evidence_labels",
       "source_file": "tests/unit/test_market_evidence_policy.py",
-      "behavior": "",
+      "behavior": "covered by the live_benchmarks contract group's Rust cases",
       "owner_task": "6/6a",
       "target_id": "live_benchmarks",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_market_evidence_policy.py::test_count_helpers_cannot_label_mixed_evidence_as_one_market",
       "source_file": "tests/unit/test_market_evidence_policy.py",
-      "behavior": "",
+      "behavior": "covered by the live_benchmarks contract group's Rust cases",
       "owner_task": "6/6a",
       "target_id": "live_benchmarks",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_market_evidence_policy.py::test_demand_separates_real_demo_and_metadata_only_unknown",
       "source_file": "tests/unit/test_market_evidence_policy.py",
-      "behavior": "",
+      "behavior": "covered by the live_benchmarks contract group's Rust cases",
       "owner_task": "6/6a",
       "target_id": "live_benchmarks",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_market_evidence_policy.py::test_demand_excludes_inactive_catalog_rows_and_never_emits_generic_taxonomy",
       "source_file": "tests/unit/test_market_evidence_policy.py",
-      "behavior": "",
+      "behavior": "covered by the live_benchmarks contract group's Rust cases",
       "owner_task": "6/6a",
       "target_id": "live_benchmarks",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_mcp_server.py::test_tools_are_listed",
       "source_file": "tests/unit/test_mcp_server.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_mcp_server.py::test_list_markets_has_eight_points_and_rotterdam_is_eu",
       "source_file": "tests/unit/test_mcp_server.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_mcp_server.py::test_plan_voyage_fuel_golden_through_mcp",
       "source_file": "tests/unit/test_mcp_server.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_mcp_server.py::test_invalid_port_is_tool_error_not_500",
       "source_file": "tests/unit/test_mcp_server.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_mcp_server.py::test_no_identifiers_in_any_tool_output",
       "source_file": "tests/unit/test_mcp_server.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_mcp_server.py::test_busy_limiter_returns_retry_message",
       "source_file": "tests/unit/test_mcp_server.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_mcp_server.py::test_zero_read_capacity_rejects_database_tools_but_not_catalog",
       "source_file": "tests/unit/test_mcp_server.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_mcp_server.py::test_browser_origin_rejected",
       "source_file": "tests/unit/test_mcp_server.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_mcp_server.py::test_no_origin_is_accepted_without_redirect",
       "source_file": "tests/unit/test_mcp_server.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_mcp_server.py::test_local_host_allowlist",
       "source_file": "tests/unit/test_mcp_server.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_mcp_server.py::test_tool_errors_are_sanitized",
       "source_file": "tests/unit/test_mcp_server.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_mcp_server.py::test_slice_window_is_normalized",
       "source_file": "tests/unit/test_mcp_server.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_mcp_server.py::test_mcp_disabled_in_production",
       "source_file": "tests/unit/test_mcp_server.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_mcp_server.py::test_production_app_has_no_mcp_route",
       "source_file": "tests/unit/test_mcp_server.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_mcp_server.py::test_staging_host_allowlist",
       "source_file": "tests/unit/test_mcp_server.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_mcp_server.py::test_sdk_body_limit",
       "source_file": "tests/unit/test_mcp_server.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_mcp_server.py::test_capacity_is_released_after_cancellation",
       "source_file": "tests/unit/test_mcp_server.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_mcp_server.py::test_voyage_too_long_is_a_tool_error",
       "source_file": "tests/unit/test_mcp_server.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_mcp_server.py::test_main_shares_public_and_mcp_read_budget",
       "source_file": "tests/unit/test_mcp_server.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_mcp_server.py::test_main_mount_and_lifespan",
       "source_file": "tests/unit/test_mcp_server.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_news_feed.py::test_webz_endpoint_is_locked_to_prevent_token_exfiltration",
       "source_file": "tests/unit/test_news_feed.py",
-      "behavior": "",
+      "behavior": "covered by the simple_reads contract group's Rust cases",
       "owner_task": "5/8",
       "target_id": "simple_reads",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_news_feed.py::test_webz_is_primary_and_normalizes_bounded_provider_records",
       "source_file": "tests/unit/test_news_feed.py",
-      "behavior": "",
+      "behavior": "covered by the simple_reads contract group's Rust cases",
       "owner_task": "5/8",
       "target_id": "simple_reads",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_news_feed.py::test_webz_rejects_malformed_records_but_keeps_valid_records",
       "source_file": "tests/unit/test_news_feed.py",
-      "behavior": "",
+      "behavior": "covered by the simple_reads contract group's Rust cases",
       "owner_task": "5/8",
       "target_id": "simple_reads",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_news_feed.py::test_webz_response_body_is_streamed_under_a_hard_byte_cap",
       "source_file": "tests/unit/test_news_feed.py",
-      "behavior": "",
+      "behavior": "covered by the simple_reads contract group's Rust cases",
       "owner_task": "5/8",
       "target_id": "simple_reads",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_news_feed.py::test_webz_failure_or_empty_result_falls_back_to_rss",
       "source_file": "tests/unit/test_news_feed.py",
-      "behavior": "",
+      "behavior": "covered by the simple_reads contract group's Rust cases",
       "owner_task": "5/8",
       "target_id": "simple_reads",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_news_feed.py::test_unconfigured_webz_uses_rss_without_provider_request",
       "source_file": "tests/unit/test_news_feed.py",
-      "behavior": "",
+      "behavior": "covered by the simple_reads contract group's Rust cases",
       "owner_task": "5/8",
       "target_id": "simple_reads",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_news_feed.py::test_malicious_and_oversized_feed_entries_are_rejected_before_storage",
       "source_file": "tests/unit/test_news_feed.py",
-      "behavior": "",
+      "behavior": "covered by the simple_reads contract group's Rust cases",
       "owner_task": "5/8",
       "target_id": "simple_reads",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_news_feed.py::test_streamed_feed_reader_rejects_body_over_byte_cap",
       "source_file": "tests/unit/test_news_feed.py",
-      "behavior": "",
+      "behavior": "covered by the simple_reads contract group's Rust cases",
       "owner_task": "5/8",
       "target_id": "simple_reads",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_news_feed.py::test_high_item_feed_and_run_are_bounded",
       "source_file": "tests/unit/test_news_feed.py",
-      "behavior": "",
+      "behavior": "covered by the simple_reads contract group's Rust cases",
       "owner_task": "5/8",
       "target_id": "simple_reads",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_news_feed.py::TestRefreshNewsDedupe::test_deduplicates_duplicate_urls_within_single_fetch_batch",
       "source_file": "tests/unit/test_news_feed.py",
-      "behavior": "",
+      "behavior": "covered by the simple_reads contract group's Rust cases",
       "owner_task": "5/8",
       "target_id": "simple_reads",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_news_feed.py::TestRefreshNewsDedupe::test_deduplicates_same_source_and_title_under_different_urls",
       "source_file": "tests/unit/test_news_feed.py",
-      "behavior": "",
+      "behavior": "covered by the simple_reads contract group's Rust cases",
       "owner_task": "5/8",
       "target_id": "simple_reads",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_news_feed.py::TestRefreshNewsDedupe::test_preserves_validated_provider_summary_when_classifier_has_none",
       "source_file": "tests/unit/test_news_feed.py",
-      "behavior": "",
+      "behavior": "covered by the simple_reads contract group's Rust cases",
       "owner_task": "5/8",
       "target_id": "simple_reads",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_news_feed.py::TestRefreshNewsDedupe::test_ignores_duplicate_insert_race_after_initial_url_check",
       "source_file": "tests/unit/test_news_feed.py",
-      "behavior": "",
+      "behavior": "covered by the simple_reads contract group's Rust cases",
       "owner_task": "5/8",
       "target_id": "simple_reads",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_crossing_filters.py::TestCrossingDetectionFilters::test_bid_crossing_uses_same_product_delivery_point_and_window_filters",
       "source_file": "tests/unit/test_orderbook_crossing_filters.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_crossing_filters.py::TestCrossingDetectionFilters::test_ask_crossing_uses_fuel_type_region_and_window_filters",
       "source_file": "tests/unit/test_orderbook_crossing_filters.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_live_benchmarks.py::TestLiveSliceBenchmarks::test_snapshot_returns_bounded_coherent_depth_in_two_queries",
       "source_file": "tests/unit/test_orderbook_live_benchmarks.py",
-      "behavior": "",
+      "behavior": "covered by the live_benchmarks,orderbook_snapshot contract group's Rust cases",
       "owner_task": "6a/7a",
       "target_id": "live_benchmarks,orderbook_snapshot",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_live_benchmarks.py::TestLiveSliceBenchmarks::test_snapshot_rechecks_expiry_without_an_order_write",
       "source_file": "tests/unit/test_orderbook_live_benchmarks.py",
-      "behavior": "",
+      "behavior": "covered by the live_benchmarks,orderbook_snapshot contract group's Rust cases",
       "owner_task": "6a/7a",
       "target_id": "live_benchmarks,orderbook_snapshot",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_live_benchmarks.py::TestLiveSliceBenchmarks::test_ask_benchmark_uses_same_slice_vwap",
       "source_file": "tests/unit/test_orderbook_live_benchmarks.py",
-      "behavior": "",
+      "behavior": "covered by the live_benchmarks,orderbook_snapshot contract group's Rust cases",
       "owner_task": "6a/7a",
       "target_id": "live_benchmarks,orderbook_snapshot",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_live_benchmarks.py::TestLiveSliceBenchmarks::test_bid_benchmark_uses_same_slice_vwap",
       "source_file": "tests/unit/test_orderbook_live_benchmarks.py",
-      "behavior": "",
+      "behavior": "covered by the live_benchmarks,orderbook_snapshot contract group's Rust cases",
       "owner_task": "6a/7a",
       "target_id": "live_benchmarks,orderbook_snapshot",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_live_benchmarks.py::TestLiveSliceBenchmarks::test_rebuild_live_slice_benchmark_persists_and_removes_slice_rows",
       "source_file": "tests/unit/test_orderbook_live_benchmarks.py",
-      "behavior": "",
+      "behavior": "covered by the live_benchmarks,orderbook_snapshot contract group's Rust cases",
       "owner_task": "6a/7a",
       "target_id": "live_benchmarks,orderbook_snapshot",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_live_benchmarks.py::TestLiveSliceBenchmarks::test_rebuild_flushes_revived_order_before_projecting",
       "source_file": "tests/unit/test_orderbook_live_benchmarks.py",
-      "behavior": "",
+      "behavior": "covered by the live_benchmarks,orderbook_snapshot contract group's Rust cases",
       "owner_task": "6a/7a",
       "target_id": "live_benchmarks,orderbook_snapshot",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_live_benchmarks.py::TestLiveSliceBenchmarks::test_benchmark_projection_preserves_unicode_qualification_and_rounding",
       "source_file": "tests/unit/test_orderbook_live_benchmarks.py",
-      "behavior": "",
+      "behavior": "covered by the live_benchmarks,orderbook_snapshot contract group's Rust cases",
       "owner_task": "6a/7a",
       "target_id": "live_benchmarks,orderbook_snapshot",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_live_benchmarks.py::TestLiveSliceBenchmarks::test_list_asks_batches_distinct_slice_benchmarks_with_bounded_queries",
       "source_file": "tests/unit/test_orderbook_live_benchmarks.py",
-      "behavior": "",
+      "behavior": "covered by the live_benchmarks,orderbook_snapshot contract group's Rust cases",
       "owner_task": "6a/7a",
       "target_id": "live_benchmarks,orderbook_snapshot",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_live_benchmarks.py::test_b100_live_reference_uses_valid_terms_without_alcohol_metadata",
       "source_file": "tests/unit/test_orderbook_live_benchmarks.py",
-      "behavior": "",
+      "behavior": "covered by the live_benchmarks,orderbook_snapshot contract group's Rust cases",
       "owner_task": "6a/7a",
       "target_id": "live_benchmarks,orderbook_snapshot",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_map_compact.py::test_compact_groups_preserve_all_window_values_and_native_demo_groups",
       "source_file": "tests/unit/test_orderbook_map_compact.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_map contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_map",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_map_compact.py::test_compact_groups_preserve_ucome_supported_lane_without_inventing_fallback",
       "source_file": "tests/unit/test_orderbook_map_compact.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_map contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_map",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_map_compact.py::test_compact_groups_select_nearest_forward_demo_window_without_spot",
       "source_file": "tests/unit/test_orderbook_map_compact.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_map contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_map",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_map_compact.py::test_compact_endpoint_reuses_both_public_queries_once",
       "source_file": "tests/unit/test_orderbook_map_compact.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_map contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_map",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_marketplace_filters.py::TestMarketplaceFuelFiltering::test_legacy_pages_have_total_order_for_tied_created_at",
@@ -1390,2079 +1390,2079 @@
       "behavior": "PM decision 23: tied creation timestamps use descending ID before pagination.",
       "owner_task": "7b",
       "target_id": "orderbook_lists",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_marketplace_filters.py::TestMarketplaceFuelFiltering::test_list_asks_excludes_non_methanol_ethanol_products",
       "source_file": "tests/unit/test_orderbook_marketplace_filters.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists,orderbook_map contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists,orderbook_map",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_marketplace_filters.py::TestMarketplaceFuelFiltering::test_fuel_types_endpoint_returns_only_market_fuel_families",
       "source_file": "tests/unit/test_orderbook_marketplace_filters.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists,orderbook_map contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists,orderbook_map",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_marketplace_filters.py::TestMarketplaceFuelFiltering::test_public_catalog_facets_exclude_inactive_test_and_expired_demo_rows",
       "source_file": "tests/unit/test_orderbook_marketplace_filters.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists,orderbook_map contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists,orderbook_map",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_marketplace_filters.py::TestMarketplaceFuelFiltering::test_list_asks_supports_combined_public_filters_without_duplicate_product_join",
       "source_file": "tests/unit/test_orderbook_marketplace_filters.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists,orderbook_map contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists,orderbook_map",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_marketplace_filters.py::TestMarketplaceFuelFiltering::test_list_asks_filters_by_market_product",
       "source_file": "tests/unit/test_orderbook_marketplace_filters.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists,orderbook_map contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists,orderbook_map",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_marketplace_filters.py::TestMarketplaceFuelFiltering::test_list_asks_excludes_off_spec_by_default",
       "source_file": "tests/unit/test_orderbook_marketplace_filters.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists,orderbook_map contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists,orderbook_map",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_marketplace_filters.py::TestMarketplaceFuelFiltering::test_public_list_orders_excludes_off_spec_by_default",
       "source_file": "tests/unit/test_orderbook_marketplace_filters.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists,orderbook_map contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists,orderbook_map",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_marketplace_filters.py::TestMarketplaceFuelFiltering::test_with_ci_excludes_off_spec_by_default",
       "source_file": "tests/unit/test_orderbook_marketplace_filters.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists,orderbook_map contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists,orderbook_map",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_marketplace_filters.py::TestMarketplaceFuelFiltering::test_with_ci_preserves_declared_zero_without_cash_adjustment",
       "source_file": "tests/unit/test_orderbook_marketplace_filters.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists,orderbook_map contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists,orderbook_map",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_marketplace_filters.py::TestMarketplaceFuelFiltering::test_aggregated_excludes_off_spec_by_default",
       "source_file": "tests/unit/test_orderbook_marketplace_filters.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists,orderbook_map contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists,orderbook_map",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_marketplace_filters.py::TestMarketplaceFuelFiltering::test_aggregated_filters_by_market_slice",
       "source_file": "tests/unit/test_orderbook_marketplace_filters.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists,orderbook_map contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists,orderbook_map",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_marketplace_filters.py::TestMarketplaceFuelFiltering::test_legacy_collection_is_hard_bounded_before_enrichment",
       "source_file": "tests/unit/test_orderbook_marketplace_filters.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists,orderbook_map contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists,orderbook_map",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_marketplace_filters.py::TestMarketplaceFuelFiltering::test_aggregate_uses_active_catalog_and_never_blends_real_demo",
       "source_file": "tests/unit/test_orderbook_marketplace_filters.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists,orderbook_map contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists,orderbook_map",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_marketplace_filters.py::TestMarketplaceFuelFiltering::test_product_counts_apply_listing_side_port_and_window_filters",
       "source_file": "tests/unit/test_orderbook_marketplace_filters.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists,orderbook_map contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists,orderbook_map",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_marketplace_filters.py::TestMarketplaceFuelFiltering::test_map_summary_uses_all_eligible_rows_and_latest_ask_per_port",
       "source_file": "tests/unit/test_orderbook_marketplace_filters.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists,orderbook_map contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists,orderbook_map",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_marketplace_filters.py::TestMarketplaceFuelFiltering::test_map_summary_preserves_eligibility_windows_provenance_and_latest_tie_break",
       "source_file": "tests/unit/test_orderbook_marketplace_filters.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists,orderbook_map contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists,orderbook_map",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_router.py::test_execution_broadening_loses_priority",
       "source_file": "tests/unit/test_orderbook_router.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists,orderbook_map contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists,orderbook_map",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_router.py::test_expiry_extension_loses_priority",
       "source_file": "tests/unit/test_orderbook_router.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists,orderbook_map contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists,orderbook_map",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_router.py::test_reduction_and_noop_or_unrelated_changes_retain_priority",
       "source_file": "tests/unit/test_orderbook_router.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists,orderbook_map contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists,orderbook_map",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_router.py::TestCreateOrder::test_bid_can_omit_certification_scheme",
       "source_file": "tests/unit/test_orderbook_router.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists,orderbook_map contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists,orderbook_map",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_router.py::TestCreateOrder::test_bid_rejects_supplier_metadata",
       "source_file": "tests/unit/test_orderbook_router.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists,orderbook_map contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists,orderbook_map",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_router.py::TestCreateOrder::test_bid_rejects_explicit_false_supplier_metadata",
       "source_file": "tests/unit/test_orderbook_router.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists,orderbook_map contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists,orderbook_map",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_router.py::TestCreateOrder::test_bid_persists_certification_preferences",
       "source_file": "tests/unit/test_orderbook_router.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists,orderbook_map contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists,orderbook_map",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_router.py::TestCreateOrder::test_ask_requires_certification_declaration",
       "source_file": "tests/unit/test_orderbook_router.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists,orderbook_map contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists,orderbook_map",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_router.py::TestCreateOrder::test_ask_requires_supplier_metadata_fields",
       "source_file": "tests/unit/test_orderbook_router.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists,orderbook_map contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists,orderbook_map",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_router.py::TestCreateOrder::test_ask_requires_certification_scheme",
       "source_file": "tests/unit/test_orderbook_router.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists,orderbook_map contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists,orderbook_map",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_router.py::TestLatestSupplierListingTemplate::test_returns_latest_ask_template_with_off_spec_reset",
       "source_file": "tests/unit/test_orderbook_router.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists,orderbook_map contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists,orderbook_map",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_router.py::TestLatestSupplierListingTemplate::test_returns_none_when_supplier_has_no_asks",
       "source_file": "tests/unit/test_orderbook_router.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists,orderbook_map contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists,orderbook_map",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestOrderCreate::test_valid_bid_order",
       "source_file": "tests/unit/test_orderbook_schemas.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestOrderCreate::test_valid_ask_order_with_all_fields",
       "source_file": "tests/unit/test_orderbook_schemas.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestOrderCreate::test_quantity_must_be_positive",
       "source_file": "tests/unit/test_orderbook_schemas.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestOrderCreate::test_negative_quantity_rejected",
       "source_file": "tests/unit/test_orderbook_schemas.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestOrderCreate::test_price_must_be_positive",
       "source_file": "tests/unit/test_orderbook_schemas.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestOrderCreate::test_product_id_required",
       "source_file": "tests/unit/test_orderbook_schemas.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestOrderCreate::test_vessel_id_accepts_uuid",
       "source_file": "tests/unit/test_orderbook_schemas.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestOrderCreate::test_delivery_point_id_required",
       "source_file": "tests/unit/test_orderbook_schemas.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestOrderCreate::test_bid_can_omit_certification_scheme",
       "source_file": "tests/unit/test_orderbook_schemas.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestOrderCreate::test_certifications_are_trimmed_and_deduped",
       "source_file": "tests/unit/test_orderbook_schemas.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestOrderCreate::test_ask_can_omit_declaration_in_schema_but_is_checked_in_router",
       "source_file": "tests/unit/test_orderbook_schemas.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestOrderCreate::test_delivery_point_id_accepts_uuid",
       "source_file": "tests/unit/test_orderbook_schemas.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestOrderUpdate::test_all_fields_optional",
       "source_file": "tests/unit/test_orderbook_schemas.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestOrderUpdate::test_partial_update",
       "source_file": "tests/unit/test_orderbook_schemas.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestOrderUpdate::test_certifications_update",
       "source_file": "tests/unit/test_orderbook_schemas.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestOrderUpdate::test_metadata_update",
       "source_file": "tests/unit/test_orderbook_schemas.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestOrderResponse::test_from_dict",
       "source_file": "tests/unit/test_orderbook_schemas.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestOrderResponse::test_my_response_extends_base",
       "source_file": "tests/unit/test_orderbook_schemas.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestOrderResponse::test_market_product_defaults_to_none",
       "source_file": "tests/unit/test_orderbook_schemas.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestTradeCreate::test_valid_trade",
       "source_file": "tests/unit/test_orderbook_schemas.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestTradeCreate::test_quantity_must_be_positive",
       "source_file": "tests/unit/test_orderbook_schemas.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestTradeCreate::test_negative_quantity_rejected",
       "source_file": "tests/unit/test_orderbook_schemas.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestTradeResponse::test_full_response",
       "source_file": "tests/unit/test_orderbook_schemas.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestTradeResponse::test_defaults",
       "source_file": "tests/unit/test_orderbook_schemas.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestTradeDeliverPayload::test_valid_payload",
       "source_file": "tests/unit/test_orderbook_schemas.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestTradeDeliverPayload::test_quantity_must_be_positive",
       "source_file": "tests/unit/test_orderbook_schemas.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestTradeDeliverPayload::test_price_must_be_positive",
       "source_file": "tests/unit/test_orderbook_schemas.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestAggregatedOrderbookResponse::test_aggregated_data",
       "source_file": "tests/unit/test_orderbook_schemas.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestEnumValues::test_order_side_values",
       "source_file": "tests/unit/test_orderbook_schemas.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestEnumValues::test_order_book_status_values",
       "source_file": "tests/unit/test_orderbook_schemas.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestEnumValues::test_trade_status_values",
       "source_file": "tests/unit/test_orderbook_schemas.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestEnumValues::test_initiator_values",
       "source_file": "tests/unit/test_orderbook_schemas.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestEnumValues::test_fuel_grade_values",
       "source_file": "tests/unit/test_orderbook_schemas.py",
-      "behavior": "",
+      "behavior": "covered by the orderbook_lists contract group's Rust cases",
       "owner_task": "7b/7c",
       "target_id": "orderbook_lists",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestAggregateFunction::test_returns_empty_list_when_no_trades",
       "source_file": "tests/unit/test_price_discovery_router.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestAggregateFunction::test_filters_by_fuel_type",
       "source_file": "tests/unit/test_price_discovery_router.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestAggregateFunction::test_filters_by_region",
       "source_file": "tests/unit/test_price_discovery_router.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestAggregateFunction::test_filters_by_product_id",
       "source_file": "tests/unit/test_price_discovery_router.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestAggregateFunction::test_filters_by_delivery_point_id",
       "source_file": "tests/unit/test_price_discovery_router.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestAggregateFunction::test_includes_seller_initiated_bid_hit_trade",
       "source_file": "tests/unit/test_price_discovery_router.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestAggregateFunction::test_demo_trade_summary_is_marked_demo_seed",
       "source_file": "tests/unit/test_price_discovery_router.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestAggregateFunction::test_real_and_demo_trade_summaries_are_separate",
       "source_file": "tests/unit/test_price_discovery_router.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestAggregateFunction::test_one_sided_demo_trade_is_quarantined_without_economic_values",
       "source_file": "tests/unit/test_price_discovery_router.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestAggregateFunction::test_filters_by_market_product_and_availability_window",
       "source_file": "tests/unit/test_price_discovery_router.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestAggregateFunction::test_all_product_spot_batch_matches_individual_public_summaries",
       "source_file": "tests/unit/test_price_discovery_router.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestComputeReferencePrices::test_returns_empty_list_when_no_trades",
       "source_file": "tests/unit/test_price_discovery_router.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestComputeReferencePrices::test_filters_by_fuel_type",
       "source_file": "tests/unit/test_price_discovery_router.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestComputeReferencePrices::test_filters_by_region",
       "source_file": "tests/unit/test_price_discovery_router.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestComputeReferencePrices::test_filters_by_date_range",
       "source_file": "tests/unit/test_price_discovery_router.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestComputeReferencePrices::test_rejects_invalid_date_range_before_query",
       "source_file": "tests/unit/test_price_discovery_router.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestComputeReferencePrices::test_date_range_excludes_out_of_range_trades",
       "source_file": "tests/unit/test_price_discovery_router.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestComputeReferencePrices::test_date_filters_bind_python_date_values_for_postgres",
       "source_file": "tests/unit/test_price_discovery_router.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestComputeReferencePrices::test_filters_by_product_id",
       "source_file": "tests/unit/test_price_discovery_router.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestComputeReferencePrices::test_computes_vwap_correctly",
       "source_file": "tests/unit/test_price_discovery_router.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestComputeReferencePrices::test_multiple_markets_returned",
       "source_file": "tests/unit/test_price_discovery_router.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestComputeReferencePrices::test_zero_volume_returns_zero_vwap",
       "source_file": "tests/unit/test_price_discovery_router.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestComputeReferencePrices::test_combined_filters",
       "source_file": "tests/unit/test_price_discovery_router.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestComputeReferencePrices::test_reference_filters_by_market_product_and_availability_window",
       "source_file": "tests/unit/test_price_discovery_router.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestComputeReferencePrices::test_reference_prices_use_immutable_snapshots_and_real_scope_only",
       "source_file": "tests/unit/test_price_discovery_router.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestReferencePriceRoute::test_preferred_date_params_are_forwarded_to_compute",
       "source_file": "tests/unit/test_price_discovery_router.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestReferencePriceRoute::test_deprecated_date_aliases_are_forwarded_to_compute",
       "source_file": "tests/unit/test_price_discovery_router.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestReferencePriceRoute::test_matching_preferred_and_deprecated_aliases_are_accepted",
       "source_file": "tests/unit/test_price_discovery_router.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestReferencePriceRoute::test_conflicting_preferred_and_deprecated_aliases_return_422",
       "source_file": "tests/unit/test_price_discovery_router.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestReferencePriceRoute::test_invalid_preferred_date_range_returns_422",
       "source_file": "tests/unit/test_price_discovery_router.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestReferencePriceRoute::test_reference_price_openapi_date_contract",
       "source_file": "tests/unit/test_price_discovery_router.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestReferencePriceRoute::test_reference_export_openapi_uses_export_date_names",
       "source_file": "tests/unit/test_price_discovery_router.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestReferencePriceItemSchema::test_valid_schema",
       "source_file": "tests/unit/test_price_discovery_router.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestReferencePriceItemSchema::test_schema_serialization",
       "source_file": "tests/unit/test_price_discovery_router.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::test_reference_price_item_has_visibility_field",
       "source_file": "tests/unit/test_price_discovery_router.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::test_reference_price_item_defaults_to_external",
       "source_file": "tests/unit/test_price_discovery_router.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::test_get_reference_prices_accepts_visibility_param",
       "source_file": "tests/unit/test_price_discovery_router.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_public_market_catalog_contract.py::test_market_catalog_preserves_alcohol_products_and_ucome_singapore_lane",
       "source_file": "tests/unit/test_public_market_catalog_contract.py",
-      "behavior": "",
+      "behavior": "covered by the simple_reads contract group's Rust cases",
       "owner_task": "5/8",
       "target_id": "simple_reads",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_public_market_catalog_contract.py::test_availability_query_requires_active_catalog_product_and_delivery_point",
       "source_file": "tests/unit/test_public_market_catalog_contract.py",
-      "behavior": "",
+      "behavior": "covered by the simple_reads contract group's Rust cases",
       "owner_task": "5/8",
       "target_id": "simple_reads",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_public_market_catalog_contract.py::test_availability_drops_noncanonical_active_product_instead_of_fallback_label",
       "source_file": "tests/unit/test_public_market_catalog_contract.py",
-      "behavior": "",
+      "behavior": "covered by the simple_reads contract group's Rust cases",
       "owner_task": "5/8",
       "target_id": "simple_reads",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_public_market_catalog_contract.py::test_availability_prefers_real_and_never_blends_demo_economics",
       "source_file": "tests/unit/test_public_market_catalog_contract.py",
-      "behavior": "",
+      "behavior": "covered by the simple_reads contract group's Rust cases",
       "owner_task": "5/8",
       "target_id": "simple_reads",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_public_market_catalog_contract.py::test_catalog_seed_deactivates_every_noncanonical_product_id",
       "source_file": "tests/unit/test_public_market_catalog_contract.py",
-      "behavior": "",
+      "behavior": "covered by the simple_reads contract group's Rust cases",
       "owner_task": "5/8",
       "target_id": "simple_reads",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_public_market_read_admission.py::test_two_selected_reads_hold_capacity_and_third_fails_immediately",
       "source_file": "tests/unit/test_public_market_read_admission.py",
-      "behavior": "",
+      "behavior": "covered by the health contract group's Rust cases",
       "owner_task": "3",
       "target_id": "health",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_public_market_read_admission.py::test_zero_capacity_rejects_selected_reads",
       "source_file": "tests/unit/test_public_market_read_admission.py",
-      "behavior": "",
+      "behavior": "covered by the health contract group's Rust cases",
       "owner_task": "3",
       "target_id": "health",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_public_market_read_admission.py::test_unselected_http_requests_bypass_admission",
       "source_file": "tests/unit/test_public_market_read_admission.py",
-      "behavior": "",
+      "behavior": "covered by the health contract group's Rust cases",
       "owner_task": "3",
       "target_id": "health",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_public_market_read_admission.py::test_non_http_scope_bypasses_admission",
       "source_file": "tests/unit/test_public_market_read_admission.py",
-      "behavior": "",
+      "behavior": "covered by the health contract group's Rust cases",
       "owner_task": "3",
       "target_id": "health",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_public_market_read_admission.py::test_cancelled_request_releases_admission",
       "source_file": "tests/unit/test_public_market_read_admission.py",
-      "behavior": "",
+      "behavior": "covered by the health contract group's Rust cases",
       "owner_task": "3",
       "target_id": "health",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_public_market_read_admission.py::test_downstream_exception_releases_admission",
       "source_file": "tests/unit/test_public_market_read_admission.py",
-      "behavior": "",
+      "behavior": "covered by the health contract group's Rust cases",
       "owner_task": "3",
       "target_id": "health",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_public_market_read_admission.py::test_registered_cors_wraps_saturated_admission_response",
       "source_file": "tests/unit/test_public_market_read_admission.py",
-      "behavior": "",
+      "behavior": "covered by the health contract group's Rust cases",
       "owner_task": "3",
       "target_id": "health",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_public_owner_admission.py::TestRejectedOwnerPublicVisibility::test_completing_legacy_role_publishes_new_public_order",
       "source_file": "tests/unit/test_public_owner_admission.py",
-      "behavior": "",
+      "behavior": "covered by the live_benchmarks contract group's Rust cases",
       "owner_task": "6/6a",
       "target_id": "live_benchmarks",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_public_owner_admission.py::TestRejectedOwnerPublicVisibility::test_benchmark_matches_visible_book_provenance",
       "source_file": "tests/unit/test_public_owner_admission.py",
-      "behavior": "",
+      "behavior": "covered by the live_benchmarks contract group's Rust cases",
       "owner_task": "6/6a",
       "target_id": "live_benchmarks",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_public_owner_admission.py::TestRejectedOwnerPublicVisibility::test_approved_market_support_admin_owner_is_public",
       "source_file": "tests/unit/test_public_owner_admission.py",
-      "behavior": "",
+      "behavior": "covered by the live_benchmarks contract group's Rust cases",
       "owner_task": "6/6a",
       "target_id": "live_benchmarks",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_public_owner_admission.py::TestRejectedOwnerPublicVisibility::test_market_support_visibility_matches_execution_admission",
       "source_file": "tests/unit/test_public_owner_admission.py",
-      "behavior": "",
+      "behavior": "covered by the live_benchmarks contract group's Rust cases",
       "owner_task": "6/6a",
       "target_id": "live_benchmarks",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_public_owner_admission.py::TestRejectedOwnerPublicVisibility::test_qualified_market_support_order_included_in_live_vwap",
       "source_file": "tests/unit/test_public_owner_admission.py",
-      "behavior": "",
+      "behavior": "covered by the live_benchmarks contract group's Rust cases",
       "owner_task": "6/6a",
       "target_id": "live_benchmarks",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_public_owner_admission.py::TestRejectedOwnerPublicVisibility::test_kyc_rejected_owner_ask_hidden_from_asks_and_aggregated",
       "source_file": "tests/unit/test_public_owner_admission.py",
-      "behavior": "",
+      "behavior": "covered by the live_benchmarks contract group's Rust cases",
       "owner_task": "6/6a",
       "target_id": "live_benchmarks",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_public_owner_admission.py::TestRejectedOwnerPublicVisibility::test_admin_rejected_owner_bid_hidden_from_bids",
       "source_file": "tests/unit/test_public_owner_admission.py",
-      "behavior": "",
+      "behavior": "covered by the live_benchmarks contract group's Rust cases",
       "owner_task": "6/6a",
       "target_id": "live_benchmarks",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_public_owner_admission.py::TestRejectedOwnerPublicVisibility::test_is_crossed_ignores_rejected_owner_opposing_order",
       "source_file": "tests/unit/test_public_owner_admission.py",
-      "behavior": "",
+      "behavior": "covered by the live_benchmarks contract group's Rust cases",
       "owner_task": "6/6a",
       "target_id": "live_benchmarks",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_public_owner_admission.py::TestRejectedOwnerPublicVisibility::test_benchmark_rebuild_excludes_rejected_owner",
       "source_file": "tests/unit/test_public_owner_admission.py",
-      "behavior": "",
+      "behavior": "covered by the live_benchmarks contract group's Rust cases",
       "owner_task": "6/6a",
       "target_id": "live_benchmarks",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_public_owner_admission.py::TestRejectedOwnerPublicVisibility::test_owner_moved_to_other_org_is_hidden",
       "source_file": "tests/unit/test_public_owner_admission.py",
-      "behavior": "",
+      "behavior": "covered by the live_benchmarks contract group's Rust cases",
       "owner_task": "6/6a",
       "target_id": "live_benchmarks",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_public_owner_admission.py::TestRejectedOwnerPublicVisibility::test_ownerless_legacy_order_keeps_existing_posture",
       "source_file": "tests/unit/test_public_owner_admission.py",
-      "behavior": "",
+      "behavior": "covered by the live_benchmarks contract group's Rust cases",
       "owner_task": "6/6a",
       "target_id": "live_benchmarks",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_reference_price_export.py::TestReferencePriceExport::test_returns_200_with_text_csv_content_type",
       "source_file": "tests/unit/test_reference_price_export.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_reference_price_export.py::TestReferencePriceExport::test_has_content_disposition_attachment_header",
       "source_file": "tests/unit/test_reference_price_export.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_reference_price_export.py::TestReferencePriceExport::test_empty_data_returns_headers_only",
       "source_file": "tests/unit/test_reference_price_export.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_reference_price_export.py::TestReferencePriceExport::test_csv_has_correct_column_headers",
       "source_file": "tests/unit/test_reference_price_export.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_reference_price_export.py::TestReferencePriceExport::test_csv_row_values_match_item",
       "source_file": "tests/unit/test_reference_price_export.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_reference_price_export.py::TestReferencePriceExport::test_multiple_rows_exported",
       "source_file": "tests/unit/test_reference_price_export.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_reference_price_export.py::TestReferencePriceExport::test_query_params_forwarded_to_compute",
       "source_file": "tests/unit/test_reference_price_export.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_reference_price_export.py::TestReferencePriceExport::test_invalid_date_range_returns_422_before_compute",
       "source_file": "tests/unit/test_reference_price_export.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_reference_price_export.py::TestReferencePriceExport::test_delivery_point_name_none_exported_as_empty_string",
       "source_file": "tests/unit/test_reference_price_export.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_sea_distances.py::test_every_pair_has_a_default_route",
       "source_file": "tests/unit/test_sea_distances.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_sea_distances.py::test_lookup_is_symmetric",
       "source_file": "tests/unit/test_sea_distances.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_sea_distances.py::test_cape_route_exists_exactly_where_default_uses_suez",
       "source_file": "tests/unit/test_sea_distances.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_sea_distances.py::test_known_distances_are_plausible",
       "source_file": "tests/unit/test_sea_distances.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_sea_distances.py::test_unknown_pair_returns_none",
       "source_file": "tests/unit/test_sea_distances.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_sea_distances.py::test_method_is_recorded",
       "source_file": "tests/unit/test_sea_distances.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestIsMarketHours::test_market_has_no_session_delay",
       "source_file": "tests/unit/test_trade_tape.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestBuildTapeEntry::test_id_is_shortened_to_8_chars",
       "source_file": "tests/unit/test_trade_tape.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestBuildTapeEntry::test_no_buyer_seller_info_in_entry",
       "source_file": "tests/unit/test_trade_tape.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestBuildTapeEntry::test_total_usd_calculated",
       "source_file": "tests/unit/test_trade_tape.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestBuildTapeEntry::test_fuel_type_from_snapshot",
       "source_file": "tests/unit/test_trade_tape.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestBuildTapeEntry::test_market_product_from_snapshot",
       "source_file": "tests/unit/test_trade_tape.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestBuildTapeEntry::test_exact_scope_includes_product_and_delivery_point_fields",
       "source_file": "tests/unit/test_trade_tape.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestBuildTapeEntry::test_broad_scope_hides_exact_delivery_point_fields",
       "source_file": "tests/unit/test_trade_tape.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestBuildTapeEntry::test_exact_scope_uses_delivery_point_name_as_region_label",
       "source_file": "tests/unit/test_trade_tape.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestBuildTapeEntry::test_fuel_grade_from_order",
       "source_file": "tests/unit/test_trade_tape.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestBuildTapeEntry::test_availability_window_from_snapshot",
       "source_file": "tests/unit/test_trade_tape.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestBuildTapeEntry::test_snapshot_only_trade_never_needs_order_relationships",
       "source_file": "tests/unit/test_trade_tape.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestBuildTapeEntry::test_mutable_bid_order_is_ignored",
       "source_file": "tests/unit/test_trade_tape.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestBuildTapeEntry::test_demo_trade_flagged_from_snapshot_provenance",
       "source_file": "tests/unit/test_trade_tape.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestBuildTapeEntry::test_unknown_trade_is_never_presented_as_real",
       "source_file": "tests/unit/test_trade_tape.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestTradeTapeSchemas::test_tape_entry_schema_fields",
       "source_file": "tests/unit/test_trade_tape.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestTradeTapeSchemas::test_tape_response_schema_fields",
       "source_file": "tests/unit/test_trade_tape.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestTradeTapeSchemas::test_tape_entry_no_party_fields",
       "source_file": "tests/unit/test_trade_tape.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestTradeTapeSchemas::test_tape_response_round_trip",
       "source_file": "tests/unit/test_trade_tape.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestTradeTapeEndpointContract::test_demo_only_selects_exact_demo_evidence",
       "source_file": "tests/unit/test_trade_tape.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestTradeTapeEndpointContract::test_delivery_point_filter_is_applied_to_query",
       "source_file": "tests/unit/test_trade_tape.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestTradeTapeEndpointContract::test_unfiltered_response_hides_exact_delivery_point_identity",
       "source_file": "tests/unit/test_trade_tape.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestTradeTapeEndpointContract::test_exact_delivery_point_response_exposes_exact_scope",
       "source_file": "tests/unit/test_trade_tape.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestTradeTapeEndpointContract::test_openapi_exposes_trade_tape_filters",
       "source_file": "tests/unit/test_trade_tape.py",
-      "behavior": "",
+      "behavior": "covered by the prices contract group's Rust cases",
       "owner_task": "9",
       "target_id": "prices",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_required_price_lookups_ask_for_ucome_at_singapore_only",
       "source_file": "tests/unit/test_voyage_fuel_plan.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_legs_have_scope_and_energy",
       "source_file": "tests/unit/test_voyage_fuel_plan.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_golden_strategies",
       "source_file": "tests/unit/test_voyage_fuel_plan.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_golden_fuel_tonnes_and_bunkering",
       "source_file": "tests/unit/test_voyage_fuel_plan.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_recommends_cheapest_complete_strategy",
       "source_file": "tests/unit/test_voyage_fuel_plan.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_missing_assumptions_make_affected_strategies_partial",
       "source_file": "tests/unit/test_voyage_fuel_plan.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_missing_vlsfo_price_names_the_port",
       "source_file": "tests/unit/test_voyage_fuel_plan.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_voyage_without_eu_scope_has_no_green_strategy",
       "source_file": "tests/unit/test_voyage_fuel_plan.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_fuel_without_default_intensity_is_partial",
       "source_file": "tests/unit/test_voyage_fuel_plan.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_green_fuel_at_or_above_target_skips_min_blend",
       "source_file": "tests/unit/test_voyage_fuel_plan.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_demo_price_adds_warning",
       "source_file": "tests/unit/test_voyage_fuel_plan.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_vessel_without_vlsfo_has_no_conventional_strategy",
       "source_file": "tests/unit/test_voyage_fuel_plan.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_green_only_vessel_uses_methanol_and_looks_up_every_departure",
       "source_file": "tests/unit/test_voyage_fuel_plan.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_order_declared_intensity_is_used",
       "source_file": "tests/unit/test_voyage_fuel_plan.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_start_date_too_far_ahead_is_rejected",
       "source_file": "tests/unit/test_voyage_fuel_plan.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_table_distance_used_when_caller_omits_distance",
       "source_file": "tests/unit/test_voyage_fuel_plan.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_start_date_bounds",
       "source_file": "tests/unit/test_voyage_fuel_plan.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_missing_table_distance_is_rejected",
       "source_file": "tests/unit/test_voyage_fuel_plan.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_cape_route_without_table_entry_is_rejected_even_with_caller_distance",
       "source_file": "tests/unit/test_voyage_fuel_plan.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_missing_market_price_names_fuel_and_port",
       "source_file": "tests/unit/test_voyage_fuel_plan.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_missing_eua_price_only_affects_fossil_scope",
       "source_file": "tests/unit/test_voyage_fuel_plan.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_unvalued_surplus_is_not_a_missing_input",
       "source_file": "tests/unit/test_voyage_fuel_plan.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_caller_intensity_overrides_order",
       "source_file": "tests/unit/test_voyage_fuel_plan.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_order_energy_density_changes_tonnes_not_energy",
       "source_file": "tests/unit/test_voyage_fuel_plan.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_compliant_vlsfo_skips_identical_blend",
       "source_file": "tests/unit/test_voyage_fuel_plan.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_benchmark_and_sustainability_warnings_and_assumptions",
       "source_file": "tests/unit/test_voyage_fuel_plan.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_reporting_year_override_controls_target_and_ets_phase_in",
       "source_file": "tests/unit/test_voyage_fuel_plan.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_minimum_blend_has_exact_zero_balance_without_pool_price",
       "source_file": "tests/unit/test_voyage_fuel_plan.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_nested_price_output_is_rounded_without_rounding_calculations",
       "source_file": "tests/unit/test_voyage_fuel_plan.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_ets_is_not_rounded_before_currency_conversion",
       "source_file": "tests/unit/test_voyage_fuel_plan.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_speed_below_one_knot_is_rejected",
       "source_file": "tests/unit/test_voyage_fuel_plan.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_ten_leg_voyage_over_365_days_is_rejected",
       "source_file": "tests/unit/test_voyage_fuel_plan.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_duration_includes_final_berth_and_checks_before_date_arithmetic",
       "source_file": "tests/unit/test_voyage_fuel_plan.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_green_only_vessel_without_eu_scope_has_full_strategy",
       "source_file": "tests/unit/test_voyage_fuel_plan.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_lookup_order_and_port_availability",
       "source_file": "tests/unit/test_voyage_fuel_plan.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_voyage_prices.py::test_candidate_windows_near_and_far",
       "source_file": "tests/unit/test_voyage_prices.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_voyage_prices.py::test_lowest_real_ask_wins_and_is_executable",
       "source_file": "tests/unit/test_voyage_prices.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_voyage_prices.py::test_demo_ask_is_never_executable",
       "source_file": "tests/unit/test_voyage_prices.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_voyage_prices.py::test_earlier_window_preferred",
       "source_file": "tests/unit/test_voyage_prices.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_voyage_prices.py::test_declared_intensity_is_copied",
       "source_file": "tests/unit/test_voyage_prices.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_voyage_prices.py::test_benchmark_fallback",
       "source_file": "tests/unit/test_voyage_prices.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_voyage_prices.py::test_no_data_leaves_lookup_unresolved",
       "source_file": "tests/unit/test_voyage_prices.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_voyage_prices.py::test_single_query_for_many_lookups",
       "source_file": "tests/unit/test_voyage_prices.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_voyage_prices.py::test_snapshot_has_no_identifiers",
       "source_file": "tests/unit/test_voyage_prices.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_voyage_prices.py::test_snapshot_mixed_status",
       "source_file": "tests/unit/test_voyage_prices.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_voyage_prices.py::test_snapshot_rejects_unknown_product_and_port",
       "source_file": "tests/unit/test_voyage_prices.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_voyage_prices.py::test_database_error_is_wrapped",
       "source_file": "tests/unit/test_voyage_prices.py",
-      "behavior": "",
+      "behavior": "covered by the mcp contract group's Rust cases",
       "owner_task": "11",
       "target_id": "mcp",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     },
     {
       "source_id": "tests/unit/test_orderbook_marketplace_filters.py::test_biofuel_public_surfaces_and_live_benchmark_share_fixed_contract",
@@ -3470,9 +3470,9 @@
       "behavior": "Phase 0: B30/B100 public ASK surfaces and the live benchmark share the fixed specification-standard and supplier-metadata contract (biofuel_supplier_metadata_clause).",
       "owner_task": "13b",
       "target_id": "orderbook_lists",
-      "status": "pending",
+      "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": ""
+      "reviewed_by": "phase3-owner-round7"
     }
   ],
   "task4b_fixture_gate": {

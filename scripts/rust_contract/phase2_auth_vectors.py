@@ -23,6 +23,8 @@ ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "tests/rust_contract/phase2/auth-vectors.json"
 NOW = 1_792_320_000
 USER_ID = "a550c69b-2934-4b36-87f5-e4f9976d1af0"
+# Python's exact legacy refusal body for an unverified credential.
+LEGACY_CREDENTIAL_REFUSAL = '{"detail":"Could not validate credentials"}'
 # Public synthetic fixture keys. They never authenticate a deployed service.
 CURRENT = "phase2-fixture-current-key-not-for-runtime-0001"
 PREVIOUS = "phase2-fixture-previous-key-not-for-runtime-0002"
@@ -216,6 +218,21 @@ def export():
             vector["rust_expected"] = {"status": 401, "www_authenticate": "Bearer", "body": json.dumps({"detail": {
                 "code": "AUTH_PASSWORD_CHANGED" if password else "AUTH_SESSION_REVOKED",
                 "message": "Password was changed; sign in again" if password else "Session was revoked; sign in again"}}, separators=(",", ":"))}
+        elif vector["python"]["body"] == LEGACY_CREDENTIAL_REFUSAL:
+            # PD89-CF4-1+PD89-CF4-11+PD3-EXP-1 (PM ruling PD3-R6-1): Python
+            # keeps its legacy `detail` string and Rust answers with the
+            # reviewed code envelope. Record both instead of letting the Rust
+            # test substitute its own output for the expectation.
+            vector["approved_difference"] = {"decisions": ["PD89-CF4-1", "PD89-CF4-11", "PD3-EXP-1"],
+                                             "ruling": "PD3-R6-1", "python_change": "none (decision 113)"}
+            vector["rust_expected"] = {"status": 401, "www_authenticate": "Bearer",
+                                       "body": json.dumps({"detail": {"code": "AUTH_CREDENTIALS_INVALID"}}, separators=(",", ":"))}
+        elif vector["id"] == "exp-absent":
+            # PD3-EXP-1: Rust requires `exp` and refuses what Python accepts.
+            vector["approved_difference"] = {"decision": "PD3-EXP-1",
+                                             "python_change": "none (decision 113)"}
+            vector["rust_expected"] = {"status": 401, "www_authenticate": "Bearer",
+                                       "body": json.dumps({"detail": {"code": "AUTH_CREDENTIALS_INVALID"}}, separators=(",", ":"))}
     return {"version": 1, "oracle_sha": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
             "pyjwt_version": jwt.__version__, "now": NOW, "fixture_only": True,
             "settings": {"current": CURRENT, "previous": PREVIOUS, "issuer": ISSUER, "audience": AUDIENCE},

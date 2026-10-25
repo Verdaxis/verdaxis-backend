@@ -66,7 +66,7 @@ observed values; every other response field, header and status stays strict.
 | totals-before-truncation | 101 slices | equal (100 returned, totals of 101) |
 | foreign-detail, missing-detail | other user's container; unknown id | equal 404 |
 | malformed-uuid-length, -simple, -hyphenated | valid bearer, bad path id | equal 422 (FastAPI shape) |
-| bad-bearer-before-uuid | invalid bearer, bad path id | PD89-CF4-11 (both 401, Bearer challenge) |
+| bad-bearer-before-uuid | invalid bearer, bad path id | PD89-CF4-1+PD89-CF4-11+PD3-EXP-1 (both 401, Bearer challenge; PM ruling PD3-R6-1) |
 
 Fixture note: a disposable run may only hold a market-visible order through an
 allowlisted DEMO organization (a database trigger fixes REAL and DEMO
@@ -108,7 +108,8 @@ clock and identifier sequence. Python runs through
 defaults and one summary call, behind the disposable-target token. Every action
 asserts the exact committed change. Cases and the evidence for each are listed in
 `tests/rust_contract/phase2/watchlist-containers.json`. The only approved
-difference is PD89-CF4-11 on the two invalid-bearer actions: Python keeps its
+difference is PD89-CF4-1+PD89-CF4-11+PD3-EXP-1 (PM ruling PD3-R6-1) on the two
+invalid-bearer actions: Python keeps its
 legacy `detail` string, while Rust returns the reviewed
 `{"code": "AUTH_CREDENTIALS_INVALID", "message": ...}` envelope. Both statuses
 and the Bearer challenge are pinned. A concurrent pair at the container cap is
@@ -174,7 +175,7 @@ of one user. No order row is read for update, locked or changed.
 twin databases with the same action clock and identifier sequence, and a
 concurrent duplicate pair that repeats three times at one barrier. Every action
 asserts the exact committed change; equal twins alone would not prove it. Its
-two invalid-bearer actions carry the same PD89-CF4-11 pair assertion as the
+two invalid-bearer actions carry the same reviewed pair assertion as the
 read and container scenarios.
 
 The PD1 pairs leave the twins apart by design, so they run in a separate

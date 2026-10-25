@@ -188,8 +188,8 @@ fn eligible(invitation: &Invitation) -> bool {
         && role_matches_organization(role, organization_type)
 }
 
-/// Python's password policy for this route: 8 to 1024 UTF-8 bytes, at least one
-/// uppercase letter and at least one digit.
+/// Python's password policy for this route: at least 8 characters, at most
+/// 1024 UTF-8 bytes, at least one uppercase letter and at least one digit.
 ///
 /// The character classes are ASCII. Python's `\d` also matches non-ASCII
 /// decimal digits, so this rule refuses some passwords Python would accept and

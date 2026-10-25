@@ -316,6 +316,30 @@ fn repository_root() -> PathBuf {
 }
 
 /// Every source-boundary violation in the repository, as `path: rule` text.
+/// The one integration test that commits an order-book change as the disposable
+/// owner role, to prove a stale generation replaces a warm cache entry. It
+/// must simulate another writer's change, so it cannot drive the command
+/// boundary; a release build never compiles it.
+const ORDER_BOOK_TEST_WRITER: &str = "rs/read/tests/trading_cache_postgres.rs";
+
+/// The exact statements that file may issue, in `normalized` (uppercase,
+/// whitespace-collapsed) form. Any other order-book DML in it stays a
+/// violation, so a new INSERT, DELETE, TRUNCATE or different UPDATE turns the
+/// scan red. Assembled at run time, so this file carries no forbidden text.
+fn reviewed_order_book_test_writes() -> Vec<String> {
+    [
+        ["UPDATE ", "orderbook_orders SET expires_at = $1"].concat(),
+        [
+            "UPDATE ",
+            "orderbook_orders SET price_per_mt_usd = price_per_mt_usd + 1",
+        ]
+        .concat(),
+    ]
+    .map(|statement| normalized(&statement))
+    .to_vec()
+}
+
+/// Every source-boundary violation in the repository, as `path: rule` text.
 fn scan_repository() -> Vec<String> {
     let root = repository_root();
     let boundary = root.join("rs/read/src/order_write");
@@ -331,6 +355,7 @@ fn scan_repository() -> Vec<String> {
     // the price-alert cap serializes organization creators in its own namespace.
     // It does not touch order-book rows, so the boundary rule names it exactly.
     let price_alert_cap = [root.join("rs/read/src/crud/alerts.rs")];
+    let order_book_test_writer = root.join(ORDER_BOOK_TEST_WRITER);
     // The browser-device session lock is shared with Python's login, refresh and
     // logout, so both stacks wait on one key. The key comes from the device
     // cookie digest and never names an order-book row. The session store and its
@@ -361,10 +386,12 @@ fn scan_repository() -> Vec<String> {
                 continue;
             }
             // The disposable cache fixture advances committed rows to prove
-            // invalidation. It is not an application command entry point.
-            let cache_fixture = path == &root.join("rs/read/tests/trading_cache_postgres.rs");
+            // invalidation. It is not an application command entry point, and
+            // only its two reviewed statements are accepted (PD-SCAN-1).
+            let reviewed_test_write = path == &order_book_test_writer
+                && reviewed_order_book_test_writes().contains(&literal);
             if let Some(rule) = orderbook_dml(&literal)
-                && !cache_fixture
+                && !reviewed_test_write
             {
                 violations.push(format!("{}: {rule}", path.display()));
             }
@@ -426,6 +453,39 @@ fn order_book_writes_stay_in_the_one_boundary() {
         "the write boundary was crossed:\n{}",
         violations.join("\n")
     );
+}
+
+#[test]
+fn the_cache_test_exemption_is_exactly_its_reviewed_writes() {
+    // Test-only: no release source, example or other test may be exempt.
+    assert!(ORDER_BOOK_TEST_WRITER.starts_with("rs/read/tests/"));
+    let reviewed = reviewed_order_book_test_writes();
+    assert_eq!(reviewed.len(), 2);
+    for statement in &reviewed {
+        assert_eq!(orderbook_dml(statement), Some("order-book DML"));
+    }
+    // The exempted file carries exactly the reviewed statements. A new
+    // order-book INSERT, DELETE, TRUNCATE or different UPDATE fails here
+    // before the scan can silently accept it.
+    let root = repository_root();
+    let text = std::fs::read_to_string(root.join(ORDER_BOOK_TEST_WRITER))
+        .expect("the exempted integration test must exist");
+    let found: Vec<String> = literal_ranges(&text)
+        .into_iter()
+        .map(|(start, end)| normalized(&text[start..end]))
+        .filter(|literal| orderbook_dml(literal).is_some())
+        .collect();
+    assert_eq!(
+        found.len(),
+        reviewed.len(),
+        "unreviewed order-book DML in the exempted file: {found:?}"
+    );
+    for literal in &found {
+        assert!(
+            reviewed.contains(literal),
+            "unreviewed statement: {literal}"
+        );
+    }
 }
 
 #[test]
