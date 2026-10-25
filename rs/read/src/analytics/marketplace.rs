@@ -479,6 +479,7 @@ pub fn ordered_provenance_labels() -> [&'static str; 3] {
 /// `$1 start, $2 end, $3 previous_start, $4 previous_end, $5 demo orgs,
 /// $6 product, $7 delivery point, $8 availability window`.
 const ORDER_SLICE: &str = "o.created_at >= COALESCE($3::timestamptz, $1::timestamptz)\n      AND o.created_at < $2::timestamptz\n      AND ($6::uuid IS NULL OR o.product_id = $6)\n      AND ($7::uuid IS NULL OR o.delivery_point_id = $7)\n      AND ($8::text IS NULL OR o.availability_window = $8)";
+const CURRENT_ORDER_SLICE: &str = "o.created_at >= $1::timestamptz\n      AND o.created_at < $2::timestamptz\n      AND ($6::uuid IS NULL OR o.product_id = $6)\n      AND ($7::uuid IS NULL OR o.delivery_point_id = $7)\n      AND ($8::text IS NULL OR o.availability_window = $8)";
 
 const TRADE_SLICE: &str = "(COALESCE($6::uuid IS NULL AND $7::uuid IS NULL AND $8::text IS NULL, false)\n         OR EXISTS (\n              SELECT 1 FROM orderbook_orders f\n              WHERE f.id IN (t.bid_order_id, t.ask_order_id)\n                AND ($6::uuid IS NULL OR f.product_id = $6)\n                AND ($7::uuid IS NULL OR f.delivery_point_id = $7)\n                AND ($8::text IS NULL OR f.availability_window = $8)\n         ))";
 
@@ -696,7 +697,7 @@ pub async fn status_distribution(
     query_ref: &AnalyticsQuery,
 ) -> Result<Vec<StatusRow>, ApiError> {
     let text = format!(
-        "WITH order_rows AS (\n    SELECT 'order'::text AS kind, {ORDER_PROVENANCE} AS provenance, o.status::text AS status,\n        count(*) AS count, count(DISTINCT o.organization_id) AS organizations\n    FROM orderbook_orders o\n    WHERE {ORDER_SLICE}\n    GROUP BY 2, o.status\n), trade_rows AS (\n    SELECT 'trade'::text AS kind, {TRADE_PROVENANCE} AS provenance, t.status::text AS status,\n        count(*) AS count, NULL::bigint AS organizations\n    FROM trades t\n    WHERE COALESCE(t.confirmed_at, t.created_at) >= $1 AND COALESCE(t.confirmed_at, t.created_at) < $2\n      AND {TRADE_SLICE}\n    GROUP BY 2, t.status\n)\nSELECT * FROM order_rows UNION ALL SELECT * FROM trade_rows"
+        "WITH order_rows AS (\n    SELECT 'order'::text AS kind, {ORDER_PROVENANCE} AS provenance, o.status::text AS status,\n        count(*) AS count, count(DISTINCT o.organization_id) AS organizations\n    FROM orderbook_orders o\n    WHERE {CURRENT_ORDER_SLICE}\n    GROUP BY 2, o.status\n), trade_rows AS (\n    SELECT 'trade'::text AS kind, {TRADE_PROVENANCE} AS provenance, t.status::text AS status,\n        count(*) AS count, NULL::bigint AS organizations\n    FROM trades t\n    WHERE COALESCE(t.confirmed_at, t.created_at) >= $1 AND COALESCE(t.confirmed_at, t.created_at) < $2\n      AND {TRADE_SLICE}\n    GROUP BY 2, t.status\n)\nSELECT * FROM order_rows UNION ALL SELECT * FROM trade_rows"
     );
     let rows = bind_slice(text, query_ref)
         .fetch_all(&mut *conn)
@@ -719,7 +720,7 @@ pub async fn matrix_and_windows(
     query_ref: &AnalyticsQuery,
 ) -> Result<Vec<MatrixRow>, ApiError> {
     let text = format!(
-        "SELECT 'matrix'::text AS kind, p.name AS product_name, p.fuel_type, p.fuel_grade, d.name AS delivery_point_name,\n    NULL::text AS window, count(*) AS orders, count(DISTINCT o.organization_id) AS organizations\nFROM orderbook_orders o\nJOIN products p ON p.id = o.product_id\nJOIN delivery_points d ON d.id = o.delivery_point_id\nWHERE {ORDER_SLICE} AND {RECOGNIZED_ORGS}\nGROUP BY p.name, p.fuel_type, p.fuel_grade, d.name\nUNION ALL\nSELECT 'window'::text AS kind, NULL::text, NULL::text, NULL::text, NULL::text,\n    o.availability_window, count(*) AS orders, count(DISTINCT o.organization_id) AS organizations\nFROM orderbook_orders o\nWHERE {ORDER_SLICE} AND {RECOGNIZED_ORGS}\nGROUP BY o.availability_window"
+        "SELECT 'matrix'::text AS kind, p.name AS product_name, p.fuel_type, p.fuel_grade, d.name AS delivery_point_name,\n    NULL::text AS window, count(*) AS orders, count(DISTINCT o.organization_id) AS organizations\nFROM orderbook_orders o\nJOIN products p ON p.id = o.product_id\nJOIN delivery_points d ON d.id = o.delivery_point_id\nWHERE {CURRENT_ORDER_SLICE} AND {RECOGNIZED_ORGS}\nGROUP BY p.name, p.fuel_type, p.fuel_grade, d.name\nUNION ALL\nSELECT 'window'::text AS kind, NULL::text, NULL::text, NULL::text, NULL::text,\n    o.availability_window, count(*) AS orders, count(DISTINCT o.organization_id) AS organizations\nFROM orderbook_orders o\nWHERE {CURRENT_ORDER_SLICE} AND {RECOGNIZED_ORGS}\nGROUP BY o.availability_window"
     );
     let rows = bind_slice(text, query_ref)
         .fetch_all(&mut *conn)
@@ -1937,7 +1938,14 @@ pub async fn dispatch(
             .and_then(|value| value.to_str().ok()),
     );
     let raw_query = request.uri().query().unwrap_or("").to_owned();
-    let token = authorization.clone().unwrap_or_default();
+    // Match the verifier's accepted spelling, then retain only the shared
+    // full SHA-256 token identity in the quota store.
+    let normalized = authorization
+        .as_deref()
+        .and_then(|header| header.split_once(' '))
+        .map(|(_, token)| token.trim_start_matches(' '))
+        .unwrap_or("");
+    let token = format!("tok:{}", crate::auth::token_bytes::token_digest(normalized));
     let limits = limits.clone();
     let now_seconds = now.timestamp().max(0) as u64;
 

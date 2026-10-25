@@ -257,19 +257,20 @@ pub fn compose(
     previous: Option<&Reading>,
     quality: &mut Quality,
 ) -> AcquisitionResponse {
-    let duration = |reading: Option<&Reading>| -> Option<Decimal> {
-        let window = &reading?.window;
-        if window.core.status() == ComponentStatus::Unavailable {
-            return None;
-        }
-        let core = window.core.data()?;
-        let visits = core.visits?;
-        if visits == 0 {
-            return None;
-        }
-        let total = core.total_time_seconds?;
-        Some(one_decimal(Decimal::from(total) / Decimal::from(visits)))
+    let duration = |reading: Option<&Reading>| -> (Option<Decimal>, bool) {
+        let Some(core) = reading.and_then(|reading| reading.window.core.data()) else {
+            return (None, false);
+        };
+        let (visits, suppressed) = crate::analytics::policy::suppress_value(core.visits, None);
+        let value = visits
+            .filter(|visits| *visits > 0)
+            .zip(core.total_time_seconds)
+            .map(|(visits, total)| one_decimal(Decimal::from(total) / Decimal::from(visits)));
+        (value, suppressed)
     };
+    let (duration_current, current_suppressed) = duration(current);
+    let (duration_previous, previous_suppressed) = duration(previous);
+    quality.suppressed_cell_count += u64::from(current_suppressed) + u64::from(previous_suppressed);
 
     let visitors_trend: Vec<SeriesPoint> = match current.filter(|reading| reading.available()) {
         Some(reading) => match reading.window.daily_visitors.data() {
@@ -386,9 +387,9 @@ pub fn compose(
                 quality,
             ),
             average_session_duration_seconds: DecimalMetricValue {
-                value: duration(current),
-                previous: duration(previous),
-                suppressed: false,
+                value: duration_current,
+                previous: duration_previous,
+                suppressed: current_suppressed || previous_suppressed,
             },
             cta_clicks: event_metric(current, previous, Event::LandingCtaClicked, quality),
         },
