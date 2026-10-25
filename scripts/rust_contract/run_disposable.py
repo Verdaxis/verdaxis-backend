@@ -309,7 +309,10 @@ CREATE EXTENSION IF NOT EXISTS postgis;
         if self.server_binary is not None:
             return self.server_binary
         flavour = "release" if self.release else "debug"
-        return ROOT / "rs" / "target" / flavour / "examples" / "contract_server"
+        target = Path(os.environ.get("CARGO_TARGET_DIR", ROOT / "rs" / "target"))
+        if not target.is_absolute():
+            target = ROOT / target
+        return target / flavour / "examples" / "contract_server"
 
     def run(self) -> None:
         subprocess.run(
@@ -485,6 +488,7 @@ CREATE EXTENSION IF NOT EXISTS postgis;
                 **env,
                 "PYTHON_CONTRACT_URL": python_url,
                 "RUST_CONTRACT_URL": rust_url,
+                "RUST_CONTRACT_SERVER_BINARY": str(self.server_path()),
             }
             if not (ROOT / "rs/contract/tests" / f"{target}.rs").exists():
                 command = [
