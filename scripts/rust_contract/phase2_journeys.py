@@ -523,6 +523,7 @@ def setup(connection) -> None:
     """Rows the six journeys need; the base seed supplies products and points."""
     from scripts.rust_contract.phase2_watchlist_fixtures import (
         FAR_FUTURE,
+        ORGANIZATION,
         insert_container,
         insert_event,
         insert_order,
@@ -531,6 +532,14 @@ def setup(connection) -> None:
         seed_users_and_orders,
     )
 
+    # The order-provenance trigger reads the owning organization with SELECT
+    # INTO STRICT, so the base organization must exist before any fixture order
+    # that references it. The scenario path seeds it into the clone template;
+    # this single-database path seeds it here.
+    connection.execute(
+        "INSERT INTO organizations(id,name,domain,type,verification_status,provenance) "
+        "VALUES(%s,'Phase 2 fixture','phase2.invalid','FUEL_BUYER','APPROVED','UNKNOWN')",
+        (ORGANIZATION,))
     seed_users_and_orders(connection)
     connection.execute(
         "INSERT INTO organizations(id,name,domain,type) VALUES (%s,'Journey org','journey.invalid','FUEL_BUYER')",
