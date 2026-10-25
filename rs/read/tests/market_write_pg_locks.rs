@@ -986,7 +986,6 @@ async fn assisted_context_cannot_add_a_contended_member() {
     f.finish().await;
 }
 
-
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL"]
 async fn assisted_settlement_uses_customer_membership_and_cleanup_cutoffs() {
@@ -995,48 +994,183 @@ async fn assisted_settlement_uses_customer_membership_and_cleanup_cutoffs() {
     // Settlement plan section 7.4:358 removes approval/email/KYC admission for cleanup;
     // auth_simple.py:769-773 retains password and non-rejected revocation cutoffs.
     for (case, actor, status, email, password_change, revoked, organization, role, expected) in [
-        ("support_owner", id(2), "APPROVED", true, false, false, Some(id(20)), "ADMIN", false),
-        ("approved_member", id(4), "APPROVED", true, false, false, Some(id(20)), "SUPPLIER", true),
+        (
+            "support_owner",
+            id(2),
+            "APPROVED",
+            true,
+            false,
+            false,
+            Some(id(20)),
+            "ADMIN",
+            false,
+        ),
+        (
+            "approved_member",
+            id(4),
+            "APPROVED",
+            true,
+            false,
+            false,
+            Some(id(20)),
+            "SUPPLIER",
+            true,
+        ),
         // Plan 7.4:358 overrides deliver/pay get_current_user (trades.py:1603,1752).
-        ("pending_member", id(4), "PENDING", true, false, false, Some(id(20)), "SUPPLIER", true),
-        ("rejected_member", id(4), "REJECTED", true, false, false, Some(id(20)), "SUPPLIER", true),
+        (
+            "pending_member",
+            id(4),
+            "PENDING",
+            true,
+            false,
+            false,
+            Some(id(20)),
+            "SUPPLIER",
+            true,
+        ),
+        (
+            "rejected_member",
+            id(4),
+            "REJECTED",
+            true,
+            false,
+            false,
+            Some(id(20)),
+            "SUPPLIER",
+            true,
+        ),
         // trades.py:573-586 has no email predicate; plan 7.4:358 retains no email gate.
-        ("unverified_member", id(4), "APPROVED", false, false, false, Some(id(20)), "SUPPLIER", true),
+        (
+            "unverified_member",
+            id(4),
+            "APPROVED",
+            false,
+            false,
+            false,
+            Some(id(20)),
+            "SUPPLIER",
+            true,
+        ),
         // Plan 7.4:358 cleanup differs from auth_simple.py:699-700 execution dependency.
-        ("password_change_member", id(4), "APPROVED", true, true, false, Some(id(20)), "SUPPLIER", true),
+        (
+            "password_change_member",
+            id(4),
+            "APPROVED",
+            true,
+            true,
+            false,
+            Some(id(20)),
+            "SUPPLIER",
+            true,
+        ),
         // auth_simple.py:676-689,771-772 refuses an approved member's cut-off token.
-        ("revoked_member", id(4), "APPROVED", true, false, true, Some(id(20)), "SUPPLIER", false),
+        (
+            "revoked_member",
+            id(4),
+            "APPROVED",
+            true,
+            false,
+            true,
+            Some(id(20)),
+            "SUPPLIER",
+            false,
+        ),
         // Plan 7.4:358 and auth_simple.py:771 skip revocation only while rejected.
-        ("rejected_revoked_member", id(4), "REJECTED", true, false, true, Some(id(20)), "SUPPLIER", true),
+        (
+            "rejected_revoked_member",
+            id(4),
+            "REJECTED",
+            true,
+            false,
+            true,
+            Some(id(20)),
+            "SUPPLIER",
+            true,
+        ),
         // trades.py:575-576 requires the assisted side's organization and role.
-        ("other_organization", id(4), "APPROVED", true, false, false, Some(id(10)), "SUPPLIER", false),
-        ("wrong_role", id(4), "APPROVED", true, false, false, Some(id(20)), "BUYER", false),
+        (
+            "other_organization",
+            id(4),
+            "APPROVED",
+            true,
+            false,
+            false,
+            Some(id(10)),
+            "SUPPLIER",
+            false,
+        ),
+        (
+            "wrong_role",
+            id(4),
+            "APPROVED",
+            true,
+            false,
+            false,
+            Some(id(20)),
+            "BUYER",
+            false,
+        ),
     ] {
-        let mut f=Fixture::open().await;
-        sqlx::raw_sql(include_str!("fixtures/phase8_assisted_settlement.sql")).execute(&mut f.admin).await.unwrap();
-        let access=f.access(actor).await;
+        let mut f = Fixture::open().await;
+        sqlx::raw_sql(include_str!("fixtures/phase8_assisted_settlement.sql"))
+            .execute(&mut f.admin)
+            .await
+            .unwrap();
+        let access = f.access(actor).await;
         sqlx::query("UPDATE users SET status=$1,email_verified=$2,must_change_password=$3,authentication_revoked_at=$4,organization_id=$5,role=$6 WHERE id=$7")
             .bind(status).bind(email).bind(password_change).bind(revoked.then(||Utc::now()+Duration::minutes(1))).bind(organization).bind(role).bind(actor).execute(&mut f.admin).await.unwrap();
         // Setup commits on the administrator connection; admission uses another backend.
-        let admin_pid:i32=sqlx::query_scalar("SELECT pg_backend_pid()").fetch_one(&mut f.admin).await.unwrap();
-        let mut conn=f.pool.acquire().await.unwrap();
-        let runtime_pid:i32=sqlx::query_scalar("SELECT pg_backend_pid()").fetch_one(&mut *conn).await.unwrap();
-        assert_ne!(admin_pid,runtime_pid);
-        let mut tx=conn.begin().await.unwrap();
-        let parties=PartyLockPreview::new([id(10),id(20)],[id(1),id(2),id(4)],actor,serde_json::Value::Null);
-        let mut plan=OperationLockPlan::new(MarketOperation::Pay);plan.parties(&parties).unwrap();plan.trade(id(30)).unwrap();
-        let locked=plan.acquire(&mut tx).await.unwrap();
-        let result=admission::cleanup_context_for_trade(&mut tx,&locked,access,id(30),TradeSide::Seller).await;
-        assert_eq!(result.is_ok(),expected,"{case}");
-        if let Ok(ctx)=result {
-            assert_eq!(ctx.effective_organization_id(),id(20));
-            assert_eq!(ctx.settlement_trade_id(),Some(id(30)));
+        let admin_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(&mut f.admin)
+            .await
+            .unwrap();
+        let mut conn = f.pool.acquire().await.unwrap();
+        let runtime_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(&mut *conn)
+            .await
+            .unwrap();
+        assert_ne!(admin_pid, runtime_pid);
+        let mut tx = conn.begin().await.unwrap();
+        let parties = PartyLockPreview::new(
+            [id(10), id(20)],
+            [id(1), id(2), id(4)],
+            actor,
+            serde_json::Value::Null,
+        );
+        let mut plan = OperationLockPlan::new(MarketOperation::Pay);
+        plan.parties(&parties).unwrap();
+        plan.trade(id(30)).unwrap();
+        let locked = plan.acquire(&mut tx).await.unwrap();
+        let result = admission::cleanup_context_for_trade(
+            &mut tx,
+            &locked,
+            access,
+            id(30),
+            TradeSide::Seller,
+        )
+        .await;
+        assert_eq!(result.is_ok(), expected, "{case}");
+        if let Ok(ctx) = result {
+            assert_eq!(ctx.effective_organization_id(), id(20));
+            assert_eq!(ctx.settlement_trade_id(), Some(id(30)));
             assert!(ctx.support().is_none());
-            admission::require_cleanup(&mut tx,&locked,&ctx,id(30),TradeSide::Seller).await.unwrap();
+            admission::require_cleanup(&mut tx, &locked, &ctx, id(30), TradeSide::Seller)
+                .await
+                .unwrap();
         } else {
-            let error=result.unwrap_err();
-            assert_eq!(error.code,if revoked && status!="REJECTED" {error::MarketErrorCode::AuthSessionRevoked}else{error::MarketErrorCode::TradePartyForbidden},"{case}");
+            let error = result.unwrap_err();
+            assert_eq!(
+                error.code,
+                if revoked && status != "REJECTED" {
+                    error::MarketErrorCode::AuthSessionRevoked
+                } else {
+                    error::MarketErrorCode::TradePartyForbidden
+                },
+                "{case}"
+            );
         }
-        tx.rollback().await.unwrap();drop(conn);f.finish().await;
+        tx.rollback().await.unwrap();
+        drop(conn);
+        f.finish().await;
     }
 }
