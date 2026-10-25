@@ -617,7 +617,11 @@ fn preauth_and_endpoint_limits_share_one_counter() {
         "/api/auth/resend-verification-email",
     ] {
         for _ in 0..100 {
-            assert_eq!(limits.preauth_check("192.0.2.10", path, 0), Ok(()), "{path}");
+            assert_eq!(
+                limits.preauth_check("192.0.2.10", path, 0),
+                Ok(()),
+                "{path}"
+            );
         }
     }
 

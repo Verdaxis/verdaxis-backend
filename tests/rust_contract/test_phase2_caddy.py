@@ -8,6 +8,7 @@ They need a real Caddy 2.11 binary on the path and fail without one, so a gate
 run can never pass by skipping them.
 """
 from __future__ import annotations
+from pathlib import Path
 
 import contextlib
 import http.server
