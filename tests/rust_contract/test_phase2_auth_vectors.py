@@ -30,7 +30,7 @@ def test_auth_oracle_inventory_and_source_identity():
 
 
 def test_every_legacy_refusal_difference_is_recorded():
-    """PD89-CF4-1/-11 and PD3-EXP-1 differences carry an explicit rust block."""
+    """AUTH-ENVELOPE/-11 and ACCESS-EXPIRY differences carry an explicit rust block."""
     path = ROOT / "tests/rust_contract/phase2/auth-vectors.json"
     document = json.loads(path.read_text())
     legacy = '{"detail":"Could not validate credentials"}'
@@ -46,11 +46,11 @@ def test_every_legacy_refusal_difference_is_recorded():
             assert isinstance(detail.get("message", ""), str)
             approved = vector["approved_difference"]
             if vector["id"] == "exp-absent":
-                assert approved["decision"] == "PD3-EXP-1"
+                assert approved["decision"] == "ACCESS-EXPIRY"
                 assert vector["python"]["status"] == 200
             else:
-                assert approved["decisions"] == ["PD89-CF4-1", "PD89-CF4-11", "PD3-EXP-1"]
-                assert approved["ruling"] == "PD3-R6-1"
+                assert approved["decisions"] == ["AUTH-ENVELOPE", "AUTH-REFUSAL", "ACCESS-EXPIRY"]
+                assert approved["ruling"] == "AUTH-CONTRACT"
             recorded += 1
     assert recorded == 72, recorded
 

@@ -55,7 +55,7 @@ async fn access_vectors_match_python_http_outcomes() {
                 assert_eq!(approved["defect"], "PD7", "{id}: defect record");
                 assert_eq!(approved["decision"], 94, "{id}: decision record");
                 assert_eq!(vector["python"]["status"], 500, "{id}: PD7 baseline");
-            } else if approved["decision"] == "PD3-EXP-1" {
+            } else if approved["decision"] == "ACCESS-EXPIRY" {
                 // Rust requires `exp`; Python accepts this token. The code is
                 // pinned and the message wording stays free.
                 let detail: Value =
@@ -64,11 +64,11 @@ async fn access_vectors_match_python_http_outcomes() {
             } else {
                 assert_eq!(
                     approved["decisions"],
-                    serde_json::json!(["PD89-CF4-1", "PD89-CF4-11", "PD3-EXP-1"]),
+                    serde_json::json!(["AUTH-ENVELOPE", "AUTH-REFUSAL", "ACCESS-EXPIRY"]),
                     "{id}: refusal record"
                 );
                 assert_eq!(vector["python"]["status"], 401, "{id}: refusal baseline");
-                // Wording is free (PD89-CF4-1): only the reviewed code is
+                // Wording is free (AUTH-ENVELOPE): only the specified code is
                 // pinned by the vector; the message must be a non-empty
                 // string in both the vector and the response below.
                 let detail: Value =
@@ -100,7 +100,7 @@ async fn access_vectors_match_python_http_outcomes() {
             let expected_body: Value =
                 serde_json::from_str(expected_wire["body"].as_str().unwrap()).unwrap();
             if expected_body["detail"]["code"] == "AUTH_CREDENTIALS_INVALID" {
-                // PD89-CF4-1: the message is free; the code and the rest of
+                // AUTH-ENVELOPE: the message is free; the code and the rest of
                 // the envelope are pinned by the vector.
                 assert_eq!(
                     body["detail"]["code"], "AUTH_CREDENTIALS_INVALID",

@@ -353,7 +353,7 @@ def _actions_for(context, gate_enabled):
     yield build.write("malformed-path-only", "W05", "POST", "/api/watchlists/not-a-uuid/targets", 422,
                       body=_pin_body(PUBLIC_ORDER), check=no_write)
     yield post("bad-bearer-before-validation", 401, {}, token="Bearer invalid",
-               approved_difference="PD89-CF4-11", assert_http_difference=invalid_bearer_pair())
+               approved_difference="AUTH-REFUSAL", assert_http_difference=invalid_bearer_pair())
 
     # ---- deletion
     def delete(name, status, target, container=DELETES, **options):
@@ -371,7 +371,7 @@ def _actions_for(context, gate_enabled):
     yield delete("delete-foreign-container", 404, KEEP_SLICE, container=FOREIGN, check=_detail("Watchlist not found"))
     yield delete("delete-malformed-identifiers", 422, "also-not-a-uuid", container="not-a-uuid")
     yield delete("delete-bad-bearer", 401, SLICE_MONTH, token="Bearer invalid",
-                 approved_difference="PD89-CF4-11", assert_http_difference=invalid_bearer_pair())
+                 approved_difference="AUTH-REFUSAL", assert_http_difference=invalid_bearer_pair())
 
 
 def _races(context):

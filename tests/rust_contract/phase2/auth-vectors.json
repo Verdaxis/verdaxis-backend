@@ -85,12 +85,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -122,12 +122,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -159,12 +159,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -196,12 +196,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -233,12 +233,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -270,12 +270,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -307,12 +307,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -344,12 +344,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -381,12 +381,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -418,12 +418,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -522,12 +522,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -676,12 +676,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -713,12 +713,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -750,12 +750,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -787,12 +787,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -824,12 +824,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -861,12 +861,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -898,12 +898,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -935,12 +935,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -972,12 +972,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -1009,12 +1009,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -1046,12 +1046,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -1083,12 +1083,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -1120,12 +1120,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -1157,12 +1157,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -1240,12 +1240,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -1277,12 +1277,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -1314,12 +1314,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -1351,12 +1351,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -1387,8 +1387,8 @@
         "www_authenticate": null
       },
       "approved_difference": {
-        "decision": "PD3-EXP-1",
-        "python_change": "none (decision 113)"
+        "decision": "ACCESS-EXPIRY",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -1420,12 +1420,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -1457,12 +1457,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -1517,12 +1517,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -1554,12 +1554,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -1591,12 +1591,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -1628,12 +1628,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -1665,12 +1665,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -1702,12 +1702,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -1739,12 +1739,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -1776,12 +1776,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -1813,12 +1813,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -1850,12 +1850,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -1887,12 +1887,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -1924,12 +1924,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -2030,12 +2030,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -2113,12 +2113,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -2150,12 +2150,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -2210,12 +2210,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -2247,12 +2247,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -2284,12 +2284,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -2482,12 +2482,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -2565,12 +2565,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -2602,12 +2602,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -2662,12 +2662,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -2699,12 +2699,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -2736,12 +2736,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -2865,12 +2865,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -2902,12 +2902,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -2939,12 +2939,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -2976,12 +2976,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -3013,12 +3013,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -3050,12 +3050,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -3202,12 +3202,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -3239,12 +3239,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -3276,12 +3276,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -3313,12 +3313,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -3350,12 +3350,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -3387,12 +3387,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -3470,12 +3470,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -3507,12 +3507,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -3544,12 +3544,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,
@@ -3604,12 +3604,12 @@
       },
       "approved_difference": {
         "decisions": [
-          "PD89-CF4-1",
-          "PD89-CF4-11",
-          "PD3-EXP-1"
+          "AUTH-ENVELOPE",
+          "AUTH-REFUSAL",
+          "ACCESS-EXPIRY"
         ],
-        "ruling": "PD3-R6-1",
-        "python_change": "none (decision 113)"
+        "ruling": "AUTH-CONTRACT",
+        "python_change": "none"
       },
       "rust_expected": {
         "status": 401,

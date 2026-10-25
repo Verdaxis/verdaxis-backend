@@ -24,12 +24,12 @@ class ScenarioError(RuntimeError):
     pass
 
 
-APPROVED_DIFFERENCES = frozenset({"PD1", "PD2", "PD3", "PD4-G", "PD6", "PD7", "PD89-CF4-11",
+APPROVED_DIFFERENCES = frozenset({"PD1", "PD2", "PD3", "PD4-G", "PD6", "PD7", "AUTH-REFUSAL",
                                   "json-syntax-wording-v1"})
 
 
 def invalid_bearer_pair():
-    """Pin both stacks' invalid-bearer refusal (PM decisions PD89-CF4-1 and PD89-CF4-11).
+    """Pin both stacks' invalid-bearer refusal (PM decisions AUTH-ENVELOPE and AUTH-REFUSAL).
 
     Python still answers an invalid bearer with its legacy `detail` string; Rust
     returns the reviewed `{"code", "message"}` envelope, because decision 113

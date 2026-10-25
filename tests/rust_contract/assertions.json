@@ -122,7 +122,7 @@
       "target_id": "simple_reads",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_catalog_models.py::TestProduct::test_product_defaults",
@@ -132,7 +132,7 @@
       "target_id": "simple_reads",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_catalog_models.py::TestProduct::test_product_name_unique",
@@ -142,7 +142,7 @@
       "target_id": "simple_reads",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_catalog_models.py::TestProduct::test_market_product_maps_supported_products",
@@ -152,7 +152,7 @@
       "target_id": "simple_reads",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_catalog_models.py::TestProduct::test_market_product_is_none_for_unsupported_products",
@@ -162,7 +162,7 @@
       "target_id": "simple_reads",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_catalog_models.py::TestProduct::test_market_product_does_not_reinterpret_legacy_or_forged_labels",
@@ -172,7 +172,7 @@
       "target_id": "simple_reads",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_catalog_models.py::TestDeliveryPoint::test_create_delivery_point",
@@ -182,7 +182,7 @@
       "target_id": "simple_reads",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_catalog_models.py::TestDeliveryPoint::test_delivery_point_defaults",
@@ -192,7 +192,7 @@
       "target_id": "simple_reads",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_catalog_models.py::TestDeliveryPoint::test_delivery_point_name_unique",
@@ -202,7 +202,7 @@
       "target_id": "simple_reads",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_ci_orderbook_fields.py::TestOrderBookOrderCIFields::test_has_carbon_intensity_column",
@@ -212,7 +212,7 @@
       "target_id": "orderbook_lists",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_ci_orderbook_fields.py::TestOrderBookOrderCIFields::test_has_energy_density_column",
@@ -222,7 +222,7 @@
       "target_id": "orderbook_lists",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestForwardCurvePointSchema::test_full_two_sided_market",
@@ -232,7 +232,7 @@
       "target_id": "curves_legacy,curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestForwardCurvePointSchema::test_bid_only_market",
@@ -242,7 +242,7 @@
       "target_id": "curves_legacy,curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestForwardCurvePointSchema::test_ask_only_market",
@@ -252,7 +252,7 @@
       "target_id": "curves_legacy,curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestForwardCurvePointSchema::test_serialization",
@@ -262,7 +262,7 @@
       "target_id": "curves_legacy,curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestForwardCurveResponseSchema::test_empty_curve",
@@ -272,7 +272,7 @@
       "target_id": "curves_legacy,curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestForwardCurveResponseSchema::test_with_points",
@@ -282,7 +282,7 @@
       "target_id": "curves_legacy,curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestForwardCurveBoardSchema::test_board_cell_carries_hybrid_market_context",
@@ -292,7 +292,7 @@
       "target_id": "curves_legacy,curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestForwardCurveBoardSchema::test_board_response_groups_ports_products_and_focus",
@@ -302,7 +302,7 @@
       "target_id": "curves_legacy,curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestForwardCurveBoardSchema::test_real_orders_hide_seed_demo_benchmark",
@@ -312,7 +312,7 @@
       "target_id": "curves_legacy,curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestForwardCurveBoardSchema::test_board_cell_prefers_real_headline_without_blending_demo",
@@ -322,7 +322,7 @@
       "target_id": "curves_legacy,curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestForwardCurveBoardSchema::test_board_cell_falls_back_to_visibly_demo_without_unknown_rows",
@@ -332,7 +332,7 @@
       "target_id": "curves_legacy,curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestForwardCurveBoardSchema::test_depth_prefers_real_rows_without_blending_demo_levels",
@@ -342,7 +342,7 @@
       "target_id": "curves_legacy,curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestForwardCurveBoardSchema::test_forward_board_batches_benchmark_quotes",
@@ -352,7 +352,7 @@
       "target_id": "curves_legacy,curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestComputeForwardCurve::test_empty_orderbook_returns_empty_list",
@@ -362,7 +362,7 @@
       "target_id": "curves_legacy,curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestComputeForwardCurve::test_single_bid_window_only",
@@ -372,7 +372,7 @@
       "target_id": "curves_legacy,curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestComputeForwardCurve::test_single_ask_window_only",
@@ -382,7 +382,7 @@
       "target_id": "curves_legacy,curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestComputeForwardCurve::test_two_sided_market_computes_mid_and_spread",
@@ -392,7 +392,7 @@
       "target_id": "curves_legacy,curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestComputeForwardCurve::test_multiple_windows_each_returned_as_separate_point",
@@ -402,7 +402,7 @@
       "target_id": "curves_legacy,curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestComputeForwardCurve::test_filters_by_product_id",
@@ -412,7 +412,7 @@
       "target_id": "curves_legacy,curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestComputeForwardCurve::test_filters_by_delivery_point_id",
@@ -422,7 +422,7 @@
       "target_id": "curves_legacy,curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestComputeForwardCurve::test_excludes_demo_market_orders",
@@ -432,7 +432,7 @@
       "target_id": "curves_legacy,curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestComputeForwardCurve::test_mid_price_rounded_to_two_decimal_places",
@@ -442,7 +442,7 @@
       "target_id": "curves_legacy,curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestComputeForwardCurve::test_asymmetric_volume_and_spread",
@@ -452,7 +452,7 @@
       "target_id": "curves_legacy,curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestBuildCsv::test_csv_has_header_row",
@@ -462,7 +462,7 @@
       "target_id": "curves_legacy,curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestBuildCsv::test_csv_empty_points_has_only_header",
@@ -472,7 +472,7 @@
       "target_id": "curves_legacy,curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestBuildCsv::test_csv_one_point_produces_two_lines",
@@ -482,7 +482,7 @@
       "target_id": "curves_legacy,curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestBuildCsv::test_csv_none_fields_serialized_as_empty_string",
@@ -492,7 +492,7 @@
       "target_id": "curves_legacy,curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestBuildCsv::test_csv_multiple_points",
@@ -502,7 +502,7 @@
       "target_id": "curves_legacy,curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestForwardCurveEndpoint::test_forward_requires_product_id",
@@ -512,7 +512,7 @@
       "target_id": "curves_legacy,curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestForwardCurveEndpoint::test_forward_returns_200_with_product_id",
@@ -522,7 +522,7 @@
       "target_id": "curves_legacy,curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestForwardCurveEndpoint::test_forward_accepts_optional_delivery_point_id",
@@ -532,7 +532,7 @@
       "target_id": "curves_legacy,curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestForwardCurveEndpoint::test_forward_export_returns_csv_content_type",
@@ -542,7 +542,7 @@
       "target_id": "curves_legacy,curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestForwardCurveEndpoint::test_forward_export_csv_body_has_header_and_data",
@@ -552,7 +552,7 @@
       "target_id": "curves_legacy,curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestForwardCurveEndpoint::test_forward_export_requires_product_id",
@@ -562,7 +562,7 @@
       "target_id": "curves_legacy,curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_curves.py::TestForwardCurveEndpoint::test_forward_board_returns_matrix_and_focus",
@@ -572,7 +572,7 @@
       "target_id": "curves_legacy,curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_orderbook_aggregate_combines_sides_and_product_ids_without_blending_evidence",
@@ -582,7 +582,7 @@
       "target_id": "curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_table_uses_only_exact_active_canonical_products_and_approved_ports",
@@ -592,7 +592,7 @@
       "target_id": "curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_table_cells_are_compact_and_filters_preserve_matrix_identity",
@@ -602,7 +602,7 @@
       "target_id": "curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_default_four_by_eight_table_payload_is_bounded",
@@ -612,7 +612,7 @@
       "target_id": "curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_one_sided_orderbook_does_not_create_primary_midpoint",
@@ -622,7 +622,7 @@
       "target_id": "curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_real_orderbook_headline_never_pairs_with_demo_ask",
@@ -632,7 +632,7 @@
       "target_id": "curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_demo_only_orderbook_remains_visible_and_explicitly_demo",
@@ -642,7 +642,7 @@
       "target_id": "curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_managed_demo_book_is_primary_without_rewriting_trade_history",
@@ -652,7 +652,7 @@
       "target_id": "curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_real_trade_keeps_precedence_over_managed_demo_book",
@@ -662,7 +662,7 @@
       "target_id": "curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_table_projection_preserves_fields_without_dumping_full_cells",
@@ -672,7 +672,7 @@
       "target_id": "curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_direct_table_cell_exactly_matches_original_full_cell_projection",
@@ -682,7 +682,7 @@
       "target_id": "curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_direct_table_cell_skips_detail_only_label_policy_models",
@@ -692,7 +692,7 @@
       "target_id": "curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_table_skips_physical_summaries_but_full_cells_load_them",
@@ -702,7 +702,7 @@
       "target_id": "curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_slice_trade_history_reads_once_and_selects_real_before_limit",
@@ -712,7 +712,7 @@
       "target_id": "curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_demo_trade_precedence_is_unchanged_outside_managed_two_sided_book",
@@ -722,7 +722,7 @@
       "target_id": "curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_mixed_demo_real_trade_snapshot_fails_closed_in_execution_policy",
@@ -732,7 +732,7 @@
       "target_id": "curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_slice_endpoint_rejects_legacy_window_alias_before_db_use",
@@ -742,7 +742,7 @@
       "target_id": "curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_too_many_table_windows_returns_422_before_db_use",
@@ -752,7 +752,7 @@
       "target_id": "curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_public_serialized_table_and_slice_redact_internal_feed_and_counterparty_fields",
@@ -762,7 +762,7 @@
       "target_id": "curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_table_wire_projection_is_filterable_and_bounded_for_full_matrix",
@@ -772,7 +772,7 @@
       "target_id": "curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_b100_curve_is_visible_without_prices_and_only_on_approved_lane",
@@ -782,7 +782,7 @@
       "target_id": "curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_b100_curve_refuses_unsupported_delivery_lane",
@@ -792,7 +792,7 @@
       "target_id": "curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_b100_product_midpoint_does_not_claim_specification_compatible_execution",
@@ -802,7 +802,7 @@
       "target_id": "curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_forward_curve_market_slices.py::test_b100_expired_operator_declaration_cannot_set_curve_price_or_depth",
@@ -812,7 +812,7 @@
       "target_id": "curves_canonical",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_market_evidence_policy.py::test_evidence_policy_has_only_separate_real_and_demo_scopes",
@@ -822,7 +822,7 @@
       "target_id": "live_benchmarks",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_market_evidence_policy.py::test_aggregate_selection_never_blends_evidence_classes",
@@ -832,7 +832,7 @@
       "target_id": "live_benchmarks",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_market_evidence_policy.py::test_stored_unknown_snapshot_is_never_upgraded_by_demo_id_registry",
@@ -842,7 +842,7 @@
       "target_id": "live_benchmarks",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_market_evidence_policy.py::test_evidence_sql_clauses_select_one_class_before_aggregation",
@@ -852,7 +852,7 @@
       "target_id": "live_benchmarks",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_market_evidence_policy.py::test_formal_trade_evidence_rejects_legacy_and_forged_snapshot_shapes",
@@ -862,7 +862,7 @@
       "target_id": "live_benchmarks",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_market_evidence_policy.py::test_unknown_test_and_canary_never_receive_public_evidence_labels",
@@ -872,7 +872,7 @@
       "target_id": "live_benchmarks",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_market_evidence_policy.py::test_count_helpers_cannot_label_mixed_evidence_as_one_market",
@@ -882,7 +882,7 @@
       "target_id": "live_benchmarks",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_market_evidence_policy.py::test_demand_separates_real_demo_and_metadata_only_unknown",
@@ -892,7 +892,7 @@
       "target_id": "live_benchmarks",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_market_evidence_policy.py::test_demand_excludes_inactive_catalog_rows_and_never_emits_generic_taxonomy",
@@ -902,7 +902,7 @@
       "target_id": "live_benchmarks",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_mcp_server.py::test_tools_are_listed",
@@ -912,7 +912,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_mcp_server.py::test_list_markets_has_eight_points_and_rotterdam_is_eu",
@@ -922,7 +922,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_mcp_server.py::test_plan_voyage_fuel_golden_through_mcp",
@@ -932,7 +932,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_mcp_server.py::test_invalid_port_is_tool_error_not_500",
@@ -942,7 +942,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_mcp_server.py::test_no_identifiers_in_any_tool_output",
@@ -952,7 +952,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_mcp_server.py::test_busy_limiter_returns_retry_message",
@@ -962,7 +962,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_mcp_server.py::test_zero_read_capacity_rejects_database_tools_but_not_catalog",
@@ -972,7 +972,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_mcp_server.py::test_browser_origin_rejected",
@@ -982,7 +982,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_mcp_server.py::test_no_origin_is_accepted_without_redirect",
@@ -992,7 +992,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_mcp_server.py::test_local_host_allowlist",
@@ -1002,7 +1002,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_mcp_server.py::test_tool_errors_are_sanitized",
@@ -1012,7 +1012,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_mcp_server.py::test_slice_window_is_normalized",
@@ -1022,7 +1022,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_mcp_server.py::test_mcp_disabled_in_production",
@@ -1032,7 +1032,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_mcp_server.py::test_production_app_has_no_mcp_route",
@@ -1042,7 +1042,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_mcp_server.py::test_staging_host_allowlist",
@@ -1052,7 +1052,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_mcp_server.py::test_sdk_body_limit",
@@ -1062,7 +1062,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_mcp_server.py::test_capacity_is_released_after_cancellation",
@@ -1072,7 +1072,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_mcp_server.py::test_voyage_too_long_is_a_tool_error",
@@ -1082,7 +1082,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_mcp_server.py::test_main_shares_public_and_mcp_read_budget",
@@ -1092,7 +1092,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_mcp_server.py::test_main_mount_and_lifespan",
@@ -1102,7 +1102,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_news_feed.py::test_webz_endpoint_is_locked_to_prevent_token_exfiltration",
@@ -1112,7 +1112,7 @@
       "target_id": "simple_reads",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_news_feed.py::test_webz_is_primary_and_normalizes_bounded_provider_records",
@@ -1122,7 +1122,7 @@
       "target_id": "simple_reads",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_news_feed.py::test_webz_rejects_malformed_records_but_keeps_valid_records",
@@ -1132,7 +1132,7 @@
       "target_id": "simple_reads",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_news_feed.py::test_webz_response_body_is_streamed_under_a_hard_byte_cap",
@@ -1142,7 +1142,7 @@
       "target_id": "simple_reads",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_news_feed.py::test_webz_failure_or_empty_result_falls_back_to_rss",
@@ -1152,7 +1152,7 @@
       "target_id": "simple_reads",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_news_feed.py::test_unconfigured_webz_uses_rss_without_provider_request",
@@ -1162,7 +1162,7 @@
       "target_id": "simple_reads",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_news_feed.py::test_malicious_and_oversized_feed_entries_are_rejected_before_storage",
@@ -1172,7 +1172,7 @@
       "target_id": "simple_reads",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_news_feed.py::test_streamed_feed_reader_rejects_body_over_byte_cap",
@@ -1182,7 +1182,7 @@
       "target_id": "simple_reads",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_news_feed.py::test_high_item_feed_and_run_are_bounded",
@@ -1192,7 +1192,7 @@
       "target_id": "simple_reads",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_news_feed.py::TestRefreshNewsDedupe::test_deduplicates_duplicate_urls_within_single_fetch_batch",
@@ -1202,7 +1202,7 @@
       "target_id": "simple_reads",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_news_feed.py::TestRefreshNewsDedupe::test_deduplicates_same_source_and_title_under_different_urls",
@@ -1212,7 +1212,7 @@
       "target_id": "simple_reads",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_news_feed.py::TestRefreshNewsDedupe::test_preserves_validated_provider_summary_when_classifier_has_none",
@@ -1222,7 +1222,7 @@
       "target_id": "simple_reads",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_news_feed.py::TestRefreshNewsDedupe::test_ignores_duplicate_insert_race_after_initial_url_check",
@@ -1232,7 +1232,7 @@
       "target_id": "simple_reads",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_crossing_filters.py::TestCrossingDetectionFilters::test_bid_crossing_uses_same_product_delivery_point_and_window_filters",
@@ -1242,7 +1242,7 @@
       "target_id": "orderbook_lists",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_crossing_filters.py::TestCrossingDetectionFilters::test_ask_crossing_uses_fuel_type_region_and_window_filters",
@@ -1252,7 +1252,7 @@
       "target_id": "orderbook_lists",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_live_benchmarks.py::TestLiveSliceBenchmarks::test_snapshot_returns_bounded_coherent_depth_in_two_queries",
@@ -1262,7 +1262,7 @@
       "target_id": "live_benchmarks,orderbook_snapshot",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_live_benchmarks.py::TestLiveSliceBenchmarks::test_snapshot_rechecks_expiry_without_an_order_write",
@@ -1272,7 +1272,7 @@
       "target_id": "live_benchmarks,orderbook_snapshot",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_live_benchmarks.py::TestLiveSliceBenchmarks::test_ask_benchmark_uses_same_slice_vwap",
@@ -1282,7 +1282,7 @@
       "target_id": "live_benchmarks,orderbook_snapshot",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_live_benchmarks.py::TestLiveSliceBenchmarks::test_bid_benchmark_uses_same_slice_vwap",
@@ -1292,7 +1292,7 @@
       "target_id": "live_benchmarks,orderbook_snapshot",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_live_benchmarks.py::TestLiveSliceBenchmarks::test_rebuild_live_slice_benchmark_persists_and_removes_slice_rows",
@@ -1302,7 +1302,7 @@
       "target_id": "live_benchmarks,orderbook_snapshot",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_live_benchmarks.py::TestLiveSliceBenchmarks::test_rebuild_flushes_revived_order_before_projecting",
@@ -1312,7 +1312,7 @@
       "target_id": "live_benchmarks,orderbook_snapshot",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_live_benchmarks.py::TestLiveSliceBenchmarks::test_benchmark_projection_preserves_unicode_qualification_and_rounding",
@@ -1322,7 +1322,7 @@
       "target_id": "live_benchmarks,orderbook_snapshot",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_live_benchmarks.py::TestLiveSliceBenchmarks::test_list_asks_batches_distinct_slice_benchmarks_with_bounded_queries",
@@ -1332,7 +1332,7 @@
       "target_id": "live_benchmarks,orderbook_snapshot",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_live_benchmarks.py::test_b100_live_reference_uses_valid_terms_without_alcohol_metadata",
@@ -1342,7 +1342,7 @@
       "target_id": "live_benchmarks,orderbook_snapshot",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_map_compact.py::test_compact_groups_preserve_all_window_values_and_native_demo_groups",
@@ -1352,7 +1352,7 @@
       "target_id": "orderbook_map",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_map_compact.py::test_compact_groups_preserve_ucome_supported_lane_without_inventing_fallback",
@@ -1362,7 +1362,7 @@
       "target_id": "orderbook_map",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_map_compact.py::test_compact_groups_select_nearest_forward_demo_window_without_spot",
@@ -1372,7 +1372,7 @@
       "target_id": "orderbook_map",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_map_compact.py::test_compact_endpoint_reuses_both_public_queries_once",
@@ -1382,7 +1382,7 @@
       "target_id": "orderbook_map",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_marketplace_filters.py::TestMarketplaceFuelFiltering::test_legacy_pages_have_total_order_for_tied_created_at",
@@ -1392,7 +1392,7 @@
       "target_id": "orderbook_lists",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_marketplace_filters.py::TestMarketplaceFuelFiltering::test_list_asks_excludes_non_methanol_ethanol_products",
@@ -1402,7 +1402,7 @@
       "target_id": "orderbook_lists,orderbook_map",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_marketplace_filters.py::TestMarketplaceFuelFiltering::test_fuel_types_endpoint_returns_only_market_fuel_families",
@@ -1412,7 +1412,7 @@
       "target_id": "orderbook_lists,orderbook_map",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_marketplace_filters.py::TestMarketplaceFuelFiltering::test_public_catalog_facets_exclude_inactive_test_and_expired_demo_rows",
@@ -1422,7 +1422,7 @@
       "target_id": "orderbook_lists,orderbook_map",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_marketplace_filters.py::TestMarketplaceFuelFiltering::test_list_asks_supports_combined_public_filters_without_duplicate_product_join",
@@ -1432,7 +1432,7 @@
       "target_id": "orderbook_lists,orderbook_map",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_marketplace_filters.py::TestMarketplaceFuelFiltering::test_list_asks_filters_by_market_product",
@@ -1442,7 +1442,7 @@
       "target_id": "orderbook_lists,orderbook_map",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_marketplace_filters.py::TestMarketplaceFuelFiltering::test_list_asks_excludes_off_spec_by_default",
@@ -1452,7 +1452,7 @@
       "target_id": "orderbook_lists,orderbook_map",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_marketplace_filters.py::TestMarketplaceFuelFiltering::test_public_list_orders_excludes_off_spec_by_default",
@@ -1462,7 +1462,7 @@
       "target_id": "orderbook_lists,orderbook_map",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_marketplace_filters.py::TestMarketplaceFuelFiltering::test_with_ci_excludes_off_spec_by_default",
@@ -1472,7 +1472,7 @@
       "target_id": "orderbook_lists,orderbook_map",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_marketplace_filters.py::TestMarketplaceFuelFiltering::test_with_ci_preserves_declared_zero_without_cash_adjustment",
@@ -1482,7 +1482,7 @@
       "target_id": "orderbook_lists,orderbook_map",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_marketplace_filters.py::TestMarketplaceFuelFiltering::test_aggregated_excludes_off_spec_by_default",
@@ -1492,7 +1492,7 @@
       "target_id": "orderbook_lists,orderbook_map",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_marketplace_filters.py::TestMarketplaceFuelFiltering::test_aggregated_filters_by_market_slice",
@@ -1502,7 +1502,7 @@
       "target_id": "orderbook_lists,orderbook_map",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_marketplace_filters.py::TestMarketplaceFuelFiltering::test_legacy_collection_is_hard_bounded_before_enrichment",
@@ -1512,7 +1512,7 @@
       "target_id": "orderbook_lists,orderbook_map",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_marketplace_filters.py::TestMarketplaceFuelFiltering::test_aggregate_uses_active_catalog_and_never_blends_real_demo",
@@ -1522,7 +1522,7 @@
       "target_id": "orderbook_lists,orderbook_map",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_marketplace_filters.py::TestMarketplaceFuelFiltering::test_product_counts_apply_listing_side_port_and_window_filters",
@@ -1532,7 +1532,7 @@
       "target_id": "orderbook_lists,orderbook_map",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_marketplace_filters.py::TestMarketplaceFuelFiltering::test_map_summary_uses_all_eligible_rows_and_latest_ask_per_port",
@@ -1542,7 +1542,7 @@
       "target_id": "orderbook_lists,orderbook_map",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_marketplace_filters.py::TestMarketplaceFuelFiltering::test_map_summary_preserves_eligibility_windows_provenance_and_latest_tie_break",
@@ -1552,7 +1552,7 @@
       "target_id": "orderbook_lists,orderbook_map",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_router.py::test_execution_broadening_loses_priority",
@@ -1562,7 +1562,7 @@
       "target_id": "orderbook_lists,orderbook_map",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_router.py::test_expiry_extension_loses_priority",
@@ -1572,7 +1572,7 @@
       "target_id": "orderbook_lists,orderbook_map",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_router.py::test_reduction_and_noop_or_unrelated_changes_retain_priority",
@@ -1582,7 +1582,7 @@
       "target_id": "orderbook_lists,orderbook_map",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_router.py::TestCreateOrder::test_bid_can_omit_certification_scheme",
@@ -1592,7 +1592,7 @@
       "target_id": "orderbook_lists,orderbook_map",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_router.py::TestCreateOrder::test_bid_rejects_supplier_metadata",
@@ -1602,7 +1602,7 @@
       "target_id": "orderbook_lists,orderbook_map",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_router.py::TestCreateOrder::test_bid_rejects_explicit_false_supplier_metadata",
@@ -1612,7 +1612,7 @@
       "target_id": "orderbook_lists,orderbook_map",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_router.py::TestCreateOrder::test_bid_persists_certification_preferences",
@@ -1622,7 +1622,7 @@
       "target_id": "orderbook_lists,orderbook_map",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_router.py::TestCreateOrder::test_ask_requires_certification_declaration",
@@ -1632,7 +1632,7 @@
       "target_id": "orderbook_lists,orderbook_map",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_router.py::TestCreateOrder::test_ask_requires_supplier_metadata_fields",
@@ -1642,7 +1642,7 @@
       "target_id": "orderbook_lists,orderbook_map",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_router.py::TestCreateOrder::test_ask_requires_certification_scheme",
@@ -1652,7 +1652,7 @@
       "target_id": "orderbook_lists,orderbook_map",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_router.py::TestLatestSupplierListingTemplate::test_returns_latest_ask_template_with_off_spec_reset",
@@ -1662,7 +1662,7 @@
       "target_id": "orderbook_lists,orderbook_map",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_router.py::TestLatestSupplierListingTemplate::test_returns_none_when_supplier_has_no_asks",
@@ -1672,7 +1672,7 @@
       "target_id": "orderbook_lists,orderbook_map",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestOrderCreate::test_valid_bid_order",
@@ -1682,7 +1682,7 @@
       "target_id": "orderbook_lists",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestOrderCreate::test_valid_ask_order_with_all_fields",
@@ -1692,7 +1692,7 @@
       "target_id": "orderbook_lists",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestOrderCreate::test_quantity_must_be_positive",
@@ -1702,7 +1702,7 @@
       "target_id": "orderbook_lists",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestOrderCreate::test_negative_quantity_rejected",
@@ -1712,7 +1712,7 @@
       "target_id": "orderbook_lists",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestOrderCreate::test_price_must_be_positive",
@@ -1722,7 +1722,7 @@
       "target_id": "orderbook_lists",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestOrderCreate::test_product_id_required",
@@ -1732,7 +1732,7 @@
       "target_id": "orderbook_lists",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestOrderCreate::test_vessel_id_accepts_uuid",
@@ -1742,7 +1742,7 @@
       "target_id": "orderbook_lists",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestOrderCreate::test_delivery_point_id_required",
@@ -1752,7 +1752,7 @@
       "target_id": "orderbook_lists",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestOrderCreate::test_bid_can_omit_certification_scheme",
@@ -1762,7 +1762,7 @@
       "target_id": "orderbook_lists",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestOrderCreate::test_certifications_are_trimmed_and_deduped",
@@ -1772,7 +1772,7 @@
       "target_id": "orderbook_lists",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestOrderCreate::test_ask_can_omit_declaration_in_schema_but_is_checked_in_router",
@@ -1782,7 +1782,7 @@
       "target_id": "orderbook_lists",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestOrderCreate::test_delivery_point_id_accepts_uuid",
@@ -1792,7 +1792,7 @@
       "target_id": "orderbook_lists",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestOrderUpdate::test_all_fields_optional",
@@ -1802,7 +1802,7 @@
       "target_id": "orderbook_lists",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestOrderUpdate::test_partial_update",
@@ -1812,7 +1812,7 @@
       "target_id": "orderbook_lists",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestOrderUpdate::test_certifications_update",
@@ -1822,7 +1822,7 @@
       "target_id": "orderbook_lists",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestOrderUpdate::test_metadata_update",
@@ -1832,7 +1832,7 @@
       "target_id": "orderbook_lists",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestOrderResponse::test_from_dict",
@@ -1842,7 +1842,7 @@
       "target_id": "orderbook_lists",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestOrderResponse::test_my_response_extends_base",
@@ -1852,7 +1852,7 @@
       "target_id": "orderbook_lists",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestOrderResponse::test_market_product_defaults_to_none",
@@ -1862,7 +1862,7 @@
       "target_id": "orderbook_lists",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestTradeCreate::test_valid_trade",
@@ -1872,7 +1872,7 @@
       "target_id": "orderbook_lists",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestTradeCreate::test_quantity_must_be_positive",
@@ -1882,7 +1882,7 @@
       "target_id": "orderbook_lists",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestTradeCreate::test_negative_quantity_rejected",
@@ -1892,7 +1892,7 @@
       "target_id": "orderbook_lists",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestTradeResponse::test_full_response",
@@ -1902,7 +1902,7 @@
       "target_id": "orderbook_lists",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestTradeResponse::test_defaults",
@@ -1912,7 +1912,7 @@
       "target_id": "orderbook_lists",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestTradeDeliverPayload::test_valid_payload",
@@ -1922,7 +1922,7 @@
       "target_id": "orderbook_lists",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestTradeDeliverPayload::test_quantity_must_be_positive",
@@ -1932,7 +1932,7 @@
       "target_id": "orderbook_lists",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestTradeDeliverPayload::test_price_must_be_positive",
@@ -1942,7 +1942,7 @@
       "target_id": "orderbook_lists",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestAggregatedOrderbookResponse::test_aggregated_data",
@@ -1952,7 +1952,7 @@
       "target_id": "orderbook_lists",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestEnumValues::test_order_side_values",
@@ -1962,7 +1962,7 @@
       "target_id": "orderbook_lists",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestEnumValues::test_order_book_status_values",
@@ -1972,7 +1972,7 @@
       "target_id": "orderbook_lists",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestEnumValues::test_trade_status_values",
@@ -1982,7 +1982,7 @@
       "target_id": "orderbook_lists",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestEnumValues::test_initiator_values",
@@ -1992,7 +1992,7 @@
       "target_id": "orderbook_lists",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_schemas.py::TestEnumValues::test_fuel_grade_values",
@@ -2002,7 +2002,7 @@
       "target_id": "orderbook_lists",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestAggregateFunction::test_returns_empty_list_when_no_trades",
@@ -2012,7 +2012,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestAggregateFunction::test_filters_by_fuel_type",
@@ -2022,7 +2022,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestAggregateFunction::test_filters_by_region",
@@ -2032,7 +2032,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestAggregateFunction::test_filters_by_product_id",
@@ -2042,7 +2042,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestAggregateFunction::test_filters_by_delivery_point_id",
@@ -2052,7 +2052,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestAggregateFunction::test_includes_seller_initiated_bid_hit_trade",
@@ -2062,7 +2062,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestAggregateFunction::test_demo_trade_summary_is_marked_demo_seed",
@@ -2072,7 +2072,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestAggregateFunction::test_real_and_demo_trade_summaries_are_separate",
@@ -2082,7 +2082,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestAggregateFunction::test_one_sided_demo_trade_is_quarantined_without_economic_values",
@@ -2092,7 +2092,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestAggregateFunction::test_filters_by_market_product_and_availability_window",
@@ -2102,7 +2102,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestAggregateFunction::test_all_product_spot_batch_matches_individual_public_summaries",
@@ -2112,7 +2112,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestComputeReferencePrices::test_returns_empty_list_when_no_trades",
@@ -2122,7 +2122,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestComputeReferencePrices::test_filters_by_fuel_type",
@@ -2132,7 +2132,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestComputeReferencePrices::test_filters_by_region",
@@ -2142,7 +2142,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestComputeReferencePrices::test_filters_by_date_range",
@@ -2152,7 +2152,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestComputeReferencePrices::test_rejects_invalid_date_range_before_query",
@@ -2162,7 +2162,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestComputeReferencePrices::test_date_range_excludes_out_of_range_trades",
@@ -2172,7 +2172,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestComputeReferencePrices::test_date_filters_bind_python_date_values_for_postgres",
@@ -2182,7 +2182,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestComputeReferencePrices::test_filters_by_product_id",
@@ -2192,7 +2192,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestComputeReferencePrices::test_computes_vwap_correctly",
@@ -2202,7 +2202,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestComputeReferencePrices::test_multiple_markets_returned",
@@ -2212,7 +2212,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestComputeReferencePrices::test_zero_volume_returns_zero_vwap",
@@ -2222,7 +2222,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestComputeReferencePrices::test_combined_filters",
@@ -2232,7 +2232,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestComputeReferencePrices::test_reference_filters_by_market_product_and_availability_window",
@@ -2242,7 +2242,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestComputeReferencePrices::test_reference_prices_use_immutable_snapshots_and_real_scope_only",
@@ -2252,7 +2252,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestReferencePriceRoute::test_preferred_date_params_are_forwarded_to_compute",
@@ -2262,7 +2262,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestReferencePriceRoute::test_deprecated_date_aliases_are_forwarded_to_compute",
@@ -2272,7 +2272,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestReferencePriceRoute::test_matching_preferred_and_deprecated_aliases_are_accepted",
@@ -2282,7 +2282,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestReferencePriceRoute::test_conflicting_preferred_and_deprecated_aliases_return_422",
@@ -2292,7 +2292,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestReferencePriceRoute::test_invalid_preferred_date_range_returns_422",
@@ -2302,7 +2302,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestReferencePriceRoute::test_reference_price_openapi_date_contract",
@@ -2312,7 +2312,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestReferencePriceRoute::test_reference_export_openapi_uses_export_date_names",
@@ -2322,7 +2322,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestReferencePriceItemSchema::test_valid_schema",
@@ -2332,7 +2332,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::TestReferencePriceItemSchema::test_schema_serialization",
@@ -2342,7 +2342,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::test_reference_price_item_has_visibility_field",
@@ -2352,7 +2352,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::test_reference_price_item_defaults_to_external",
@@ -2362,7 +2362,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_price_discovery_router.py::test_get_reference_prices_accepts_visibility_param",
@@ -2372,7 +2372,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_public_market_catalog_contract.py::test_market_catalog_preserves_alcohol_products_and_ucome_singapore_lane",
@@ -2382,7 +2382,7 @@
       "target_id": "simple_reads",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_public_market_catalog_contract.py::test_availability_query_requires_active_catalog_product_and_delivery_point",
@@ -2392,7 +2392,7 @@
       "target_id": "simple_reads",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_public_market_catalog_contract.py::test_availability_drops_noncanonical_active_product_instead_of_fallback_label",
@@ -2402,7 +2402,7 @@
       "target_id": "simple_reads",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_public_market_catalog_contract.py::test_availability_prefers_real_and_never_blends_demo_economics",
@@ -2412,7 +2412,7 @@
       "target_id": "simple_reads",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_public_market_catalog_contract.py::test_catalog_seed_deactivates_every_noncanonical_product_id",
@@ -2422,7 +2422,7 @@
       "target_id": "simple_reads",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_public_market_read_admission.py::test_two_selected_reads_hold_capacity_and_third_fails_immediately",
@@ -2432,7 +2432,7 @@
       "target_id": "health",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_public_market_read_admission.py::test_zero_capacity_rejects_selected_reads",
@@ -2442,7 +2442,7 @@
       "target_id": "health",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_public_market_read_admission.py::test_unselected_http_requests_bypass_admission",
@@ -2452,7 +2452,7 @@
       "target_id": "health",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_public_market_read_admission.py::test_non_http_scope_bypasses_admission",
@@ -2462,7 +2462,7 @@
       "target_id": "health",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_public_market_read_admission.py::test_cancelled_request_releases_admission",
@@ -2472,7 +2472,7 @@
       "target_id": "health",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_public_market_read_admission.py::test_downstream_exception_releases_admission",
@@ -2482,7 +2482,7 @@
       "target_id": "health",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_public_market_read_admission.py::test_registered_cors_wraps_saturated_admission_response",
@@ -2492,7 +2492,7 @@
       "target_id": "health",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_public_owner_admission.py::TestRejectedOwnerPublicVisibility::test_completing_legacy_role_publishes_new_public_order",
@@ -2502,7 +2502,7 @@
       "target_id": "live_benchmarks",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_public_owner_admission.py::TestRejectedOwnerPublicVisibility::test_benchmark_matches_visible_book_provenance",
@@ -2512,7 +2512,7 @@
       "target_id": "live_benchmarks",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_public_owner_admission.py::TestRejectedOwnerPublicVisibility::test_approved_market_support_admin_owner_is_public",
@@ -2522,7 +2522,7 @@
       "target_id": "live_benchmarks",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_public_owner_admission.py::TestRejectedOwnerPublicVisibility::test_market_support_visibility_matches_execution_admission",
@@ -2532,7 +2532,7 @@
       "target_id": "live_benchmarks",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_public_owner_admission.py::TestRejectedOwnerPublicVisibility::test_qualified_market_support_order_included_in_live_vwap",
@@ -2542,7 +2542,7 @@
       "target_id": "live_benchmarks",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_public_owner_admission.py::TestRejectedOwnerPublicVisibility::test_kyc_rejected_owner_ask_hidden_from_asks_and_aggregated",
@@ -2552,7 +2552,7 @@
       "target_id": "live_benchmarks",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_public_owner_admission.py::TestRejectedOwnerPublicVisibility::test_admin_rejected_owner_bid_hidden_from_bids",
@@ -2562,7 +2562,7 @@
       "target_id": "live_benchmarks",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_public_owner_admission.py::TestRejectedOwnerPublicVisibility::test_is_crossed_ignores_rejected_owner_opposing_order",
@@ -2572,7 +2572,7 @@
       "target_id": "live_benchmarks",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_public_owner_admission.py::TestRejectedOwnerPublicVisibility::test_benchmark_rebuild_excludes_rejected_owner",
@@ -2582,7 +2582,7 @@
       "target_id": "live_benchmarks",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_public_owner_admission.py::TestRejectedOwnerPublicVisibility::test_owner_moved_to_other_org_is_hidden",
@@ -2592,7 +2592,7 @@
       "target_id": "live_benchmarks",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_public_owner_admission.py::TestRejectedOwnerPublicVisibility::test_ownerless_legacy_order_keeps_existing_posture",
@@ -2602,7 +2602,7 @@
       "target_id": "live_benchmarks",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_reference_price_export.py::TestReferencePriceExport::test_returns_200_with_text_csv_content_type",
@@ -2612,7 +2612,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_reference_price_export.py::TestReferencePriceExport::test_has_content_disposition_attachment_header",
@@ -2622,7 +2622,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_reference_price_export.py::TestReferencePriceExport::test_empty_data_returns_headers_only",
@@ -2632,7 +2632,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_reference_price_export.py::TestReferencePriceExport::test_csv_has_correct_column_headers",
@@ -2642,7 +2642,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_reference_price_export.py::TestReferencePriceExport::test_csv_row_values_match_item",
@@ -2652,7 +2652,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_reference_price_export.py::TestReferencePriceExport::test_multiple_rows_exported",
@@ -2662,7 +2662,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_reference_price_export.py::TestReferencePriceExport::test_query_params_forwarded_to_compute",
@@ -2672,7 +2672,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_reference_price_export.py::TestReferencePriceExport::test_invalid_date_range_returns_422_before_compute",
@@ -2682,7 +2682,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_reference_price_export.py::TestReferencePriceExport::test_delivery_point_name_none_exported_as_empty_string",
@@ -2692,7 +2692,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_sea_distances.py::test_every_pair_has_a_default_route",
@@ -2702,7 +2702,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_sea_distances.py::test_lookup_is_symmetric",
@@ -2712,7 +2712,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_sea_distances.py::test_cape_route_exists_exactly_where_default_uses_suez",
@@ -2722,7 +2722,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_sea_distances.py::test_known_distances_are_plausible",
@@ -2732,7 +2732,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_sea_distances.py::test_unknown_pair_returns_none",
@@ -2742,7 +2742,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_sea_distances.py::test_method_is_recorded",
@@ -2752,7 +2752,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestIsMarketHours::test_market_has_no_session_delay",
@@ -2762,7 +2762,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestBuildTapeEntry::test_id_is_shortened_to_8_chars",
@@ -2772,7 +2772,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestBuildTapeEntry::test_no_buyer_seller_info_in_entry",
@@ -2782,7 +2782,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestBuildTapeEntry::test_total_usd_calculated",
@@ -2792,7 +2792,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestBuildTapeEntry::test_fuel_type_from_snapshot",
@@ -2802,7 +2802,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestBuildTapeEntry::test_market_product_from_snapshot",
@@ -2812,7 +2812,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestBuildTapeEntry::test_exact_scope_includes_product_and_delivery_point_fields",
@@ -2822,7 +2822,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestBuildTapeEntry::test_broad_scope_hides_exact_delivery_point_fields",
@@ -2832,7 +2832,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestBuildTapeEntry::test_exact_scope_uses_delivery_point_name_as_region_label",
@@ -2842,7 +2842,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestBuildTapeEntry::test_fuel_grade_from_order",
@@ -2852,7 +2852,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestBuildTapeEntry::test_availability_window_from_snapshot",
@@ -2862,7 +2862,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestBuildTapeEntry::test_snapshot_only_trade_never_needs_order_relationships",
@@ -2872,7 +2872,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestBuildTapeEntry::test_mutable_bid_order_is_ignored",
@@ -2882,7 +2882,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestBuildTapeEntry::test_demo_trade_flagged_from_snapshot_provenance",
@@ -2892,7 +2892,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestBuildTapeEntry::test_unknown_trade_is_never_presented_as_real",
@@ -2902,7 +2902,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestTradeTapeSchemas::test_tape_entry_schema_fields",
@@ -2912,7 +2912,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestTradeTapeSchemas::test_tape_response_schema_fields",
@@ -2922,7 +2922,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestTradeTapeSchemas::test_tape_entry_no_party_fields",
@@ -2932,7 +2932,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestTradeTapeSchemas::test_tape_response_round_trip",
@@ -2942,7 +2942,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestTradeTapeEndpointContract::test_demo_only_selects_exact_demo_evidence",
@@ -2952,7 +2952,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestTradeTapeEndpointContract::test_delivery_point_filter_is_applied_to_query",
@@ -2962,7 +2962,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestTradeTapeEndpointContract::test_unfiltered_response_hides_exact_delivery_point_identity",
@@ -2972,7 +2972,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestTradeTapeEndpointContract::test_exact_delivery_point_response_exposes_exact_scope",
@@ -2982,7 +2982,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_trade_tape.py::TestTradeTapeEndpointContract::test_openapi_exposes_trade_tape_filters",
@@ -2992,7 +2992,7 @@
       "target_id": "prices",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_required_price_lookups_ask_for_ucome_at_singapore_only",
@@ -3002,7 +3002,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_legs_have_scope_and_energy",
@@ -3012,7 +3012,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_golden_strategies",
@@ -3022,7 +3022,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_golden_fuel_tonnes_and_bunkering",
@@ -3032,7 +3032,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_recommends_cheapest_complete_strategy",
@@ -3042,7 +3042,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_missing_assumptions_make_affected_strategies_partial",
@@ -3052,7 +3052,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_missing_vlsfo_price_names_the_port",
@@ -3062,7 +3062,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_voyage_without_eu_scope_has_no_green_strategy",
@@ -3072,7 +3072,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_fuel_without_default_intensity_is_partial",
@@ -3082,7 +3082,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_green_fuel_at_or_above_target_skips_min_blend",
@@ -3092,7 +3092,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_demo_price_adds_warning",
@@ -3102,7 +3102,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_vessel_without_vlsfo_has_no_conventional_strategy",
@@ -3112,7 +3112,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_green_only_vessel_uses_methanol_and_looks_up_every_departure",
@@ -3122,7 +3122,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_order_declared_intensity_is_used",
@@ -3132,7 +3132,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_start_date_too_far_ahead_is_rejected",
@@ -3142,7 +3142,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_table_distance_used_when_caller_omits_distance",
@@ -3152,7 +3152,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_start_date_bounds",
@@ -3162,7 +3162,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_missing_table_distance_is_rejected",
@@ -3172,7 +3172,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_cape_route_without_table_entry_is_rejected_even_with_caller_distance",
@@ -3182,7 +3182,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_missing_market_price_names_fuel_and_port",
@@ -3192,7 +3192,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_missing_eua_price_only_affects_fossil_scope",
@@ -3202,7 +3202,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_unvalued_surplus_is_not_a_missing_input",
@@ -3212,7 +3212,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_caller_intensity_overrides_order",
@@ -3222,7 +3222,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_order_energy_density_changes_tonnes_not_energy",
@@ -3232,7 +3232,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_compliant_vlsfo_skips_identical_blend",
@@ -3242,7 +3242,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_benchmark_and_sustainability_warnings_and_assumptions",
@@ -3252,7 +3252,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_reporting_year_override_controls_target_and_ets_phase_in",
@@ -3262,7 +3262,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_minimum_blend_has_exact_zero_balance_without_pool_price",
@@ -3272,7 +3272,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_nested_price_output_is_rounded_without_rounding_calculations",
@@ -3282,7 +3282,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_ets_is_not_rounded_before_currency_conversion",
@@ -3292,7 +3292,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_speed_below_one_knot_is_rejected",
@@ -3302,7 +3302,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_ten_leg_voyage_over_365_days_is_rejected",
@@ -3312,7 +3312,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_duration_includes_final_berth_and_checks_before_date_arithmetic",
@@ -3322,7 +3322,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_green_only_vessel_without_eu_scope_has_full_strategy",
@@ -3332,7 +3332,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_voyage_fuel_plan.py::test_lookup_order_and_port_availability",
@@ -3342,7 +3342,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_voyage_prices.py::test_candidate_windows_near_and_far",
@@ -3352,7 +3352,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_voyage_prices.py::test_lowest_real_ask_wins_and_is_executable",
@@ -3362,7 +3362,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_voyage_prices.py::test_demo_ask_is_never_executable",
@@ -3372,7 +3372,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_voyage_prices.py::test_earlier_window_preferred",
@@ -3382,7 +3382,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_voyage_prices.py::test_declared_intensity_is_copied",
@@ -3392,7 +3392,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_voyage_prices.py::test_benchmark_fallback",
@@ -3402,7 +3402,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_voyage_prices.py::test_no_data_leaves_lookup_unresolved",
@@ -3412,7 +3412,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_voyage_prices.py::test_single_query_for_many_lookups",
@@ -3422,7 +3422,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_voyage_prices.py::test_snapshot_has_no_identifiers",
@@ -3432,7 +3432,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_voyage_prices.py::test_snapshot_mixed_status",
@@ -3442,7 +3442,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_voyage_prices.py::test_snapshot_rejects_unknown_product_and_port",
@@ -3452,7 +3452,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_voyage_prices.py::test_database_error_is_wrapped",
@@ -3462,7 +3462,7 @@
       "target_id": "mcp",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     },
     {
       "source_id": "tests/unit/test_orderbook_marketplace_filters.py::test_biofuel_public_surfaces_and_live_benchmark_share_fixed_contract",
@@ -3472,7 +3472,7 @@
       "target_id": "orderbook_lists",
       "status": "complete",
       "exclusion_reason": "",
-      "reviewed_by": "phase3-owner-round7"
+      "reviewed_by": "contract-coverage"
     }
   ],
   "task4b_fixture_gate": {

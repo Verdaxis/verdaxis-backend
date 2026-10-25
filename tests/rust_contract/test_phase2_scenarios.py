@@ -148,7 +148,7 @@ def test_approved_difference_does_not_parse_a_non_json_response():
 
 
 def test_invalid_bearer_actions_pin_the_reviewed_credential_envelope():
-    """PD89-CF4-1/-11: Rust answers an invalid bearer with the coded detail;
+    """AUTH-ENVELOPE/-11: Rust answers an invalid bearer with the coded detail;
     Python keeps its legacy string (decisions 47 and 113). Every bad-bearer
     action must name the rule and pin both wires exactly, so the twins cannot
     silently drift while the envelopes differ."""
@@ -171,7 +171,7 @@ def test_invalid_bearer_actions_pin_the_reviewed_credential_envelope():
         marked = {action.name: action for action in scenario.actions(context) if action.name in bad_bearers}
         assert set(marked) == set(bad_bearers), name
         for action_name, item in marked.items():
-            assert item.approved_difference == "PD89-CF4-11", (name, action_name)
+            assert item.approved_difference == "AUTH-REFUSAL", (name, action_name)
             assert item.assert_http_difference is not None, (name, action_name)
 
 
@@ -202,7 +202,7 @@ def test_invalid_bearer_pair_pins_both_reviewed_envelopes():
         check([python, {**rust, "body": b'{"detail":{"code":"AUTH_CREDENTIALS_INVALID"}}'}])
     with pytest.raises(module.ScenarioError, match="non-empty string"):
         check([python, {**rust, "body": b'{"detail":{"code":"AUTH_CREDENTIALS_INVALID","message":""}}'}])
-    assert "PD89-CF4-11" in module.APPROVED_DIFFERENCES
+    assert "AUTH-REFUSAL" in module.APPROVED_DIFFERENCES
 
 
 def test_state_difference_needs_a_named_rule_and_is_not_silent():

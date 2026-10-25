@@ -216,9 +216,9 @@ def _actions(context):
     yield create("create-null-body", 422, ACTOR, raw=b"null")
     yield create("create-empty-body", 422, ACTOR, raw=b"")
     yield create("create-bad-bearer", 401, ACTOR, {"name": "refused"}, token="Bearer invalid",
-                 approved_difference="PD89-CF4-11", assert_http_difference=invalid_bearer_pair())
+                 approved_difference="AUTH-REFUSAL", assert_http_difference=invalid_bearer_pair())
     yield create("create-bad-bearer-before-validation", 401, ACTOR, {}, token="Bearer invalid",
-                 approved_difference="PD89-CF4-11", assert_http_difference=invalid_bearer_pair())
+                 approved_difference="AUTH-REFUSAL", assert_http_difference=invalid_bearer_pair())
     yield create("create-tenth-container", 201, CAPPED, {"name": "Tenth"}, ids=[uid(81, 5)], created="Tenth")
     yield create("create-eleventh-container", 400, CAPPED, {"name": "Eleventh"})
     yield create("create-database-failure", 500, ACTOR, {"name": "rollback-create"}, ids=[uid(81, 6)],

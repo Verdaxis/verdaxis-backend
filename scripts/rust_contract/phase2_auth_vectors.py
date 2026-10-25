@@ -219,18 +219,18 @@ def export():
                 "code": "AUTH_PASSWORD_CHANGED" if password else "AUTH_SESSION_REVOKED",
                 "message": "Password was changed; sign in again" if password else "Session was revoked; sign in again"}}, separators=(",", ":"))}
         elif vector["python"]["body"] == LEGACY_CREDENTIAL_REFUSAL:
-            # PD89-CF4-1+PD89-CF4-11+PD3-EXP-1 (PM ruling PD3-R6-1): Python
+            # AUTH-ENVELOPE+AUTH-REFUSAL+ACCESS-EXPIRY (auth contract): Python
             # keeps its legacy `detail` string and Rust answers with the
             # reviewed code envelope. Record both instead of letting the Rust
             # test substitute its own output for the expectation.
-            vector["approved_difference"] = {"decisions": ["PD89-CF4-1", "PD89-CF4-11", "PD3-EXP-1"],
-                                             "ruling": "PD3-R6-1", "python_change": "none (decision 113)"}
+            vector["approved_difference"] = {"decisions": ["AUTH-ENVELOPE", "AUTH-REFUSAL", "ACCESS-EXPIRY"],
+                                             "ruling": "AUTH-CONTRACT", "python_change": "none"}
             vector["rust_expected"] = {"status": 401, "www_authenticate": "Bearer",
                                        "body": json.dumps({"detail": {"code": "AUTH_CREDENTIALS_INVALID"}}, separators=(",", ":"))}
         elif vector["id"] == "exp-absent":
-            # PD3-EXP-1: Rust requires `exp` and refuses what Python accepts.
-            vector["approved_difference"] = {"decision": "PD3-EXP-1",
-                                             "python_change": "none (decision 113)"}
+            # ACCESS-EXPIRY: Rust requires `exp` and refuses what Python accepts.
+            vector["approved_difference"] = {"decision": "ACCESS-EXPIRY",
+                                             "python_change": "none"}
             vector["rust_expected"] = {"status": 401, "www_authenticate": "Bearer",
                                        "body": json.dumps({"detail": {"code": "AUTH_CREDENTIALS_INVALID"}}, separators=(",", ":"))}
     return {"version": 1, "oracle_sha": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),

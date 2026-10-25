@@ -150,7 +150,7 @@ hard-coded UTC startup field cannot be overridden through `.options()`.
 Staging uses `Asia/Singapore` until Phase 0 convergence, then `UTC`. It does not open a
 migrator connection. `scripts/prepare_rust_budget.py` creates private budget
 metadata and verifies environment-file drift. The deploy transaction writes
-that artifact to `.runtime-rust/budget.json`, and the reviewed staging unit
+that artifact to `.runtime-rust/budget.json`, and the specified staging unit
 passes it to the binary with `--budget-file`; the contract harness may instead
 carry the document in `RUST_CONFIG`. `runtime::config::config_from_deployed_environment`
 builds the same validated `Config` from the flat deployed environment, so a
@@ -195,7 +195,7 @@ short floor cannot return PASS. Candidate activation remains a separate gate;
 see `docs/rust-phase1/readiness-task14b.md`.
 
 Task 5 exports the catalog policy as data. `scripts/rust_contract/export_policy.py`
-turns the approved `app.market_catalog` constants and the reviewed
+turns the approved `app.market_catalog` constants and the specified
 qualification-profile map into `deploy/rust/market-policy.json` (identity, lanes,
 execution mode, display order) and `deploy/rust/mcp-catalog.json` (the
 `list_markets` payload); `deploy/rust/market-policy.manifest.json` holds their
@@ -208,7 +208,7 @@ Task 6 adds the shared market rules under `rs/read/src/market/`. `visibility.rs`
 binds values into the two shared relations in `rs/read/sql/`:
 `public_orders.sql` projects internal order rows and private digest input from the attested policy
 plus the captured instants, and `trade_evidence.sql` selects formal trade
-snapshots. `terms.rs` owns typed execution qualification, the reviewed-terms
+snapshots. `terms.rs` owns typed execution qualification, the specified-terms
 digest, and the public redaction of private declarations; `decimal.rs`,
 `windows.rs`, and `provenance.rs` own normalized decimal text, the canonical
 availability-window grammar and aliases, and the evidence policy constants.
@@ -311,7 +311,7 @@ allocator, server producer and target consumer. It reads Linux procfs or macOS
 sysctl and fails closed without changing host settings. Database/Linux gates run
 through the approved `verdaxis-prod-test` isolated harness; local Colima stays off.
 
-Task 12c adds the reviewed staging unit
+Task 12c adds the specified staging unit
 `deploy/systemd/verdaxis-rust-staging.service` and its manifest entry, so the
 staging manifest now selects the backend, the Rust reads and the singleton
 maintenance units. The unit loads `.runtime-release.env` and the deploy-written
@@ -377,7 +377,7 @@ digest and the systemd 249/255 and staging-ABI start evidence.
 
 The explicit `phase1-meaning-v1` profile reuses `phase2_meaning.py` and its single
 raw-response comparator. The default byte path remains historical and unchanged.
-The successor CI runner supplies the reviewed ledger digest explicitly.
+The successor CI runner supplies the specified ledger digest explicitly.
 `phase1_meaning/corpus/{enabled,disabled}` retains all 487 requests per KYC state,
 recorded twice on disposable data. Canonical tape pages come from the complete
 Python-filtered relation before full-UUID pagination, not a sorted Python page.
@@ -782,7 +782,7 @@ See `docs/phase0/progress-task4b.md` for acceptance and remaining host gates.
 
 The canonical UCOME B100 ID remains `e561e43f-d9b2-598e-981c-f1d28d515ddc`. Its execution mode is `ORDERBOOK`; the existing wholesale Singapore lane and 1 MT initial order minimum remain. Standard fractional fills use the same rules as other fuels. No synthetic UCOME B100 liquidity is seeded.
 
-`app/schemas/fame_order.py` defines BID requirements and ASK declarations within the standard order contract. `app/services/fame_order.py` validates current declarations, compares standard/edition/grade, cold-flow limits, comparable CI and certification/evidence requirements, and forms immutable trade snapshots. Matching and direct taking use the same checks. B100 direct takes bind the reviewed order version under the row lock; changed offers require a fresh review, while committed idempotent requests remain replayable. Inventory and assisted publication carry the same terms. Negotiation acceptance remains disabled for all fuels under the existing policy.
+`app/schemas/fame_order.py` defines BID requirements and ASK declarations within the standard order contract. `app/services/fame_order.py` validates current declarations, compares standard/edition/grade, cold-flow limits, comparable CI and certification/evidence requirements, and forms immutable trade snapshots. Matching and direct taking use the same checks. B100 direct takes bind the specified order version under the row lock; changed offers require a fresh review, while committed idempotent requests remain replayable. Inventory and assisted publication carry the same terms. Negotiation acceptance remains disabled for all fuels under the existing policy.
 
 Public order responses redact private certificate, batch, site and documentary references; owner and authorized trade responses retain them. Unknown measurements remain null, zero remains zero, and declared evidence is not platform verification. Operator certificates must be current at execution; availability windows remain matching buckets, not promised delivery dates. Required batch/consignment evidence has an explicit loading/delivery milestone.
 

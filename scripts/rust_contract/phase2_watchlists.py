@@ -265,7 +265,7 @@ def _actions(context, gate_enabled):
           for name, raw in MALFORMED_UUIDS),
         Action("bad-bearer-before-uuid", "W04", "GET", "/api/watchlists/not-a-uuid", 401,
                headers={"authorization": "Bearer invalid", "x-request-id": REQUEST_ID},
-               assert_after=_unchanged, approved_difference="PD89-CF4-11",
+               assert_after=_unchanged, approved_difference="AUTH-REFUSAL",
                assert_http_difference=invalid_bearer_pair()),
     ]
 

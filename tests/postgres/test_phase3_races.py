@@ -67,7 +67,7 @@ async def wait_for_blocked(owner, blocker_pid):
         while True:
             async with owner.connect() as conn:
                 if (await conn.execute(text("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE "
-                                            "datname=current_database() AND :blocker=ANY(pg_blocking_pids(pid)) AND wait_event_type='Lock')"), {"blocker":blocker_pid})).scalar_one():
+                                            "datname=current_database() AND :blocker=ANY(pg_blocking_pids(pid)))"), {"blocker":blocker_pid})).scalar_one():
                     return
             await asyncio.sleep(0)
 
