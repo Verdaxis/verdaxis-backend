@@ -331,7 +331,7 @@ async fn load_orders(
 ) -> Result<Vec<OrderState>, MarketWriteError> {
     let clock = VisibilityClock::at(at);
     let sql = order_query_sql(
-        "SELECT e.*, /* private_digest_input(e) */ AS private_digest_input FROM eligible_orders e WHERE e.id=ANY($14)",
+        "SELECT e.*, /* private_digest_input(e) */ FROM eligible_orders e WHERE e.id=ANY($14)",
     );
     let rows = bind_order_query(&sql, policy, &clock, config, &PublicOrderFilters::default())?
         .bind(ids)
@@ -401,7 +401,7 @@ async fn aggregates(
     for slice in slices {
         for side in ["BID", "ASK"] {
             let sql = order_query_sql(
-                "SELECT e.remaining_quantity_mt,e.price_per_mt_usd,e.provenance::text AS provenance, /* private_digest_input(e) */ AS private_digest_input FROM eligible_orders e",
+                "SELECT e.remaining_quantity_mt,e.price_per_mt_usd,e.provenance::text AS provenance, /* private_digest_input(e) */ FROM eligible_orders e",
             );
             let filters = PublicOrderFilters {
                 surface: OrderSurface::Candidates,
