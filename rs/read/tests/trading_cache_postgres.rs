@@ -1542,7 +1542,13 @@ async fn public_route_wrappers_check_generations_and_time_without_listener_wakes
             runtime
                 .authority()
                 .refresh(runtime.record_path(), clock.now().monotonic);
-            set_generation(&mut writer, current + 100).await;
+            let retained: i64 = sqlx::query_scalar(
+                "SELECT coalesce(max(generation), 0) FROM public_read_cache_events",
+            )
+            .fetch_one(&mut writer)
+            .await
+            .unwrap();
+            set_generation(&mut writer, current.max(retained) + 100).await;
             state.trading_caches.clear();
             for unavailable in ["revoked", "absent", "unreadable"] {
                 match unavailable {
@@ -1588,7 +1594,13 @@ async fn public_route_wrappers_check_generations_and_time_without_listener_wakes
         }
         // The disposable restore reused event keys too. Move beyond retained
         // events before the next economic write; do not leave a duplicate key.
-        let next_generation = generation(&mut writer).await + 100;
+        let retained: i64 = sqlx::query_scalar(
+            "SELECT coalesce(max(generation), 0) FROM public_read_cache_events",
+        )
+        .fetch_one(&mut writer)
+        .await
+        .unwrap();
+        let next_generation = generation(&mut writer).await.max(retained) + 100;
         set_generation(&mut writer, next_generation).await;
     }
     reset(&mut writer).await;
