@@ -70,32 +70,12 @@ impl SharedLimits {
         path: &str,
         now: u64,
     ) -> Result<(), crate::ApiError> {
-        if self
+        let check = self
             .0
             .lock()
             .expect("quota authority lock")
-            .endpoint_by_address(client, path, now)
-        {
-            return Ok(());
-        }
-        if auth_endpoint_policy(path).is_some() {
-            return Err(Refusal {
-                retry_after_seconds: AUTH_ENDPOINT_WINDOW_SECONDS,
-            }
-            .auth_failure()
-            .into());
-        }
-        let (_, limit, window) = endpoint_policy(path).expect("limited endpoint");
-        let unit = if window == 3600 { "hour" } else { "minute" };
-        Err(crate::ApiError {
-            status: axum::http::StatusCode::TOO_MANY_REQUESTS,
-            detail: serde_json::json!({
-                "code": "RATE_LIMITED",
-                "message": format!("Rate limit exceeded: {limit} per 1 {unit}"),
-            }),
-            retry_after: None,
-            kind: crate::ApiErrorKind::Expected,
-        })
+            .endpoint_check_by_address(client, path, now);
+        endpoint_refusal(path, check)
     }
     /// Route adapters call this after bearer/current-account admission and
     /// typed validation. Invalid authentication never consumes endpoint quota.
@@ -109,29 +89,37 @@ impl SharedLimits {
         path: &str,
         now: u64,
     ) -> Result<(), crate::ApiError> {
-        let Err(refusal) = self
+        let check = self
             .0
             .lock()
             .expect("quota authority lock")
-            .endpoint_check(user, path, now)
-        else {
-            return Ok(());
-        };
-        if auth_endpoint_policy(path).is_some() {
-            return Err(refusal.auth_failure().into());
-        }
-        let (_, limit, window) = endpoint_policy(path).expect("limited endpoint");
-        let unit = if window == 3600 { "hour" } else { "minute" };
-        Err(crate::ApiError {
-            status: axum::http::StatusCode::TOO_MANY_REQUESTS,
-            detail: serde_json::json!({
-                "code": "RATE_LIMITED",
-                "message": format!("Rate limit exceeded: {limit} per 1 {unit}"),
-            }),
-            retry_after: Some(refusal.retry_after_seconds as u32),
-            kind: crate::ApiErrorKind::Expected,
-        })
+            .endpoint_check(user, path, now);
+        endpoint_refusal(path, check)
     }
+}
+
+/// The one refusal envelope for both endpoint paths: the auth envelope with
+/// the remaining seconds for an auth route, the shared code/message object
+/// with `Retry-After` for the business routes. Building it here keeps the
+/// address-keyed and user-keyed refusals from drifting apart.
+fn endpoint_refusal(path: &str, check: Result<(), Refusal>) -> Result<(), crate::ApiError> {
+    let Err(refusal) = check else {
+        return Ok(());
+    };
+    if auth_endpoint_policy(path).is_some() {
+        return Err(refusal.auth_failure().into());
+    }
+    let (_, limit, window) = endpoint_policy(path).expect("limited endpoint");
+    let unit = if window == 3600 { "hour" } else { "minute" };
+    Err(crate::ApiError {
+        status: axum::http::StatusCode::TOO_MANY_REQUESTS,
+        detail: serde_json::json!({
+            "code": "RATE_LIMITED",
+            "message": format!("Rate limit exceeded: {limit} per 1 {unit}"),
+        }),
+        retry_after: Some(refusal.retry_after_seconds as u32),
+        kind: crate::ApiErrorKind::Expected,
+    })
 }
 
 // Each authority has its own cap. The ordered expiration index keeps eviction
@@ -290,13 +278,20 @@ impl QuotaStores {
 
     /// Endpoint admission keyed by client address in the evicting address
     /// store; used by unauthenticated auth routes whose only identity is the
-    /// peer address. Verified-user routes never call this.
-    fn endpoint_by_address(&mut self, client: &str, path: &str, now: u64) -> bool {
+    /// peer address. Verified-user routes never call this. The refused window's
+    /// remaining seconds travel with the refusal.
+    fn endpoint_check_by_address(
+        &mut self,
+        client: &str,
+        path: &str,
+        now: u64,
+    ) -> Result<(), Refusal> {
         let Some((key, limit, window)) = endpoint_policy(path) else {
-            return true;
+            return Ok(());
         };
         self.preauth_store
-            .accept(&network_identity(client), key, limit, window, now, true)
+            .accept_check(&network_identity(client), key, limit, window, now, true)
+            .map_err(|retry_after_seconds| Refusal { retry_after_seconds })
     }
 
     /// Pre-auth evictions since start. A plain number: it names no client.

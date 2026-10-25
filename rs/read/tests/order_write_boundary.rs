@@ -315,7 +315,6 @@ fn repository_root() -> PathBuf {
         .expect("repository root")
 }
 
-/// Every source-boundary violation in the repository, as `path: rule` text.
 /// The one integration test that commits an order-book change as the disposable
 /// owner role, to prove a stale generation replaces a warm cache entry. It
 /// must simulate another writer's change, so it cannot drive the command
@@ -339,6 +338,7 @@ fn reviewed_order_book_test_writes() -> Vec<String> {
     .to_vec()
 }
 
+/// Every source-boundary violation in the repository, as `path: rule` text.
 fn scan_repository() -> Vec<String> {
     let root = repository_root();
     let boundary = root.join("rs/read/src/order_write");

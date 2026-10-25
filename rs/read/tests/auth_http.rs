@@ -668,22 +668,23 @@ fn preauth_and_endpoint_limits_share_one_counter() {
     }
 
     // Registration routes share a pre-auth bucket but not an endpoint bucket.
+    // Both are address-keyed, like every unauthenticated auth route.
     let limits = SharedLimits::default();
     for _ in 0..5 {
         assert!(
             limits
-                .check_endpoint("client", "/api/auth/register", 0)
+                .check_endpoint_by_address("client", "/api/auth/register", 0)
                 .is_ok()
         );
     }
     assert!(
         limits
-            .check_endpoint("client", "/api/auth/register", 0)
+            .check_endpoint_by_address("client", "/api/auth/register", 0)
             .is_err()
     );
     assert!(
         limits
-            .check_endpoint("client", "/api/auth/register-with-org", 0)
+            .check_endpoint_by_address("client", "/api/auth/register-with-org", 0)
             .is_ok()
     );
 
@@ -691,7 +692,7 @@ fn preauth_and_endpoint_limits_share_one_counter() {
     for _ in 0..100 {
         assert!(
             limits
-                .check_endpoint("client", "/api/auth/logout", 0)
+                .check_endpoint_by_address("client", "/api/auth/logout", 0)
                 .is_ok()
         );
     }
