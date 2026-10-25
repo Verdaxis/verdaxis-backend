@@ -491,9 +491,10 @@ exit 0
         return environment
 
     def deploy(self, release_sha: str, *, fail_phase: str = "", cache_listener: str | None = None, **overrides) -> subprocess.CompletedProcess[str]:
-        (self.checkout / ".env").write_text(
-            self.deployed_env_text(release_sha, cache_listener=cache_listener)
-        )
+        self._write_deployed_env(release_sha)
+        if cache_listener is not None:
+            with (self.checkout / ".env").open("a") as environment_file:
+                environment_file.write(f"RUST_CACHE_LISTENER={cache_listener}\n")
         environment = self.deploy_environment(release_sha, fail_phase=fail_phase)
         environment.update(overrides)
         return subprocess.run(
@@ -509,13 +510,7 @@ exit 0
         """The deployed .env names the release being deployed, as on the host."""
         (self.checkout / ".env").write_text(self.deployed_env_text(release_sha))
 
-    def deployed_env_text(
-        self,
-        release_sha: str,
-        *,
-        kyc_gate: str | None = "false",
-        cache_listener: str | None = None,
-    ) -> str:
+    def deployed_env_text(self, release_sha: str, *, kyc_gate: str | None = "false") -> str:
         """The deployed `.env` body, with the Private Beta KYC switch state."""
         body = (
             "ENVIRONMENT=staging\n"
@@ -533,11 +528,7 @@ exit 0
             "MIGRATOR_DATABASE_URL=postgresql+asyncpg://verdaxis_migrator_staging"
             ":fixture-password@127.0.0.1:5432/verdaxis_staging\n"
         )
-        if kyc_gate is not None:
-            body += f"KYC_EXECUTION_GATE_ENABLED={kyc_gate}\n"
-        if cache_listener is not None:
-            body += f"RUST_CACHE_LISTENER={cache_listener}\n"
-        return body
+        return body if kyc_gate is None else body + f"KYC_EXECUTION_GATE_ENABLED={kyc_gate}\n"
 
     def prepare_runtime_environment(
         self, release_sha: str, *, kyc_gate: str | None = "false"
