@@ -817,7 +817,7 @@ impl BehavioralWindow {
                 // A requested pair is either available or unavailable; a
                 // not-requested property result contradicts the request.
                 ComponentStatus::NotRequested => {
-                    return Err(BehavioralWindowError::IncoherentAvailability)
+                    return Err(BehavioralWindowError::IncoherentAvailability);
                 }
             }
         }
@@ -828,9 +828,7 @@ impl BehavioralWindow {
                     && property_unavailable == properties
                     && self.diagnostic.is_some()
             }
-            BehavioralAvailability::Available => {
-                core_unavailable == 0 && property_unavailable == 0
-            }
+            BehavioralAvailability::Available => core_unavailable == 0 && property_unavailable == 0,
             BehavioralAvailability::Partial => {
                 core_unavailable + core_incomplete > 0
                     || property_unavailable + property_incomplete > 0
