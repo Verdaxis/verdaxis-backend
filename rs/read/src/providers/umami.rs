@@ -81,7 +81,10 @@ impl fmt::Debug for UmamiConfig {
             .field("enabled", &self.enabled)
             .field("base_url", &self.base_url.as_ref().map(|_| "[redacted]"))
             .field("website_id", &self.website_id)
-            .field("api_username", &self.api_username.as_ref().map(|_| "[redacted]"))
+            .field(
+                "api_username",
+                &self.api_username.as_ref().map(|_| "[redacted]"),
+            )
             .field(
                 "api_password",
                 &self.api_password.as_ref().map(|_| "[redacted]"),
@@ -259,7 +262,11 @@ impl UmamiClient {
         let mut property_results = Vec::with_capacity(properties.pairs().len());
         let mut failures = 0;
         for event in properties.events() {
-            let requested = properties.pairs().iter().filter(|(candidate, _)| *candidate == event).map(|(_, property)| *property);
+            let requested = properties
+                .pairs()
+                .iter()
+                .filter(|(candidate, _)| *candidate == event)
+                .map(|(_, property)| *property);
             let mut event_params = params.clone();
             event_params.push(("event".to_owned(), event.name().to_owned()));
             let outcome = self
@@ -468,11 +475,15 @@ fn unavailable_window(
     properties: &AllowedPropertySet,
 ) -> BehavioralWindow {
     let mut window = BehavioralWindow::unavailable(query.start, query.end, observed_at, diagnostic);
-    window.property_results = properties.pairs().iter().map(|(event, property)| PropertyAvailability {
-        event: event.name().to_owned(),
-        property: property.name().to_owned(),
-        result: ProviderComponent::unavailable(diagnostic),
-    }).collect();
+    window.property_results = properties
+        .pairs()
+        .iter()
+        .map(|(event, property)| PropertyAvailability {
+            event: event.name().to_owned(),
+            property: property.name().to_owned(),
+            result: ProviderComponent::unavailable(diagnostic),
+        })
+        .collect();
     window
 }
 
@@ -514,7 +525,9 @@ fn decode_core(document: &Value) -> Result<CoreMetrics, AnalyticsDiagnostic> {
 }
 
 fn decode_instant(value: Option<&Value>) -> Result<DateTime<Utc>, AnalyticsDiagnostic> {
-    let raw = value.and_then(Value::as_str).ok_or(AnalyticsDiagnostic::MalformedResponse)?;
+    let raw = value
+        .and_then(Value::as_str)
+        .ok_or(AnalyticsDiagnostic::MalformedResponse)?;
     if let Ok(instant) = DateTime::parse_from_rfc3339(raw) {
         return Ok(instant.with_timezone(&Utc));
     }
@@ -524,7 +537,8 @@ fn decode_instant(value: Option<&Value>) -> Result<DateTime<Utc>, AnalyticsDiagn
         }
     }
     NaiveDate::parse_from_str(raw, "%Y-%m-%d")
-        .ok().and_then(|date| date.and_hms_opt(0, 0, 0))
+        .ok()
+        .and_then(|date| date.and_hms_opt(0, 0, 0))
         .map(|instant| instant.and_utc())
         .ok_or(AnalyticsDiagnostic::MalformedResponse)
 }

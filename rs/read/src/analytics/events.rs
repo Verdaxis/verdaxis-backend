@@ -16,15 +16,15 @@ use std::collections::BTreeSet;
 use axum::http::StatusCode;
 use serde::{Serialize, Serializer};
 
-use crate::analytics::policy::{allowed_properties, check_property_value, PropertyValueCheck};
 pub use crate::analytics::policy::{
     AllowedFrontendEvent, AllowedProperty, AllowedPropertySet, AllowedServerEvent, RegisteredEvent,
 };
+use crate::analytics::policy::{PropertyValueCheck, allowed_properties, check_property_value};
 pub use crate::analytics::types::{EntryPage, ReferrerCategory};
 
 use crate::{
-    analytics::types::AggregateCell, business::error::refusal, market::terms::ISO_3166_1_ALPHA_2,
-    market::windows::is_canonical_window, ApiError, MarketPolicy,
+    ApiError, MarketPolicy, analytics::types::AggregateCell, business::error::refusal,
+    market::terms::ISO_3166_1_ALPHA_2, market::windows::is_canonical_window,
 };
 
 /// The one refusal shared by every policy violation in this module.

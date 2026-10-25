@@ -24,12 +24,12 @@ pub mod behavioral;
 #[path = "../src/providers/umami.rs"]
 pub mod umami;
 
-#[path = "../src/analytics/types.rs"]
-pub mod types;
-#[path = "../src/analytics/query.rs"]
-pub mod query;
 #[path = "../src/analytics/policy.rs"]
 pub mod policy;
+#[path = "../src/analytics/query.rs"]
+pub mod query;
+#[path = "../src/analytics/types.rs"]
+pub mod types;
 
 pub mod analytics {
     pub use crate::{behavioral, events, policy, query, types};
@@ -69,7 +69,6 @@ mod cases {
     use zeroize::Zeroizing;
 
     use super::analytics::{
-        types::{BehavioralAvailability, BehavioralWindow},
         events::{
             AllowedFrontendEvent, AllowedProperty, AllowedPropertySet, AllowedPropertyValue,
             AllowedServerEvent, DomainCatalog, EntryPage, ReferrerCategory, RegisteredEvent,
@@ -78,6 +77,7 @@ mod cases {
         query::AnalyticsQuery,
         types::{AnalyticsActivity, AnalyticsAudience},
         types::{AnalyticsDiagnostic, AnalyticsSourceStatus, ComponentStatus},
+        types::{BehavioralAvailability, BehavioralWindow},
     };
     use super::providers::umami::{UmamiClient, UmamiConfig, UmamiPolicy};
     use verdaxis_read::auth::limits::{BusinessLimitKeys, SharedLimits};
@@ -449,7 +449,9 @@ mod cases {
             .take(13)
             .map(|event| (*event, policy::allowed_properties(*event)[0]))
             .collect();
-        let refused = AllowedPropertySet::new(thirteen).map_err(AllowedPropertySet::refusal).expect_err("13 events");
+        let refused = AllowedPropertySet::new(thirteen)
+            .map_err(AllowedPropertySet::refusal)
+            .expect_err("13 events");
         assert_eq!(refused.status, axum::http::StatusCode::UNPROCESSABLE_ENTITY);
         assert_eq!(refused.detail["code"], "ANALYTICS_PROPERTY_INVALID");
 
@@ -669,10 +671,7 @@ mod cases {
         assert_eq!(daily[2].visitors.count, Some(3));
         assert_eq!(daily[3].visitors.count, Some(0));
 
-        let rows = window.property_results[0]
-            .result
-            .data()
-            .expect("rows");
+        let rows = window.property_results[0].result.data().expect("rows");
         assert_eq!(rows[0].value.as_str(), "trades");
         assert_eq!(rows[0].count.count, Some(3));
         assert!(rows[1].count.suppressed);
@@ -738,7 +737,10 @@ mod cases {
                 ComponentStatus::Unavailable
             );
             assert!(window.property_results[0].result.data().is_none());
-            assert_eq!(window.property_results[0].result.diagnostic(), Some(expected));
+            assert_eq!(
+                window.property_results[0].result.diagnostic(),
+                Some(expected)
+            );
             assert_eq!(window.coverage.coverage_start, None);
             assert_eq!(window.coverage.coverage_end, None);
         }
@@ -905,17 +907,24 @@ mod cases {
 
     #[tokio::test]
     async fn p4_t16_c81() {
-        let events = ["signup_started", "platform_navigation", "listing_opened", "tutorial_started"];
+        let events = [
+            "signup_started",
+            "platform_navigation",
+            "listing_opened",
+            "tutorial_started",
+        ];
         let mut series = Vec::new();
         for day in 0..365 {
-            let date = chrono::NaiveDate::from_ymd_opt(2026, 1, 1).unwrap()
-                + chrono::Duration::days(day);
+            let date =
+                chrono::NaiveDate::from_ymd_opt(2026, 1, 1).unwrap() + chrono::Duration::days(day);
             for event in events {
                 series.push(json!({"x": event, "t": date.to_string(), "y": 3}));
             }
         }
         let stub = stub_with(move |request| {
-            request.path.ends_with("/events/series")
+            request
+                .path
+                .ends_with("/events/series")
                 .then(|| Reply::json(200, Value::Array(series.clone())))
         });
         let (address, server) = serve(stub).await;
@@ -1492,7 +1501,9 @@ mod cases {
             "totals include out-of-window rows"
         );
         assert!(
-            !totals.iter().any(|row| row.event.as_str() == "unknown_event"),
+            !totals
+                .iter()
+                .any(|row| row.event.as_str() == "unknown_event"),
             "unknown events are discarded from totals"
         );
 
@@ -1620,9 +1631,15 @@ mod cases {
         assert_eq!(EntryPage::from_raw_path(&beyond_bound), EntryPage::Landing);
         let long_path = format!("{}signup", "/".repeat(900_000));
         assert_eq!(EntryPage::from_raw_path(&long_path), EntryPage::Landing);
-        assert_eq!(EntryPage::from_raw_path("///signup//next"), EntryPage::Signup);
+        assert_eq!(
+            EntryPage::from_raw_path("///signup//next"),
+            EntryPage::Signup
+        );
         let unicode_prefix = format!("https://{}/signup", "é".repeat(492));
-        assert_eq!(EntryPage::from_raw_path(&unicode_prefix), EntryPage::Landing);
+        assert_eq!(
+            EntryPage::from_raw_path(&unicode_prefix),
+            EntryPage::Landing
+        );
     }
 
     // ---------------------------------------------------------------------------
@@ -1882,10 +1899,19 @@ mod cases {
             ..config("127.0.0.1:9".parse().unwrap())
         };
         let debug = format!("{config:?}");
-        for hidden in [USERNAME, FAKE_PASSWORD, "fake-url-user", "fake-url-password", "127.0.0.1"] {
+        for hidden in [
+            USERNAME,
+            FAKE_PASSWORD,
+            "fake-url-user",
+            "fake-url-password",
+            "127.0.0.1",
+        ] {
             assert!(!debug.contains(hidden));
         }
-        assert_eq!(ReferrerCategory::from_raw("//google.com/search?q=fake"), ReferrerCategory::Search);
+        assert_eq!(
+            ReferrerCategory::from_raw("//google.com/search?q=fake"),
+            ReferrerCategory::Search
+        );
     }
 
     #[tokio::test]
@@ -1902,9 +1928,12 @@ mod cases {
                 return Some(Reply::json(200, json!({"sessions": rows})));
             }
             if request.path.ends_with("/events/series") {
-                let events: Vec<_> = rows.as_array().unwrap().iter().map(|row|
-                    json!({"x": "signup_started", "t": row["x"], "y": row["y"]})
-                ).collect();
+                let events: Vec<_> = rows
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|row| json!({"x": "signup_started", "t": row["x"], "y": row["y"]}))
+                    .collect();
                 return Some(Reply::json(200, json!(events)));
             }
             None
