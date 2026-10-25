@@ -1009,6 +1009,38 @@ fn p4_t15_c13() {
         Err(types::BehavioralWindowError::IncoherentComponent)
     );
 
+    // A window whose six core components are available but whose property
+    // result is partial is itself partial: the per-property components
+    // count toward the availability agreement.
+    let mut property_partial = serde_json::to_value(&window).unwrap();
+    property_partial["availability"] = json!("partial");
+    for key in [
+        "core",
+        "event_totals",
+        "daily_visitors",
+        "event_series",
+        "top_entries",
+        "top_referrers",
+    ] {
+        let diagnostic = AnalyticsDiagnostic::Authentication;
+        property_partial[key] = json!({
+            "status": "available",
+            "data": null,
+        });
+    }
+    property_partial["property_results"] = json!([{
+        "event": "visit",
+        "property": "ref",
+        "result": {
+            "status": "partial",
+            "diagnostic": "rate_limited",
+            "data": null,
+        }
+    }]);
+    let property_partial: types::BehavioralWindow =
+        serde_json::from_value(property_partial).unwrap();
+    assert_eq!(property_partial.validate(), Ok(()));
+
     // A window that claims available while every component is unavailable is
     // equally rejected.
     let mut mislabelled = serde_json::to_value(&window).unwrap();
