@@ -214,15 +214,27 @@ async fn cancelled_trade_is_not_counted_as_executed() {
 
     // Declining a completely taken order restores a live OPEN remainder.
     let mut full = Fixture::new(1).await;
-    stock::reserve(&mut full.conn, full.item, q("10")).await.unwrap();
+    stock::reserve(&mut full.conn, full.item, q("10"))
+        .await
+        .unwrap();
     full.balances("0", "10").await;
     full.stage("pending", "10").await;
     full.balances("0", "10").await;
     full.stage("decline", "10").await;
-    stock::restore(&mut full.conn, full.order, q("10"), "2026-10-25T10:00:00Z".parse().unwrap()).await.unwrap();
+    stock::restore(
+        &mut full.conn,
+        full.order,
+        q("10"),
+        "2026-10-25T10:00:00Z".parse().unwrap(),
+    )
+    .await
+    .unwrap();
     full.balances("0", "10").await;
     let status: String = sqlx::query_scalar("SELECT status FROM orderbook_orders WHERE id=$1")
-        .bind(full.order).fetch_one(&mut full.conn).await.unwrap();
+        .bind(full.order)
+        .fetch_one(&mut full.conn)
+        .await
+        .unwrap();
     assert_eq!(status, "OPEN");
     full.finish().await;
 }
@@ -363,7 +375,9 @@ async fn negative_or_overprecise_stock_is_refused() {
     stock::lock(&mut first, &[f.item]).await.unwrap();
     let item = f.item;
     let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
-        .fetch_one(&mut f.observer).await.unwrap();
+        .fetch_one(&mut f.observer)
+        .await
+        .unwrap();
     let mut observer = f.observer;
     let waiter = tokio::spawn(async move {
         let mut second = observer.begin().await.unwrap();
