@@ -1,0 +1,2168 @@
+{
+  "schema_version": 1,
+  "scope": "Requirements only; route, kernel and database acceptance belongs to the named tasks and integration. No serving registration.",
+  "baseline_sha": "ed659c2fb48ef160a6f29a6d027b9e61fce484d1",
+  "routes": [
+    {
+      "route_id": "O1",
+      "method": "POST",
+      "path": "/api/orderbook",
+      "owning_task": 19,
+      "group": "A",
+      "auth_class": "Access token and cutoffs; locked role, APPROVED account, verified email, no forced password change, current membership, APPROVED organization, organization-bound KYC or grace. Strict/advisory KYC decisions use the shared helper. Exact authorized committed replay precedes fresh execution admission. BUYER BID or SUPPLIER ASK; assisted entry requires enabled support, both capabilities, actor-bound active context, REAL approved customer and eligible locked customer member, not staff KYC.",
+      "request": {
+        "schema": "OrderCreate",
+        "headers": [
+          "Idempotency-Key",
+          "X-Verdaxis-Market-Support-Context"
+        ],
+        "idempotency": "organization/order.create; key required for assisted entry",
+        "body_limit_bytes": 65536
+      },
+      "response": {
+        "status": 201,
+        "schema": "OrderResponse",
+        "projection": "Public typed fuel terms; no organization or support attribution."
+      },
+      "refusals": [
+        "400 catalog/window/metadata/minimum lot/expiry",
+        "403 role or KYC_REQUIRED with extra fields",
+        "409 IDEMPOTENCY_CONFLICT",
+        "409 POST_ONLY_WOULD_CROSS or POST_ONLY_CHECK_INDETERMINATE",
+        "409 MATCH_FANOUT_EXCEEDED",
+        "422 typed terms or economic domain"
+      ],
+      "source": {
+        "path": "app/routers/orderbook.py",
+        "handler": "create_order",
+        "annotations": {
+          "request": "Request",
+          "order_data": "OrderCreate",
+          "current_user": "User",
+          "db": "AsyncSession"
+        },
+        "defaults": [
+          "Depends(get_current_user)",
+          "Depends(get_db)"
+        ],
+        "response_model": "OrderResponse",
+        "status": "status.HTTP_201_CREATED"
+      },
+      "new_route": false,
+      "scenarios": {
+        "success": "Assert status and typed response; read committed state on writes.",
+        "admission": "Access token and cutoffs; locked role, APPROVED account, verified email, no forced password change, current membership, APPROVED organization, organization-bound KYC or grace. Strict/advisory KYC decisions use the shared helper. Exact authorized committed replay precedes fresh execution admission. BUYER BID or SUPPLIER ASK; assisted entry requires enabled support, both capabilities, actor-bound active context, REAL approved customer and eligible locked customer member, not staff KYC.",
+        "empty_values": "Preserve schema defaults, nulls, empty strings and empty collections; never infer missing economics as zero.",
+        "validation": "Canonical product/delivery/window, minimum lot, finite two-place economics, timezone-aware future expiry rechecked after waits.",
+        "assisted": "Valid and invalid customer evidence, revoked capabilities, expired/foreign context, reference and both acknowledgements; no authorization consumed on refusal.",
+        "matching": "Crossing orders match inline at resting price with all-or-nothing cap; no disabled/no-op matcher.",
+        "replay": "Same principal/context/hash once; altered actor, organization, context or hash refuses without returning protected body."
+      },
+      "effect_owners": [
+        5,
+        19
+      ]
+    },
+    {
+      "route_id": "O2",
+      "method": "PUT",
+      "path": "/api/orderbook/{order_id}",
+      "owning_task": 20,
+      "group": "A",
+      "auth_class": "Access token and cutoffs; locked role, APPROVED account, verified email, no forced password change, current membership, APPROVED organization, organization-bound KYC or grace. Strict/advisory KYC decisions use the shared helper. Exact authorized committed replay precedes fresh execution admission. Exact owner when recorded; legacy tenant fallback only for legacy rows; assisted edits refuse.",
+      "request": {
+        "schema": "OrderUpdate",
+        "headers": [
+          "Idempotency-Key"
+        ],
+        "idempotency": "actor/order.amend",
+        "body_limit_bytes": 65536
+      },
+      "response": {
+        "status": 200,
+        "schema": "OrderResponse or stored command response"
+      },
+      "refusals": [
+        "404 absent",
+        "403 ownership or KYC_REQUIRED with extra fields",
+        "400 terminal/expired/below fills",
+        "409 ORDER_IDENTITY_IMMUTABLE or assisted edit",
+        "409 IDEMPOTENCY_CONFLICT or RECEIPT_RESOURCE_MISMATCH",
+        "409 MATCH_FANOUT_EXCEEDED",
+        "422 ORDER_FIELD_NULL"
+      ],
+      "source": {
+        "path": "app/routers/orderbook.py",
+        "handler": "update_order",
+        "annotations": {
+          "order_id": "UUID",
+          "request": "Request",
+          "update_data": "OrderUpdate",
+          "current_user": "User",
+          "db": "AsyncSession"
+        },
+        "defaults": [
+          "Depends(get_current_user)",
+          "Depends(get_db)"
+        ],
+        "response_model": "OrderResponse",
+        "status": "200"
+      },
+      "new_route": false,
+      "scenarios": {
+        "success": "Assert status and typed response; read committed state on writes.",
+        "admission": "Access token and cutoffs; locked role, APPROVED account, verified email, no forced password change, current membership, APPROVED organization, organization-bound KYC or grace. Strict/advisory KYC decisions use the shared helper. Exact authorized committed replay precedes fresh execution admission. Exact owner when recorded; legacy tenant fallback only for legacy rows; assisted edits refuse.",
+        "empty_values": "Preserve schema defaults, nulls, empty strings and empty collections; never infer missing economics as zero.",
+        "null_fields": "Each quantity, price, expiry, certifications and typed terms is independently omitted/refused/cleared according to its field contract; null economics refuse before locks.",
+        "priority": "New ordinal under slice lock for price, quantity increase, expiry extension/GTC, changed certification set/scheme/typed terms, off-spec to executable and each scalar qualification transition. Reductions/shortening retain ordinal.",
+        "matching": "Recompute total minus locked fills; rematch inline; no immutable slice movement.",
+        "effects": "Both changed benchmark sides and synchronous PIN final state; replay adds none."
+      },
+      "effect_owners": [
+        5,
+        20
+      ]
+    },
+    {
+      "route_id": "I5",
+      "method": "POST",
+      "path": "/api/inventory/{item_id}/publish",
+      "owning_task": 24,
+      "group": "A",
+      "auth_class": "Access token and cutoffs; locked role, APPROVED account, verified email, no forced password change, current membership, APPROVED organization, organization-bound KYC or grace. Strict/advisory KYC decisions use the shared helper. Exact authorized committed replay precedes fresh execution admission. Fresh SUPPLIER; publication replay binds recorded owner and accountable actor, not only organization.",
+      "request": {
+        "schema": null,
+        "body": null,
+        "headers": [
+          "Idempotency-Key"
+        ],
+        "idempotency": "organization/inventory.publish"
+      },
+      "response": {
+        "status": 200,
+        "fields": {
+          "status": "published",
+          "listing_id": "UUID"
+        }
+      },
+      "refusals": [
+        "404 item absent/foreign",
+        "403 REPLAY_PRINCIPAL_MISMATCH or Bio-LNG publication or KYC_REQUIRED with extra fields",
+        "400 invalid stock/lot/qualification or INVENTORY_STOCK_UNAVAILABLE",
+        "409 expired backlog/inconsistent stock/fanout/idempotency"
+      ],
+      "source": {
+        "path": "app/routers/inventory.py",
+        "handler": "publish_inventory_item",
+        "annotations": {
+          "item_id": "UUID",
+          "request": "Request",
+          "db": "Annotated[AsyncSession, Depends(get_db)]",
+          "current_user": "Annotated[User, Depends(get_current_user)]"
+        },
+        "defaults": [],
+        "response_model": null,
+        "status": "200"
+      },
+      "new_route": false,
+      "scenarios": {
+        "success": "Assert status and typed response; read committed state on writes.",
+        "admission": "Access token and cutoffs; locked role, APPROVED account, verified email, no forced password change, current membership, APPROVED organization, organization-bound KYC or grace. Strict/advisory KYC decisions use the shared helper. Exact authorized committed replay precedes fresh execution admission. Fresh SUPPLIER; publication replay binds recorded owner and accountable actor, not only organization.",
+        "empty_values": "Preserve schema defaults, nulls, empty strings and empty collections; never infer missing economics as zero.",
+        "stock": "Canonical delivery, SPOT ASK; reserve all current stock once; bounded expiry previews all parties and resources before locks.",
+        "replay": "Keyed fully-filled listing replays original listing_id; same-org other member refuses; original actor replay survives admission change.",
+        "unkeyed": "Existing live remainder returns same listing_id once; historical fully filled listing with zero stock refuses fresh publication.",
+        "matching": "Crossing BID fills at resting price inline, exact stock and one effect set."
+      },
+      "effect_owners": [
+        5,
+        24
+      ]
+    },
+    {
+      "route_id": "T1",
+      "method": "POST",
+      "path": "/api/trades/",
+      "owning_task": 21,
+      "group": "B",
+      "auth_class": "Access token and cutoffs; locked role, APPROVED account, verified email, no forced password change, current membership, APPROVED organization, organization-bound KYC or grace. Strict/advisory KYC decisions use the shared helper. Exact authorized committed replay precedes fresh execution admission. BUYER hits ASK; SUPPLIER hits BID; no self/synthetic trade.",
+      "request": {
+        "schema": "TradeCreate",
+        "headers": [
+          "Idempotency-Key"
+        ],
+        "idempotency": "initiator organization/trade.create",
+        "body_limit_bytes": 65536
+      },
+      "response": {
+        "status": 200,
+        "schema": "TradeResponse",
+        "new_status": "PENDING_CONFIRMATION"
+      },
+      "refusals": [
+        "400 unavailable/self/synthetic/quantity",
+        "403 role or KYC_REQUIRED with extra fields",
+        "409 ORDER_TERMS_REVIEW_REQUIRED",
+        "409 LNG_TERMS_INCOMPATIBLE",
+        "409 IDEMPOTENCY_CONFLICT",
+        "422 typed terms"
+      ],
+      "source": {
+        "path": "app/routers/trades.py",
+        "handler": "create_trade",
+        "annotations": {
+          "payload": "TradeCreate",
+          "request": "Request",
+          "db": "Annotated[AsyncSession, Depends(get_db)]",
+          "current_user": "Annotated[User, Depends(get_current_user)]"
+        },
+        "defaults": [],
+        "response_model": "TradeResponse",
+        "status": "200"
+      },
+      "new_route": false,
+      "scenarios": {
+        "success": "Assert status and typed response; read committed state on writes.",
+        "admission": "Access token and cutoffs; locked role, APPROVED account, verified email, no forced password change, current membership, APPROVED organization, organization-bound KYC or grace. Strict/advisory KYC decisions use the shared helper. Exact authorized committed replay precedes fresh execution admission. BUYER hits ASK; SUPPLIER hits BID; no self/synthetic trade.",
+        "empty_values": "Preserve schema defaults, nulls, empty strings and empty collections; never infer missing economics as zero.",
+        "review": "Expected digest/version rechecked under target lock after exact replay; mismatch consumes no stock.",
+        "snapshots": "Immutable fuel/market snapshot and frozen seller fee basis; pending privacy, seller/admin-only fee projection.",
+        "stock": "Decrement order; pending inventory stays reserved, no auto-confirmed consumption."
+      },
+      "effect_owners": [
+        5,
+        21
+      ]
+    },
+    {
+      "route_id": "T2",
+      "method": "GET",
+      "path": "/api/trades/summary",
+      "owning_task": 21,
+      "group": "B",
+      "auth_class": "Cleanup token and password cutoff; revocation cutoff exception only for current REJECTED account. Exact recorded concrete party retains authority after rejection, detachment or movement. Current assisted customer member requires valid linked MARKET_SUPPORT evidence and side-compatible role; support administrator is not a customer party. No account/email/KYC/organization-approval recheck. Recorded-participation discovery; valid current support context applies only to supported reads.",
+      "request": {
+        "schema": null,
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "schema": "TradeSummaryResponse",
+        "empty": {
+          "total_count": 0,
+          "action_required_count": 0,
+          "awaiting_counterparty_count": 0,
+          "confirmed_count": 0
+        }
+      },
+      "refusals": [
+        "401 invalid token/cutoff",
+        "403 nonparticipant or invalid assisted authority"
+      ],
+      "source": {
+        "path": "app/routers/trades.py",
+        "handler": "trade_summary",
+        "annotations": {
+          "request": "Request",
+          "db": "Annotated[AsyncSession, Depends(get_db)]",
+          "current_user": "Annotated[User, Depends(get_current_user)]"
+        },
+        "defaults": [],
+        "response_model": "TradeSummaryResponse",
+        "status": "200"
+      },
+      "new_route": false,
+      "scenarios": {
+        "success": "Assert status and typed response; read committed state on writes.",
+        "admission": "Cleanup token and password cutoff; revocation cutoff exception only for current REJECTED account. Exact recorded concrete party retains authority after rejection, detachment or movement. Current assisted customer member requires valid linked MARKET_SUPPORT evidence and side-compatible role; support administrator is not a customer party. No account/email/KYC/organization-approval recheck. Recorded-participation discovery; valid current support context applies only to supported reads.",
+        "empty_values": "Preserve schema defaults, nulls, empty strings and empty collections; never infer missing economics as zero.",
+        "discovery": "Nonempty distinct recorded histories across organizations plus stranger; organization-less actor sees own counts, never 400 for no organization or caller-selected tenant."
+      }
+    },
+    {
+      "route_id": "T3",
+      "method": "GET",
+      "path": "/api/trades/my",
+      "owning_task": 21,
+      "group": "B",
+      "auth_class": "Cleanup token and password cutoff; revocation cutoff exception only for current REJECTED account. Exact recorded concrete party retains authority after rejection, detachment or movement. Current assisted customer member requires valid linked MARKET_SUPPORT evidence and side-compatible role; support administrator is not a customer party. No account/email/KYC/organization-approval recheck. Recorded-participation discovery; valid current support context applies only to supported reads.",
+      "request": {
+        "schema": null,
+        "query": {
+          "skip": 0,
+          "limit": 20,
+          "limit_max": 100,
+          "action_required": false,
+          "status_group": "all",
+          "status_groups": [
+            "all",
+            "active",
+            "completed"
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "schema": "PaginatedResponse[TradeResponse]",
+        "empty": {
+          "items": [],
+          "total": 0,
+          "skip": 0,
+          "limit": 20
+        }
+      },
+      "refusals": [
+        "401 invalid token/cutoff",
+        "403 invalid assisted authority",
+        "422 pagination/status filter"
+      ],
+      "source": {
+        "path": "app/routers/trades.py",
+        "handler": "list_my_trades",
+        "annotations": {
+          "request": "Request",
+          "db": "Annotated[AsyncSession, Depends(get_db)]",
+          "current_user": "Annotated[User, Depends(get_current_user)]",
+          "skip": "int",
+          "limit": "int",
+          "action_required": "Annotated[bool, Query()]",
+          "status_group": "Annotated[TradeStatusGroup, Query()]"
+        },
+        "defaults": [
+          "Query(0, ge=0)",
+          "Query(20, ge=1, le=100)",
+          "False",
+          "'all'"
+        ],
+        "response_model": "PaginatedResponse[TradeResponse]",
+        "status": "200"
+      },
+      "new_route": false,
+      "scenarios": {
+        "success": "Assert status and typed response; read committed state on writes.",
+        "admission": "Cleanup token and password cutoff; revocation cutoff exception only for current REJECTED account. Exact recorded concrete party retains authority after rejection, detachment or movement. Current assisted customer member requires valid linked MARKET_SUPPORT evidence and side-compatible role; support administrator is not a customer party. No account/email/KYC/organization-approval recheck. Recorded-participation discovery; valid current support context applies only to supported reads.",
+        "empty_values": "Preserve schema defaults, nulls, empty strings and empty collections; never infer missing economics as zero.",
+        "discovery": "Rejected/detached/moved exact actor sees only recorded history; current assisted member needs valid immutable evidence; nonparticipant gets no protected rows.",
+        "projection": "Immutable snapshots, pending anonymity, seller/admin fee visibility, additive freeze block; bounded pagination before no client-side scope filtering."
+      }
+    },
+    {
+      "route_id": "T4",
+      "method": "PUT",
+      "path": "/api/trades/{trade_id}/confirm",
+      "owning_task": 22,
+      "group": "B",
+      "auth_class": "Access token and cutoffs; locked role, APPROVED account, verified email, no forced password change, current membership, APPROVED organization, organization-bound KYC or grace. Strict/advisory KYC decisions use the shared helper. Exact authorized committed replay precedes fresh execution admission. Exact noninitiating counterparty or valid assisted customer; initiator and support administrator refuse.",
+      "request": {
+        "schema": null,
+        "body": null,
+        "headers": [
+          "Idempotency-Key"
+        ],
+        "idempotency": "actor/trade.confirm",
+        "body_limit_bytes": 65536
+      },
+      "response": {
+        "status": 200,
+        "schema": "TradeResponse",
+        "new_status": "CONFIRMED"
+      },
+      "refusals": [
+        "400 TRADE_NOT_PENDING",
+        "403 actor or KYC_REQUIRED with extra fields",
+        "409 current parties/provenance/terms",
+        "409 TRADE_FROZEN",
+        "409 receipt conflict/resource mismatch"
+      ],
+      "source": {
+        "path": "app/routers/trades.py",
+        "handler": "confirm_trade",
+        "annotations": {
+          "trade_id": "UUID",
+          "request": "Request",
+          "db": "Annotated[AsyncSession, Depends(get_db)]",
+          "current_user": "Annotated[User, Depends(get_current_user)]"
+        },
+        "defaults": [],
+        "response_model": "TradeResponse",
+        "status": "200"
+      },
+      "new_route": false,
+      "scenarios": {
+        "success": "Assert status and typed response; read committed state on writes.",
+        "admission": "Vary every predicate independently for actor and counterparty; pending commitment survives rejection; no fresh confirm without restored execution.",
+        "empty_values": "Preserve schema defaults, nulls, empty strings and empty collections; never infer missing economics as zero.",
+        "stock": "Consume reserved quantity exactly once under trade and linked-order locks.",
+        "confirmed_effect": "Same confirmed-trade referral effect as auto confirmation; once per trade and no repeat on replay."
+      },
+      "effect_owners": [
+        5,
+        22
+      ]
+    },
+    {
+      "route_id": "T5",
+      "method": "PUT",
+      "path": "/api/trades/{trade_id}/decline",
+      "owning_task": 22,
+      "group": "B",
+      "auth_class": "Cleanup token and password cutoff; revocation cutoff exception only for current REJECTED account. Exact recorded concrete party retains authority after rejection, detachment or movement. Current assisted customer member requires valid linked MARKET_SUPPORT evidence and side-compatible role; support administrator is not a customer party. No account/email/KYC/organization-approval recheck. Noninitiating party only.",
+      "request": {
+        "schema": null,
+        "body": null,
+        "headers": [
+          "Idempotency-Key"
+        ],
+        "idempotency": "actor/trade.decline",
+        "body_limit_bytes": 65536
+      },
+      "response": {
+        "status": 200,
+        "schema": "TradeResponse",
+        "new_status": "DECLINED"
+      },
+      "refusals": [
+        "400 TRADE_NOT_PENDING",
+        "403 actor",
+        "409 TRADE_FROZEN",
+        "409 receipt conflict/resource mismatch"
+      ],
+      "source": {
+        "path": "app/routers/trades.py",
+        "handler": "decline_trade",
+        "annotations": {
+          "trade_id": "UUID",
+          "request": "Request",
+          "db": "Annotated[AsyncSession, Depends(get_db)]",
+          "current_user": "Annotated[User, Depends(get_authenticated_user)]"
+        },
+        "defaults": [],
+        "response_model": "TradeResponse",
+        "status": "200"
+      },
+      "new_route": false,
+      "scenarios": {
+        "success": "Assert status and typed response; read committed state on writes.",
+        "admission": "Cleanup token and password cutoff; revocation cutoff exception only for current REJECTED account. Exact recorded concrete party retains authority after rejection, detachment or movement. Current assisted customer member requires valid linked MARKET_SUPPORT evidence and side-compatible role; support administrator is not a customer party. No account/email/KYC/organization-approval recheck. Noninitiating party only.",
+        "empty_values": "Preserve schema defaults, nulls, empty strings and empty collections; never infer missing economics as zero.",
+        "restore": "Restore live remainder or release pending stock to current without reviving expired/withdrawn order.",
+        "authority": "Exact party and valid/invalid assisted evidence matrix after rejection/detachment; no support admin override.",
+        "race": "Independent-connection confirm/decline has one winner and one stock/effect movement."
+      },
+      "effect_owners": [
+        5,
+        22
+      ]
+    },
+    {
+      "route_id": "T6",
+      "method": "PUT",
+      "path": "/api/trades/{trade_id}/deliver",
+      "owning_task": 23,
+      "group": "B",
+      "auth_class": "Cleanup token and password cutoff; revocation cutoff exception only for current REJECTED account. Exact recorded concrete party retains authority after rejection, detachment or movement. Current assisted customer member requires valid linked MARKET_SUPPORT evidence and side-compatible role; support administrator is not a customer party. No account/email/KYC/organization-approval recheck. Either recorded party may deliver.",
+      "request": {
+        "schema": "TradeDeliverPayload",
+        "headers": [
+          "Idempotency-Key"
+        ],
+        "idempotency": "actor/trade.deliver",
+        "body_limit_bytes": 65536
+      },
+      "response": {
+        "status": 200,
+        "schema": "TradeResponse",
+        "new_status": "DELIVERED"
+      },
+      "refusals": [
+        "400 state or DELIVERY_QUANTITY_INVALID or DELIVERY_PRICE_DEVIATION",
+        "403 actor",
+        "409 TRADE_FROZEN",
+        "409 receipt conflict/resource mismatch",
+        "422 economic domain"
+      ],
+      "source": {
+        "path": "app/routers/trades.py",
+        "handler": "deliver_trade",
+        "annotations": {
+          "trade_id": "UUID",
+          "payload": "TradeDeliverPayload",
+          "request": "Request",
+          "db": "Annotated[AsyncSession, Depends(get_db)]",
+          "current_user": "Annotated[User, Depends(get_current_user)]"
+        },
+        "defaults": [],
+        "response_model": "TradeResponse",
+        "status": "200"
+      },
+      "new_route": false,
+      "scenarios": {
+        "success": "Assert status and typed response; read committed state on writes.",
+        "admission": "Cleanup token and password cutoff; revocation cutoff exception only for current REJECTED account. Exact recorded concrete party retains authority after rejection, detachment or movement. Current assisted customer member requires valid linked MARKET_SUPPORT evidence and side-compatible role; support administrator is not a customer party. No account/email/KYC/organization-approval recheck. Either recorded party may deliver.",
+        "empty_values": "Preserve schema defaults, nulls, empty strings and empty collections; never infer missing economics as zero.",
+        "economics": "Positive final quantity <= traded; exact inclusive 10% price boundary by cross multiplication; HALF_UP cents once; frozen per-MT or legacy percent basis.",
+        "authority": "Rejected/detached/moved recorded parties and valid assisted customer members settle keyed or unkeyed; strangers and cross-trade keys refuse.",
+        "replay": "Recorded-side organization context, no caller tenant or admin support context; replay no second final fields or effects."
+      },
+      "effect_owners": [
+        5,
+        23
+      ]
+    },
+    {
+      "route_id": "T7",
+      "method": "POST",
+      "path": "/api/trades/{trade_id}/pay",
+      "owning_task": 23,
+      "group": "B",
+      "auth_class": "Cleanup token and password cutoff; revocation cutoff exception only for current REJECTED account. Exact recorded concrete party retains authority after rejection, detachment or movement. Current assisted customer member requires valid linked MARKET_SUPPORT evidence and side-compatible role; support administrator is not a customer party. No account/email/KYC/organization-approval recheck. Recorded seller or valid assisted seller, SUPPLIER role.",
+      "request": {
+        "schema": null,
+        "body": null,
+        "headers": [
+          "Idempotency-Key"
+        ],
+        "idempotency": "actor/trade.pay",
+        "body_limit_bytes": 65536
+      },
+      "response": {
+        "status": 200,
+        "schema": "TradeResponse",
+        "new_status": "PAID"
+      },
+      "refusals": [
+        "400 TRADE_NOT_DELIVERED",
+        "403 actor or role",
+        "409 TRADE_FROZEN",
+        "409 receipt conflict/resource mismatch"
+      ],
+      "source": {
+        "path": "app/routers/trades.py",
+        "handler": "pay_trade",
+        "annotations": {
+          "trade_id": "UUID",
+          "request": "Request",
+          "db": "Annotated[AsyncSession, Depends(get_db)]",
+          "current_user": "Annotated[User, Depends(get_current_user)]"
+        },
+        "defaults": [],
+        "response_model": "TradeResponse",
+        "status": "200"
+      },
+      "new_route": false,
+      "scenarios": {
+        "success": "Assert status and typed response; read committed state on writes.",
+        "admission": "Cleanup token and password cutoff; revocation cutoff exception only for current REJECTED account. Exact recorded concrete party retains authority after rejection, detachment or movement. Current assisted customer member requires valid linked MARKET_SUPPORT evidence and side-compatible role; support administrator is not a customer party. No account/email/KYC/organization-approval recheck. Recorded seller or valid assisted seller, SUPPLIER role.",
+        "empty_values": "Preserve schema defaults, nulls, empty strings and empty collections; never infer missing economics as zero.",
+        "authority": "Seller-only payment survives rejection/detachment/movement; valid and invalid assisted linked evidence; recorded support owner never substitutes.",
+        "payment": "One paid_at; no payment provider call; no stock change; frozen delivered trade stays unpaid.",
+        "replay": "Recorded-side context and cutoff checks precede stored body; exactly one audit/notification/outbox set."
+      },
+      "effect_owners": [
+        5,
+        23
+      ]
+    },
+    {
+      "route_id": "M1",
+      "method": "GET",
+      "path": "/api/matchmaking/suggestions",
+      "owning_task": 25,
+      "group": "D",
+      "auth_class": "Existing current-user policy; BUYER or SUPPLIER own source orders; other role or no organization returns [].",
+      "request": {
+        "schema": null,
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "shape": "array",
+        "empty": [],
+        "fields": {
+          "id": "candidate UUID string",
+          "bid_order_id": "UUID string or null",
+          "ask_order_id": "UUID string or null",
+          "score": "number",
+          "match_reasons": "string[]",
+          "status": "SUGGESTED",
+          "recipient_org_id": "UUID string",
+          "created_at": "timestamp or null",
+          "bid_order": "OrderResponse or null",
+          "ask_order": "OrderResponse or null"
+        },
+        "limit": 20
+      },
+      "refusals": [
+        "401 invalid token",
+        "403 current-user admission"
+      ],
+      "source": {
+        "path": "app/routers/matchmaking.py",
+        "handler": "list_suggestions",
+        "annotations": {
+          "db": "Annotated[AsyncSession, Depends(get_db)]",
+          "current_user": "Annotated[User, Depends(get_current_user)]"
+        },
+        "defaults": [],
+        "response_model": null,
+        "status": "200"
+      },
+      "new_route": false,
+      "scenarios": {
+        "success": "Assert status and typed response; read committed state on writes.",
+        "admission": "Existing current-user policy; BUYER or SUPPLIER own source orders; other role or no organization returns [].",
+        "empty_values": "Preserve schema defaults, nulls, empty strings and empty collections; never infer missing economics as zero.",
+        "public_relation": "Candidates use shared public relation and public projection before ranking: rejected owner, nonpublic provenance, missing supplier metadata, expired terms and private evidence yield no candidate economics.",
+        "dismissed": "Own organization dismissals excluded; candidate keyed result and score/reasons retained; advisory only, no fill or reservation."
+      }
+    },
+    {
+      "route_id": "M2",
+      "method": "PATCH",
+      "path": "/api/matchmaking/suggestions/{order_id}/dismiss",
+      "owning_task": 25,
+      "group": "D",
+      "auth_class": "Security-market admission; dismissal recipient is authenticated organization, never caller tenant.",
+      "request": {
+        "schema": null,
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "fields": {
+          "status": [
+            "dismissed",
+            "already_dismissed"
+          ]
+        }
+      },
+      "refusals": [
+        "404 order absent",
+        "401 invalid token",
+        "403 security-market admission"
+      ],
+      "source": {
+        "path": "app/routers/matchmaking.py",
+        "handler": "dismiss_suggestion",
+        "annotations": {
+          "order_id": "UUID",
+          "db": "Annotated[AsyncSession, Depends(get_db)]",
+          "current_user": "Annotated[User, Depends(require_security_market_admission)]"
+        },
+        "defaults": [],
+        "response_model": null,
+        "status": "200"
+      },
+      "new_route": false,
+      "scenarios": {
+        "success": "Assert status and typed response; read committed state on writes.",
+        "admission": "Security-market admission; dismissal recipient is authenticated organization, never caller tenant.",
+        "empty_values": "Preserve schema defaults, nulls, empty strings and empty collections; never infer missing economics as zero.",
+        "dismiss": "First authorized dismissal inserts match_suggestions and audits; repeat returns already_dismissed; never writes order or trade."
+      },
+      "effect_owners": [
+        5,
+        25
+      ]
+    },
+    {
+      "route_id": "F1",
+      "method": "POST",
+      "path": "/api/admin/trades/{trade_id}/freeze",
+      "owning_task": 26,
+      "group": "C",
+      "auth_class": "Access token and cutoffs; approved ADMIN, no forced password change; administrator may be a party. Pre-auth /api/admin limit remains 300/60s/client/worker. No administrator KYC requirement.",
+      "request": {
+        "schema": "FreezeRequest",
+        "fields": {
+          "reason_code": [
+            "PAYMENT_DISPUTE",
+            "DELIVERY_DISPUTE",
+            "TERMS_DISPUTE",
+            "COMPLIANCE_REVIEW",
+            "FRAUD_REVIEW",
+            "COURT_ORDER",
+            "OTHER"
+          ],
+          "note": "trimmed 3..500 chars"
+        }
+      },
+      "response": {
+        "statuses": [
+          201,
+          200
+        ],
+        "schema": "FreezeResponse",
+        "state": "ACTIVE"
+      },
+      "refusals": [
+        "403 non-admin/admission",
+        "404 trade absent",
+        "409 TRADE_NOT_SETTLEABLE",
+        "409 TRADE_ALREADY_FROZEN",
+        "422 reason/note"
+      ],
+      "source": null,
+      "new_route": true,
+      "scenarios": {
+        "success": "Assert status and typed response; read committed state on writes.",
+        "admission": "Access token and cutoffs; approved ADMIN, no forced password change; administrator may be a party. Pre-auth /api/admin limit remains 300/60s/client/worker. No administrator KYC requirement.",
+        "empty_values": "Preserve schema defaults, nulls, empty strings and empty collections; never infer missing economics as zero.",
+        "state": "PENDING_CONFIRMATION/CONFIRMED/DELIVERED may freeze; PAID/DECLINED/CANCELLED refuse.",
+        "repeat": "Identical actor/reason returns existing 200; different reason 409; one active row via exact named index.",
+        "invariant": "Freeze changes no stock/order remainder/trade state; audit once; lifecycle serializes on trade row."
+      },
+      "effect_owners": [
+        5,
+        26
+      ]
+    },
+    {
+      "route_id": "F2",
+      "method": "POST",
+      "path": "/api/admin/trades/{trade_id}/unfreeze",
+      "owning_task": 26,
+      "group": "C",
+      "auth_class": "Access token and cutoffs; approved ADMIN, no forced password change; administrator may be a party. Pre-auth /api/admin limit remains 300/60s/client/worker. No administrator KYC requirement.",
+      "request": {
+        "schema": "UnfreezeRequest",
+        "fields": {
+          "note": "trimmed 3..500 chars"
+        }
+      },
+      "response": {
+        "status": 200,
+        "schema": "FreezeResponse",
+        "state": "CLEARED"
+      },
+      "refusals": [
+        "403 non-admin/admission",
+        "404 trade absent",
+        "409 TRADE_NOT_FROZEN",
+        "422 note"
+      ],
+      "source": null,
+      "new_route": true,
+      "scenarios": {
+        "success": "Assert status and typed response; read committed state on writes.",
+        "admission": "Access token and cutoffs; approved ADMIN, no forced password change; administrator may be a party. Pre-auth /api/admin limit remains 300/60s/client/worker. No administrator KYC requirement.",
+        "empty_values": "Preserve schema defaults, nulls, empty strings and empty collections; never infer missing economics as zero.",
+        "history": "ACTIVE to CLEARED only with all clear fields; original reason/actor/time immutable; clear never changes trade or reopens terminal state; one audit."
+      },
+      "effect_owners": [
+        5,
+        26
+      ]
+    },
+    {
+      "route_id": "F3",
+      "method": "GET",
+      "path": "/api/admin/trades/frozen",
+      "owning_task": 26,
+      "group": "C",
+      "auth_class": "Access token and cutoffs; approved ADMIN, no forced password change; administrator may be a party. Pre-auth /api/admin limit remains 300/60s/client/worker. No administrator KYC requirement.",
+      "request": {
+        "schema": null,
+        "query": {
+          "skip": 0,
+          "limit": 25,
+          "limit_min": 1,
+          "limit_max": 100
+        }
+      },
+      "response": {
+        "status": 200,
+        "shape": "bounded active-freeze page",
+        "order": [
+          "frozen_at DESC",
+          "id DESC"
+        ],
+        "empty_items": []
+      },
+      "refusals": [
+        "403 non-admin/admission",
+        "422 pagination"
+      ],
+      "source": null,
+      "new_route": true,
+      "scenarios": {
+        "success": "Assert status and typed response; read committed state on writes.",
+        "admission": "Access token and cutoffs; approved ADMIN, no forced password change; administrator may be a party. Pre-auth /api/admin limit remains 300/60s/client/worker. No administrator KYC requirement.",
+        "empty_values": "Preserve schema defaults, nulls, empty strings and empty collections; never infer missing economics as zero.",
+        "read": "Only ACTIVE freezes, deterministic newest-first bounded page; no mutation or internal note in ordinary participant freeze projection."
+      }
+    }
+  ],
+  "matching_properties": [
+    {
+      "property": "exact_slice",
+      "owning_tasks": [
+        16
+      ],
+      "integration_owner": "integration",
+      "cases": [
+        "product/delivery/window mismatch",
+        "legacy null delivery",
+        "SPOT/month/quarter/year aliases"
+      ],
+      "expected": "Only equal canonical side-free slices can fill.",
+      "source": "app/services/market_locks.py; app/services/matching_engine.py"
+    },
+    {
+      "property": "opposite_side",
+      "owning_tasks": [
+        16
+      ],
+      "integration_owner": "integration",
+      "cases": [
+        "BID aggressor",
+        "ASK aggressor",
+        "same-side candidates"
+      ],
+      "expected": "Only opposite side is executable.",
+      "source": "app/services/matching_engine.py"
+    },
+    {
+      "property": "price_crossing",
+      "owning_tasks": [
+        16
+      ],
+      "integration_owner": "integration",
+      "cases": [
+        "less/equal/greater limit on both sides"
+      ],
+      "expected": "Only crossing prices fill, inclusive at the limit.",
+      "source": "app/services/matching_engine.py"
+    },
+    {
+      "property": "provenance_isolation",
+      "owning_tasks": [
+        17
+      ],
+      "integration_owner": "integration",
+      "cases": [
+        "all REAL/DEMO/UNKNOWN combinations",
+        "retired/ownerless catalog rows"
+      ],
+      "expected": "Only admitted provenance pairs execute; no REAL/DEMO mixing.",
+      "source": "app/services/matching_engine.py; app/services/market_data_eligibility.py"
+    },
+    {
+      "property": "exact_demo_pair",
+      "owning_tasks": [
+        17
+      ],
+      "integration_owner": "integration",
+      "cases": [
+        "allowlisted pair",
+        "same demo organizations but other pair",
+        "reversed side"
+      ],
+      "expected": "Only exact demo order pair exception; no fake KYC.",
+      "source": "app/services/matching_engine.py"
+    },
+    {
+      "property": "self_trade",
+      "owning_tasks": [
+        16,
+        17
+      ],
+      "integration_owner": "integration",
+      "cases": [
+        "same organization distinct users",
+        "same user",
+        "ordinary and assisted economic parties"
+      ],
+      "expected": "No self-organization fill.",
+      "source": "app/services/matching_engine.py"
+    },
+    {
+      "property": "expiry",
+      "owning_tasks": [
+        4,
+        16,
+        24
+      ],
+      "integration_owner": "integration",
+      "cases": [
+        "null future equal past",
+        "expiry after preview wait",
+        "partial take then expiry",
+        "pending commitment after expiry"
+      ],
+      "expected": "Strict expires_at > now; release only unfilled remainder, preserve pending stock.",
+      "source": "app/services/order_lifecycle.py; app/services/matching_engine.py"
+    },
+    {
+      "property": "admission_revalidation",
+      "owning_tasks": [
+        3,
+        17,
+        19,
+        20,
+        21,
+        22,
+        24,
+        29
+      ],
+      "integration_owner": "integration",
+      "cases": [
+        "each role/account/email/password/org/KYC/grace predicate independently",
+        "KYC strict/advisory and rejection override",
+        "membership change after preview",
+        "valid/absent/rejected/contended customer member",
+        "expired/foreign context and revoked capability",
+        "staff KYC differs from customer KYC"
+      ],
+      "expected": "Revalidate complete locked parties; drift rebuilds preview without late locks; exact replay first; KYC refusal retains all four fields.",
+      "source": "app/services/execution_policy.py; app/services/kyc_execution.py; rs/read/src/order_write/admission.rs"
+    },
+    {
+      "property": "price_priority",
+      "owning_tasks": [
+        16
+      ],
+      "integration_owner": "integration",
+      "cases": [
+        "both sides unequal levels",
+        "partial fills across levels"
+      ],
+      "expected": "Best eligible price first.",
+      "source": "app/services/matching_engine.py"
+    },
+    {
+      "property": "acceptance_priority",
+      "owning_tasks": [
+        16,
+        20
+      ],
+      "integration_owner": "integration",
+      "cases": [
+        "equal price acceptance vs created_at disagreement",
+        "sequence gaps"
+      ],
+      "expected": "Acceptance ordinal, not creation time, determines priority.",
+      "source": "app/services/matching_engine.py; app/routers/orderbook.py"
+    },
+    {
+      "property": "uuid_tie_break",
+      "owning_tasks": [
+        16
+      ],
+      "integration_owner": "integration",
+      "cases": [
+        "same price and ordinal reversed UUIDs"
+      ],
+      "expected": "UUID is final deterministic tie break.",
+      "source": "app/services/matching_engine.py"
+    },
+    {
+      "property": "resting_price",
+      "owning_tasks": [
+        16
+      ],
+      "integration_owner": "integration",
+      "cases": [
+        "both aggressor sides",
+        "strict improvement",
+        "equal price"
+      ],
+      "expected": "Each fill executes at resting order price.",
+      "source": "app/services/matching_engine.py"
+    },
+    {
+      "property": "partial_fill",
+      "owning_tasks": [
+        16,
+        18
+      ],
+      "integration_owner": "integration",
+      "cases": [
+        "0.01 increments",
+        "full and partial",
+        "remainder below minimum lot"
+      ],
+      "expected": "Exact min remainder fill; no overfill/negative; below-minimum residual follows existing fill policy.",
+      "source": "app/services/matching_engine.py"
+    },
+    {
+      "property": "quantity_status_version",
+      "owning_tasks": [
+        16,
+        20
+      ],
+      "integration_owner": "integration",
+      "cases": [
+        "OPEN/PARTIALLY_FILLED/FILLED",
+        "amend down to filled",
+        "multiple fills"
+      ],
+      "expected": "Exact total/remaining/status and one intended version progression; retain acceptance on fills.",
+      "source": "app/market_constraints.py; app/routers/orderbook.py"
+    },
+    {
+      "property": "amend_priority",
+      "owning_tasks": [
+        20
+      ],
+      "integration_owner": "integration",
+      "cases": [
+        "price",
+        "quantity increase/decrease",
+        "expiry extension/shortening/GTC",
+        "normalized certification set/scheme",
+        "typed terms",
+        "off-spec qualification"
+      ],
+      "expected": "Allocate new ordinal only for priority-losing amendment; preserve reductions and shortening.",
+      "source": "app/routers/orderbook.py"
+    },
+    {
+      "property": "scalar_qualification_priority",
+      "owning_tasks": [
+        20
+      ],
+      "integration_owner": "integration",
+      "cases": [
+        "certification_declared",
+        "msds_available",
+        "specification_standard",
+        "carbon_intensity_method",
+        "feedstock",
+        "origin"
+      ],
+      "expected": "Newly qualified order gets fresh ordinal under slice lock; already accepted executable order fills first.",
+      "source": "app/services/execution_policy.py; app/routers/orderbook.py"
+    },
+    {
+      "property": "qualification",
+      "owning_tasks": [
+        17
+      ],
+      "integration_owner": "integration",
+      "cases": [
+        "off-spec",
+        "cert scheme/set",
+        "each supplier scalar",
+        "null versus zero",
+        "certificate-date boundary"
+      ],
+      "expected": "Only fully qualified orders execute; zero remains distinct from absent.",
+      "source": "app/services/execution_policy.py"
+    },
+    {
+      "property": "fame_compatibility",
+      "owning_tasks": [
+        17
+      ],
+      "integration_owner": "integration",
+      "cases": [
+        "standard/edition/grade",
+        "cold-flow limits",
+        "comparable CI",
+        "certification/evidence",
+        "null versus zero",
+        "current certificate"
+      ],
+      "expected": "Each independent typed requirement must hold; snapshot freezes both sides.",
+      "source": "app/services/fame_order.py"
+    },
+    {
+      "property": "lng_compatibility",
+      "owning_tasks": [
+        17
+      ],
+      "integration_owner": "integration",
+      "cases": [
+        "scheme",
+        "custody",
+        "union database",
+        "minimum bio share",
+        "maximum WTT",
+        "delivery method",
+        "minimum methane number",
+        "physical supplier/reseller",
+        "null versus zero",
+        "certificate dates"
+      ],
+      "expected": "All eight compatibility rules; WTT never populates lifecycle CI; Rotterdam only; no seed price.",
+      "source": "app/services/lng_order.py; app/schemas/lng_order.py"
+    },
+    {
+      "property": "bound_atomicity",
+      "owning_tasks": [
+        16,
+        19,
+        20,
+        24
+      ],
+      "integration_owner": "integration",
+      "cases": [
+        "0/1/100/101 candidates",
+        "invalid before/within cap",
+        "first 100 fills with remaining aggressor"
+      ],
+      "expected": "Hard cap 100; over-bound refusal rolls back entire matched prefix and every effect.",
+      "source": "app/services/matching_engine.py"
+    },
+    {
+      "property": "post_only",
+      "owning_tasks": [
+        17,
+        19
+      ],
+      "integration_owner": "integration",
+      "cases": [
+        "assisted BID/ASK",
+        "incompatible raw crossing rows",
+        "best executable price",
+        "full-set 101"
+      ],
+      "expected": "Eligible cross refuses POST_ONLY_WOULD_CROSS; indeterminate refuses POST_ONLY_CHECK_INDETERMINATE; consume no authorization on failure.",
+      "source": "app/services/market_support_post_only.py"
+    },
+    {
+      "property": "stock_conservation",
+      "owning_tasks": [
+        4,
+        13,
+        18,
+        21,
+        22,
+        24,
+        29
+      ],
+      "integration_owner": "integration",
+      "cases": [
+        "publish/auto fill/pending hit/confirm/decline/cancel/expiry/amend/replay",
+        "preserving rejection",
+        "generated finite sequences"
+      ],
+      "expected": "Reserved equals live unfilled remainder plus pending trades, including pending on terminal orders; current/reserved/consumed conserved.",
+      "source": "app/services/inventory_reservations.py; rs/read/src/order_write/expiry.rs"
+    },
+    {
+      "property": "manual_and_auto_confirmation",
+      "owning_tasks": [
+        18,
+        21,
+        22
+      ],
+      "integration_owner": "integration",
+      "cases": [
+        "direct take pending",
+        "auto match CONFIRMED",
+        "manual confirmation",
+        "same-key replay"
+      ],
+      "expected": "Same confirmed-trade referral activation once for both organizations; no activation on pending take or replay.",
+      "source": "app/routers/trades.py; app/services/matching_engine.py"
+    },
+    {
+      "property": "settlement",
+      "owning_tasks": [
+        22,
+        23,
+        28
+      ],
+      "integration_owner": "integration",
+      "cases": [
+        "counterparty-only confirm/decline",
+        "no revival after expiry/withdrawal",
+        "final quantity bound",
+        "inclusive 10% deviation",
+        "seller-only payment",
+        "each frozen transition"
+      ],
+      "expected": "Strict lifecycle; cleanup retains exact party authority; no partial stock or money movement.",
+      "source": "app/routers/trades.py"
+    },
+    {
+      "property": "fee_snapshot",
+      "owning_tasks": [
+        18,
+        21,
+        23
+      ],
+      "integration_owner": "integration",
+      "cases": [
+        "seller per-MT plan/rate",
+        "legacy 3-place percent",
+        "subscription change",
+        "HALF_UP boundary"
+      ],
+      "expected": "Frozen basis read once at trade creation; delivery rounds total and fee once; later subscription changes do not reprice.",
+      "source": "app/services/trade_fees.py; app/routers/trades.py"
+    },
+    {
+      "property": "snapshot_immutability",
+      "owning_tasks": [
+        18,
+        21
+      ],
+      "integration_owner": "integration",
+      "cases": [
+        "market identity",
+        "typed FAME/LNG",
+        "order amended after trade",
+        "participant and fee basis"
+      ],
+      "expected": "Trade snapshot columns never change; no later order lookup substitutes current terms.",
+      "source": "app/models/orderbook.py; app/services/order_terms.py"
+    },
+    {
+      "property": "retry_replay",
+      "owning_tasks": [
+        3,
+        6,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        29
+      ],
+      "integration_owner": "integration",
+      "cases": [
+        "same key",
+        "changed payload/actor/org/context/resource",
+        "no key",
+        "actual 40001/40P01",
+        "55P03/57014",
+        "commit transport ambiguity"
+      ],
+      "expected": "At most two attempts for genuine retryable abort; prepare response before commit; ambiguous commit never auto-retries; exact replay has no effects.",
+      "source": "rs/read/src/order_write/command.rs; rs/read/src/order_write/transaction.rs"
+    },
+    {
+      "property": "atomic_effects",
+      "owning_tasks": [
+        5,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24
+      ],
+      "integration_owner": "integration",
+      "cases": [
+        "successful mutation",
+        "rollback after staged work",
+        "same-key replay",
+        "multi-fill"
+      ],
+      "expected": "Task 5 effect seam and route work commit atomically; one intended audit/notification/PIN/benchmark/outbox set and none on refusal/replay.",
+      "source": "app/services/auto_match_side_effects.py; rs/read/src/order_write/transaction.rs"
+    },
+    {
+      "property": "projection_privacy",
+      "owning_tasks": [
+        18,
+        21,
+        25
+      ],
+      "integration_owner": "integration",
+      "cases": [
+        "pending identities",
+        "confirmed counterparty",
+        "seller/admin versus buyer fees",
+        "public/private typed terms",
+        "unknown/empty defaults"
+      ],
+      "expected": "Viewer-aware identity and fee projection; private terms do not enter public book/suggestions; null/empty/default values retained.",
+      "source": "app/routers/trades.py; app/schemas/orderbook.py"
+    },
+    {
+      "property": "both_benchmarks",
+      "owning_tasks": [
+        5,
+        18,
+        19,
+        20,
+        21,
+        22,
+        24
+      ],
+      "integration_owner": "integration",
+      "cases": [
+        "amend consumes last opposing quote",
+        "both changed sides",
+        "empty side"
+      ],
+      "expected": "Task 5 seam rebuilds each changed side from remaining eligible book, or removes empty mirror; same transaction.",
+      "source": "app/services/live_benchmarks.py; app/routers/orderbook.py"
+    },
+    {
+      "property": "pin_display",
+      "owning_tasks": [
+        5,
+        18,
+        20,
+        22,
+        24,
+        29
+      ],
+      "integration_owner": "integration",
+      "cases": [
+        "amend",
+        "partial/full fill",
+        "cancel/expiry/restoration",
+        "producer paused",
+        "receipt replay"
+      ],
+      "expected": "Task 5 synchronous final-state display seam runs on changed orders; replay leaves display/history unchanged; terminal target-lock phase adds no later economic lock.",
+      "source": "app/services/watchlist_events.py"
+    },
+    {
+      "property": "scoped_outbox",
+      "owning_tasks": [
+        5,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24
+      ],
+      "integration_owner": "integration",
+      "cases": [
+        "commit versus rollback",
+        "participant/public projection",
+        "multi-fill",
+        "REAL and DEMO evidence"
+      ],
+      "expected": "Task 5 outbox seam retains scoped internal evidence separate from transport. Integration qualifies Phase 6 live/store/hub/replay; one dispatcher.",
+      "source": "app/services/market_event_dispatch.py"
+    },
+    {
+      "property": "suggestion_public_relation",
+      "owning_tasks": [
+        25
+      ],
+      "integration_owner": "integration",
+      "cases": [
+        "owner rejection",
+        "nonpublic provenance",
+        "missing supplier metadata",
+        "expired terms",
+        "private evidence"
+      ],
+      "expected": "Shared public candidate relation and projection before ranking; no hidden candidate economics.",
+      "source": "app/routers/matchmaking.py; rs/read/src/market/visibility.rs"
+    },
+    {
+      "property": "recorded_party_discovery",
+      "owning_tasks": [
+        21,
+        29,
+        30
+      ],
+      "integration_owner": "integration",
+      "cases": [
+        "rejected/detached/moved ordinary actor",
+        "unequal populated organizations",
+        "stranger",
+        "valid/invalid assisted membership"
+      ],
+      "expected": "Bounded own history/counts use immutable participation, not actor current tenant or caller input.",
+      "source": "app/routers/trades.py; rs/read/src/order_write/admission.rs"
+    },
+    {
+      "property": "assisted_cleanup",
+      "owning_tasks": [
+        3,
+        21,
+        22,
+        23,
+        29
+      ],
+      "integration_owner": "integration",
+      "cases": [
+        "valid MARKET_SUPPORT link",
+        "missing/wrong order/customer link",
+        "recorded support owner",
+        "side role mismatch",
+        "PENDING/REJECTED/unverified/forced-password member",
+        "revoked cutoff ordinary versus REJECTED exception"
+      ],
+      "expected": "Only current side-compatible assisted customer membership with immutable valid evidence; no extra execution predicates; exact ordinary recorded party remains separate path.",
+      "source": "app/routers/trades.py; rs/read/src/order_write/admission.rs"
+    },
+    {
+      "property": "freeze_invariant",
+      "owning_tasks": [
+        26,
+        27,
+        28,
+        29,
+        30,
+        31
+      ],
+      "integration_owner": "integration",
+      "cases": [
+        "each protected source state",
+        "terminal freeze refusal",
+        "same/different reason",
+        "freeze/clear/refreeze race",
+        "direct SQL writer",
+        "history rewrite"
+      ],
+      "expected": "ACTIVE blocks confirm/decline/deliver/pay/cancellation via ZF001 without changing stock/remainder; one active index and immutable cleared history.",
+      "source": "rs/read/src/order_write/error.rs; deploy/postgres/app_acl_policy.sql"
+    },
+    {
+      "property": "residual_python_writers",
+      "owning_tasks": [
+        12,
+        27,
+        29
+      ],
+      "integration_owner": "integration",
+      "cases": [
+        "reminder notification then user/order delivery locks and 15-minute lease",
+        "demo/quarantine/seed columns",
+        "Phase 7 canonical slice locks and order reads"
+      ],
+      "expected": "Keep per-writer lock/column/atomicity coverage. Accepted advisory SQL outcome parity is not complete held-lock HTTP or reminder delivery-row parity. Freeze trigger remains database invariant.",
+      "source": "app/services/order_expiry_reminders.py; app/services/market_quarantine.py; app/services/demo_activity.py"
+    }
+  ],
+  "effect_contract": "Task 5 supplies audit, notification, synchronous PIN display, both-side benchmark and outbox seams. Route owners consume them in the caller transaction. This ledger does not specify effect internals. Integration owns Phase 6 store/hub/replay projection qualification.",
+  "error_contract": {
+    "envelope": {
+      "detail": {
+        "code": "UPPER_SNAKE_CODE",
+        "message": "string"
+      }
+    },
+    "message_wording": "not pinned",
+    "kyc_refusal": {
+      "status": 403,
+      "code": "KYC_REQUIRED",
+      "fields": [
+        "code",
+        "grace_expires_at",
+        "kyc_status",
+        "message"
+      ],
+      "kyc_status": "current status; assisted customer refusal uses PENDING",
+      "grace_expires_at": "ISO timestamp or null; assisted customer refusal uses null",
+      "owning_tasks": [
+        3,
+        17,
+        19,
+        20,
+        21,
+        22,
+        24
+      ],
+      "integration_owner": "integration"
+    },
+    "support_context_headers": [
+      "X-Verdaxis-Market-Support-Context-Invalid",
+      "X-Verdaxis-Market-Support-Context-Code"
+    ],
+    "support_context_rule": "Every MARKET_SUPPORT_CONTEXT_* refusal retains both clearing headers. Feature disabled is 404; missing capability on initial discovery is status-only 404."
+  },
+  "write_path": {
+    "matching": "in_process_caller_transaction",
+    "cross_stack_http": false,
+    "python_process": false,
+    "deferred_or_noop_matching": false,
+    "owning_tasks": [
+      16,
+      19,
+      20,
+      24
+    ],
+    "integration_owner": "integration"
+  },
+  "freeze_schema": {
+    "active_index": "uq_trade_freezes_one_active",
+    "owning_tasks": [
+      27,
+      31
+    ],
+    "settlement_sqlstate": "ZF001",
+    "history_sqlstates": [
+      "ZF002",
+      "ZF003"
+    ],
+    "schema_owner": "Alembic",
+    "purpose": "Database invariant for all writers, including residual demo and quarantine tools; no route rollback requirement."
+  },
+  "client_changes": [
+    {
+      "change": 1,
+      "owning_tasks": [
+        21,
+        26,
+        28,
+        30
+      ],
+      "test": "frontend_shows_frozen_trade_and_disables_settlement_actions",
+      "contract": "TradeResponse adds is_frozen:boolean and freeze:null|{reason_code:string,set_at:timestamp}; reads continue; frozen trades disable confirm, decline, deliver and pay; server returns 409 TRADE_FROZEN regardless of UI."
+    },
+    {
+      "change": 2,
+      "owning_tasks": [
+        21,
+        22,
+        23,
+        30
+      ],
+      "test": "recorded_party_discovery_and_settlement_survive_rejection_or_detachment",
+      "contract": "T2/T3 retain bounded response shapes and discover exact recorded participation without current organization. Rejected, detached or moved recorded parties retain decline/deliver/pay authority; fresh confirm still requires execution admission. No caller-selected tenant. Frontend must not hide valid cleanup actions by account status."
+    },
+    {
+      "change": 3,
+      "owning_tasks": [
+        26,
+        27
+      ],
+      "test": "freeze_routes_are_admin_only_and_audited",
+      "contract": "Only the three new freeze administration routes are added. No frontend administration caller is required."
+    }
+  ],
+  "schemas": [
+    {
+      "path": "app/schemas/orderbook.py",
+      "classes": {
+        "SupplierListingMetadataMixin": {
+          "bases": [
+            "BaseModel"
+          ],
+          "fields": {
+            "certification_declared": {
+              "type": "bool",
+              "default": "False"
+            },
+            "certification_scheme": {
+              "type": "Optional[str]",
+              "default": "None"
+            },
+            "specification_standard": {
+              "type": "Optional[str]",
+              "default": "None"
+            },
+            "msds_available": {
+              "type": "bool",
+              "default": "False"
+            },
+            "carbon_intensity_gco2_mj": {
+              "type": "Optional[Decimal]",
+              "default": "Field(None, ge=0)"
+            },
+            "carbon_intensity_method": {
+              "type": "Optional[str]",
+              "default": "None"
+            },
+            "feedstock": {
+              "type": "Optional[str]",
+              "default": "None"
+            },
+            "origin": {
+              "type": "Optional[str]",
+              "default": "None"
+            },
+            "off_spec": {
+              "type": "bool",
+              "default": "False"
+            },
+            "off_spec_notes": {
+              "type": "Optional[str]",
+              "default": "None"
+            }
+          }
+        },
+        "MarketSupportFinalConfirmation": {
+          "bases": [
+            "BaseModel"
+          ],
+          "fields": {
+            "external_instruction_reference": {
+              "type": "str",
+              "default": "Field(min_length=3, max_length=500)"
+            },
+            "instruction_at": {
+              "type": "datetime",
+              "default": null
+            },
+            "evidence_excerpt": {
+              "type": "str | None",
+              "default": "Field(default=None, max_length=4000)"
+            },
+            "acknowledge_exact_terms": {
+              "type": "bool",
+              "default": null
+            },
+            "acknowledge_executable_standing_order": {
+              "type": "bool",
+              "default": null
+            }
+          }
+        },
+        "OrderCreate": {
+          "bases": [
+            "AvailabilityWindowMixin",
+            "SupplierListingMetadataMixin"
+          ],
+          "fields": {
+            "side": {
+              "type": "OrderSide",
+              "default": null
+            },
+            "product_id": {
+              "type": "UUID",
+              "default": null
+            },
+            "delivery_point_id": {
+              "type": "UUID",
+              "default": null
+            },
+            "port_id": {
+              "type": "Optional[str]",
+              "default": "None"
+            },
+            "vessel_id": {
+              "type": "Optional[UUID]",
+              "default": "None"
+            },
+            "quantity_mt": {
+              "type": "Decimal",
+              "default": "Field(..., gt=0, le=100000, max_digits=12, decimal_places=2, allow_inf_nan=False)"
+            },
+            "price_per_mt_usd": {
+              "type": "Decimal",
+              "default": "Field(..., gt=0, le=1000000, max_digits=10, decimal_places=2, allow_inf_nan=False)"
+            },
+            "availability_window": {
+              "type": "AvailabilityWindowCode",
+              "default": "SPOT_WINDOW"
+            },
+            "certifications": {
+              "type": "list[str]",
+              "default": "Field(default_factory=list)"
+            },
+            "certification_scheme": {
+              "type": "Optional[str]",
+              "default": "None"
+            },
+            "expires_at": {
+              "type": "Optional[datetime]",
+              "default": "None"
+            },
+            "is_anonymous": {
+              "type": "Literal[True]",
+              "default": "True"
+            },
+            "support_confirmation": {
+              "type": "MarketSupportFinalConfirmation | None",
+              "default": "None"
+            },
+            "fame_terms": {
+              "type": "FameOrderTerms | None",
+              "default": "None"
+            },
+            "lng_terms": {
+              "type": "LngOrderTerms | None",
+              "default": "None"
+            }
+          }
+        },
+        "OrderUpdate": {
+          "bases": [
+            "AvailabilityWindowMixin"
+          ],
+          "fields": {
+            "quantity_mt": {
+              "type": "Optional[Decimal]",
+              "default": "Field(None, gt=0, le=100000, max_digits=12, decimal_places=2, allow_inf_nan=False)"
+            },
+            "price_per_mt_usd": {
+              "type": "Optional[Decimal]",
+              "default": "Field(None, gt=0, le=1000000, max_digits=10, decimal_places=2, allow_inf_nan=False)"
+            },
+            "availability_window": {
+              "type": "Optional[AvailabilityWindowCode]",
+              "default": "None"
+            },
+            "certifications": {
+              "type": "Optional[list[str]]",
+              "default": "None"
+            },
+            "certification_declared": {
+              "type": "Optional[bool]",
+              "default": "None"
+            },
+            "certification_scheme": {
+              "type": "Optional[str]",
+              "default": "None"
+            },
+            "specification_standard": {
+              "type": "Optional[str]",
+              "default": "None"
+            },
+            "msds_available": {
+              "type": "Optional[bool]",
+              "default": "None"
+            },
+            "carbon_intensity_gco2_mj": {
+              "type": "Optional[Decimal]",
+              "default": "Field(None, ge=0)"
+            },
+            "carbon_intensity_method": {
+              "type": "Optional[str]",
+              "default": "None"
+            },
+            "feedstock": {
+              "type": "Optional[str]",
+              "default": "None"
+            },
+            "origin": {
+              "type": "Optional[str]",
+              "default": "None"
+            },
+            "off_spec": {
+              "type": "Optional[bool]",
+              "default": "None"
+            },
+            "off_spec_notes": {
+              "type": "Optional[str]",
+              "default": "None"
+            },
+            "expires_at": {
+              "type": "Optional[datetime]",
+              "default": "None"
+            },
+            "fame_terms": {
+              "type": "FameOrderTerms | None",
+              "default": "None"
+            },
+            "lng_terms": {
+              "type": "LngOrderTerms | None",
+              "default": "None"
+            }
+          }
+        },
+        "OrderResponse": {
+          "bases": [
+            "AvailabilityWindowMixin",
+            "SupplierListingMetadataMixin"
+          ],
+          "fields": {
+            "id": {
+              "type": "UUID",
+              "default": null
+            },
+            "terms_digest": {
+              "type": "str",
+              "default": "Field(min_length=64, max_length=64, pattern='^[0-9a-f]{64}$')"
+            },
+            "version": {
+              "type": "int",
+              "default": "1"
+            },
+            "fame_terms": {
+              "type": "FamePublicOrderTerms | None",
+              "default": "None"
+            },
+            "lng_terms": {
+              "type": "LngPublicOrderTerms | None",
+              "default": "None"
+            },
+            "side": {
+              "type": "OrderSide",
+              "default": null
+            },
+            "product_id": {
+              "type": "UUID",
+              "default": null
+            },
+            "product_name": {
+              "type": "str",
+              "default": "''"
+            },
+            "market_product": {
+              "type": "Optional[str]",
+              "default": "None"
+            },
+            "fuel_type": {
+              "type": "str",
+              "default": "''"
+            },
+            "fuel_grade": {
+              "type": "str",
+              "default": "''"
+            },
+            "delivery_point_id": {
+              "type": "Optional[UUID]",
+              "default": "None"
+            },
+            "delivery_point_name": {
+              "type": "Optional[str]",
+              "default": "None"
+            },
+            "region": {
+              "type": "str",
+              "default": "''"
+            },
+            "port_id": {
+              "type": "Optional[str]",
+              "default": "None"
+            },
+            "quantity_mt": {
+              "type": "Decimal",
+              "default": null
+            },
+            "remaining_quantity_mt": {
+              "type": "Decimal",
+              "default": null
+            },
+            "price_per_mt_usd": {
+              "type": "Decimal",
+              "default": null
+            },
+            "availability_window": {
+              "type": "AvailabilityWindowCode",
+              "default": null
+            },
+            "certifications": {
+              "type": "list[str]",
+              "default": "Field(default_factory=list)"
+            },
+            "is_verdaxis_verified": {
+              "type": "bool",
+              "default": null
+            },
+            "tier_label": {
+              "type": "TierLabel",
+              "default": "TierLabel.INDEPENDENT"
+            },
+            "status": {
+              "type": "OrderBookStatus",
+              "default": null
+            },
+            "expires_at": {
+              "type": "Optional[datetime]",
+              "default": "None"
+            },
+            "created_at": {
+              "type": "datetime",
+              "default": null
+            },
+            "benchmark_price_per_mt_usd": {
+              "type": "Optional[Decimal]",
+              "default": "None"
+            },
+            "premium_discount_per_mt_usd": {
+              "type": "Optional[Decimal]",
+              "default": "None"
+            },
+            "benchmark_source": {
+              "type": "Optional[str]",
+              "default": "None"
+            },
+            "is_crossed": {
+              "type": "bool",
+              "default": "False"
+            },
+            "is_demo_listing": {
+              "type": "bool",
+              "default": "False"
+            },
+            "source_kind": {
+              "type": "MarketSourceKind",
+              "default": "MarketSourceKind.UNKNOWN"
+            },
+            "scope": {
+              "type": "MarketScope",
+              "default": "MarketScope.UNKNOWN"
+            },
+            "demo_status": {
+              "type": "MarketDemoStatus",
+              "default": "MarketDemoStatus.UNKNOWN"
+            },
+            "unknown_count": {
+              "type": "int",
+              "default": "0"
+            }
+          }
+        },
+        "TradeCreate": {
+          "bases": [
+            "BaseModel"
+          ],
+          "fields": {
+            "order_id": {
+              "type": "UUID",
+              "default": null
+            },
+            "expected_terms_digest": {
+              "type": "str | None",
+              "default": "Field(None, min_length=64, max_length=64, pattern='^[0-9a-f]{64}$')"
+            },
+            "expected_order_version": {
+              "type": "int | None",
+              "default": "Field(None, ge=1)"
+            },
+            "fame_terms": {
+              "type": "FameOrderTerms | None",
+              "default": "None"
+            },
+            "lng_terms": {
+              "type": "LngOrderTerms | None",
+              "default": "None"
+            },
+            "certification_declared": {
+              "type": "bool",
+              "default": "False"
+            },
+            "msds_available": {
+              "type": "bool",
+              "default": "False"
+            },
+            "quantity_mt": {
+              "type": "Decimal",
+              "default": "Field(..., gt=0, le=100000, max_digits=12, decimal_places=2, allow_inf_nan=False)"
+            }
+          }
+        },
+        "TradeResponse": {
+          "bases": [
+            "BaseModel"
+          ],
+          "fields": {
+            "id": {
+              "type": "UUID",
+              "default": null
+            },
+            "fame_terms_snapshot": {
+              "type": "FameTradeSnapshot | FamePublicTradeSnapshot | None",
+              "default": "None"
+            },
+            "lng_terms_snapshot": {
+              "type": "LngTradeSnapshot | LngPublicTradeSnapshot | None",
+              "default": "None"
+            },
+            "bid_order_id": {
+              "type": "Optional[UUID]",
+              "default": "None"
+            },
+            "ask_order_id": {
+              "type": "Optional[UUID]",
+              "default": "None"
+            },
+            "buyer_id": {
+              "type": "Optional[UUID]",
+              "default": "None"
+            },
+            "seller_id": {
+              "type": "Optional[UUID]",
+              "default": "None"
+            },
+            "buyer_name": {
+              "type": "str",
+              "default": "''"
+            },
+            "seller_name": {
+              "type": "str",
+              "default": "''"
+            },
+            "initiated_by": {
+              "type": "Initiator",
+              "default": null
+            },
+            "is_anonymous": {
+              "type": "bool",
+              "default": "False"
+            },
+            "quantity_mt": {
+              "type": "Decimal",
+              "default": null
+            },
+            "price_per_mt_usd": {
+              "type": "Decimal",
+              "default": null
+            },
+            "status": {
+              "type": "TradeStatus",
+              "default": null
+            },
+            "final_quantity_mt": {
+              "type": "Optional[Decimal]",
+              "default": "None"
+            },
+            "final_price_per_mt": {
+              "type": "Optional[Decimal]",
+              "default": "None"
+            },
+            "final_total_usd": {
+              "type": "Optional[Decimal]",
+              "default": "None"
+            },
+            "commission_rate_pct": {
+              "type": "Decimal",
+              "default": "Decimal('0.5')"
+            },
+            "commission_fee_per_mt_usd": {
+              "type": "Optional[Decimal]",
+              "default": "None"
+            },
+            "commission_plan": {
+              "type": "Optional[Literal['free', 'standard', 'enterprise']]",
+              "default": "None"
+            },
+            "commission_payer": {
+              "type": "Optional[Literal['SELLER']]",
+              "default": "None"
+            },
+            "commission_amount_usd": {
+              "type": "Optional[Decimal]",
+              "default": "None"
+            },
+            "confirmed_at": {
+              "type": "Optional[datetime]",
+              "default": "None"
+            },
+            "delivered_at": {
+              "type": "Optional[datetime]",
+              "default": "None"
+            },
+            "paid_at": {
+              "type": "Optional[datetime]",
+              "default": "None"
+            },
+            "created_at": {
+              "type": "datetime",
+              "default": null
+            },
+            "product_id": {
+              "type": "Optional[UUID]",
+              "default": "None"
+            },
+            "product_name": {
+              "type": "str",
+              "default": "''"
+            },
+            "market_product": {
+              "type": "Optional[str]",
+              "default": "None"
+            },
+            "fuel_type": {
+              "type": "str",
+              "default": "''"
+            },
+            "fuel_grade": {
+              "type": "str",
+              "default": "''"
+            },
+            "delivery_point_id": {
+              "type": "Optional[UUID]",
+              "default": "None"
+            },
+            "delivery_point_name": {
+              "type": "Optional[str]",
+              "default": "None"
+            },
+            "availability_window": {
+              "type": "Optional[str]",
+              "default": "None"
+            },
+            "region": {
+              "type": "str",
+              "default": "''"
+            },
+            "source_kind": {
+              "type": "MarketSourceKind",
+              "default": "MarketSourceKind.UNKNOWN"
+            },
+            "scope": {
+              "type": "MarketScope",
+              "default": "MarketScope.UNKNOWN"
+            },
+            "demo_status": {
+              "type": "MarketDemoStatus",
+              "default": "MarketDemoStatus.UNKNOWN"
+            },
+            "unknown_count": {
+              "type": "int",
+              "default": "0"
+            }
+          }
+        },
+        "TradeSummaryResponse": {
+          "bases": [
+            "BaseModel"
+          ],
+          "fields": {
+            "total_count": {
+              "type": "int",
+              "default": null
+            },
+            "action_required_count": {
+              "type": "int",
+              "default": null
+            },
+            "awaiting_counterparty_count": {
+              "type": "int",
+              "default": null
+            },
+            "confirmed_count": {
+              "type": "int",
+              "default": null
+            }
+          }
+        },
+        "TradeDeliverPayload": {
+          "bases": [
+            "BaseModel"
+          ],
+          "fields": {
+            "final_quantity_mt": {
+              "type": "Decimal",
+              "default": "Field(..., gt=0, le=100000, max_digits=12, decimal_places=2, allow_inf_nan=False)"
+            },
+            "final_price_per_mt": {
+              "type": "Decimal",
+              "default": "Field(..., gt=0, le=1000000, max_digits=10, decimal_places=2, allow_inf_nan=False)"
+            }
+          }
+        }
+      }
+    },
+    {
+      "path": "app/schemas/pagination.py",
+      "classes": {
+        "PaginatedResponse": {
+          "bases": [
+            "BaseModel",
+            "Generic[T]"
+          ],
+          "fields": {
+            "items": {
+              "type": "List[T]",
+              "default": null
+            },
+            "total": {
+              "type": "int",
+              "default": null
+            },
+            "skip": {
+              "type": "int",
+              "default": null
+            },
+            "limit": {
+              "type": "int",
+              "default": null
+            }
+          }
+        }
+      }
+    }
+  ]
+}
