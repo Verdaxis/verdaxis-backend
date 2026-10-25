@@ -231,14 +231,14 @@ async fn suggestions_never_project_a_nonpublic_row() {
     let (status, body) = f.request(id(1), "GET", LIST).await;
     assert_eq!(status, 200);
     let rows = body.as_array().unwrap();
-    assert_eq!(
-        rows.len(),
-        1,
-        "only the public positive control is suggested: {body}"
-    );
-    assert_eq!(rows[0]["id"], id(201).to_string());
-    assert_eq!(rows[0]["ask_order"]["price_per_mt_usd"], "500");
+    let public = rows.iter().find(|row| row["id"] == id(201).to_string()).expect("public positive control");
+    assert_eq!(public["ask_order"]["price_per_mt_usd"], "500");
     let text = body.to_string();
+    for hidden_price in ["491", "492", "493", "494"] {
+        assert!(!text.contains(hidden_price), "nonpublic economics: {body}");
+    }
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["id"], id(201).to_string());
     for hidden in [202, 203, 204, 205] {
         assert!(
             !text.contains(&id(hidden).to_string()),

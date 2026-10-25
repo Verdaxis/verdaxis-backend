@@ -49,6 +49,6 @@ UPDATE users SET kyc_status=$2,kyc_organization_id=$3 WHERE id=$1;
 INSERT INTO match_suggestions(id,bid_order_id,ask_order_id,score,match_reasons,status,recipient_org_id) VALUES($1,$2,$2,0,'[]','DISMISSED',$3);
 -- section: abort
 CREATE FUNCTION refuse_suggestion() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'transaction stopped' USING ERRCODE='P0001'; END $$;
-CREATE TRIGGER refuse_suggestion BEFORE INSERT ON match_suggestions FOR EACH ROW EXECUTE FUNCTION refuse_suggestion();
+CREATE TRIGGER refuse_suggestion AFTER INSERT ON match_suggestions FOR EACH ROW EXECUTE FUNCTION refuse_suggestion();
 -- section: resume
 DROP TRIGGER refuse_suggestion ON match_suggestions;
