@@ -824,6 +824,11 @@ async fn ordered_protocol_contender() {
     assert_eq!(parsed.host_str(), Some("127.0.0.1"));
     assert!(parsed.path().ends_with("_test"));
     let mut conn = PgConnection::connect(&url).await.unwrap();
+    if let Ok(key) = std::env::var("RUST_PROTOCOL_KEY") {
+        let key: i64 = key.parse().unwrap();
+        transaction::protocol_hold_key(&mut conn, key).await;
+        return;
+    }
     let (organizations, users, orders, slices) = transaction::protocol_preview(&mut conn).await;
     let actor = users.first().copied().unwrap_or_else(|| id(1));
     if users.is_empty() {
