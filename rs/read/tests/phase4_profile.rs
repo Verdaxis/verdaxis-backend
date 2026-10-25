@@ -832,7 +832,18 @@ mod postgres {
                     assert_eq!(reply.body["detail"]["code"], code);
                     continue;
                 }
-                let reply = read(index, "/api/auth/me").await;
+                // Users 12 and 13 carry cutoffs written five minutes before
+                // the fixture finished; a token from the default helper is
+                // issued at read time, which can fall after the cutoff and
+                // dodge the rule on wall-clock luck. Their tokens are ten
+                // minutes old, strictly before either cutoff.
+                let reply = if index >= 12 {
+                    let bearer = token_at(f.users[index], Utc::now() - Duration::minutes(10));
+                    let app = f.app.clone();
+                    get(&app, "/api/auth/me", Some(&bearer)).await
+                } else {
+                    read(index, "/api/auth/me").await
+                };
                 assert_eq!(reply.status, status, "user {index}");
                 assert_eq!(reply.body["detail"]["code"], code, "user {index}");
             }
