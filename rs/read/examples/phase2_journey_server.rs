@@ -97,11 +97,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             state.clone(),
             WatchlistSettings::new(verification.clone(), None),
         ))
-        .merge(alerts::router(
-            state.clone(),
-            verification,
-            limits.clone(),
-        ))
+        .merge(alerts::router(state.clone(), verification, limits.clone()))
         .merge(referrals::routes(referral_settings).with_state(state.clone()))
         .route(
             "/.well-known/verdaxis-disposable-test",
