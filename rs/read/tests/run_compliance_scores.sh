@@ -102,42 +102,57 @@ export RUST_COMPLIANCE_TEST_WRITER_URL="postgres://task9_writer:disposable_write
 # This runner supplies the database, so a missing URL is a failure, not a skip.
 export RUST_COMPLIANCE_REQUIRED=1
 
-log=$(mktemp "${test_home}/runs/task9-tests.XXXXXX")
+scores_log=$(mktemp "${test_home}/runs/task9-tests.XXXXXX")
 stamp scores-test
 set +e
 cargo test --manifest-path "$repo/rs/Cargo.toml" --locked -p verdaxis-read \
-  --features contract-tests --test phase5_compliance_scores -- --test-threads=1 --nocapture 2>&1 | tee "$log"
+  --features contract-tests --test phase5_compliance_scores -- --test-threads=1 --nocapture 2>&1 | tee "$scores_log"
 scores_status=${PIPESTATUS[0]}
 echo "SCORES_TEST_EXIT=$scores_status"
-grep -E '^test result' "$log" || true
-rm -f "$log"
-log=$(mktemp "${test_home}/runs/task12-tests.XXXXXX")
+grep -E '^test result' "$scores_log" || true
+task12_log=$(mktemp "${test_home}/runs/task12-tests.XXXXXX")
 stamp task12-test
 cargo test --manifest-path "$repo/rs/Cargo.toml" --locked -p verdaxis-read \
-  --features contract-tests --test phase5_postgres -- --test-threads=1 --nocapture 2>&1 | tee "$log"
+  --features contract-tests --test phase5_postgres -- --test-threads=1 --nocapture 2>&1 | tee "$task12_log"
 task12_status=${PIPESTATUS[0]}
 set -e
 echo "TASK12_TEST_EXIT=$task12_status"
-grep -E '^test |^test result' "$log" || true
+grep -E '^test |^test result' "$task12_log" || true
+# Each part keeps every guard against its own log: the exit code, a green run
+# that executed no test, and the not-run marker the part's tests print when
+# their disposable URLs are missing. Each log is removed only after its own
+# checks.
 if (( scores_status != 0 )); then
-  rm -f "$log"
+  echo "scores matrix failed: $scores_status" >&2
+  rm -f "$scores_log" "$task12_log"
   exit "$scores_status"
 fi
+if ! grep -Eq '^test result: ok\. [1-9][0-9]* passed' "$scores_log"; then
+  echo "no compliance score test ran: refusing a green result" >&2
+  rm -f "$scores_log" "$task12_log"
+  exit 1
+fi
+if grep -q 'compliance score database matrix not run' "$scores_log"; then
+  echo "compliance score database matrix did not run: refusing a green result" >&2
+  rm -f "$scores_log" "$task12_log"
+  exit 1
+fi
+rm -f "$scores_log"
 if (( task12_status != 0 )); then
-  rm -f "$log"
+  echo "cross-group matrix failed: $task12_status" >&2
+  rm -f "$task12_log"
   exit "$task12_status"
 fi
-if ! grep -Eq '^test result: ok\. [1-9][0-9]* passed' "$log"; then
-  echo "no compliance test ran: refusing a green result" >&2
-  rm -f "$log"
+if ! grep -Eq '^test result: ok\. [1-9][0-9]* passed' "$task12_log"; then
+  echo "no cross-group test ran: refusing a green result" >&2
+  rm -f "$task12_log"
   exit 1
 fi
-if grep -q 'compliance score database matrix not run' "$log" \
-   || grep -q 'cross-group matrix not run' "$log"; then
-  echo "database matrix did not run: refusing a green result" >&2
-  rm -f "$log"
+if grep -q 'cross-group matrix not run' "$task12_log"; then
+  echo "cross-group database matrix did not run: refusing a green result" >&2
+  rm -f "$task12_log"
   exit 1
 fi
-rm -f "$log"
+rm -f "$task12_log"
 stamp done
 echo GATES_DONE
