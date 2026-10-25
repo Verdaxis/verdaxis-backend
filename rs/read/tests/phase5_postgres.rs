@@ -20,10 +20,10 @@
 
 pub use verdaxis_read::*;
 
-#[path = "../src/routes/compliance_scores.rs"]
-mod scores;
 #[path = "../src/routes/compliance_overlay.rs"]
 mod overlay_routes;
+#[path = "../src/routes/compliance_scores.rs"]
+mod scores;
 
 use axum::{
     Router,
@@ -36,8 +36,8 @@ use sqlx::{Connection, PgConnection};
 use tower::ServiceExt;
 use uuid::Uuid;
 
-use scores::{Clock, RouteContext, routes_with_context};
 use overlay_routes::{OverlayAuthority, routes as overlay_routes};
+use scores::{Clock, RouteContext, routes_with_context};
 
 const SECRET: &str = "phase5-task12-test-secret-minimum-32-characters";
 const ISSUER: &str = "verdaxis-task12-test";
@@ -85,22 +85,25 @@ fn app(database_url: &str) -> Router {
         market::policy::load_policy(bytes, document["source_sha"].as_str().unwrap()).unwrap()
     };
     let state = AppState::new(config, runtime::db::Pools { read, health }, policy).unwrap();
-    let settings = auth::VerificationSettings::new(SECRET.into(), None, ISSUER.into(), AUDIENCE.into());
     let context = std::sync::Arc::new(RouteContext {
-        settings: std::sync::Arc::new(settings.clone()),
+        settings: std::sync::Arc::new(auth::VerificationSettings::new(
+            SECRET.into(),
+            None,
+            ISSUER.into(),
+            AUDIENCE.into(),
+        )),
         limits: auth::limits::SharedLimits::default(),
         clock: Clock::Fixed(now()),
     });
     routes_with_context(context)
         .merge(overlay_routes(OverlayAuthority::new(
-            settings,
+            auth::VerificationSettings::new(SECRET.into(), None, ISSUER.into(), AUDIENCE.into()),
             auth::limits::SharedLimits::default(),
         )))
         .with_state(state)
 }
 
-fn token(subject: Uuid) -> String {
-    let now = now();
+fn mint(subject: Uuid, now: chrono::DateTime<chrono::Utc>) -> String {
     let claims = json!({
         "sub": subject.to_string(),
         "type": "access",
@@ -116,6 +119,16 @@ fn token(subject: Uuid) -> String {
         &jsonwebtoken::EncodingKey::from_secret(SECRET.as_bytes()),
     )
     .unwrap()
+}
+
+/// The score routes verify the bearer against the fixed route clock.
+fn scores_token(subject: Uuid) -> String {
+    mint(subject, now())
+}
+
+/// The overlay route verifies the bearer against the real clock.
+fn overlay_token(subject: Uuid) -> String {
+    mint(subject, chrono::Utc::now())
 }
 
 async fn get(router: &Router, uri: &str, bearer: &str) -> Response {
@@ -164,6 +177,14 @@ fn urls() -> Option<(String, String)> {
 
 fn required() -> bool {
     std::env::var("RUST_COMPLIANCE_REQUIRED").as_deref() == Ok("1")
+}
+
+#[test]
+fn the_overlay_year_default_is_pinned() {
+    // `OverlayRequest::year` carries the reporting year the composed route
+    // answers with; its documented default is the literal 2026.
+    let request = overlay_routes::OverlayRequest::validate(json!({"order_ids": []})).unwrap();
+    assert_eq!(request.year(), 2026);
 }
 
 async fn reset(connection: &mut PgConnection) {
@@ -257,16 +278,25 @@ async fn phase5_visibility_cases() {
     seed_vessel(&mut writer, Some("E")).await;
 
     let router = app(&application);
-    let bearer = token(READER);
+    let scores_bearer = scores_token(READER);
+    let overlay_bearer = overlay_token(READER);
 
     // The fleet read sees the writer's committed vessel, and the overlay's
     // fleet count agrees with it on the same database.
-    let fleet = json_body(get(&router, "/api/compliance/fleet", &bearer).await).await;
+    let fleet = json_body(get(&router, "/api/compliance/fleet", &scores_bearer).await).await;
     assert_eq!(fleet["total_vessels"], json!(1));
     assert_eq!(fleet["vessels"][0]["cii"]["rating"], "E");
 
-    let overlay =
-        json_body(post(&router, "/api/compliance/pricing-overlay", &bearer, json!({"order_ids": []})).await).await;
+    let overlay = json_body(
+        post(
+            &router,
+            "/api/compliance/pricing-overlay",
+            &overlay_bearer,
+            json!({"order_ids": []}),
+        )
+        .await,
+    )
+    .await;
     assert_eq!(overlay["assumptions"]["fleet_vessel_count"], json!(1));
 
     // The writer commits a second vessel; the next read of each group sees it.
@@ -277,14 +307,22 @@ async fn phase5_visibility_cases() {
     )
     .bind(second)
     .bind(ORGANIZATION)
-    .execute(&mut *mut writer)
+    .execute(&mut writer)
     .await
     .unwrap();
 
-    let fleet = json_body(get(&router, "/api/compliance/fleet", &bearer).await).await;
+    let fleet = json_body(get(&router, "/api/compliance/fleet", &scores_bearer).await).await;
     assert_eq!(fleet["total_vessels"], json!(2));
-    let overlay =
-        json_body(post(&router, "/api/compliance/pricing-overlay", &bearer, json!({"order_ids": []})).await).await;
+    let overlay = json_body(
+        post(
+            &router,
+            "/api/compliance/pricing-overlay",
+            &overlay_bearer,
+            json!({"order_ids": []}),
+        )
+        .await,
+    )
+    .await;
     assert_eq!(overlay["assumptions"]["fleet_vessel_count"], json!(2));
 
     // A vessel the writer moves out of the reader's organization disappears
@@ -292,15 +330,15 @@ async fn phase5_visibility_cases() {
     sqlx::query("UPDATE vessels SET organization_id = $2 WHERE id = $1")
         .bind(second)
         .bind(WRITER_ORGANIZATION)
-        .execute(&mut *mut writer)
+        .execute(&mut writer)
         .await
         .unwrap();
-    let fleet = json_body(get(&router, "/api/compliance/fleet", &bearer).await).await;
+    let fleet = json_body(get(&router, "/api/compliance/fleet", &scores_bearer).await).await;
     assert_eq!(fleet["total_vessels"], json!(1));
 
     sqlx::query("DELETE FROM vessels WHERE id = ANY($1)")
         .bind([VESSEL, second].as_slice())
-        .execute(&mut *mut writer)
+        .execute(&mut writer)
         .await
         .unwrap();
 }
@@ -324,12 +362,21 @@ async fn phase5_snapshot_cases() {
     let before = business_counts(&mut writer).await;
 
     let router = app(&application);
-    let bearer = token(READER);
+    let scores_bearer = scores_token(READER);
+    let overlay_bearer = overlay_token(READER);
     for _ in 0..3 {
-        let fleet = json_body(get(&router, "/api/compliance/fleet", &bearer).await).await;
+        let fleet = json_body(get(&router, "/api/compliance/fleet", &scores_bearer).await).await;
         assert_eq!(fleet["total_vessels"], json!(1));
-        let overlay =
-            json_body(post(&router, "/api/compliance/pricing-overlay", &bearer, json!({"order_ids": []})).await).await;
+        let overlay = json_body(
+            post(
+                &router,
+                "/api/compliance/pricing-overlay",
+                &overlay_bearer,
+                json!({"order_ids": []}),
+            )
+            .await,
+        )
+        .await;
         assert_eq!(overlay["assumptions"]["fleet_vessel_count"], json!(1));
     }
 
@@ -362,16 +409,13 @@ async fn phase5_read_limits() {
     seed_vessel(&mut writer, Some("D")).await;
 
     let router = app(&application);
-    let bearer = token(READER);
+    let scores_bearer = scores_token(READER);
+    let overlay_bearer = overlay_token(READER);
 
     // Cancellation through the real composition: an overlay request whose
     // actor row is held occupies its caller in the lock wait; aborting the
     // caller detaches it, and a fresh caller answers once the holder is gone.
-    let holder = writer
-        .begin()
-        .await
-        .expect("independent writer connection");
-    let mut holder = holder;
+    let mut holder = writer.begin().await.expect("independent writer connection");
     sqlx::query("SELECT id FROM users WHERE id = $1 FOR UPDATE")
         .bind(READER)
         .fetch_one(&mut *holder)
@@ -380,9 +424,15 @@ async fn phase5_read_limits() {
 
     let blocked = {
         let router = router.clone();
-        let bearer = bearer.clone();
+        let bearer = overlay_bearer.clone();
         tokio::spawn(async move {
-            post(&router, "/api/compliance/pricing-overlay", &bearer, json!({"order_ids": []})).await
+            post(
+                &router,
+                "/api/compliance/pricing-overlay",
+                &bearer,
+                json!({"order_ids": []}),
+            )
+            .await
         })
     };
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
@@ -391,13 +441,19 @@ async fn phase5_read_limits() {
 
     // The aborted caller released nothing it should not have: with the holder
     // gone the same request answers normally on a fresh caller.
-    drop(holder);
-    let response = post(&router, "/api/compliance/pricing-overlay", &bearer, json!({"order_ids": []})).await;
+    holder.rollback().await.expect("release the actor row");
+    let response = post(
+        &router,
+        "/api/compliance/pricing-overlay",
+        &overlay_bearer,
+        json!({"order_ids": []}),
+    )
+    .await;
     assert_eq!(response.status(), StatusCode::OK);
     let body = json_body(response).await;
     assert_eq!(body["assumptions"]["fleet_vessel_count"], json!(1));
 
-    let fleet = json_body(get(&router, "/api/compliance/fleet", &bearer).await).await;
+    let fleet = json_body(get(&router, "/api/compliance/fleet", &scores_bearer).await).await;
     assert_eq!(fleet["total_vessels"], json!(1));
 
     sqlx::query("DELETE FROM vessels WHERE id = $1")
