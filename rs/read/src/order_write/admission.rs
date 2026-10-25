@@ -205,6 +205,9 @@ pub async fn cleanup_context_for_trade(
     } else {
         None
     };
+    if order_id.is_some() && assisted.is_none() {
+        return Err(invalid());
+    }
     let proof = if let Some(order) =
         assisted.filter(|order| order.get::<String, _>("creation_method") == "MARKET_SUPPORT")
     {

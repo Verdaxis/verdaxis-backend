@@ -175,7 +175,10 @@ fn lock_plan_matches_the_declared_operation_graph() {
         (CapabilityRevoke, vec![User, Capability, Context]),
         (ContextStart, vec![Organization, User, Capability, Context]),
         (ContextExit, vec![Organization, User, Capability, Context]),
-        (MarketOperation::Commission, vec![User, LockClass::Commission]),
+        (
+            MarketOperation::Commission,
+            vec![User, LockClass::Commission],
+        ),
         (Freeze, vec![User, Trade, FreezeRow]),
     ] {
         assert_eq!(op.graph(), graph, "{op:?}");
@@ -487,21 +490,28 @@ fn continuing_python_writers_keep_their_contracts() {
     assert!(include_str!("../../../app/seeds/market_seed.py").contains("Trade("));
 }
 
-
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL"]
 async fn continuing_writer_user_prefix_has_a_bounded_outcome() {
-    let f=Fixture::open().await;
-    let mut python=f.pool.acquire().await.unwrap();
-    let mut python_tx=python.begin().await.unwrap();
-    sqlx::query("SELECT id FROM users WHERE id=$1 FOR UPDATE").bind(id(2)).fetch_one(&mut *python_tx).await.unwrap();
-    let mut rust=f.pool.acquire().await.unwrap();
-    let mut rust_tx=rust.begin().await.unwrap();
-    let mut plan=OperationLockPlan::new(MarketOperation::Cancel);
-    plan.parties(&preview(id(1))).unwrap(); plan.slices([slice()]).unwrap();
-    let error=plan.acquire(&mut rust_tx).await.unwrap_err();
-    assert_eq!(error.code,error::MarketErrorCode::MarketBusy);
+    let f = Fixture::open().await;
+    let mut python = f.pool.acquire().await.unwrap();
+    let mut python_tx = python.begin().await.unwrap();
+    sqlx::query("SELECT id FROM users WHERE id=$1 FOR UPDATE")
+        .bind(id(2))
+        .fetch_one(&mut *python_tx)
+        .await
+        .unwrap();
+    let mut rust = f.pool.acquire().await.unwrap();
+    let mut rust_tx = rust.begin().await.unwrap();
+    let mut plan = OperationLockPlan::new(MarketOperation::Cancel);
+    plan.parties(&preview(id(1))).unwrap();
+    plan.slices([slice()]).unwrap();
+    let error = plan.acquire(&mut rust_tx).await.unwrap_err();
+    assert_eq!(error.code, error::MarketErrorCode::MarketBusy);
     assert!(!error.is_retryable());
-    rust_tx.rollback().await.unwrap(); python_tx.rollback().await.unwrap();
-    drop(rust); drop(python); f.finish().await;
+    rust_tx.rollback().await.unwrap();
+    python_tx.rollback().await.unwrap();
+    drop(rust);
+    drop(python);
+    f.finish().await;
 }

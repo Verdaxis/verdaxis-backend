@@ -324,6 +324,9 @@ impl OperationLockPlan {
         }) {
             return Err(invalid_plan());
         }
+        if self.steps.iter().any(|step| step.class == class) {
+            return Err(invalid_plan());
+        }
         for identity in identities {
             self.steps.push(LockStep { class, identity });
         }
@@ -425,9 +428,30 @@ impl OperationLockPlan {
         self.append(class, sorted_ids(ids).iter().map(ToString::to_string))
     }
     pub fn matches_parties(&self, preview: &PartyLockPreview) -> bool {
-        let organizations: Vec<_> = self.steps.iter().filter(|step|step.class==LockClass::Organization).map(|step|step.identity.clone()).collect();
-        let users: Vec<_> = self.steps.iter().filter(|step|step.class==LockClass::User).map(|step|step.identity.clone()).collect();
-        organizations == preview.organizations.iter().map(ToString::to_string).collect::<Vec<_>>() && users == preview.users.iter().map(ToString::to_string).collect::<Vec<_>>()
+        let organizations: Vec<_> = self
+            .steps
+            .iter()
+            .filter(|step| step.class == LockClass::Organization)
+            .map(|step| step.identity.clone())
+            .collect();
+        let users: Vec<_> = self
+            .steps
+            .iter()
+            .filter(|step| step.class == LockClass::User)
+            .map(|step| step.identity.clone())
+            .collect();
+        organizations
+            == preview
+                .organizations
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+            && users
+                == preview
+                    .users
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
     }
     pub fn order_ids(&self) -> &[Uuid] {
         &self.orders
