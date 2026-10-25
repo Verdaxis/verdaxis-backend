@@ -37,6 +37,9 @@ required-features = ["contract-tests"]
 [features]
 contract-tests = []
 
+[[test]]
+name = "phase4_analytics_policy"
+
 [dev-dependencies]
 verdaxis-contract = { path = "../contract" }
 

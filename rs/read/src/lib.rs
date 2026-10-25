@@ -1,3 +1,5 @@
+// Phase 4 Task 15 registration: shared analytics primitives.
+pub mod analytics;
 pub mod auth;
 pub mod business;
 pub mod crud;
