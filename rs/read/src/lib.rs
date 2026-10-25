@@ -82,6 +82,10 @@ pub struct AppState {
     /// Verified Phase 2 settings; `None` means this composition does not mount
     /// the Phase 2 groups and Caddy keeps them on Python.
     pub(crate) phase2: Option<runtime::phase2::Phase2Settings>,
+    /// The live stream subsystem: the shared hub and the verification
+    /// settings stream admission uses. `None` until the runtime starts it;
+    /// stream routes then answer the terminal 503 while REST stays available.
+    pub streams: Option<std::sync::Arc<streams::http::Streams>>,
     /// Every route family's trading cache, so an authority or listener change
     /// can clear them together.
     pub trading_caches: std::sync::Arc<runtime::cache::TradingCaches>,
@@ -132,6 +136,7 @@ impl AppState {
             reads,
             reference_cache,
             phase2,
+            streams: None,
             trading_caches,
             trading_cache,
             public_trading_cache: std::sync::Arc::new(runtime::cache::TradingCache::default()),
