@@ -444,14 +444,12 @@ fn p4_t5_c69() {
 #[test]
 fn p4_t5_c71() {
     // The ambiguous and non-trading organization types are valid model values
-    // but never self-signup options: none of them matches either account
-    // side, so an invitation that names one is refused by the role/type
-    // check. The A05 parser itself keeps the full model domain: only the
-    // shared matrix separates signup options from invitation-only types.
+    // but never self-signup options: the shared matrix matches none of them
+    // to either account side, and the A05 parser keeps the full model domain
+    // so an administrator can still name one for a SUPPLIER invitation.
     for kind in [
         "BUNKER_BROKER",
         "PORT_AUTHORITY",
-        "FUEL_TRADER",
         "FINANCIER",
         "INSURER",
         "INDUSTRY_ASSOC",
