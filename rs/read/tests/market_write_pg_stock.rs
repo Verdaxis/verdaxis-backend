@@ -1,5 +1,6 @@
 //! Caller-owned stock movements on an explicitly disposable PostgreSQL database.
 #![cfg(feature = "contract-tests")]
+#![allow(dead_code)]
 
 // Compile the real private boundary, without opening another production entry.
 #[path = "../src/order_write/command.rs"]
@@ -15,7 +16,7 @@ mod locks;
 #[path = "../src/order_write/transaction.rs"]
 mod transaction;
 
-pub use verdaxis_read::{ApiError, ApiErrorKind, AppState, market};
+pub use verdaxis_read::{ApiError, ApiErrorKind, AppState, auth, market};
 
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
@@ -141,7 +142,7 @@ async fn ledger_five_movements_are_exact() {
     f.stage("pending", "2").await;
     f.balances("0", "6").await;
     f.stage("decline", "2").await;
-    stock::restore(&mut f.conn, f.order, q("2"), Utc::now()).await.unwrap();
+    stock::restore(&mut f.conn, f.order, q("2"), "2026-10-25T10:00:00Z".parse().unwrap()).await.unwrap();
     f.balances("0", "6").await;
     stock::withdraw(&mut f.conn, f.order, "CANCELLED").await.unwrap();
     f.balances("6", "0").await;
@@ -158,7 +159,7 @@ async fn cancelled_trade_is_not_counted_as_executed() {
         f.stage("pending", "2").await;
         f.balances("0", "10").await;
         f.stage(action, "2").await;
-        stock::restore(&mut f.conn, f.order, q("2"), Utc::now()).await.unwrap();
+        stock::restore(&mut f.conn, f.order, q("2"), "2026-10-25T10:00:00Z".parse().unwrap()).await.unwrap();
         f.balances("0", "10").await;
     }
     stock::withdraw(&mut f.conn, f.order, "CANCELLED").await.unwrap();
