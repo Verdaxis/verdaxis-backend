@@ -74,7 +74,7 @@ def seed_trade(sql):
           p.id,p.name,p.fuel_type,p.fuel_grade,'BIO_METHANOL',d.id,d.name,d.region,
           'SPOT',10,700,'PENDING_CONFIRMATION',0
         FROM products p CROSS JOIN delivery_points d
-        WHERE p.code='BIO_METHANOL' AND d.name='Singapore';
+        WHERE p.name='Bio Methanol' AND d.name='Singapore';
     """)
     assert sql("SELECT count(*) FROM trades") == "1"
 
@@ -251,6 +251,23 @@ def test_acl_policy_declares_only_select_insert_and_five_updates(freeze_database
     assert sql(f"SELECT has_table_privilege('{app}','market_event_outbox','SELECT,INSERT,UPDATE')") == "t"
     for table in ("watchlist_producer_state", "market_event_outbox"):
         assert sql(f"SELECT has_table_privilege('{app}','{table}','DELETE')") == "f"
+
+
+def test_preparer_accepts_only_the_exact_production_checkpoint(tmp_path):
+    from tests.unit.test_rust_release import _load_preparer
+
+    preparer = _load_preparer()
+    release = "a" * 40
+    environment = tmp_path / ".env"
+    environment.write_text(
+        f"ENVIRONMENT=production\nRELEASE_SHA={release}\n"
+        "DATABASE_URL=postgresql+asyncpg://verdaxis_app:fixture-secret@127.0.0.1:5432/verdaxis_prod\n"
+    )
+    policy = {"environment": "production", "db_session_time_zone": "UTC"}
+    assert preparer.project_runtime_environment(environment, release, REVISION, policy)["MIGRATION_REVISION"] == REVISION
+    for revision in (PARENT, "p0_20261016_union", "*", "head", "unlisted_revision"):
+        with pytest.raises(preparer.RustRuntimeError):
+            preparer.project_runtime_environment(environment, release, revision, policy)
 
 
 def test_release_pin_lists_the_new_head():
