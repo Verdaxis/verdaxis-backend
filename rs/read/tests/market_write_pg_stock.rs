@@ -140,7 +140,7 @@ async fn expiry_reads_stay_bounded_with_shared_item_history() {
             .bind(f.item).bind(f.order).bind(history)
             .execute(&mut f.conn).await.unwrap();
         // Statistics count database statements and rows returned, not elapsed time.
-        sqlx::query("SELECT pg_stat_statements_reset()")
+        sqlx::query("SELECT public.pg_stat_statements_reset()")
             .execute(&mut f.conn).await.unwrap();
         let effects = stock::expire(
             &mut f.conn, f.product, None, "SPOT", "ASK",
@@ -149,7 +149,7 @@ async fn expiry_reads_stay_bounded_with_shared_item_history() {
         assert_eq!(effects.len(), 1);
         assert_eq!(effects[0].released_quantity_mt.value(), d("6"));
         let totals = sqlx::query(
-            "SELECT COALESCE(sum(calls),0)::bigint,COALESCE(sum(rows),0)::bigint FROM pg_stat_statements WHERE dbid=(SELECT oid FROM pg_database WHERE datname=current_database()) AND query ILIKE 'SELECT%' AND query NOT ILIKE '%pg_stat_statements%'",
+            "SELECT COALESCE(sum(calls),0)::bigint,COALESCE(sum(rows),0)::bigint FROM public.pg_stat_statements WHERE dbid=(SELECT oid FROM pg_database WHERE datname=current_database()) AND query ILIKE 'SELECT%' AND query NOT ILIKE '%pg_stat_statements%'",
         ).fetch_one(&mut f.conn).await.unwrap();
         let counts = (totals.get::<i64,_>(0), totals.get::<i64,_>(1));
         let row = sqlx::query("SELECT current_stock_mt,reserved_stock_mt FROM inventory_items WHERE id=$1")

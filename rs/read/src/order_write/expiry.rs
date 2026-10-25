@@ -43,8 +43,8 @@ pub(super) async fn expire_slice(
     slice: &ExpirySlice<'_>,
     now: DateTime<Utc>,
 ) -> Result<Vec<ExpiryEffect>, MarketWriteError> {
-    let orders = ledger.expired_orders(slice, now).await?;
-    ledger.verify_invariants().await?;
+    let mut batch = ledger.prepare_expiry(slice, now).await?;
+    let orders = std::mem::take(&mut batch.orders);
     let mut effects = Vec::with_capacity(orders.len());
     for order in orders {
         let remaining = OrderRemainder::checked(order.remaining)?;
@@ -57,8 +57,7 @@ pub(super) async fn expire_slice(
         let version = previous_version
             .checked_add(1)
             .ok_or_else(super::transaction::inconsistent_stock)?;
-        ledger.withdraw_order(&order, "EXPIRED").await?;
-        ledger.verify_invariants().await?;
+        batch.withdraw(&order).await?;
         effects.push(ExpiryEffect {
             order_id: order.id,
             organization_id: order.organization,
