@@ -11,6 +11,9 @@
 //! Runs against the seeded disposable market-contract database only; see
 //! `rs/read/tests/run_market_contract.sh`.
 
+#[path = "support/opposing_equivalence.rs"]
+mod opposing_equivalence;
+
 use serde_json::Value;
 use sqlx::{PgConnection, Row};
 use uuid::Uuid;
