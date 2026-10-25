@@ -26,7 +26,7 @@ impl Refusal {
 }
 
 #[derive(Clone, Default)]
-pub struct SharedLimits(std::sync::Arc<std::sync::Mutex<Phase2Limits>>);
+pub struct SharedLimits(std::sync::Arc<std::sync::Mutex<QuotaStores>>);
 
 impl SharedLimits {
     pub fn preauth(&self, client: &str, path: &str, now: u64) -> bool {
@@ -65,6 +65,44 @@ impl SharedLimits {
     ///
     /// An auth route's refusal is the auth envelope with `Retry-After`; the
     /// Phase 2 routes keep their existing refusal body.
+
+    /// Endpoint quota for an address-keyed route (unauthenticated auth
+    /// routes). It draws from the bounded, evicting address store, so a flood
+    /// of distinct addresses can never fill the non-evicting verified-user
+    /// store. The user store keeps only verified user IDs.
+    pub fn check_endpoint_by_address(
+        &self,
+        client: &str,
+        path: &str,
+        now: u64,
+    ) -> Result<(), crate::ApiError> {
+        if self
+            .0
+            .lock()
+            .expect("quota authority lock")
+            .endpoint_by_address(client, path, now)
+        {
+            return Ok(());
+        }
+        if auth_endpoint_policy(path).is_some() {
+            return Err(Refusal {
+                retry_after_seconds: AUTH_ENDPOINT_WINDOW_SECONDS,
+            }
+            .auth_failure()
+            .into());
+        }
+        let (_, limit, window) = endpoint_policy(path).expect("limited endpoint");
+        let unit = if window == 3600 { "hour" } else { "minute" };
+        Err(crate::ApiError {
+            status: axum::http::StatusCode::TOO_MANY_REQUESTS,
+            detail: serde_json::json!({
+                "code": "RATE_LIMITED",
+                "message": format!("Rate limit exceeded: {limit} per 1 {unit}"),
+            }),
+            retry_after: None,
+            kind: crate::ApiErrorKind::Expected,
+        })
+    }
     pub fn check_endpoint(
         &self,
         user: &str,
@@ -185,7 +223,7 @@ impl QuotaStore {
 }
 
 #[derive(Default)]
-pub struct Phase2Limits {
+pub struct QuotaStores {
     preauth_store: QuotaStore,
     user_store: QuotaStore,
 }
@@ -208,7 +246,7 @@ fn network_identity(client: &str) -> String {
     }
 }
 
-impl Phase2Limits {
+impl QuotaStores {
     /// Pre-auth admission by client address. The bounded store evicts the
     /// soonest-expiring entry rather than refusing a new client under a flood.
     pub fn preauth(&mut self, client: &str, path: &str, now: u64) -> bool {
@@ -229,7 +267,7 @@ impl Phase2Limits {
     }
 
     /// The Phase 3 auth routes use this refusal-with-retry form; it shares the
-    /// same bounded pre-auth store and policy as [`Phase2Limits::preauth`].
+    /// same bounded pre-auth store and policy as [`QuotaStores::preauth`].
     pub fn preauth_check(&mut self, client: &str, path: &str, now: u64) -> Result<(), Refusal> {
         let Some((key, limit, window)) = preauth_policy(path) else {
             return Ok(());
@@ -240,7 +278,7 @@ impl Phase2Limits {
     }
 
     /// The Phase 3 endpoint form with the same user-keyed store as
-    /// [`Phase2Limits::endpoint`].
+    /// [`QuotaStores::endpoint`].
     pub fn endpoint_check(&mut self, user: &str, path: &str, now: u64) -> Result<(), Refusal> {
         let Some((key, limit, window)) = endpoint_policy(path) else {
             return Ok(());
@@ -248,6 +286,17 @@ impl Phase2Limits {
         self.user_store
             .accept_check(user, key, limit, window, now, false)
             .map_err(|retry_after_seconds| Refusal { retry_after_seconds })
+    }
+
+    /// Endpoint admission keyed by client address in the evicting address
+    /// store; used by unauthenticated auth routes whose only identity is the
+    /// peer address. Verified-user routes never call this.
+    fn endpoint_by_address(&mut self, client: &str, path: &str, now: u64) -> bool {
+        let Some((key, limit, window)) = endpoint_policy(path) else {
+            return true;
+        };
+        self.preauth_store
+            .accept(&network_identity(client), key, limit, window, now, true)
     }
 
     /// Pre-auth evictions since start. A plain number: it names no client.

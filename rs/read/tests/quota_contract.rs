@@ -4,13 +4,13 @@
 //! runs unchanged against the implementation before the fix and fails on an
 //! assertion rather than a compile error.
 
-use verdaxis_read::auth::limits::{Phase2Limits, SharedLimits};
+use verdaxis_read::auth::limits::{QuotaStores, SharedLimits};
 
 /// The pre-auth store is shared by client address. A flood of distinct
 /// addresses must never stop the next legitimate client from being admitted.
 #[test]
 fn preauth_flood_admits_every_client_including_the_next_new_one() {
-    let mut limits = Phase2Limits::default();
+    let mut limits = QuotaStores::default();
     for client in 0..50_100_u32 {
         let address = std::net::Ipv4Addr::from(client).to_string();
         assert!(
@@ -28,7 +28,7 @@ fn preauth_flood_admits_every_client_including_the_next_new_one() {
 /// quotas are keyed by user ID in their own store.
 #[test]
 fn preauth_flood_does_not_consume_user_quota() {
-    let mut limits = Phase2Limits::default();
+    let mut limits = QuotaStores::default();
     for client in 0..50_100_u32 {
         let address = std::net::Ipv4Addr::from(client).to_string();
         let _ = limits.preauth(&address, "/api/admin/users", 100);
@@ -50,7 +50,7 @@ fn preauth_flood_does_not_consume_user_quota() {
 /// address in one /64 shares a single pre-auth bucket.
 #[test]
 fn ipv6_clients_share_one_prefix_bucket() {
-    let mut limits = Phase2Limits::default();
+    let mut limits = QuotaStores::default();
     for address in 0..1_000_u32 {
         let admitted = limits.preauth(
             &format!("2001:db8:1:2::{address:x}"),
@@ -68,7 +68,7 @@ fn ipv6_clients_share_one_prefix_bucket() {
 /// An IPv4-mapped IPv6 spelling is the same IPv4 client, not a new identity.
 #[test]
 fn ipv4_mapped_ipv6_shares_the_ipv4_bucket() {
-    let mut limits = Phase2Limits::default();
+    let mut limits = QuotaStores::default();
     for _ in 0..300 {
         assert!(limits.preauth("192.0.2.7", "/api/admin/users", 100));
     }
@@ -82,7 +82,7 @@ fn ipv4_mapped_ipv6_shares_the_ipv4_bucket() {
 /// exhausting it must not spend a user's quota.
 #[test]
 fn admin_preauth_is_a_separate_budget_from_user_quotas() {
-    let mut limits = Phase2Limits::default();
+    let mut limits = QuotaStores::default();
     for _ in 0..300 {
         assert!(limits.preauth("198.51.100.4", "/api/admin/users", 100));
     }
@@ -93,7 +93,7 @@ fn admin_preauth_is_a_separate_budget_from_user_quotas() {
 /// Paths outside the admin prefix are not charged to the pre-auth bucket.
 #[test]
 fn non_admin_paths_are_not_charged_to_the_preauth_bucket() {
-    let mut limits = Phase2Limits::default();
+    let mut limits = QuotaStores::default();
     for _ in 0..10_000 {
         assert!(limits.preauth("198.51.100.9", "/api/prices", 100));
     }
@@ -122,7 +122,7 @@ fn endpoint_refusal_keeps_the_rate_limited_code_and_retry_after() {
 /// address, path, user or other identifying data.
 #[test]
 fn evictions_are_counted_and_carry_no_client_data() {
-    let mut limits = Phase2Limits::default();
+    let mut limits = QuotaStores::default();
     for client in 0..50_100_u32 {
         let address = std::net::Ipv4Addr::from(client).to_string();
         assert!(limits.preauth(&address, "/api/admin/users", 100));
@@ -137,7 +137,7 @@ fn evictions_are_counted_and_carry_no_client_data() {
 /// store's window.
 #[test]
 fn each_window_expires_on_its_own_clock() {
-    let mut limits = Phase2Limits::default();
+    let mut limits = QuotaStores::default();
     for _ in 0..10 {
         assert!(limits.endpoint("inviter", "/api/referrals/invite", 100));
     }

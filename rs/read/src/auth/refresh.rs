@@ -161,7 +161,7 @@ async fn handle(
             .get("x-forwarded-for")
             .and_then(|v| v.to_str().ok()),
     );
-    state.limits.check_endpoint(
+    state.limits.check_endpoint_by_address(
         &client,
         "/api/auth/refresh",
         Utc::now().timestamp().max(0) as u64,
