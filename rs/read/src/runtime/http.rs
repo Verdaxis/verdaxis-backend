@@ -717,12 +717,14 @@ mod limiter_tests {
             }
         }
         let buckets = state.buckets.clone();
-        assert!(std::thread::spawn(move || {
-            let _guard = buckets.lock().unwrap();
-            panic!("test unwind while holding price accounting");
-        })
-        .join()
-        .is_err());
+        assert!(
+            std::thread::spawn(move || {
+                let _guard = buckets.lock().unwrap();
+                panic!("test unwind while holding price accounting");
+            })
+            .join()
+            .is_err()
+        );
         assert!(state.buckets.is_poisoned());
         let mut routes = Router::new();
         for (path, _) in paths {
@@ -740,7 +742,9 @@ mod limiter_tests {
                 .unwrap();
             assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
             assert!(response.headers().get("retry-after").is_none());
-            let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
+            let body = axum::body::to_bytes(response.into_body(), 1024)
+                .await
+                .unwrap();
             assert_eq!(
                 serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
                 serde_json::json!({"detail": format!("Rate limit exceeded: {limit} per 1 minute")})
