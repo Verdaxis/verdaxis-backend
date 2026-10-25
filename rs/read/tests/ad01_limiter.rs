@@ -128,6 +128,8 @@ async fn a_distinct_client_flood_never_locks_out_or_silences_a_limited_client() 
     }
     let refused = call("192.0.2.50").await;
     assert_eq!(refused.status(), 429);
+    // AD-01 has no Retry-After header on staging; keep that contract.
+    assert!(refused.headers().get("retry-after").is_none());
     assert_eq!(
         serde_json::from_slice::<serde_json::Value>(
             &axum::body::to_bytes(refused.into_body(), 1024).await.unwrap()
