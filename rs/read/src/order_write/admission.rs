@@ -417,6 +417,7 @@ pub async fn execution_context(
 }
 
 #[cfg(test)]
+#[allow(dead_code)]
 pub async fn test_seed_assisted(conn: &mut PgConnection, change: &str) {
     sqlx::raw_sql(include_str!("../../tests/fixtures/phase8_assisted.sql"))
         .execute(&mut *conn)
