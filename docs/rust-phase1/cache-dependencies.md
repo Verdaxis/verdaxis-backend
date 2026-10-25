@@ -220,11 +220,17 @@ refuses an unbudgeted listener before it opens any connection.
 ## Not yet activated
 
 The service starts the refresh loop and listener only when the prepared budget
-carries `cache_listener: 1`, and no deploy passes `--cache-listener 1`. No route
-calls `run_trading_read` yet, so trading caching serves nothing. The runtime
-clears the reference cache when `current_fence()` changes. Remaining for Task 8:
-the route wrappers, which must capture one `TradingClock` before admission, pass
-it to `run_trading_read`, bind it in every time predicate and derive every fact
-their family requires from the same snapshot (`docs/rust-phase1/sm-t8-runtime-evidence.md`
-lists the open wrapper items). This document is not a Task 8 completion or a
-release verdict.
+carries `cache_listener: 1`. `scripts/deploy.sh` reads `RUST_CACHE_LISTENER`
+(exactly `0` or `1`) from the deployed `.env` and passes it to
+`prepare_rust_budget.py --cache-listener`; an absent key or `0` keeps the
+listener out, so the artifact stays byte-identical to a listener-less budget,
+and any other value refuses the deploy before any schema change.
+
+The route wrappers are in place: the public orderbook snapshot/list/map, price
+and canonical-curve handlers go through `runtime::trading_routes::read`, which
+preserves the uncached admitted SQL path while the switch is off and calls
+`run_trading_read` once it is on. Serving still needs two more operator steps,
+both outside this repository's code: the `prc_20261018_cache` checkpoint on the
+deployed database, and `scripts/rust_cache_authority.py activate` after the Rust
+restart. The runtime clears the reference cache when `current_fence()` changes.
+This document is not a Task 8 completion or a release verdict.
