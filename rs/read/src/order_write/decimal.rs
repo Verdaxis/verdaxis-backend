@@ -237,23 +237,23 @@ const COMMISSION_PERCENT: Domain = Domain::non_negative(
 );
 
 /// The quantity of one order or trade: `0 < value ≤ 100000`, two decimals.
-exact_domain!(OrderQuantity, ORDER_QUANTITY);
+exact_domain! { OrderQuantity, ORDER_QUANTITY }
 /// The quantity of one confirmed trade: the same domain as [`OrderQuantity`].
-exact_domain!(TradeQuantity, ORDER_QUANTITY);
+exact_domain! { TradeQuantity, ORDER_QUANTITY }
 /// A live or historical order remainder: `0 ≤ value ≤ 100000`, two decimals.
-exact_domain!(OrderRemainder, ORDER_REMAINDER);
+exact_domain! { OrderRemainder, ORDER_REMAINDER }
 /// Current, incoming or reserved stock and one ledger delta.
-exact_domain!(StockQuantity, STOCK_QUANTITY);
+exact_domain! { StockQuantity, STOCK_QUANTITY }
 /// A price per metric tonne: `0 < value ≤ 1000000`, two decimals.
-exact_domain!(Price, PRICE);
+exact_domain! { Price, PRICE }
 /// A persisted trade total or fee amount: `0 ≤ value ≤ 10¹¹`, two decimals.
-exact_domain!(Money, MONEY);
+exact_domain! { Money, MONEY }
 /// A bounded batch sum or a legacy commission aggregate: `0 ≤ value ≤ 10¹³`.
-exact_domain!(AggregateMoney, AGGREGATE_MONEY);
+exact_domain! { AggregateMoney, AGGREGATE_MONEY }
 /// The frozen seller fee per metric tonne: `0 ≤ value ≤ 100000`, two decimals.
-exact_domain!(FeePerMt, FEE_PER_MT);
+exact_domain! { FeePerMt, FEE_PER_MT }
 /// The frozen legacy commission percentage: `0 ≤ value ≤ 100`, three decimals.
-exact_domain!(CommissionPercent, COMMISSION_PERCENT);
+exact_domain! { CommissionPercent, COMMISSION_PERCENT }
 
 /// One multiplication in the economic path.
 ///
