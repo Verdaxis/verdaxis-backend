@@ -193,6 +193,32 @@ async def test_empty_statements_leave_generation_and_events_unchanged(engine, ta
 
 
 @pytest.mark.asyncio
+async def test_empty_update_assertion_detects_unconditional_statement_trigger(engine):
+    async with engine.connect() as connection:
+        transaction = await connection.begin()
+        try:
+            await connection.execute(text("DROP TRIGGER public_read_cache_changed_update ON products"))
+            await connection.execute(text("""
+                CREATE FUNCTION pg_temp.unconditional_cache_bump() RETURNS trigger
+                LANGUAGE plpgsql AS $$ BEGIN
+                    UPDATE public_read_cache_generations SET generation=generation+1
+                    WHERE domain='trading';
+                    RETURN NULL;
+                END $$
+            """))
+            await connection.execute(text("""
+                CREATE TRIGGER public_read_cache_changed AFTER UPDATE ON products
+                FOR EACH STATEMENT EXECUTE FUNCTION pg_temp.unconditional_cache_bump()
+            """))
+            before = await _generation(connection)
+            await connection.execute(text("UPDATE products SET is_active=is_active WHERE false"))
+            with pytest.raises(AssertionError, match="empty update"):
+                assert await _generation(connection) == before, "empty update must keep generation"
+        finally:
+            await transaction.rollback()
+
+
+@pytest.mark.asyncio
 async def test_concurrent_writers_get_distinct_contiguous_generations(engine):
     writers = 12
     async with engine.connect() as probe:
