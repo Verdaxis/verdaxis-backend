@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use uuid::Uuid;
-use verdaxis_read::order_write::matching::{plan_match, MatchBound, OrderRow, OrderStatus, Side};
+use verdaxis_read::order_write::matching::{MatchBound, OrderRow, OrderStatus, Side, plan_match};
 use verdaxis_read::order_write::{MarketErrorCode, MarketWriteError};
 
 fn d(raw: &str) -> Decimal {
@@ -40,7 +40,7 @@ fn matching_priority_is_price_then_acceptance_then_uuid() {
     let candidates = vec![
         order(40, Side::Ask, "100", "2", 2),
         order(20, Side::Ask, "100", "2", 1),
-        order(10, Side::Ask, "101", "10", 0),
+        order(10, Side::Ask, "101", "10", 1),
         order(30, Side::Ask, "99", "2", 9),
         order(19, Side::Ask, "100", "2", 1),
     ];
@@ -116,9 +116,11 @@ fn fanout_over_one_hundred_rejects_the_transaction() {
     assert_eq!(error.code, MarketErrorCode::MatchFanoutExceeded);
     assert_eq!(error.status.as_u16(), 409);
     assert_eq!(aggressor.remaining_quantity_mt, d("101"));
-    assert!(candidates
-        .iter()
-        .all(|o| o.version == 1 && o.remaining_quantity_mt == d("1")));
+    assert!(
+        candidates
+            .iter()
+            .all(|o| o.version == 1 && o.remaining_quantity_mt == d("1"))
+    );
 }
 
 #[test]
@@ -158,14 +160,16 @@ fn expired_and_terminal_rows_are_skipped() {
     assert_eq!(plan.fills()[0].resting_before.id, Uuid::from_u128(5));
     let mut expired_aggressor = aggressor.clone();
     expired_aggressor.expires_at = Some(now());
-    assert!(plan_match(
-        &[order(6, Side::Ask, "100", "1", 5)],
-        &expired_aggressor,
-        MatchBound::new(now())
-    )
-    .unwrap()
-    .fills()
-    .is_empty());
+    assert!(
+        plan_match(
+            &[order(6, Side::Ask, "100", "1", 5)],
+            &expired_aggressor,
+            MatchBound::new(now())
+        )
+        .unwrap()
+        .fills()
+        .is_empty()
+    );
 }
 
 #[test]
@@ -183,10 +187,12 @@ fn exact_slice_side_crossing_and_organization_filters_apply() {
     candidates[5].organization_id = aggressor.organization_id;
     candidates[6].provenance = "DEMO".to_owned();
     candidates[7].organization_approved = false;
-    assert!(plan_match(&candidates, &aggressor, MatchBound::new(now()))
-        .unwrap()
-        .fills()
-        .is_empty());
+    assert!(
+        plan_match(&candidates, &aggressor, MatchBound::new(now()))
+            .unwrap()
+            .fills()
+            .is_empty()
+    );
 }
 
 #[test]
