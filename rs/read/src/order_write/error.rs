@@ -199,7 +199,7 @@ impl MarketWriteError {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "contract-tests"))]
     pub fn lock_code_for_test(state: &str, idempotency: bool) -> Self {
         let code = classify(Some(state), None);
         Self::new(if idempotency && code == MarketErrorCode::MarketBusy {

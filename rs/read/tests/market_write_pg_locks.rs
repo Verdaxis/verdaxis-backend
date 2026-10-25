@@ -572,13 +572,13 @@ mod maintenance_probe {
 }
 
 #[cfg(feature = "contract-tests")]
-use verdaxis_read::market_contract::transaction;
-#[cfg(feature = "contract-tests")]
 use authority::AuthenticatedActor;
 #[cfg(feature = "contract-tests")]
 use error::{MarketErrorCode, MarketWriteError};
 #[cfg(feature = "contract-tests")]
 use verdaxis_read::AppState;
+#[cfg(feature = "contract-tests")]
+use verdaxis_read::market_contract::transaction;
 
 #[cfg(feature = "contract-tests")]
 mod ordered_cases {

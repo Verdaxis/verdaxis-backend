@@ -1948,10 +1948,7 @@ impl LockedMarketTransaction<'_> {
             .await?;
         Ok(())
     }
-    pub async fn test_server_abort(
-        &mut self,
-        state: &str,
-    ) -> Result<(), super::MarketWriteError> {
+    pub async fn test_server_abort(&mut self, state: &str) -> Result<(), super::MarketWriteError> {
         let statement = match state {
             "40001" => "DO $$ BEGIN RAISE EXCEPTION 'test abort' USING ERRCODE='40001'; END $$",
             "40P01" => "DO $$ BEGIN RAISE EXCEPTION 'test abort' USING ERRCODE='40P01'; END $$",
