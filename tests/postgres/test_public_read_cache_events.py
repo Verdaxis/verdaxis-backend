@@ -157,6 +157,10 @@ async def test_every_dependency_carries_always_enabled_event_triggers(engine):
         "public_read_cache_changed_delete": (8, "cache_changed_rows", None),
         "public_read_cache_changed_truncate": (32, None, None),
     }
+    legacy = [row for row in rows if row.tgname == "public_read_cache_changed"]
+    assert len(legacy) == len(DEPENDENCIES)
+    assert all(row.enabled == "D" and row.shape == 60 for row in legacy)
+    rows = [row for row in rows if row.tgname != "public_read_cache_changed"]
     assert len(rows) == len(DEPENDENCIES) * len(expected)
     for table in DEPENDENCIES:
         actual = {row.tgname: (row.shape, row.tgoldtable, row.tgnewtable)
@@ -219,11 +223,9 @@ async def test_empty_update_assertion_detects_unconditional_statement_trigger(en
                     RETURN NULL;
                 END $$
             """))
-            await connection.execute(text("""
-                CREATE TRIGGER public_read_cache_changed
-                AFTER INSERT OR UPDATE OR DELETE OR TRUNCATE ON products
-                FOR EACH STATEMENT EXECUTE FUNCTION public.bump_public_read_cache_generation()
-            """))
+            await connection.execute(text(
+                "ALTER TABLE products ENABLE ALWAYS TRIGGER public_read_cache_changed"
+            ))
             before = await _generation(connection)
             await connection.execute(text("UPDATE products SET is_active=is_active WHERE false"))
             with pytest.raises(AssertionError, match="empty update"):
