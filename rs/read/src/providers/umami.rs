@@ -21,7 +21,7 @@
 
 use std::{fmt, sync::Arc, time::Duration};
 
-use chrono::{NaiveDate, Utc};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use reqwest::StatusCode as HttpStatus;
 use rust_decimal::{Decimal, RoundingStrategy};
 use serde_json::Value;
@@ -79,9 +79,9 @@ impl fmt::Debug for UmamiConfig {
         formatter
             .debug_struct("UmamiConfig")
             .field("enabled", &self.enabled)
-            .field("base_url", &self.base_url)
+            .field("base_url", &self.base_url.as_ref().map(|_| "[redacted]"))
             .field("website_id", &self.website_id)
-            .field("api_username", &self.api_username)
+            .field("api_username", &self.api_username.as_ref().map(|_| "[redacted]"))
             .field(
                 "api_password",
                 &self.api_password.as_ref().map(|_| "[redacted]"),
@@ -513,15 +513,23 @@ fn decode_core(document: &Value) -> Result<CoreMetrics, AnalyticsDiagnostic> {
     })
 }
 
-fn decode_date(value: Option<&Value>) -> Result<NaiveDate, AnalyticsDiagnostic> {
-    let raw = value
-        .and_then(Value::as_str)
-        .ok_or(AnalyticsDiagnostic::MalformedResponse)?;
-    let day = raw.get(..10).unwrap_or(raw);
-    NaiveDate::parse_from_str(day, "%Y-%m-%d").map_err(|_| AnalyticsDiagnostic::MalformedResponse)
+fn decode_instant(value: Option<&Value>) -> Result<DateTime<Utc>, AnalyticsDiagnostic> {
+    let raw = value.and_then(Value::as_str).ok_or(AnalyticsDiagnostic::MalformedResponse)?;
+    if let Ok(instant) = DateTime::parse_from_rfc3339(raw) {
+        return Ok(instant.with_timezone(&Utc));
+    }
+    for format in ["%Y-%m-%d %H:%M:%S%.f", "%Y-%m-%dT%H:%M:%S%.f"] {
+        if let Ok(instant) = NaiveDateTime::parse_from_str(raw, format) {
+            return Ok(instant.and_utc());
+        }
+    }
+    NaiveDate::parse_from_str(raw, "%Y-%m-%d")
+        .ok().and_then(|date| date.and_hms_opt(0, 0, 0))
+        .map(|instant| instant.and_utc())
+        .ok_or(AnalyticsDiagnostic::MalformedResponse)
 }
 
-fn decode_sessions(document: &Value) -> Result<Vec<(NaiveDate, u64)>, AnalyticsDiagnostic> {
+fn decode_sessions(document: &Value) -> Result<Vec<(DateTime<Utc>, u64)>, AnalyticsDiagnostic> {
     let rows = document
         .get("sessions")
         .and_then(Value::as_array)
@@ -531,14 +539,14 @@ fn decode_sessions(document: &Value) -> Result<Vec<(NaiveDate, u64)>, AnalyticsD
         let object = row
             .as_object()
             .ok_or(AnalyticsDiagnostic::MalformedResponse)?;
-        sessions.push((decode_date(object.get("x"))?, count(object.get("y"))?));
+        sessions.push((decode_instant(object.get("x"))?, count(object.get("y"))?));
     }
     Ok(sessions)
 }
 
 fn decode_event_series(
     rows: &Value,
-) -> Result<Vec<(NaiveDate, RegisteredEvent, u64)>, AnalyticsDiagnostic> {
+) -> Result<Vec<(DateTime<Utc>, RegisteredEvent, u64)>, AnalyticsDiagnostic> {
     let rows = rows
         .as_array()
         .ok_or(AnalyticsDiagnostic::MalformedResponse)?;
@@ -551,7 +559,7 @@ fn decode_event_series(
             .get("x")
             .and_then(Value::as_str)
             .ok_or(AnalyticsDiagnostic::MalformedResponse)?;
-        let date = decode_date(object.get("t"))?;
+        let date = decode_instant(object.get("t"))?;
         let value = count(object.get("y"))?;
         // Unknown event names are discarded before aggregation, never echoed.
         if let Some(event) = RegisteredEvent::from_name(name) {

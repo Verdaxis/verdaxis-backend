@@ -46,8 +46,8 @@ fn coverage(
 /// and only applies ordering, window filtering and suppression.
 pub(crate) struct WindowRows {
     pub stats: CoreMetrics,
-    pub sessions: Vec<(NaiveDate, u64)>,
-    pub events: Vec<(NaiveDate, RegisteredEvent, u64)>,
+    pub sessions: Vec<(DateTime<Utc>, u64)>,
+    pub events: Vec<(DateTime<Utc>, RegisteredEvent, u64)>,
     pub entries: Vec<(EntryPage, u64)>,
     pub referrers: Vec<(ReferrerCategory, u64)>,
 }
@@ -81,13 +81,12 @@ pub(crate) fn assemble(
     } else {
         (BehavioralAvailability::Available, None)
     };
-    let window_start = start.date_naive();
-    let window_end = end.date_naive();
 
     let mut daily: Vec<(NaiveDate, u64)> = rows
         .sessions
         .into_iter()
-        .filter(|(date, _)| *date >= window_start && *date < window_end)
+        .filter(|(instant, _)| *instant >= start && *instant < end)
+        .map(|(instant, count)| (instant.date_naive(), count))
         .collect();
     daily.sort_by_key(|(date, _)| *date);
     let mut merged_daily: Vec<(NaiveDate, u64)> = Vec::new();
@@ -108,7 +107,8 @@ pub(crate) fn assemble(
 
     let mut event_totals: Vec<(RegisteredEvent, u64)> = Vec::new();
     let mut event_points: Vec<(NaiveDate, RegisteredEvent, u64)> = Vec::new();
-    for (date, event, count) in rows.events {
+    for (instant, event, count) in rows.events {
+        let date = instant.date_naive();
         match event_totals
             .iter_mut()
             .find(|(candidate, _)| *candidate == event)
@@ -116,7 +116,7 @@ pub(crate) fn assemble(
             Some((_, total)) => *total += count,
             None => event_totals.push((event, count)),
         }
-        if date >= window_start && date < window_end {
+        if instant >= start && instant < end {
             match event_points
                 .iter_mut()
                 .find(|(candidate_date, candidate, _)| {
@@ -178,7 +178,11 @@ pub(crate) fn assemble(
         diagnostic,
         coverage: coverage(start, end, observed_at, availability, diagnostic),
         core: ProviderComponent::available(rows.stats),
-        event_totals: ProviderComponent::available(event_totals),
+        event_totals: if property_failures > 0 {
+            ProviderComponent::partial(Some(event_totals), diagnostic)
+        } else {
+            ProviderComponent::available(event_totals)
+        },
         daily_visitors: ProviderComponent::available(daily_visitors),
         event_series: ProviderComponent::available(event_series),
         top_entries: ProviderComponent::available(top_entries),

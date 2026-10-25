@@ -157,6 +157,7 @@ impl ReferrerCategory {
         if raw.is_empty() {
             return Self::Direct;
         }
+        let raw = raw.strip_prefix("//").unwrap_or(raw);
         let host = match raw.find("://") {
             Some(_) => url::Url::parse(raw)
                 .ok()
