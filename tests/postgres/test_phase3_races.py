@@ -80,8 +80,8 @@ async def test_maintenance_deletion_races_a_live_rust_family(
             # The maintenance writer has an expired row in the same family.
             # It must not remove the live predecessor or the new successor.
             async with owner.begin() as conn:
-                await conn.execute(text("INSERT INTO refresh_sessions (user_id,family_id,jti_hash,device_id_hash,"
-                                        "revoked,expires_at,created_at) SELECT user_id,family_id,"
+                await conn.execute(text("INSERT INTO refresh_sessions (id,user_id,family_id,jti_hash,device_id_hash,"
+                                        "revoked,expires_at,created_at) SELECT gen_random_uuid(),user_id,family_id,"
                                         "md5(random()::text),device_id_hash,true,now()-interval '1 day',"
                                         "now()-interval '2 days' FROM refresh_sessions WHERE user_id=:id LIMIT 1"),
                                    {"id": user})
