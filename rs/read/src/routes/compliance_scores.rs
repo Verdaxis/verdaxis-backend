@@ -9,13 +9,13 @@
 //! and no business write; the shared authenticated helper still commits its
 //! read-only transaction.
 //!
-//! Two corrections are deliberate and covered by tests:
+//! Access scoping, covered by tests:
 //!
 //! * a caller without an organization has an empty fleet and cannot read an
-//!   unowned vessel, so a missing organization is never treated as a match;
+//!   unowned vessel, so a missing organization matches no vessel;
 //! * a scenario echoes the submitted `vessel_id` exactly and names an
 //!   inaccessible, missing or non-UUID vessel `Vessel {vessel_id}`, so the
-//!   route is not an existence oracle across organizations.
+//!   response is the same whether or not the vessel exists for this caller.
 use std::net::SocketAddr;
 use std::sync::Arc;
 

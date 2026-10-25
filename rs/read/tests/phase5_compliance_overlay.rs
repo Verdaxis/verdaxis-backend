@@ -915,8 +915,7 @@ async fn compliance_overlay_timeout_cases() {
     let elapsed = started.elapsed();
     // The accepted helper owns this refusal; in scoped-read mode the
     // actor-lock timeout maps to the read-unavailable response with one
-    // retry hint (PD5-V2 item 2), and the 500 ms wait bounds how long the
-    // client waits.
+    // retry hint, and the 500 ms wait bounds how long the client waits.
     assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(response.headers()["retry-after"], "1");
     assert_eq!(
