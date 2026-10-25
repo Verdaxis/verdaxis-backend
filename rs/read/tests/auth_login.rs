@@ -72,7 +72,7 @@ async fn login_is_rate_limited() {
     for _ in 0..5 {
         state
             .limits
-            .check_endpoint("unknown", "/api/auth/login", now)
+            .check_endpoint_by_address("unknown", "/api/auth/login", now)
             .unwrap();
     }
     let response = login::router(state)
@@ -93,7 +93,7 @@ async fn login_quota_threshold_and_reset() {
     for _ in 0..5 {
         state
             .limits
-            .check_endpoint("unknown", "/api/auth/login", now - 60)
+            .check_endpoint_by_address("unknown", "/api/auth/login", now - 60)
             .unwrap();
     }
     let app = login::router(state);

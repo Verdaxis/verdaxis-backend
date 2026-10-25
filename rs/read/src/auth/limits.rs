@@ -60,12 +60,6 @@ impl SharedLimits {
             .preauth(client, "/api/admin/", now)
     }
 
-    /// Route adapters call this after bearer/current-account admission and
-    /// typed validation. Invalid authentication never consumes endpoint quota.
-    ///
-    /// An auth route's refusal is the auth envelope with `Retry-After`; the
-    /// Phase 2 routes keep their existing refusal body.
-
     /// Endpoint quota for an address-keyed route (unauthenticated auth
     /// routes). It draws from the bounded, evicting address store, so a flood
     /// of distinct addresses can never fill the non-evicting verified-user
@@ -103,6 +97,12 @@ impl SharedLimits {
             kind: crate::ApiErrorKind::Expected,
         })
     }
+    /// Route adapters call this after bearer/current-account admission and
+    /// typed validation. Invalid authentication never consumes endpoint quota.
+    /// The bucket owner is the verified user ID.
+    ///
+    /// An auth route's refusal is the auth envelope with `Retry-After`; the
+    /// Phase 2 routes keep their existing refusal body.
     pub fn check_endpoint(
         &self,
         user: &str,
