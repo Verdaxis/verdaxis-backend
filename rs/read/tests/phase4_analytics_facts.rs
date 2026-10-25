@@ -980,6 +980,69 @@ fn p4_t18_c10() {
     assert!(statements >= 12, "the fixture loaders are still present");
 }
 
+#[test]
+fn p4_t18_c15() {
+    let hidden = AggregateCell { key: "hidden".into(), count: None, suppressed: true };
+    let absent = AggregateCell { key: "absent".into(), count: None, suppressed: false };
+    let mut window = BehavioralWindow::empty(query().start, query().end, observed());
+    window.event_totals = ProviderComponent::available(vec![
+        AllowedEventAggregate { event: "signup_started".into(), count: suppress(Some(10), None) },
+        AllowedEventAggregate { event: "signup_submitted".into(), count: hidden.clone() },
+        AllowedEventAggregate { event: "listing_opened".into(), count: suppress(Some(10), None) },
+        AllowedEventAggregate { event: "order_form_opened".into(), count: hidden.clone() },
+        AllowedEventAggregate { event: "tutorial_started".into(), count: absent.clone() },
+    ]);
+    window.daily_visitors = ProviderComponent::available(vec![
+        DailyVisitorRow { date: day(2026, 6, 1), visitors: hidden.clone() },
+        DailyVisitorRow { date: day(2026, 6, 2), visitors: absent.clone() },
+    ]);
+    for (event, property, value) in [
+        ("platform_navigation", "destination", "home"),
+        ("tutorial_step_completed", "step", "1"),
+        ("tutorial_step_skipped", "step", "1"),
+    ] {
+        window.property_results.push(PropertyAvailability {
+            event: event.into(), property: property.into(),
+            result: ProviderComponent::available(vec![AllowedPropertyAggregate {
+                event: event.into(), property: property.into(), value: value.into(), count: hidden.clone(),
+            }]),
+        });
+    }
+    let activation = activation(&ActivationFacts::default(), Some(&window), &query(), observed());
+    let submitted = activation.journey.iter().find(|s| s.key == "signup_submitted").unwrap();
+    assert!(submitted.total.suppressed);
+    assert_eq!(submitted.total.count, None);
+    assert!(activation.ratios[0].ratio.suppressed);
+    assert_eq!(activation.ratios[0].ratio.numerator, None);
+    assert_eq!(activation.ratios[0].ratio.denominator, None);
+    assert_eq!(activation.ratios[0].ratio.rate_pct, None);
+    let overview = overview(&OverviewFacts::default(), Some(&window), None, &query(), observed());
+    assert_eq!(overview.activity_trend.visitors[0].value, None);
+    assert_eq!(overview.activity_trend.visitors[1].value, None);
+    assert_eq!(overview.activity_trend.visitors[2].value, Some(0));
+    let engagement = engagement(&EngagementFacts::default(), Some(&window), &query(), observed());
+    let adoption = engagement.feature_adoption.iter().find(|r| r.family == "order_form_opened").unwrap();
+    assert!(adoption.suppressed);
+    assert_eq!(adoption.events, None);
+    assert!(engagement.workflow_ratios[0].ratio.suppressed);
+    assert_eq!(engagement.workflow_ratios[0].ratio.rate_pct, None);
+    let unavailable = engagement.feature_adoption.iter().find(|r| r.family == "tutorial_started").unwrap();
+    assert_eq!(unavailable.events, None);
+    assert!(!unavailable.suppressed);
+    assert!(engagement.navigation_destinations[0].total.suppressed);
+    assert_eq!(engagement.navigation_destinations[0].total.count, None);
+    assert!(engagement.tutorial_steps[0].completed.suppressed);
+    assert!(engagement.tutorial_steps[0].skipped.suppressed);
+    assert_eq!(engagement.tutorial_steps[0].completed.count, None);
+    assert_eq!(engagement.tutorial_steps[0].skipped.count, None);
+
+    // A duplicate visible row cannot make an unknown hidden contribution visible.
+    let mut rows = window.event_totals.clone().into_data().unwrap();
+    rows.push(AllowedEventAggregate { event: "signup_submitted".into(), count: suppress(Some(10), None) });
+    window.event_totals = ProviderComponent::available(rows);
+    assert!(aggregates::behavioral_event_cell(Some(&window), "signup_submitted").suppressed);
+}
+
 #[cfg(feature = "contract-tests")]
 mod postgres {
     use super::*;
