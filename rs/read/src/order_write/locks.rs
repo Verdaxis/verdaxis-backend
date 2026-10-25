@@ -469,6 +469,7 @@ impl OperationLockPlan {
         let mut locked = Locked {
             steps: Vec::new(),
             statements: Vec::new(),
+            target_phase: std::sync::atomic::AtomicBool::new(false),
         };
         for statement in [
             "SET LOCAL lock_timeout = '500ms'",
@@ -488,6 +489,7 @@ impl OperationLockPlan {
         conn: &mut PgConnection,
         locked: &mut Locked,
     ) -> Result<(), MarketWriteError> {
+        locked.require_economic_phase()?;
         if !self.parties_declared {
             return Err(invalid_plan());
         }
@@ -556,8 +558,47 @@ fn invalid_plan() -> MarketWriteError {
 pub struct Locked {
     steps: Vec<LockStep>,
     statements: Vec<&'static str>,
+    target_phase: std::sync::atomic::AtomicBool,
 }
 impl Locked {
+    pub(super) fn require_economic_phase(&self) -> Result<(), MarketWriteError> {
+        if self.target_phase.load(std::sync::atomic::Ordering::Relaxed) {
+            Err(invalid_plan())
+        } else {
+            Ok(())
+        }
+    }
+    pub(super) fn require_effect_organization(&self, id: Uuid) -> Result<(), MarketWriteError> {
+        if self.contains(LockClass::Organization, id) {
+            Ok(())
+        } else {
+            Err(invalid_plan())
+        }
+    }
+    pub(super) fn require_effect_slice(&self, slice: &SliceKey) -> Result<(), MarketWriteError> {
+        let key = market_slice_lock_key(
+            slice.product_id,
+            slice.delivery_point_id,
+            &slice.availability_window,
+        )
+        .to_string();
+        if self
+            .steps
+            .iter()
+            .any(|s| s.class == LockClass::Slice && s.identity == key)
+        {
+            Ok(())
+        } else {
+            Err(invalid_plan())
+        }
+    }
+    pub(super) fn begin_target_phase(&self) -> Result<(), MarketWriteError> {
+        self.require_economic_phase()?;
+        self.target_phase
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        Ok(())
+    }
+
     pub fn statement_trace(&self) -> &[&'static str] {
         &self.statements
     }

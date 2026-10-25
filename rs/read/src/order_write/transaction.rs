@@ -1743,8 +1743,103 @@ pub struct LockedMarketTransaction<'a> {
 }
 impl LockedMarketTransaction<'_> {
     /// Borrow only stock rows in the owner's complete locked sets (A's bridge).
-    pub(super) fn stock_ledger(&mut self) -> StockLedger<'_> {
-        StockLedger::new(self.conn, self.plan.inventory_ids(), self.plan.order_ids())
+    pub(super) fn stock_ledger(&mut self) -> Result<StockLedger<'_>, super::MarketWriteError> {
+        self.locked.require_economic_phase()?;
+        Ok(StockLedger::new(
+            self.conn,
+            self.plan.inventory_ids(),
+            self.plan.order_ids(),
+        ))
+    }
+    #[cfg(feature = "contract-tests")]
+    pub(super) fn from_effect_fixture<'a>(
+        conn: &'a mut PgConnection,
+        plan: &'a super::locks::OperationLockPlan,
+        locked: &'a super::locks::Locked,
+    ) -> LockedMarketTransaction<'a> {
+        LockedMarketTransaction { conn, plan, locked }
+    }
+    /// Borrow the final effect phase of this ordered transaction.
+    pub(super) fn effects(
+        &mut self,
+    ) -> Result<super::effects::EffectPort<'_>, super::MarketWriteError> {
+        self.locked.require_economic_phase()?;
+        Ok(super::effects::EffectPort::new(
+            self.conn,
+            self.plan.order_ids(),
+            self.locked,
+        ))
+    }
+    pub(super) async fn execution_context(
+        &mut self,
+        actor: &super::AuthenticatedActor,
+        organization: Uuid,
+        now: chrono::DateTime<chrono::Utc>,
+        gate_enabled: bool,
+    ) -> Result<super::WriteContext, super::MarketWriteError> {
+        self.locked.require_economic_phase()?;
+        let access = crate::auth::VerifiedAccess {
+            subject: actor.user_id(),
+            issued_at: actor.access().issued_at,
+            issuance_out_of_range: actor.access().issuance_out_of_range,
+        };
+        let actor = super::authority::admission::authenticate(
+            self.conn,
+            self.locked,
+            access,
+            super::authority::admission::AdmissionClass::Execution,
+        )
+        .await?;
+        super::authority::admission::execution_context(
+            self.conn,
+            self.locked,
+            actor,
+            organization,
+            None,
+            now,
+            gate_enabled,
+        )
+        .await
+    }
+    #[cfg(feature = "contract-tests")]
+    pub(super) async fn effect_descriptor(
+        &mut self,
+        probe: &super::effects::contract::EffectProbe,
+        policy: &crate::MarketPolicy,
+        at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<super::effects::MutationEffect, super::MarketWriteError> {
+        self.locked.require_economic_phase()?;
+        super::effects::contract::effect(self.conn, probe, policy, at).await
+    }
+    #[cfg(feature = "contract-tests")]
+    pub(super) async fn effect_stage_order(
+        &mut self,
+        id: Uuid,
+        status: &str,
+    ) -> Result<(), super::MarketWriteError> {
+        self.locked.require_economic_phase()?;
+        if !self.plan.order_ids().contains(&id) {
+            return Err(super::MarketWriteError::new(
+                super::MarketErrorCode::MarketSliceChanged,
+            ));
+        }
+        sqlx::query(
+            "UPDATE orderbook_orders SET status=$2,version=version+1,updated_at=now() WHERE id=$1",
+        )
+        .bind(id)
+        .bind(status)
+        .execute(&mut *self.conn)
+        .await?;
+        Ok(())
+    }
+    #[cfg(feature = "contract-tests")]
+    pub(super) async fn effect_reacquire(
+        &mut self,
+        plan: &super::locks::OperationLockPlan,
+    ) -> Result<(), super::MarketWriteError> {
+        self.locked.require_economic_phase()?;
+        let _ = plan.acquire(self.conn).await?;
+        Ok(())
     }
     pub(super) async fn require_execution(
         &mut self,
@@ -2195,4 +2290,24 @@ mod ordered_contract;
 #[cfg(all(test, feature = "contract-tests"))]
 pub(super) async fn ordered_receipt_case(name: &str) -> Value {
     ordered_contract::case(name).await
+}
+
+/// Append-only event store extension on the caller's transaction.
+/// Transport fields and internal evidence use distinct explicit columns.
+pub(super) async fn append_market_effect(
+    conn: &mut PgConnection,
+    event: &super::outbox::ParticipantEvent,
+    participants: &[Uuid],
+    payload: &serde_json::Value,
+    evidence: &serde_json::Value,
+    id: Uuid,
+    at: chrono::DateTime<chrono::Utc>,
+) -> Result<(), sqlx::Error> {
+    let participants =
+        serde_json::to_value(participants).map_err(|error| sqlx::Error::Encode(Box::new(error)))?;
+    sqlx::query("INSERT INTO market_event_outbox(id,event_type,aggregate_type,aggregate_id,participant_org_ids,payload,producer_evidence,created_at) VALUES($1,$2,$3,$4,$5::json,$6::json,$7,$8)")
+        .bind(id).bind(&event.event_type).bind(&event.aggregate_type)
+        .bind(&event.aggregate_id).bind(participants).bind(payload).bind(evidence)
+        .bind(at).execute(conn).await?;
+    Ok(())
 }

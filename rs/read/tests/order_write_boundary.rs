@@ -5,8 +5,7 @@
 //! 1. A source boundary: outside `rs/read/src/order_write/` no Rust source and
 //!    no shared SQL may write an order-book row, take an order-row `FOR UPDATE`
 //!    lock, call the acceptance-ordinal sequence, or take an advisory lock. Every
-//!    insert target in the whole crate must be one of the two reviewed write
-//!    tables, and external callers may name only the declared CF4_04 exports
+//!    insert target inside the boundary must belong to that exact source file, and external callers may name only the declared CF4_04 exports
 //!    alongside the marked registration line in `lib.rs`. The scan is over source, so it holds for code no test exercises.
 //! 2. A behaviour parity: the lock keys, slice order, idempotency scopes and
 //!    request hashes must equal the vectors the reviewed Python exported into
@@ -315,6 +314,25 @@ fn repository_root() -> PathBuf {
         .expect("repository root")
 }
 
+/// Every boundary file retains receipt/outbox inserts; only the named effect
+/// source also owns audit, notification and benchmark insertion.
+fn boundary_insert_allowed(root: &Path, path: &Path, table: &str) -> bool {
+    let boundary = root.join("rs/read/src/order_write");
+    if !path.starts_with(&boundary) {
+        return false;
+    }
+    if WRITE_TABLES.contains(&table) {
+        return true;
+    }
+    let per_file = [(
+        "effects.rs",
+        ["AUDIT_LOGS", "NOTIFICATIONS", "LIVE_SLICE_BENCHMARKS"],
+    )];
+    per_file
+        .iter()
+        .any(|(file, tables)| path == boundary.join(file) && tables.contains(&table))
+}
+
 /// Every source-boundary violation in the repository, as `path: rule` text.
 fn scan_repository() -> Vec<String> {
     let root = repository_root();
@@ -351,10 +369,8 @@ fn scan_repository() -> Vec<String> {
         for (start, end) in literal_ranges(&text) {
             let literal = normalized(&text[start..end]);
             if inside_boundary {
-                // Inside the boundary the only reviewed insert targets are the
-                // receipt and the outbox; every other insert belongs elsewhere.
                 for target in insert_targets(&literal) {
-                    if !WRITE_TABLES.contains(&target.as_str()) {
+                    if !boundary_insert_allowed(&root, path, &target) {
                         violations.push(format!("{}: INSERT INTO {target}", path.display()));
                     }
                 }
@@ -1103,4 +1119,36 @@ fn the_entry_point_signature_is_the_reviewed_one() {
         execute_order_command(state, context, command).await
     }
     let _ = call;
+}
+
+#[test]
+fn effect_insert_authority_is_scoped_to_the_exact_source_file() {
+    let root = repository_root();
+    let effects = root.join("rs/read/src/order_write/effects.rs");
+    for table in ["AUDIT_LOGS", "NOTIFICATIONS", "LIVE_SLICE_BENCHMARKS"] {
+        assert!(boundary_insert_allowed(&root, &effects, table));
+        for file in [
+            "transaction.rs",
+            "outbox.rs",
+            "command.rs",
+            "nested/effects.rs",
+        ] {
+            assert!(!boundary_insert_allowed(
+                &root,
+                &root.join("rs/read/src/order_write").join(file),
+                table
+            ));
+        }
+    }
+    for file in ["effects.rs", "transaction.rs", "outbox.rs", "command.rs"] {
+        for table in WRITE_TABLES {
+            assert!(boundary_insert_allowed(
+                &root,
+                &root.join("rs/read/src/order_write").join(file),
+                table
+            ));
+        }
+    }
+    assert!(!boundary_insert_allowed(&root, &effects, "USERS"));
+    assert!(!boundary_insert_allowed(&root, &effects, "UNLISTED_TABLE"));
 }

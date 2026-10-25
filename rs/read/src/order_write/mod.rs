@@ -16,9 +16,11 @@
 mod authority;
 pub mod command;
 pub mod decimal;
+pub mod effects;
 mod error;
 mod expiry;
 pub mod locks;
+pub mod outbox;
 mod transaction;
 
 pub use authority::admission::{
@@ -78,4 +80,8 @@ pub mod test_contract {
         };
     }
     pub use super::transaction::stock_contract;
+    pub mod effects {
+        pub use super::super::effects::MutationKind;
+        pub use super::super::effects::contract::*;
+    }
 }

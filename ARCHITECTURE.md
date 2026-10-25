@@ -107,6 +107,17 @@ It returns before/after facts to the caller; it neither commits nor emits effect
 Feature-gated adapters exercise the coordinator, stock, receipts and transport
 failure paths without mounting market routes for serving.
 
+`order_write/effects.rs` borrows the ordered transaction for audit, organization
+notifications, current PIN display and both-side live benchmark rebuilds. It
+captures explicit absent/new and existing order projections, pre-mutation slice
+aggregates, separate REAL/DEMO values and event-time target identities. A staged
+transaction effect set preserves each audit/event and finalizes benchmarks and
+PIN displays once. Bounded request metadata reaches the shared audit appender. `outbox.rs` writes that evidence only to the internal outbox
+column; participant fields are constructed through a separate explicit DTO. The
+shared lock evidence records the terminal PIN phase and refuses later economic
+acquisition. Receipt replays bypass fresh effects. The committed-evidence consumer
+and stream transport integration remain separate components.
+
 ## Rust Phase 2 price-alert component
 
 Task 16 adds `rs/read/src/crud/alerts.rs` for organization-owned alert create,
