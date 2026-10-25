@@ -584,7 +584,6 @@ mod maintenance_probe {
     }
 }
 
-
 #[cfg(feature = "contract-tests")]
 #[allow(dead_code)]
 #[path = "../src/order_write/command.rs"]
@@ -603,29 +602,54 @@ use verdaxis_read::AppState;
 #[cfg(feature = "contract-tests")]
 mod ordered_cases {
     use super::*;
-    use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
     struct Command {
-        preview: Arc<AtomicUsize>, executions: Arc<AtomicUsize>, state: &'static str,
-        acquisition: bool, always: bool, drift: bool,
+        preview: Arc<AtomicUsize>,
+        executions: Arc<AtomicUsize>,
+        state: &'static str,
+        acquisition: bool,
+        always: bool,
+        drift: bool,
     }
     impl transaction::MarketCommand for Command {
-        type Output=();
-        fn preview<'a>(&'a self,_conn:&'a mut PgConnection,actor:Uuid)->transaction::BoxFuture<'a,Result<transaction::MarketPreview,transaction::MarketAttemptError>> {
+        type Output = ();
+        fn preview<'a>(
+            &'a self,
+            _conn: &'a mut PgConnection,
+            actor: Uuid,
+        ) -> transaction::BoxFuture<
+            'a,
+            Result<transaction::MarketPreview, transaction::MarketAttemptError>,
+        > {
             Box::pin(async move {
-                let count=self.preview.fetch_add(1,Ordering::SeqCst);
-                let parties=PartyLockPreview::new([id(10),id(20)],[id(1),id(2)],actor,serde_json::json!({"generation":if self.drift && count==1 {1}else{0}}));
-                let mut locks=OperationLockPlan::new(MarketOperation::Cancel);
+                let count = self.preview.fetch_add(1, Ordering::SeqCst);
+                let parties = PartyLockPreview::new(
+                    [id(10), id(20)],
+                    [id(1), id(2)],
+                    actor,
+                    serde_json::json!({"generation":if self.drift && count==1 {1}else{0}}),
+                );
+                let mut locks = OperationLockPlan::new(MarketOperation::Cancel);
                 locks.parties(&parties)?;
                 locks.slices([slice()])?;
-                if self.acquisition {locks.orders([id(90)])?;}
-                Ok(transaction::MarketPreview{parties,locks})
+                if self.acquisition {
+                    locks.orders([id(90)])?;
+                }
+                Ok(transaction::MarketPreview { parties, locks })
             })
         }
-        fn execute<'a>(&'a self,tx:&'a mut transaction::LockedMarketTransaction<'_>,_actor:&'a AuthenticatedActor)->transaction::BoxFuture<'a,Result<(),transaction::MarketAttemptError>> {
+        fn execute<'a>(
+            &'a self,
+            tx: &'a mut transaction::LockedMarketTransaction<'_>,
+            _actor: &'a AuthenticatedActor,
+        ) -> transaction::BoxFuture<'a, Result<(), transaction::MarketAttemptError>> {
             Box::pin(async move {
-                let n=self.executions.fetch_add(1,Ordering::SeqCst);
+                let n = self.executions.fetch_add(1, Ordering::SeqCst);
                 tx.test_stage_effect().await?;
-                if !self.acquisition && (n==0 || self.always) && !self.state.is_empty() {
+                if !self.acquisition && (n == 0 || self.always) && !self.state.is_empty() {
                     tx.test_server_abort(self.state).await?;
                 }
                 Ok(())
@@ -635,31 +659,80 @@ mod ordered_cases {
     #[tokio::test]
     #[ignore = "requires explicit disposable PostgreSQL"]
     async fn ordered_owner_preserves_server_abort_classes() {
-        for acquisition in [false,true] {
-            for state in ["40001","40P01","55P03","57014"] {
-                let mut f=Fixture::open().await;
+        for acquisition in [false, true] {
+            for state in ["40001", "40P01", "55P03", "57014"] {
+                let mut f = Fixture::open().await;
                 sqlx::query("UPDATE users SET status='APPROVED',authentication_revoked_at=NULL,must_change_password=false WHERE id=$1").bind(id(1)).execute(&mut f.admin).await.unwrap();
-                if acquisition {transaction::install_acquisition_abort(&mut f.admin,state).await;}
-                let previews=Arc::new(AtomicUsize::new(0));let executions=Arc::new(AtomicUsize::new(0));
-                let result=transaction::run_market_command(f.pool.clone(),Arc::new(tokio::sync::Semaphore::new(1)),f.access(id(1)).await,Command{preview:previews.clone(),executions:executions.clone(),state,acquisition,always:false,drift:false},AdmissionClass::Cleanup).await;
-                let retry=matches!(state,"40001"|"40P01");
-                assert_eq!(result.is_ok(),retry,"{state}/{acquisition}");
-                assert_eq!(previews.load(Ordering::SeqCst),if retry {if acquisition {3}else{4}} else {if acquisition {1}else{2}});
-                let effects:i64=sqlx::query_scalar("SELECT value::bigint FROM lock_effects WHERE id=1").fetch_one(&mut f.admin).await.unwrap();
-                assert_eq!(effects,if retry {1}else{0}); f.finish().await;
+                if acquisition {
+                    transaction::install_acquisition_abort(&mut f.admin, state).await;
+                }
+                let previews = Arc::new(AtomicUsize::new(0));
+                let executions = Arc::new(AtomicUsize::new(0));
+                let result = transaction::run_market_command(
+                    f.pool.clone(),
+                    Arc::new(tokio::sync::Semaphore::new(1)),
+                    f.access(id(1)).await,
+                    Command {
+                        preview: previews.clone(),
+                        executions: executions.clone(),
+                        state,
+                        acquisition,
+                        always: false,
+                        drift: false,
+                    },
+                    AdmissionClass::Cleanup,
+                )
+                .await;
+                let retry = matches!(state, "40001" | "40P01");
+                assert_eq!(result.is_ok(), retry, "{state}/{acquisition}");
+                assert_eq!(
+                    previews.load(Ordering::SeqCst),
+                    if retry {
+                        if acquisition { 3 } else { 4 }
+                    } else {
+                        if acquisition { 1 } else { 2 }
+                    }
+                );
+                let effects: i64 =
+                    sqlx::query_scalar("SELECT value::bigint FROM lock_effects WHERE id=1")
+                        .fetch_one(&mut f.admin)
+                        .await
+                        .unwrap();
+                assert_eq!(effects, if retry { 1 } else { 0 });
+                f.finish().await;
             }
         }
     }
     #[tokio::test]
     #[ignore = "requires explicit disposable PostgreSQL"]
     async fn ordered_owner_bounds_abort_and_rebuilds_changed_preview() {
-        let mut f=Fixture::open().await;
+        let mut f = Fixture::open().await;
         sqlx::query("UPDATE users SET status='APPROVED',authentication_revoked_at=NULL,must_change_password=false WHERE id=$1").bind(id(1)).execute(&mut f.admin).await.unwrap();
-        for (state,drift,expected) in [("40001",false,false),("40P01",false,false),("",true,true)] {
-            let previews=Arc::new(AtomicUsize::new(0));let executions=Arc::new(AtomicUsize::new(0));
-            let result=transaction::run_market_command(f.pool.clone(),Arc::new(tokio::sync::Semaphore::new(1)),f.access(id(1)).await,Command{preview:previews.clone(),executions:executions.clone(),state,acquisition:false,always:true,drift},AdmissionClass::Cleanup).await;
-            assert_eq!(result.is_ok(),expected);assert_eq!(previews.load(Ordering::SeqCst),4);
-            assert_eq!(executions.load(Ordering::SeqCst),if drift {1}else{2});
+        for (state, drift, expected) in [
+            ("40001", false, false),
+            ("40P01", false, false),
+            ("", true, true),
+        ] {
+            let previews = Arc::new(AtomicUsize::new(0));
+            let executions = Arc::new(AtomicUsize::new(0));
+            let result = transaction::run_market_command(
+                f.pool.clone(),
+                Arc::new(tokio::sync::Semaphore::new(1)),
+                f.access(id(1)).await,
+                Command {
+                    preview: previews.clone(),
+                    executions: executions.clone(),
+                    state,
+                    acquisition: false,
+                    always: true,
+                    drift,
+                },
+                AdmissionClass::Cleanup,
+            )
+            .await;
+            assert_eq!(result.is_ok(), expected);
+            assert_eq!(previews.load(Ordering::SeqCst), 4);
+            assert_eq!(executions.load(Ordering::SeqCst), if drift { 1 } else { 2 });
         }
         f.finish().await;
     }
@@ -668,18 +741,54 @@ mod ordered_cases {
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL"]
 async fn assisted_context_uses_locked_customer_authority() {
-    let mut f=Fixture::open().await;
-    for (change,expected) in [("valid",true),("member_rejected",false),("member_absent",false),("wrong_org",false),("unknown_provenance",false),("revoked_capability",false),("expired_context",false)] {
-        admission::test_seed_assisted(&mut f.admin,change).await;
-        let mut conn=f.pool.acquire().await.unwrap();let mut tx=conn.begin().await.unwrap();
-        let parties=PartyLockPreview::new([id(10),id(20)],[id(1),id(2),id(4)],id(1),serde_json::Value::Null);
-        let mut plan=OperationLockPlan::new(MarketOperation::Create);plan.parties(&parties).unwrap();
-        plan.resources(LockClass::Capability,[id(60),id(61)]).unwrap();plan.resources(LockClass::Context,[id(62)]).unwrap();
-        let locked=plan.acquire(&mut tx).await.unwrap();
-        let actor=admission::authenticate(&mut tx,&locked,f.access(id(1)).await,AdmissionClass::Execution).await.unwrap();
-        let result=admission::execution_context(&mut tx,&locked,actor,id(10),Some(id(62)),Utc::now(),true).await;
-        assert_eq!(result.is_ok(),expected,"{change}");
-        if let Ok(ctx)=result {assert_eq!(ctx.effective_organization_id(),id(10));assert_eq!(ctx.support_context_id(),Some(id(62)));}
+    let mut f = Fixture::open().await;
+    for (change, expected) in [
+        ("valid", true),
+        ("member_rejected", false),
+        ("member_absent", false),
+        ("wrong_org", false),
+        ("unknown_provenance", false),
+        ("revoked_capability", false),
+        ("expired_context", false),
+    ] {
+        admission::test_seed_assisted(&mut f.admin, change).await;
+        let mut conn = f.pool.acquire().await.unwrap();
+        let mut tx = conn.begin().await.unwrap();
+        let parties = PartyLockPreview::new(
+            [id(10), id(20)],
+            [id(1), id(2), id(4)],
+            id(1),
+            serde_json::Value::Null,
+        );
+        let mut plan = OperationLockPlan::new(MarketOperation::Create);
+        plan.parties(&parties).unwrap();
+        plan.resources(LockClass::Capability, [id(60), id(61)])
+            .unwrap();
+        plan.resources(LockClass::Context, [id(62)]).unwrap();
+        let locked = plan.acquire(&mut tx).await.unwrap();
+        let actor = admission::authenticate(
+            &mut tx,
+            &locked,
+            f.access(id(1)).await,
+            AdmissionClass::Execution,
+        )
+        .await
+        .unwrap();
+        let result = admission::execution_context(
+            &mut tx,
+            &locked,
+            actor,
+            id(10),
+            Some(id(62)),
+            Utc::now(),
+            true,
+        )
+        .await;
+        assert_eq!(result.is_ok(), expected, "{change}");
+        if let Ok(ctx) = result {
+            assert_eq!(ctx.effective_organization_id(), id(10));
+            assert_eq!(ctx.support_context_id(), Some(id(62)));
+        }
         tx.rollback().await.unwrap();
     }
     f.finish().await;
