@@ -23,7 +23,7 @@ fn ordered_hash(rows: &[String]) -> String {
         digest.update((row.len() as u64).to_be_bytes());
         digest.update(row.as_bytes());
     }
-    format!("{:x}", digest.finalize())
+    digest.finalize().iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 fn equivalent(old: &[String], new: &[String], case: &str) {
