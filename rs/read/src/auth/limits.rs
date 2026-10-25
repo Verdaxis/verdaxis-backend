@@ -231,6 +231,88 @@ mod tests {
         assert!(!limits.preauth("203.0.113.7", "/api/admin/users", 100));
     }
 
+    /// A caller whose own bucket expired is reset directly, even while the
+    /// bounded cleanup of other expired entries still has work left. The
+    /// caller must never wait for the whole expiration index to drain.
+    #[test]
+    fn an_expired_caller_resets_directly_while_cleanup_stays_budgeted() {
+        let mut store = QuotaStore::default();
+        let window = 60;
+        // A flood of identities whose accounting all expires at t=100; one
+        // slot stays free for the caller, which this store never evicts.
+        for index in 0..MAX_BUCKETS as u32 - 1 {
+            assert!(store.accept(&format!("user-{index}"), "k", 1, window, 40, false));
+        }
+        // The caller spends its whole window budget, and that window expires
+        // with the flood.
+        assert!(store.accept("caller", "k", 1, window, 40, false));
+        assert!(!store.accept("caller", "k", 1, window, 99));
+        // One request at t=101: the caller's own expired bucket is gone, so it
+        // is admitted again, while at most EXPIRED_CLEANUP_BUDGET other expired
+        // entries were removed around it.
+        let before = store.buckets.len();
+        assert!(store.accept("caller", "k", 1, window, 101, false));
+        let removed = before - store.buckets.len();
+        assert!(removed <= EXPIRED_CLEANUP_BUDGET + 1, "removed {removed}");
+        // Most of the flood is still stored; the next request removes only
+        // another bounded batch, never the rest at once.
+        let before = store.buckets.len();
+        assert!(store.accept("caller", "k", 1, window, 101, false));
+        assert!(before - store.buckets.len() <= EXPIRED_CLEANUP_BUDGET);
+    }
+
+    /// One request never drains an unbounded number of expired entries: after a
+    /// full flood expires at once, each further request removes at most the
+    /// cleanup budget, so the work under the shared lock stays small.
+    #[test]
+    fn expired_cleanup_after_a_full_flood_removes_a_bounded_batch() {
+        let mut store = QuotaStore::default();
+        for index in 0..MAX_BUCKETS as u32 {
+            assert!(store.accept(&format!("user-{index}"), "k", 1, 60, 40, false));
+        }
+        assert_eq!(store.buckets.len(), MAX_BUCKETS);
+        // All accounting expires at t=100. One request at t=200 removes at most
+        // the cleanup budget plus the caller's own new entry.
+        assert!(store.accept("fresh", "k", 1, 60, 200, false));
+        assert!(
+            store.buckets.len() >= MAX_BUCKETS - EXPIRED_CLEANUP_BUDGET,
+            "one request removed too much: {}",
+            store.buckets.len()
+        );
+        let mut previous = store.buckets.len();
+        for round in 0..5 {
+            assert!(store.accept("fresh", "k", 10, 60, 200 + round, false));
+            let now = store.buckets.len();
+            assert!(previous - now <= EXPIRED_CLEANUP_BUDGET);
+            previous = now;
+        }
+    }
+
+    /// A poisoned quota lock recovers instead of panicking: the counter state
+    /// is re-read and the spent quotas of other identities are preserved. The
+    /// recovery warns once with a count that names no client.
+    #[test]
+    fn a_poisoned_lock_recovers_and_keeps_spent_quotas() {
+        let limits = SharedLimits::default();
+        assert!(limits.preauth("203.0.113.9", "/api/admin/users", 100));
+        for _ in 0..300 {
+            assert!(limits.preauth("203.0.113.10", "/api/admin/users", 100));
+        }
+        assert!(!limits.preauth("203.0.113.10", "/api/admin/users", 100));
+        // A panicking caller poisons the mutex.
+        let inner = limits.0.clone();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let guard = inner.lock().expect("quota authority lock");
+            panic!("caller panic under the quota lock");
+        }));
+        assert!(result.is_err());
+        assert!(inner.is_poisoned());
+        // The recovered accounting still refuses the spent client and admits a
+        // fresh one; nothing was reset by the poison.
+        assert!(!limits.preauth("203.0.113.10", "/api/admin/users", 100));
+        assert!(limits.preauth("198.51.100.1", "/api/admin/users", 100));
+    }
+
     /// Both stores keep every bucket and every expiration index entry under the
     /// same cap; an eviction replaces one entry instead of growing the map.
     #[test]
