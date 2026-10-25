@@ -600,3 +600,46 @@ async fn inventory_admission_rechecks_an_independent_account_change() {
     assert_eq!(response.0, 403, "{}", response.1);
     assert_eq!(f.counts().await, (0, 0, 0));
 }
+
+#[tokio::test]
+#[ignore = "requires explicitly provisioned disposable PostgreSQL"]
+async fn inventory_foreign_and_missing_records_share_the_refusal() {
+    let mut owner = Fixture::new().await;
+    let foreign = Fixture::new().await;
+    let id = foreign.create().await;
+    for target in [id, Uuid::new_v4()] {
+        for method in ["PATCH", "DELETE"] {
+            let result = owner.request(method, &format!("/api/inventory/{target}"), json!({})).await;
+            assert_eq!(result.0, 404, "{}", result.1);
+        }
+    }
+    assert_eq!(owner.request("GET", "/api/inventory", Value::Null).await.1, json!([]));
+    assert_eq!(owner.counts().await, (0,0,0));
+}
+
+#[tokio::test]
+#[ignore = "requires explicitly provisioned disposable PostgreSQL"]
+async fn inventory_declaration_merge_preserves_private_terms_and_derived_fields() {
+    let f = Fixture::new().await;
+    let policy:Value = serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap();
+    let fame = policy["products"].as_array().unwrap().iter().find(|p|p["qualification_profile"]=="fame_v1").unwrap();
+    let mut body=f.body();
+    body["product_name"]=fame["name"].clone(); body["fuel_type"]=fame["fuel_type"].clone();
+    body["fame_terms"]=json!({"schema_version":1,"side":"ASK","neat_fame":true,"nomination_status":"PENDING","uco_mass_pct":100,"standard":"EN_14214","standard_edition":"EN 14214:2019","sustainability_scheme":"ISCC_EU","certificate_reference":"fixture-reference","certificate_holder":"Fixture supplier","certificate_valid_until":"2099-06-30","evidence_status":"DECLARED","document_references":[],"evidence_due":"BEFORE_LOADING","production_origin":"NL","ci_gco2e_mj":"10.25","ci_methodology":"Fixture lifecycle","ci_boundary":"WTW","ci_basis":"ACTUAL","lhv_mj_kg":"37.25"});
+    let (status,created)=f.request("POST","/api/inventory",body.clone()).await;
+    assert_eq!(status,200,"{created}");
+    assert_eq!(created["carbon_intensity_gco2_mj"],"10.25"); assert_eq!(created["energy_density_mj_kg"],"37.25");
+    assert_eq!(created["certification_scheme"],"ISCC_EU"); assert_eq!(created["fame_terms"]["certificate_reference"],"fixture-reference");
+    let path=format!("/api/inventory/{}",created["id"].as_str().unwrap());
+    let (status,patched)=f.request("PATCH",&path,json!({"current_stock_mt":"6.25"})).await;
+    assert_eq!(status,200,"{patched}"); assert_eq!(patched["fame_terms"],created["fame_terms"]);
+    assert_eq!(f.request("PATCH",&path,json!({"fame_terms":null})).await.0,422);
+    let lng = policy["products"].as_array().unwrap().iter().find(|p|p["qualification_profile"]=="lng_v1").unwrap();
+    body["product_name"]=lng["name"].clone(); body["fuel_type"]=lng["fuel_type"].clone(); body["fame_terms"]=Value::Null;
+    let vector:Value=serde_json::from_str(include_str!("../../../tests/rust_contract/vectors/terms/private.json")).unwrap();
+    body["lng_terms"]=vector["order"]["lng_terms"].clone();
+    body["carbon_intensity_gco2_mj"]=json!("99.25"); body["carbon_intensity_method"]=json!("Fixture input");
+    let (status,created)=f.request("POST","/api/inventory",body).await;
+    assert_eq!(status,200,"{created}"); assert_eq!(created["carbon_intensity_gco2_mj"],Value::Null); assert_eq!(created["carbon_intensity_method"],Value::Null);
+    assert_eq!(created["lng_terms"]["scheme_certificate_number"],"ISCC-EU-0001");
+}
