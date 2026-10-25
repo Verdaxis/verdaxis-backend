@@ -42,7 +42,8 @@ async fn opposing_rows(
     // GROUP BY has no promised order. PostgreSQL, not Rust, applies the active
     // database collation to a deterministic wrapper for the equivalence hash.
     let sql = format!(
-        "SELECT to_jsonb(x)::text AS row FROM ({}) x ORDER BY x.slice::text",
+        "SELECT (to_jsonb(x) || jsonb_build_object('price_type', pg_typeof(x.best_price)::text, \
+         'price_text', x.best_price::text))::text AS row FROM ({}) x ORDER BY x.slice::text",
         sql.trim_end().trim_end_matches(';')
     );
     bind_order_sql(
@@ -79,7 +80,8 @@ async fn opposing_exact_slices_keep_prices_and_ordered_hash() {
         "SELECT jsonb_agg(DISTINCT jsonb_build_object(
             'product_id', product_id, 'delivery_point_id', delivery_point_id,
             'availability_window', availability_window, 'provenance', provenance))
-         FROM orderbook_orders".to_owned(),
+         FROM orderbook_orders"
+            .to_owned(),
     ))
     .fetch_one(&mut *connection)
     .await
@@ -95,7 +97,7 @@ async fn opposing_exact_slices_keep_prices_and_ordered_hash() {
         ),
     );
     assert_ne!(old.sql(), trial, "the trial must restrict the base scan");
-    let shipped = order_query_sql(include_str!("../../sql/orderbook/opposing.sql"));
+    let shipped = verdaxis_read::market::visibility::opposing_order_query_sql();
     let mut variants = vec![Value::Array(keys.clone()), serde_json::json!([])];
     let mut duplicate_and_null = keys.clone();
     duplicate_and_null.extend(keys.iter().cloned());
@@ -122,12 +124,24 @@ async fn opposing_exact_slices_keep_prices_and_ordered_hash() {
         for side in ["BID", "ASK"] {
             for (case, keys) in variants.iter().enumerate() {
                 let before = opposing_rows(
-                    &mut connection, old.sql(), &policy, &clock, &config, side, keys,
+                    &mut connection,
+                    old.sql(),
+                    &policy,
+                    &clock,
+                    &config,
+                    side,
+                    keys,
                 )
                 .await;
                 for candidate in [&trial, shipped.sql()] {
                     let after = opposing_rows(
-                        &mut connection, candidate, &policy, &clock, &config, side, keys,
+                        &mut connection,
+                        candidate,
+                        &policy,
+                        &clock,
+                        &config,
+                        side,
+                        keys,
                     )
                     .await;
                     assert_eq!(before.len(), after.len(), "count gate={gate} {side} {case}");
@@ -146,7 +160,11 @@ async fn opposing_exact_slices_keep_prices_and_ordered_hash() {
     // SQLx's decimal decoder and PostgreSQL must still see NUMERIC, not float
     // or text. Fetch type metadata even when a particular slice has no rows.
     let rows = bind_order_sql(
-        old.sql(), &policy, &clock, &config, &PublicOrderFilters::default(),
+        old.sql(),
+        &policy,
+        &clock,
+        &config,
+        &PublicOrderFilters::default(),
     )
     .unwrap()
     .bind(Value::Array(keys.clone()).to_string())
