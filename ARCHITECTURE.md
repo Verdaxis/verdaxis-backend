@@ -90,6 +90,23 @@ loopback adapters to prove twin state, rollback, replay, timeouts, observed
 PostgreSQL advisory-lock order, bounded retries, races and mixed dispatch. See
 `docs/rust-phase2/task20-write-boundary.md` for gate results and the resume point.
 
+## Ordered market transaction primitives
+
+`rs/read/src/order_write/admission.rs` constructs authority from verified access
+and locked party evidence. Operation plans close the preview before acquiring
+sorted organizations and users, then keys, slices and resources. The private
+ordered coordinator in `transaction.rs` rechecks preview identity and preserves
+retry classification through typed ports. It prepares responses before commit,
+recovers committed receipts after a named unique collision, and does not retry
+an unknown commit outcome.
+
+The stock port borrows that transaction and its declared resource set.
+`expiry.rs` selects a bounded slice batch and uses complete database aggregates
+for reservation and commitment checks without materializing historical rows.
+It returns before/after facts to the caller; it neither commits nor emits effects.
+Feature-gated adapters exercise the coordinator, stock, receipts and transport
+failure paths without mounting market routes for serving.
+
 ## Rust Phase 2 price-alert component
 
 Task 16 adds `rs/read/src/crud/alerts.rs` for organization-owned alert create,
