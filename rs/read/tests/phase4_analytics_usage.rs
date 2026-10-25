@@ -323,6 +323,51 @@ fn p4_t17a_c03() {
     );
 }
 
+/// c11: core count cells retain zero and suppress small counts and derivatives.
+#[test]
+fn p4_t17a_c11() {
+    for count in 0..=3 {
+        let mut window = available();
+        window.core = ProviderComponent::available(CoreMetrics {
+            visitors: Some(count),
+            visits: Some(count),
+            pageviews: Some(count),
+            total_time_seconds: Some(60),
+            average_session_duration_seconds: Some(rust_decimal::Decimal::from(60)),
+        });
+        let body = serde_json::to_value(usage::compose(
+            UsageDays::Thirty,
+            window.start,
+            window.end,
+            authoritative(2, 2, 1),
+            &window,
+        ))
+        .unwrap();
+        let hidden = count == 1 || count == 2;
+        let expected = if hidden { Value::Null } else { json!(count) };
+        for field in ["visitors", "visits", "pageviews"] {
+            assert_eq!(body["behavioral"][field], expected, "{field}, count={count}");
+        }
+        assert_eq!(body["funnel"][0]["value"], expected);
+        assert_eq!(
+            body["funnel"][1]["conversion_from_previous_pct"],
+            if count == 3 { json!(133.3) } else { Value::Null }
+        );
+        assert_eq!(
+            body["behavioral"]["average_session_duration_seconds"],
+            if count == 3 { json!(20.0) } else { Value::Null }
+        );
+        assert_eq!(
+            body["behavioral"]["total_time_seconds"],
+            if hidden { Value::Null } else { json!(60) }
+        );
+        // P01 authoritative totals have their own definition, not this policy.
+        assert_eq!(body["authoritative"]["registrations"], 2);
+        assert_eq!(body["funnel"][2]["value"], 2);
+        assert_eq!(body["funnel"][3]["conversion_from_previous_pct"], 100.0);
+    }
+}
+
 /// c04: only 7, 30 and 90 select a period; the default is 30.
 #[test]
 fn p4_t17a_c04() {
