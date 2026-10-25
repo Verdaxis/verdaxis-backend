@@ -523,15 +523,15 @@ pub fn router_with(extra: Router<crate::AppState>, state: crate::AppState) -> Ro
         .route("/health/ready", axum::routing::get(crate::ready))
         .route("/health", axum::routing::get(crate::ready))
         .with_state(state.clone())
-        .merge(extra.with_state(state.clone()))
-        .fallback(fallback)
-        .method_not_allowed_fallback(method_not_allowed)
-        .with_state(state.clone());
+        .merge(extra.with_state(state.clone()));
     let routes = match phase2_routes(&state, limits.clone()) {
         Some(phase2) => routes.merge(phase2),
         None => routes,
     };
-    middleware_with_state(routes, state)
+    let routes = routes
+        .fallback(fallback)
+        .method_not_allowed_fallback(method_not_allowed);
+    compose(routes, Some(state), limits)
 }
 
 async fn method_not_allowed() -> Response {
