@@ -112,6 +112,9 @@ fi
 # name for the same reason.
 overlay_manifest=$(mktemp "${TMPDIR:-/tmp}/rust-overlay-cases.XXXXXX")
 export RUST_OVERLAY_TEST_CASES="$overlay_manifest"
+# This runner seeds the populated matrix, so a missing URL must refuse rather
+# than let the authenticated, timeout, snapshot and index cases pass empty.
+export RUST_OVERLAY_REQUIRED=1
 (
   cd "$repo"
   PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$repo" "$RUST_TEST_PYTHON" \

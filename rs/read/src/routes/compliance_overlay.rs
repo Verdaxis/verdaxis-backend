@@ -1,12 +1,46 @@
-//! Pricing-overlay domain component. HTTP composition supplies the locked actor.
-use crate::auth::CurrentActor;
+//! Pricing-overlay route: one authenticated batch read of the marketplace ASK map.
+//!
+//! The client contract is Python's `POST /api/compliance/pricing-overlay`
+//! (`app/routers/compliance_api.py:198-263`): every requested id is a key in
+//! `overlays`, and only rows visible in the public marketplace book carry a
+//! value. Bid, hidden, expired, off-policy and unpriced rows answer `null`
+//! indistinguishably, so the map is not an existence oracle.
+//!
+//! The HTTP order is the accepted Phase 2/5 one: bound the raw body and parse
+//! one JSON document first, verify the bearer and lock the current account,
+//! refuse a Market Support context, and only then apply the typed rules. The
+//! one domain statement supplies the ASK map and the exact scoped fleet count
+//! together, so both come from one snapshot. The transaction, its commit and
+//! its cancellation owner belong to `auth::transaction`; this route adds no
+//! business write, ledger row or outbox event.
+use std::sync::Arc;
+
+use axum::{
+    Extension, Json, Router,
+    body::Body,
+    extract::{ConnectInfo, State},
+    http::{HeaderMap, StatusCode, header},
+    response::{IntoResponse, Response},
+    routing::post,
+};
+use chrono::Utc;
+
+use crate::auth::{
+    AuthenticatedError, CurrentActor, VerificationSettings, limits::SharedLimits,
+    request::RequestError, run_authenticated, verify_authorization,
+};
+use crate::compliance::http::{
+    CompliancePost, OVERLAY_PATH, authenticated_request, bounded_body, parse_post_body,
+};
 use crate::compliance::pricing::{
-    AlcoholFamily, LifecycleOverlayCore, ListingOverlay, OverlayAssumptions, PricingError,
+    AlcoholFamily, FinancialBenefitStatus, LifecycleOverlayCore, ListingOverlay,
+    OverlayAssumptions, PricingError, ValueBasis,
 };
 use crate::market::visibility::{
     PublicOrderFilters, VisibilityClock, bind_order_query, order_query_sql,
 };
-use crate::{Config, MarketPolicy};
+use crate::routes::market_data_error;
+use crate::{ApiError, ApiErrorKind, AppState, Config, MarketPolicy};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
@@ -84,8 +118,44 @@ impl std::error::Error for OverlayError {}
 
 #[derive(Serialize)]
 pub struct OverlayResponse {
-    pub overlays: BTreeMap<Uuid, Option<ListingOverlay>>,
+    pub overlays: BTreeMap<Uuid, Option<OverlayListing>>,
     pub assumptions: OverlayAssumptions,
+}
+
+/// The two legacy cash fields are `Decimal("0.00")` in Python, and its JSON
+/// encoder keeps the two decimal places. This constant carries that scale.
+const ZERO_CASH_AMOUNT: Decimal = Decimal::from_parts(0, 0, 0, false, 2);
+
+/// One visible ASK's declared-lifecycle comparison as the client reads it.
+///
+/// The pricing core computes the values; this projection fixes only the
+/// penalty fields' decimal spelling, so a client that formats the string the
+/// way Python's route produced it sees the same `"0.00"`.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct OverlayListing {
+    pub financial_benefit_status: FinancialBenefitStatus,
+    pub penalty_avoided_eur_per_mt: Decimal,
+    pub penalty_avoided_usd_per_mt: Decimal,
+    pub tco2e_avoided_per_mt: Decimal,
+    pub ci_gco2_mj: Decimal,
+    pub ci_basis: ValueBasis,
+    pub lcv_mj_kg: Decimal,
+    pub lcv_basis: ValueBasis,
+}
+
+impl From<ListingOverlay> for OverlayListing {
+    fn from(overlay: ListingOverlay) -> Self {
+        Self {
+            financial_benefit_status: overlay.financial_benefit_status,
+            penalty_avoided_eur_per_mt: ZERO_CASH_AMOUNT,
+            penalty_avoided_usd_per_mt: ZERO_CASH_AMOUNT,
+            tco2e_avoided_per_mt: overlay.tco2e_avoided_per_mt,
+            ci_gco2_mj: overlay.ci_gco2_mj,
+            ci_basis: overlay.ci_basis,
+            lcv_mj_kg: overlay.lcv_mj_kg,
+            lcv_basis: overlay.lcv_basis,
+        }
+    }
 }
 
 pub struct OverlayRow {
@@ -106,9 +176,15 @@ pub fn alcohol_family(fuel_type: &str) -> Option<AlcoholFamily> {
     }
 }
 
+/// Build the response from the statement rows.
+///
+/// `eur_usd_rate` is the configured `COMPLIANCE_EUR_USD_RATE`; `None` keeps the
+/// pricing core's published default, exactly as Python's
+/// `_effective_eur_usd_rate` does.
 pub fn project(
     request: &OverlayRequest,
     rows: Vec<OverlayRow>,
+    eur_usd_rate: Option<Decimal>,
 ) -> Result<OverlayResponse, OverlayError> {
     let count = rows
         .first()
@@ -130,13 +206,18 @@ pub fn project(
         // An unmatched ASK projection has no catalog family or listing values.
         if let Some(fuel_type) = row.fuel_type {
             *target = LifecycleOverlayCore::compute(alcohol_family(&fuel_type), row.ci, row.lcv)
-                .map_err(OverlayError::Pricing)?;
+                .map_err(OverlayError::Pricing)?
+                .map(OverlayListing::from);
         }
     }
     Ok(OverlayResponse {
         overlays,
-        assumptions: LifecycleOverlayCore::assumptions(request.year, fleet_vessel_count, None)
-            .map_err(OverlayError::Pricing)?,
+        assumptions: LifecycleOverlayCore::assumptions(
+            request.year,
+            fleet_vessel_count,
+            eur_usd_rate,
+        )
+        .map_err(OverlayError::Pricing)?,
     })
 }
 
@@ -177,5 +258,151 @@ pub async fn select_overlay(
         })
         .collect::<Result<Vec<_>, sqlx::Error>>()
         .map_err(OverlayError::Database)?;
-    project(request, rows)
+    project(request, rows, config.compliance_eur_usd_rate)
+}
+
+/// Bearer verification and route quota for the pricing overlay.
+///
+/// The integration owner supplies one instance through the serving router, as
+/// the other authenticated Phase 2/5 groups do. Nothing here loads or writes an
+/// account; the transaction helper owns the current-account lock.
+#[derive(Clone)]
+pub struct OverlayAuthority {
+    settings: Arc<VerificationSettings>,
+    limits: SharedLimits,
+}
+
+impl OverlayAuthority {
+    pub fn new(settings: VerificationSettings, limits: SharedLimits) -> Self {
+        Self {
+            settings: Arc::new(settings),
+            limits,
+        }
+    }
+
+    pub fn settings(&self) -> &VerificationSettings {
+        &self.settings
+    }
+
+    pub fn limits(&self) -> SharedLimits {
+        self.limits.clone()
+    }
+}
+
+/// The pricing-overlay route table. The integration owner merges this into the
+/// serving router; this module mounts nothing on its own.
+pub fn routes(authority: OverlayAuthority) -> Router<AppState> {
+    Router::new()
+        .route(OVERLAY_PATH, post(overlay))
+        .layer(Extension(Arc::new(authority)))
+}
+
+async fn overlay(
+    State(state): State<AppState>,
+    Extension(authority): Extension<Arc<OverlayAuthority>>,
+    peer: Option<Extension<ConnectInfo<std::net::SocketAddr>>>,
+    headers: HeaderMap,
+    body: Body,
+) -> Response {
+    // Size and syntax may fail before authentication; nothing else may.
+    let raw = match bounded_body(body).await {
+        Ok(raw) => raw,
+        Err(error) => return error.into_response(),
+    };
+    let prepared = match parse_post_body(&raw) {
+        Ok(prepared) => prepared,
+        Err(error) => return error.into_response(),
+    };
+    let access = match verify_authorization(
+        headers
+            .get(header::AUTHORIZATION)
+            .and_then(|value| value.to_str().ok()),
+        authority.settings(),
+        Utc::now(),
+    ) {
+        Ok(access) => access,
+        Err(error) => return RequestError::Authentication(error).into_response(),
+    };
+    let support_present = crate::auth::scope::support_present(&headers);
+    let client = crate::runtime::http::client_ip(
+        peer.map(|Extension(ConnectInfo(address))| address.ip()),
+        headers
+            .get("x-forwarded-for")
+            .and_then(|value| value.to_str().ok()),
+    );
+    let admission = CompliancePost::new(
+        OVERLAY_PATH,
+        client,
+        Utc::now().timestamp().max(0) as u64,
+        authority.limits(),
+        support_present,
+    );
+    let policy = state.policy.clone();
+    let config = state.config.clone();
+    let clock = VisibilityClock::at(Utc::now());
+    let result = run_authenticated(
+        &state,
+        access,
+        authenticated_request("POST", OVERLAY_PATH, support_present),
+        move |transaction| {
+            Box::pin(async move {
+                // Support refusal, then the typed rules, then the domain
+                // statement: the closure has already validated the account.
+                let request = prepared.admit(&admission, |value| {
+                    OverlayRequest::validate(value).map_err(|_| invalid_input())
+                })?;
+                let actor = transaction.actor().clone();
+                select_overlay(
+                    transaction.connection(),
+                    &policy,
+                    &clock,
+                    &config,
+                    &actor,
+                    &request,
+                )
+                .await
+                .map_err(overlay_failure)
+            })
+        },
+    )
+    .await;
+    match result {
+        Ok(response) => Json(response).into_response(),
+        Err(AuthenticatedError::Authentication(error)) => {
+            RequestError::Authentication(error).into_response()
+        }
+        Err(AuthenticatedError::Database(error)) => error.into_response(),
+        Err(AuthenticatedError::AmbiguousCommit) => ApiError::database().into_response(),
+    }
+}
+
+/// The input refusal keeps the Phase 5 envelope and never echoes the body.
+fn invalid_input() -> ApiError {
+    market_data_error::invalid_input(
+        "order_ids must contain at most 100 UUIDs; year must be from 2025 to 9999.",
+    )
+}
+
+pub fn overlay_failure(error: OverlayError) -> ApiError {
+    match error {
+        OverlayError::InvalidInput => invalid_input(),
+        OverlayError::Database(source) => {
+            market_data_error::database_failure(OVERLAY_PATH, &source)
+        }
+        OverlayError::Projection | OverlayError::Pricing(_) => read_failed(),
+    }
+}
+
+/// A refusal that is not the client's input and not a retryable database
+/// condition. Wording is free; no error text, SQL or path is included.
+fn read_failed() -> ApiError {
+    ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        detail: serde_json::json!({
+            "code": "READ_FAILED",
+            "message": "Compliance pricing data could not be read.",
+        }),
+        retry_after: None,
+        kind: ApiErrorKind::Unexpected,
+    }
 }
