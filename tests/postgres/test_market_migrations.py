@@ -1322,7 +1322,14 @@ async def test_cache_checkpoint_follows_production_revision(migration_database):
         revision.revision for revision in script.walk_revisions()
     }
     assert script.get_current_head() == "sse_20261021_replay_floor"
-    assert script.get_revision("sse_20261021_replay_floor").down_revision == "prc_20261018_cache"
+    assert (
+        script.get_revision("sse_20261021_replay_floor").down_revision
+        == "p3_20261020_auth_tokens"
+    )
+    assert (
+        script.get_revision("p3_20261020_auth_tokens").down_revision
+        == "prc_20261018_cache"
+    )
     assert script.get_revision("prc_20261018_cache").down_revision == "p0_20261016_union"
     allowlist = json.loads(
         (_BACKEND_ROOT / "deploy/rust/allowed-revisions.json").read_text()
