@@ -738,6 +738,9 @@ mod cases {
                 ComponentStatus::Unavailable
             );
             assert!(window.property_results[0].result.data().is_none());
+            assert_eq!(window.property_results[0].result.diagnostic(), Some(expected));
+            assert_eq!(window.coverage.coverage_start, None);
+            assert_eq!(window.coverage.coverage_end, None);
         }
 
         // Timeout.
@@ -1111,6 +1114,7 @@ mod cases {
         let window = client(address).window(&query(), destination_set()).await;
         server.abort();
         assert_eq!(window.availability, BehavioralAvailability::Partial);
+        assert!(window.validate().is_ok());
         assert_eq!(window.diagnostic, Some(AnalyticsDiagnostic::Upstream));
         assert_eq!(
             window.core.data().expect("core survives").visitors,
@@ -1742,6 +1746,7 @@ mod cases {
         server.abort();
 
         assert_eq!(window.availability, BehavioralAvailability::Partial);
+        assert!(window.validate().is_ok());
         assert_eq!(window.diagnostic, Some(AnalyticsDiagnostic::Upstream));
         assert_eq!(
             stub.count(|request| request.path.ends_with("/event-data/events")),
@@ -1870,6 +1875,58 @@ mod cases {
             assert!(!serialized.contains(secret), "window leaked {secret}");
         }
         assert!(!format!("{client:?}").contains(FAKE_PASSWORD));
+    }
+
+    #[test]
+    fn p4_t16_c76() {
+        let config = UmamiConfig {
+            base_url: Some("https://fake-url-user:fake-url-password@127.0.0.1".into()),
+            ..config("127.0.0.1:9".parse().unwrap())
+        };
+        let debug = format!("{config:?}");
+        for hidden in [USERNAME, FAKE_PASSWORD, "fake-url-user", "fake-url-password", "127.0.0.1"] {
+            assert!(!debug.contains(hidden));
+        }
+        assert_eq!(ReferrerCategory::from_raw("//google.com/search?q=fake"), ReferrerCategory::Search);
+    }
+
+    #[tokio::test]
+    async fn p4_t16_c77() {
+        let stub = stub_with(|request| {
+            let rows = json!([
+                {"x": "2026-06-01 11:59:59", "y": 3},
+                {"x": "2026-06-01 12:00:00", "y": 4},
+                {"x": "2026-06-02T13:00:00+01:00", "y": 5},
+                {"x": "2026-06-02 12:00:01", "y": 6},
+                {"x": "2026-06-02 11:59:59", "y": 7}
+            ]);
+            if request.path.ends_with("/pageviews") {
+                return Some(Reply::json(200, json!({"sessions": rows})));
+            }
+            if request.path.ends_with("/events/series") {
+                let events: Vec<_> = rows.as_array().unwrap().iter().map(|row|
+                    json!({"x": "signup_started", "t": row["x"], "y": row["y"]})
+                ).collect();
+                return Some(Reply::json(200, json!(events)));
+            }
+            None
+        });
+        let (address, server) = serve(stub).await;
+        let period = AnalyticsQuery {
+            start: at("2026-06-01T12:00:00Z"),
+            end: at("2026-06-02T12:00:00Z"),
+            ..query()
+        };
+        let window = client(address).window(&period, destination_set()).await;
+        server.abort();
+        let daily = window.daily_visitors.data().unwrap();
+        assert_eq!(daily.len(), 2);
+        assert_eq!(daily[0].visitors.count, Some(4));
+        assert_eq!(daily[1].visitors.count, Some(7));
+        let events = window.event_series.data().unwrap();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].count.count, Some(4));
+        assert_eq!(events[1].count.count, Some(7));
     }
 
     // ---------------------------------------------------------------------------
