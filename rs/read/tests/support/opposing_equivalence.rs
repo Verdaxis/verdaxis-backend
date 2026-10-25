@@ -18,6 +18,49 @@ JOIN jsonb_array_elements($14::jsonb) AS keys(slice)
 GROUP BY keys.slice
 "#;
 
+#[tokio::test]
+async fn opposing_null_point_prefilter_keeps_the_tail_match() {
+    let pools = connect(&config()).await.unwrap();
+    let mut connection = pools.read.acquire().await.unwrap();
+    let key = serde_json::json!({
+        "product_id": "00000000-0000-0000-0000-000000000001",
+        "delivery_point_id": null,
+        "availability_window": "SPOT",
+        "provenance": "REAL"
+    });
+    // A page repeats the same NULL slice. Membership must not duplicate base
+    // rows, and the old tail must still group the repeated page key once.
+    let keys = serde_json::json!([key, key]);
+    let base = include_str!("sql/opposing_null_orders.sql");
+    let keyed = include_str!("../../sql/orderbook/opposing_keyed_orders.sql")
+        .replace("orderbook_orders", "fixture_orders")
+        .replace("$14", "$1");
+    for (side, expected) in [("BID", "610.25"), ("ASK", "620.75")] {
+        let tail = OLD_OPPOSING.replace("$14", "$1");
+        let mut results = Vec::new();
+        for scan in ["fixture_orders", keyed.as_str()] {
+            let sql = format!(
+                "WITH fixture_orders AS ({base}), eligible_orders AS \
+                 (SELECT * FROM {scan} AS o WHERE side = $2) \
+                 SELECT to_jsonb(x)::text AS row FROM ({tail}) x ORDER BY slice::text"
+            );
+            let rows: Vec<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
+                .bind(keys.to_string())
+                .bind(side)
+                .fetch_all(&mut *connection)
+                .await
+                .unwrap();
+            results.push(rows);
+        }
+        assert_eq!(results[0].len(), 1, "old tail must match the NULL slice");
+        let row: Value = serde_json::from_str(&results[0][0]).unwrap();
+        assert_eq!(row["best_price"].to_string(), expected);
+        assert_eq!(results[1].len(), 1, "prefilter dropped the {side} NULL slice");
+        assert_eq!(ordered_hash(&results[0]), ordered_hash(&results[1]));
+        assert_eq!(results[0], results[1]);
+    }
+}
+
 fn ordered_hash(rows: &[String]) -> String {
     let mut hash = Sha256::new();
     for row in rows {
