@@ -1,5 +1,6 @@
 """Change-only generation statements on an independently migrated database."""
 import ast
+import os
 from pathlib import Path
 
 import pytest

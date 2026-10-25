@@ -199,16 +199,23 @@ async def test_empty_update_assertion_detects_unconditional_statement_trigger(en
         try:
             await connection.execute(text("DROP TRIGGER public_read_cache_changed_update ON products"))
             await connection.execute(text("""
-                CREATE FUNCTION pg_temp.unconditional_cache_bump() RETURNS trigger
-                LANGUAGE plpgsql AS $$ BEGIN
+                CREATE OR REPLACE FUNCTION public.bump_public_read_cache_generation()
+                RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
+                SET search_path=pg_catalog,public AS $$
+                DECLARE next_generation bigint;
+                BEGIN
                     UPDATE public_read_cache_generations SET generation=generation+1
-                    WHERE domain='trading';
+                    WHERE domain='trading' RETURNING generation INTO STRICT next_generation;
+                    INSERT INTO public_read_cache_events(domain,generation)
+                    VALUES ('trading',next_generation);
+                    PERFORM pg_notify('verdaxis_public_read_cache','trading');
                     RETURN NULL;
                 END $$
             """))
             await connection.execute(text("""
-                CREATE TRIGGER public_read_cache_changed AFTER UPDATE ON products
-                FOR EACH STATEMENT EXECUTE FUNCTION pg_temp.unconditional_cache_bump()
+                CREATE TRIGGER public_read_cache_changed
+                AFTER INSERT OR UPDATE OR DELETE OR TRUNCATE ON products
+                FOR EACH STATEMENT EXECUTE FUNCTION public.bump_public_read_cache_generation()
             """))
             before = await _generation(connection)
             await connection.execute(text("UPDATE products SET is_active=is_active WHERE false"))
