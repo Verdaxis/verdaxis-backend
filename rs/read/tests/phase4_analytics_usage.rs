@@ -10,14 +10,22 @@ pub use verdaxis_read::*;
 #[path = "../src/analytics/usage.rs"]
 mod usage;
 
-use std::collections::BTreeMap;
+#[allow(dead_code)]
+#[path = "../src/analytics/types.rs"]
+mod types;
+#[allow(dead_code)]
+#[path = "../src/analytics/policy.rs"]
+mod policy;
+
+use types::{AnalyticsDiagnostic, BehavioralAvailability, BehavioralWindow, CoreMetrics,
+    ProviderComponent, AggregateCell, AnalyticsSourceCoverage, AllowedEventAggregate,
+    DailyVisitorRow, DailyEventRow, EntryRankingRow, ReferrerRankingRow, EntryPage, ReferrerCategory};
 
 use axum::http::StatusCode;
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use serde_json::{Value, json};
 use usage::{
-    AnalyticsDiagnostic, AuthoritativeUsage, BehavioralStatus, BehavioralWindow, CoreMetrics,
-    DailyEventPoint, DailyVisitorPoint, MetricEntry, UsageDays,
+    AuthoritativeUsage, UsageDays,
 };
 use uuid::Uuid;
 use verdaxis_read::runtime::db::Pools;
@@ -26,51 +34,46 @@ fn now() -> DateTime<Utc> {
     Utc.with_ymd_and_hms(2026, 10, 24, 12, 0, 0).unwrap()
 }
 
+fn cell(count: u64) -> AggregateCell {
+    policy::suppress(Some(count), None)
+}
+
 fn available() -> BehavioralWindow {
     BehavioralWindow {
-        status: BehavioralStatus::Available,
+        start: now() - Duration::days(30),
+        end: now(),
+        availability: BehavioralAvailability::Available,
         diagnostic: None,
         observed_at: now(),
-        core: Some(CoreMetrics {
-            visitors: 10,
-            visits: 5,
-            pageviews: 20,
-            total_time_seconds: 100,
+        coverage: AnalyticsSourceCoverage::available(),
+        core: ProviderComponent::available(CoreMetrics {
+            visitors: Some(10), visits: Some(5), pageviews: Some(20),
+            total_time_seconds: Some(100),
+            average_session_duration_seconds: Some(rust_decimal::Decimal::from(20)),
         }),
-        event_totals: Some(BTreeMap::from([
-            ("signup_started".into(), 4),
-            ("order_created".into(), 3),
-            ("not_a_registered_event".into(), 9),
-        ])),
-        daily_visitors: Some(vec![DailyVisitorPoint {
-            date: "2026-10-20".into(),
-            value: 3,
-        }]),
-        event_series: Some(vec![
-            DailyEventPoint {
-                date: "2026-10-20".into(),
-                event: "signup_started".into(),
-                value: 2,
-            },
-            DailyEventPoint {
-                date: "2026-10-20".into(),
-                event: "not_a_registered_event".into(),
-                value: 9,
-            },
+        event_totals: ProviderComponent::available(vec![
+            AllowedEventAggregate { event: "signup_started".into(), count: cell(4) },
+            AllowedEventAggregate { event: "order_created".into(), count: cell(3) },
+            AllowedEventAggregate { event: "not_a_registered_event".into(), count: cell(9) },
         ]),
-        top_entries: Some(vec![MetricEntry {
-            name: "/signup".into(),
-            value: 4,
+        daily_visitors: ProviderComponent::available(vec![DailyVisitorRow {
+            date: now().date_naive(), visitors: cell(3),
         }]),
-        top_referrers: Some(vec![MetricEntry {
-            name: "search".into(),
-            value: 2,
+        event_series: ProviderComponent::available(vec![DailyEventRow {
+            date: now().date_naive(), event: "signup_started".into(), count: cell(2),
         }]),
+        top_entries: ProviderComponent::available(vec![EntryRankingRow {
+            entry: EntryPage::Signup, count: cell(4), rank: 1,
+        }]),
+        top_referrers: ProviderComponent::available(vec![ReferrerRankingRow {
+            referrer: ReferrerCategory::Search, count: cell(2), rank: 1,
+        }]),
+        property_results: Vec::new(),
     }
 }
 
 fn unavailable(diagnostic: AnalyticsDiagnostic) -> BehavioralWindow {
-    BehavioralWindow::unavailable(diagnostic, now())
+    BehavioralWindow::unavailable(now() - Duration::days(30), now(), now(), diagnostic)
 }
 
 fn authoritative(registrations: u64, logins: u64, organizations: u64) -> AuthoritativeUsage {
@@ -82,7 +85,7 @@ fn authoritative(registrations: u64, logins: u64, organizations: u64) -> Authori
 }
 
 /// c01: an unavailable provider keeps the authoritative counts and every
-/// unavailable behavioral value stays Python's required default. The funnel
+/// unavailable behavioral value stays the accepted null contract. The funnel
 /// derives no conversion from a zero previous stage.
 #[test]
 fn p4_t17a_c01() {
@@ -103,14 +106,14 @@ fn p4_t17a_c01() {
     assert_eq!(body["authoritative"]["users_logging_in"], 2);
     assert_eq!(body["authoritative"]["order_placing_organizations"], 1);
 
-    assert_eq!(body["behavioral"]["visitors"], 0);
-    assert_eq!(body["behavioral"]["visits"], 0);
-    assert_eq!(body["behavioral"]["average_session_duration_seconds"], 0.0);
-    assert_eq!(body["behavioral"]["event_totals"], json!({}));
-    assert_eq!(body["behavioral"]["daily_visitors"], json!([]));
-    assert_eq!(body["behavioral"]["event_series"], json!([]));
-    assert_eq!(body["behavioral"]["top_entries"], json!([]));
-    assert_eq!(body["behavioral"]["top_referrers"], json!([]));
+    assert_eq!(body["behavioral"]["visitors"], Value::Null);
+    assert_eq!(body["behavioral"]["visits"], Value::Null);
+    assert_eq!(body["behavioral"]["average_session_duration_seconds"], Value::Null);
+    assert_eq!(body["behavioral"]["event_totals"], Value::Null);
+    assert_eq!(body["behavioral"]["daily_visitors"], Value::Null);
+    assert_eq!(body["behavioral"]["event_series"], Value::Null);
+    assert_eq!(body["behavioral"]["top_entries"], Value::Null);
+    assert_eq!(body["behavioral"]["top_referrers"], Value::Null);
 
     let funnel = body["funnel"].as_array().unwrap();
     assert_eq!(
@@ -134,9 +137,9 @@ fn p4_t17a_c01() {
     assert_eq!(
         funnel
             .iter()
-            .map(|stage| stage["value"].as_u64().unwrap())
+            .map(|stage| stage["value"].clone())
             .collect::<Vec<_>>(),
-        vec![0, 0, 2, 2, 1]
+        vec![Value::Null, Value::Null, json!(2), json!(2), json!(1)]
     );
 
     let text = body.to_string().to_lowercase();
@@ -182,19 +185,19 @@ fn p4_t17a_c03() {
     );
     assert_eq!(
         behavioral["daily_visitors"],
-        json!([{"date": "2026-10-20", "value": 3}])
+        json!([{"date": "2026-10-24", "value": 3}])
     );
     assert_eq!(
         behavioral["event_series"],
-        json!([{"date": "2026-10-20", "event": "signup_started", "value": 2}])
+        json!([{"date": "2026-10-24", "event": "signup_started", "value": null}])
     );
     assert_eq!(
         behavioral["top_entries"],
-        json!([{"name": "/signup", "value": 4}])
+        json!([{"name": "signup", "value": 4}])
     );
     assert_eq!(
         behavioral["top_referrers"],
-        json!([{"name": "search", "value": 2}])
+        json!([{"name": "search", "value": null}])
     );
 
     let funnel = body["funnel"].as_array().unwrap();
@@ -217,50 +220,40 @@ fn p4_t17a_c03() {
         assert!(!body.to_string().contains(forbidden), "exposed {forbidden}");
     }
 
-    // Provider collections keep the legacy P01 bounds and ranking order.
+    let mut partial = available();
+    partial.availability = BehavioralAvailability::Partial;
+    partial.core = ProviderComponent::not_requested();
+    partial.event_totals = ProviderComponent::available(vec![AllowedEventAggregate {
+        event: "signup_started".into(), count: cell(2),
+    }]);
+    let body = serde_json::to_value(usage::compose(
+        UsageDays::Thirty, now() - Duration::days(30), now(),
+        authoritative(2, 2, 1), &partial,
+    )).unwrap();
+    assert_eq!(body["behavioral"]["visitors"], Value::Null);
+    assert_eq!(body["behavioral"]["event_totals"]["signup_started"], Value::Null);
+    assert_eq!(body["funnel"][1]["value"], Value::Null);
+    assert_eq!(body["funnel"][2]["conversion_from_previous_pct"], Value::Null);
+
+    // Response bounds remain independent of the optional adapter.
     let mut wide = available();
-    wide.daily_visitors = Some(
-        (0..100)
-            .map(|index| DailyVisitorPoint {
-                date: format!("2026-09-{:02}", index % 28 + 1),
-                value: index,
-            })
-            .collect(),
-    );
-    wide.event_series = Some(
-        (0..2_600)
-            .map(|index| DailyEventPoint {
-                date: "2026-10-20".into(),
-                event: "signup_started".into(),
-                value: index,
-            })
-            .collect(),
-    );
-    wide.top_entries = Some(
-        (0..30)
-            .map(|index| MetricEntry {
-                name: format!("entry-{index}"),
-                value: index,
-            })
-            .collect(),
-    );
+    wide.daily_visitors = ProviderComponent::available(vec![DailyVisitorRow {
+        date: now().date_naive(), visitors: cell(3),
+    }; 400]);
+    wide.event_series = ProviderComponent::available(vec![DailyEventRow {
+        date: now().date_naive(), event: "signup_started".into(), count: cell(3),
+    }; 2600]);
+    wide.top_entries = ProviderComponent::available(vec![EntryRankingRow {
+        entry: EntryPage::Other, count: cell(3), rank: 1,
+    }; 30]);
     let bounded = serde_json::to_value(usage::compose(
-        UsageDays::Ninety,
-        now() - Duration::days(90),
-        now(),
-        authoritative(1, 1, 1),
-        &wide,
-    ))
-    .unwrap();
-    let behavioral = &bounded["behavioral"];
-    assert_eq!(behavioral["daily_visitors"].as_array().unwrap().len(), 92);
-    assert_eq!(behavioral["event_series"].as_array().unwrap().len(), 2_500);
-    assert_eq!(
-        behavioral["event_series"][2_499]["value"], 2_599,
-        "the newest series rows survive the legacy bound"
-    );
-    assert_eq!(behavioral["top_entries"].as_array().unwrap().len(), 20);
-    assert_eq!(behavioral["top_entries"][19]["name"], "entry-19");
+        UsageDays::Ninety, now() - Duration::days(90), now(),
+        authoritative(1, 1, 1), &wide,
+    )).unwrap();
+    assert_eq!(bounded["behavioral"]["daily_visitors"].as_array().unwrap().len(), 92);
+    assert_eq!(bounded["behavioral"]["event_series"].as_array().unwrap().len(), 2500);
+    assert_eq!(bounded["behavioral"]["top_entries"].as_array().unwrap().len(), 20);
+
 }
 
 /// c04: only 7, 30 and 90 select a period; the default is 30.
@@ -354,7 +347,7 @@ async fn p4_t17a_c09() {
         fn window(&self, window: usage::UsageWindow) -> usage::BehavioralFuture<'_> {
             Box::pin(async move {
                 assert_eq!(window.end - window.start, Duration::days(7));
-                BehavioralWindow::unavailable(AnalyticsDiagnostic::Upstream, window.end)
+                BehavioralWindow::unavailable(window.start, window.end, window.end, AnalyticsDiagnostic::Upstream)
             })
         }
     }
@@ -386,7 +379,8 @@ async fn p4_t17a_c09() {
     ] {
         assert_eq!(serde_json::to_value(diagnostic).unwrap(), json!(wire));
         let mut partial = available();
-        partial.status = BehavioralStatus::Partial;
+        partial.availability = BehavioralAvailability::Partial;
+        partial.event_series = ProviderComponent::unavailable(diagnostic);
         partial.diagnostic = Some(diagnostic);
         let body = serde_json::to_value(usage::compose(
             UsageDays::Thirty,
@@ -835,6 +829,7 @@ mod postgres {
             "only the buyer created at start, the login at start and the two \
              real market organizations ordering at start qualify"
         );
+        drop(connection);
         fixture.finish().await;
     }
 
