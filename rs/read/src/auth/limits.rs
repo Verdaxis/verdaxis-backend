@@ -99,7 +99,8 @@ impl QuotaStore {
         if let Some(bucket) = self.buckets.get(&identity)
             && bucket.expires_at <= now
         {
-            self.expiration.remove(&(bucket.expires_at, identity.clone()));
+            self.expiration
+                .remove(&(bucket.expires_at, identity.clone()));
             self.buckets.remove(&identity);
         }
         // A small fixed batch bounds synchronous cleanup under the shared
@@ -330,7 +331,7 @@ mod tests {
         // A panicking caller poisons the mutex.
         let inner = limits.0.clone();
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let guard = inner.lock().expect("quota authority lock");
+            let _guard = inner.lock().expect("quota authority lock");
             panic!("caller panic under the quota lock");
         }));
         assert!(result.is_err());
