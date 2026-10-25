@@ -12,8 +12,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use chrono::{DateTime, NaiveDate, Utc};
 
 use super::aggregates::{
-    MAX_COHORTS, QualityTracker, RetentionFacts, behavioral_coverage, date_window, fact_coverage,
-    rate_pct, week_start,
+    behavioral_coverage, date_window, fact_coverage, rate_pct, week_start, QualityTracker,
+    RetentionFacts, MAX_COHORTS,
 };
 use super::query::AnalyticsQuery;
 use super::types::{
@@ -129,7 +129,7 @@ pub fn cohorts(days: &[(uuid::Uuid, NaiveDate)], quality: &mut QualityTracker) -
             .insert(week_start(*date));
     }
     let mut sizes: BTreeMap<NaiveDate, u64> = BTreeMap::new();
-    let mut buckets: BTreeMap<NaiveDate, BTreeMap<i64, u64>> = BTreeMap::new();
+    let mut buckets: BTreeMap<NaiveDate, BTreeMap<u32, u64>> = BTreeMap::new();
     for weeks in weeks_per_entity.values() {
         let Some(first) = weeks.iter().next().copied() else {
             continue;
@@ -137,7 +137,9 @@ pub fn cohorts(days: &[(uuid::Uuid, NaiveDate)], quality: &mut QualityTracker) -
         *sizes.entry(first).or_insert(0) += 1;
         let cohort = buckets.entry(first).or_default();
         for week in weeks {
-            let offset = (week.signed_duration_since(first).num_days()) / 7;
+            // `first` is the earliest week, and chrono's date range fits u32 weeks.
+            let offset = u32::try_from(week.signed_duration_since(first).num_days() / 7)
+                .expect("cohort offsets are nonnegative and bounded by the date range");
             *cohort.entry(offset).or_insert(0) += 1;
         }
     }
