@@ -137,36 +137,71 @@ async fn expiry_reads_stay_bounded_with_shared_item_history() {
     async fn sweep(history: i32) -> (i64, i64) {
         let mut f = Fixture::new(1).await;
         sqlx::query("SELECT seed_stock_history($1,$2,$3)")
-            .bind(f.item).bind(f.order).bind(history)
-            .execute(&mut f.conn).await.unwrap();
+            .bind(f.item)
+            .bind(f.order)
+            .bind(history)
+            .execute(&mut f.conn)
+            .await
+            .unwrap();
         // Statistics count database statements and rows returned, not elapsed time.
         sqlx::query("SELECT public.pg_stat_statements_reset()")
-            .execute(&mut f.conn).await.unwrap();
+            .execute(&mut f.conn)
+            .await
+            .unwrap();
         let effects = stock::expire(
-            &mut f.conn, f.product, None, "SPOT", "ASK",
+            &mut f.conn,
+            f.product,
+            None,
+            "SPOT",
+            "ASK",
             "2026-10-25T12:00:00Z".parse().unwrap(),
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
         assert_eq!(effects.len(), 1);
         assert_eq!(effects[0].released_quantity_mt.value(), d("6"));
         let totals = sqlx::query(
             "SELECT COALESCE(sum(calls),0)::bigint,COALESCE(sum(rows),0)::bigint FROM public.pg_stat_statements WHERE dbid=(SELECT oid FROM pg_database WHERE datname=current_database()) AND query ILIKE 'SELECT%' AND query NOT ILIKE '%pg_stat_statements%'",
         ).fetch_one(&mut f.conn).await.unwrap();
-        let counts = (totals.get::<i64,_>(0), totals.get::<i64,_>(1));
-        let row = sqlx::query("SELECT current_stock_mt,reserved_stock_mt FROM inventory_items WHERE id=$1")
-            .bind(f.item).fetch_one(&mut f.conn).await.unwrap();
-        assert_eq!(row.get::<Decimal,_>(0), d("6"));
-        assert_eq!(row.get::<Decimal,_>(1), d("4").checked_add(Decimal::new(i64::from(history),2)).unwrap());
-        let unchanged: i64 = sqlx::query_scalar("SELECT count(*) FROM orderbook_orders WHERE id<>$1 AND version=1")
-            .bind(f.order).fetch_one(&mut f.conn).await.unwrap();
+        let counts = (totals.get::<i64, _>(0), totals.get::<i64, _>(1));
+        let row = sqlx::query(
+            "SELECT current_stock_mt,reserved_stock_mt FROM inventory_items WHERE id=$1",
+        )
+        .bind(f.item)
+        .fetch_one(&mut f.conn)
+        .await
+        .unwrap();
+        assert_eq!(row.get::<Decimal, _>(0), d("6"));
+        assert_eq!(
+            row.get::<Decimal, _>(1),
+            d("4")
+                .checked_add(Decimal::new(i64::from(history), 2))
+                .unwrap()
+        );
+        let unchanged: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM orderbook_orders WHERE id<>$1 AND version=1")
+                .bind(f.order)
+                .fetch_one(&mut f.conn)
+                .await
+                .unwrap();
         assert_eq!(unchanged, i64::from(history) * 2);
         f.finish().await;
         counts
     }
     let small = sweep(2).await;
     let large = sweep(2000).await;
-    assert_eq!(large, small, "history must not increase expiry query or result counts");
-    assert!(large.0 <= 8, "one selected row has a fixed statement budget: {large:?}");
-    assert!(large.1 <= 8, "one selected row has a fixed result budget: {large:?}");
+    assert_eq!(
+        large, small,
+        "history must not increase expiry query or result counts"
+    );
+    assert!(
+        large.0 <= 8,
+        "one selected row has a fixed statement budget: {large:?}"
+    );
+    assert!(
+        large.1 <= 8,
+        "one selected row has a fixed result budget: {large:?}"
+    );
 }
 
 #[tokio::test]
