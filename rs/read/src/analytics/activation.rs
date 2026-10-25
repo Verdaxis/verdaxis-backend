@@ -9,8 +9,7 @@
 use chrono::{DateTime, Utc};
 
 use super::aggregates::{
-    ActivationFacts, QualityTracker, behavioral_coverage, behavioral_event_cell, date_window,
-    fact_coverage, median_hours,
+    ActivationFacts, QualityTracker, behavioral_coverage, behavioral_event_cell, fact_coverage,
 };
 use super::query::AnalyticsQuery;
 use super::types::{
@@ -82,62 +81,15 @@ pub fn activation(
 
     // First recorded logins inside the period, and the registration-to-login
     // duration of those members.
-    let bounds = date_window(Some(query.start), Some(query.end));
-    let mut first_login_durations = Vec::new();
-    let mut login_coverage = None;
-    for row in &facts.logins {
-        login_coverage = Some(match login_coverage {
-            Some(current) => std::cmp::min(current, row.first_login_date),
-            None => row.first_login_date,
-        });
-        if bounds.is_some_and(|(lower, upper)| {
-            row.first_login_date >= lower && row.first_login_date < upper
-        }) {
-            first_login_durations.push(row.first_login_at - row.registered_at);
-        }
-    }
-    let first_login_count = first_login_durations.len() as u64;
-    let first_login_cell = super::policy::suppress(Some(first_login_count), None);
-    let first_login_suppressed = first_login_cell.suppressed;
-    if first_login_suppressed {
-        quality.suppressed_cell_count += 1;
-    }
-    journey.push(JourneyStage {
-        key: "first_login".into(),
-        source: JourneySource::Authoritative,
-        total: AggregateCell {
-            key: "first_login".into(),
-            count: (!first_login_suppressed).then_some(first_login_count),
-            suppressed: first_login_suppressed,
-        },
-        buyer: None,
-        supplier: None,
-    });
-
-    // Organizations whose first-ever live order falls inside the period.
-    let mut live_order_durations = Vec::new();
-    for (first_order_at, organization_created_at) in &facts.first_live_orders {
-        if *first_order_at >= query.start && *first_order_at < query.end {
-            live_order_durations.push(*first_order_at - *organization_created_at);
-        }
-    }
-    let live_order_count = live_order_durations.len() as u64;
-    let live_order_cell = super::policy::suppress(Some(live_order_count), None);
-    let live_order_suppressed = live_order_cell.suppressed;
-    if live_order_suppressed {
-        quality.suppressed_cell_count += 1;
-    }
-    journey.push(JourneyStage {
-        key: "first_live_order".into(),
-        source: JourneySource::Authoritative,
-        total: AggregateCell {
-            key: "first_live_order".into(),
-            count: (!live_order_suppressed).then_some(live_order_count),
-            suppressed: live_order_suppressed,
-        },
-        buyer: None,
-        supplier: None,
-    });
+    let login_coverage = facts.logins.coverage_start;
+    let first_login_count = facts.logins.first_login.count;
+    let first_login_suppressed = super::policy::suppress(Some(first_login_count), None).suppressed;
+    let live_order_count = facts.first_live_orders.count;
+    let live_order_suppressed = super::policy::suppress(Some(live_order_count), None).suppressed;
+    journey.push(JourneyStage { key: "first_login".into(), source: JourneySource::Authoritative,
+        total: quality.cell("first_login", Some(first_login_count), None), buyer: None, supplier: None });
+    journey.push(JourneyStage { key: "first_live_order".into(), source: JourneySource::Authoritative,
+        total: quality.cell("first_live_order", Some(live_order_count), None), buyer: None, supplier: None });
 
     let drop_off = vec![
         quality.cell("rejected", Some(facts.drop_off.rejected), None),
@@ -190,7 +142,7 @@ pub fn activation(
         time_to_first_login: DurationDistribution {
             buckets: Vec::new(),
             median_hours: (!first_login_suppressed)
-                .then(|| median_hours(&first_login_durations))
+                .then_some(facts.logins.first_login.median_hours)
                 .flatten(),
             sample_size: (!first_login_suppressed)
                 .then_some(first_login_count)
@@ -200,7 +152,7 @@ pub fn activation(
         time_to_first_live_order: DurationDistribution {
             buckets: Vec::new(),
             median_hours: (!live_order_suppressed)
-                .then(|| median_hours(&live_order_durations))
+                .then_some(facts.first_live_orders.median_hours)
                 .flatten(),
             sample_size: (!live_order_suppressed)
                 .then_some(live_order_count)

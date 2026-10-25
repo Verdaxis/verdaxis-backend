@@ -35,7 +35,7 @@ use std::collections::BTreeMap;
 
 use activation::{activation, aggregate_ratio};
 use aggregates::{
-    ActivationFacts, ActivityFacts, DropOffFacts, EngagementFacts, LoginFacts, LoginRollupRow,
+    ActivationFacts, ActivityFacts, DropOffFacts, EngagementFacts, LoginFacts, LoginSummary, DurationFacts,
     OverviewFacts, ProvenanceRow, QualityTracker, RetentionFacts, RoleCounts, StatusFacts,
     date_window, dense_series, fact_coverage, median_hours, rate_pct, week_start,
 };
@@ -481,18 +481,9 @@ fn p4_t18_c05() {
             ..Default::default()
         },
         // One organization reached its first live order in the period.
-        first_live_orders: vec![(
-            Utc.with_ymd_and_hms(2026, 6, 2, 10, 0, 0).unwrap(),
-            utc(2026, 5, 9),
-        )],
-        // One member's first login falls in the period.
-        logins: vec![LoginRollupRow {
-            first_login_at: Utc.with_ymd_and_hms(2026, 6, 30, 9, 0, 0).unwrap(),
-            first_login_date: day(2026, 6, 30),
-            in_current: true,
-            in_previous: false,
-            registered_at: utc(2026, 6, 10),
-        }],
+        first_live_orders: DurationFacts { count: 1, median_hours: Some(Decimal::from(586)) },
+        logins: LoginSummary { coverage_start: Some(day(2026, 6, 30)), returning: 0,
+            first_login: DurationFacts { count: 1, median_hours: Some(Decimal::from(489)) } },
     };
 
     let response = activation(&facts, Some(&window), &query(), observed());
@@ -753,24 +744,8 @@ fn p4_t18_c07() {
 
 #[test]
 fn p4_t18_c08() {
-    let rollup = vec![
-        LoginRollupRow {
-            first_login_at: utc(2026, 5, 20),
-            first_login_date: day(2026, 5, 20),
-            in_current: true,
-            in_previous: true,
-            registered_at: utc(2026, 3, 1),
-        },
-        LoginRollupRow {
-            first_login_at: utc(2026, 5, 25),
-            first_login_date: day(2026, 5, 25),
-            in_current: false,
-            in_previous: true,
-            registered_at: utc(2026, 3, 2),
-        },
-    ];
     let mut facts = RetentionFacts {
-        rollup,
+        rollup: LoginSummary { coverage_start: Some(day(2026, 5, 20)), returning: 1, ..Default::default() },
         ..Default::default()
     };
     let mut response = retention(&facts, None, &query(), observed());
@@ -781,8 +756,7 @@ fn p4_t18_c08() {
     );
 
     // Once the facts cover the comparison period the count is published.
-    facts.rollup[0].first_login_date = day(2026, 4, 1);
-    facts.rollup[1].first_login_date = day(2026, 4, 2);
+    facts.rollup.coverage_start = Some(day(2026, 4, 1));
     response = retention(&facts, None, &query(), observed());
     assert_eq!(response.kpis.returning_members.value, Some(1));
     assert_eq!(
@@ -794,8 +768,7 @@ fn p4_t18_c08() {
     let mut plain = query();
     plain.previous = None;
     plain.compare = false;
-    facts.rollup[0].first_login_date = day(2026, 5, 20);
-    facts.rollup[1].first_login_date = day(2026, 5, 25);
+    facts.rollup.coverage_start = Some(day(2026, 5, 20));
     let response = retention(&facts, None, &plain, observed());
     // No comparison period means no `in_previous` facts; the count stays
     // unavailable rather than claiming a value it cannot support.
@@ -1220,20 +1193,10 @@ mod postgres {
             .unwrap();
         // Two recognized organizations reached their first live order in the
         // period; the third's first order predates it.
-        let in_period: Vec<_> = facts
-            .first_live_orders
-            .iter()
-            .filter(|(first, _)| *first >= query().start && *first < query().end)
-            .collect();
-        assert_eq!(in_period.len(), 2);
-        assert_eq!(facts.logins.len(), 4);
-        // Demo and admin logins are excluded from the member rollup.
-        assert!(
-            facts
-                .logins
-                .iter()
-                .all(|row| row.first_login_date >= day(2026, 5, 20))
-        );
+        assert_eq!(facts.first_live_orders.count, 2);
+        assert_eq!(facts.logins.first_login.count, 1);
+        // Demo/admin history remains excluded before aggregation.
+        assert_eq!(facts.logins.coverage_start, Some(day(2026, 5, 20)));
         assert_eq!(facts.status.approved_current, 1);
 
         let response = activation(&facts, None, &query(), observed());

@@ -34,17 +34,8 @@ pub fn retention(
 
     // Returning members need login coverage over the comparison period too;
     // without it the count is unavailable, not zero.
-    let mut login_coverage: Option<NaiveDate> = None;
-    let mut returning = 0_u64;
-    for row in &facts.rollup {
-        login_coverage = Some(match login_coverage {
-            Some(current) => current.min(row.first_login_date),
-            None => row.first_login_date,
-        });
-        if row.in_current && row.in_previous {
-            returning += 1;
-        }
-    }
+    let login_coverage = facts.rollup.coverage_start;
+    let returning = facts.rollup.returning;
     let previous_bounds = date_window(query.previous_start(), query.previous_end());
     let returning_covered = matches!(
         (login_coverage, previous_bounds),
@@ -56,6 +47,9 @@ pub fn retention(
         quality.cell("2", Some(facts.activity.active_days_2), None),
         quality.cell("3_plus", Some(facts.activity.active_days_3_plus), None),
     ];
+
+    let member_cohorts = grouped_cohorts(&facts.member_cohorts, &mut quality);
+    let organization_cohorts = grouped_cohorts(&facts.organization_cohorts, &mut quality);
 
     RetentionResponse {
         meta: AnalyticsMeta {
@@ -109,8 +103,8 @@ pub fn retention(
                 suppressed: false,
             },
         },
-        member_cohorts: cohorts(&facts.member_days, &mut quality),
-        organization_cohorts: cohorts(&facts.organization_days, &mut quality),
+        member_cohorts,
+        organization_cohorts,
         repeat_participation,
     }
 }
@@ -175,4 +169,20 @@ pub fn cohorts(days: &[(uuid::Uuid, NaiveDate)], quality: &mut QualityTracker) -
             }
         })
         .collect()
+}
+
+/// Shape bounded database cohort groups with the same scalar privacy rules.
+pub fn grouped_cohorts(facts: &[super::aggregates::CohortFact], quality: &mut QualityTracker) -> Vec<CohortRow> {
+    let mut result: Vec<CohortRow> = Vec::new();
+    for fact in facts {
+        if result.last().is_none_or(|row| row.cohort_start != fact.cohort_start) {
+            result.push(CohortRow { cohort_start: fact.cohort_start,
+                size: quality.cell(&fact.cohort_start.to_string(), Some(fact.size), None), cells: Vec::new() });
+        }
+        let row = result.last_mut().expect("cohort created above");
+        let cell = quality.cell(&fact.offset.to_string(), Some(fact.count), None);
+        let pct = cell.count.zip(row.size.count).and_then(|(value, size)| rate_pct(value, size));
+        row.cells.push(CohortCell { offset: fact.offset, cell, pct });
+    }
+    result
 }

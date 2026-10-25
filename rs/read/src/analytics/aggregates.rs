@@ -461,12 +461,24 @@ pub struct StatusFacts {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct LoginRollupRow {
-    pub first_login_at: DateTime<Utc>,
-    pub first_login_date: NaiveDate,
-    pub in_current: bool,
-    pub in_previous: bool,
-    pub registered_at: DateTime<Utc>,
+pub struct DurationFacts {
+    pub count: u64,
+    pub median_hours: Option<Decimal>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LoginSummary {
+    pub coverage_start: Option<NaiveDate>,
+    pub returning: u64,
+    pub first_login: DurationFacts,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CohortFact {
+    pub cohort_start: NaiveDate,
+    pub size: u64,
+    pub offset: u32,
+    pub count: u64,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -499,9 +511,9 @@ pub struct ActivationFacts {
     pub registered: RoleCounts,
     pub drop_off: DropOffFacts,
     /// First live order instant and the organization's creation instant.
-    pub first_live_orders: Vec<(DateTime<Utc>, DateTime<Utc>)>,
+    pub first_live_orders: DurationFacts,
     pub status: StatusFacts,
-    pub logins: Vec<LoginRollupRow>,
+    pub logins: LoginSummary,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -513,11 +525,11 @@ pub struct EngagementFacts {
 pub struct RetentionFacts {
     pub activity: ActivityFacts,
     pub drop_off: DropOffFacts,
-    pub rollup: Vec<LoginRollupRow>,
+    pub rollup: LoginSummary,
     /// Distinct member login dates per user, before the as-of instant.
-    pub member_days: Vec<(Uuid, NaiveDate)>,
+    pub member_cohorts: Vec<CohortFact>,
     /// Distinct live organization activity dates, before the as-of instant.
-    pub organization_days: Vec<(Uuid, NaiveDate)>,
+    pub organization_cohorts: Vec<CohortFact>,
 }
 
 // ---------------------------------------------------------------------------
@@ -935,9 +947,8 @@ WITH activity AS (
       AND t.buyer_provenance = 'REAL' AND t.seller_provenance = 'REAL'
       AND t.buyer_id <> ALL($2::uuid[]) AND t.seller_id <> ALL($2::uuid[])
 )
-SELECT DISTINCT org_id, (ts AT TIME ZONE 'UTC')::date AS activity_date
-FROM activity
-WHERE ts IS NOT NULL AND ts < $1";
+ , days AS (SELECT DISTINCT org_id AS entity_id, (ts AT TIME ZONE 'UTC')::date AS activity_date
+FROM activity WHERE ts IS NOT NULL AND ts < $1 AND $3::date IS NULL)";
 
 pub async fn load_activity_facts(
     conn: &mut PgConnection,
@@ -1091,123 +1102,93 @@ pub async fn load_status_facts(
     })
 }
 
-pub async fn load_first_live_orders(
-    conn: &mut PgConnection,
-) -> Result<Vec<(DateTime<Utc>, DateTime<Utc>)>, sqlx::Error> {
-    let demo = DEMO_MARKET_ORG_IDS.to_vec();
-    let rows = sqlx::query(
-        "SELECT min(o.created_at) AS first_order_at, org.created_at AS org_created_at
-         FROM orderbook_orders o
-         JOIN organizations org ON org.id = o.organization_id
-         WHERE o.organization_id IN (
-             SELECT DISTINCT u.organization_id FROM users u
-             WHERE u.organization_id IS NOT NULL AND u.role IN ('BUYER','SUPPLIER')
-               AND u.status = 'APPROVED' AND u.organization_id <> ALL($1::uuid[]))
-         GROUP BY o.organization_id, org.created_at",
-    )
-    .bind(demo)
-    .fetch_all(&mut *conn)
-    .await?;
-    Ok(rows
-        .into_iter()
-        .map(|row| (row.get("first_order_at"), row.get("org_created_at")))
-        .collect())
+/// Returns one distribution, not one row per organization. Filter first-ever
+/// orders after grouping so an earlier order cannot be mistaken for activation.
+pub async fn load_first_live_orders(conn: &mut PgConnection, query: &AnalyticsQuery) -> Result<DurationFacts, sqlx::Error> {
+    let row = sqlx::query("WITH first_orders AS (
+        SELECT min(o.created_at) AS first_at, org.created_at AS registered_at
+        FROM orderbook_orders o JOIN organizations org ON org.id = o.organization_id
+        WHERE o.organization_id IN (SELECT u.organization_id FROM users u
+            WHERE u.role IN ('BUYER','SUPPLIER') AND u.status = 'APPROVED'
+              AND u.organization_id <> ALL($1::uuid[]))
+        GROUP BY o.organization_id, org.created_at
+    ) SELECT COUNT(*)::bigint AS count,
+        percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM (first_at - registered_at))) AS median_seconds
+      FROM first_orders WHERE first_at >= $2 AND first_at < $3")
+        .bind(DEMO_MARKET_ORG_IDS.to_vec()).bind(query.start).bind(query.end)
+        .fetch_one(conn).await?;
+    Ok(duration_fact(&row))
 }
 
-pub async fn load_login_rollup(
-    conn: &mut PgConnection,
-    query: &AnalyticsQuery,
-) -> Result<Vec<LoginRollupRow>, sqlx::Error> {
-    let demo = DEMO_MARKET_ORG_IDS.to_vec();
-    let (current_lower, current_upper, previous_lower, previous_upper) = window_bounds(query);
-    let rows = sqlx::query(
-        "WITH per_user AS (
-             SELECT user_id,
-                    min(first_login_at) AS first_login_at,
-                    min(activity_date) AS first_login_date,
-                    max(CASE WHEN activity_date >= $1::date AND activity_date < $2::date
-                        THEN 1 ELSE 0 END)::bigint AS in_current,
-                    max(CASE WHEN $3::date IS NOT NULL
-                        AND activity_date >= $3::date AND activity_date < $4::date
-                        THEN 1 ELSE 0 END)::bigint AS in_previous
-             FROM user_login_days
-             WHERE role IN ('BUYER','SUPPLIER')
-               AND (organization_id IS NULL OR organization_id <> ALL($5::uuid[]))
-             GROUP BY user_id
-         )
-         SELECT p.first_login_at, p.first_login_date, p.in_current, p.in_previous,
-                u.created_at AS registered_at
-         FROM per_user p JOIN users u ON u.id = p.user_id",
-    )
-    .bind(current_lower)
-    .bind(current_upper)
-    .bind(previous_lower)
-    .bind(previous_upper)
-    .bind(demo)
-    .fetch_all(&mut *conn)
-    .await?;
-    Ok(rows
-        .into_iter()
-        .map(|row| LoginRollupRow {
-            first_login_at: row.get("first_login_at"),
-            first_login_date: row.get("first_login_date"),
-            in_current: row.get::<i64, _>("in_current") == 1,
-            in_previous: row.get::<i64, _>("in_previous") == 1,
-            registered_at: row.get("registered_at"),
-        })
-        .collect())
+fn duration_fact(row: &sqlx::postgres::PgRow) -> DurationFacts {
+    use rust_decimal::prelude::FromPrimitive;
+    DurationFacts {
+        count: count(row.get("count")),
+        median_hours: row.get::<Option<f64>, _>("median_seconds")
+            .and_then(Decimal::from_f64).map(|seconds| (seconds / Decimal::from(3600))
+                .round_dp_with_strategy(1, RoundingStrategy::MidpointNearestEven)),
+    }
 }
 
-/// Distinct member login dates before the as-of instant.
-///
-/// The load is bounded by the fact contract itself: login facts are pruned to
-/// 800 UTC dates, so the lower horizon is the retention floor, never an
-/// arbitrary truncation of a member's history.
-pub async fn load_member_days(
-    conn: &mut PgConnection,
-    end: DateTime<Utc>,
-) -> Result<Vec<(Uuid, NaiveDate)>, sqlx::Error> {
-    let demo = DEMO_MARKET_ORG_IDS.to_vec();
-    let upper = date_window(
-        Some(midnight(NaiveDate::from_ymd_opt(1970, 1, 1).unwrap())),
-        Some(end),
-    )
-    .map(|(_, upper)| upper)
-    .unwrap_or(end.date_naive());
+/// Per-user history is reduced in PostgreSQL; only coverage, returning count
+/// and the current-period first-login distribution cross the database boundary.
+pub async fn load_login_rollup(conn: &mut PgConnection, query: &AnalyticsQuery) -> Result<LoginSummary, sqlx::Error> {
+    let (lower, upper, previous_lower, previous_upper) = window_bounds(query);
+    let row = sqlx::query("WITH per_user AS (
+        SELECT user_id, min(first_login_at) AS first_at, min(activity_date) AS first_date,
+            bool_or(activity_date >= $1::date AND activity_date < $2::date) AS in_current,
+            bool_or(activity_date >= $3::date AND activity_date < $4::date) AS in_previous
+        FROM user_login_days WHERE role IN ('BUYER','SUPPLIER')
+          AND (organization_id IS NULL OR organization_id <> ALL($5::uuid[])) GROUP BY user_id
+    ) SELECT min(p.first_date) AS coverage_start,
+        COUNT(*) FILTER (WHERE in_current AND in_previous)::bigint AS returning,
+        COUNT(*) FILTER (WHERE first_date >= $1 AND first_date < $2)::bigint AS count,
+        percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM (first_at - u.created_at)))
+            FILTER (WHERE first_date >= $1 AND first_date < $2) AS median_seconds
+      FROM per_user p JOIN users u ON u.id = p.user_id")
+        .bind(lower).bind(upper).bind(previous_lower).bind(previous_upper)
+        .bind(DEMO_MARKET_ORG_IDS.to_vec()).fetch_one(conn).await?;
+    Ok(LoginSummary { coverage_start: row.get("coverage_start"), returning: count(row.get("returning")), first_login: duration_fact(&row) })
+}
+
+/// Select the earliest 54 cohorts and first 54 observed offsets in SQL. Sizes
+/// and cells count all entities; no raw-entity LIMIT can bias either value.
+const COHORT_GROUPS_SQL: &str = "
+, weeks AS (SELECT DISTINCT entity_id, date_trunc('week', activity_date::timestamp)::date AS week FROM days),
+first_weeks AS (SELECT entity_id, min(week) AS cohort_start FROM weeks GROUP BY entity_id),
+selected AS (SELECT cohort_start, COUNT(*)::bigint AS size FROM first_weeks
+    GROUP BY cohort_start ORDER BY cohort_start LIMIT $4),
+cells AS (SELECT f.cohort_start, s.size, (w.week - f.cohort_start) / 7 AS offset,
+    COUNT(*)::bigint AS count
+    FROM first_weeks f JOIN selected s USING (cohort_start) JOIN weeks w USING (entity_id)
+    GROUP BY f.cohort_start, s.size, w.week),
+ranked AS (SELECT *, row_number() OVER (PARTITION BY cohort_start ORDER BY offset) AS ordinal FROM cells)
+SELECT cohort_start, size, offset, count FROM ranked WHERE ordinal <= $4 ORDER BY cohort_start, offset";
+
+pub async fn load_member_days(conn: &mut PgConnection, end: DateTime<Utc>) -> Result<Vec<CohortFact>, sqlx::Error> {
+    let upper = end.date_naive() + TimeDelta::days(i64::from(end.time() != chrono::NaiveTime::MIN));
     let floor = super::retention::login_retention_cutoff(upper);
-    let rows = sqlx::query(
-        "SELECT DISTINCT user_id, activity_date
-         FROM user_login_days
-         WHERE role IN ('BUYER','SUPPLIER')
-           AND (organization_id IS NULL OR organization_id <> ALL($2::uuid[]))
-           AND activity_date < $1
-           AND activity_date >= $3",
-    )
-    .bind(upper)
-    .bind(demo)
-    .bind(floor)
-    .fetch_all(&mut *conn)
-    .await?;
-    Ok(rows
-        .into_iter()
-        .map(|row| (row.get("user_id"), row.get("activity_date")))
-        .collect())
+    let sql = format!("WITH days AS (SELECT DISTINCT user_id AS entity_id, activity_date
+        FROM user_login_days WHERE role IN ('BUYER','SUPPLIER')
+        AND (organization_id IS NULL OR organization_id <> ALL($2::uuid[]))
+        AND activity_date < $1::date AND activity_date >= $3::date) {COHORT_GROUPS_SQL}");
+    let rows = sqlx::query(sqlx::AssertSqlSafe(sql)).bind(upper).bind(DEMO_MARKET_ORG_IDS.to_vec())
+        .bind(floor).bind(MAX_COHORTS as i64).fetch_all(conn).await?;
+    Ok(cohort_facts(rows))
 }
 
-pub async fn load_organization_days(
-    conn: &mut PgConnection,
-    end: DateTime<Utc>,
-) -> Result<Vec<(Uuid, NaiveDate)>, sqlx::Error> {
-    let demo = DEMO_MARKET_ORG_IDS.to_vec();
-    let rows = sqlx::query(ORGANIZATION_DAYS_SQL)
-        .bind(end)
-        .bind(demo)
-        .fetch_all(&mut *conn)
-        .await?;
-    Ok(rows
-        .into_iter()
-        .map(|row| (row.get("org_id"), row.get("activity_date")))
-        .collect())
+pub async fn load_organization_days(conn: &mut PgConnection, end: DateTime<Utc>) -> Result<Vec<CohortFact>, sqlx::Error> {
+    // Preserve all historical activity when establishing an organization's
+    // first week; a lower horizon here would silently change cohort identity.
+    let sql = format!("{ORGANIZATION_DAYS_SQL} {COHORT_GROUPS_SQL}");
+    let rows = sqlx::query(sqlx::AssertSqlSafe(sql)).bind(end).bind(DEMO_MARKET_ORG_IDS.to_vec())
+        .bind(Option::<NaiveDate>::None).bind(MAX_COHORTS as i64).fetch_all(conn).await?;
+    Ok(cohort_facts(rows))
+}
+
+fn cohort_facts(rows: Vec<sqlx::postgres::PgRow>) -> Vec<CohortFact> {
+    rows.into_iter().map(|row| CohortFact { cohort_start: row.get("cohort_start"), size: count(row.get("size")),
+        offset: u32::try_from(row.get::<i32, _>("offset")).expect("nonnegative cohort offset"), count: count(row.get("count")) }).collect()
 }
 
 pub async fn load_overview_facts(
@@ -1240,7 +1221,7 @@ pub async fn load_activation_facts(
     query: &AnalyticsQuery,
 ) -> Result<ActivationFacts, sqlx::Error> {
     let (registered, drop_off) = load_users_facts(&mut *conn, query).await?;
-    let first_live_orders = load_first_live_orders(&mut *conn).await?;
+    let first_live_orders = load_first_live_orders(&mut *conn, query).await?;
     let status = load_status_facts(&mut *conn, query).await?;
     let logins = load_login_rollup(&mut *conn, query).await?;
     Ok(ActivationFacts {
@@ -1268,14 +1249,14 @@ pub async fn load_retention_facts(
     let activity = load_activity_facts(&mut *conn, query).await?;
     let drop_off = load_drop_off(&mut *conn).await?;
     let rollup = load_login_rollup(&mut *conn, query).await?;
-    let member_days = load_member_days(&mut *conn, query.end).await?;
-    let organization_days = load_organization_days(&mut *conn, query.end).await?;
+    let member_cohorts = load_member_days(&mut *conn, query.end).await?;
+    let organization_cohorts = load_organization_days(&mut *conn, query.end).await?;
     Ok(RetentionFacts {
         activity,
         drop_off,
         rollup,
-        member_days,
-        organization_days,
+        member_cohorts,
+        organization_cohorts,
     })
 }
 
