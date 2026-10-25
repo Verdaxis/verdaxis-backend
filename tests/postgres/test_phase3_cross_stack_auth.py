@@ -27,6 +27,8 @@ PASSWORD = "CoexistencePassword9"
 
 def cargo(*arguments):
     """Respect the shared target lock, including cargo invoked by pytest."""
+    if os.environ.get("PHASE3_CARGO_LOCK_WRAPPER") == "1":
+        return ["cargo", *arguments]
     home = Path(os.environ.get("VERDAXIS_TEST_HOME", "/home/verdaxis-test"))
     return ["flock", "-w", "7200", str(home / "runs/.lock-target-phase3"), "cargo", *arguments]
 
