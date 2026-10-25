@@ -94,7 +94,7 @@ delivery_points(id, name, region) AS (VALUES
     ('00000000-0000-0000-0000-000000000011'::uuid, 'Ångström', NULL::text),
     ('00000000-0000-0000-0000-000000000012'::uuid, 'Alpha', 'region'),
     ('00000000-0000-0000-0000-000000000013'::uuid, 'Ångström', 'region')),
-input(point, window, side, provenance, price, quantity, created_at) AS (VALUES
+input(point, window_code, side, provenance, price, quantity, created_at) AS (VALUES
     (11, 'SPOT', 'ASK', 'REAL', 100.00::numeric, 10.000::numeric, '2026-10-01Z'::timestamptz),
     (11, 'SPOT', 'ASK', 'REAL', 120.00::numeric, 5.000::numeric, '2026-10-02Z'::timestamptz),
     (11, 'SPOT', 'BID', 'REAL', 90.00::numeric, 1.000::numeric, '2026-10-01Z'::timestamptz),
@@ -106,7 +106,7 @@ eligible_orders AS (
            ($1::jsonb -> 'products' -> 0 ->> 'code') AS market_product,
            p.fuel_type AS product_fuel_type, dp.id AS delivery_point_id,
            dp.name AS delivery_point_name, dp.region AS delivery_point_region,
-           i.window AS availability_window, i.side, i.provenance,
+           i.window_code AS availability_window, i.side, i.provenance,
            i.price AS price_per_mt_usd, i.quantity AS remaining_quantity_mt, i.created_at
     FROM input i CROSS JOIN products p JOIN delivery_points dp
       ON right(dp.id::text, 2)::int = i.point
