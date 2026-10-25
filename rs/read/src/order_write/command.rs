@@ -908,4 +908,71 @@ mod replay_tests {
         assert_eq!(f.effects().await, 2);
         f.finish().await;
     }
+
+    #[tokio::test]
+    async fn ordered_replay_preserves_recorded_participation() {
+        let evidence = transaction::ordered_receipt_case("participation").await;
+        assert_eq!(evidence["replayed_states"], serde_json::json!(["rejected", "detached", "moved"]));
+        assert_eq!(evidence["effects"], 1);
+        assert_eq!(evidence["fresh_execution_calls"], 1);
+        assert_eq!(evidence["recorded_organization_preserved"], true);
+    }
+
+    #[tokio::test]
+    async fn ordered_replay_refuses_foreign_identity_and_context() {
+        let evidence = transaction::ordered_receipt_case("identity").await;
+        assert_eq!(evidence["stranger_status"], 403);
+        assert_eq!(evidence["resource_code"], "RECEIPT_RESOURCE_MISMATCH");
+        assert_eq!(evidence["context_code"], "IDEMPOTENCY_CONFLICT");
+        assert_eq!(evidence["hash_code"], "IDEMPOTENCY_CONFLICT");
+        assert_eq!(evidence["protected_body_returned"], false);
+        assert_eq!(evidence["effects"], 1);
+    }
+
+    #[tokio::test]
+    async fn ordered_receipt_collision_has_one_effect_set() {
+        let evidence = transaction::ordered_receipt_case("collision").await;
+        assert_eq!(evidence["receipt_collisions"], 1);
+        assert_eq!(evidence["recovery_execute_calls"], 0);
+        assert_eq!(evidence["effects"], 1);
+        assert_eq!(evidence["winner_replayed"], true);
+        assert_eq!(evidence["mismatch_code"], "RECEIPT_RESOURCE_MISMATCH");
+    }
+
+    #[tokio::test]
+    async fn ordered_response_failure_rolls_back_staged_work() {
+        let evidence = transaction::ordered_receipt_case("response").await;
+        assert_eq!(evidence["keyed_staged"], true);
+        assert_eq!(evidence["unkeyed_staged"], true);
+        assert_eq!(evidence["failed_effects"], 0);
+        assert_eq!(evidence["failed_receipts"], 0);
+        assert_eq!(evidence["committed_effects"], 2);
+        assert_eq!(evidence["queries_after_commit"], 0);
+        assert_eq!(evidence["execution_calls"], 4);
+    }
+
+    #[tokio::test]
+    async fn ordered_commit_transport_loss_uses_receipt_recovery() {
+        let evidence = transaction::ordered_receipt_case("transport").await;
+        assert_eq!(evidence["commit_frames_forwarded"], 1);
+        assert_eq!(evidence["socket_closed_before_ack"], true);
+        assert_eq!(evidence["status"], 503);
+        assert_eq!(evidence["code"], "COMMIT_OUTCOME_UNKNOWN");
+        assert_eq!(evidence["execution_calls_before_retry"], 1);
+        assert_eq!(evidence["discarded_connection"], true);
+        assert_eq!(evidence["retry_replayed"], true);
+        assert_eq!(evidence["effects"], 1);
+        assert_eq!(evidence["unkeyed_status"], 503);
+        assert_eq!(evidence["unkeyed_execution_calls"], 1);
+    }
+
+    #[tokio::test]
+    async fn ordered_commit_server_abort_retries_safely() {
+        let evidence = transaction::ordered_receipt_case("server_abort").await;
+        assert_eq!(evidence["serialization_attempts"], 2);
+        assert_eq!(evidence["deadlock_attempts"], 2);
+        assert_eq!(evidence["effects"], 2);
+        assert_eq!(evidence["exhausted_code"], "TRANSACTION_RETRY_EXHAUSTED");
+    }
+
 }

@@ -57,3 +57,15 @@ def test_no_query_after_commit_for_keyed_and_unkeyed():
 ])
 def test_receipt_completion(case):
     run_case(case)
+
+
+@pytest.mark.parametrize("case", [
+    "ordered_replay_preserves_recorded_participation",
+    "ordered_replay_refuses_foreign_identity_and_context",
+    "ordered_receipt_collision_has_one_effect_set",
+    "ordered_response_failure_rolls_back_staged_work",
+    "ordered_commit_transport_loss_uses_receipt_recovery",
+    "ordered_commit_server_abort_retries_safely",
+])
+def test_ordered_receipt_completion(case):
+    run_case(case)
