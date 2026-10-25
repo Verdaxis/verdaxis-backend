@@ -37,7 +37,7 @@ use crate::analytics::{
         RegisteredEvent,
     },
     query::AnalyticsQuery,
-    types::{AnalyticsDiagnostic, ComponentStatus, ProviderComponent},
+    types::{AnalyticsDiagnostic, ProviderComponent},
 };
 
 /// Hard provider body cap, in bytes. It is the same limit in every call.
@@ -163,16 +163,9 @@ impl UmamiClient {
         properties: AllowedPropertySet,
     ) -> BehavioralWindow {
         let observed_at = Utc::now();
-        let placeholder = unavailable_properties(&properties);
         let diagnostic = self.configuration().err();
         if let Some(diagnostic) = diagnostic {
-            return BehavioralWindow::unavailable(
-                query.start,
-                query.end,
-                observed_at,
-                diagnostic,
-                placeholder,
-            );
+            return unavailable_window(query, observed_at, diagnostic, &properties);
         }
         match self.fetch(query, &properties).await {
             Ok((rows, property_results, failures)) => assemble(
@@ -183,13 +176,7 @@ impl UmamiClient {
                 property_results,
                 failures,
             ),
-            Err(diagnostic) => BehavioralWindow::unavailable(
-                query.start,
-                query.end,
-                observed_at,
-                diagnostic,
-                placeholder,
-            ),
+            Err(diagnostic) => unavailable_window(query, observed_at, diagnostic, &properties),
         }
     }
 
@@ -272,7 +259,7 @@ impl UmamiClient {
         let mut property_results = Vec::with_capacity(properties.pairs().len());
         let mut failures = 0;
         for event in properties.events() {
-            let requested = properties.properties_for(*event);
+            let requested = properties.pairs().iter().filter(|(candidate, _)| *candidate == event).map(|(_, property)| *property);
             let mut event_params = params.clone();
             event_params.push(("event".to_owned(), event.name().to_owned()));
             let outcome = self
@@ -284,21 +271,17 @@ impl UmamiClient {
                 .await;
             match outcome {
                 Ok(payload) => {
-                    let rows = decode_property_rows(*event, &payload, &self.inner.catalog)?;
+                    let rows = decode_property_rows(event, &payload, &self.inner.catalog)?;
                     for property in requested {
                         let selected: Vec<_> = rows
                             .iter()
-                            .filter(|row| row.property == property)
+                            .filter(|row| row.property == property.name())
                             .cloned()
                             .collect();
                         property_results.push(PropertyAvailability {
-                            event: *event,
-                            property,
-                            result: ProviderComponent {
-                                status: ComponentStatus::Available,
-                                diagnostic: None,
-                                data: Some(selected),
-                            },
+                            event: event.name().to_owned(),
+                            property: property.name().to_owned(),
+                            result: ProviderComponent::available(selected),
                         });
                     }
                 }
@@ -306,13 +289,9 @@ impl UmamiClient {
                     failures += 1;
                     for property in requested {
                         property_results.push(PropertyAvailability {
-                            event: *event,
-                            property,
-                            result: ProviderComponent {
-                                status: ComponentStatus::Unavailable,
-                                diagnostic: Some(diagnostic),
-                                data: None,
-                            },
+                            event: event.name().to_owned(),
+                            property: property.name().to_owned(),
+                            result: ProviderComponent::unavailable(diagnostic),
                         });
                     }
                 }
@@ -482,20 +461,19 @@ fn normalize_base(value: Option<&str>) -> Result<Option<String>, &'static str> {
     Ok(Some(raw.trim_end_matches('/').to_owned()))
 }
 
-fn unavailable_properties(properties: &AllowedPropertySet) -> Vec<PropertyAvailability> {
-    properties
-        .pairs()
-        .iter()
-        .map(|(event, property)| PropertyAvailability {
-            event: *event,
-            property: *property,
-            result: ProviderComponent {
-                status: ComponentStatus::Unavailable,
-                diagnostic: None,
-                data: None,
-            },
-        })
-        .collect()
+fn unavailable_window(
+    query: &AnalyticsQuery,
+    observed_at: chrono::DateTime<Utc>,
+    diagnostic: AnalyticsDiagnostic,
+    properties: &AllowedPropertySet,
+) -> BehavioralWindow {
+    let mut window = BehavioralWindow::unavailable(query.start, query.end, observed_at, diagnostic);
+    window.property_results = properties.pairs().iter().map(|(event, property)| PropertyAvailability {
+        event: event.name().to_owned(),
+        property: property.name().to_owned(),
+        result: ProviderComponent::unavailable(diagnostic),
+    }).collect();
+    window
 }
 
 // ---------------------------------------------------------------------------
@@ -630,7 +608,7 @@ fn decode_property_rows(
         let Some(property) = AllowedProperty::from_name(property_name) else {
             continue;
         };
-        if !event.properties().contains(&property) {
+        if !crate::analytics::policy::allowed_properties(event).contains(&property) {
             continue;
         }
         let Some(value) =
@@ -661,10 +639,10 @@ fn decode_property_rows(
                 event, property, &raw, catalog,
             )?;
             Some(AllowedPropertyAggregate {
-                event,
-                property,
+                event: event.name().to_owned(),
+                property: property.name().to_owned(),
                 count: crate::analytics::events::named_cell(value.as_str(), total),
-                value,
+                value: value.as_str().to_owned(),
             })
         })
         .collect())

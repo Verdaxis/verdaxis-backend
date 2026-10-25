@@ -8,179 +8,28 @@
 //! 500 property rows per requested event.
 
 use chrono::{DateTime, NaiveDate, Utc};
-use rust_decimal::Decimal;
-use serde::Serialize;
 
 use crate::analytics::{
-    events::{AllowedProperty, AllowedPropertyValue, EntryPage, ReferrerCategory, RegisteredEvent},
-    types::{
-        AggregateCell, AnalyticsDiagnostic, AnalyticsSourceCoverage, AnalyticsSourceStatus,
-        ComponentStatus, ProviderComponent,
-    },
+    events::RegisteredEvent,
+    types::{AggregateCell, AnalyticsDiagnostic, AnalyticsSourceCoverage, AnalyticsSourceStatus,
+        ComponentStatus, ProviderComponent},
 };
-
-/// The window-level status the routes map onto `AnalyticsSourceStatus`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum BehavioralAvailability {
-    Available,
-    Partial,
-    Unavailable,
-}
-
-impl BehavioralAvailability {
-    pub fn source_status(self) -> AnalyticsSourceStatus {
-        match self {
-            Self::Available => AnalyticsSourceStatus::Available,
-            Self::Partial => AnalyticsSourceStatus::Partial,
-            Self::Unavailable => AnalyticsSourceStatus::Unavailable,
-        }
-    }
-}
-
-/// Core visit metrics. `average_session_duration_seconds` is present only
-/// when visits are positive and both inputs are available.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub struct CoreMetrics {
-    pub visitors: Option<u64>,
-    pub visits: Option<u64>,
-    pub pageviews: Option<u64>,
-    pub total_time_seconds: Option<u64>,
-    pub average_session_duration_seconds: Option<Decimal>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub struct AllowedEventAggregate {
-    pub event: RegisteredEvent,
-    pub count: AggregateCell,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub struct DailyVisitorRow {
-    pub date: NaiveDate,
-    pub visitors: AggregateCell,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub struct DailyEventRow {
-    pub date: NaiveDate,
-    pub event: RegisteredEvent,
-    pub count: AggregateCell,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub struct EntryRankingRow {
-    pub entry: EntryPage,
-    pub count: AggregateCell,
-    pub rank: u8,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub struct ReferrerRankingRow {
-    pub referrer: ReferrerCategory,
-    pub count: AggregateCell,
-    pub rank: u8,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub struct AllowedPropertyAggregate {
-    pub event: RegisteredEvent,
-    pub property: AllowedProperty,
-    pub value: AllowedPropertyValue,
-    pub count: AggregateCell,
-}
-
-/// One requested (event, property) pair and its own result. Every requested
-/// pair has exactly one status; a failed event endpoint marks every requested
-/// property of that event unavailable.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub struct PropertyAvailability {
-    pub event: RegisteredEvent,
-    pub property: AllowedProperty,
-    pub result: ProviderComponent<Vec<AllowedPropertyAggregate>>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub struct BehavioralWindow {
-    pub start: DateTime<Utc>,
-    pub end: DateTime<Utc>,
-    pub observed_at: DateTime<Utc>,
-    pub availability: BehavioralAvailability,
-    pub diagnostic: Option<AnalyticsDiagnostic>,
-    pub coverage: AnalyticsSourceCoverage,
-    pub core: ProviderComponent<CoreMetrics>,
-    pub event_totals: ProviderComponent<Vec<AllowedEventAggregate>>,
-    pub daily_visitors: ProviderComponent<Vec<DailyVisitorRow>>,
-    pub event_series: ProviderComponent<Vec<DailyEventRow>>,
-    pub top_entries: ProviderComponent<Vec<EntryRankingRow>>,
-    pub top_referrers: ProviderComponent<Vec<ReferrerRankingRow>>,
-    pub property_results: Vec<PropertyAvailability>,
-}
-
-impl BehavioralWindow {
-    /// A window where nothing resolved. Every component is unavailable with
-    /// null data; the diagnostic is carried once at window level and on each
-    /// component so a consumer never has to infer it.
-    pub fn unavailable(
-        start: DateTime<Utc>,
-        end: DateTime<Utc>,
-        observed_at: DateTime<Utc>,
-        diagnostic: AnalyticsDiagnostic,
-        property_results: Vec<PropertyAvailability>,
-    ) -> Self {
-        Self {
-            start,
-            end,
-            observed_at,
-            availability: BehavioralAvailability::Unavailable,
-            diagnostic: Some(diagnostic),
-            coverage: coverage(
-                start,
-                end,
-                observed_at,
-                BehavioralAvailability::Unavailable,
-                Some(diagnostic),
-            ),
-            core: unavailable_component(diagnostic),
-            event_totals: unavailable_component(diagnostic),
-            daily_visitors: unavailable_component(diagnostic),
-            event_series: unavailable_component(diagnostic),
-            top_entries: unavailable_component(diagnostic),
-            top_referrers: unavailable_component(diagnostic),
-            property_results,
-        }
-    }
-}
+pub use crate::analytics::types::{AllowedEventAggregate, AllowedPropertyAggregate,
+    BehavioralAvailability, BehavioralWindow, CoreMetrics, DailyEventRow, DailyVisitorRow,
+    EntryPage, EntryRankingRow, PropertyAvailability, ReferrerCategory, ReferrerRankingRow};
 
 fn coverage(
-    start: DateTime<Utc>,
-    end: DateTime<Utc>,
-    observed_at: DateTime<Utc>,
-    availability: BehavioralAvailability,
-    diagnostic: Option<AnalyticsDiagnostic>,
+    start: DateTime<Utc>, end: DateTime<Utc>, observed_at: DateTime<Utc>,
+    availability: BehavioralAvailability, diagnostic: Option<AnalyticsDiagnostic>,
 ) -> AnalyticsSourceCoverage {
     AnalyticsSourceCoverage {
-        coverage_start: Some(start),
-        coverage_end: Some(end),
-        observed_at: Some(observed_at),
-        status: availability.source_status(),
+        coverage_start: Some(start), coverage_end: Some(end), observed_at: Some(observed_at),
+        status: match availability {
+            BehavioralAvailability::Available => AnalyticsSourceStatus::Available,
+            BehavioralAvailability::Partial => AnalyticsSourceStatus::Partial,
+            BehavioralAvailability::Unavailable => AnalyticsSourceStatus::Unavailable,
+        },
         diagnostic,
-    }
-}
-
-fn unavailable_component<T>(diagnostic: AnalyticsDiagnostic) -> ProviderComponent<T> {
-    ProviderComponent {
-        status: ComponentStatus::Unavailable,
-        diagnostic: Some(diagnostic),
-        data: None,
-    }
-}
-
-fn available_component<T>(data: T) -> ProviderComponent<T> {
-    ProviderComponent {
-        status: ComponentStatus::Available,
-        diagnostic: None,
-        data: Some(data),
     }
 }
 
@@ -213,8 +62,8 @@ pub(crate) fn assemble(
         (
             BehavioralAvailability::Partial,
             property_results.iter().find_map(|entry| {
-                if entry.result.status == ComponentStatus::Unavailable {
-                    entry.result.diagnostic
+                if entry.result.status() == ComponentStatus::Unavailable {
+                    entry.result.diagnostic()
                 } else {
                     None
                 }
@@ -275,7 +124,7 @@ pub(crate) fn assemble(
         .into_iter()
         .map(|(date, event, count)| DailyEventRow {
             date,
-            event,
+            event: event.name().to_owned(),
             count: cell(event.name().to_owned(), count),
         })
         .collect::<Vec<_>>();
@@ -283,7 +132,7 @@ pub(crate) fn assemble(
     let event_totals = event_totals
         .into_iter()
         .map(|(event, count)| AllowedEventAggregate {
-            event,
+            event: event.name().to_owned(),
             count: cell(event.name().to_owned(), count),
         })
         .collect::<Vec<_>>();
@@ -314,19 +163,19 @@ pub(crate) fn assemble(
         availability,
         diagnostic,
         coverage: coverage(start, end, observed_at, availability, diagnostic),
-        core: available_component(rows.stats),
-        event_totals: available_component(event_totals),
-        daily_visitors: available_component(daily_visitors),
-        event_series: available_component(event_series),
-        top_entries: available_component(top_entries),
-        top_referrers: available_component(top_referrers),
+        core: ProviderComponent::available(rows.stats),
+        event_totals: ProviderComponent::available(event_totals),
+        daily_visitors: ProviderComponent::available(daily_visitors),
+        event_series: ProviderComponent::available(event_series),
+        top_entries: ProviderComponent::available(top_entries),
+        top_referrers: ProviderComponent::available(top_referrers),
         property_results,
     }
 }
 
 /// Aggregate duplicate labels, then order by count descending and label
 /// ascending, and keep at most twenty rows.
-fn ranked<T: Copy + Ord>(rows: Vec<(T, u64)>, label: impl Fn(T) -> &'static str) -> Vec<(T, u64)> {
+fn ranked<T: Copy + Eq>(rows: Vec<(T, u64)>, label: impl Fn(T) -> &'static str) -> Vec<(T, u64)> {
     let mut merged: Vec<(T, u64)> = Vec::new();
     for (key, count) in rows {
         match merged.iter_mut().find(|(candidate, _)| *candidate == key) {
