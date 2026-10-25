@@ -63,6 +63,8 @@ fn state_config(url: &str) -> Config {
         pool_max: 5,
         python_budget: 52,
         configured_max_connections: 100,
+        // This test does not mount the Phase 2 groups.
+        phase2: Default::default(),
     }
 }
 

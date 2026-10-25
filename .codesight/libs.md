@@ -3,6 +3,7 @@
 - `alembic/env.py`
   - function run_migrations_offline: () -> None
   - function do_run_migrations: (connection) -> None
+  - function configure_migrations: (connection, *, bootstrap) -> None
   - function run_migrations_online: () -> None
   - function run_async_migrations: () -> None
 - `alembic/versions/148fa1ffb191_add_notifications_table.py` — function upgrade: () -> None, function downgrade: () -> None
@@ -11,10 +12,14 @@
 - `alembic/versions/411b38418aea_add_user_interaction_status.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/63cbf0775d4d_add_domain_to_organization.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/a1b2c3d4e5f6_unified_orderbook_migration.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/ae_20260811_account_approval_email.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/ai_20260831_admin_invite_real_orgs.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/alerts_2026_03_add_price_alerts.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/anon_trade_2026_03_add_trade_is_anonymous.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/auth_20261002_session_cutoff.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/auth_2026_07_add_must_change_password.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/b1c2d3e4f5g6_add_ci_fields_to_orderbook.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/blng_20261014_staging.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/bm_2026_04_benchmarks.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/c2d3e4f5g6h7_add_match_suggestions.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/c315709743c2_move_supplier_tier_to_organization.py` — function upgrade: () -> None, function downgrade: () -> None
@@ -31,22 +36,37 @@
 - `alembic/versions/e4f5g6h7i8j9_widen_notification_type_column.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/f10cf6fa2019_rename_rfq_to_orders.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/f5g6h7i8j9k0_add_password_changed_at.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/fame_20260922_b100_orderbook.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/fame_20260922_catalog.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/fame_20260922_rfq_contract.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/fame_20260922_supplier_offers.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/fb_20260804_add_feedback_entries.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/fc_2026_06_monitor_signals.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/fee_20260912_seller_per_mt.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/fk_orderbook_2026_03_orderbook_product_dp_fks.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/g6h7i8j9k0l1_add_audit_logs_table.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/h7i8j9k0l1m2_add_email_verification_and_kyc_fields.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/ix_2026_04_exec_watchlist_perf.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/kycd_20261015_staging.py` — function upgrade: (), function downgrade: ()
+- `alembic/versions/kycg_20261014_staging.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/mi_20260720_market_integrity.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/miq_20260720_market_quarantine.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/ms_20260723_assisted_listings.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/ms_20260723_assisted_order_v2.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/ms_20260723_organization_context.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/neg_2026_04_add_negotiations.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/neg_2026_04b_negotiation_fixes.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/news_2026_03_add_news_items.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/oa_20260910_auto_real_orgs.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/ob_2026_04_availability_windows.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/ob_2026_04_supplier_listing_metadata.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/obp_20261003_acceptance_priority.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/p0_20261016_union.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/pa_20260715_add_product_analytics_facts.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/prc_20261018_cache.py` — function upgrade: (), function downgrade: ()
 - `alembic/versions/pref_20260709_add_user_preferences.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/pw_reset_2026_03_add_password_reset_fields.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/rcp_20261003_command_results.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/ref_2026_03_add_referrals.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/rfq_2026_03_add_rfq_tables.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/rh_20260720_runtime_metadata.py` — function upgrade: () -> None, function downgrade: () -> None
@@ -61,6 +81,30 @@
 - `alembic/versions/wl_2026_03_add_watchlists.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/wl_2026_04_market_radar.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/wl_2026_04_watchlist_entry_uniqueness.py` — function upgrade: () -> None, function downgrade: () -> None
+- `deploy/external_monitor/verdaxis_autodiag.py`
+  - function log: (message) -> None
+  - function redact: (value, limit) -> str
+  - function read_json: (path) -> dict[str, Any]
+  - function write_json: (path, payload, Any]) -> None
+  - function sync_codex_auth: () -> None
+  - function run_command: (command, timeout) -> dict[str, Any]
+  - _...11 more_
+- `deploy/external_monitor/verdaxis_monitor.py`
+  - function run: (cmd, timeout, env, str] | None) -> subprocess.CompletedProcess[str]
+  - function log: (message) -> None
+  - function load_state: (path) -> dict
+  - function save_state: (path, state) -> None
+  - function load_cached_expensive_checks: (now) -> tuple[list[str], dict] | None
+  - function check_caddyfile: () -> list[str]
+  - _...35 more_
+- `deploy/external_monitor/verdaxis_recover.py`
+  - function log: (message) -> None
+  - function redact: (value, limit) -> str
+  - function read_json: (path) -> dict[str, Any]
+  - function write_json: (path, payload, Any]) -> None
+  - function failure_fingerprint: (status, Any]) -> str
+  - function requested_targets: (status, Any]) -> list[str]
+  - _...17 more_
 - `deploy/monitor/alert_dispatch.py`
   - function valid_alert_state: (payload, now) -> bool
   - function process_event: (event, state_directory, now, environ, str]) -> str
@@ -125,6 +169,12 @@
   - class RuntimeAclConvergenceError
   - class RuntimeAclTarget
 - `scripts/explain_product_analytics.py` — function main: () -> int, function run: (days, output) -> int
+- `scripts/export_openapi.py`
+  - function pin_export_environment: () -> None
+  - function normalize: (document) -> dict
+  - function build_document: () -> dict
+  - function render: (document) -> str
+  - function main: (argv) -> int
 - `scripts/import_gena_csv.py` — function import_csv: (file_path, fuel_type)
 - `scripts/ingest_market_signals.py`
   - function assert_staging_runtime: () -> None
@@ -133,7 +183,95 @@
   - function print_report: (report) -> None
   - function main: () -> None
   - function run: (args) -> int
+- `scripts/phase0/assert_host.py`
+  - function require_outbox_drained: (*, producers_stopped, sequencer_stopped, pending_jobs, other_sessions, undispatched) -> None
+  - function private_bytes: (path) -> bytes
+  - function command: (arguments) -> str
+  - function checkout_owner: (*, stat_path, lookup_user) -> str
+  - function git_command: (arguments) -> str
+  - function require_identity: (expected, actual) -> None
+  - _...6 more_
+- `scripts/phase0/bootstrap.py`
+  - function migration_graph_digest: ()
+  - function load_policy: ()
+  - function attest_bootstrap_connection: (connection, identity)
+  - function refuse_autocommit: ()
+  - function verify_bootstrap_schema: (connection, policy)
+  - function validate_manifest: (manifest)
+  - _...4 more_
+- `scripts/phase0/codecs.py`
+  - function quote: (name) -> str
+  - function relation: (name) -> str
+  - function map_row: (row, object], mapping) -> dict[str, object]
+  - function primary_key: (table) -> tuple[str, ...]
+  - function select_text: (table, columns, ...] | None) -> str
+  - function insert_statement: (table, names, ...])
+  - _...6 more_
+- `scripts/phase0/copy.py`
+  - function read_private_file: (path, *, root_owned)
+  - function private_json: (path, value)
+  - function validate_url: (raw, execution)
+  - function validate_manifest: (manifest)
+  - function import_order: (catalog)
+  - function main: ()
+  - _...11 more_
+- `scripts/phase0/database_fence.py` — function check_source_quiesced: (connection, identity), function check_target_fence: (connection, identity, expected_datacl)
+- `scripts/phase0/host_authority.py`
+  - function parse_json: (contents)
+  - function read_root_private: (path)
+  - function validate_identity: (identity, *, side)
+  - function validate_contract: (manifest, *, tool)
+  - function tree_digest: (root)
+- `scripts/phase0/manifest.py`
+  - function load_manifest: () -> dict
+  - function digest: (value) -> str
+  - function canonical_expression_text: (text_value) -> Any
+  - function require_complete_inventory: (actual, declared) -> None
+  - function inspect_catalog: (connection) -> CatalogManifest
+  - class CatalogManifest
+- `scripts/phase0/production.py`
+  - function private_output: (path)
+  - function load_authority: (manifest, tool, *, validation_only)
+  - function secret_url: (path, identity)
+  - function copy_contract: (authority, manifest)
+  - function require_tool: (manifest, expected_tool)
+  - function attest_endpoint: (connection, identity)
+  - _...3 more_
+- `scripts/phase0/refusal.py` — function coded_gate: (error), class Refusal
+- `scripts/phase0/scratch_business_smoke.py`
+  - function require_scratch_base_url: (value) -> str
+  - function read_fixture_url: (path)
+  - function side_name: (value) -> str
+  - function run_cases: (base_url, fixture, report) -> None
+  - function main: () -> int
+  - function discover_port: (session) -> str
+  - _...5 more_
+- `scripts/phase0/start_fence.py` — function start_is_allowed: (control, environment, release_sha, database, *, owner_uid) -> bool, function main: () -> int
+- `scripts/phase0/verify.py`
+  - function publish_report: (path, value)
+  - function main: ()
+  - function require_unfiltered_reads: (connection)
+  - function sequence_states: (connection, catalog)
+  - function table_hash: (connection, table, columns)
+  - function fingerprint_database: (connection, catalog)
+  - _...6 more_
 - `scripts/preflight_runtime.py` — function main: () -> int
+- `scripts/prepare_rust_budget.py`
+  - function derive_budget: (settings, rust_pool, cache_listener)
+  - function read_regular: (path)
+  - function effective_settings: (raw)
+  - function artifact_for: (environment_file, release_sha, cache_listener)
+  - function prepare: (environment_file, release_sha, output, cache_listener)
+  - function verify: (environment_file, release_sha, artifact)
+  - _...1 more_
+- `scripts/prepare_rust_runtime.py`
+  - function read_regular: (path) -> bytes
+  - function load_policy: (source_root, environment) -> dict
+  - function app_database_url: (values, environment) -> str
+  - function kyc_execution_gate: (values) -> str
+  - function phase2_settings: (values) -> dict
+  - function project_runtime_environment: (environment_file, release_sha, migration_revision, policy) -> dict
+  - _...4 more_
 - `scripts/prune_product_analytics.py`
   - function parse_cli_args: (argv) -> argparse.Namespace
   - function assert_runtime_identity: (*, configured_environment, configured_release_sha, expected_environment, expected_release_sha) -> None
@@ -146,6 +284,339 @@
   - function main: () -> None
   - function run: (args) -> dict[str, Any]
 - `scripts/run_demo_activity.py` — function main: () -> None
+- `scripts/rust_cache_authority.py`
+  - function new_identity: () -> str
+  - function parse_record: (text) -> Record
+  - function render_record: (record) -> str
+  - function read_record: (runtime_dir) -> Record | None
+  - function publish_record: (runtime_dir, record) -> Path
+  - function describe: (record) -> dict[str, object]
+  - _...9 more_
+- `scripts/rust_caddy_candidate.py`
+  - function candidate: (original, environment, group) -> str
+  - function staging_candidate: (original, environment, group) -> str
+  - function reviewed_route_import: (original, match, label) -> None
+  - function staging_crud_candidate: (original, environment, group) -> str
+  - function production_crud_block: () -> str
+  - function production_crud_region: (original) -> tuple[int, int, str] | None
+  - _...14 more_
+- `scripts/rust_contract/admission_probe.py` — function slice_cpu: () -> int, function run: () -> None
+- `scripts/rust_contract/baseline.py` — function gate_config: () -> dict[str, Any], function load_python_baseline: (path, pin, *, successor) -> dict[str, Any]
+- `scripts/rust_contract/check_assertions.py`
+  - function discover: (root) -> list[dict[str, str]]
+  - function file_digests: (root) -> dict[str, str]
+  - function build_ledger: (root) -> dict
+  - function check: (ledger, discovered, str]]) -> list[str]
+  - function check_targets: (ledger, passed_groups) -> list[str]
+  - function main: (argv) -> int
+- `scripts/rust_contract/compare.py`
+  - function parse_json: (raw) -> Any
+  - function strip_headers: (headers, str]) -> dict[str, str]
+  - function compare: (expected, Any], actual, Any]) -> list[str]
+  - function compare_responses: (expected, actual, *, profile, route_id, rules_sha256, rules_path, request_id, diagnostic_context, request_path, live)
+  - function compare_news_tie_groups: (expected, actual, *, request_path, rules_path)
+  - function compare_price_summary_multiset: (expected, actual, *, request_path, rules_path)
+  - _...7 more_
+- `scripts/rust_contract/compare_values.py` — function main: ()
+- `scripts/rust_contract/curve_fixtures.py` — function seed_curve_fixtures: (session)
+- `scripts/rust_contract/explain_benchmark.py` — function main: (), class ExplainBenchmark
+- `scripts/rust_contract/explain_lists.py` — function main: (), class Explain
+- `scripts/rust_contract/export_mcp_http.py` — function vectors: (), function main: ()
+- `scripts/rust_contract/export_mcp_protocol.py` — function vectors: ()
+- `scripts/rust_contract/export_mcp_validation.py` — function vectors: ()
+- `scripts/rust_contract/export_policy.py`
+  - function recorded_source_sha: (root) -> str
+  - function build_policy: (source_sha) -> dict
+  - function build_mcp_catalog: (source_sha) -> dict
+  - function validate_policy: (payload) -> None
+  - function render: (payload) -> str
+  - function build_catalog_vectors: (root) -> dict[str, str]
+  - _...4 more_
+- `scripts/rust_contract/export_terms_vectors.py` — function build_vectors: () -> dict[str, str], function main: (argv) -> int
+- `scripts/rust_contract/export_voyage.py` — function main: ()
+- `scripts/rust_contract/export_voyage_decimal.py` — function vectors: ()
+- `scripts/rust_contract/export_voyage_vectors.py` — function vectors: ()
+- `scripts/rust_contract/feedback_oracle.py` — function main: ()
+- `scripts/rust_contract/feedback_scenario.py`
+  - function setup: (connection)
+  - function servers: (context)
+  - function rows: (state)
+  - function unchanged: (before, after, response, mail)
+  - function inserted: (identifier, message, page)
+  - function actions: (context)
+  - _...1 more_
+- `scripts/rust_contract/frozen_gate.py`
+  - function validate_identity: (evidence, Any], reference, Any], *, successor) -> None
+  - function route_floors: (reference, Any], declared_rates, offered) -> dict[str, int]
+  - function performance_evidence: (size, evidence, Any] | None) -> dict[str, Any]
+  - function frozen_verdict: (evidence, Any], *, successor) -> dict[str, Any]
+- `scripts/rust_contract/image_identity.py` — function matches_pinned_image: (actual, expected) -> bool
+- `scripts/rust_contract/index_experiment.py` — function main: (), class IndexExperiment
+- `scripts/rust_contract/mcp_acceptance.py`
+  - function privacy: (value, private_values)
+  - function main: ()
+  - function fixture_private_values: ()
+  - function cancellation: (base_url)
+- `scripts/rust_contract/mcp_record.py` — function read_mcp_response: (response, case, *, max_bytes)
+- `scripts/rust_contract/meaning_runner.py`
+  - function route_id: (request)
+  - function raw_response: (recording)
+  - function compare_recorded_case: (left, right, profile, digest)
+  - function canonical_response: (request, response)
+- `scripts/rust_contract/measure.py`
+  - function adaptive_choice: (probes, Any]], max_rps) -> dict[str, Any]
+  - function percentile: (sorted_values, q) -> float
+  - function summarize: (samples) -> dict[str, float]
+  - function weighted_mix: (per_route_p50, float], per_route_p95, float], per_route_p99, float], weights, int]) -> dict[str, float]
+  - function coverage: (counts, int], required) -> dict[str, Any]
+  - function parse_memory_stat: (text) -> dict[str, int]
+  - _...7 more_
+- `scripts/rust_contract/measure_lists.py`
+  - function require_latency_parity: (summary)
+  - function main: ()
+  - class Measurement
+- `scripts/rust_contract/notifications_oracle.py` — function with_response_loss: (self, scope, receive, send)
+- `scripts/rust_contract/phase2_alert_dispatch.py` — function main: ()
+- `scripts/rust_contract/phase2_alert_oracle.py` — function install: (app), function main: ()
+- `scripts/rust_contract/phase2_alert_pd8.py` — function run_pd8: (race, cells), class PD8Race
+- `scripts/rust_contract/phase2_alerts.py`
+  - function alert_id: (number)
+  - function setup: (connection)
+  - function servers: (context)
+  - function action: (name, method, number, actor, status, body, fault, barrier)
+  - function actions: (_context)
+  - function races: (_context)
+  - _...4 more_
+- `scripts/rust_contract/phase2_auth_vectors.py`
+  - function specifications: ()
+  - function export: ()
+  - function main: ()
+- `scripts/rust_contract/phase2_example.py` — function example_scenario: ()
+- `scripts/rust_contract/phase2_mail.py` — class MailStub
+- `scripts/rust_contract/phase2_market_vectors.py` — function build_spec: () -> dict[str, object], function main: (argv) -> int
+- `scripts/rust_contract/phase2_meaning.py` — function compare_meaning: (expected, actual, *, route_id, rules_sha256, rules_path, request_id, profile, diagnostic_context)
+- `scripts/rust_contract/phase2_notifications.py`
+  - function token: (actor)
+  - function rows: (state)
+  - function assert_changes: (before, after, mail, *, actor, notification)
+  - function scenario: ()
+- `scripts/rust_contract/phase2_oracle.py` — function main: ()
+- `scripts/rust_contract/phase2_order_write.py` — function order_write_scenario: ()
+- `scripts/rust_contract/phase2_order_write_oracle.py` — function identity: (), function command: (request)
+- `scripts/rust_contract/phase2_preferences.py`
+  - function setup: (connection)
+  - function servers: (context)
+  - function headers: (index, user)
+  - function rows: (state)
+  - function assertion: (user, namespace, value, clock, unchanged)
+  - function actions: (context)
+  - _...2 more_
+- `scripts/rust_contract/phase2_preferences_vectors.py`
+  - function canonical: (value) -> bytes
+  - function padded_ascii: (total, value)
+  - function padded_multibyte: (total, value)
+  - function notifications: (**changes)
+  - function specifications: ()
+  - function stub_rows: ()
+  - _...3 more_
+- `scripts/rust_contract/phase2_referrals.py`
+  - function setup: (connection)
+  - function headers: ()
+  - function servers: (context)
+  - function unchanged: (before, after, response, mail)
+  - function actions: (context)
+  - function races: (context)
+  - _...1 more_
+- `scripts/rust_contract/phase2_report.py`
+  - function require: (condition, message)
+  - function count: (value)
+  - function finite: (value, *, positive)
+  - function load: (path)
+  - function exact_ids: (values, expected)
+  - function verified_path: (directory, reference)
+  - _...8 more_
+- `scripts/rust_contract/phase2_routes.py` — function run_registered: (runner, args, selected), class Context
+- `scripts/rust_contract/phase2_scenarios.py`
+  - function register: (scenario)
+  - function select_scenarios: (group, names)
+  - function run_actions: (actions, cells)
+  - function actor_order: (actors, seed)
+  - function run_barrier: (actors, invoke, *, seed)
+  - function run_race: (race, cells)
+  - _...7 more_
+- `scripts/rust_contract/phase2_seed.py`
+  - function identifier: (name)
+  - function snapshot: (connection)
+  - function sequence_marks: (connection)
+  - function digest: (value)
+  - function connect: (port, database, *, app, autocommit)
+  - class Rows
+  - _...1 more_
+- `scripts/rust_contract/phase2_state.py`
+  - function expect_cache_invalidations: (expected, statements)
+  - function validate_cells: (python, rust, token, target_url)
+  - function compare_state: (python, rust)
+  - function unexpected_user_changes: (before, after, *, route_id, actor_id, recipient_exists)
+  - function apply_action: (cell, writes, *, fault)
+  - function validate_action: (action)
+  - _...2 more_
+- `scripts/rust_contract/phase2_watchlist_asserts.py`
+  - function uid: (group, number)
+  - function rows: (state, table)
+  - function unchanged_except: (before, after, *tables)
+  - function created: (before, after, table)
+  - function same_instant: (stored, expected)
+  - function body_of: (response)
+  - _...2 more_
+- `scripts/rust_contract/phase2_watchlist_containers.py` — function watchlist_containers_scenario: ()
+- `scripts/rust_contract/phase2_watchlist_fixtures.py`
+  - function at: (days, minutes)
+  - function bearer: (secret, user)
+  - function insert_user: (connection, user_id, email, organization_id)
+  - function insert_container: (connection, container_id, user_id, name, created_at, kind)
+  - function insert_slice: (connection, target_id, container_id, product_code, point_id, window, created_at)
+  - function insert_pin: (connection, target_id, container_id, order_id, point_id, created_at, window)
+  - _...4 more_
+- `scripts/rust_contract/phase2_watchlist_targets.py`
+  - function watchlist_targets_scenario: ()
+  - function watchlist_targets_gate_off_scenario: ()
+  - function watchlist_targets_hidden_scenario: ()
+- `scripts/rust_contract/phase2_watchlists.py` — function watchlist_reads_scenario: (), function watchlist_reads_gate_off_scenario: ()
+- `scripts/rust_contract/profile_lists.py` — function main: (), class Profile
+- `scripts/rust_contract/record.py`
+  - function perform: (base_url, case, Any]) -> dict[str, Any]
+  - function record: (base_url, token, cases, Any]]) -> list[dict[str, Any]]
+  - function stable: (entries, Any]]) -> list[dict[str, Any]]
+  - function differences: (first, Any]], second, Any]]) -> list[str]
+  - function write_golden: (root, source_sha, entries, Any]], *, meta, Any]) -> None
+- `scripts/rust_contract/record_mcp.py` — function main: (), class McpRecorder
+- `scripts/rust_contract/referral_addresses.py`
+  - function setup: (connection)
+  - function servers: (context)
+  - function rejected: (before, after, response, mail)
+  - function code_only: (before, after)
+  - function sent_to: (address, count)
+  - function no_send: (count)
+  - _...3 more_
+- `scripts/rust_contract/referral_allocation.py`
+  - function setup: (connection)
+  - function auth: (actor)
+  - function servers: (context)
+  - function only_code: (before, after, response, mail)
+  - function actions: (context)
+  - function wait_for: (connection, sql, args, count)
+  - _...2 more_
+- `scripts/rust_contract/referral_dispatch.py` — function main: ()
+- `scripts/rust_contract/referral_email_sweep.py`
+  - function selected: (code)
+  - function outcome: (value)
+  - function main: ()
+- `scripts/rust_contract/referral_email_tables.py`
+  - function rust_string: (text)
+  - function runs: (function)
+  - function emit_array: (name, element_type, rows, per_line)
+  - function emit_ranges: (name, ranges)
+  - function intrange_pairs: (encoded)
+  - function main: ()
+- `scripts/rust_contract/referral_email_vectors.py`
+  - function length_vectors: ()
+  - function domain_vectors: ()
+  - function local_vectors: ()
+  - function quoted_and_display_vectors: ()
+  - function vectors: ()
+  - function has_surrogate: (value)
+  - _...2 more_
+- `scripts/rust_contract/referral_faults.py`
+  - function setup: (connection)
+  - function servers: (context)
+  - function unchanged: (before, after, response, mail)
+  - function retained: (before, after, response, mail)
+  - function actions: (context)
+  - function scenario: ()
+- `scripts/rust_contract/referral_invite.py`
+  - function setup: (connection)
+  - function candidate_servers: (context)
+  - function recipient: (sender)
+  - function keeps_only_code: (sender, before, after)
+  - function attempted: (sender, count, *, retained, sends)
+  - function invite: (name, sender, status, check, *, expected_status, outcome, headers, recipient_exists, mail_status, mail_body, to)
+  - _...8 more_
+- `scripts/rust_contract/referral_mixed.py`
+  - function mixed: (context)
+  - function dispatch: (context)
+  - function assert_mixed: (state, result)
+  - function scenario: ()
+- `scripts/rust_contract/referral_oracle.py` — function main: ()
+- `scripts/rust_contract/referral_populated.py`
+  - function referrer_id: (number)
+  - function code: (number)
+  - function setup: (connection)
+  - function servers: (context)
+  - function body_of: (response)
+  - function unchanged: (before, after, response, mail)
+  - _...5 more_
+- `scripts/rust_contract/referral_timeout_relay.py` — function start: (target)
+- `scripts/rust_contract/referral_timeout_server.py` — function stop_on_signal: (signal_number, frame), function main: ()
+- `scripts/rust_contract/replay_mcp.py` — function compare_evidence: (entries, evidence, *, gate), function main: ()
+- `scripts/rust_contract/report.py`
+  - function sha256_file: (path) -> str
+  - function sha256_bytes: (data) -> str
+  - function evidence_digest: (evidence) -> str
+  - function memory_table: (evidence, Any]) -> dict[str, dict[str, Any]]
+  - function cpu_table: (evidence, Any]) -> dict[str, dict[str, Any]]
+  - function latency_table: (evidence, Any]) -> dict[str, dict[str, dict[str, Any]]]
+  - _...12 more_
+- `scripts/rust_contract/run_disposable.py`
+  - function ephemeral_range: () -> tuple[int, int]
+  - function ephemeral_port: () -> int
+  - function docker: (*args, check, input_text) -> str
+  - function wait_for_port: (port, timeout) -> None
+  - function attest: (base_url, token) -> None
+  - function main: (argv) -> int
+  - _...2 more_
+- `scripts/rust_contract/seed_corpus.py`
+  - function attest_target: (*, environment, expected_database, connected_database, connected_user, is_superuser, host) -> None
+  - function fid: (name)
+  - function validate_counts: (counts)
+  - function matrix_module: ()
+  - function main: (argv) -> int
+  - function attest_session: (session)
+  - _...3 more_
+- `scripts/rust_contract/seed_integration.py` — function main: () -> None
+- `scripts/rust_contract/shadow.py`
+  - function load_config: (path) -> ShadowConfig
+  - function validate_config: (config) -> None
+  - function load_staging_cases: (path, *, require_complete) -> list[dict[str, Any]]
+  - function round_robin_cases: (cases)
+  - function memory_pressure: () -> bool
+  - function is_production_url: (url) -> bool
+  - _...16 more_
+- `scripts/rust_contract/simulate.py` — function main: (argv) -> int, class Simulation
+- `scripts/rust_contract/sqlx_offline_check.py` — function main: (), class Check
+- `scripts/rust_contract/t14b_regressions.py` — function main: (), class Diagnose
+- `scripts/rust_contract/t14c_probe.py` — function main: () -> int
+- `scripts/rust_contract/t14c_shapes.py`
+  - function send_case: (client, url, name, path) -> "httpx.Response"
+  - function main: ()
+  - class Diagnose
+- `scripts/rust_contract/trade_tape_oracle.py` — function canonical_tape_page: (rows, filters, clock, skip, limit, *, snapshot_identity, projector), function read_canonical_tape_page: (session, filters, clock, skip, limit, *, snapshot_identity)
+- `scripts/rust_contract/workload.py`
+  - function load: (path) -> dict[str, Any]
+  - function canonical_json: (value) -> str
+  - function manifest_digest: (manifest, Any]) -> str
+  - function validate: (manifest, Any]) -> None
+  - function routes: (manifest, Any]) -> list[dict[str, Any]]
+  - function tools: (manifest, Any]) -> list[dict[str, Any]]
+  - _...7 more_
+- `scripts/rust_contract/workload_seed.py` — function main: (argv) -> int, function seed_workload: (session, size, counts, int], seed) -> dict
+- `scripts/rust_passive_no_harm.py`
+  - function matcher_block: (group) -> str
+  - function matches: (group, method, uri) -> bool
+  - function p95: (values) -> float
+  - function timestamp: (value) -> float
+  - function evaluate: (rows, group, cutover, seconds, ready, before_errors, after_errors)
+  - function error_classes: (rows) -> set[str]
+  - _...4 more_
 - `scripts/scrape_fleet_demand.py`
   - function run_batch: (commands, timeout) -> str
   - function extract_last_value: (raw) -> str
@@ -189,9 +660,27 @@
   - function validate_health_response: (payload, *, expected_environment, expected_release_sha) -> None
   - function main: () -> int
   - class HealthResponseError
+- `scripts/verify_deploy_start_guard.py` — function main: (arguments) -> int
 - `scripts/verify_migration_revision.py` — function main: () -> int
+- `scripts/verify_rust_artifact.py`
+  - function sha256_bytes: (content) -> str
+  - function validate_metadata: (document) -> dict
+  - function check_glibc_max: (objdump_text, maximum) -> str
+  - function inspect_archive: (data, source_sha, target) -> dict
+  - function verify_provenance: (record_bytes, signature, public_key_path, *, expected) -> dict
+  - function run_attest: (args) -> int
+  - _...9 more_
+- `scripts/verify_rust_start.py` — function main: ()
 - `scripts/verify_systemd_source.py`
   - function verify_source_provenance: (*, source_root, source_ref, environment) -> dict[str, str]
   - function build_verified_unit_archive: (*, source_root, source_ref, environment) -> bytes
   - function main: () -> int
   - class SourceProvenanceError
+- `work/rust-phase2/watchlists-reference.py`
+  - function encode_event_cursor: (created_at, event_id) -> str
+  - function decode_event_cursor: (cursor) -> tuple[datetime, UUID]
+  - function build_watchlist_event_response: (event, target, *, delivery_point_name) -> WatchlistEventResponse
+  - function public_watchlist_orders: ()
+  - function watchlist_target_visibility_clause: ()
+  - function watchlist_event_visibility_clause: ()
+  - _...5 more_

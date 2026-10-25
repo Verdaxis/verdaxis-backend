@@ -1016,9 +1016,9 @@ fi
 assert_clean_tree "Deploy steps"
 
 # The minimal Rust runtime environment is prepared after the exact migration
-# helper and ACL convergence, before the restart window. It receives only app
-# database settings and runtime identity, never mail, JWT, provider or
-# migrator credentials.
+# helper and ACL convergence, before the restart window. It receives the app
+# database settings, runtime identity and the Phase 2 verification/invite
+# settings (Task 23), never the migrator URL.
 if [[ "$RUST_SELECTED" == "1" ]]; then
     if ! "${PYTHON_ENV[@]}" ./venv/bin/python \
         "$RUST_RUNTIME_PREPARER_PATH" \

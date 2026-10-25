@@ -29,12 +29,15 @@ MANIFEST = MONITOR / "artifact-manifest.json"
 # The boot-enable stage adds the post-activation systemctl enable of the
 # Rust unit plus its sudoers/preflight authority; the pinned blob below
 # includes those reviewed runtime-owned changes.
-# Reviewed cache-listener change: deploy reads RUST_CACHE_LISTENER from backend .env, refuses values other than 0 or 1, and passes --cache-listener to prepare_rust_budget.py.
+# The deploy script comment lists what the Rust runtime preparation projects
+# (the verification and invite settings), and it reads RUST_CACHE_LISTENER from
+# the backend .env, refusing values other than 0 or 1, passing
+# --cache-listener to the budget preparation.
 RUNTIME_OWNED_BLOBS = {
     "app/config.py": "5eac216236919ebc8c48415a619d0e70169d1154",
     "app/database.py": "43456b2c2079c07368359d4d54f5ce9629c9b57b",
     "app/main.py": "a3a73bf74d817499cccac1f6ecc9ba062cbba3ea",
-    "scripts/deploy.sh": "5b63b01b4e3cc1f65ce5f14647f688082fa01291",
+    "scripts/deploy.sh": "13f53ea252a3cfd25f57742aa7a41284c5688bb3",
     "scripts/run_demo_activity.py": "b92cee8429669c3f908a52047025acd6db804697",
 }
 

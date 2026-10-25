@@ -2,16 +2,16 @@
 
 > **Navigation aid.** Route list and file locations extracted via AST. Read the source files listed below before implementing or modifying this subsystem.
 
-The Subscription subsystem handles **1 routes** and touches: auth, db.
+The Subscription subsystem handles **1 routes** and touches: db.
 
 ## Routes
 
-- `GET` `/premium-feature` → in: Subscriptio [auth, db]
+- `GET` `/premium-feature` → in: Subscriptio [db]
   `app/middleware/subscription.py`
 
 ## Related Models
 
-- **Subscription** (6 fields) → [database.md](./database.md)
+- **Subscription** (7 fields) → [database.md](./database.md)
 
 ## Source Files
 

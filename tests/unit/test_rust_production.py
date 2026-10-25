@@ -45,13 +45,20 @@ def test_production_policy_is_the_reviewed_activation_with_the_bootstrap_unit():
     assert "venv/bin/python" not in unit
 
 
-def test_production_runtime_projects_only_its_app_identity(tmp_path):
+def test_production_runtime_projects_its_app_identity_and_phase2(tmp_path):
     preparer = _load_preparer()
     env = tmp_path / ".env"
     env.write_text(
         f"ENVIRONMENT=production\nRELEASE_SHA={SHA}\n"
         "DATABASE_URL=postgresql+asyncpg://verdaxis_app:fixture-secret@127.0.0.1:5432/verdaxis_prod\n"
-        "KYC_EXECUTION_GATE_ENABLED=false\nJWT_SECRET=do-not-project\n"
+        "KYC_EXECUTION_GATE_ENABLED=false\n"
+        "JWT_SECRET=" + "k" * 40 + "\n"
+        "JWT_ISSUER=verdaxis-prod-api\n"
+        "JWT_AUDIENCE=verdaxis-prod-web\n"
+        "FRONTEND_URL=https://app.verdaxis.exchange\n"
+        "EMAIL_FROM=Verdaxis <noreply@verdaxis.exchange>\n"
+        "RESEND_API_KEY=re_fixture_key\n"
+        "OPENAI_API_KEY=sk-unrelated\n"
     )
     result = preparer.prepare(
         env, SHA, tmp_path / "runtime", ROOT, "p0_20261016_union",
@@ -60,10 +67,30 @@ def test_production_runtime_projects_only_its_app_identity(tmp_path):
     text = result["runtime_env"].read_text()
     assert "ENVIRONMENT=production\n" in text
     assert "verdaxis_app:fixture-secret@127.0.0.1:5432/verdaxis_prod" in text
-    assert "JWT_SECRET" not in text
+    # Task 23: the six groups verify tokens and send one invite, so the
+    # transaction projects that private set into the Rust file only.
+    assert "JWT_SECRET=" + "k" * 40 + "\n" in text
+    assert "JWT_ISSUER=verdaxis-prod-api\n" in text
+    assert "JWT_AUDIENCE=verdaxis-prod-web\n" in text
+    assert 'FRONTEND_URL="https://app.verdaxis.exchange"\n' in text
+    assert 'EMAIL_FROM="Verdaxis <noreply@verdaxis.exchange>"\n' in text
+    assert "RESEND_API_KEY=re_fixture_key\n" in text
+    # An unrelated provider key never reaches the long-running process.
+    assert "OPENAI_API_KEY" not in text
     assert "KYC_EXECUTION_GATE_ENABLED=false\n" in text
     env.write_text(env.read_text().replace("verdaxis_app:", "verdaxis_app_staging:"))
     with pytest.raises(preparer.RustRuntimeError, match="identity"):
+        preparer.prepare(
+            env, SHA, tmp_path / "runtime", ROOT, "p0_20261016_union",
+            environment="production",
+        )
+    # A partial Phase 2 projection is refused before the transaction commits.
+    env.write_text(
+        env.read_text()
+        .replace("verdaxis_app_staging:", "verdaxis_app:")
+        .replace("RESEND_API_KEY=re_fixture_key\n", "")
+    )
+    with pytest.raises(preparer.RustRuntimeError, match="RESEND_API_KEY"):
         preparer.prepare(
             env, SHA, tmp_path / "runtime", ROOT, "p0_20261016_union",
             environment="production",
