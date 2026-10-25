@@ -445,7 +445,7 @@ def journeys() -> dict[str, tuple[JourneyCall, ...]]:
              capture=("watchlist_id", "id")),
         call("watchlists", "events", "GET", "/api/watchlists/{watchlist_id}/events",
              query={"limit": "25"}, check=check_events_page,
-             placeholders=("watchlist_id",), capture=("event_id", "id")),
+             placeholders=("watchlist_id",), capture=("event_id", "items/0/id")),
         call("watchlists", "mark-event-read", "PATCH",
              "/api/watchlists/{watchlist_id}/events/{event_id}", check=check_watchlist_event,
              placeholders=("watchlist_id", "event_id")),
@@ -482,8 +482,10 @@ def journeys() -> dict[str, tuple[JourneyCall, ...]]:
         call("referrals", "my-referrals", "GET", "/api/referrals/my-referrals",
              check=check_referral_stats),
         call("referrals", "leaderboard", "GET", "/api/referrals/leaderboard", check=check_leaderboard),
+        # pydantic's email validator refuses special-use domains such as
+        # `.invalid`; the invite address uses an ordinary example domain.
         call("referrals", "invite", "POST", "/api/referrals/invite",
-             body={"email": "journey-invite@example.invalid"}, check=check_invite),
+             body={"email": "journey-invite@example.com"}, check=check_invite),
         call("referrals", "resolve", "GET", "/api/referrals/resolve/" + REFERRAL_CODE,
              actor="none", check=check_resolve),
     )
@@ -498,12 +500,17 @@ def journeys() -> dict[str, tuple[JourneyCall, ...]]:
 
 
 def _captured(body, key):
-    if isinstance(body, list):
-        require(body, "cannot capture from an empty list")
-        body = body[0]
-    mapping(body, "captured response")
-    require(body.get(key), f"captured field {key} is missing")
-    return body[key]
+    """Read one value from a response body; a `/`-path walks into pages."""
+    for segment in key.split("/"):
+        if isinstance(body, list):
+            require(body, "cannot capture from an empty list")
+            body = body[0]
+            require(isinstance(segment, str) and not segment.isdigit(),
+                    "numeric page paths are not supported")
+        mapping(body, "captured response")
+        require(body.get(segment), f"captured field {key} is missing")
+        body = body[segment]
+    return body
 
 
 def validate_target(base_url: str, token: str) -> None:
