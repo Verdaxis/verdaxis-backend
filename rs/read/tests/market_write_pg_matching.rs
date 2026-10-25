@@ -344,3 +344,74 @@ async fn concurrent_matches_do_not_consume_the_same_remainder_twice() {
     assert_eq!(count, 1);
     f.conserved().await;
 }
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn sealed_matching_composes_stock_and_before_effects() {
+    let mut f = Fixture::new(1, "1").await;
+    let item = Uuid::new_v4();
+    sqlx::query("SELECT matching_fixture_back_inventory($1,$2)")
+        .bind(f.resting[0]).bind(item).execute(&mut f.admin).await.unwrap();
+    let pool = sqlx::postgres::PgPoolOptions::new().max_connections(4)
+        .connect(&std::env::var("RUST_MATCHING_DATABASE_URL").unwrap()).await.unwrap();
+    let result = verdaxis_read::market_contract::matching::run_sealed_match(&pool, f.aggressor, now()).await.unwrap();
+    assert_eq!(result.outcome.trades.len(), 1);
+    assert_eq!(result.captured_orders.len(), 2);
+    assert!(result.captured_orders.contains(&f.aggressor));
+    assert!(result.captured_orders.contains(&f.resting[0]));
+    assert_eq!(result.order_lock_order, vec![f.resting[0], f.aggressor]);
+    assert!(result.inventory_after_orders);
+    let reserved: Decimal = sqlx::query_scalar("SELECT reserved_stock_mt FROM inventory_items WHERE id=$1")
+        .bind(item).fetch_one(&mut f.observer).await.unwrap();
+    assert_eq!(reserved, Decimal::ZERO);
+    let times: Vec<DateTime<Utc>> = sqlx::query_scalar("SELECT updated_at FROM orderbook_orders ORDER BY id")
+        .fetch_all(&mut f.observer).await.unwrap();
+    assert_eq!(times, vec![now(), now()]);
+    f.conserved().await;
+    pool.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn independent_sealed_commands_compete_for_one_resting_remainder() {
+    let mut f = Fixture::new(1, "1").await;
+    let other = Uuid::from_u128(900);
+    sqlx::query("SELECT matching_fixture_second_aggressor($1,$2)")
+        .bind(f.aggressor).bind(other).execute(&mut f.admin).await.unwrap();
+    let pool = sqlx::postgres::PgPoolOptions::new().max_connections(4)
+        .connect(&std::env::var("RUST_MATCHING_DATABASE_URL").unwrap()).await.unwrap();
+    let (left,right) = tokio::join!(
+        verdaxis_read::market_contract::matching::run_sealed_match(&pool,f.aggressor,now()),
+        verdaxis_read::market_contract::matching::run_sealed_match(&pool,other,now())
+    );
+    let mut fills = 0;
+    for result in [left,right] {
+        match result {
+            Ok(result) => fills += result.outcome.trades.len(),
+            Err(error) => assert!(matches!(error.code, MarketErrorCode::MarketBusy | MarketErrorCode::TransactionRetryExhausted)),
+        }
+    }
+    assert_eq!(fills,1);
+    let orders = sqlx::query("SELECT id,remaining_quantity_mt,version,updated_at FROM orderbook_orders ORDER BY id")
+        .fetch_all(&mut f.observer).await.unwrap();
+    let mut filled_bids = 0;
+    for row in orders {
+        let id: Uuid = row.get(0);
+        let remainder: Decimal = row.get(1);
+        let version: i32 = row.get(2);
+        if id == f.resting[0] || remainder == Decimal::ZERO {
+            assert_eq!(remainder,Decimal::ZERO);
+            assert_eq!(version,2);
+            assert_eq!(row.get::<DateTime<Utc>,_>(3),now());
+            if id != f.resting[0] { filled_bids += 1; }
+        } else { assert_eq!(remainder,d("1")); assert_eq!(version,1); }
+    }
+    assert_eq!(filled_bids,1);
+    let total: Decimal = sqlx::query_scalar("SELECT sum(quantity_mt) FROM trades").fetch_one(&mut f.observer).await.unwrap();
+    assert_eq!(total,d("1"));
+    let effects: i64 = sqlx::query_scalar("SELECT (SELECT count(*) FROM audit_logs)+(SELECT count(*) FROM notifications)+(SELECT count(*) FROM market_event_outbox)")
+        .fetch_one(&mut f.observer).await.unwrap();
+    assert_eq!(effects,0,"capture does not emit completion descriptors");
+    f.conserved().await;
+    pool.close().await;
+}
