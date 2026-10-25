@@ -1,8 +1,8 @@
 """Real feedback route qualification with full-state assertions after each call."""
 import json
-from datetime import datetime
 import time
 import uuid
+from datetime import datetime
 
 import jwt
 
@@ -106,23 +106,26 @@ def actions(context):
     yield action("retained-commit", 500, {"message": "retained once"}, outcome="ambiguous",
                  extra={"x-feedback-response-loss": "1"}, check=("retained once", None))
     yield action("admin-denied", 403, method="GET", path="/api/admin/feedback")
-    def page(expected):
+    def page(limit, offset):
         def listing(before, after, response, mail):
             unchanged(before, after, response, mail)
             body = json.loads(response["body"])
             assert body["total"] == len(rows(after))
             total = len(rows(after))
-            assert len(body["items"]) == min(200, max(0, total - expected))
+            assert len(body["items"]) == min(limit, max(0, total - offset))
         return listing
 
-    for position, query in enumerate(("", "?limit=200", "?offset=999", "?limit=0", "?limit=201", "?offset=-1",
-                                      "?limit=200&offset=0", "?limit=200&offset=200")):
+    # (query, status, effective limit). The un-queried listing uses the route's
+    # default limit of 50, not the maximum of 200.
+    for query, expected, limit in (("", 200, 50), ("?limit=200", 200, 200), ("?offset=999", 200, 50),
+                                   ("?limit=0", 422, 0), ("?limit=201", 422, 0), ("?offset=-1", 422, 0),
+                                   ("?limit=200&offset=0", 200, 200), ("?limit=200&offset=200", 200, 200)):
         from urllib.parse import parse_qs
-        offset = int(parse_qs(query.lstrip("?")).get("offset", ["0"])[0]) if query else 0
-        expected = 422 if query in ("?limit=0", "?limit=201", "?offset=-1") else 200
+        parsed = parse_qs(query.lstrip("?"))
+        offset = int(parsed.get("offset", ["0"])[0]) if parsed else 0
         yield action("admin-" + str(serial), expected,
                      subject=ADMIN, method="GET", path="/api/admin/feedback" + query,
-                     check=unchanged if expected == 422 else page(offset))
+                     check=unchanged if expected == 422 else page(limit, offset))
 
 
 def feedback_scenario():
