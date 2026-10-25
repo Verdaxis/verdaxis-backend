@@ -1104,8 +1104,7 @@ fn p4_t15_c13() {
         "property": "ref",
         "result": {"status": "available", "data": []}
     }]);
-    let all_available: types::BehavioralWindow =
-        serde_json::from_value(all_available).unwrap();
+    let all_available: types::BehavioralWindow = serde_json::from_value(all_available).unwrap();
     assert_eq!(all_available.validate(), Ok(()));
     for bad in [
         json!({"status": "partial", "diagnostic": "insufficient_coverage", "data": null}),
@@ -1113,8 +1112,7 @@ fn p4_t15_c13() {
     ] {
         let mut fabricated = serde_json::to_value(&all_available).unwrap();
         fabricated["property_results"][0]["result"] = bad;
-        let fabricated: types::BehavioralWindow =
-            serde_json::from_value(fabricated).unwrap();
+        let fabricated: types::BehavioralWindow = serde_json::from_value(fabricated).unwrap();
         assert_eq!(
             fabricated.validate(),
             Err(types::BehavioralWindowError::IncoherentAvailability)
