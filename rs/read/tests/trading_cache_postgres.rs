@@ -306,9 +306,9 @@ async fn paused_listener_never_serves_the_prior_generation() {
         "DO $$ BEGIN FOR i IN 1..4097 LOOP \
          UPDATE public.products SET is_active = is_active; END LOOP; END $$",
     )
-        .execute(&mut writer)
-        .await
-        .unwrap();
+    .execute(&mut writer)
+    .await
+    .unwrap();
     let committed = generation(&mut writer).await;
     assert_eq!(committed, before + 4097);
     assert_eq!(
@@ -317,7 +317,9 @@ async fn paused_listener_never_serves_the_prior_generation() {
             .unwrap(),
         verdaxis_read::runtime::cache_events::EventBatch::Resynchronize
     );
-    runtime.authority().refresh(runtime.record_path(), Instant::now());
+    runtime
+        .authority()
+        .refresh(runtime.record_path(), Instant::now());
 
     let after = read_generation(&state, &cache, runs.clone()).await;
     assert_eq!(

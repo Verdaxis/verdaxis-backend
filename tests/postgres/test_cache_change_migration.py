@@ -26,7 +26,7 @@ INSERTS = {
     "organizations": "(id,name,type) VALUES ('{row}','Cache fixture','SHIPOWNER')",
     "users": "(id,email,password_hash,role,organization_id) VALUES ('{row}','cache@example.test','unused','BUYER','{org}')",
     "orderbook_orders": "(id,organization_id,side,product_id,delivery_point_id,quantity_mt,remaining_quantity_mt,price_per_mt_usd) VALUES ('{row}','{org}','BID','{product}','{point}',200,200,600)",
-    "trades": "(id,buyer_id,seller_id,initiator_org_id,initiated_by,quantity_mt,price_per_mt_usd,market_snapshot_version) VALUES ('{row}','{org}','{org}','{org}','BUYER',200,600,NULL)",
+    "trades": "(id,buyer_id,seller_id,initiator_org_id,initiated_by,quantity_mt,price_per_mt_usd,market_snapshot_version) VALUES ('{row}','{org}','66666666-6666-4666-8666-666666666666','{org}','BUYER',200,600,NULL)",
     "kyc_execution_grace": "(id,user_id,organization_id,kyc_status_at_enrollment,enrolled_at,expires_at,created_by) VALUES ('{row}','{user}','{org}','PENDING',now(),now()+interval '1 day','cache fixture')",
     "market_row_quarantines": "(id,source_table,source_id,original_row,dependencies,environment,database_name,reason,operator,reference) VALUES ('{row}','orders','{row}','{{}}','[]','test',current_database(),'fixture','fixture','fixture')",
     "organization_market_approvals": "(organization_id,previous_verification_status,reviewed_snapshot,environment,database_name,reason,operator,reference) VALUES ('{org}','PENDING','{{}}','test',current_database(),'fixture','fixture','fixture')",
@@ -36,7 +36,7 @@ INSERTS = {
     "physical_stems": "(id,market_product,delivery_point_id,availability_window,quantity_mt,status,source,stem_uid,observed_at) VALUES ('{row}','BIO_METHANOL','{point}','SPOT',200,'AVAILABLE','fixture','fixture',now())",
     "benchmarks": "(id,market_product,delivery_point_id,availability_window,price_per_mt_usd,source) VALUES ('{row}','BIO_METHANOL','{point}','SPOT',600,'manual_override')",
     "live_slice_benchmarks": "(id,side,market_product,delivery_point_id,availability_window,benchmark_price_per_mt_usd,total_remaining_quantity_mt,order_count,source) VALUES ('{row}','BID','BIO_METHANOL','{point}','SPOT',600,200,1,'live_slice_vwap')",
-    "market_event_outbox": "(id,event_type,aggregate_type,aggregate_id,participant_org_ids,payload) VALUES ('{row}','cache_test','order','fixture','[]','{{}}')",
+    "market_event_outbox": "(id,event_type,aggregate_type,aggregate_id,participant_org_ids,payload) VALUES ('{row}','cache_test','order','fixture','[\"{org}\"]','{{}}')",
 }
 
 
@@ -56,7 +56,7 @@ def cache_database():
         assert sql("SELECT tableoid::oid, database_epoch, primary_identity, authority_revision, active FROM public_read_cache_incarnation") == before
         assert sql("SELECT oid FROM pg_class WHERE relname IN ('public_read_cache_generations','public_read_cache_events','public_read_cache_incarnation') ORDER BY oid") == tables
         assert sql("SELECT count(*) FROM public_read_cache_events") == str(RETENTION)
-        sql(f"SET session_replication_role=replica; INSERT INTO organizations(id,name,type) VALUES ('{ORG}','Cache parent','SHIPOWNER'); INSERT INTO users(id,email,password_hash,role,organization_id) VALUES ('{USER}','parent@example.test','unused','BUYER','{ORG}')")
+        sql(f"SET session_replication_role=replica; INSERT INTO organizations(id,name,type) VALUES ('{ORG}','Cache parent','SHIPOWNER'), ('66666666-6666-4666-8666-666666666666','Cache counterparty','FUEL_SUPPLIER'); INSERT INTO users(id,email,password_hash,role,organization_id) VALUES ('{USER}','parent@example.test','unused','BUYER','{ORG}')")
         yield sql, migrate
     finally:
         producer.close()
@@ -116,7 +116,7 @@ def test_exact_sequencer_statement_counts_only_assigned_rows(cache_database):
     statement = next(ast.literal_eval(node.value) for node in module.body
                      if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == "_ASSIGN_SEQUENCES_SQL" for target in node.targets))
     statement = statement.replace("$1", "500")
-    insert = INSERTS["market_event_outbox"].format(row=ROW)
+    insert = INSERTS["market_event_outbox"].format(row=ROW, org=ORG)
     sql("BEGIN; DELETE FROM market_event_outbox; CREATE TEMP TABLE cache_before AS " + snapshot_sql() + "; "
         + statement + "; DO $$ BEGIN ASSERT (SELECT generation FROM public_read_cache_generations WHERE domain='trading') = (SELECT generation FROM cache_before); END $$; "
         + "INSERT INTO market_event_outbox " + insert + "; " + statement
@@ -131,8 +131,8 @@ def test_dependency_relations_support_transition_tables(cache_database):
 
 def test_cache_functions_keep_migrator_ownership_and_private_execution(cache_database):
     sql, _ = cache_database
-    assert sql("SELECT count(*) FROM pg_proc p JOIN pg_roles r ON r.oid=p.proowner WHERE p.oid='public.bump_public_read_cache_generation()'::regprocedure AND r.rolname='" + __import__('os').environ['RUNTIME_TEST_MIGRATOR_ROLE'] + "'") == "1"
-    assert sql("SELECT has_function_privilege('" + __import__('os').environ['RUNTIME_TEST_APP_ROLE'] + "','public.bump_public_read_cache_generation()','EXECUTE')") == "f"
+    assert sql("SELECT count(*) FROM pg_proc p JOIN pg_roles r ON r.oid=p.proowner WHERE p.oid='public.bump_public_read_cache_generation()'::regprocedure AND r.rolname='" + os.environ['RUNTIME_TEST_MIGRATOR_ROLE'] + "'") == "1"
+    assert sql("SELECT has_function_privilege('" + os.environ['RUNTIME_TEST_APP_ROLE'] + "','public.bump_public_read_cache_generation()','EXECUTE')") == "f"
 
 
 def test_cache_revision_requires_forward_revert(cache_database):

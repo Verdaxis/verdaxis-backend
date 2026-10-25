@@ -335,7 +335,7 @@ async def test_runtime_business_write_and_generation_append_share_one_transactio
         await connection.execute(text(
             "INSERT INTO market_event_outbox "
             "(id,event_type,aggregate_type,aggregate_id,participant_org_ids,payload) "
-            "VALUES (gen_random_uuid(),'cache_test','order','test','[]','{}')"
+            "VALUES (gen_random_uuid(),'cache_test','order','test','[\"11111111-1111-4111-8111-111111111111\"]','{}')"
         ))
         during = await _generation(connection)
         appended = await connection.scalar(
@@ -354,7 +354,7 @@ async def test_runtime_business_write_and_generation_append_share_one_transactio
             await connection.execute(text(
             "INSERT INTO market_event_outbox "
             "(id,event_type,aggregate_type,aggregate_id,participant_org_ids,payload) "
-            "VALUES (gen_random_uuid(),'cache_test','order','test','[]','{}')"
+            "VALUES (gen_random_uuid(),'cache_test','order','test','[\"11111111-1111-4111-8111-111111111111\"]','{}')"
         ))
         assert await _generation(connection) == before + 1
     async with engine.connect() as connection:
