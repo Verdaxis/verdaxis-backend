@@ -53,7 +53,9 @@ async fn dispatch(state: RouteState, headers: HeaderMap, action: InventoryAction
         chrono::Utc::now(),
     ) {
         Ok(access) => access,
-        Err(failure) => return crate::auth::request::RequestError::Authentication(failure).into_response(),
+        Err(failure) => {
+            return crate::auth::request::RequestError::Authentication(failure).into_response();
+        }
     };
     let deleting = matches!(action, InventoryAction::Delete(_));
     match execute_inventory(state.app, access, action).await {
@@ -67,7 +69,9 @@ fn page(raw: Option<String>) -> Result<(i64, i64), &'static str> {
     let mut limit = 50;
     for (key, value) in url::form_urlencoded::parse(raw.as_deref().unwrap_or_default().as_bytes()) {
         if key == "skip" || key == "limit" {
-            let parsed = value.parse::<i64>().map_err(|_| "Pagination is not valid")?;
+            let parsed = value
+                .parse::<i64>()
+                .map_err(|_| "Pagination is not valid")?;
             if (key == "skip" && parsed < 0) || (key == "limit" && !(1..=100).contains(&parsed)) {
                 return Err("Pagination is outside its range");
             }
@@ -87,7 +91,11 @@ async fn list(
 ) -> Response {
     match page(raw) {
         Ok((skip, limit)) => dispatch(state, headers, InventoryAction::List { skip, limit }).await,
-        Err(message) => error(StatusCode::UNPROCESSABLE_ENTITY, "VALIDATION_FAILED", message),
+        Err(message) => error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "VALIDATION_FAILED",
+            message,
+        ),
     }
 }
 async fn listings(
@@ -99,7 +107,11 @@ async fn listings(
         Ok((skip, limit)) => {
             dispatch(state, headers, InventoryAction::Listings { skip, limit }).await
         }
-        Err(message) => error(StatusCode::UNPROCESSABLE_ENTITY, "VALIDATION_FAILED", message),
+        Err(message) => error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "VALIDATION_FAILED",
+            message,
+        ),
     }
 }
 async fn create(
