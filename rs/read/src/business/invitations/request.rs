@@ -497,8 +497,11 @@ async fn list_route(
         Ok(page) => page,
         Err(error) => return authenticated(error).into_response(),
     };
-    let mut response =
-        axum::Json(store::InvitationOrganizationResponse { items: page.items }).into_response();
+    let mut response = axum::Json(store::InvitationOrganizationResponse {
+        items: page.items,
+        truncated: page.truncated,
+    })
+    .into_response();
     response.headers_mut().insert(
         "x-result-truncated",
         if page.truncated {
@@ -530,7 +533,9 @@ async fn create_route(
     let quota_now = now.timestamp().max(0) as u64;
     let limits = state.limits.clone();
     let quota_client = client.clone();
-    let quota_token = authorization.clone().unwrap_or_default();
+    // A missing Authorization header is `None` here, as in A04: the bearer
+    // has already been verified above, so the key is never an empty string.
+    let quota_token = authorization.clone();
     let admitted = run_authenticated(
         &state.app,
         access,
@@ -547,7 +552,7 @@ async fn create_route(
                         client: &quota_client,
                         user: Some(&user),
                         organization: None,
-                        token: Some(quota_token.as_str()),
+                        token: quota_token.as_deref(),
                     },
                     quota_now,
                 )?;

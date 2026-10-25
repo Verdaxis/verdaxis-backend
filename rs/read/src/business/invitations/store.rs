@@ -108,11 +108,12 @@ pub struct InvitationOrganization {
     pub provenance: String,
 }
 
-/// A04's response body: exactly Python's `{items}`. The bounded read's
-/// truncation marker travels in the `X-Result-Truncated` header, not the body.
+/// A04's response body. `truncated` is the pinned read-cap marker Task 1's
+/// client contract requires; the `X-Result-Truncated` header repeats it.
 #[derive(Debug, Serialize)]
 pub struct InvitationOrganizationResponse {
     pub items: Vec<InvitationOrganization>,
+    pub truncated: bool,
 }
 
 pub struct OrganizationPage {
