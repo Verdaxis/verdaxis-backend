@@ -141,7 +141,10 @@ async fn a_small_distinct_client_flood_preserves_a_retained_clients_refusal() {
     use tower::ServiceExt;
     use verdaxis_read::runtime::http::middleware;
 
-    let app = middleware(Router::new().route(PRICES, get(|| async { "prices" })), "test");
+    let app = middleware(
+        Router::new().route(PRICES, get(|| async { "prices" })),
+        "test",
+    );
     let call = |client: &'static str| {
         let app = app.clone();
         async move {
