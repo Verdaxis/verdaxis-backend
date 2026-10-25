@@ -118,10 +118,10 @@ def converge(sql):
 
 def catalog(sql):
     return {
-        "relations": sql("""SELECT relname || ':' || relkind FROM pg_class
+        "relations": sql("""SELECT relname || ':' || relkind::text FROM pg_class
             WHERE relnamespace='public'::regnamespace ORDER BY 1""").splitlines(),
         "triggers": sql("""SELECT tgrelid::regclass || ':' || tgname || ':' ||
-            tgenabled || ':' || pg_get_triggerdef(oid) FROM pg_trigger
+            tgenabled::text || ':' || pg_get_triggerdef(oid) FROM pg_trigger
             WHERE NOT tgisinternal ORDER BY 1""").splitlines(),
         "indexes": sql("""SELECT tablename || ':' || indexname || ':' || indexdef
             FROM pg_indexes WHERE schemaname='public' ORDER BY 1""").splitlines(),
@@ -191,7 +191,11 @@ def test_alembic_heads_is_one_before_and_after(supplier_scratch_database):
     sql, migrate = supplier_scratch_database
     graph = migration_graph()
     assert graph.get_heads() == [REVISION]
-    parents = {item.down_revision for item in graph.walk_revisions() if item.revision != REVISION}
+    parents = {
+        parent
+        for item in graph.walk_revisions() if item.revision != REVISION
+        for parent in (item.down_revision if isinstance(item.down_revision, tuple) else (item.down_revision,))
+    }
     previous = {item.revision for item in graph.walk_revisions() if item.revision != REVISION} - parents
     assert previous == {PARENT}
     migrate("upgrade", PARENT)
@@ -304,7 +308,7 @@ def test_direct_status_transition_rolls_back_staged_rows(freeze_database, status
                         VALUES ('{uuid4()}','TRADE_FROZEN','trade','{TRADE}')""")
                     await connection.execute(f"""INSERT INTO market_event_outbox
                         (id,event_type,aggregate_type,aggregate_id,participant_org_ids,payload)
-                        VALUES ('{uuid4()}','trade.updated','trade','{TRADE}','[]','{{}}')""")
+                        VALUES ('{uuid4()}','trade.updated','trade','{TRADE}','["{BUYER}"]','{{}}')""")
                     await connection.execute(f"UPDATE trades SET status='{status}' WHERE id='{TRADE}'")
             assert refusal.value.sqlstate == "ZF001"
             assert await connection.fetchval("SELECT count(*) FROM audit_logs") == 0
@@ -401,7 +405,7 @@ def test_freeze_checks_and_restrict_ownership(freeze_database):
         sql(freeze_insert().replace("'OTHER'", f"'{reason}'"))
         clear_freeze(lambda statement: sql(statement + " WHERE status='ACTIVE'"))
     for before, after, constraint in (
-        ("'ACTIVE'", "'PAUSED'", "ck_trade_freezes_status"),
+        ("'ACTIVE'", "'PAUSED'", "ck_trade_freezes_(status|clear)"),
         ("'OTHER'", "'UNKNOWN'", "ck_trade_freezes_reason"),
         ("'Review required'", "'  a  '", "ck_trade_freezes_note"),
     ):
