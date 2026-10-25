@@ -321,8 +321,53 @@ async fn orderbook_product_counts_narrow_projection_keeps_every_count() {
     pools.read.close().await;
 }
 
-/// R24/R25: distinct eligible labels in output order. The label-only
-/// projection must return the same ordered set under both gate states.
+const OLD_DISTINCT: &str = r#"
+SELECT DISTINCT CASE $14::text
+    WHEN 'products' THEN product_name
+    WHEN 'regions' THEN delivery_point_region
+    WHEN 'fuel-types' THEN product_fuel_type
+END AS value
+FROM eligible_orders
+ORDER BY value
+"#;
+
+fn existence_tail(field: &str) -> String {
+    let label = match field {
+        "products" => "p.name",
+        "regions" => "dp.region",
+        "fuel-types" => "p.fuel_type",
+        _ => panic!("developer-owned distinct field required"),
+    };
+    format!(
+        "SELECT DISTINCT {label} AS value FROM products AS p \
+         CROSS JOIN delivery_points AS dp CROSS JOIN LATERAL (\
+         SELECT 1 FROM eligible_orders AS e WHERE e.product_id = p.id \
+         AND e.delivery_point_id = dp.id LIMIT 1 OFFSET 0) AS hit ORDER BY value"
+    )
+}
+
+fn ordered_hash(rows: &[String]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hash = Sha256::new();
+    for row in rows {
+        hash.update((row.len() as u64).to_be_bytes());
+        hash.update(row.as_bytes());
+    }
+    hash.finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+fn assert_distinct_same(old: &[String], new: &[String]) {
+    assert_eq!(old.len(), new.len(), "distinct count changed");
+    assert_eq!(ordered_hash(old), ordered_hash(new), "ordered hash changed");
+    assert_eq!(old, new, "labels or SQL collation order changed");
+}
+
+/// Pin the old statement, the proposed bounded probe and the shipped statement.
+/// Both KYC modes use the seeded owner/expiry/catalog/qualification matrix.
+/// The second case proves an empty eligible relation does not expose catalogs.
 #[tokio::test]
 async fn orderbook_distinct_labels_keep_order_and_nulls() {
     let config = config();
@@ -330,37 +375,109 @@ async fn orderbook_distinct_labels_keep_order_and_nulls() {
     let policy = policy();
     let clock = clock();
     let mut connection = pools.read.acquire().await.unwrap();
-    let distinct = include_str!("../sql/orderbook/distinct.sql");
+    sqlx::query("SET jit = off")
+        .execute(&mut *connection)
+        .await
+        .unwrap();
     for field in ["products", "regions", "fuel-types"] {
+        let distinct = match field {
+            "products" => include_str!("../sql/orderbook/distinct_products.sql"),
+            "fuel-types" => include_str!("../sql/orderbook/distinct_fuel_types.sql"),
+            _ => include_str!("../sql/orderbook/distinct.sql"),
+        };
         for gate in [true, false] {
             let mut config = config.clone();
             config.kyc_execution_gate_enabled = gate;
-            let old = rows(
-                &mut connection,
-                &wrap(order_query_sql(distinct).sql(), "ORDER BY x.value"),
-                &policy,
-                &clock,
-                &config,
-                &PublicOrderFilters::default(),
-                &[Extra::Text(field)],
-            )
-            .await;
-            let new = rows(
-                &mut connection,
-                &wrap(
-                    order_query_sql_projected(distinct, "").sql(),
-                    "ORDER BY x.value",
-                ),
-                &policy,
-                &clock,
-                &config,
-                &PublicOrderFilters::default(),
-                &[Extra::Text(field)],
-            )
-            .await;
-            assert!(!old.is_empty(), "the corpus must expose {field} labels");
-            assert_same(&old, &new, true, &format!("distinct {field} gate={gate}"));
+            for empty in [false, true] {
+                let filters = PublicOrderFilters {
+                    product_id: empty.then_some(Uuid::nil()),
+                    ..PublicOrderFilters::default()
+                };
+                let old_sql = order_query_sql(OLD_DISTINCT);
+                let candidate =
+                    order_query_sql_projected(OLD_DISTINCT, "o.product_id, o.delivery_point_id,")
+                        .sql()
+                        .replace(OLD_DISTINCT, &existence_tail(field));
+                let old = rows(
+                    &mut connection,
+                    &wrap(old_sql.sql(), ""),
+                    &policy,
+                    &clock,
+                    &config,
+                    &filters,
+                    &[Extra::Text(field)],
+                )
+                .await;
+                let proposed = rows(
+                    &mut connection,
+                    &wrap(&candidate, ""),
+                    &policy,
+                    &clock,
+                    &config,
+                    &filters,
+                    &[],
+                )
+                .await;
+                let shipped = rows(
+                    &mut connection,
+                    &wrap(
+                        order_query_sql_projected(distinct, "o.product_id, o.delivery_point_id,")
+                            .sql(),
+                        "",
+                    ),
+                    &policy,
+                    &clock,
+                    &config,
+                    &filters,
+                    &[],
+                )
+                .await;
+                assert_eq!(old.is_empty(), empty, "fixture must exercise both cases");
+                assert_distinct_same(&old, &proposed);
+                assert_distinct_same(&old, &shipped);
+            }
         }
+    }
+
+    // Catalog identities need not have unique labels. Keep DISTINCT and the
+    // database's collation (including NULL), not Rust sorting or key grouping.
+    // Decimal order fields are deliberately present but are not projected.
+    let fixture = r#"
+WITH products(id, name, fuel_type) AS (VALUES
+    (1, 'éthanol'::text, 'Alcohol'::text), (2, 'éthanol', 'Alcohol'),
+    (3, 'Zulu', 'biofuel'), (4, 'alpha', 'Biofuel')),
+delivery_points(id, region) AS (VALUES
+    (1, 'éurope'::text), (2, NULL::text), (3, 'Asia')),
+eligible_orders AS (
+    SELECT p.id AS product_id, dp.id AS delivery_point_id,
+           p.name AS product_name, p.fuel_type AS product_fuel_type,
+           dp.region AS delivery_point_region,
+           1234567890123456.1200::numeric AS price_per_mt_usd,
+           0.000001::numeric AS remaining_quantity_mt
+    FROM products p CROSS JOIN delivery_points dp
+    CROSS JOIN generate_series(1, 2) AS duplicate_key
+)
+"#;
+    for field in ["products", "regions", "fuel-types"] {
+        let old_sql = format!("{fixture}{OLD_DISTINCT}").replace("$14", "$1");
+        let new_sql = format!("{fixture}{}", existence_tail(field));
+        let old: Vec<String> = sqlx::query(sqlx::AssertSqlSafe(wrap(&old_sql, "")))
+            .bind(field)
+            .fetch_all(&mut *connection)
+            .await
+            .unwrap()
+            .iter()
+            .map(|row| row.get("row"))
+            .collect();
+        let new: Vec<String> = sqlx::query(sqlx::AssertSqlSafe(wrap(&new_sql, "")))
+            .fetch_all(&mut *connection)
+            .await
+            .unwrap()
+            .iter()
+            .map(|row| row.get("row"))
+            .collect();
+        assert_eq!(old.len(), 3);
+        assert_distinct_same(&old, &new);
     }
     drop(connection);
     pools.read.close().await;
