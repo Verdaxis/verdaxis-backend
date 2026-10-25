@@ -23,7 +23,7 @@ use verdaxis_read::auth::cookies::{
     AuthCookies, COOKIE_MAX_AGE_SECONDS, DEVICE_COOKIE, Presented, REFRESH_COOKIE,
 };
 use verdaxis_read::auth::error::{AUTH_BODY_LIMIT_BYTES, AuthCode, AuthFailure, read_auth_body};
-use verdaxis_read::auth::limits::{Phase2Limits, Refusal, SharedLimits};
+use verdaxis_read::auth::limits::{QuotaStores, Refusal, SharedLimits};
 use verdaxis_read::auth::origin::{require_trusted_origin, trusted_origins};
 use verdaxis_read::auth::token_bytes::generate_token;
 use verdaxis_read::runtime::http::{allowed_browser_origin, middleware, middleware_with_limits};
@@ -567,7 +567,7 @@ fn preauth_and_endpoint_limits_share_one_counter() {
         ),
     ];
     for (paths, limit) in preauth_buckets {
-        let mut limits = Phase2Limits::default();
+        let mut limits = QuotaStores::default();
         for index in 0..limit {
             let path = paths[index % paths.len()];
             assert_eq!(
@@ -605,7 +605,7 @@ fn preauth_and_endpoint_limits_share_one_counter() {
     }
 
     // The other auth routes have no pre-auth bucket.
-    let mut limits = Phase2Limits::default();
+    let mut limits = QuotaStores::default();
     for path in [
         "/api/auth/refresh",
         "/api/auth/logout",
@@ -698,7 +698,7 @@ fn preauth_and_endpoint_limits_share_one_counter() {
 
     // One request counts once in each layer: five admitted logins use five of
     // the thirty pre-auth requests.
-    let mut limits = Phase2Limits::default();
+    let mut limits = QuotaStores::default();
     for _ in 0..5 {
         assert!(limits.preauth("client", "/api/auth/login", 0));
         assert!(limits.endpoint("client", "/api/auth/login", 0));
