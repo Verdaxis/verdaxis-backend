@@ -7,8 +7,7 @@
 
 use std::sync::Arc;
 
-use http_body_util::BodyExt;
-use tower::ServiceExt;
+
 use axum::{
     Router,
     body::Body,
@@ -96,21 +95,17 @@ fn live() -> Router {
 }
 
 async fn send(router: &Router, request: Request<Body>) -> (StatusCode, Vec<(String, String)>, Vec<u8>) {
-    use tower::{Service, ServiceExt};
-    let mut service = router.clone();
-    let response = service.ready().await.unwrap().call(request).await.unwrap();
+    use tower::ServiceExt;
+    let response = router.clone().oneshot(request).await.unwrap();
     let status = response.status();
     let headers = response
         .headers()
         .iter()
         .map(|(name, value)| (name.to_string(), value.to_str().unwrap_or("").to_string()))
         .collect();
-    let bytes = response
-        .into_body()
-        .collect()
+    let bytes = axum::body::to_bytes(response.into_body(), 64 * 1024)
         .await
         .unwrap()
-        .to_bytes()
         .to_vec();
     (status, headers, bytes)
 }
