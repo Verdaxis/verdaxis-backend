@@ -808,7 +808,7 @@ impl BehavioralWindow {
         // may be partial while every core component is available.
         for property in &self.property_results {
             match property.result.status() {
-                ComponentStatus::Unavailable => unavailable += 1,
+                ComponentStatus::Unavailable | ComponentStatus::NotRequested => unavailable += 1,
                 ComponentStatus::Partial => incomplete += 1,
                 ComponentStatus::Available => {}
             }
