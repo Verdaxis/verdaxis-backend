@@ -27,8 +27,7 @@ pub mod usage;
 
 pub use activation::activation;
 pub use aggregates::{
-    ActivationFacts, ActivityFacts, DropOffFacts, EngagementFacts, LoginFacts,
-    LoginRollupRow, OverviewFacts, ProvenanceRow, QualityTracker, RetentionFacts,
+    ActivationFacts, ActivityFacts, DropOffFacts, EngagementFacts, LoginFacts, LoginSummary, OverviewFacts, ProvenanceRow, QualityTracker, RetentionFacts,
     RoleCounts, StatusFacts, TradeFacts, load_activation_facts, load_engagement_facts,
     load_overview_facts, load_retention_facts,
 };
