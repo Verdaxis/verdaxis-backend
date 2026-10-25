@@ -205,11 +205,26 @@ impl Phase2Limits {
         self.preauth_check(client, path, now).is_ok()
     }
     pub fn preauth_check(&mut self, client: &str, path: &str, now: u64) -> Result<(), Refusal> {
-        let Some((key, limit, window)) = preauth_policy(path) else { return Ok(()); };
+        let Some((key, limit, window)) = preauth_policy(path) else {
+            return Ok(());
+        };
         let owner = network_identity(client);
-        if self.preauth_store.accept(&owner,key,limit,window,now,true) { return Ok(()); }
-        let remaining = self.preauth_store.buckets.get(&(owner,key.into())).map_or(window,|bucket|bucket.expires_at.saturating_sub(now).max(1));
-        Err(Refusal { retry_after_seconds:remaining })
+        if self
+            .preauth_store
+            .accept(&owner, key, limit, window, now, true)
+        {
+            return Ok(());
+        }
+        let remaining = self
+            .preauth_store
+            .buckets
+            .get(&(owner, key.into()))
+            .map_or(window, |bucket| {
+                bucket.expires_at.saturating_sub(now).max(1)
+            });
+        Err(Refusal {
+            retry_after_seconds: remaining,
+        })
     }
     /// Pre-auth evictions since start. A plain number: it names no client.
     pub fn preauth_evictions(&self) -> u64 {
@@ -217,15 +232,26 @@ impl Phase2Limits {
     }
     /// The owner is the current verified user ID, never a transport address.
     pub fn endpoint(&mut self, user: &str, path: &str, now: u64) -> bool {
-        self.endpoint_check(user,path,now).is_ok()
+        self.endpoint_check(user, path, now).is_ok()
     }
     pub fn endpoint_check(&mut self, user: &str, path: &str, now: u64) -> Result<(), Refusal> {
-        let Some((key,limit,window)) = endpoint_policy(path) else { return Ok(()); };
-        if self.user_store.accept(user,key,limit,window,now,false) { return Ok(()); }
-        let remaining = self.user_store.buckets.get(&(user.into(),key.into())).map_or(window,|bucket|bucket.expires_at.saturating_sub(now).max(1));
-        Err(Refusal {retry_after_seconds:remaining})
+        let Some((key, limit, window)) = endpoint_policy(path) else {
+            return Ok(());
+        };
+        if self.user_store.accept(user, key, limit, window, now, false) {
+            return Ok(());
+        }
+        let remaining = self
+            .user_store
+            .buckets
+            .get(&(user.into(), key.into()))
+            .map_or(window, |bucket| {
+                bucket.expires_at.saturating_sub(now).max(1)
+            });
+        Err(Refusal {
+            retry_after_seconds: remaining,
+        })
     }
-
 }
 
 /// Pre-auth prefixes: (prefix, requests per window, window seconds). The first

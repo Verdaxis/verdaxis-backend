@@ -332,7 +332,10 @@ async fn dispatch_boundary(
     // one counter in one process. A refused request never reaches an upstream;
     // the admitted request carries the mark below.
     if request.method() == axum::http::Method::GET && path == PREAUTH_PATH {
-        if state.phase2_limits.admit_admin(&client, chrono::Utc::now().timestamp().max(0) as u64) {
+        if state
+            .phase2_limits
+            .admit_admin(&client, chrono::Utc::now().timestamp().max(0) as u64)
+        {
             return (StatusCode::NO_CONTENT, [(PREAUTH_COUNTED_HEADER, "1")]).into_response();
         }
         return rate_limit_response();
@@ -345,10 +348,10 @@ async fn dispatch_boundary(
         .get(PREAUTH_COUNTED_HEADER)
         .is_some_and(|value| value == "1");
     let quota_now = chrono::Utc::now().timestamp().max(0) as u64;
-    if !counted {
-        if let Err(refusal) = state.phase2_limits.preauth_check(&client, path, quota_now) {
-            return preauth_refusal(path, refusal);
-        }
+    if !counted
+        && let Err(refusal) = state.phase2_limits.preauth_check(&client, path, quota_now)
+    {
+        return preauth_refusal(path, refusal);
     }
     request
         .extensions_mut()
