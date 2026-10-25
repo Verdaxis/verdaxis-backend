@@ -23,8 +23,6 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use tower::ServiceExt;
 
-use verdaxis_read::runtime::http::MOUNTED_GET_PATHS;
-
 /// The exact Phase 5 routing row: method, path, and whether it serves now.
 fn phase5_routes() -> [(&'static str, &'static str, bool); 10] {
     [
@@ -68,35 +66,53 @@ async fn phase5_routing_cases() {
             .await
             .unwrap();
         if mounted {
-            // Public GET groups serve (or refuse cleanly on the unreachable
-            // database); protected routes are not mounted yet, so the public
-            // router answers 404, never a write interception.
-            assert_eq!(response.status(), StatusCode::NOT_FOUND, "{method} {path}");
+            // A mounted public GET group answers the client — 200 for the
+            // routes that validate before any database work, or the shared
+            // 503 for those that reach the unreachable database. Either way
+            // the route is served, not intercepted elsewhere.
+            assert!(
+                response.status() == StatusCode::OK
+                    || response.status() == StatusCode::SERVICE_UNAVAILABLE,
+                "{method} {path} answered {}",
+                response.status()
+            );
         } else {
+            // The protected compliance routes are composed but not mounted in
+            // the public router: it answers 404, never a write interception.
             assert_eq!(response.status(), StatusCode::NOT_FOUND, "{method} {path}");
         }
     }
 
-    // The mounted public GET groups keep their method rules: every non-GET
+    // The Phase 5 public GET groups keep their method rules: every non-GET
     // method is refused 405 with `Allow: GET`, and a trailing slash redirects
-    // with query and host preserved.
-    for path in MOUNTED_GET_PATHS
-        .iter()
-        .filter(|path| path.starts_with("/api/"))
-    {
+    // with query and host preserved. Phase 1's own contract pins its paths,
+    // including the documented 401 boundary on POST /api/orderbook.
+    let phase5_public = [
+        "/api/benchmarks",
+        "/api/availability",
+        "/api/demand",
+        "/api/fleet-intelligence",
+        "/api/producers",
+        "/api/compliance/fuels",
+    ];
+    for path in phase5_public {
         for method in ["HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"] {
             let response = assembled
                 .clone()
                 .oneshot(
                     Request::builder()
                         .method(method)
-                        .uri(*path)
+                        .uri(path)
                         .body(Body::empty())
                         .unwrap(),
                 )
                 .await
                 .unwrap();
-            assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED, "{method} {path}");
+            assert_eq!(
+                response.status(),
+                StatusCode::METHOD_NOT_ALLOWED,
+                "{method} {path}"
+            );
             assert_eq!(response.headers()["allow"], "GET", "{method} {path}");
         }
         let response = assembled
@@ -193,9 +209,13 @@ fn phase5_snippet_row_is_exact() {
 #[test]
 fn phase5_one_switch_rollback_form() {
     let snippet = snippet_path_row();
+    let directives = snippet
+        .lines()
+        .filter(|line| !line.trim_start().starts_with('#'))
+        .filter(|line| line.trim_start().starts_with("import"))
+        .count();
     assert_eq!(
-        snippet.matches("import").count(),
-        0,
+        directives, 0,
         "the snippet is imported by the site, not the other way round"
     );
     assert!(
@@ -207,7 +227,10 @@ fn phase5_one_switch_rollback_form() {
     // arguments alone.
     let handles = snippet.matches("reverse_proxy").count();
     let fallbacks = snippet.matches("{args[1]}").count();
-    assert!(handles > 0 && fallbacks == handles, "every group falls back to Python");
+    assert!(
+        handles > 0 && fallbacks == handles,
+        "every group falls back to Python"
+    );
 }
 
 /// The same unreachable-database state the contract tests use: a lazy pool
@@ -242,8 +265,17 @@ fn unreachable_state() -> (verdaxis_read::AppState, sqlx::PgPool) {
         "../../../deploy/rust/market-policy.json"
     ))
     .unwrap_or_else(|error| panic!("policy fixture: {error}"));
-    let state =
-        verdaxis_read::AppState::new(config, verdaxis_read::runtime::db::Pools { read, health }, policy)
-            .unwrap();
-    (state, sqlx::postgres::PgPool::connect_lazy("postgres://fixture:fixture_pw@127.0.0.1:1/fixture_test").unwrap())
+    let state = verdaxis_read::AppState::new(
+        config,
+        verdaxis_read::runtime::db::Pools { read, health },
+        policy,
+    )
+    .unwrap();
+    (
+        state,
+        sqlx::postgres::PgPool::connect_lazy(
+            "postgres://fixture:fixture_pw@127.0.0.1:1/fixture_test",
+        )
+        .unwrap(),
+    )
 }

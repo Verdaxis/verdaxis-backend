@@ -42,9 +42,21 @@ score calculation; both use `market::fueleu` for the reference, the penalty and
 the reporting-year limits. `rs/read/src/routes/compliance_fuels.rs` serves the
 constant illustrative fuel-intensity table at `GET /api/compliance/fuels`, with
 no database read or authentication. The other compliance routes reach the pure
-cores through their authenticated adapters.
-`rs/read/tests/phase5_compliance_scores_core.rs` and
-`rs/read/tests/phase5_compliance_fuels.rs` cover them.
+cores through their authenticated adapters: `routes::compliance_scores` serves
+the fleet summary, vessel score and scenario reads, and
+`routes::compliance_overlay` the pricing-overlay POST, both built on the shared
+authenticated helper and their one-statement SQL (`sql/compliance_fleet.sql`,
+`sql/compliance_vessel.sql`, `sql/compliance_overlay.sql`), which also covers
+the organization-scoped vessel count. `rs/read/tests/phase5_compliance_scores.rs`,
+`rs/read/tests/phase5_compliance_overlay.rs` and
+`rs/read/tests/phase5_compliance_fuels.rs` cover them;
+`rs/read/tests/phase5_postgres.rs` adds the cross-group integration cases and
+`rs/read/tests/run_compliance_scores.sh` runs the migrated matrix.
+`rs/read/tests/phase5_routing.rs` and `deploy/caddy/rust-phase5.caddy` pin the
+exact ten-route row of the one-switch form, with `scripts/rust_phase5_candidate.py`
+producing the private site candidate; nothing is imported on any host.
+`tests/rust_contract/phase5/evidence-manifest.json` and `test_phase5_gate.py`
+carry the neutral release evidence checks.
 
 ## Phase 5 public market reads
 

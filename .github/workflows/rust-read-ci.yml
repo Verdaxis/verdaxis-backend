@@ -96,6 +96,14 @@ jobs:
           DATABASE_URL: "sqlite+aiosqlite:///:memory:"
         run: venv/bin/python -m pytest tests/rust_contract/test_phase2_scenarios.py tests/rust_contract/test_phase2_runner.py -q
 
+      - name: Run Phase 5 inventory and gate tests
+        env:
+          ENVIRONMENT: test
+          RELEASE_SHA: test
+          JWT_SECRET: test-secret-key-for-testing-minimum-32-characters-long
+          DATABASE_URL: "sqlite+aiosqlite:///:memory:"
+        run: venv/bin/python -m pytest tests/rust_contract/test_phase5_inventory.py tests/rust_contract/test_phase5_gate.py -q
+
       - name: Check dependency advisories
         working-directory: rs
         run: |
