@@ -34,7 +34,7 @@ REVIEWED_EXCLUSIONS = {
     "port_intelligence": "reference domain: the separate 60-second reference cache",
     "notifications": "private authenticated path; never cached",
     "referrals": "private authenticated path; never cached",
-    "vessels": "private organization-scoped compliance overlay read; never cached",
+    "vessels": "private organization-scoped compliance reads (overlay, fleet, vessel score); never cached",
     "watchlists": "private authenticated path; never cached",
     "watchlist_entries": "private authenticated watchlist membership; never cached",
     "watchlist_targets": "private authenticated watchlist targets; never cached",

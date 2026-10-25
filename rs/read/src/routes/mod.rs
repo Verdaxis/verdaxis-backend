@@ -2,6 +2,8 @@ pub mod availability;
 pub mod benchmark_quotes;
 pub mod catalog;
 pub mod compliance_fuels;
+pub mod compliance_overlay;
+pub mod compliance_scores;
 pub mod demand;
 pub mod fleet_intelligence;
 // Phase 2 Task 10: feedback route registration.

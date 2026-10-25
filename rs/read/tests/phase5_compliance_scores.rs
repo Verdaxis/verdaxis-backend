@@ -5,9 +5,12 @@
 //! no-organization and admin actors plus the exact generic scenario echo),
 //! `compliance_label_cases` (generic label bounds and exact echo),
 //! `compliance_fleet_limits` (2000 accepted, 2001 refused, complete counts)
-//! and `compliance_score_snapshot_cases` (one vessel statement, validated year
-//! and mix order, and the stored-value projections). The helper-commit and
-//! no-DML assertion lives in `compliance_score_helper_commit_postgres`.
+//! and `compliance_score_scenario_projection_cases` (one vessel statement and
+//! the scenario projections: validated year and mix order, the generic
+//! identity echo, stored ratings, the empty-rating fallback and the exact
+//! accepted request shape). The one-statement fleet snapshot, the helper
+//! commit and the no-DML assertion live in
+//! `compliance_score_helper_commit_postgres`.
 //!
 //! The populated tenant matrix runs only against an explicit disposable
 //! PostgreSQL database; it seeds the accepted `vessels`, `users` and
@@ -414,8 +417,8 @@ fn compliance_fleet_limits() {
 }
 
 #[test]
-fn compliance_score_snapshot_cases() {
-    // The fleet read is one statement over the effective scope.
+fn compliance_score_scenario_projection_cases() {
+    // The fleet and vessel reads are one statement over the effective scope.
     let fleet = include_str!("../sql/compliance_fleet.sql");
     assert_eq!(fleet.matches("SELECT").count(), 1);
     assert_eq!(fleet.matches(';').count(), 0);
