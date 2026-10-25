@@ -571,14 +571,14 @@ fn preauth_and_endpoint_limits_share_one_counter() {
         for index in 0..limit {
             let path = paths[index % paths.len()];
             assert_eq!(
-                limits.preauth_check("client", path, 0),
+                limits.preauth_check("192.0.2.10", path, 0),
                 Ok(()),
                 "{path} #{index}"
             );
         }
         for path in paths {
             assert_eq!(
-                limits.preauth_check("client", path, 0),
+                limits.preauth_check("192.0.2.10", path, 0),
                 Err(Refusal {
                     retry_after_seconds: 60
                 }),
@@ -586,18 +586,18 @@ fn preauth_and_endpoint_limits_share_one_counter() {
             );
         }
         assert_eq!(
-            limits.preauth_check("client", paths[0], 45),
+            limits.preauth_check("192.0.2.10", paths[0], 45),
             Err(Refusal {
                 retry_after_seconds: 15
             })
         );
         assert_eq!(
-            limits.preauth_check("other-client", paths[0], 45),
+            limits.preauth_check("192.0.2.11", paths[0], 45),
             Ok(()),
             "each client has its own counter"
         );
         assert_eq!(
-            limits.preauth_check("client", paths[0], 60),
+            limits.preauth_check("192.0.2.10", paths[0], 60),
             Ok(()),
             "{} resets after one minute",
             paths[0]
@@ -617,7 +617,7 @@ fn preauth_and_endpoint_limits_share_one_counter() {
         "/api/auth/resend-verification-email",
     ] {
         for _ in 0..100 {
-            assert_eq!(limits.preauth_check("client", path, 0), Ok(()), "{path}");
+            assert_eq!(limits.preauth_check("192.0.2.10", path, 0), Ok(()), "{path}");
         }
     }
 

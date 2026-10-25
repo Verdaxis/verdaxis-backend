@@ -296,7 +296,7 @@ def test_real_rust_authority_stops_mixed_caddy_at_301(tmp_path):
     port = unused_port()
     log = (tmp_path / "rust-authority.log").open("w")
     process = subprocess.Popen(
-        [str(ROOT / "rs/target/debug/examples/preauth_server")], cwd=ROOT,
+        [str(Path(environment.get("CARGO_TARGET_DIR", ROOT / "rs/target")) / "debug/examples/preauth_server")], cwd=ROOT,
         env={**environment, "ENVIRONMENT": "test", "PHASE2_BIND": f"127.0.0.1:{port}"},
         stdout=log, stderr=log)
     try:
