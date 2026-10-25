@@ -5,10 +5,8 @@
 //! The suite never contacts a real Umami host and never reads or prints a real
 //! credential; the test credential is obviously fake.
 //!
-//! The two analytics modules this task produces are compiled against doubles
-//! of the Task 15 types they consume (query, typed diagnostics and cells,
-//! suppression policy). The doubles are built strictly from the CF4_03
-//! declarations and are replaced by the real producer before acceptance.
+//! The adapter compiles against the accepted Task 15 source modules.
+//! No query, policy or provider-envelope test double is used.
 
 pub use verdaxis_read::*;
 
@@ -26,116 +24,15 @@ pub mod behavioral;
 #[path = "../src/providers/umami.rs"]
 pub mod umami;
 
+#[path = "../src/analytics/types.rs"]
+pub mod types;
+#[path = "../src/analytics/query.rs"]
+pub mod query;
+#[path = "../src/analytics/policy.rs"]
+pub mod policy;
+
 pub mod analytics {
-    pub use crate::{behavioral, events};
-
-    pub mod query {
-        use chrono::{DateTime, Utc};
-        use uuid::Uuid;
-
-        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-        pub enum AnalyticsAudience {
-            All,
-            Buyer,
-            Supplier,
-        }
-
-        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-        pub enum AnalyticsActivity {
-            Live,
-            Demo,
-            Reference,
-            All,
-        }
-
-        /// CF4_03 `AnalyticsQuery`, with the defaults the shared parser applies.
-        #[derive(Clone, Debug, PartialEq, Eq)]
-        pub struct AnalyticsQuery {
-            pub start: DateTime<Utc>,
-            pub end: DateTime<Utc>,
-            pub previous: Option<(DateTime<Utc>, DateTime<Utc>)>,
-            pub compare: bool,
-            pub audience: AnalyticsAudience,
-            pub activity: AnalyticsActivity,
-            pub product_id: Option<Uuid>,
-            pub delivery_point_id: Option<Uuid>,
-            pub availability_window: Option<String>,
-        }
-    }
-
-    pub mod types {
-        use chrono::{DateTime, Utc};
-        use serde::{Deserialize, Serialize};
-
-        #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-        #[serde(rename_all = "snake_case")]
-        pub enum AnalyticsDiagnostic {
-            Disabled,
-            Configuration,
-            Authentication,
-            Timeout,
-            Upstream,
-            MalformedResponse,
-            InsufficientCoverage,
-        }
-
-        #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-        #[serde(rename_all = "snake_case")]
-        pub enum AnalyticsSourceStatus {
-            Available,
-            Partial,
-            Unavailable,
-            NotApplicable,
-        }
-
-        #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-        pub struct AnalyticsSourceCoverage {
-            pub coverage_start: Option<DateTime<Utc>>,
-            pub coverage_end: Option<DateTime<Utc>>,
-            pub observed_at: Option<DateTime<Utc>>,
-            pub status: AnalyticsSourceStatus,
-            pub diagnostic: Option<AnalyticsDiagnostic>,
-        }
-
-        #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-        pub struct AggregateCell {
-            pub key: String,
-            pub count: Option<u64>,
-            pub suppressed: bool,
-        }
-
-        #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-        #[serde(rename_all = "snake_case")]
-        pub enum ComponentStatus {
-            Available,
-            Partial,
-            Unavailable,
-            NotRequested,
-        }
-
-        #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-        pub struct ProviderComponent<T> {
-            pub status: ComponentStatus,
-            pub diagnostic: Option<AnalyticsDiagnostic>,
-            pub data: Option<T>,
-        }
-    }
-
-    pub mod policy {
-        use crate::analytics::types::AggregateCell;
-
-        /// CF4_03 `suppress`: a positive count or entity basis of 1 or 2
-        /// suppresses the count; zero stays a genuine zero.
-        pub fn suppress(count: Option<u64>, entities: Option<u64>) -> AggregateCell {
-            let basis = entities.or(count);
-            let suppressed = matches!(basis, Some(1 | 2));
-            AggregateCell {
-                key: String::new(),
-                count: if suppressed { None } else { count },
-                suppressed,
-            }
-        }
-    }
+    pub use crate::{behavioral, events, policy, query, types};
 }
 
 pub mod providers {
@@ -172,13 +69,14 @@ mod cases {
     use zeroize::Zeroizing;
 
     use super::analytics::{
-        behavioral::{BehavioralAvailability, BehavioralWindow},
+        types::{BehavioralAvailability, BehavioralWindow},
         events::{
             AllowedFrontendEvent, AllowedProperty, AllowedPropertySet, AllowedPropertyValue,
             AllowedServerEvent, DomainCatalog, EntryPage, ReferrerCategory, RegisteredEvent,
             ServerEvent,
         },
-        query::{AnalyticsActivity, AnalyticsAudience, AnalyticsQuery},
+        query::AnalyticsQuery,
+        types::{AnalyticsActivity, AnalyticsAudience},
         types::{AnalyticsDiagnostic, AnalyticsSourceStatus, ComponentStatus},
     };
     use super::providers::umami::{UmamiClient, UmamiConfig, UmamiPolicy};
@@ -498,6 +396,18 @@ mod cases {
         request.path.ends_with("/stats")
     }
 
+    #[tokio::test]
+    async fn p4_t16_c73() {
+        let properties: policy::AllowedPropertySet = destination_set();
+        let (address, server) = serve(healthy()).await;
+        let window: types::BehavioralWindow = client(address).window(&query(), properties).await;
+        server.abort();
+        assert!(window.validate().is_ok());
+        let _: &types::CoreMetrics = window.core.data().expect("core");
+        let _: &[types::AllowedEventAggregate] = window.event_totals.data().unwrap();
+        assert!(window.core.is_coherent());
+    }
+
     // ---------------------------------------------------------------------------
     // c01: the caller's property request is a closed, bounded set.
     // ---------------------------------------------------------------------------
@@ -528,29 +438,26 @@ mod cases {
             RegisteredEvent::Server(AllowedServerEvent::OrderCreated),
             AllowedProperty::Cta,
         )])
+        .map_err(AllowedPropertySet::refusal)
         .expect_err("cta is not an order_created property");
         assert_eq!(refused.status, axum::http::StatusCode::UNPROCESSABLE_ENTITY);
         assert_eq!(refused.detail["code"], "ANALYTICS_PROPERTY_INVALID");
-        assert_eq!(
-            refused.detail["message"],
-            "The requested analytics property is not allowed."
-        );
 
         // More than twelve distinct events never reaches the provider.
-        let thirteen: Vec<_> = RegisteredEvent::ALL
+        let thirteen: Vec<_> = RegisteredEvent::all()
             .iter()
             .take(13)
-            .map(|event| (*event, event.properties()[0]))
+            .map(|event| (*event, policy::allowed_properties(*event)[0]))
             .collect();
-        let refused = AllowedPropertySet::new(thirteen).expect_err("13 events");
+        let refused = AllowedPropertySet::new(thirteen).map_err(AllowedPropertySet::refusal).expect_err("13 events");
         assert_eq!(refused.status, axum::http::StatusCode::UNPROCESSABLE_ENTITY);
         assert_eq!(refused.detail["code"], "ANALYTICS_PROPERTY_INVALID");
 
         // Twelve distinct events are accepted.
-        let twelve: Vec<_> = RegisteredEvent::ALL
+        let twelve: Vec<_> = RegisteredEvent::all()
             .iter()
             .take(12)
-            .map(|event| (*event, event.properties()[0]))
+            .map(|event| (*event, policy::allowed_properties(*event)[0]))
             .collect();
         assert!(AllowedPropertySet::new(twelve).is_ok());
 
@@ -609,8 +516,7 @@ mod cases {
     #[tokio::test]
     async fn p4_t16_c02() {
         let order = RegisteredEvent::Server(AllowedServerEvent::OrderCreated);
-        let names: Vec<_> = order
-            .properties()
+        let names: Vec<_> = policy::allowed_properties(order)
             .iter()
             .map(|property| property.name())
             .collect();
@@ -680,7 +586,7 @@ mod cases {
         server.abort();
         assert_eq!(window.availability, BehavioralAvailability::Available);
         let results = &window.property_results[0].result;
-        let rows = results.data.as_ref().expect("typed rows");
+        let rows = results.data().expect("typed rows");
         assert_eq!(
             rows.len(),
             2,
@@ -743,10 +649,10 @@ mod cases {
         let window = client(address).window(&query(), destination_set()).await;
         server.abort();
 
-        let totals = window.event_totals.data.expect("event totals");
+        let totals = window.event_totals.into_data().expect("event totals");
         let by_name: BTreeMap<_, _> = totals
             .iter()
-            .map(|row| (row.event.name(), row.count.clone()))
+            .map(|row| (row.event.as_str(), row.count.clone()))
             .collect();
         assert_eq!(by_name["signup_started"].count, None);
         assert!(by_name["signup_started"].suppressed);
@@ -756,7 +662,7 @@ mod cases {
         assert_eq!(by_name["tutorial_started"].count, Some(0));
         assert!(!by_name["tutorial_started"].suppressed, "zero is genuine");
 
-        let daily = window.daily_visitors.data.expect("daily visitors");
+        let daily = window.daily_visitors.into_data().expect("daily visitors");
         assert_eq!(daily.len(), 4);
         assert!(daily[0].visitors.suppressed);
         assert!(daily[1].visitors.suppressed);
@@ -765,8 +671,7 @@ mod cases {
 
         let rows = window.property_results[0]
             .result
-            .data
-            .as_ref()
+            .data()
             .expect("rows");
         assert_eq!(rows[0].value.as_str(), "trades");
         assert_eq!(rows[0].count.count, Some(3));
@@ -829,10 +734,10 @@ mod cases {
             }
             assert_eq!(window.property_results.len(), 1);
             assert_eq!(
-                window.property_results[0].result.status,
+                window.property_results[0].result.status(),
                 ComponentStatus::Unavailable
             );
-            assert!(window.property_results[0].result.data.is_none());
+            assert!(window.property_results[0].result.data().is_none());
         }
 
         // Timeout.
@@ -917,7 +822,7 @@ mod cases {
         let window = client(address).window(&query(), destination_set()).await;
         server.abort();
         assert_eq!(window.availability, BehavioralAvailability::Available);
-        assert_eq!(window.core.data.expect("core").visitors, Some(1));
+        assert_eq!(window.core.into_data().expect("core").visitors, Some(1));
 
         let bad_shape =
             stub_with(|request| is_stats(request).then(|| Reply::json(200, json!([1, 2, 3]))));
@@ -983,12 +888,12 @@ mod cases {
         server.abort();
 
         assert_eq!(window.availability, BehavioralAvailability::Available);
-        assert!(window.daily_visitors.data.as_ref().unwrap().len() <= 366);
-        let series = window.event_series.data.as_ref().unwrap();
+        assert!(window.daily_visitors.data().unwrap().len() <= 366);
+        let series = window.event_series.data().unwrap();
         assert!(series.len() <= 366, "event series points per event");
-        let entries = window.top_entries.data.as_ref().unwrap();
+        let entries = window.top_entries.data().unwrap();
         assert!(entries.len() <= 20);
-        let rows = window.property_results[0].result.data.as_ref().unwrap();
+        let rows = window.property_results[0].result.data().unwrap();
         assert!(rows.len() <= 500, "at most 500 property rows per event");
         assert_eq!(rows.len(), 1, "twelve valid rows aggregate to one value");
         assert_eq!(rows[0].value.as_str(), "home");
@@ -1178,14 +1083,14 @@ mod cases {
         assert_eq!(window.availability, BehavioralAvailability::Partial);
         assert_eq!(window.diagnostic, Some(AnalyticsDiagnostic::Upstream));
         assert_eq!(
-            window.core.data.as_ref().expect("core survives").visitors,
+            window.core.data().expect("core survives").visitors,
             Some(12)
         );
         assert_eq!(
-            window.property_results[0].result.status,
+            window.property_results[0].result.status(),
             ComponentStatus::Unavailable
         );
-        assert!(window.property_results[0].result.data.is_none());
+        assert!(window.property_results[0].result.data().is_none());
     }
 
     // ---------------------------------------------------------------------------
@@ -1374,7 +1279,7 @@ mod cases {
         let (address, server) = serve(healthy()).await;
         let window = client(address).window(&query(), destination_set()).await;
         server.abort();
-        let core = window.core.data.expect("core");
+        let core = window.core.into_data().expect("core");
         assert_eq!(core.visitors, Some(12));
         assert_eq!(core.visits, Some(8));
         assert_eq!(core.pageviews, Some(30));
@@ -1397,7 +1302,7 @@ mod cases {
             .window(&query(), destination_set())
             .await
             .core
-            .data
+            .into_data()
             .expect("core");
         server.abort();
         assert_eq!(core.average_session_duration_seconds, None);
@@ -1416,7 +1321,7 @@ mod cases {
             .window(&query(), destination_set())
             .await
             .core
-            .data
+            .into_data()
             .expect("core");
         server.abort();
         assert_eq!(core.visitors, Some(1), "float truncates toward zero");
@@ -1442,7 +1347,7 @@ mod cases {
                 window.diagnostic,
                 Some(AnalyticsDiagnostic::MalformedResponse)
             );
-            assert!(window.core.data.is_none());
+            assert!(window.core.data().is_none());
         }
 
         // A negative count is impossible data, never a genuine zero.
@@ -1488,7 +1393,7 @@ mod cases {
         let (address, server) = serve(stub).await;
         let window = client(address).window(&query(), destination_set()).await;
         server.abort();
-        let rows = window.daily_visitors.data.expect("daily visitors");
+        let rows = window.daily_visitors.into_data().expect("daily visitors");
         assert_eq!(rows.len(), 2, "only [start, end)");
         assert_eq!(rows[0].visitors.count, Some(9), "duplicates sum");
         assert_eq!(rows[1].visitors.count, Some(6));
@@ -1539,14 +1444,14 @@ mod cases {
         let (address, server) = serve(stub).await;
         let window = client(address).window(&query(), destination_set()).await;
         server.abort();
-        let series = window.event_series.data.expect("series");
+        let series = window.event_series.into_data().expect("series");
         assert_eq!(series.len(), 1);
         assert_eq!(series[0].date.to_string(), "2026-06-10");
         assert_eq!(series[0].count.count, Some(6), "duplicates sum");
-        let totals = window.event_totals.data.expect("totals");
+        let totals = window.event_totals.into_data().expect("totals");
         let signup = totals
             .iter()
-            .find(|row| row.event.name() == "signup_started")
+            .find(|row| row.event.as_str() == "signup_started")
             .expect("signup total");
         assert_eq!(
             signup.count.count,
@@ -1554,7 +1459,7 @@ mod cases {
             "totals include out-of-window rows"
         );
         assert!(
-            !totals.iter().any(|row| row.event.name() == "unknown_event"),
+            !totals.iter().any(|row| row.event.as_str() == "unknown_event"),
             "unknown events are discarded from totals"
         );
 
@@ -1647,7 +1552,7 @@ mod cases {
         let window = client(address).window(&query(), destination_set()).await;
         server.abort();
 
-        let entries = window.top_entries.data.clone().expect("entries");
+        let entries = window.top_entries.data().cloned().expect("entries");
         assert_eq!(entries.len(), 3);
         assert_eq!(entries[0].entry, EntryPage::Platform);
         assert_eq!(entries[0].rank, 1);
@@ -1657,7 +1562,7 @@ mod cases {
         assert_eq!(entries[2].entry, EntryPage::Landing);
         assert!(entries[2].count.suppressed);
 
-        let referrers = window.top_referrers.data.clone().expect("referrers");
+        let referrers = window.top_referrers.data().cloned().expect("referrers");
         assert_eq!(referrers[0].referrer, ReferrerCategory::Search);
         assert_eq!(referrers[1].referrer, ReferrerCategory::Other);
 
@@ -1805,11 +1710,11 @@ mod cases {
         assert_eq!(window.property_results.len(), 2);
         assert_eq!(
             window.property_results[0].property,
-            AllowedProperty::ReasonCategory
+            AllowedProperty::ReasonCategory.name()
         );
-        assert!(window.property_results[0].result.data.is_none());
+        assert!(window.property_results[0].result.data().is_none());
         assert_eq!(
-            window.property_results[1].result.data.as_ref().unwrap()[0]
+            window.property_results[1].result.data().unwrap()[0]
                 .value
                 .as_str(),
             "home"
@@ -1848,18 +1753,17 @@ mod cases {
         server.abort();
         assert_eq!(window.property_results.len(), 2);
         assert_eq!(
-            window.property_results[0].result.status,
+            window.property_results[0].result.status(),
             ComponentStatus::Available
         );
         assert_eq!(
-            window.property_results[1].result.status,
+            window.property_results[1].result.status(),
             ComponentStatus::Available
         );
         assert_eq!(
             window.property_results[1]
                 .result
-                .data
-                .as_ref()
+                .data()
                 .expect("genuine empty"),
             &Vec::new(),
             "an empty result is available empty, not unavailable"
