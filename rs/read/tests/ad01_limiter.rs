@@ -1,6 +1,6 @@
 //! The bounded, evicting client store behind the AD-01 price limits: a flood
-//! of distinct addresses cannot grow the store past its bound or silence a
-//! client that is still inside its own window, and IPv6 clients share one /64
+//! of distinct addresses cannot grow the store past its bound. Retained spent
+//! buckets keep their refusal, and IPv6 clients share one /64
 //! bucket instead of one bucket per full address.
 use std::net::Ipv4Addr;
 
@@ -44,6 +44,41 @@ fn a_client_over_its_limit_keeps_its_refusal_through_a_later_flood() {
     assert!(!store.accept("203.0.113.7", PRICES, LIMIT, 3_000));
     // Its window, begun at its first admitted request, still ends on time.
     assert!(store.accept("203.0.113.7", PRICES, LIMIT, 62_000));
+}
+
+#[test]
+fn expiration_cleanup_is_bounded_and_makes_progress() {
+    let mut store = ClientBuckets::default();
+    for index in 0..50_000_u32 {
+        assert!(store.accept(&Ipv4Addr::from(index).to_string(), PRICES, LIMIT, 1_000));
+    }
+    // This identity sorts after the expired entries, so resetting it must not
+    // depend on reaching it through background cleanup. The 32-entry batch
+    // removes other entries; removing and replacing the caller is size-neutral.
+    let client = Ipv4Addr::from(49_999_u32).to_string();
+    assert!(store.accept(&client, PRICES, LIMIT, 61_000));
+    assert_eq!(store.entries(), 50_000 - 32);
+    for _ in 0..50_000_usize.div_ceil(32) {
+        let before = store.entries();
+        // Repeated refusals must also make cleanup progress without resetting
+        // the spent bucket or exceeding the per-request cleanup budget.
+        assert!(!store.accept(&client, PRICES, 1, 61_000));
+        assert_eq!(store.entries(), before.saturating_sub(32).max(1));
+    }
+    assert_eq!(store.entries(), 1);
+    assert!(!store.accept(&client, PRICES, 1, 61_000));
+    assert_eq!(store.evictions(), 0);
+}
+
+#[test]
+fn a_new_client_removes_only_one_cleanup_batch_after_all_buckets_expire() {
+    let mut store = ClientBuckets::default();
+    for index in 0..50_000_u32 {
+        assert!(store.accept(&Ipv4Addr::from(index).to_string(), PRICES, LIMIT, 1_000));
+    }
+    assert!(store.accept("203.0.113.7", PRICES, LIMIT, 61_000));
+    assert_eq!(store.entries(), 50_000 - 32 + 1);
+    assert_eq!(store.evictions(), 0);
 }
 
 #[test]
@@ -101,7 +136,7 @@ fn the_window_resets_exactly_sixty_seconds_after_its_first_admission() {
 }
 
 #[tokio::test]
-async fn a_distinct_client_flood_never_locks_out_or_silences_a_limited_client() {
+async fn a_small_distinct_client_flood_preserves_a_retained_clients_refusal() {
     use axum::{Router, body::Body, http::Request, routing::get};
     use tower::ServiceExt;
     use verdaxis_read::runtime::http::middleware;
@@ -139,7 +174,7 @@ async fn a_distinct_client_flood_never_locks_out_or_silences_a_limited_client() 
         .unwrap(),
         serde_json::json!({"detail":"Rate limit exceeded: 60 per 1 minute"})
     );
-    // A flood of other clients is admitted and never resets the spent bucket.
+    // Below capacity, these other clients do not evict the spent bucket.
     for host in 1..=250_u32 {
         let client: &'static str = Box::leak(format!("203.0.113.{host}").into_boxed_str());
         assert_eq!(call(client).await.status(), 200, "{client}");

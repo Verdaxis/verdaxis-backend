@@ -664,3 +664,78 @@ fn network_identity(client: &str) -> String {
         Err(_) => "unknown".into(),
     }
 }
+
+#[cfg(test)]
+mod limiter_tests {
+    use super::*;
+    use axum::{body::Body, http::Request, routing::get};
+    use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn poisoned_price_accounting_recovers_without_resetting_spent_quotas() {
+        let state = HttpState {
+            started: Instant::now(),
+            buckets: Arc::new(Mutex::new(ClientBuckets::default())),
+            phase2_limits: Arc::new(Mutex::new(crate::auth::limits::Phase2Limits::default())),
+        };
+        let paths = [
+            ("/api/prices", 60),
+            ("/api/prices/reference", 30),
+            ("/api/prices/reference/export", 10),
+        ];
+        {
+            let mut buckets = state.buckets.lock().unwrap();
+            for (path, limit) in paths {
+                for _ in 0..limit {
+                    assert!(buckets.accept("unknown", path, limit, 0));
+                }
+            }
+        }
+        let buckets = state.buckets.clone();
+        assert!(std::thread::spawn(move || {
+            let _guard = buckets.lock().unwrap();
+            panic!("test unwind while holding price accounting");
+        })
+        .join()
+        .is_err());
+        assert!(state.buckets.is_poisoned());
+        let mut routes = Router::new();
+        for (path, _) in paths {
+            routes = routes.route(path, get(|| async { "prices" }));
+        }
+        let app = routes.layer(middleware::from_fn_with_state(state.clone(), dispatch_boundary));
+        for (path, limit) in paths {
+            let response = app
+                .clone()
+                .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+            assert!(response.headers().get("retry-after").is_none());
+            let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
+            assert_eq!(
+                serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
+                serde_json::json!({"detail": format!("Rate limit exceeded: {limit} per 1 minute")})
+            );
+        }
+        assert!(!state.buckets.is_poisoned());
+        let buckets = state.buckets.lock().unwrap();
+        assert_eq!(buckets.entries(), 3);
+        assert_eq!(buckets.expiration.len(), 3);
+    }
+
+    #[test]
+    fn bounded_cleanup_keeps_one_index_tuple_per_identity() {
+        let mut store = ClientBuckets::default();
+        for index in 0..50_000_u32 {
+            assert!(store.accept(&std::net::Ipv4Addr::from(index).to_string(), "/api/prices", 1, 0));
+        }
+        for now in [60_000, 120_000, 180_000] {
+            assert!(store.accept("0.0.195.79", "/api/prices", 1, now));
+            assert_eq!(store.expiration.len(), store.buckets.len());
+            for (identity, (started, _)) in &store.buckets {
+                assert!(store.expiration.contains(&(started + WINDOW_MS, identity.clone())));
+            }
+        }
+    }
+}
