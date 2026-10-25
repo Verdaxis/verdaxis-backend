@@ -137,7 +137,7 @@ impl Fixture {
         body["id"].as_str().unwrap().parse().unwrap()
     }
     async fn counts(&mut self) -> (i64, i64, i64) {
-        let row=sqlx::query("SELECT (SELECT count(*) FROM market_event_outbox WHERE participant_org_ids::jsonb @> jsonb_build_array($1::text)) AS events,(SELECT count(*) FROM audit_logs WHERE user_id=$2) AS audits,(SELECT count(*) FROM notifications WHERE user_id=$2) AS notifications").bind(self.organization).bind(self.actor).fetch_one(&mut self.admin).await.unwrap();
+        let row=sqlx::query("SELECT (SELECT count(*) FROM market_event_outbox WHERE participant_org_ids::jsonb @> jsonb_build_array($1::text)) AS events,(SELECT count(*) FROM audit_logs WHERE user_id=$2) AS audits,(SELECT count(*) FROM notifications WHERE recipient_id=$2) AS notifications").bind(self.organization).bind(self.actor).fetch_one(&mut self.admin).await.unwrap();
         (
             row.get("events"),
             row.get("audits"),
@@ -295,7 +295,7 @@ async fn inventory_indicative_admission_does_not_require_execution_kyc() {
     }
     sqlx::query("UPDATE users SET kyc_organization_id=$2 WHERE id=$1")
         .bind(f.actor)
-        .bind(Uuid::new_v4())
+        .bind(Fixture::new().await.organization)
         .execute(&mut f.admin)
         .await
         .unwrap();
@@ -484,7 +484,7 @@ async fn inventory_update_tracks_changes_without_additional_effects() {
         let payload:Value=sqlx::query_scalar("SELECT payload FROM market_event_outbox WHERE aggregate_id=$1 AND event_type='inventory_updated' ORDER BY created_at DESC LIMIT 1").bind(id.to_string()).fetch_one(&mut f.admin).await.unwrap();
         assert_eq!(
             payload.get("_public_market_invalidation").is_some(),
-            patch.as_object().unwrap().len() > 0
+            !patch.as_object().unwrap().is_empty()
         );
     }
     assert_eq!(f.counts().await, (3, 0, 0));

@@ -327,14 +327,18 @@ impl MarketCommand for InventoryCommand {
                     .fetch_optional(&mut *conn)
                     .await?
                     .flatten();
-            let parties = PartyLockPreview::new(org, [], actor, json!({"organization_id":org}));
+            let exists = if let (Some(id), Some(org)) = (self.action.id(), org) {
+                sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM inventory_items WHERE id=$1 AND supplier_id=$2)")
+                    .bind(id).bind(org).fetch_one(&mut *conn).await?
+            } else { false };
+            let parties = PartyLockPreview::new(org, [], actor, json!({"organization_id":org,"owned_item_exists":exists}));
             let mut locks = OperationLockPlan::new(if self.action.id().is_some() {
                 MarketOperation::InventoryEdit
             } else {
                 MarketOperation::InventoryCreate
             });
             locks.parties(&parties)?;
-            if let Some(id) = self.action.id() {
+            if let Some(id) = self.action.id().filter(|_| exists) {
                 locks.inventory([id])?;
             }
             Ok(MarketPreview { parties, locks })
@@ -520,7 +524,7 @@ impl<'a> InventoryPort<'a> {
     }
     async fn owned(&mut self, id: Uuid, org: Uuid) -> Result<Value, MarketWriteError> {
         if !self.locked.contains(LockClass::Inventory, id) {
-            return Err(MarketWriteError::new(MarketErrorCode::MarketSliceChanged));
+            return Err(not_found());
         }
         sqlx::query_scalar(
             "SELECT to_jsonb(i) FROM inventory_items i WHERE id=$1 AND supplier_id=$2",

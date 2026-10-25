@@ -62,24 +62,14 @@ async fn dispatch(state: RouteState, headers: HeaderMap, action: InventoryAction
         Err(failure) => failure.into_response(),
     }
 }
-fn page(raw: Option<String>) -> Result<(i64, i64), Response> {
+fn page(raw: Option<String>) -> Result<(i64, i64), &'static str> {
     let mut skip = 0;
     let mut limit = 50;
     for (key, value) in url::form_urlencoded::parse(raw.as_deref().unwrap_or_default().as_bytes()) {
         if key == "skip" || key == "limit" {
-            let parsed = value.parse::<i64>().map_err(|_| {
-                error(
-                    StatusCode::UNPROCESSABLE_ENTITY,
-                    "VALIDATION_FAILED",
-                    "Pagination is not valid",
-                )
-            })?;
+            let parsed = value.parse::<i64>().map_err(|_| "Pagination is not valid")?;
             if (key == "skip" && parsed < 0) || (key == "limit" && !(1..=100).contains(&parsed)) {
-                return Err(error(
-                    StatusCode::UNPROCESSABLE_ENTITY,
-                    "VALIDATION_FAILED",
-                    "Pagination is outside its range",
-                ));
+                return Err("Pagination is outside its range");
             }
             if key == "skip" {
                 skip = parsed
@@ -97,7 +87,7 @@ async fn list(
 ) -> Response {
     match page(raw) {
         Ok((skip, limit)) => dispatch(state, headers, InventoryAction::List { skip, limit }).await,
-        Err(error) => error,
+        Err(message) => error(StatusCode::UNPROCESSABLE_ENTITY, "VALIDATION_FAILED", message),
     }
 }
 async fn listings(
@@ -109,7 +99,7 @@ async fn listings(
         Ok((skip, limit)) => {
             dispatch(state, headers, InventoryAction::Listings { skip, limit }).await
         }
-        Err(error) => error,
+        Err(message) => error(StatusCode::UNPROCESSABLE_ENTITY, "VALIDATION_FAILED", message),
     }
 }
 async fn create(
