@@ -214,10 +214,22 @@ impl From<sqlx::Error> for MarketWriteError {
 /// authorization — is an unclassified database failure; the receipt race they
 /// guard belongs to the receipt protocol, not this table.
 const UNIQUE_CONSTRAINT_CODES: [(&str, MarketErrorCode); 4] = [
-    ("uq_market_command_results_actor_operation_key", MarketErrorCode::IdempotencyConflict),
-    ("uq_orderbook_orders_org_operation_idempotency", MarketErrorCode::IdempotencyConflict),
-    ("uq_trades_initiator_operation_idempotency", MarketErrorCode::IdempotencyConflict),
-    ("uq_trade_freezes_one_active", MarketErrorCode::TradeAlreadyFrozen),
+    (
+        "uq_market_command_results_actor_operation_key",
+        MarketErrorCode::IdempotencyConflict,
+    ),
+    (
+        "uq_orderbook_orders_org_operation_idempotency",
+        MarketErrorCode::IdempotencyConflict,
+    ),
+    (
+        "uq_trades_initiator_operation_idempotency",
+        MarketErrorCode::IdempotencyConflict,
+    ),
+    (
+        "uq_trade_freezes_one_active",
+        MarketErrorCode::TradeAlreadyFrozen,
+    ),
 ];
 
 fn classify(sqlstate: Option<&str>, constraint: Option<&str>) -> MarketErrorCode {
