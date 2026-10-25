@@ -288,7 +288,7 @@ async fn suggestions(
         } else {
             (candidate, source)
         };
-        out.push(json!({"id":candidate.id,"bid_order_id":bid.id,"ask_order_id":ask.id,"score":score,"match_reasons":reasons,"status":"SUGGESTED","recipient_org_id":org,"created_at":candidate.created,"bid_order":bid.public.public(false,None)?,"ask_order":ask.public.public(false,None)?}));
+        out.push(json!({"id":candidate.id,"bid_order_id":bid.id,"ask_order_id":ask.id,"score":score,"match_reasons":reasons,"status":"SUGGESTED","recipient_org_id":org,"created_at":candidate.created,"bid_order":bid.public.public_with_terms(false,None,Some(&bid.compatibility_terms))?,"ask_order":ask.public.public_with_terms(false,None,Some(&ask.compatibility_terms))?}));
     }
     Ok(json!(out))
 }
