@@ -55,7 +55,11 @@ async fn opposing_null_point_prefilter_keeps_the_tail_match() {
         assert_eq!(results[0].len(), 1, "old tail must match the NULL slice");
         let row: Value = serde_json::from_str(&results[0][0]).unwrap();
         assert_eq!(row["best_price"].to_string(), expected);
-        assert_eq!(results[1].len(), 1, "prefilter dropped the {side} NULL slice");
+        assert_eq!(
+            results[1].len(),
+            1,
+            "prefilter dropped the {side} NULL slice"
+        );
         assert_eq!(ordered_hash(&results[0]), ordered_hash(&results[1]));
         assert_eq!(results[0], results[1]);
     }
