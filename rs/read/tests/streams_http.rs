@@ -13,7 +13,6 @@ use axum::{
     http::{Request, StatusCode, header},
 };
 use axum::body::HttpBody;
-use tower::util::Oneshot;
 use verdaxis_read::{
     AppState, Config,
     auth::VerificationSettings,
