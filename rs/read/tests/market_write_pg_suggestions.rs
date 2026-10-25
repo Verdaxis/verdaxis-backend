@@ -402,7 +402,7 @@ impl MigratedFixture {
             .fetch_one(&mut admin)
             .await
             .unwrap();
-        assert_eq!(revision, "p89_20261022_watchlist_producer");
+        assert_eq!(revision, "p89_20261022_trade_freeze");
         let invented:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='orderbook_orders' AND column_name='tier_label')").fetch_one(&mut admin).await.unwrap();
         assert!(!invented);
         sqlx::raw_sql(section("migrated-reset"))
