@@ -793,64 +793,121 @@ async fn assisted_context_uses_locked_customer_authority() {
     f.finish().await;
 }
 
-
 #[cfg(feature = "contract-tests")]
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL"]
 async fn continuing_python_protocols_run_against_ordered_rust() {
-    let binary=std::env::current_exe().unwrap();
-    let status=std::process::Command::new(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../venv/bin/python"))
-        .current_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
-        .args(["rs/read/tests/fixtures/phase8_writer_protocols.py"])
-        .env("RUST_LOCK_PROTOCOL_BINARY",binary).status().unwrap();
-    assert!(status.success(),"each continuing writer must execute its database protocol");
+    let binary = std::env::current_exe().unwrap();
+    let status = std::process::Command::new(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../venv/bin/python"),
+    )
+    .current_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+    .args(["rs/read/tests/fixtures/phase8_writer_protocols.py"])
+    .env("RUST_LOCK_PROTOCOL_BINARY", binary)
+    .status()
+    .unwrap();
+    assert!(
+        status.success(),
+        "each continuing writer must execute its database protocol"
+    );
 }
 
 #[cfg(feature = "contract-tests")]
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL"]
 async fn ordered_protocol_contender() {
-    let Ok(url)=std::env::var("RUST_PROTOCOL_DATABASE_URL") else {return;};
-    let parsed=url::Url::parse(&url).unwrap();assert_eq!(parsed.host_str(),Some("127.0.0.1"));assert!(parsed.path().ends_with("_test"));
-    let mut conn=PgConnection::connect(&url).await.unwrap();
-    let (organizations,users,orders,slices)=transaction::protocol_preview(&mut conn).await;
-    let actor=users.first().copied().unwrap_or_else(||id(1));
-    if users.is_empty() {println!("PROTOCOL_EMPTY");return;}
-    let parties=PartyLockPreview::new(organizations,users,actor,serde_json::Value::Null);
-    let mut plan=OperationLockPlan::new(MarketOperation::Cancel);plan.parties(&parties).unwrap();plan.slices(slices).unwrap();plan.orders(orders).unwrap();
-    let mut tx=conn.begin().await.unwrap();
+    let Ok(url) = std::env::var("RUST_PROTOCOL_DATABASE_URL") else {
+        return;
+    };
+    let parsed = url::Url::parse(&url).unwrap();
+    assert_eq!(parsed.host_str(), Some("127.0.0.1"));
+    assert!(parsed.path().ends_with("_test"));
+    let mut conn = PgConnection::connect(&url).await.unwrap();
+    let (organizations, users, orders, slices) = transaction::protocol_preview(&mut conn).await;
+    let actor = users.first().copied().unwrap_or_else(|| id(1));
+    if users.is_empty() {
+        println!("PROTOCOL_EMPTY");
+        return;
+    }
+    let parties = PartyLockPreview::new(organizations, users, actor, serde_json::Value::Null);
+    let mut plan = OperationLockPlan::new(MarketOperation::Cancel);
+    plan.parties(&parties).unwrap();
+    plan.slices(slices).unwrap();
+    plan.orders(orders).unwrap();
+    let mut tx = conn.begin().await.unwrap();
     match plan.acquire(&mut tx).await {
-        Ok(_)=>println!("PROTOCOL_SERIAL"),
-        Err(error)=>{assert!(matches!(error.code,MarketErrorCode::MarketBusy|MarketErrorCode::MarketTimeout|MarketErrorCode::TransactionRetryExhausted));println!("PROTOCOL_BOUNDED");}
+        Ok(_) => println!("PROTOCOL_SERIAL"),
+        Err(error) => {
+            assert!(matches!(
+                error.code,
+                MarketErrorCode::MarketBusy
+                    | MarketErrorCode::MarketTimeout
+                    | MarketErrorCode::TransactionRetryExhausted
+            ));
+            println!("PROTOCOL_BOUNDED");
+        }
     }
     tx.rollback().await.unwrap();
 }
-
 
 #[cfg(feature = "contract-tests")]
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL"]
 async fn ordered_cancellation_retains_admission_until_completion() {
-    let mut f=Fixture::open().await;
+    let mut f = Fixture::open().await;
     sqlx::query("UPDATE users SET status='APPROVED',authentication_revoked_at=NULL,must_change_password=false WHERE id=$1").bind(id(1)).execute(&mut f.admin).await.unwrap();
-    let permit=std::sync::Arc::new(tokio::sync::Semaphore::new(1));
-    let entered=std::sync::Arc::new(tokio::sync::Notify::new());let release=std::sync::Arc::new(tokio::sync::Notify::new());
-    let task=tokio::spawn(transaction::run_paused_market_probe(f.pool.clone(),permit.clone(),f.access(id(1)).await,entered.clone(),release.clone()));
-    entered.notified().await;task.abort();
-    assert_eq!(permit.available_permits(),0);
+    let permit = std::sync::Arc::new(tokio::sync::Semaphore::new(1));
+    let entered = std::sync::Arc::new(tokio::sync::Notify::new());
+    let release = std::sync::Arc::new(tokio::sync::Notify::new());
+    let task = tokio::spawn(transaction::run_paused_market_probe(
+        f.pool.clone(),
+        permit.clone(),
+        f.access(id(1)).await,
+        entered.clone(),
+        release.clone(),
+    ));
+    entered.notified().await;
+    task.abort();
+    assert_eq!(permit.available_permits(), 0);
     release.notify_one();
-    let acquired=tokio::time::timeout(std::time::Duration::from_secs(5),permit.acquire()).await.unwrap().unwrap();drop(acquired);
-    let value:i32=sqlx::query_scalar("SELECT value FROM lock_effects WHERE id=1").fetch_one(&mut f.admin).await.unwrap();assert_eq!(value,1);
+    let acquired = tokio::time::timeout(std::time::Duration::from_secs(5), permit.acquire())
+        .await
+        .unwrap()
+        .unwrap();
+    drop(acquired);
+    let value: i32 = sqlx::query_scalar("SELECT value FROM lock_effects WHERE id=1")
+        .fetch_one(&mut f.admin)
+        .await
+        .unwrap();
+    assert_eq!(value, 1);
     f.finish().await;
 }
 
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL"]
 async fn ordinary_context_requires_current_locked_execution() {
-    let mut f=Fixture::open().await;
+    let mut f = Fixture::open().await;
     sqlx::query("UPDATE users SET organization_id=$1,status='APPROVED',email_verified=true,must_change_password=false,authentication_revoked_at=NULL,kyc_status='APPROVED',kyc_organization_id=$1 WHERE id=$2").bind(id(10)).bind(id(1)).execute(&mut f.admin).await.unwrap();
-    let mut conn=f.pool.acquire().await.unwrap();let mut tx=conn.begin().await.unwrap();let mut plan=OperationLockPlan::new(MarketOperation::Create);plan.parties(&preview(id(1))).unwrap();let locked=plan.acquire(&mut tx).await.unwrap();
-    let actor=admission::authenticate(&mut tx,&locked,f.access(id(1)).await,AdmissionClass::Execution).await.unwrap();
-    let ctx=admission::execution_context(&mut tx,&locked,actor,id(10),None,Utc::now(),true).await.unwrap();assert_eq!(ctx.actor().user_id(),id(1));assert_eq!(ctx.effective_organization_id(),id(10));assert!(ctx.support().is_none());
-    tx.rollback().await.unwrap();drop(conn);f.finish().await;
+    let mut conn = f.pool.acquire().await.unwrap();
+    let mut tx = conn.begin().await.unwrap();
+    let mut plan = OperationLockPlan::new(MarketOperation::Create);
+    plan.parties(&preview(id(1))).unwrap();
+    let locked = plan.acquire(&mut tx).await.unwrap();
+    let actor = admission::authenticate(
+        &mut tx,
+        &locked,
+        f.access(id(1)).await,
+        AdmissionClass::Execution,
+    )
+    .await
+    .unwrap();
+    let ctx = admission::execution_context(&mut tx, &locked, actor, id(10), None, Utc::now(), true)
+        .await
+        .unwrap();
+    assert_eq!(ctx.actor().user_id(), id(1));
+    assert_eq!(ctx.effective_organization_id(), id(10));
+    assert!(ctx.support().is_none());
+    tx.rollback().await.unwrap();
+    drop(conn);
+    f.finish().await;
 }
