@@ -3,6 +3,8 @@
 #![allow(dead_code)]
 
 // Compile the real private boundary, without opening another production entry.
+#[path = "../src/order_write/authority.rs"]
+mod authority;
 #[path = "../src/order_write/command.rs"]
 mod command;
 #[path = "../src/order_write/decimal.rs"]
@@ -24,6 +26,8 @@ use sqlx::{Connection, PgConnection, Row};
 use uuid::Uuid;
 
 use decimal::StockQuantity;
+pub use authority::AuthenticatedActor;
+pub use error::MarketWriteError;
 use error::MarketErrorCode;
 use transaction::stock_contract as stock;
 
