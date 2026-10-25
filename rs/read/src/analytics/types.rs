@@ -792,7 +792,11 @@ impl BehavioralWindow {
             self.top_entries.is_coherent(),
             self.top_referrers.is_coherent(),
         ];
-        if components.iter().any(|coherent| !coherent) {
+        let properties_coherent = self
+            .property_results
+            .iter()
+            .all(|property| property.result.is_coherent());
+        if components.iter().any(|coherent| !coherent) || !properties_coherent {
             return Err(BehavioralWindowError::IncoherentComponent);
         }
         let statuses = self.components();
