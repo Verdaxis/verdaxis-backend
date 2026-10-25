@@ -210,3 +210,10 @@ def test_build_profile_selection_keeps_correctness_on_dev():
     )
     assert release.build_command()[-1] == "--release"
     assert release.server_path().parts[-3] == "release"
+
+
+def test_explicit_contract_server_path_is_used_without_changing_profile(tmp_path):
+    binary = tmp_path / "shared-target/debug/examples/contract_server"
+    runner = run_disposable.Runner("health", seed=False, keep=False, seed_mode="corpus", server_binary=binary)
+    assert runner.server_path() == binary
+    assert "--release" not in runner.build_command()
