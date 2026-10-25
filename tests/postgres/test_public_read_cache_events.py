@@ -33,6 +33,13 @@ REVIEWED_EXCLUSIONS = {
     "notifications": "private authenticated path; never cached",
     "referrals": "private authenticated path; never cached",
     "watchlists": "private authenticated path; never cached",
+    "watchlist_targets": "private authenticated path; never cached",
+    "watchlist_events": "private authenticated path; never cached",
+    "watchlist_entries": "private authenticated path; never cached",
+    "price_alerts": "private authenticated path; never cached",
+    "user_preferences": "private authenticated path; never cached",
+    "feedback_entries": "private authenticated path; never cached",
+    "market_command_results": "order-write idempotency record; written, never a cached read",
     "alembic_version": "revision attestation at startup, not a response dependency",
     **{table: "cache infrastructure itself" for table in CACHE_TABLES},
 }

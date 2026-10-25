@@ -1,8 +1,20 @@
 pub mod auth;
+pub mod crud;
 pub mod market;
 pub mod mcp;
 pub mod routes;
 pub mod runtime;
+
+// ---------------------------------------------------------------------------
+// Phase 2 Task 20 registration block.
+//
+// The one shared-file change the order-book write boundary needs: the module
+// must be reachable for `rs/read/tests/order_write_boundary.rs`. This module
+// mounts no route. The integration owner merges this block into
+// `feat/rust-phase-2`; nothing else in this file belongs to Task 20.
+pub mod order_write;
+// ----------------------- end Task 20 registration block --------------------
+
 pub use market::cache_dependencies::{
     Boundary, Deadline, RollingWindows, TemporalFact, TemporalFacts, TradingClock,
 };
@@ -66,6 +78,9 @@ pub struct AppState {
     pub reads: std::sync::Arc<tokio::sync::Semaphore>,
     pub reference_cache:
         std::sync::Arc<runtime::cache::ReferenceCache<runtime::cache::ReferenceKey>>,
+    /// Verified Phase 2 settings; `None` means this composition does not mount
+    /// the Phase 2 groups and Caddy keeps them on Python.
+    pub(crate) phase2: Option<runtime::phase2::Phase2Settings>,
     /// Every route family's trading cache, so an authority or listener change
     /// can clear them together.
     pub trading_caches: std::sync::Arc<runtime::cache::TradingCaches>,
@@ -94,6 +109,7 @@ impl AppState {
         let reads = std::sync::Arc::new(tokio::sync::Semaphore::new(
             config.read_admission_slots as usize,
         ));
+        let phase2 = runtime::phase2::Phase2Settings::from_options(&config.phase2)?;
         let policy_identity = market::cache_dependencies::policy_identity(&config, &policy);
         let reference_cache = std::sync::Arc::new(runtime::cache::ReferenceCache::default());
         let trading_caches = std::sync::Arc::new(runtime::cache::TradingCaches::default());
@@ -114,6 +130,7 @@ impl AppState {
             policy: std::sync::Arc::new(policy),
             reads,
             reference_cache,
+            phase2,
             trading_caches,
             trading_cache,
             public_trading_cache: std::sync::Arc::new(runtime::cache::TradingCache::default()),
@@ -196,6 +213,27 @@ pub struct Config {
     pub pool_max: u32,
     pub python_budget: u32,
     pub configured_max_connections: u32,
+    /// Phase 2 private runtime settings. The deploy transaction projects them
+    /// into the Rust runtime file only. Absent in the contract harness, where
+    /// the Phase 2 groups are not mounted and Caddy keeps them on Python.
+    #[serde(default)]
+    pub phase2: Phase2Options,
+}
+
+/// The minimal Phase 2 verification, invite and public-link settings.
+#[derive(Clone, Default, serde::Deserialize)]
+#[serde(default)]
+pub struct Phase2Options {
+    pub jwt_secret: Option<String>,
+    pub jwt_secret_previous: Option<String>,
+    pub jwt_issuer: Option<String>,
+    pub jwt_audience: Option<String>,
+    pub frontend_url: Option<String>,
+    pub email_from: Option<String>,
+    pub resend_api_key: Option<String>,
+    /// The watchlist producer activation instant from the release metadata
+    /// file (PD5), as written there. Absent until a release records one.
+    pub watchlist_producer_activated_at: Option<String>,
 }
 
 fn read_admission_default() -> u32 {

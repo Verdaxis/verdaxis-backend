@@ -700,10 +700,18 @@ CREATE EXTENSION IF NOT EXISTS postgis;
         caddy_env = {
             **env,
             "ROUTE_SNIPPET": str(ROOT / "deploy/caddy/rust-public-staging.caddy"),
+            "CRUD_SNIPPET": str(ROOT / "deploy/caddy/rust-crud.caddy"),
             "CADDY_PORT": str(port),
             "PYTHON_UPSTREAM": f"127.0.0.1:{python_port}",
+            # The Phase 1 harness Rust does not serve the Phase 2 groups, so
+            # every CRUD group keeps Python. The pre-auth authority is still the
+            # Rust service, because the mixed run proves the shared counter.
+            **{f"{group}_UPSTREAM": f"127.0.0.1:{python_port}"
+               for group in ("NOTIFICATIONS", "PREFERENCES", "FEEDBACK",
+                             "WATCHLISTS", "ALERTS", "REFERRALS")},
             **{f"{group}_UPSTREAM": f"127.0.0.1:{rust_port}"
                for group in ("SIMPLE", "ORDERBOOK", "PRICES", "CURVES", "MCP")},
+            "PREAUTH_UPSTREAM": f"127.0.0.1:{rust_port}",
         }
         # One shared config owns forwarding options for both route groups and
         # Python fallback; do not synthesize a plain-proxy variant here.
@@ -839,6 +847,11 @@ CREATE EXTENSION IF NOT EXISTS postgis;
 
     def run_phase2(self, args) -> None:
         """Use this lifecycle owner for isolated write cells; never a live target."""
+        if getattr(args, "phase2_journeys", False):
+            from scripts.rust_contract.phase2_journeys import run as run_journeys
+
+            run_journeys(self, args)
+            return
         from scripts.rust_contract.phase2_seed import (
             APP_ROLE as role,
         )
@@ -856,7 +869,24 @@ CREATE EXTENSION IF NOT EXISTS postgis;
         from scripts.rust_contract.phase2_state import compare_state, validate_cells
 
         scenarios = json.loads((ROOT / "tests/rust_contract/phase2/scenarios.json").read_text())["scenarios"]
-        selected = args.phase2_scenario or ["harness-smoke"]
+        from scripts.rust_contract.phase2_scenarios import (
+            REGISTRY,
+            ScenarioError,
+            select_scenarios,
+        )
+
+        if args.phase2_measure or args.phase2_order_write_benchmark:
+            raise RunnerError("Phase 2 measurement and benchmark routes are not implemented")
+        selected = args.phase2_scenario or []
+        if not selected or any(name in REGISTRY for name in selected):
+            from scripts.rust_contract.phase2_routes import run_registered
+
+            try:
+                registered = select_scenarios(args.phase2_group, selected or None)
+                run_registered(self, args, registered)
+            except ScenarioError as error:
+                raise RunnerError(str(error)) from error
+            return
         known = {row["id"]: row for row in scenarios}
         if any(name not in known for name in selected):
             raise RunnerError("unknown Phase 2 scenario")
@@ -864,6 +894,17 @@ CREATE EXTENSION IF NOT EXISTS postgis;
             raise RunnerError("Phase 2 measurement, benchmark and race routes are not implemented")
         if args.phase2_group != "all" and any(known[name]["group"] not in {args.phase2_group, "all"} for name in selected):
             raise RunnerError("scenario does not belong to selected group")
+        if selected == ["http-boundaries"]:
+            environment = {**os.environ, "ENVIRONMENT": "test", "RELEASE_SHA": self.sha,
+                           "JWT_SECRET": "test-secret-key-for-testing-minimum-32-chars", "DATABASE_URL": "sqlite+aiosqlite:///:memory:"}
+            subprocess.run([self.python_bin,"-m","pytest","tests/rust_contract/test_phase2_http.py","-q"],cwd=ROOT,env=environment,check=True)
+            subprocess.run(["cargo","test","--manifest-path","rs/Cargo.toml","--locked","-p","verdaxis-read","--test","phase2_http","--test","http_contract"],cwd=ROOT,
+                env={**environment,"SQLX_OFFLINE":"true"},check=True)
+            if args.report:
+                args.report.parent.mkdir(parents=True,exist_ok=True)
+                args.report.write_text(json.dumps({"source_sha":self.sha,"scenario":"http-boundaries","scope":"component-contract",
+                    "python_exit":0,"rust_exit":0,"cross_process_ingress_qualified":False},indent=2)+"\n")
+            return
         if selected == ["auth-token-matrix"]:
             subprocess.run([self.python_bin, "-m", "scripts.rust_contract.phase2_auth_vectors", "--check"],
                 cwd=ROOT, env={**os.environ, "ENVIRONMENT": "test", "RELEASE_SHA": self.sha,
@@ -871,7 +912,32 @@ CREATE EXTENSION IF NOT EXISTS postgis;
             subprocess.run(["cargo", "test", "--manifest-path", "rs/Cargo.toml", "--locked", "-p", "verdaxis-read", "--test", "auth_tokens"],
                 cwd=ROOT, env={**os.environ, "RELEASE_SHA": self.sha, "SQLX_OFFLINE": "true"}, check=True)
             return
-        if selected not in (["harness-smoke"], ["auth-state-matrix"]):
+        # Phase 2 Task 17: referral reads and public resolution (start)
+        if selected == ["referral-reads"]:
+            # One migrated disposable database. The Rust test seeds and
+            # truncates its own deterministic rows through the admin URL, then
+            # drives the real router as the application role.
+            port = self.start_database()
+            env = {**os.environ, "ENVIRONMENT": "test", "RELEASE_SHA": self.sha,
+                   "JWT_SECRET": "test-secret-key-for-testing-minimum-32-chars", **self.urls(port)}
+            self.seed = False
+            self.migrate_and_seed(env)
+            app_url = f"postgresql://{APP_ROLE}:{APP_PASSWORD}@127.0.0.1:{port}/{DB_NAME}"
+            admin_url = f"postgresql://postgres:disposable_admin_pw@127.0.0.1:{port}/{DB_NAME}"
+            subprocess.run(["cargo", "test", "--manifest-path", "rs/Cargo.toml", "--locked", "-p", "verdaxis-read",
+                            "--test", "crud_referral_reads"], cwd=ROOT,
+                env={**env, "SQLX_OFFLINE": "true", "REQUIRE_REFERRAL_INTEROP": "true",
+                     "REFERRAL_INTEROP_APP_URL": app_url, "REFERRAL_INTEROP_ADMIN_URL": admin_url,
+                     "REFERRAL_INTEROP_TIME_ZONE": ORACLE_TIMEZONE}, check=True)
+            if args.report:
+                args.report.parent.mkdir(parents=True, exist_ok=True)
+                args.report.write_text(json.dumps({"source_sha": self.sha, "scenario": "referral-reads",
+                    "scope": "component-contract", "rust_exit": 0, "route_ids": ["R02", "R03", "R05"],
+                    "databases": [DB_NAME], "cross_process_ingress_qualified": False,
+                    "note": "single disposable database; the twin-stack response and state differential belongs to the Phase 2 transport owner"}, indent=2) + "\n")
+            return
+        # Phase 2 Task 17: referral reads and public resolution (end)
+        if selected not in (["harness-smoke"], ["auth-state-matrix"], ["watchlist-reads"]):
             raise RunnerError("select one implemented Phase 2 scenario")
         port = self.start_database()
         policy_dir = "/tmp/phase2-role-policy"
@@ -908,6 +974,11 @@ CREATE EXTENSION IF NOT EXISTS postgis;
                     "-v", f"backup_role={BACKUP_ROLE}", "-f", f"{policy_dir}/{script}")
         with connect(port, DATABASES[0]) as admin:
             admin.execute(f"ALTER ROLE {identifier(role)} PASSWORD '{PASSWORD}'")
+        if selected == ["watchlist-reads"]:
+            subprocess.run(["cargo","test","--manifest-path","rs/Cargo.toml","--locked","-p","verdaxis-read","--test","crud_watchlist_reads"],cwd=ROOT,
+                env={**env,"RELEASE_SHA":self.sha,"SQLX_OFFLINE":"true",
+                    "AUTH_INTEROP_ADMIN_URL":f"postgresql://postgres:disposable_admin_pw@127.0.0.1:{port}/{DATABASES[0]}"},check=True)
+            return
         if selected == ["auth-state-matrix"]:
             subprocess.run(["cargo", "test", "--manifest-path", "rs/Cargo.toml", "--locked", "-p", "verdaxis-read", "--test", "auth_transactions", "--test", "auth_transaction_panic", "--test", "auth_tokens", "--", "--nocapture"], cwd=ROOT,
                 env={**env, "RELEASE_SHA": self.sha, "SQLX_OFFLINE": "true", "REQUIRE_AUTH_INTEROP": "true",
@@ -1029,7 +1100,7 @@ CREATE EXTENSION IF NOT EXISTS postgis;
                 "route_qualification": False, "databases": list(DATABASES), "seed_sha256": digest(initial[0]), "acl_sha256": acl,
                 "actions": actions, "dispatchers": "not-started"}, indent=2) + "\n")
 
-    def cleanup(self) -> None:
+    def stop_children(self) -> None:
         for child in self.children:
             child.terminate()
         for child in self.children:
@@ -1039,6 +1110,9 @@ CREATE EXTENSION IF NOT EXISTS postgis;
                 child.kill()
                 child.wait()
         self.children = []
+
+    def cleanup(self) -> None:
+        self.stop_children()
         if self.container and not self.keep:
             # -v removes the anonymous data volume; a forced remove skips the --rm cleanup.
             owned = self.container
@@ -1094,10 +1168,14 @@ def main(argv: list[str] | None = None) -> int:
         help="ordinary applies only scripts/seed.py; corpus also applies the fixture families",
     )
     parser.add_argument("--phase2", action="store_true")
-    parser.add_argument("--phase2-group", choices=("all", "notifications", "preferences", "feedback", "watchlists", "alerts", "referrals"), default="all")
+    # Phase 2 Task 20: register the order-write boundary group start
+    parser.add_argument("--phase2-group", choices=("all", "notifications", "preferences", "feedback", "watchlists", "alerts", "referrals", "order-write-boundary"), default="all")
+    # Phase 2 Task 20: register the order-write boundary group end
     parser.add_argument("--phase2-scenario", action="append")
     parser.add_argument("--phase2-size", choices=("small", "large"), default="small")
     parser.add_argument("--phase2-races", action="store_true")
+    parser.add_argument("--phase2-journeys", action="store_true",
+                        help="run the six frontend client journeys against the Rust candidate")
     parser.add_argument("--phase2-measure", action="store_true")
     parser.add_argument("--phase2-order-write-benchmark", action="store_true")
     parser.add_argument("--release-binary", type=Path)
@@ -1112,9 +1190,15 @@ def main(argv: list[str] | None = None) -> int:
         os.environ["MEANING_RULES_SHA256"] = args.rules_sha256
     elif args.rules_sha256:
         parser.error("rules digest requires an explicit profile")
+    if args.phase2_journeys and not args.phase2:
+        parser.error("--phase2-journeys requires --phase2")
+    if args.phase2_journeys and (args.phase2_races or args.phase2_measure or args.phase2_order_write_benchmark):
+        parser.error("--phase2-journeys runs alone")
     if args.phase2:
         scenarios = json.loads((ROOT / "tests/rust_contract/phase2/scenarios.json").read_text())["scenarios"]
-        if any(name not in {row["id"] for row in scenarios} for name in (args.phase2_scenario or [])):
+        from scripts.rust_contract.phase2_scenarios import REGISTRY
+        known = {row["id"] for row in scenarios} | REGISTRY.keys()
+        if any(name not in known for name in (args.phase2_scenario or [])):
             parser.error("unknown Phase 2 scenario")
     if args.mixed_caddy and args.group != "all":
         parser.error("--mixed-caddy requires --group all")

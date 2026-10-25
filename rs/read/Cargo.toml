@@ -32,6 +32,14 @@ required-features = ["contract-tests"]
 name = "phase2_transport"
 required-features = ["contract-tests"]
 
+[[example]]
+name = "watchlist_server"
+required-features = ["contract-tests"]
+
+[[example]]
+name = "preauth_server"
+required-features = ["contract-tests"]
+
 [features]
 contract-tests = []
 
@@ -39,6 +47,10 @@ contract-tests = []
 verdaxis-contract = { path = "../contract" }
 
 [dependencies]
+# Phase 2 Task 19: bounded invite provider and EmailStr NFC normalization (start)
+reqwest = { version = "=0.13.5", features = ["json"] }
+unicode-normalization = "=0.1.25"
+# Phase 2 Task 19: bounded invite provider and EmailStr NFC normalization (end)
 axum = "0.8"
 chrono = { version = "0.4.45", features = ["serde"] }
 chrono-tz = "0.10.4"
