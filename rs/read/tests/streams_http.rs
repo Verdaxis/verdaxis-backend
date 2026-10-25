@@ -25,7 +25,7 @@ fn config() -> Config {
         kyc_execution_gate_enabled: true,
         environment: "test".into(),
         release_sha: verdaxis_read::compiled_sha().into(),
-        migration_revision: "test".into(),
+        migration_revision: "kycg_20261014_staging".into(),
         database_url: "postgres://unused@127.0.0.1/unused".into(),
         db_session_time_zone: "UTC".into(),
         prepared_budget: None,
