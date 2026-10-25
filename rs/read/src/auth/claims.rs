@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use uuid::Uuid;
 
 #[derive(Debug)]
@@ -159,6 +159,16 @@ impl AuthError {
 }
 
 pub fn validate_account(access: &VerifiedAccess, user: &AccountState) -> Result<(), AuthError> {
+    validate_account_for_path(access, user, "")
+}
+
+/// Profile restoration and password replacement remain available during a forced
+/// password change. Every other account check, including cutoffs, still applies.
+pub fn validate_account_for_path(
+    access: &VerifiedAccess,
+    user: &AccountState,
+    path: &str,
+) -> Result<(), AuthError> {
     if !user.exists {
         return Err(AuthError::Credentials);
     }
@@ -179,7 +189,12 @@ pub fn validate_account(access: &VerifiedAccess, user: &AccountState) -> Result<
         "REJECTED" => return Err(AuthError::Rejected),
         _ => return Err(AuthError::Credentials),
     }
-    if user.must_change_password {
+    if user.must_change_password
+        && !matches!(
+            path,
+            "/api/auth/me" | "/api/auth/me/" | "/api/auth/me/password" | "/api/auth/me/password/"
+        )
+    {
         return Err(AuthError::PasswordChangeRequired);
     }
     Ok(())
