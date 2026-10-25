@@ -7,18 +7,34 @@
 //! contracts, never payloads for the product-analytics tabs.
 
 pub mod acquisition;
+pub mod activation;
+pub mod aggregates;
 pub mod behavioral;
+pub mod cohorts;
 pub mod commercial;
+pub mod engagement;
 pub mod events;
 pub mod facts;
 pub mod liquidity;
 pub mod marketplace;
 pub mod reliability;
 pub mod policy;
+pub mod overview;
 pub mod query;
 pub mod retention;
 pub mod types;
 pub mod usage;
+
+pub use activation::activation;
+pub use aggregates::{
+    ActivationFacts, ActivityFacts, DropOffFacts, EngagementFacts, LoginFacts,
+    LoginRollupRow, OverviewFacts, ProvenanceRow, QualityTracker, RetentionFacts,
+    RoleCounts, StatusFacts, TradeFacts, load_activation_facts, load_engagement_facts,
+    load_overview_facts, load_retention_facts,
+};
+pub use cohorts::{cohorts, retention};
+pub use engagement::engagement;
+pub use overview::{login_metric, overview};
 
 pub mod legacy_dashboard;
 pub mod users;
