@@ -54,6 +54,8 @@ const USER_ADMIN: Uuid = Uuid::from_u128(0x00000000_0000_4000_8000_0000000000b4)
 const USER_ORGLESS: Uuid = Uuid::from_u128(0x00000000_0000_4000_8000_0000000000b6);
 const USER_SUPPLIER_C: Uuid = Uuid::from_u128(0x00000000_0000_4000_8000_0000000000b7);
 const USER_ADMIN_TWO: Uuid = Uuid::from_u128(0x00000000_0000_4000_8000_0000000000b8);
+const USER_TIE_NINE: Uuid = Uuid::from_u128(0x00000000_0000_4000_8000_0000000000b9);
+const USER_TIE_TEN: Uuid = Uuid::from_u128(0x00000000_0000_4000_8000_0000000000ba);
 const USER_UNKNOWN_TOKEN: Uuid = Uuid::from_u128(0x00000000_0000_4000_8000_0000000000ff);
 
 fn verification() -> VerificationSettings {
@@ -425,8 +427,8 @@ async fn p4_t17b_c02() {
             USER_SUPPLIER_C.to_string(),
             // The tiebreak pair shares one created_at to the microsecond;
             // the greater id is listed first, pinning `(created_at, id)`.
-            "00000000-0000-4000-8000-0000000000ba".to_string(),
-            "00000000-0000-4000-8000-0000000000b9".to_string(),
+            USER_TIE_TEN.to_string(),
+            USER_TIE_NINE.to_string(),
         ]
     );
 
@@ -676,7 +678,7 @@ async fn p4_t17b_c04() {
         ("limit=100", 7, USER_BUYER_A),
         ("limit=1&offset=1", 1, USER_SUPPLIER_A),
         ("offset=4", 3, USER_SUPPLIER_C),
-        ("offset=6", 1, "00000000-0000-4000-8000-0000000000b9"),
+        ("offset=6", 1, USER_TIE_NINE),
         ("offset=7", 0, USER_UNKNOWN_TOKEN),
         ("offset=10000", 0, USER_UNKNOWN_TOKEN),
     ] {
