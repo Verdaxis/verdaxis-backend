@@ -93,7 +93,10 @@ async fn logout(State(state): State<LogoutState>, jar: CookieJar, request: Reque
                 if let Some(device) = &device {
                     store::lock_device(&mut tx, device).await?;
                     #[cfg(feature = "contract-tests")]
-                    if let Some(barrier) = &state.device_locked { barrier.wait().await; barrier.wait().await; }
+                    if let Some(barrier) = &state.device_locked {
+                        barrier.wait().await;
+                        barrier.wait().await;
+                    }
                     store::revoke_device_families(&mut tx, device, family.map(|(_, f)| f)).await?;
                 } else if let Some((user, family)) = family {
                     revoke_legacy_family(&mut tx, user, family).await?;

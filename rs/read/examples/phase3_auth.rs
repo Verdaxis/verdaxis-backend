@@ -1,5 +1,10 @@
 //! Loopback-only release-profile adapter for the Phase 3 coexistence tests.
-use axum::{Json, Router, extract::State, http::HeaderMap, routing::{get, post}};
+use axum::{
+    Json, Router,
+    extract::State,
+    http::HeaderMap,
+    routing::{get, post},
+};
 use std::sync::Arc;
 use verdaxis_read::{AppState, Config, MarketPolicy, auth};
 
@@ -65,8 +70,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ));
     let routes = notifications
         .merge(stream)
-        .merge(Router::new().route("/api/auth/me", get(profile)).route("/api/test/cleanup", get(cleanup)).route("/api/test/issue", post(issue_at)).with_state((state.clone(), Arc::new(auth::VerificationSettings::new(secret.clone(),None,issuer.clone(),audience.clone())),secret.clone(),issuer.clone(),audience.clone())))
-        .merge(auth::password_change::router(auth::password_change::PasswordChangeState::new(pool.clone(),"test",&secret,None,&issuer,&audience,auth::limits::SharedLimits::default())))
+        .merge(
+            Router::new()
+                .route("/api/auth/me", get(profile))
+                .route("/api/test/cleanup", get(cleanup))
+                .route("/api/test/issue", post(issue_at))
+                .with_state((
+                    state.clone(),
+                    Arc::new(auth::VerificationSettings::new(
+                        secret.clone(),
+                        None,
+                        issuer.clone(),
+                        audience.clone(),
+                    )),
+                    secret.clone(),
+                    issuer.clone(),
+                    audience.clone(),
+                )),
+        )
+        .merge(auth::password_change::router(
+            auth::password_change::PasswordChangeState::new(
+                pool.clone(),
+                "test",
+                &secret,
+                None,
+                &issuer,
+                &audience,
+                auth::limits::SharedLimits::default(),
+            ),
+        ))
         .merge(auth::login::router(
             auth::login::LoginState::new(
                 pool.clone(),
@@ -143,33 +175,111 @@ async fn stream_token(
     .map_err(|_| verdaxis_read::ApiError::database())
 }
 
-async fn profile(State((state, verification, _, _, _)): State<StreamState>, headers: HeaderMap) -> axum::response::Response {
+async fn profile(
+    State((state, verification, _, _, _)): State<StreamState>,
+    headers: HeaderMap,
+) -> axum::response::Response {
     use axum::response::IntoResponse;
-    let result = auth::verify_authorization(headers.get("authorization").and_then(|v|v.to_str().ok()),&verification,chrono::Utc::now());
-    let access = match result { Ok(value)=>value, Err(error)=> return (axum::http::StatusCode::from_u16(error.status()).unwrap(),Json(error.body())).into_response() };
-    match auth::run_authenticated(&state,access,auth::AuthenticatedRequest::new("GET","/api/auth/me",false),|tx| Box::pin(async move { Ok(serde_json::json!({"id":tx.actor().id})) })).await {
-        Ok(body)=>Json(body).into_response(),
-        Err(auth::AuthenticatedError::Authentication(error))=>(axum::http::StatusCode::from_u16(error.status()).unwrap(),Json(error.body())).into_response(),
-        Err(_)=>axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response(),
-    }
-}
-
-async fn cleanup(State((_, verification, _, _, _)): State<StreamState>, headers: HeaderMap) -> axum::response::Response {
-    use axum::response::IntoResponse;
-    let access = match auth::verify_authorization(headers.get("authorization").and_then(|v|v.to_str().ok()),&verification,chrono::Utc::now()) {
-        Ok(value)=>value, Err(error)=>return (axum::http::StatusCode::from_u16(error.status()).unwrap(),Json(error.body())).into_response()
+    let result = auth::verify_authorization(
+        headers.get("authorization").and_then(|v| v.to_str().ok()),
+        &verification,
+        chrono::Utc::now(),
+    );
+    let access = match result {
+        Ok(value) => value,
+        Err(error) => {
+            return (
+                axum::http::StatusCode::from_u16(error.status()).unwrap(),
+                Json(error.body()),
+            )
+                .into_response();
+        }
     };
-    let pool=sqlx::PgPool::connect(&std::env::var("PHASE3_DATABASE_URL").unwrap()).await.unwrap();
-    let row: (String,Option<chrono::DateTime<chrono::Utc>>,Option<chrono::DateTime<chrono::Utc>>) = sqlx::query_as("SELECT status::text,password_changed_at,authentication_revoked_at FROM users WHERE id=$1").bind(access.subject).fetch_one(&pool).await.unwrap();
-    let account=auth::AccountState {exists:true,status:row.0.clone(),must_change_password:false,password_changed_at:row.1.map(|v|v.timestamp_micros()),authentication_revoked_at:if row.0=="REJECTED" {None} else {row.2.map(|v|v.timestamp_micros())}};
-    match auth::cutoff_refusal(auth::TokenIssuance {issued_at:access.issued_at,out_of_range:false},&account) {
-        Some(error)=>(axum::http::StatusCode::from_u16(error.status()).unwrap(),Json(error.body())).into_response(),
-        None=>Json(serde_json::json!({"id":access.subject})).into_response(),
+    match auth::run_authenticated(
+        &state,
+        access,
+        auth::AuthenticatedRequest::new("GET", "/api/auth/me", false),
+        |tx| Box::pin(async move { Ok(serde_json::json!({"id":tx.actor().id})) }),
+    )
+    .await
+    {
+        Ok(body) => Json(body).into_response(),
+        Err(auth::AuthenticatedError::Authentication(error)) => (
+            axum::http::StatusCode::from_u16(error.status()).unwrap(),
+            Json(error.body()),
+        )
+            .into_response(),
+        Err(_) => axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response(),
     }
 }
 
-async fn issue_at(State((_, _, secret, issuer, audience)): State<StreamState>, Json(body): Json<serde_json::Value>) -> Json<serde_json::Value> {
-    let user=body["user"].as_str().unwrap().parse().unwrap();
-    let now=body["issued_at"].as_str().unwrap().parse().unwrap();
-    Json(serde_json::json!({"access_token":auth::TokenIssuer::new(&secret,&issuer,&audience).access(user,now,None)}))
+async fn cleanup(
+    State((_, verification, _, _, _)): State<StreamState>,
+    headers: HeaderMap,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    let access = match auth::verify_authorization(
+        headers.get("authorization").and_then(|v| v.to_str().ok()),
+        &verification,
+        chrono::Utc::now(),
+    ) {
+        Ok(value) => value,
+        Err(error) => {
+            return (
+                axum::http::StatusCode::from_u16(error.status()).unwrap(),
+                Json(error.body()),
+            )
+                .into_response();
+        }
+    };
+    let pool = sqlx::PgPool::connect(&std::env::var("PHASE3_DATABASE_URL").unwrap())
+        .await
+        .unwrap();
+    let row: (
+        String,
+        Option<chrono::DateTime<chrono::Utc>>,
+        Option<chrono::DateTime<chrono::Utc>>,
+    ) = sqlx::query_as(
+        "SELECT status::text,password_changed_at,authentication_revoked_at FROM users WHERE id=$1",
+    )
+    .bind(access.subject)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let account = auth::AccountState {
+        exists: true,
+        status: row.0.clone(),
+        must_change_password: false,
+        password_changed_at: row.1.map(|v| v.timestamp_micros()),
+        authentication_revoked_at: if row.0 == "REJECTED" {
+            None
+        } else {
+            row.2.map(|v| v.timestamp_micros())
+        },
+    };
+    match auth::cutoff_refusal(
+        auth::TokenIssuance {
+            issued_at: access.issued_at,
+            out_of_range: false,
+        },
+        &account,
+    ) {
+        Some(error) => (
+            axum::http::StatusCode::from_u16(error.status()).unwrap(),
+            Json(error.body()),
+        )
+            .into_response(),
+        None => Json(serde_json::json!({"id":access.subject})).into_response(),
+    }
+}
+
+async fn issue_at(
+    State((_, _, secret, issuer, audience)): State<StreamState>,
+    Json(body): Json<serde_json::Value>,
+) -> Json<serde_json::Value> {
+    let user = body["user"].as_str().unwrap().parse().unwrap();
+    let now = body["issued_at"].as_str().unwrap().parse().unwrap();
+    Json(
+        serde_json::json!({"access_token":auth::TokenIssuer::new(&secret,&issuer,&audience).access(user,now,None)}),
+    )
 }

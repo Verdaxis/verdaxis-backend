@@ -37,7 +37,13 @@ impl Fixture {
             .max_connections(6)
             .after_connect(move |connection, _| {
                 let tag = observer_tag.clone();
-                Box::pin(async move { sqlx::query("SELECT set_config('application_name',$1,false)").bind(tag).execute(connection).await?; Ok(()) })
+                Box::pin(async move {
+                    sqlx::query("SELECT set_config('application_name',$1,false)")
+                        .bind(tag)
+                        .execute(connection)
+                        .await?;
+                    Ok(())
+                })
             })
             .connect(&std::env::var("AUTH_EMAIL_TEST_OWNER_URL").unwrap())
             .await
@@ -46,7 +52,13 @@ impl Fixture {
             .max_connections(6)
             .after_connect(move |connection, _| {
                 let tag = runtime_tag.clone();
-                Box::pin(async move { sqlx::query("SELECT set_config('application_name',$1,false)").bind(tag).execute(connection).await?; Ok(()) })
+                Box::pin(async move {
+                    sqlx::query("SELECT set_config('application_name',$1,false)")
+                        .bind(tag)
+                        .execute(connection)
+                        .await?;
+                    Ok(())
+                })
             })
             .connect(&std::env::var("AUTH_EMAIL_TEST_DATABASE_URL").unwrap())
             .await
@@ -253,16 +265,33 @@ async fn r3_refresh_vs_logout_revokes_successor() {
             // Hold the same device lock for the logout transaction, then let
             // refresh reach PostgreSQL before the logout commits.
             let held = Arc::new(Barrier::new(2));
-            let mut state = auth::logout::LogoutState::new(f.runtime.clone(),"production",SECRET,None,"verdaxis","verdaxis-api");
+            let mut state = auth::logout::LogoutState::new(
+                f.runtime.clone(),
+                "production",
+                SECRET,
+                None,
+                "verdaxis",
+                "verdaxis-api",
+            );
             state.device_locked = Some(held.clone());
             let device = f.device.clone();
-            let logging_out = tokio::spawn(async move { send(auth::logout::router(state),"/api/auth/logout",None,&device,Value::Null).await });
+            let logging_out = tokio::spawn(async move {
+                send(
+                    auth::logout::router(state),
+                    "/api/auth/logout",
+                    None,
+                    &device,
+                    Value::Null,
+                )
+                .await
+            });
             held.wait().await;
-            let rotation = tokio::spawn(refresh(f.refresh(None), f.token.clone(), f.device.clone()));
+            let rotation =
+                tokio::spawn(refresh(f.refresh(None), f.token.clone(), f.device.clone()));
             blocked(&f.owner).await;
             held.wait().await;
-            assert_eq!(logging_out.await.unwrap().0,204);
-            assert_eq!(rotation.await.unwrap().0,401);
+            assert_eq!(logging_out.await.unwrap().0, 204);
+            assert_eq!(rotation.await.unwrap().0, 401);
         }
         assert_eq!(f.live().await, 0);
         f.remove().await;
@@ -455,18 +484,42 @@ async fn r7_device_session_limit_is_one_live_family() {
         let (first, second) = if reverse { (&b, &a) } else { (&a, &b) };
         let device = a.device.clone();
         let held = Arc::new(Barrier::new(2));
-        let winner = tokio::spawn(login(a.runtime.clone(),first.email.clone(),device.clone(),Some(held.clone())));
+        let winner = tokio::spawn(login(
+            a.runtime.clone(),
+            first.email.clone(),
+            device.clone(),
+            Some(held.clone()),
+        ));
         held.wait().await;
-        let later = tokio::spawn(login(a.runtime.clone(),second.email.clone(),device.clone(),None));
+        let later = tokio::spawn(login(
+            a.runtime.clone(),
+            second.email.clone(),
+            device.clone(),
+            None,
+        ));
         blocked(&a.owner).await;
         held.wait().await;
-        assert_eq!(winner.await.unwrap(),200);
-        assert_eq!(later.await.unwrap(),200);
-        let rows: Vec<(Uuid,bool)> = sqlx::query_as("SELECT user_id,revoked FROM refresh_sessions WHERE device_id_hash=$1")
-            .bind(token_digest(&device)).fetch_all(&a.owner).await.unwrap();
-        assert!(rows.iter().filter(|(id,_)| *id==first.user).all(|(_,revoked)| *revoked));
-        assert_eq!(rows.iter().filter(|(id,revoked)| *id==second.user && !revoked).count(),1);
-        a.remove().await; b.remove().await;
+        assert_eq!(winner.await.unwrap(), 200);
+        assert_eq!(later.await.unwrap(), 200);
+        let rows: Vec<(Uuid, bool)> =
+            sqlx::query_as("SELECT user_id,revoked FROM refresh_sessions WHERE device_id_hash=$1")
+                .bind(token_digest(&device))
+                .fetch_all(&a.owner)
+                .await
+                .unwrap();
+        assert!(
+            rows.iter()
+                .filter(|(id, _)| *id == first.user)
+                .all(|(_, revoked)| *revoked)
+        );
+        assert_eq!(
+            rows.iter()
+                .filter(|(id, revoked)| *id == second.user && !revoked)
+                .count(),
+            1
+        );
+        a.remove().await;
+        b.remove().await;
     }
 }
 
