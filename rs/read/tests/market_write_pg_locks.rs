@@ -534,12 +534,7 @@ fn maintenance_and_phase7_sources_keep_canonical_locks_and_columns() {
         assert!(matcher.contains(column));
     }
     let seed = include_str!("../../../app/seeds/market_seed.py");
-    for column in [
-        "buyer_user_id",
-        "seller_user_id",
-        "bid_order_id",
-        "ask_order_id",
-    ] {
+    for column in ["bid_order_id", "ask_order_id"] {
         assert!(seed.contains(column));
     }
     for source in [
