@@ -223,7 +223,11 @@ def matches(matcher, method, path):
 
 
 def owned_paths(operation):
-    return {canonical(operation["path"]), *encoded_variants(operation)}
+    return {
+        canonical(operation["path"]),
+        *encoded_variants(operation),
+        *operation.get("served_literals", []),
+    }
 
 
 def encoded_variants(operation):
@@ -320,6 +324,29 @@ def main():
         fail("the Caddy snippet must own exactly 20 matchers")
     if {op["matcher"] for op in operations} != set(matchers):
         fail("the Caddy matcher set does not match the route fixture")
+    # Python serves PUT /api/supplier-offers/my through the parametric PUT
+    # handler (the static /my route is GET only); the retirement owns that
+    # spelling through the PUT operation, and the GET sibling stays with GET.
+    literals = routes["id_segment"]["served_literals"]
+    expected_literals = {
+        "route.PUT /api/supplier-offers/{offer_id}": ["/api/supplier-offers/my"]
+    }
+    if literals != expected_literals:
+        fail("the served-literal record does not match Python's routing")
+    for op in operations:
+        if op["match"]["exclude"] and op["match"]["kind"] != "regex":
+            fail(f"a static matcher must not carry an exclusion: {op['matcher']}")
+        if op["matcher"] == "phase7_offer_update" and op["match"]["exclude"]:
+            fail("the parametric PUT matcher must not exclude the static sibling")
+        if op["matcher"] == "phase7_offer_read" and op["match"]["exclude"] != [
+            "/api/supplier-offers/my"
+        ]:
+            fail("the GET matcher keeps the static sibling exclusion")
+    boundaries = routes["boundaries"]
+    if "non-uuid-segment" in boundaries["not_owned"]:
+        fail("the boundary record must not claim UUID-only matching")
+    if "UUID" in boundaries.get("note", ""):
+        fail("the boundary note must not claim UUID-only matching")
     for op in operations:
         retired = [op["method"]] + (["HEAD"] if op["method"] == "GET" else []) + ["OPTIONS"]
         if op.get("methods") != retired:
@@ -659,7 +686,11 @@ def encoded_variants(operation):
 
 
 def owned_paths(operation):
-    return {canonical(operation["path"]), *encoded_variants(operation)}
+    return {
+        canonical(operation["path"]),
+        *encoded_variants(operation),
+        *operation.get("served_literals", []),
+    }
 
 
 def main():
@@ -752,6 +783,15 @@ http://127.0.0.1:{port} {{
                 status, _headers, _body = request(port, method, path)
                 if status != 404 or Upstream.seen:
                     fail(f"{method} {path} escaped the retirement")
+            # The literal sibling served by Python's parametric PUT handler is
+            # retired through that operation, and only through it.
+            for method in ("PUT", "OPTIONS"):
+                Upstream.seen.clear()
+                status, headers, body = request(port, method, "/api/supplier-offers/my")
+                if status != 404 or body:
+                    fail(f"{method} /api/supplier-offers/my returned {status}, not a 404")
+                if "X-Route-Owner" in headers or Upstream.seen:
+                    fail(f"{method} /api/supplier-offers/my reached an upstream")
             stop(process, log)
             process = log = None
 
@@ -768,6 +808,13 @@ http://127.0.0.1:{port} {{
                         fail(f"rollback did not restore {method} {url}")
                     if not Upstream.seen:
                         fail(f"rollback did not reach Python for {method} {url}")
+            for method in ("PUT", "OPTIONS"):
+                Upstream.seen.clear()
+                status, headers, _body = request(port, method, "/api/supplier-offers/my")
+                if status != 200 or headers.get("X-Route-Owner") != "python":
+                    fail(f"rollback did not restore {method} /api/supplier-offers/my")
+                if not Upstream.seen:
+                    fail(f"rollback did not reach Python for {method} /api/supplier-offers/my")
             print("phase7-acceptance: disposable Caddy 404 corpus and one-change rollback pass")
         finally:
             if process is not None and log is not None:

@@ -349,7 +349,14 @@ def encoded_variants(operation):
 
 
 def owned_paths(operation):
-    return {canonical(operation["path"]), *encoded_variants(operation)}
+    """Every spelling the operation owns: the canonical UUID form, the forms
+    Starlette still routes to the same handler, and any literal sibling Python
+    serves through this parametric handler (the fixture's served_literals)."""
+    return {
+        canonical(operation["path"]),
+        *encoded_variants(operation),
+        *operation.get("served_literals", []),
+    }
 
 
 def retired_cases():
@@ -496,6 +503,64 @@ def test_phase7_retirement_exact_operations_return_404():
             assert any(
                 m["name"] == op["matcher"] and matches(m, method, query) for m in matchers
             ), f"a query string escapes retirement for {method}: {op['id']}"
+
+
+def test_phase7_python_serves_the_literal_sibling_through_the_parametric_handler():
+    """PUT /api/supplier-offers/my reaches Python's retired update_offer, which
+    answers 422 on the UUID parse: the router has a static /my route for GET
+    only. The retirement therefore owns that spelling through the parametric
+    PUT operation; GET /my stays owned by its own static operation."""
+    router = ROOT / "app/routers/supplier_offers.py"
+    if router.is_file():
+        decorated = re.findall(r'@router\.(get|put|post|patch|delete)\(\s*"([^"]*)"', router.read_text())
+        assert ("get", "/my") in decorated, "the static GET sibling must exist"
+        assert ("put", "/my") not in decorated, "no static PUT sibling shadows the literal"
+        assert ("put", "/{offer_id}") in decorated, "the parametric PUT handler must exist"
+
+    rows = operation_rows()
+    by_id = {op["id"]: op for op in rows}
+    update = by_id["route.PUT /api/supplier-offers/{offer_id}"]
+    read = by_id["route.GET /api/supplier-offers/{offer_id}"]
+    assert update["served_literals"] == ["/api/supplier-offers/my"]
+    assert update["match"]["exclude"] == []
+    assert read["served_literals"] == []
+    assert read["match"]["exclude"] == ["/api/supplier-offers/my"]
+    for op in rows:
+        if op["id"] not in {update["id"], read["id"]}:
+            assert not op.get("served_literals"), f"unexpected served literal: {op['id']}"
+            assert not op["match"]["exclude"], f"unexpected exclusion: {op['id']}"
+
+    matchers = {matcher["name"]: matcher for matcher in caddy_matchers()}
+    assert matchers["phase7_offer_update"]["exclude"] == []
+    assert matchers["phase7_offer_read"]["exclude"] == ["/api/supplier-offers/my"]
+    for method in update["methods"]:
+        assert matches(matchers["phase7_offer_update"], method, "/api/supplier-offers/my"), (
+            f"{method} /api/supplier-offers/my must be retired by the PUT operation"
+        )
+    for method in ("GET", "HEAD"):
+        assert not matches(matchers["phase7_offer_update"], method, "/api/supplier-offers/my")
+
+
+def test_phase7_boundary_record_is_accurate():
+    carrier = document("phase7-routes")
+    boundaries = carrier["boundaries"]
+    assert boundaries["not_owned"] == [
+        "trailing-slash",
+        "wrong-method",
+        "extra-segment",
+        "prefix-sibling",
+        "double-slash",
+    ]
+    assert "UUID" not in boundaries["note"], "the matchers own any single segment"
+    segment = carrier["id_segment"]
+    assert segment["regexp"] == "[^/]+"
+    assert segment["excluded_static_siblings"] == {
+        "route.GET /api/supplier-offers/{offer_id}": ["/api/supplier-offers/my"]
+    }
+    assert segment["served_literals"] == {
+        "route.PUT /api/supplier-offers/{offer_id}": ["/api/supplier-offers/my"]
+    }
+    assert boundaries["normalisation"].strip(), "the cleaning divergence must be recorded"
 
 
 def test_phase7_path_b_exact_matchers_do_not_steal_adjacent_routes():
