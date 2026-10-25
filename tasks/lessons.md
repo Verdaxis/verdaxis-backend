@@ -393,3 +393,9 @@
 - **Trigger:** MCP used an independent limiter that consumed the public-read connection reserve; voyage ETS costs were rounded before currency conversion and unbounded durations reached date arithmetic.
 - **Rule:** Inject one per-worker limiter into all public database-read entry points, reserve one checkout, and test saturation in both directions. In-memory tools bypass it. Share the ETS phase-in schedule, not rounded display costs. Validate speed at 1 knot minimum and bound the full calendar voyage, including final berth, to 365 days before advancing dates.
 - **Why:** Independent limits do not compose into a shared pool budget. Intermediate rounding changes totals; input bounds and calendar-duration checks prevent overflow.
+
+### Pin Wire Labels With Explicit Renames, Not Enum Casing
+- **Date:** 2026-10-25
+- **Trigger:** A Rust enum using `serde(rename_all = "SCREAMING_SNAKE_CASE")` serialized `Approved` as `APPROVED`, but the Python contract's literal is `KYC_APPROVED`; the profile suite passed compile gates and only failed on its first real PostgreSQL run.
+- **Rule:** When porting a Python string contract to a Rust enum, extract every accepted literal from the Python source (here `ExecutionEligibilityResponse`'s `Literal[...]` and `kyc_execution.py`), and pin each variant with an explicit `#[serde(rename)]` unless variant-name casing provably equals the literal. Never rely on a casing convention spanning prefixed and unprefixed labels (`KYC_APPROVED` vs `NOT_APPLICABLE`).
+- **Why:** Casing conventions cannot produce a prefix; a wire label mismatch is invisible to clippy and offline tests and surfaces only in contract execution against the real projection.
