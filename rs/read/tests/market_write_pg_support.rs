@@ -8,7 +8,6 @@ use axum::{
     http::{Request, StatusCode},
 };
 use chrono::{Duration, Utc};
-use http_body_util::BodyExt;
 use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
 use serde_json::{Value, json};
 use sqlx::{Connection, PgConnection, Row, postgres::PgPoolOptions};
@@ -83,17 +82,11 @@ impl Fixture {
         let policy =
             serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap();
         let config = serde_json::from_value(json!({"environment":"test","release_sha":"test","migration_revision":"p89_20261022_watchlist_producer","database_url":"","db_session_time_zone":"UTC","bind":"127.0.0.1:0","pool_max":4,"python_budget":0,"configured_max_connections":100})).unwrap();
+        let bootstrap_ids = if bootstrap { self.actor.to_string() } else { String::new() };
         router(SupportState::new(
             self.pool.clone(),
             verification,
-            SupportSettings::new(
-                enabled,
-                if bootstrap {
-                    &self.actor.to_string()
-                } else {
-                    ""
-                },
-            ),
+            SupportSettings::new(enabled, &bootstrap_ids),
             policy,
             config,
         ))
@@ -129,7 +122,7 @@ impl Fixture {
             .await
             .unwrap();
         let status = response.status();
-        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let bytes = axum::body::to_bytes(response.into_body(), 1048576).await.unwrap();
         (
             status,
             serde_json::from_slice(&bytes).unwrap_or(Value::Null),
@@ -402,11 +395,12 @@ async fn revoke_ends_contexts_in_one_transaction() {
         .execute(&mut *holder)
         .await
         .unwrap();
+    let revoke_path = format!("{ROOT}/capability-assignments/{assignment_id}/revoke");
     let request = f.request(
         &app,
         f.actor,
         "POST",
-        &format!("{ROOT}/capability-assignments/{assignment_id}/revoke"),
+        &revoke_path,
         Some(json!({"reason":"Request complete"})),
     );
     let observer = async {
@@ -522,7 +516,7 @@ async fn revoke_ends_contexts_in_one_transaction() {
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn support_pages_are_bounded_and_real_only() {
-    let mut f = Fixture::new().await;
+    let f = Fixture::new().await;
     let app = f.app(true, true);
     for capability in ["MARKET_SUPPORT_LISTINGS", "MARKET_SUPPORT_AUTHORIZATIONS"] {
         assert_eq!(

@@ -4,7 +4,7 @@ use std::{collections::BTreeSet, sync::Arc};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use sqlx::{PgConnection, Row};
+use sqlx::{Connection, PgConnection, Row};
 use uuid::Uuid;
 
 use super::effects::{AuditContext, MutationEffect, MutationKind};
@@ -275,7 +275,7 @@ impl MarketCommand for SupportCommand {
             let (value, effects) = {
                 let mut port = tx.support()?;
                 self.authorize(port.conn, actor.user_id(), now).await?;
-                port.execute(&self.action, actor.user_id(), now, &self.audit)
+                port.execute(&self.action, actor.user_id(), now, &self.audit, &self.policy, &self.config)
                     .await?
             };
             if !effects.is_empty() {
@@ -308,6 +308,8 @@ impl<'a> SupportPort<'a> {
         actor: Uuid,
         now: DateTime<Utc>,
         audit: &AuditContext,
+        policy: &MarketPolicy,
+        config: &Config,
     ) -> Result<(Value, Vec<MutationEffect>), MarketWriteError> {
         let mut effects = Vec::new();
         let result=match action {
@@ -368,9 +370,11 @@ impl<'a> SupportPort<'a> {
         page: &Page,
         listings: bool,
         now: DateTime<Utc>,
+        policy: &MarketPolicy,
+        config: &Config,
     ) -> Result<Value, MarketWriteError> {
         if listings {
-            self.listings(organization, page, now).await
+            self.listings(organization, page, now, policy, config).await
         } else {
             self.authorizations(organization, page).await
         }
@@ -461,11 +465,13 @@ impl<'a> SupportPort<'a> {
         organization: Uuid,
         page: &Page,
         now: DateTime<Utc>,
+        policy: &MarketPolicy,
+        config: &Config,
     ) -> Result<Value, MarketWriteError> {
         let total:i64=sqlx::query_scalar("SELECT count(*) FROM orderbook_orders WHERE organization_id=$1 AND creation_method='MARKET_SUPPORT'").bind(organization).fetch_one(&mut *self.conn).await?;
         let digest_sql = crate::market::visibility::private_digest_input_sql("o");
         let sql = format!(
-            "SELECT {digest_sql} AS private_digest_input,o.provenance::text AS provenance,o.side::text AS side,o.price_per_mt_usd,o.expires_at,o.created_at,COALESCE(p.name,'') AS product_name,COALESCE(p.fuel_type,'') AS product_fuel_type,COALESCE(p.fuel_grade,'Conventional') AS product_fuel_grade,COALESCE(dp.name,'') AS delivery_point_name,COALESCE(dp.region,'') AS delivery_point_region,COALESCE(org.supplier_tier,'INDEPENDENT') AS tier_label,o.owner_user_id,o.created_by_actor_user_id,o.support_authorization_id,o.creation_method,o.version,o.id,o.product_id,o.delivery_point_id,o.availability_window FROM orderbook_orders o LEFT JOIN products p ON p.id=o.product_id LEFT JOIN delivery_points dp ON dp.id=o.delivery_point_id JOIN organizations org ON org.id=o.organization_id WHERE o.organization_id=$1 AND o.creation_method='MARKET_SUPPORT' ORDER BY o.created_at DESC,o.id DESC OFFSET $2 LIMIT $3"
+            "SELECT {digest_sql},o.provenance::text AS provenance,o.side::text AS side,o.price_per_mt_usd,o.expires_at,o.created_at,COALESCE(p.name,'') AS product_name,COALESCE(p.fuel_type,'') AS product_fuel_type,COALESCE(p.fuel_grade,'Conventional') AS product_fuel_grade,COALESCE(dp.name,'') AS delivery_point_name,COALESCE(dp.region,'') AS delivery_point_region,COALESCE(org.supplier_tier,'INDEPENDENT') AS tier_label,o.owner_user_id,o.created_by_actor_user_id,o.support_authorization_id,o.creation_method,o.version,o.id,o.product_id,o.delivery_point_id,o.availability_window FROM orderbook_orders o LEFT JOIN products p ON p.id=o.product_id LEFT JOIN delivery_points dp ON dp.id=o.delivery_point_id JOIN organizations org ON org.id=o.organization_id WHERE o.organization_id=$1 AND o.creation_method='MARKET_SUPPORT' ORDER BY o.created_at DESC,o.id DESC OFFSET $2 LIMIT $3"
         );
         let rows = sqlx::query(sqlx::AssertSqlSafe(sql))
             .bind(organization)
@@ -473,9 +479,18 @@ impl<'a> SupportPort<'a> {
             .bind(page.limit)
             .fetch_all(&mut *self.conn)
             .await?;
-        let policy: MarketPolicy =
-            serde_json::from_str(include_str!("../../../../deploy/rust/market-policy.json"))
-                .map_err(|_| validation())?;
+        let keys = rows.iter().filter_map(|row| {
+            let product:Uuid=row.get("product_id");
+            let point:Option<Uuid>=row.get("delivery_point_id");
+            Some(crate::market::live_benchmarks::LiveBenchmarkKey {
+                side:row.get("side"),
+                product:policy.products.iter().find(|p|p.id==product)?.code.clone(),
+                point:point?,window:row.get("availability_window"),
+            })
+        }).collect::<Vec<_>>();
+        let mut nested=self.conn.begin().await?;
+        let benchmarks=crate::market::live_benchmarks::live_benchmarks(&mut nested,policy,config,&keys,now).await.map_err(|_|MarketWriteError::new(MarketErrorCode::DatabaseError))?;
+        nested.commit().await?;
         let mut items = Vec::new();
         for row in rows {
             let mut projection = crate::market::order_projection::PublicOrder::from_row(&row)
@@ -488,13 +503,14 @@ impl<'a> SupportPort<'a> {
                     .find(|p| p.id == product_id)
                     .map(|p| p.code.as_str())
             );
-            let order = projection.public(false, None).map_err(|_| validation())?;
+            let key=projection.benchmark_key(now).map_err(|_|validation())?;
+            let benchmark=key.as_ref().and_then(|key|benchmarks.get(key));
+            let order = projection.public(false, benchmark).map_err(|_| validation())?;
             let id: Uuid = row.try_get("id")?;
             let version: i32 = row.try_get("version")?;
             let etag = format!("W/\"order-{id}-v{version}\"");
             items.push(json!({"order":order,"accountable_user_id":row.try_get::<Option<Uuid>,_>("owner_user_id")?,"created_by_actor_user_id":row.try_get::<Option<Uuid>,_>("created_by_actor_user_id")?,"creation_method":row.try_get::<String,_>("creation_method")?,"support_authorization_id":row.try_get::<Option<Uuid>,_>("support_authorization_id")?,"version":version,"etag":etag}));
         }
-        let _ = now;
         Ok(json!({"items":items,"total":total,"skip":page.skip,"limit":page.limit}))
     }
 }
