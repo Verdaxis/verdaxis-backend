@@ -1,7 +1,7 @@
 use axum::http::StatusCode;
 use serde_json::json;
 use uuid::Uuid;
-use verdaxis_read::routes::market_write::orders::{order_etag, CancelInput};
+use verdaxis_read::routes::market_write::orders::{CancelInput, order_etag};
 
 #[test]
 fn cancel_reason_and_method_contract() {
