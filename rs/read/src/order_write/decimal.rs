@@ -17,7 +17,7 @@
 #![deny(clippy::float_arithmetic)]
 
 use rust_decimal::{Decimal, RoundingStrategy};
-use serde::{de, Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, de};
 
 use super::error::{MarketErrorCode, MarketWriteError};
 

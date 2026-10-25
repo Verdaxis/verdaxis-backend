@@ -251,7 +251,10 @@ fn zero_stock_and_filled_remainder_are_valid() {
     assert!(OrderRemainder::parse_exact("0.00").is_ok());
     assert!(StockQuantity::checked(Decimal::ZERO).is_ok());
     assert!(OrderRemainder::checked(Decimal::ZERO).is_ok());
-    assert_eq!(StockQuantity::parse_exact("0").unwrap().value(), Decimal::ZERO);
+    assert_eq!(
+        StockQuantity::parse_exact("0").unwrap().value(),
+        Decimal::ZERO
+    );
 
     // The positive domains stay positive, so an order or trade cannot be zero.
     assert_refusal(
@@ -502,7 +505,10 @@ fn sqlstate_mapping_table_is_total() {
         "VALUE_SCALE_INVALID",
         "VALUE_OVERFLOW",
     ];
-    let mut declared: Vec<&str> = MarketErrorCode::ALL.iter().map(|code| code.as_str()).collect();
+    let mut declared: Vec<&str> = MarketErrorCode::ALL
+        .iter()
+        .map(|code| code.as_str())
+        .collect();
     declared.sort_unstable();
     expected.sort_unstable();
     assert_eq!(declared, expected);
@@ -572,7 +578,13 @@ fn market_write_authority_declares_the_shared_context_without_a_constructor() {
     // caller can mint is not authority evidence, so the module declares no
     // constructor, default or conversion for them.
     let source = include_str!("../src/order_write/authority.rs");
-    for forbidden in ["fn new", "fn from", "impl Default", "impl From<", "Default for"] {
+    for forbidden in [
+        "fn new",
+        "fn from",
+        "impl Default",
+        "impl From<",
+        "Default for",
+    ] {
         assert!(
             !source.contains(forbidden),
             "authority.rs adds a construction path: {forbidden}"
