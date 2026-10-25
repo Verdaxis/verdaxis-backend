@@ -589,7 +589,6 @@ mod maintenance_probe {
 #[path = "../src/order_write/command.rs"]
 mod command;
 #[cfg(feature = "contract-tests")]
-#[allow(dead_code)]
 #[path = "../src/order_write/transaction.rs"]
 mod transaction;
 #[cfg(feature = "contract-tests")]
@@ -800,7 +799,8 @@ async fn assisted_context_uses_locked_customer_authority() {
 #[ignore = "requires explicit disposable PostgreSQL"]
 async fn continuing_python_protocols_run_against_ordered_rust() {
     let binary=std::env::current_exe().unwrap();
-    let status=std::process::Command::new("venv/bin/python")
+    let status=std::process::Command::new(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../venv/bin/python"))
+        .current_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
         .args(["rs/read/tests/fixtures/phase8_writer_protocols.py"])
         .env("RUST_LOCK_PROTOCOL_BINARY",binary).status().unwrap();
     assert!(status.success(),"each continuing writer must execute its database protocol");
