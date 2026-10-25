@@ -16,7 +16,7 @@ CREATE TABLE orderbook_orders(
  carbon_intensity_method text DEFAULT 'lifecycle', feedstock text DEFAULT 'declared feedstock', origin text DEFAULT 'SG',
  off_spec boolean DEFAULT false, off_spec_notes text, fame_terms jsonb, lng_terms jsonb,
  energy_density_mj_kg numeric DEFAULT 20, certifications jsonb DEFAULT '[]', is_verdaxis_verified boolean DEFAULT false,
- tier_label text, version integer DEFAULT 1, port_id text, created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now(),
+ tier_label text DEFAULT 'Declared', version integer DEFAULT 1, port_id text, created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now(),
  private_evidence text DEFAULT 'private-document-reference'
 );
 CREATE TABLE match_suggestions(id uuid PRIMARY KEY, bid_order_id uuid REFERENCES orderbook_orders, ask_order_id uuid REFERENCES orderbook_orders, score numeric NOT NULL, match_reasons json NOT NULL, status text NOT NULL, recipient_org_id uuid REFERENCES organizations, created_at timestamptz DEFAULT now());

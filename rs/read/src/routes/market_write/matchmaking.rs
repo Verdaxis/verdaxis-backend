@@ -248,6 +248,9 @@ async fn suggestions(
                 continue;
             }
             let (score, reasons) = score(source, candidate)?;
+            if score == 0 {
+                continue;
+            }
             if best.as_ref().is_none_or(|(_, old, _)| score > *old) {
                 best = Some((source, score, reasons));
             }
