@@ -1,13 +1,21 @@
 //! Phase 4 Task 18 — authoritative overview, activation, engagement and
 //! retention tabs.
 //!
-//! The lane's leaf modules are path-included so this target compiles before the
-//! integration owner publishes `analytics/mod.rs`. `types` is the CF4_03
-//! contract double: Task 15 and Task 16 replace it with the real producers at
-//! integration.
+//! The real Task 15 leaves are path-included until the integration owner
+//! publishes `analytics/mod.rs`. Fixtures construct those types through their
+//! public interfaces; no provider or policy double is used.
 
-#[path = "support/analytics_contract_double.rs"]
+pub use verdaxis_read::{ApiError, business};
+
+#[allow(dead_code)]
+#[path = "../src/analytics/types.rs"]
 mod types;
+#[allow(dead_code)]
+#[path = "../src/analytics/policy.rs"]
+mod policy;
+#[allow(dead_code)]
+#[path = "../src/analytics/query.rs"]
+mod query;
 
 #[path = "../src/analytics/activation.rs"]
 mod activation;
@@ -36,7 +44,99 @@ use rust_decimal::Decimal;
 /// The leaves reach the CF4_03 declarations as `super::types`; the test body
 /// uses the same names directly.
 use types::*;
+use policy::suppress;
+use query::AnalyticsQuery;
 use uuid::Uuid;
+
+trait BehavioralFixture {
+    fn empty(start: DateTime<Utc>, end: DateTime<Utc>, observed_at: DateTime<Utc>) -> Self;
+    fn with_events(self, totals: &[(&str, u64)]) -> Self;
+    fn with_daily_visitors(self, rows: &[(NaiveDate, u64)]) -> Self;
+    fn with_property(self, event: &str, property: &str, values: &[(&str, u64)]) -> Self;
+}
+
+impl BehavioralFixture for BehavioralWindow {
+    /// A minimal available window with no rows; tests add only what they assert.
+    fn empty(start: DateTime<Utc>, end: DateTime<Utc>, observed_at: DateTime<Utc>) -> Self {
+        Self {
+            start,
+            end,
+            observed_at,
+            availability: BehavioralAvailability::Available,
+            diagnostic: None,
+            coverage: AnalyticsSourceCoverage {
+                coverage_start: Some(start),
+                coverage_end: Some(end),
+                observed_at: Some(observed_at),
+                status: AnalyticsSourceStatus::Available,
+                diagnostic: None,
+            },
+            core: ProviderComponent::available(CoreMetrics { visitors: None, visits: None, pageviews: None, total_time_seconds: None, average_session_duration_seconds: None }),
+            event_totals: ProviderComponent::available(Vec::new()),
+            daily_visitors: ProviderComponent::available(Vec::new()),
+            event_series: ProviderComponent::available(Vec::new()),
+            top_entries: ProviderComponent::available(Vec::new()),
+            top_referrers: ProviderComponent::available(Vec::new()),
+            property_results: Vec::new(),
+        }
+    }
+
+    fn with_events(mut self, totals: &[(&str, u64)]) -> Self {
+        self.event_totals = ProviderComponent::available(
+            totals
+                .iter()
+                .map(|(event, count)| AllowedEventAggregate {
+                    event: (*event).to_owned(),
+                    count: AggregateCell {
+                        key: (*event).to_owned(),
+                        count: Some(*count),
+                        suppressed: false,
+                    },
+                })
+                .collect(),
+        );
+        self
+    }
+
+    fn with_daily_visitors(mut self, rows: &[(NaiveDate, u64)]) -> Self {
+        self.daily_visitors = ProviderComponent::available(
+            rows.iter()
+                .map(|(date, visitors)| DailyVisitorRow {
+                    date: *date,
+                    visitors: AggregateCell {
+                        key: date.to_string(),
+                        count: Some(*visitors),
+                        suppressed: false,
+                    },
+                })
+                .collect(),
+        );
+        self
+    }
+
+    fn with_property(mut self, event: &str, property: &str, values: &[(&str, u64)]) -> Self {
+        self.property_results.push(PropertyAvailability {
+            event: event.to_owned(),
+            property: property.to_owned(),
+            result: ProviderComponent::available(
+                values
+                    .iter()
+                    .map(|(value, count)| AllowedPropertyAggregate {
+                        event: event.to_owned(),
+                        property: property.to_owned(),
+                        value: (*value).to_owned(),
+                        count: AggregateCell {
+                            key: (*value).to_owned(),
+                            count: Some(*count),
+                            suppressed: false,
+                        },
+                    })
+                    .collect(),
+            ),
+        });
+        self
+    }
+}
 
 fn utc(year: i32, month: u32, day: u32) -> DateTime<Utc> {
     Utc.with_ymd_and_hms(year, month, day, 0, 0, 0).unwrap()
