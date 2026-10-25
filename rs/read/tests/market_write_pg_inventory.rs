@@ -476,6 +476,7 @@ async fn inventory_update_tracks_changes_without_additional_effects() {
     let id = f.create().await;
     for patch in [
         json!({}),
+        json!({"current_stock_mt":"0.00"}),
         json!({"current_stock_mt":"9.25","price_per_mt_usd":null}),
     ] {
         let (status, body) = f
@@ -485,10 +486,10 @@ async fn inventory_update_tracks_changes_without_additional_effects() {
         let payload:Value=sqlx::query_scalar("SELECT payload FROM market_event_outbox WHERE aggregate_id=$1 AND event_type='inventory_updated' ORDER BY created_at DESC LIMIT 1").bind(id.to_string()).fetch_one(&mut f.admin).await.unwrap();
         assert_eq!(
             payload.get("_public_market_invalidation").is_some(),
-            !patch.as_object().unwrap().is_empty()
+            patch.get("price_per_mt_usd").is_some()
         );
     }
-    assert_eq!(f.counts().await, (3, 0, 0));
+    assert_eq!(f.counts().await, (4, 0, 0));
 }
 
 #[tokio::test]
