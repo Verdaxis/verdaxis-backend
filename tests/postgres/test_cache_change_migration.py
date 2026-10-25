@@ -1,5 +1,6 @@
 """Change-only generation statements on an independently migrated database."""
 import ast
+import asyncio
 import os
 from pathlib import Path
 
@@ -74,7 +75,7 @@ def test_nonempty_dependency_statements_bump_once(cache_database, table, row_cou
     key = "organization_id" if table == "organization_market_approvals" else "id"
     insert = INSERTS[table].format(row=ROW, org=ORG, user=USER, point=POINT, product=PRODUCT)
     if row_count == 2:
-        # Two rows in one INSERT prove the generation is statement-owned.
+        # Two rows in one INSERT prove the generation is event-owned.
         second_org = "44444444-4444-4444-8444-444444444444"
         if table in {"organization_market_approvals", "kyc_execution_grace"}:
             setup = f"INSERT INTO organizations(id,name,type) VALUES ('{second_org}','Second parent','SHIPOWNER'); "
@@ -99,7 +100,7 @@ def test_nonempty_dependency_statements_bump_once(cache_database, table, row_cou
     body += "CREATE TEMP TABLE cache_before AS " + snapshot_sql() + "; "
     for index, statement in enumerate(statements, 1):
         body += statement + "; "
-        body += f"DO $$ BEGIN ASSERT (SELECT generation FROM public_read_cache_generations WHERE domain='trading') = (SELECT generation+{index} FROM cache_before), 'one generation per statement'; END $$; "
+        body += f"DO $$ BEGIN ASSERT (SELECT generation FROM public_read_cache_generations WHERE domain='trading') = (SELECT generation+{index} FROM cache_before), 'one generation per nonempty plain event'; END $$; "
     body += "ROLLBACK"
     sql(body)
 
@@ -139,3 +140,56 @@ def test_cache_functions_keep_migrator_ownership_and_private_execution(cache_dat
 def test_cache_revision_requires_forward_revert(cache_database):
     _, migrate = cache_database
     assert "reviewed forward revert" in migrate("downgrade", PREVIOUS, success=False)
+
+
+@pytest.mark.parametrize("case,expected", [
+    ("insert_only", 1), ("conflict_only", 1), ("mixed", 2), ("do_nothing", 0),
+])
+def test_upsert_counts_nonempty_event_relations(cache_database, case, expected):
+    sql, _ = cache_database
+    existing = "77777777-7777-4777-8777-777777777777"
+    inserted = "88888888-8888-4888-8888-888888888888"
+    setup = f"INSERT INTO products(id,name,fuel_type,fuel_grade) VALUES ('{existing}','Upsert existing','Methanol','Bio'); "
+    values = {
+        "insert_only": f"('{inserted}','Upsert new','Methanol','Bio')",
+        "conflict_only": f"('{existing}','Upsert existing','Methanol','Bio')",
+        "mixed": f"('{existing}','Upsert existing','Methanol','Bio'), ('{inserted}','Upsert new','Methanol','Bio')",
+        "do_nothing": f"('{existing}','Upsert existing','Methanol','Bio')",
+    }[case]
+    action = "DO NOTHING" if case == "do_nothing" else "DO UPDATE SET is_active=EXCLUDED.is_active"
+    sql("BEGIN; " + setup + "CREATE TEMP TABLE cache_before AS " + snapshot_sql() + "; "
+        + "INSERT INTO products(id,name,fuel_type,fuel_grade) VALUES " + values
+        + " ON CONFLICT(id) " + action + "; "
+        + f"DO $$ BEGIN ASSERT (SELECT generation FROM public_read_cache_generations WHERE domain='trading') = (SELECT generation+{expected} FROM cache_before), 'nonempty event relations'; END $$; ROLLBACK")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("previous", [PREVIOUS, "p0_20261016_union"])
+async def test_upgrade_refuses_existing_reader_without_partial_ddl(supplier_scratch_database, previous):
+    import asyncpg
+    from sqlalchemy.engine import make_url
+
+    sql, migrate = supplier_scratch_database
+    await asyncio.to_thread(migrate, "upgrade", previous)
+    # The producer owns a unique database; derive its URL from its own catalog.
+    database = await asyncio.to_thread(sql, "SELECT current_database()")
+    url = make_url(os.environ["POSTGRES_ADMIN_TEST_DATABASE_URL"]).set(database=database, drivername="postgresql")
+    reader = await asyncpg.connect(url.render_as_string(hide_password=False))
+    later = await asyncpg.connect(url.render_as_string(hide_password=False))
+    before = await asyncio.to_thread(sql, "SELECT version_num FROM alembic_version; SELECT coalesce(string_agg(pg_get_triggerdef(oid), E'\\n' ORDER BY oid),'') FROM pg_trigger WHERE tgname LIKE 'public_read_cache_changed%'; SELECT coalesce(string_agg(prosrc,E'\\n'),'') FROM pg_proc WHERE proname='bump_public_read_cache_generation'")
+    try:
+        await reader.execute("BEGIN; LOCK TABLE products IN ACCESS SHARE MODE")
+        attempt = asyncio.create_task(asyncio.to_thread(migrate, "upgrade", REVISION, success=False))
+        # A bound is a correctness deadline, not a throughput measurement.
+        output = await asyncio.wait_for(attempt, 15)
+        assert "cache dependency has an active reader" in output
+        await later.execute("SET lock_timeout='100ms'")
+        assert await later.fetchval("SELECT count(*) FROM products") > 0
+        after = await asyncio.to_thread(sql, "SELECT version_num FROM alembic_version; SELECT coalesce(string_agg(pg_get_triggerdef(oid), E'\\n' ORDER BY oid),'') FROM pg_trigger WHERE tgname LIKE 'public_read_cache_changed%'; SELECT coalesce(string_agg(prosrc,E'\\n'),'') FROM pg_proc WHERE proname='bump_public_read_cache_generation'")
+        assert after == before
+        assert await later.fetchval("SELECT count(*) FROM pg_locks WHERE database=(SELECT oid FROM pg_database WHERE datname=current_database()) AND NOT granted") == 0
+    finally:
+        await reader.execute("ROLLBACK")
+        await reader.close()
+        await later.close()
+    await asyncio.to_thread(migrate, "upgrade", REVISION)
