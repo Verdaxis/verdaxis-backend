@@ -146,3 +146,33 @@ fn each_window_expires_on_its_own_clock() {
     assert!(limits.preauth("192.0.2.2", "/api/admin/users", 100 + 61));
     assert!(limits.endpoint("inviter", "/api/referrals/invite", 100 + 3600));
 }
+
+/// An address-keyed endpoint route must draw its quota from the evicting
+/// address store, never from the non-evicting verified-user store. A flood of
+/// distinct addresses must not refuse a later verified user's bucket.
+#[test]
+fn address_flood_does_not_refuse_a_verified_users_endpoint_quota() {
+    let limits = SharedLimits::default();
+    for client in 0..50_100_u32 {
+        let address = std::net::Ipv4Addr::from(client).to_string();
+        assert!(
+            limits.check_endpoint_by_address(&address, "/api/auth/login", 100).is_ok(),
+            "flood client {client} was refused"
+        );
+    }
+    for index in 0..5 {
+        assert!(
+            limits
+                .check_endpoint("verified-user", "/api/feedback", 100)
+                .is_ok(),
+            "verified request {index} lost its quota to the address flood"
+        );
+    }
+    // The address store evicts under flood instead of refusing new identities,
+    // so a fresh address is still admitted.
+    assert!(
+        limits
+            .check_endpoint_by_address("203.0.113.42", "/api/auth/login", 100)
+            .is_ok()
+    );
+}
