@@ -3,6 +3,7 @@
 use sqlx::postgres::PgPoolOptions;
 use verdaxis_read::auth::{lock::device_lock_key, token_bytes::token_digest};
 
+#[cfg(test)]
 #[tokio::test]
 #[ignore = "requires disposable PostgreSQL"]
 async fn python_and_rust_device_lock_contend_on_one_key() {
