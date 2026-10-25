@@ -1,0 +1,10 @@
+CREATE TABLE organizations(id uuid PRIMARY KEY, verification_status text NOT NULL DEFAULT 'APPROVED');
+CREATE TABLE users(id uuid PRIMARY KEY, organization_id uuid, role text NOT NULL DEFAULT 'SUPPLIER', status text NOT NULL DEFAULT 'APPROVED', email_verified boolean NOT NULL DEFAULT true, must_change_password boolean NOT NULL DEFAULT false, password_changed_at timestamptz, authentication_revoked_at timestamptz,kyc_status text NOT NULL DEFAULT 'PENDING',kyc_organization_id uuid);
+CREATE TABLE trades(id uuid PRIMARY KEY,buyer_id uuid NOT NULL,seller_id uuid NOT NULL,buyer_user_id uuid,seller_user_id uuid,bid_order_id uuid,ask_order_id uuid,status text NOT NULL DEFAULT 'CONFIRMED');
+CREATE TABLE orderbook_orders(id uuid PRIMARY KEY,organization_id uuid NOT NULL,owner_user_id uuid,created_by_actor_user_id uuid,creation_method text NOT NULL DEFAULT 'SELF_SERVICE',side text NOT NULL DEFAULT 'ASK');
+CREATE TABLE market_command_results(id uuid PRIMARY KEY,actor_user_id uuid NOT NULL,effective_organization_id uuid NOT NULL,support_context_id uuid,operation text NOT NULL,idempotency_key text NOT NULL,request_hash text NOT NULL,resource_type text NOT NULL,resource_id uuid NOT NULL,response_status smallint NOT NULL,response_body jsonb,CONSTRAINT uq_market_command_results_actor_operation_key UNIQUE(actor_user_id,operation,idempotency_key));
+CREATE TABLE market_event_outbox(id uuid PRIMARY KEY,event_type text,aggregate_type text,aggregate_id text,participant_org_ids json,payload json);
+CREATE TABLE receipt_attempts(id uuid PRIMARY KEY,fail_state text NOT NULL);
+CREATE FUNCTION receipt_commit_check() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'scheduled completion' USING ERRCODE=NEW.fail_state; END $$;
+CREATE CONSTRAINT TRIGGER receipt_commit_check AFTER INSERT ON receipt_attempts DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION receipt_commit_check();
+CREATE TABLE kyc_execution_grace(user_id uuid,organization_id uuid,expires_at timestamptz);
