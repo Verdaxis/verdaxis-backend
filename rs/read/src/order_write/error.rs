@@ -131,12 +131,12 @@ market_error_codes! {
         "The match exceeds the crossing-order bound";
     MarketSliceChanged => "MARKET_SLICE_CHANGED", StatusCode::CONFLICT,
         "The market slice changed during the command";
-    PostOnlyWouldCross => "POST_ONLY_WOULD_CROSS", StatusCode::UNPROCESSABLE_ENTITY,
+    PostOnlyWouldCross => "POST_ONLY_WOULD_CROSS", StatusCode::CONFLICT,
         "A post-only order would cross the book";
     PostOnlyCheckIndeterminate => "POST_ONLY_CHECK_INDETERMINATE", StatusCode::CONFLICT,
         "The post-only check could not be decided";
     MarketSupportLegacyMutationRetired => "MARKET_SUPPORT_LEGACY_MUTATION_RETIRED",
-        StatusCode::CONFLICT, "The legacy market support mutation is retired";
+        StatusCode::GONE, "The legacy market support mutation is retired";
     SupportContextInvalid => "SUPPORT_CONTEXT_INVALID", StatusCode::CONFLICT,
         "The support context is not valid for this action";
     ContextReplacementRequired => "CONTEXT_REPLACEMENT_REQUIRED", StatusCode::CONFLICT,
@@ -190,10 +190,11 @@ impl std::error::Error for MarketWriteError {}
 /// Two classes are decided by the code alone: a serialization failure or a
 /// deadlock (`40001`/`40P01`, the only retryable pair), then lock contention
 /// (`55P03`) and cancellation (`57014`). Unique violations depend on which
-/// constraint fired: the receipt key is an idempotency conflict and the one
-/// active freeze is a frozen trade. Everything else is a check violation, one
-/// of the freeze guard's codes, or an unclassified database failure. No server
-/// text, SQLSTATE or constraint name survives the conversion.
+/// constraint fired: the receipt keys are idempotency conflicts and the one
+/// active freeze is a frozen trade; every other constraint is an unclassified
+/// database failure. Everything else is a check violation, one of the freeze
+/// guard's codes, or an unclassified database failure. No server text,
+/// SQLSTATE or constraint name survives the conversion.
 impl From<sqlx::Error> for MarketWriteError {
     fn from(error: sqlx::Error) -> Self {
         let Some(failure) = error.as_database_error() else {
@@ -206,17 +207,32 @@ impl From<sqlx::Error> for MarketWriteError {
     }
 }
 
+/// The unique constraints a `23505` turns into its own code (§11.2).
+///
+/// Only the receipt keys and the one active freeze are named by the plan.
+/// Every other unique violation — the acceptance ordinal, the support
+/// authorization — is an unclassified database failure; the receipt race they
+/// guard belongs to the receipt protocol, not this table.
+const UNIQUE_CONSTRAINT_CODES: [(&str, MarketErrorCode); 4] = [
+    ("uq_market_command_results_actor_operation_key", MarketErrorCode::IdempotencyConflict),
+    ("uq_orderbook_orders_org_operation_idempotency", MarketErrorCode::IdempotencyConflict),
+    ("uq_trades_initiator_operation_idempotency", MarketErrorCode::IdempotencyConflict),
+    ("uq_trade_freezes_one_active", MarketErrorCode::TradeAlreadyFrozen),
+];
+
 fn classify(sqlstate: Option<&str>, constraint: Option<&str>) -> MarketErrorCode {
     match sqlstate {
         Some("40001" | "40P01") => MarketErrorCode::TransactionRetryExhausted,
         Some("55P03") => MarketErrorCode::MarketBusy,
         Some("57014") => MarketErrorCode::MarketTimeout,
-        Some("23505") if constraint == Some("uq_trade_freezes_one_active") => {
-            MarketErrorCode::TradeAlreadyFrozen
-        }
-        // The other unique key the write path meets is the receipt key
-        // (`actor_user_id`, `operation`, `idempotency_key`).
-        Some("23505") => MarketErrorCode::IdempotencyConflict,
+        Some("23505") => constraint
+            .and_then(|name| {
+                UNIQUE_CONSTRAINT_CODES
+                    .iter()
+                    .find(|(constraint, _)| *constraint == name)
+                    .map(|(_, code)| *code)
+            })
+            .unwrap_or(MarketErrorCode::DatabaseError),
         Some("23514") => MarketErrorCode::ValidationFailed,
         Some("ZF001") => MarketErrorCode::TradeFrozen,
         Some("ZF002" | "ZF003") => MarketErrorCode::FreezeHistoryImmutable,
