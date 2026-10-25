@@ -291,20 +291,34 @@ pub fn behavioral_event_cell(window: Option<&BehavioralWindow>, event: &str) -> 
             suppressed: false,
         };
     };
-    merge_provider_cells(event, rows.iter().filter(|row| row.event == event).map(|row| &row.count))
+    merge_provider_cells(
+        event,
+        rows.iter()
+            .filter(|row| row.event == event)
+            .map(|row| &row.count),
+    )
 }
 
 /// A missing label in an answered collection is zero. A present hidden or
 /// absent contribution makes the entire sum hidden or absent, respectively.
-pub fn merge_provider_cells<'a>(key: &str, cells: impl Iterator<Item = &'a AggregateCell>) -> AggregateCell {
+pub fn merge_provider_cells<'a>(
+    key: &str,
+    cells: impl Iterator<Item = &'a AggregateCell>,
+) -> AggregateCell {
     let mut total = Some(0_u64);
     let mut hidden = false;
     for cell in cells {
         hidden |= cell.suppressed;
-        total = total.zip(cell.count).and_then(|(sum, value)| sum.checked_add(value));
+        total = total
+            .zip(cell.count)
+            .and_then(|(sum, value)| sum.checked_add(value));
     }
     if hidden {
-        AggregateCell { key: key.into(), count: None, suppressed: true }
+        AggregateCell {
+            key: key.into(),
+            count: None,
+            suppressed: true,
+        }
     } else {
         super::policy::suppress(total, None).with_key(key)
     }
@@ -343,8 +357,16 @@ pub fn behavioral_daily_series(
     let mut points = Vec::new();
     let mut cursor = query.start.date_naive();
     while cursor < query.end.date_naive() && points.len() < super::policy::MAX_SERIES_POINTS {
-        let cell = merge_provider_cells("", rows.iter().filter(|row| row.date == cursor).map(|row| &row.visitors));
-        points.push(super::types::SeriesPoint { date: cursor, value: cell.count });
+        let cell = merge_provider_cells(
+            "",
+            rows.iter()
+                .filter(|row| row.date == cursor)
+                .map(|row| &row.visitors),
+        );
+        points.push(super::types::SeriesPoint {
+            date: cursor,
+            value: cell.count,
+        });
         cursor += TimeDelta::days(1);
     }
     points
@@ -1104,7 +1126,10 @@ pub async fn load_status_facts(
 
 /// Returns one distribution, not one row per organization. Filter first-ever
 /// orders after grouping so an earlier order cannot be mistaken for activation.
-pub async fn load_first_live_orders(conn: &mut PgConnection, query: &AnalyticsQuery) -> Result<DurationFacts, sqlx::Error> {
+pub async fn load_first_live_orders(
+    conn: &mut PgConnection,
+    query: &AnalyticsQuery,
+) -> Result<DurationFacts, sqlx::Error> {
     let row = sqlx::query("WITH first_orders AS (
         SELECT min(o.created_at) AS first_at, org.created_at AS registered_at
         FROM orderbook_orders o JOIN organizations org ON org.id = o.organization_id
@@ -1124,17 +1149,25 @@ fn duration_fact(row: &sqlx::postgres::PgRow) -> DurationFacts {
     use rust_decimal::prelude::FromPrimitive;
     DurationFacts {
         count: count(row.get("count")),
-        median_hours: row.get::<Option<f64>, _>("median_seconds")
-            .and_then(Decimal::from_f64).map(|seconds| (seconds / Decimal::from(3600))
-                .round_dp_with_strategy(1, RoundingStrategy::MidpointNearestEven)),
+        median_hours: row
+            .get::<Option<f64>, _>("median_seconds")
+            .and_then(Decimal::from_f64)
+            .map(|seconds| {
+                (seconds / Decimal::from(3600))
+                    .round_dp_with_strategy(1, RoundingStrategy::MidpointNearestEven)
+            }),
     }
 }
 
 /// Per-user history is reduced in PostgreSQL; only coverage, returning count
 /// and the current-period first-login distribution cross the database boundary.
-pub async fn load_login_rollup(conn: &mut PgConnection, query: &AnalyticsQuery) -> Result<LoginSummary, sqlx::Error> {
+pub async fn load_login_rollup(
+    conn: &mut PgConnection,
+    query: &AnalyticsQuery,
+) -> Result<LoginSummary, sqlx::Error> {
     let (lower, upper, previous_lower, previous_upper) = window_bounds(query);
-    let row = sqlx::query("WITH per_user AS (
+    let row = sqlx::query(
+        "WITH per_user AS (
         SELECT user_id, min(first_login_at) AS first_at, min(activity_date) AS first_date,
             bool_or(activity_date >= $1::date AND activity_date < $2::date) AS in_current,
             bool_or(activity_date >= $3::date AND activity_date < $4::date) AS in_previous
@@ -1145,10 +1178,20 @@ pub async fn load_login_rollup(conn: &mut PgConnection, query: &AnalyticsQuery) 
         COUNT(*) FILTER (WHERE first_date >= $1 AND first_date < $2)::bigint AS count,
         percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM (first_at - u.created_at)))
             FILTER (WHERE first_date >= $1 AND first_date < $2) AS median_seconds
-      FROM per_user p JOIN users u ON u.id = p.user_id")
-        .bind(lower).bind(upper).bind(previous_lower).bind(previous_upper)
-        .bind(DEMO_MARKET_ORG_IDS.to_vec()).fetch_one(conn).await?;
-    Ok(LoginSummary { coverage_start: row.get("coverage_start"), returning: count(row.get("returning")), first_login: duration_fact(&row) })
+      FROM per_user p JOIN users u ON u.id = p.user_id",
+    )
+    .bind(lower)
+    .bind(upper)
+    .bind(previous_lower)
+    .bind(previous_upper)
+    .bind(DEMO_MARKET_ORG_IDS.to_vec())
+    .fetch_one(conn)
+    .await?;
+    Ok(LoginSummary {
+        coverage_start: row.get("coverage_start"),
+        returning: count(row.get("returning")),
+        first_login: duration_fact(&row),
+    })
 }
 
 /// Select the earliest 54 cohorts and first 54 observed offsets in SQL. Sizes
@@ -1165,30 +1208,54 @@ cells AS (SELECT f.cohort_start, s.size, (w.week - f.cohort_start) / 7 AS offset
 ranked AS (SELECT *, row_number() OVER (PARTITION BY cohort_start ORDER BY offset) AS ordinal FROM cells)
 SELECT cohort_start, size, offset, count FROM ranked WHERE ordinal <= $4 ORDER BY cohort_start, offset";
 
-pub async fn load_member_days(conn: &mut PgConnection, end: DateTime<Utc>) -> Result<Vec<CohortFact>, sqlx::Error> {
+pub async fn load_member_days(
+    conn: &mut PgConnection,
+    end: DateTime<Utc>,
+) -> Result<Vec<CohortFact>, sqlx::Error> {
     let upper = end.date_naive() + TimeDelta::days(i64::from(end.time() != chrono::NaiveTime::MIN));
     let floor = super::retention::login_retention_cutoff(upper);
-    let sql = format!("WITH days AS (SELECT DISTINCT user_id AS entity_id, activity_date
+    let sql = format!(
+        "WITH days AS (SELECT DISTINCT user_id AS entity_id, activity_date
         FROM user_login_days WHERE role IN ('BUYER','SUPPLIER')
         AND (organization_id IS NULL OR organization_id <> ALL($2::uuid[]))
-        AND activity_date < $1::date AND activity_date >= $3::date) {COHORT_GROUPS_SQL}");
-    let rows = sqlx::query(sqlx::AssertSqlSafe(sql)).bind(upper).bind(DEMO_MARKET_ORG_IDS.to_vec())
-        .bind(floor).bind(MAX_COHORTS as i64).fetch_all(conn).await?;
+        AND activity_date < $1::date AND activity_date >= $3::date) {COHORT_GROUPS_SQL}"
+    );
+    let rows = sqlx::query(sqlx::AssertSqlSafe(sql))
+        .bind(upper)
+        .bind(DEMO_MARKET_ORG_IDS.to_vec())
+        .bind(floor)
+        .bind(MAX_COHORTS as i64)
+        .fetch_all(conn)
+        .await?;
     Ok(cohort_facts(rows))
 }
 
-pub async fn load_organization_days(conn: &mut PgConnection, end: DateTime<Utc>) -> Result<Vec<CohortFact>, sqlx::Error> {
+pub async fn load_organization_days(
+    conn: &mut PgConnection,
+    end: DateTime<Utc>,
+) -> Result<Vec<CohortFact>, sqlx::Error> {
     // Preserve all historical activity when establishing an organization's
     // first week; a lower horizon here would silently change cohort identity.
     let sql = format!("{ORGANIZATION_DAYS_SQL} {COHORT_GROUPS_SQL}");
-    let rows = sqlx::query(sqlx::AssertSqlSafe(sql)).bind(end).bind(DEMO_MARKET_ORG_IDS.to_vec())
-        .bind(Option::<NaiveDate>::None).bind(MAX_COHORTS as i64).fetch_all(conn).await?;
+    let rows = sqlx::query(sqlx::AssertSqlSafe(sql))
+        .bind(end)
+        .bind(DEMO_MARKET_ORG_IDS.to_vec())
+        .bind(Option::<NaiveDate>::None)
+        .bind(MAX_COHORTS as i64)
+        .fetch_all(conn)
+        .await?;
     Ok(cohort_facts(rows))
 }
 
 fn cohort_facts(rows: Vec<sqlx::postgres::PgRow>) -> Vec<CohortFact> {
-    rows.into_iter().map(|row| CohortFact { cohort_start: row.get("cohort_start"), size: count(row.get("size")),
-        offset: u32::try_from(row.get::<i32, _>("offset")).expect("nonnegative cohort offset"), count: count(row.get("count")) }).collect()
+    rows.into_iter()
+        .map(|row| CohortFact {
+            cohort_start: row.get("cohort_start"),
+            size: count(row.get("size")),
+            offset: u32::try_from(row.get::<i32, _>("offset")).expect("nonnegative cohort offset"),
+            count: count(row.get("count")),
+        })
+        .collect()
 }
 
 pub async fn load_overview_facts(

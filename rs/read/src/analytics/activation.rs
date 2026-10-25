@@ -86,10 +86,20 @@ pub fn activation(
     let first_login_suppressed = super::policy::suppress(Some(first_login_count), None).suppressed;
     let live_order_count = facts.first_live_orders.count;
     let live_order_suppressed = super::policy::suppress(Some(live_order_count), None).suppressed;
-    journey.push(JourneyStage { key: "first_login".into(), source: JourneySource::Authoritative,
-        total: quality.cell("first_login", Some(first_login_count), None), buyer: None, supplier: None });
-    journey.push(JourneyStage { key: "first_live_order".into(), source: JourneySource::Authoritative,
-        total: quality.cell("first_live_order", Some(live_order_count), None), buyer: None, supplier: None });
+    journey.push(JourneyStage {
+        key: "first_login".into(),
+        source: JourneySource::Authoritative,
+        total: quality.cell("first_login", Some(first_login_count), None),
+        buyer: None,
+        supplier: None,
+    });
+    journey.push(JourneyStage {
+        key: "first_live_order".into(),
+        source: JourneySource::Authoritative,
+        total: quality.cell("first_live_order", Some(live_order_count), None),
+        buyer: None,
+        supplier: None,
+    });
 
     let drop_off = vec![
         quality.cell("rejected", Some(facts.drop_off.rejected), None),
@@ -160,7 +170,12 @@ pub fn activation(
             suppressed: live_order_suppressed,
         },
         drop_off,
-        ratios: vec![provider_ratio("signup_started_to_submitted", behavioral, "signup_submitted", "signup_started")],
+        ratios: vec![provider_ratio(
+            "signup_started_to_submitted",
+            behavioral,
+            "signup_submitted",
+            "signup_started",
+        )],
     }
 }
 
@@ -197,12 +212,23 @@ pub fn aggregate_ratio(
 }
 
 /// Ratios retain the privacy state of both provider components.
-pub fn provider_ratio(key: &str, window: Option<&BehavioralWindow>, numerator: &str, denominator: &str) -> LabeledRatio {
+pub fn provider_ratio(
+    key: &str,
+    window: Option<&BehavioralWindow>,
+    numerator: &str,
+    denominator: &str,
+) -> LabeledRatio {
     let numerator = behavioral_event_cell(window, numerator);
     let denominator = behavioral_event_cell(window, denominator);
     let mut result = aggregate_ratio(key, numerator.count, denominator.count);
     if numerator.suppressed || denominator.suppressed {
-        result.ratio = RatioValue { numerator: None, denominator: None, rate_pct: None, suppressed: true, cohort_complete: true };
+        result.ratio = RatioValue {
+            numerator: None,
+            denominator: None,
+            rate_pct: None,
+            suppressed: true,
+            cohort_complete: true,
+        };
     }
     result
 }

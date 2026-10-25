@@ -172,17 +172,33 @@ pub fn cohorts(days: &[(uuid::Uuid, NaiveDate)], quality: &mut QualityTracker) -
 }
 
 /// Shape bounded database cohort groups with the same scalar privacy rules.
-pub fn grouped_cohorts(facts: &[super::aggregates::CohortFact], quality: &mut QualityTracker) -> Vec<CohortRow> {
+pub fn grouped_cohorts(
+    facts: &[super::aggregates::CohortFact],
+    quality: &mut QualityTracker,
+) -> Vec<CohortRow> {
     let mut result: Vec<CohortRow> = Vec::new();
     for fact in facts {
-        if result.last().is_none_or(|row| row.cohort_start != fact.cohort_start) {
-            result.push(CohortRow { cohort_start: fact.cohort_start,
-                size: quality.cell(&fact.cohort_start.to_string(), Some(fact.size), None), cells: Vec::new() });
+        if result
+            .last()
+            .is_none_or(|row| row.cohort_start != fact.cohort_start)
+        {
+            result.push(CohortRow {
+                cohort_start: fact.cohort_start,
+                size: quality.cell(&fact.cohort_start.to_string(), Some(fact.size), None),
+                cells: Vec::new(),
+            });
         }
         let row = result.last_mut().expect("cohort created above");
         let cell = quality.cell(&fact.offset.to_string(), Some(fact.count), None);
-        let pct = cell.count.zip(row.size.count).and_then(|(value, size)| rate_pct(value, size));
-        row.cells.push(CohortCell { offset: fact.offset, cell, pct });
+        let pct = cell
+            .count
+            .zip(row.size.count)
+            .and_then(|(value, size)| rate_pct(value, size));
+        row.cells.push(CohortCell {
+            offset: fact.offset,
+            cell,
+            pct,
+        });
     }
     result
 }

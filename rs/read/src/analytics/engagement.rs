@@ -165,8 +165,8 @@ pub fn engagement(
         let mut component = |event, key| {
             let rows = behavioral_property_rows(behavioral, event, "step");
             let cell = match rows {
-                Some(rows) => super::aggregates::merge_provider_cells(key, rows.iter().filter(|row| row.value == step).map(|row| &row.count)),
-                None => AggregateCell { key: key.into(), count: None, suppressed: false },
+                Some(rows) if rows.iter().any(|row| row.value == step) => super::aggregates::merge_provider_cells(key, rows.iter().filter(|row| row.value == step).map(|row| &row.count)),
+                _ => AggregateCell { key: key.into(), count: None, suppressed: false },
             };
             if cell.suppressed { quality.suppressed_cell_count += 1; }
             cell

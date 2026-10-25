@@ -35,9 +35,9 @@ use std::collections::BTreeMap;
 
 use activation::{activation, aggregate_ratio};
 use aggregates::{
-    ActivationFacts, ActivityFacts, DropOffFacts, EngagementFacts, LoginFacts, LoginSummary, DurationFacts,
-    OverviewFacts, ProvenanceRow, QualityTracker, RetentionFacts, RoleCounts, StatusFacts,
-    date_window, dense_series, fact_coverage, median_hours, rate_pct, week_start,
+    ActivationFacts, ActivityFacts, DropOffFacts, DurationFacts, EngagementFacts, LoginFacts,
+    LoginSummary, OverviewFacts, ProvenanceRow, QualityTracker, RetentionFacts, RoleCounts,
+    StatusFacts, date_window, dense_series, fact_coverage, median_hours, rate_pct, week_start,
 };
 use chrono::{DateTime, NaiveDate, TimeDelta, TimeZone, Utc};
 use cohorts::{cohorts, retention};
@@ -481,9 +481,18 @@ fn p4_t18_c05() {
             ..Default::default()
         },
         // One organization reached its first live order in the period.
-        first_live_orders: DurationFacts { count: 1, median_hours: Some(Decimal::from(586)) },
-        logins: LoginSummary { coverage_start: Some(day(2026, 6, 30)), returning: 0,
-            first_login: DurationFacts { count: 1, median_hours: Some(Decimal::from(489)) } },
+        first_live_orders: DurationFacts {
+            count: 1,
+            median_hours: Some(Decimal::from(586)),
+        },
+        logins: LoginSummary {
+            coverage_start: Some(day(2026, 6, 30)),
+            returning: 0,
+            first_login: DurationFacts {
+                count: 1,
+                median_hours: Some(Decimal::from(489)),
+            },
+        },
     };
 
     let response = activation(&facts, Some(&window), &query(), observed());
@@ -745,7 +754,11 @@ fn p4_t18_c07() {
 #[test]
 fn p4_t18_c08() {
     let mut facts = RetentionFacts {
-        rollup: LoginSummary { coverage_start: Some(day(2026, 5, 20)), returning: 1, ..Default::default() },
+        rollup: LoginSummary {
+            coverage_start: Some(day(2026, 5, 20)),
+            returning: 1,
+            ..Default::default()
+        },
         ..Default::default()
     };
     let mut response = retention(&facts, None, &query(), observed());
@@ -955,19 +968,48 @@ fn p4_t18_c10() {
 
 #[test]
 fn p4_t18_c15() {
-    let hidden = AggregateCell { key: "hidden".into(), count: None, suppressed: true };
-    let absent = AggregateCell { key: "absent".into(), count: None, suppressed: false };
+    let hidden = AggregateCell {
+        key: "hidden".into(),
+        count: None,
+        suppressed: true,
+    };
+    let absent = AggregateCell {
+        key: "absent".into(),
+        count: None,
+        suppressed: false,
+    };
     let mut window = BehavioralWindow::empty(query().start, query().end, observed());
     window.event_totals = ProviderComponent::available(vec![
-        AllowedEventAggregate { event: "signup_started".into(), count: suppress(Some(10), None) },
-        AllowedEventAggregate { event: "signup_submitted".into(), count: hidden.clone() },
-        AllowedEventAggregate { event: "listing_opened".into(), count: suppress(Some(10), None) },
-        AllowedEventAggregate { event: "order_form_opened".into(), count: hidden.clone() },
-        AllowedEventAggregate { event: "tutorial_started".into(), count: absent.clone() },
+        AllowedEventAggregate {
+            event: "signup_started".into(),
+            count: suppress(Some(10), None),
+        },
+        AllowedEventAggregate {
+            event: "signup_submitted".into(),
+            count: hidden.clone(),
+        },
+        AllowedEventAggregate {
+            event: "listing_opened".into(),
+            count: suppress(Some(10), None),
+        },
+        AllowedEventAggregate {
+            event: "order_form_opened".into(),
+            count: hidden.clone(),
+        },
+        AllowedEventAggregate {
+            event: "tutorial_started".into(),
+            count: absent.clone(),
+        },
     ]);
     window.daily_visitors = ProviderComponent::available(vec![
-        DailyVisitorRow { date: day(2026, 6, 1), visitors: hidden.clone() },
-        DailyVisitorRow { date: day(2026, 6, 2), visitors: absent.clone() },
+        DailyVisitorRow {
+            date: day(2026, 6, 1),
+            visitors: hidden.clone(),
+        },
+        DailyVisitorRow {
+            date: day(2026, 6, 2),
+            visitors: absent.clone(),
+        },
     ]);
     for (event, property, value) in [
         ("platform_navigation", "destination", "home"),
@@ -975,31 +1017,63 @@ fn p4_t18_c15() {
         ("tutorial_step_skipped", "step", "1"),
     ] {
         window.property_results.push(PropertyAvailability {
-            event: event.into(), property: property.into(),
+            event: event.into(),
+            property: property.into(),
             result: ProviderComponent::available(vec![AllowedPropertyAggregate {
-                event: event.into(), property: property.into(), value: value.into(), count: hidden.clone(),
+                event: event.into(),
+                property: property.into(),
+                value: value.into(),
+                count: hidden.clone(),
             }]),
         });
     }
-    let activation = activation(&ActivationFacts::default(), Some(&window), &query(), observed());
-    let submitted = activation.journey.iter().find(|s| s.key == "signup_submitted").unwrap();
+    let activation = activation(
+        &ActivationFacts::default(),
+        Some(&window),
+        &query(),
+        observed(),
+    );
+    let submitted = activation
+        .journey
+        .iter()
+        .find(|s| s.key == "signup_submitted")
+        .unwrap();
     assert!(submitted.total.suppressed);
     assert_eq!(submitted.total.count, None);
     assert!(activation.ratios[0].ratio.suppressed);
     assert_eq!(activation.ratios[0].ratio.numerator, None);
     assert_eq!(activation.ratios[0].ratio.denominator, None);
     assert_eq!(activation.ratios[0].ratio.rate_pct, None);
-    let overview = overview(&OverviewFacts::default(), Some(&window), None, &query(), observed());
+    let overview = overview(
+        &OverviewFacts::default(),
+        Some(&window),
+        None,
+        &query(),
+        observed(),
+    );
     assert_eq!(overview.activity_trend.visitors[0].value, None);
     assert_eq!(overview.activity_trend.visitors[1].value, None);
     assert_eq!(overview.activity_trend.visitors[2].value, Some(0));
-    let engagement = engagement(&EngagementFacts::default(), Some(&window), &query(), observed());
-    let adoption = engagement.feature_adoption.iter().find(|r| r.family == "order_form_opened").unwrap();
+    let engagement = engagement(
+        &EngagementFacts::default(),
+        Some(&window),
+        &query(),
+        observed(),
+    );
+    let adoption = engagement
+        .feature_adoption
+        .iter()
+        .find(|r| r.family == "order_form_opened")
+        .unwrap();
     assert!(adoption.suppressed);
     assert_eq!(adoption.events, None);
     assert!(engagement.workflow_ratios[0].ratio.suppressed);
     assert_eq!(engagement.workflow_ratios[0].ratio.rate_pct, None);
-    let unavailable = engagement.feature_adoption.iter().find(|r| r.family == "tutorial_started").unwrap();
+    let unavailable = engagement
+        .feature_adoption
+        .iter()
+        .find(|r| r.family == "tutorial_started")
+        .unwrap();
     assert_eq!(unavailable.events, None);
     assert!(!unavailable.suppressed);
     assert!(engagement.navigation_destinations[0].total.suppressed);
@@ -1011,7 +1085,10 @@ fn p4_t18_c15() {
 
     // A duplicate visible row cannot make an unknown hidden contribution visible.
     let mut rows = window.event_totals.clone().into_data().unwrap();
-    rows.push(AllowedEventAggregate { event: "signup_submitted".into(), count: suppress(Some(10), None) });
+    rows.push(AllowedEventAggregate {
+        event: "signup_submitted".into(),
+        count: suppress(Some(10), None),
+    });
     window.event_totals = ProviderComponent::available(rows);
     assert!(aggregates::behavioral_event_cell(Some(&window), "signup_submitted").suppressed);
 }
@@ -1365,14 +1442,20 @@ mod postgres {
     #[tokio::test]
     async fn p4_t18_c16() {
         let mut f = Fixture::new().await;
-        sqlx::raw_sql(sqlx::AssertSqlSafe(include_str!("fixtures/analytics_facts_large.sql").to_owned()))
-            .execute(&mut f.admin).await.unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(
+            include_str!("fixtures/analytics_facts_large.sql").to_owned(),
+        ))
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
         let mut wide = query();
         wide.start = utc(2025, 1, 1);
         wide.end = utc(2027, 1, 1);
         wide.previous = None;
         wide.compare = false;
-        let facts = aggregates::load_retention_facts(&mut f.app, &wide).await.unwrap();
+        let facts = aggregates::load_retention_facts(&mut f.app, &wide)
+            .await
+            .unwrap();
         assert!(facts.member_cohorts.len() <= 54 * 54);
         assert!(facts.organization_cohorts.len() <= 54 * 54);
         let response = retention(&facts, None, &wide, observed());
@@ -1382,12 +1465,18 @@ mod postgres {
         assert_eq!(first.cohort_start, day(2025, 1, 6));
         assert_eq!(first.size.count, Some(4));
         assert_eq!(first.cells.len(), 54);
-        assert!(first.cells.iter().all(|c| c.cell.count == Some(4) && c.pct == Some(Decimal::ONE_HUNDRED)));
-        let activation_facts = aggregates::load_activation_facts(&mut f.app, &wide).await.unwrap();
+        assert!(
+            first
+                .cells
+                .iter()
+                .all(|c| c.cell.count == Some(4) && c.pct == Some(Decimal::ONE_HUNDRED))
+        );
+        let activation_facts = aggregates::load_activation_facts(&mut f.app, &wide)
+            .await
+            .unwrap();
         assert_eq!(activation_facts.logins.first_login.count, 244);
         assert_eq!(activation_facts.first_live_orders.count, 243);
         assert!(activation_facts.logins.first_login.median_hours.is_some());
         f.finish().await;
     }
-
 }
