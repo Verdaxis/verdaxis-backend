@@ -497,10 +497,8 @@ async fn list_route(
         Ok(page) => page,
         Err(error) => return authenticated(error).into_response(),
     };
-    let mut response = axum::Json(store::InvitationOrganizationResponse {
-        items: page.items,
-    })
-    .into_response();
+    let mut response =
+        axum::Json(store::InvitationOrganizationResponse { items: page.items }).into_response();
     response.headers_mut().insert(
         "x-result-truncated",
         if page.truncated {

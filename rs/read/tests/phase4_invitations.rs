@@ -1040,7 +1040,7 @@ mod postgres {
         // The organization insert's unique violation is the domain conflict:
         // the pre-check cannot see a concurrent creator, so the insert itself
         // must map 23505 to ORGANIZATION_DOMAIN_CONFLICT, not to the email one.
-        let f = Fixture::new().await;
+        let mut f = Fixture::new().await;
         let sql = "CREATE FUNCTION refuse_domain() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'duplicate key value violates unique constraint \"organizations_domain_key\"' USING ERRCODE='23505'; END $$; \
                    CREATE TRIGGER refuse_domain BEFORE INSERT ON organizations FOR EACH ROW EXECUTE FUNCTION refuse_domain();";
         sqlx::raw_sql(sqlx::AssertSqlSafe(sql))
