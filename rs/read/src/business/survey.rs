@@ -55,8 +55,8 @@ impl SurveyAuthority {
     }
 }
 
-/// A validated submission. The wire body may carry an `email`; it is not an
-/// addressing field, and the authenticated account is always the target.
+/// A validated submission. The body may carry only the two declared fields;
+/// the authenticated account is always the target.
 #[derive(Debug, PartialEq, Eq)]
 pub struct SurveySubmission {
     pub use_case: String,
@@ -92,10 +92,6 @@ pub fn validate_submission(body: Value) -> Result<SurveySubmission, ApiError> {
                     }
                 }
             }
-            // Python's `SurveySubmission` sets `extra="forbid"`; `email` is the
-            // one legacy key the shipped client still sends and Pydantic-era
-            // logs accepted, so it is ignored rather than refused.
-            "email" => {}
             _ => return Err(unprocessable("The field is not part of the survey.")),
         }
     }
