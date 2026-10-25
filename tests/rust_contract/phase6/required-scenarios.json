@@ -2903,6 +2903,13 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_http.rs",
+      "test_name": "capacity_is_terminal_event",
+      "red": [
+        "assertion"
       ]
     },
     {
@@ -2915,6 +2922,13 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_http.rs",
+      "test_name": "heartbeat_within_bound",
+      "red": [
+        "assertion"
       ]
     },
     {
@@ -2927,6 +2941,13 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_http.rs",
+      "test_name": "safe_event_framing",
+      "red": [
+        "assertion"
       ]
     },
     {
@@ -2939,6 +2960,13 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_http.rs",
+      "test_name": "cors_and_request_id",
+      "red": [
+        "assertion"
       ]
     },
     {
@@ -2951,6 +2979,13 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_http.rs",
+      "test_name": "query_token_not_logged",
+      "red": [
+        "assertion"
       ]
     },
     {
@@ -2963,6 +2998,13 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_http.rs",
+      "test_name": "body_drop_cleans_subscription",
+      "red": [
+        "assertion"
       ]
     },
     {
