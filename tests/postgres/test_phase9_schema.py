@@ -31,6 +31,65 @@ REASONS = {
 }
 
 
+FREEZE_OBJECTS = {
+    ("public", "trade_freezes", "table", "trade_freezes"),
+    ("public", "trade_freezes", "column", "id"),
+    ("public", "trade_freezes", "column", "trade_id"),
+    ("public", "trade_freezes", "column", "status"),
+    ("public", "trade_freezes", "column", "reason_code"),
+    ("public", "trade_freezes", "column", "note"),
+    ("public", "trade_freezes", "column", "frozen_by_user_id"),
+    ("public", "trade_freezes", "column", "frozen_at"),
+    ("public", "trade_freezes", "column", "cleared_by_user_id"),
+    ("public", "trade_freezes", "column", "cleared_at"),
+    ("public", "trade_freezes", "column", "clear_note"),
+    ("public", "trade_freezes", "column", "version"),
+    ("public", "trade_freezes", "index", "uq_trade_freezes_one_active"),
+    ("public", "trade_freezes", "index", "ix_trade_freezes_active_frozen_at"),
+    ("public", "trade_freezes", "primary_key_constraint", "trade_freezes_pkey"),
+    ("public", "trade_freezes", "foreign_key_constraint", "trade_freezes_trade_id_fkey"),
+    ("public", "trade_freezes", "foreign_key_constraint", "trade_freezes_frozen_by_user_id_fkey"),
+    ("public", "trade_freezes", "foreign_key_constraint", "trade_freezes_cleared_by_user_id_fkey"),
+    ("public", "trade_freezes", "check_constraint", "ck_trade_freezes_status"),
+    ("public", "trade_freezes", "check_constraint", "ck_trade_freezes_reason"),
+    ("public", "trade_freezes", "check_constraint", "ck_trade_freezes_note"),
+    ("public", "trade_freezes", "check_constraint", "ck_trade_freezes_clear"),
+    ("public", "trade_freezes", "check_constraint", "ck_trade_freezes_version"),
+    ("public", "trades", "trigger", "trades_freeze_guard"),
+    ("public", "trade_freezes", "trigger", "trade_freezes_history_guard"),
+    ("public", "trades_freeze_guard", "function", "trades_freeze_guard"),
+    ("public", "trade_freezes_history_guard", "function", "trade_freezes_history_guard"),
+}
+
+
+def test_rust_owned_freeze_declaration_is_exact():
+    from app.migration_drift import RUST_OWNED_SCHEMA_OBJECTS
+    from tests.unit.test_watchlist_producer_metadata import RUST_OBJECTS
+
+    assert RUST_OWNED_SCHEMA_OBJECTS == RUST_OBJECTS | FREEZE_OBJECTS
+
+
+@pytest.mark.parametrize("relation", ["trade_freezes", "market_event_outbox"])
+def test_unlisted_column_still_reports_schema_drift(freeze_database, relation):
+    import sys
+
+    sql, _ = freeze_database
+    sql(f"ALTER TABLE {relation} ADD COLUMN unlisted_extra text")
+    url = make_url(database_url(sql, "MARKET_INTEGRITY_TEST_DATABASE_URL")).set(
+        drivername="postgresql+asyncpg"
+    ).render_as_string(hide_password=False)
+    result = subprocess.run(
+        [sys.executable, "-m", "alembic", "check"], cwd=ROOT,
+        env={**os.environ, "DATABASE_URL": url, "MIGRATOR_DATABASE_URL": url},
+        capture_output=True, text=True, check=False,
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode != 0, output
+    assert "unlisted_extra" in output and relation in output, output
+    assert "remove_column" in output or "remove_table" in output, output
+    assert "Target database is not up to date" not in output, output
+
+
 def migration_graph():
     from alembic.config import Config
     from alembic.script import ScriptDirectory
