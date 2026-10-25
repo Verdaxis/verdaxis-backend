@@ -2,13 +2,15 @@
 
 ## Schema and promotion
 
-Proposed literal checkpoint: `prc_20261018_cache`, directly after
-`p0_20261016_union`. The only new transition is
-`p0_20261016_union -> prc_20261018_cache`, plus its no-change transition.
-Production remains at `p0_20261016_union`. Staging and production each need an
-independently approved source SHA and the canonical deploy helper's exact current
-and target revisions. The PM owns those deploys. No schema action ran on either
-live database. This checkpoint does not activate trading caching.
+The initial checkpoint `prc_20261018_cache` follows `p0_20261016_union`.
+Its successor, `prc_20261026_changes`, installs change-only statement triggers
+and bounds the event history without resetting generation or incarnation.
+The deployment policy allows `prc_20261018_cache -> prc_20261026_changes` and
+`p0_20261016_union -> prc_20261026_changes`, plus a no-change transition.
+The latter applies both additive revisions in one Alembic upgrade to the exact
+literal target; no intermediate service restart is needed. Each environment
+requires its own approved source SHA and exact current/target pair. These
+source changes do not authorize a live deployment or activate caching.
 
 The additive migration creates three tables, one restricted trigger function,
 and statement triggers on existing dependency tables. It changes no existing
@@ -22,18 +24,28 @@ trusted-trigger authority. No runtime sequence, UPDATE, INSERT or DELETE
 privilege is added for cache metadata.
 
 The compiled Rust revision allowlist (`deploy/rust/allowed-revisions.json`)
-accepts `prc_20261018_cache` and keeps both earlier checkpoints, so one binary
-starts against a database before and after this checkpoint.
+accepts `prc_20261026_changes` and keeps the earlier checkpoints. Production
+accepts its union checkpoint or the change-only checkpoint; it does not require
+an intermediate release at the original cache checkpoint.
 
 ## Coarse trading dependency matrix
 
-All INSERT, UPDATE, DELETE and TRUNCATE operations on each listed table advance
-the single `trading` generation in the same transaction. This intentionally covers
-all columns, including future columns, rather than inferring economic relevance
-from a private SSE event. Events carry only domain and generation. An update that
-changes no value can invalidate; this costs work but cannot expose stale data.
-The trigger is a statement trigger, so it fires once per statement even when no
-row matches.
+A nonempty INSERT, UPDATE or DELETE on each listed table advances the single
+`trading` generation once per statement in the same transaction. An UPDATE that
+matches a row but assigns identical values still counts; an empty statement does
+not. Separate AFTER statement triggers supply NEW transition tables for INSERT
+and UPDATE and an OLD transition table for DELETE. TRUNCATE always advances the
+generation. The migration checks that dependencies are ordinary, standalone tables
+before installing these triggers. All columns remain covered, including future
+columns; events carry only domain and generation.
+
+`EVENT_RETENTION_GENERATIONS = 4096` retains sixteen listener batches of 256.
+The bump transaction deletes trading events at or below new generation minus
+4,096 using the existing `(domain, generation)` primary key. Upgrade also prunes
+an existing history without advancing its generation. A reader behind the retained
+window receives a gap, clears all trading entries and reads the current generation.
+Every cache lookup still checks generation in its own database snapshot, so delayed
+event delivery cannot authorize an old entry.
 
 Each trigger is `ENABLE ALWAYS`: it fires under every `session_replication_role`,
 so tooling that skips ordinary triggers cannot hide a write from the cache. The
