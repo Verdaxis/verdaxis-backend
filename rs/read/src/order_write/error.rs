@@ -63,6 +63,22 @@ macro_rules! market_error_codes {
 }
 
 market_error_codes! {
+    AuthCredentialsInvalid => "AUTH_CREDENTIALS_INVALID", StatusCode::UNAUTHORIZED,
+        "The credentials are not valid";
+    AuthPasswordChanged => "AUTH_PASSWORD_CHANGED", StatusCode::UNAUTHORIZED,
+        "Password was changed; sign in again";
+    AuthSessionRevoked => "AUTH_SESSION_REVOKED", StatusCode::UNAUTHORIZED,
+        "Session was revoked; sign in again";
+    ExecutionNotAvailable => "EXECUTION_NOT_AVAILABLE", StatusCode::FORBIDDEN,
+        "Execution access is not available";
+    KycRequired => "KYC_REQUIRED", StatusCode::FORBIDDEN,
+        "Complete KYC verification to trade";
+    TradePartyForbidden => "TRADE_PARTY_FORBIDDEN", StatusCode::FORBIDDEN,
+        "The actor does not own this recorded trade side";
+    TradePartiesInvalid => "TRADE_PARTIES_INVALID", StatusCode::CONFLICT,
+        "The recorded trade parties are not valid";
+    TradeNotFound => "TRADE_NOT_FOUND", StatusCode::NOT_FOUND,
+        "The trade was not found";
     MarketBusy => "MARKET_BUSY", StatusCode::CONFLICT,
         "The market rows are busy; retry the request";
     MarketTimeout => "MARKET_TIMEOUT", StatusCode::SERVICE_UNAVAILABLE,
@@ -159,6 +175,7 @@ pub struct MarketWriteError {
     pub status: StatusCode,
     pub code: MarketErrorCode,
     pub message: &'static str,
+    retry_sqlstate: Option<&'static str>,
 }
 
 impl MarketWriteError {
@@ -168,12 +185,33 @@ impl MarketWriteError {
             status: code.status(),
             code,
             message: code.message(),
+            retry_sqlstate: None,
         }
+    }
+
+    /// Refine only lock contention after the sole SQLSTATE conversion.
+    pub fn from_lock(error: sqlx::Error, idempotency: bool) -> Self {
+        let converted = Self::from(error);
+        if idempotency && converted.code == MarketErrorCode::MarketBusy {
+            Self::new(MarketErrorCode::IdempotencyBusy)
+        } else {
+            converted
+        }
+    }
+
+    #[cfg(test)]
+    pub fn lock_code_for_test(state: &str, idempotency: bool) -> Self {
+        let code = classify(Some(state), None);
+        Self::new(if idempotency && code == MarketErrorCode::MarketBusy {
+            MarketErrorCode::IdempotencyBusy
+        } else {
+            code
+        })
     }
 
     /// Whether a full rerun in a fresh transaction may repeat the command.
     pub const fn is_retryable(&self) -> bool {
-        self.code.is_retryable()
+        self.retry_sqlstate.is_some()
     }
 }
 
@@ -203,7 +241,13 @@ impl From<sqlx::Error> for MarketWriteError {
         };
         let sqlstate = failure.code().map(|code| code.into_owned());
         let constraint = failure.constraint().map(str::to_owned);
-        Self::new(classify(sqlstate.as_deref(), constraint.as_deref()))
+        let mut converted = Self::new(classify(sqlstate.as_deref(), constraint.as_deref()));
+        converted.retry_sqlstate = match sqlstate.as_deref() {
+            Some("40001") => Some("40001"),
+            Some("40P01") => Some("40P01"),
+            _ => None,
+        };
+        converted
     }
 }
 

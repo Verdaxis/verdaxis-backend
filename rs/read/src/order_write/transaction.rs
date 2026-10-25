@@ -758,3 +758,343 @@ fn decode_body(text: Option<String>) -> Result<Value, WriteError> {
 #[cfg(feature = "contract-tests")]
 #[path = "contract.rs"]
 pub(super) mod contract;
+
+/// Typed market commands run only inside the sealed, organization-first owner.
+pub(super) trait MarketCommand: Send + Sync + 'static {
+    type Output: Send + 'static;
+    fn preview<'a>(
+        &'a self,
+        conn: &'a mut PgConnection,
+        actor: Uuid,
+    ) -> BoxFuture<'a, Result<MarketPreview, MarketAttemptError>>;
+    fn execute<'a>(
+        &'a self,
+        tx: &'a mut LockedMarketTransaction<'_>,
+        actor: &'a super::AuthenticatedActor,
+    ) -> BoxFuture<'a, Result<Self::Output, MarketAttemptError>>;
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct MarketPreview {
+    pub parties: super::locks::PartyLockPreview,
+    pub locks: super::locks::OperationLockPlan,
+}
+
+pub(super) struct LockedMarketTransaction<'a> {
+    conn: &'a mut PgConnection,
+    plan: &'a super::locks::OperationLockPlan,
+    locked: &'a super::locks::Locked,
+}
+impl LockedMarketTransaction<'_> {
+    pub(super) async fn require_execution(
+        &mut self,
+        party: &super::authority::admission::PartyRef,
+        now: chrono::DateTime<chrono::Utc>,
+        gate_enabled: bool,
+    ) -> Result<(), super::MarketWriteError> {
+        super::authority::admission::require_execution(
+            self.conn,
+            self.locked,
+            party,
+            now,
+            gate_enabled,
+        )
+        .await
+    }
+}
+
+#[derive(Debug)]
+pub(super) enum MarketAttemptError {
+    Database(sqlx::Error),
+    Refusal(super::MarketWriteError),
+    PreviewChanged,
+}
+impl From<sqlx::Error> for MarketAttemptError {
+    fn from(error: sqlx::Error) -> Self {
+        Self::Database(error)
+    }
+}
+impl From<super::MarketWriteError> for MarketAttemptError {
+    fn from(error: super::MarketWriteError) -> Self {
+        Self::Refusal(error)
+    }
+}
+impl MarketAttemptError {
+    fn retryable(&self) -> bool {
+        match self {
+            Self::Database(error) => error
+                .as_database_error()
+                .and_then(|error| error.code())
+                .is_some_and(|code| matches!(code.as_ref(), "40001" | "40P01")),
+            Self::PreviewChanged => true,
+            Self::Refusal(error) => error.is_retryable(),
+        }
+    }
+    fn response(self) -> super::MarketWriteError {
+        match self {
+            Self::Database(error) => error.into(),
+            Self::Refusal(error) => error,
+            Self::PreviewChanged => {
+                super::MarketWriteError::new(super::MarketErrorCode::TransactionRetryExhausted)
+            }
+        }
+    }
+}
+
+/// Cancellation does not release the permit or connection while SQL still runs.
+/// Preview drift and genuine aborts rebuild discovery, at most twice.
+pub(super) async fn run_market_command<C: MarketCommand>(
+    pool: sqlx::PgPool,
+    permits: Arc<Semaphore>,
+    access: crate::auth::VerifiedAccess,
+    command: C,
+    class: super::authority::admission::AdmissionClass,
+) -> Result<C::Output, super::MarketWriteError> {
+    tokio::spawn(async move {
+        let _permit = tokio::time::timeout(Duration::from_secs(30), permits.acquire_owned())
+            .await
+            .map_err(|_| super::MarketWriteError::new(super::MarketErrorCode::MarketBusy))?
+            .map_err(|_| super::MarketWriteError::new(super::MarketErrorCode::DatabaseError))?;
+        let access = Arc::new(access);
+        for attempt in 0..DEFAULT_MARKET_TRANSACTION_ATTEMPTS {
+            match market_attempt(&pool, &access, &command, class).await {
+                Ok(value) => return Ok(value),
+                Err(error)
+                    if error.retryable() && attempt + 1 < DEFAULT_MARKET_TRANSACTION_ATTEMPTS =>
+                {
+                    continue;
+                }
+                Err(error) => return Err(error.response()),
+            }
+        }
+        unreachable!()
+    })
+    .await
+    .map_err(|_| super::MarketWriteError::new(super::MarketErrorCode::DatabaseError))?
+}
+
+async fn market_attempt<C: MarketCommand>(
+    pool: &sqlx::PgPool,
+    access: &Arc<crate::auth::VerifiedAccess>,
+    command: &C,
+    class: super::authority::admission::AdmissionClass,
+) -> Result<C::Output, MarketAttemptError> {
+    use sqlx::Connection;
+    let mut connection = pool.acquire().await?;
+    connection.close_on_drop();
+    let mut preview_tx = connection
+        .begin_with("BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY")
+        .await?;
+    let preview = command.preview(&mut preview_tx, access.subject).await;
+    if preview_tx.rollback().await.is_err() || connection.ping().await.is_err() {
+        let _ = connection.close().await;
+        return Err(super::MarketWriteError::new(super::MarketErrorCode::DatabaseError).into());
+    }
+    let preview = preview?;
+    if !preview.locks.matches_parties(&preview.parties) {
+        return Err(MarketAttemptError::PreviewChanged);
+    }
+    let mut tx = connection
+        .begin_with("BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE")
+        .await?;
+    let result = async {
+        let locked = preview.locks.acquire(&mut tx).await?;
+        // Discovery includes all resource identities, party membership and slice sets.
+        // A new set never adds a lock here: it aborts the complete attempt.
+        let current = command.preview(&mut tx, access.subject).await?;
+        if current != preview {
+            return Err(MarketAttemptError::PreviewChanged);
+        }
+        let actor = super::authority::admission::authenticate_shared(
+            &mut tx,
+            &locked,
+            access.clone(),
+            class,
+        )
+        .await?;
+        let mut port = LockedMarketTransaction {
+            conn: &mut tx,
+            plan: &preview.locks,
+            locked: &locked,
+        };
+        command.execute(&mut port, &actor).await
+    }
+    .await;
+    match result {
+        Err(error) => {
+            if tx.rollback().await.is_err() || connection.ping().await.is_err() {
+                let _ = connection.close().await;
+                return Err(
+                    super::MarketWriteError::new(super::MarketErrorCode::DatabaseError).into(),
+                );
+            }
+            let _ = connection.close().await;
+            Err(error)
+        }
+        Ok(value) => {
+            if let Err(error) = tx.commit().await {
+                let retryable = error
+                    .as_database_error()
+                    .and_then(|error| error.code())
+                    .is_some_and(|code| matches!(code.as_ref(), "40001" | "40P01"));
+                let _ = connection.close().await;
+                return Err(if retryable {
+                    MarketAttemptError::Database(error)
+                } else {
+                    super::MarketWriteError::new(super::MarketErrorCode::CommitOutcomeUnknown)
+                        .into()
+                });
+            }
+            // No response query or failure can turn this known commit into a rerun.
+            let _ = connection.close().await;
+            Ok(value)
+        }
+    }
+}
+
+#[cfg(feature = "contract-tests")]
+impl LockedMarketTransaction<'_> {
+    pub(super) async fn test_stage_effect(&mut self) -> Result<(), super::MarketWriteError> {
+        sqlx::query("UPDATE lock_effects SET value=value+1 WHERE id=1")
+            .execute(&mut *self.conn)
+            .await?;
+        Ok(())
+    }
+    pub(super) async fn test_server_abort(
+        &mut self,
+        state: &str,
+    ) -> Result<(), super::MarketWriteError> {
+        let statement = match state {
+            "40001" => "DO $$ BEGIN RAISE EXCEPTION 'test abort' USING ERRCODE='40001'; END $$",
+            "40P01" => "DO $$ BEGIN RAISE EXCEPTION 'test abort' USING ERRCODE='40P01'; END $$",
+            "55P03" => "DO $$ BEGIN RAISE EXCEPTION 'test abort' USING ERRCODE='55P03'; END $$",
+            "57014" => "DO $$ BEGIN RAISE EXCEPTION 'test abort' USING ERRCODE='57014'; END $$",
+            _ => {
+                return Err(super::MarketWriteError::new(
+                    super::MarketErrorCode::ValidationFailed,
+                ));
+            }
+        };
+        sqlx::raw_sql(statement).execute(&mut *self.conn).await?;
+        Ok(())
+    }
+}
+#[cfg(feature = "contract-tests")]
+pub(super) async fn install_acquisition_abort(conn: &mut PgConnection, state: &str) {
+    let state = match state {
+        "40001" => "40001",
+        "40P01" => "40P01",
+        "55P03" => "55P03",
+        "57014" => "57014",
+        _ => panic!("invalid test state"),
+    };
+    sqlx::raw_sql("CREATE SEQUENCE acquisition_attempt; CREATE FUNCTION acquisition_probe() RETURNS boolean LANGUAGE plpgsql VOLATILE AS $$ BEGIN IF nextval('acquisition_attempt')=1 THEN RAISE EXCEPTION 'acquisition abort' USING ERRCODE='40001'; END IF; RETURN true; END $$; ALTER TABLE orderbook_orders ENABLE ROW LEVEL SECURITY; CREATE POLICY acquire_probe ON orderbook_orders USING(acquisition_probe()); GRANT USAGE,SELECT ON SEQUENCE acquisition_attempt TO rust_app;").execute(&mut *conn).await.unwrap();
+    let body = format!(
+        "CREATE OR REPLACE FUNCTION acquisition_probe() RETURNS boolean LANGUAGE plpgsql VOLATILE AS $$ BEGIN IF nextval('acquisition_attempt')=1 THEN RAISE EXCEPTION 'acquisition abort' USING ERRCODE='{state}'; END IF; RETURN true; END $$"
+    );
+    sqlx::raw_sql(sqlx::AssertSqlSafe(body))
+        .execute(conn)
+        .await
+        .unwrap();
+}
+
+#[cfg(feature = "contract-tests")]
+pub(super) async fn protocol_hold_key(conn: &mut PgConnection, key: i64) {
+    use sqlx::Connection;
+    let mut tx = conn.begin().await.unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(key)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    std::fs::write(std::env::var("RUST_PROTOCOL_READY").unwrap(), "locked").unwrap();
+    let release = std::env::var("RUST_PROTOCOL_RELEASE").unwrap();
+    tokio::time::timeout(Duration::from_secs(20), async {
+        while !std::path::Path::new(&release).exists() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    tx.rollback().await.unwrap();
+}
+
+#[cfg(feature = "contract-tests")]
+pub(super) async fn protocol_preview(
+    conn: &mut PgConnection,
+) -> (Vec<Uuid>, Vec<Uuid>, Vec<Uuid>, Vec<super::locks::SliceKey>) {
+    let organizations = sqlx::query_scalar("SELECT id FROM organizations ORDER BY id LIMIT 200")
+        .fetch_all(&mut *conn)
+        .await
+        .unwrap();
+    let users = sqlx::query_scalar("SELECT id FROM users ORDER BY id LIMIT 200")
+        .fetch_all(&mut *conn)
+        .await
+        .unwrap();
+    let rows=sqlx::query("SELECT id,product_id,delivery_point_id,availability_window FROM orderbook_orders ORDER BY id LIMIT 100").fetch_all(conn).await.unwrap();
+    let orders = rows.iter().map(|row| row.get("id")).collect();
+    let slices = rows
+        .iter()
+        .map(|row| super::locks::SliceKey {
+            product_id: row.get("product_id"),
+            delivery_point_id: row.get("delivery_point_id"),
+            availability_window: row.get("availability_window"),
+        })
+        .collect();
+    (organizations, users, orders, slices)
+}
+
+#[cfg(feature = "contract-tests")]
+pub(super) async fn run_paused_market_probe(
+    pool: sqlx::PgPool,
+    permits: Arc<Semaphore>,
+    access: crate::auth::VerifiedAccess,
+    entered: Arc<tokio::sync::Notify>,
+    release: Arc<tokio::sync::Notify>,
+) -> Result<(), super::MarketWriteError> {
+    struct Paused {
+        entered: Arc<tokio::sync::Notify>,
+        release: Arc<tokio::sync::Notify>,
+    }
+    impl MarketCommand for Paused {
+        type Output = ();
+        fn preview<'a>(
+            &'a self,
+            _conn: &'a mut PgConnection,
+            actor: Uuid,
+        ) -> BoxFuture<'a, Result<MarketPreview, MarketAttemptError>> {
+            Box::pin(async move {
+                let parties = super::locks::PartyLockPreview::new(
+                    [Uuid::from_u128(10), Uuid::from_u128(20)],
+                    [Uuid::from_u128(1), Uuid::from_u128(2)],
+                    actor,
+                    Value::Null,
+                );
+                let mut locks =
+                    super::locks::OperationLockPlan::new(super::locks::MarketOperation::Cancel);
+                locks.parties(&parties)?;
+                Ok(MarketPreview { parties, locks })
+            })
+        }
+        fn execute<'a>(
+            &'a self,
+            tx: &'a mut LockedMarketTransaction<'_>,
+            _actor: &'a super::AuthenticatedActor,
+        ) -> BoxFuture<'a, Result<(), MarketAttemptError>> {
+            Box::pin(async move {
+                self.entered.notify_one();
+                self.release.notified().await;
+                tx.test_stage_effect().await?;
+                Ok(())
+            })
+        }
+    }
+    run_market_command(
+        pool,
+        permits,
+        access,
+        Paused { entered, release },
+        super::authority::admission::AdmissionClass::Cleanup,
+    )
+    .await
+}

@@ -214,6 +214,8 @@ async fn attempt<C: BusinessCommand>(
         .begin_with("BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE")
         .await?;
     let result = async {
+        sqlx::raw_sql("SET LOCAL lock_timeout = '500ms'").execute(&mut *transaction).await?;
+        sqlx::raw_sql("SET LOCAL statement_timeout = '5s'").execute(&mut *transaction).await?;
         lock_organization_write(&mut transaction, &plan.scope).await?;
         let row = sqlx::query("SELECT id,organization_id,role::text AS role,status::text AS status,email_verified,must_change_password,password_changed_at,authentication_revoked_at FROM users WHERE id=$1")
             .bind(access.subject).fetch_optional(&mut *transaction).await?

@@ -8,16 +8,26 @@
 //! behaviour the plan fixes: the bounds and the stored scale, the one rounding
 //! call site, checked overflow, the total SQLSTATE table and the error envelope.
 
+#[allow(dead_code)]
 #[path = "../src/order_write/authority.rs"]
 mod authority;
+#[allow(dead_code)]
 #[path = "../src/order_write/decimal.rs"]
 mod decimal;
+#[allow(dead_code)]
 #[path = "../src/order_write/error.rs"]
 mod error;
+#[allow(dead_code)]
+#[path = "../src/order_write/locks.rs"]
+mod locks;
+mod market {
+    pub use verdaxis_read::market::windows;
+}
+pub use verdaxis_read::{ApiError, ApiErrorKind};
 
 /// The authority projection reads the verified access through this path.
 mod auth {
-    pub use verdaxis_read::auth::VerifiedAccess;
+    pub use verdaxis_read::auth::*;
 }
 
 use std::borrow::Cow;
@@ -488,6 +498,14 @@ fn sqlstate_mapping_table_is_total() {
     // Totality: every §11.3 code and the three §6.1 value codes are declared,
     // once, with a status and clear text.
     let mut expected = vec![
+        "AUTH_CREDENTIALS_INVALID",
+        "AUTH_PASSWORD_CHANGED",
+        "AUTH_SESSION_REVOKED",
+        "EXECUTION_NOT_AVAILABLE",
+        "KYC_REQUIRED",
+        "TRADE_PARTY_FORBIDDEN",
+        "TRADE_PARTIES_INVALID",
+        "TRADE_NOT_FOUND",
         "MARKET_BUSY",
         "MARKET_TIMEOUT",
         "IDEMPOTENCY_BUSY",

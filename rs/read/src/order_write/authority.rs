@@ -13,7 +13,8 @@
 //! contexts. Until then these declarations are the Interface contract only.
 // Task 3 constructs the authority and settlement projections. Keep the private
 // declarations available until those consumers are integrated.
-#![allow(dead_code)]
+#[path = "admission.rs"]
+pub mod admission;
 
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
@@ -55,7 +56,7 @@ pub struct LockedActorState {
 /// A verified access token together with the account state read under lock.
 #[derive(Debug)]
 pub struct AuthenticatedActor {
-    access: VerifiedAccess,
+    access: std::sync::Arc<VerifiedAccess>,
     account: LockedActorState,
 }
 

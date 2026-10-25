@@ -20,6 +20,10 @@ mod error;
 pub mod locks;
 mod transaction;
 
+pub use authority::admission::{
+    AdmissionClass, PartyRef, authenticate, cleanup_context_for_trade, execution_context,
+    require_cleanup, require_execution,
+};
 pub use authority::{AuthenticatedActor, SupportContextRef, WriteContext};
 pub use command::{
     Canonical, CanonicalError, CommandContext, LockPlan, Operation, OrderCommand, OutboxEvent,

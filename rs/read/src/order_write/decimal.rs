@@ -13,7 +13,6 @@
 //! stay positive, because every creation path refuses zero.
 // The declaration-only test target includes this leaf directly. Task 3 removes
 // this allowance when the test target uses the wired exports.
-#![allow(dead_code)]
 #![deny(clippy::float_arithmetic)]
 
 use rust_decimal::{Decimal, RoundingStrategy};
