@@ -784,8 +784,20 @@ async fn new_order_keeps_preinsert_slice_and_target_evidence() {
     let price = |side: &str| {
         benchmarks.iter().find(|r| r["side"] == side).unwrap()["benchmark_price_per_mt_usd"].clone()
     };
-    assert_eq!(price("ASK").to_string().parse::<rust_decimal::Decimal>().unwrap(), "97.50".parse::<rust_decimal::Decimal>().unwrap());
-    assert_eq!(price("BID").to_string().parse::<rust_decimal::Decimal>().unwrap(), rust_decimal::Decimal::from(90));
+    assert_eq!(
+        price("ASK")
+            .to_string()
+            .parse::<rust_decimal::Decimal>()
+            .unwrap(),
+        "97.50".parse::<rust_decimal::Decimal>().unwrap()
+    );
+    assert_eq!(
+        price("BID")
+            .to_string()
+            .parse::<rust_decimal::Decimal>()
+            .unwrap(),
+        rust_decimal::Decimal::from(90)
+    );
 }
 
 #[tokio::test]
