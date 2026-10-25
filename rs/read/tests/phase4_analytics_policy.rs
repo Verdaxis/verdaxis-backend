@@ -1032,7 +1032,7 @@ fn p4_t15_c13() {
         "property": "ref",
         "result": {
             "status": "partial",
-            "diagnostic": "rate_limited",
+            "diagnostic": "insufficient_coverage",
             "data": null,
         }
     }]);
