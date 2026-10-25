@@ -239,12 +239,21 @@ fn visible(cell: &AggregateCell) -> Option<u64> {
 impl BehavioralUsage {
     fn from_window(window: &BehavioralWindow) -> Self {
         let core = window.core.data();
-        let visits = core.and_then(|core| core.visits);
-        let total_time = core.and_then(|core| core.total_time_seconds);
+        let visitors = super::policy::suppress(core.and_then(|core| core.visitors), None);
+        let visits = super::policy::suppress(core.and_then(|core| core.visits), None);
+        let pageviews = super::policy::suppress(core.and_then(|core| core.pageviews), None);
+        // Session time belongs to the visit cohort. A hidden denominator must
+        // not remain recoverable from its total or average duration.
+        let total_time = if visits.suppressed {
+            None
+        } else {
+            core.and_then(|core| core.total_time_seconds)
+        };
+        let visits = visible(&visits);
         Self {
-            visitors: core.and_then(|core| core.visitors),
+            visitors: visible(&visitors),
             visits,
-            pageviews: core.and_then(|core| core.pageviews),
+            pageviews: visible(&pageviews),
             total_time_seconds: total_time,
             average_session_duration_seconds: match (total_time, visits) {
                 (Some(total), Some(visits)) if visits > 0 => {

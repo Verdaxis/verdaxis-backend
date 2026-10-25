@@ -346,12 +346,19 @@ fn p4_t17a_c11() {
         let hidden = count == 1 || count == 2;
         let expected = if hidden { Value::Null } else { json!(count) };
         for field in ["visitors", "visits", "pageviews"] {
-            assert_eq!(body["behavioral"][field], expected, "{field}, count={count}");
+            assert_eq!(
+                body["behavioral"][field], expected,
+                "{field}, count={count}"
+            );
         }
         assert_eq!(body["funnel"][0]["value"], expected);
         assert_eq!(
             body["funnel"][1]["conversion_from_previous_pct"],
-            if count == 3 { json!(133.3) } else { Value::Null }
+            if count == 3 {
+                json!(133.3)
+            } else {
+                Value::Null
+            }
         );
         assert_eq!(
             body["behavioral"]["average_session_duration_seconds"],
