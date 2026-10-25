@@ -314,8 +314,8 @@ fn repository_root() -> PathBuf {
         .expect("repository root")
 }
 
-/// Every boundary file retains receipt/outbox inserts; only the named effect
-/// source also owns audit, notification and benchmark insertion.
+/// Every boundary file retains receipt/outbox inserts; additional insert targets
+/// belong only to the exact named source file.
 fn boundary_insert_allowed(root: &Path, path: &Path, table: &str) -> bool {
     let boundary = root.join("rs/read/src/order_write");
     if !path.starts_with(&boundary) {
@@ -324,10 +324,13 @@ fn boundary_insert_allowed(root: &Path, path: &Path, table: &str) -> bool {
     if WRITE_TABLES.contains(&table) {
         return true;
     }
-    let per_file = [(
-        "effects.rs",
-        ["AUDIT_LOGS", "NOTIFICATIONS", "LIVE_SLICE_BENCHMARKS"],
-    )];
+    let per_file: &[(&str, &[&str])] = &[
+        (
+            "effects.rs",
+            &["AUDIT_LOGS", "NOTIFICATIONS", "LIVE_SLICE_BENCHMARKS"],
+        ),
+        ("dismissal.rs", &["MATCH_SUGGESTIONS"]),
+    ];
     per_file
         .iter()
         .any(|(file, tables)| path == boundary.join(file) && tables.contains(&table))
@@ -1151,4 +1154,42 @@ fn effect_insert_authority_is_scoped_to_the_exact_source_file() {
     }
     assert!(!boundary_insert_allowed(&root, &effects, "USERS"));
     assert!(!boundary_insert_allowed(&root, &effects, "UNLISTED_TABLE"));
+}
+
+#[test]
+fn dismissal_insert_authority_is_scoped_to_the_exact_source_file() {
+    let root = repository_root();
+    let boundary = root.join("rs/read/src/order_write");
+    let dismissal = boundary.join("dismissal.rs");
+    assert!(boundary_insert_allowed(
+        &root,
+        &dismissal,
+        "MATCH_SUGGESTIONS"
+    ));
+    let mut files = Vec::new();
+    collect(&boundary, "rs", &mut files);
+    files.extend([
+        boundary.join("effects.rs"),
+        boundary.join("nested/dismissal.rs"),
+        boundary.join("unlisted.rs"),
+    ]);
+    for path in files {
+        if path != dismissal {
+            assert!(!boundary_insert_allowed(&root, &path, "MATCH_SUGGESTIONS"));
+        }
+    }
+    for table in [
+        "AUDIT_LOGS",
+        "NOTIFICATIONS",
+        "LIVE_SLICE_BENCHMARKS",
+        "USERS",
+        "ORDERBOOK_ORDERS",
+        "TRADES",
+        "UNLISTED_TABLE",
+    ] {
+        assert!(!boundary_insert_allowed(&root, &dismissal, table));
+    }
+    for table in WRITE_TABLES {
+        assert!(boundary_insert_allowed(&root, &dismissal, table));
+    }
 }
