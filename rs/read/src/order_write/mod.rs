@@ -85,3 +85,6 @@ pub mod test_contract {
         pub use super::super::effects::contract::*;
     }
 }
+
+mod dismissal;
+pub use dismissal::dismiss_suggestion;

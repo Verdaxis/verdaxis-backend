@@ -31,3 +31,5 @@ pub use crate::crud::alerts::router as alerts_router;
 // Phase 2 Task 17: referral reads and public resolution (start)
 pub use crate::crud::referrals::routes as referral_routes;
 // Phase 2 Task 17: referral reads and public resolution (end)
+
+pub mod market_write;

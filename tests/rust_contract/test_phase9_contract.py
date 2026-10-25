@@ -78,7 +78,7 @@ def validate_requirements(ledger):
         for field in ("auth_class", "request", "response", "refusals", "scenarios"):
             assert row[field], f"{route}: missing {field}"
         assert {"success", "admission", "empty_values"} <= set(row["scenarios"]), route
-        if route in {"O1", "O2", "I5", "T1", "T4", "T5", "T6", "T7", "M2", "F1", "F2"}:
+        if route in {"O1", "O2", "I5", "T1", "T4", "T5", "T6", "T7", "F1", "F2"}:
             assert row["effect_owners"] == [5, owner], f"{route}: effect owners"
     assert ledger["error_contract"]["kyc_refusal"] == {
         "status": 403, "code": "KYC_REQUIRED", "fields": sorted(KYC_FIELDS),
@@ -106,6 +106,7 @@ def validate_requirements(ledger):
     }
     assert by_route["T3"]["response"]["empty"] == {"items": [], "total": 0, "skip": 0, "limit": 20}
     assert by_route["M1"]["response"]["empty"] == []
+    assert by_route["M2"]["effect_owners"] == [25]
     assert by_route["M2"]["response"]["fields"] == {"status": ["dismissed", "already_dismissed"]}
     assert ledger["write_path"] == {
         "matching": "in_process_caller_transaction", "cross_stack_http": False,

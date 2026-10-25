@@ -195,3 +195,8 @@ pub fn verify_release(value: &str) -> Result<(), &'static str> {
 
 #[cfg(feature = "contract-tests")]
 pub use order_write::test_contract as market_contract;
+
+/// Sealed market command entry points; no connection or authority constructor.
+pub mod market_commands {
+    pub use crate::order_write::dismiss_suggestion;
+}

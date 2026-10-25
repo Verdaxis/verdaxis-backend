@@ -658,10 +658,9 @@
         "success": "Assert status and typed response; read committed state on writes.",
         "admission": "Security-market admission; dismissal recipient is authenticated organization, never caller tenant.",
         "empty_values": "Preserve schema defaults, nulls, empty strings and empty collections; never infer missing economics as zero.",
-        "dismiss": "First authorized dismissal inserts match_suggestions and audits; repeat returns already_dismissed; never writes order or trade."
+        "dismiss": "Dismissal is unique per authenticated organization and order. First dismissal inserts match_suggestions; repeat returns already_dismissed. No audit, notification or outbox effect; never writes order or trade."
       },
       "effect_owners": [
-        5,
         25
       ]
     },
