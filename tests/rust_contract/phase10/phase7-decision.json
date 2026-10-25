@@ -26,9 +26,9 @@
       "selected": true,
       "retirement": {
         "caddy_file": "deploy/caddy/phase10-phase7-retire.caddy",
-        "caddy_sha256": "b90becf04f16c1f1b3e8902639192ea7645432cd6fccd38c1611d637243a8a9b",
+        "caddy_sha256": "4c08d6433a64519a68c07d6c96687bf28288ea260a4b76aa7b6fb5b6e563b025",
         "route_manifest": "tests/rust_contract/phase10/phase7-routes.json",
-        "route_manifest_sha256": "4985e55e35ecfb78ebe460ea122effa9a831df3fd208e3d73ed3e08b4f899fd1",
+        "route_manifest_sha256": "45c644cb3a43d38d7a0f78d2c0e6160db9e13a823ac7530da134f2b76dbfb62a",
         "operations": 20,
         "status_code": 404,
         "upstream": null,

@@ -22,14 +22,20 @@
     "regexp": "[^/]+",
     "reason": "Starlette routes any single non-empty segment to a typed path parameter and rejects a bad id with 422, so a UUID-only matcher would leave braced, URN and percent-encoded spellings reaching Python.",
     "excluded_static_siblings": {
-      "/api/supplier-offers/{offer_id}": "/api/supplier-offers/my"
+      "route.GET /api/supplier-offers/{offer_id}": [
+        "/api/supplier-offers/my"
+      ]
+    },
+    "served_literals": {
+      "route.PUT /api/supplier-offers/{offer_id}": [
+        "/api/supplier-offers/my"
+      ]
     }
   },
   "boundaries": {
     "not_owned": [
       "trailing-slash",
       "wrong-method",
-      "non-uuid-segment",
       "extra-segment",
       "prefix-sibling",
       "double-slash"
@@ -38,7 +44,8 @@
       "rule": "Each operation retires its own method, OPTIONS (CORS preflight would otherwise reach Python), and HEAD where the framework serves HEAD for a GET route.",
       "other_methods": "Every other method stays on the fallback and is never captured."
     },
-    "note": "Only canonical UUID segments match; a literal sibling such as /api/rfq/my is never captured."
+    "note": "Any single segment matches. The GET /api/supplier-offers/my sibling has its own retired operation, so the GET matcher excludes it; Python has no PUT /my route, so that spelling is served by the parametric PUT handler and is retired through it.",
+    "normalisation": "Caddy matches the decoded path after path.Clean, so collapsed or case-folded spellings that Python could not route to a live handler 404 at the retirement instead of at the fallback; both ends are dead ends, and no live route is stolen."
   },
   "operations": [
     {
@@ -57,6 +64,7 @@
         "value": "/api/rfq",
         "exclude": []
       },
+      "served_literals": [],
       "status_code": 404,
       "upstream": null,
       "owner": "deploy/caddy/phase10-phase7-retire.caddy",
@@ -79,6 +87,7 @@
         "value": "/api/rfq",
         "exclude": []
       },
+      "served_literals": [],
       "status_code": 404,
       "upstream": null,
       "owner": "deploy/caddy/phase10-phase7-retire.caddy",
@@ -101,6 +110,7 @@
         "value": "^/api/rfq/[^/]+$",
         "exclude": []
       },
+      "served_literals": [],
       "status_code": 404,
       "upstream": null,
       "owner": "deploy/caddy/phase10-phase7-retire.caddy",
@@ -122,6 +132,7 @@
         "value": "^/api/rfq/[^/]+/quote$",
         "exclude": []
       },
+      "served_literals": [],
       "status_code": 404,
       "upstream": null,
       "owner": "deploy/caddy/phase10-phase7-retire.caddy",
@@ -143,6 +154,7 @@
         "value": "^/api/rfq/[^/]+/quotes/[^/]+$",
         "exclude": []
       },
+      "served_literals": [],
       "status_code": 404,
       "upstream": null,
       "owner": "deploy/caddy/phase10-phase7-retire.caddy",
@@ -164,6 +176,7 @@
         "value": "^/api/rfq/[^/]+/quotes/[^/]+/withdraw$",
         "exclude": []
       },
+      "served_literals": [],
       "status_code": 404,
       "upstream": null,
       "owner": "deploy/caddy/phase10-phase7-retire.caddy",
@@ -185,6 +198,7 @@
         "value": "^/api/rfq/[^/]+/accept/[^/]+$",
         "exclude": []
       },
+      "served_literals": [],
       "status_code": 404,
       "upstream": null,
       "owner": "deploy/caddy/phase10-phase7-retire.caddy",
@@ -206,6 +220,7 @@
         "value": "^/api/rfq/[^/]+/cancel$",
         "exclude": []
       },
+      "served_literals": [],
       "status_code": 404,
       "upstream": null,
       "owner": "deploy/caddy/phase10-phase7-retire.caddy",
@@ -227,6 +242,7 @@
         "value": "/api/negotiations",
         "exclude": []
       },
+      "served_literals": [],
       "status_code": 404,
       "upstream": null,
       "owner": "deploy/caddy/phase10-phase7-retire.caddy",
@@ -249,6 +265,7 @@
         "value": "/api/negotiations",
         "exclude": []
       },
+      "served_literals": [],
       "status_code": 404,
       "upstream": null,
       "owner": "deploy/caddy/phase10-phase7-retire.caddy",
@@ -271,6 +288,7 @@
         "value": "^/api/negotiations/[^/]+$",
         "exclude": []
       },
+      "served_literals": [],
       "status_code": 404,
       "upstream": null,
       "owner": "deploy/caddy/phase10-phase7-retire.caddy",
@@ -292,6 +310,7 @@
         "value": "^/api/negotiations/[^/]+/counter$",
         "exclude": []
       },
+      "served_literals": [],
       "status_code": 404,
       "upstream": null,
       "owner": "deploy/caddy/phase10-phase7-retire.caddy",
@@ -313,6 +332,7 @@
         "value": "^/api/negotiations/[^/]+/accept$",
         "exclude": []
       },
+      "served_literals": [],
       "status_code": 404,
       "upstream": null,
       "owner": "deploy/caddy/phase10-phase7-retire.caddy",
@@ -334,6 +354,7 @@
         "value": "^/api/negotiations/[^/]+/decline$",
         "exclude": []
       },
+      "served_literals": [],
       "status_code": 404,
       "upstream": null,
       "owner": "deploy/caddy/phase10-phase7-retire.caddy",
@@ -356,6 +377,7 @@
         "value": "/api/supplier-offers",
         "exclude": []
       },
+      "served_literals": [],
       "status_code": 404,
       "upstream": null,
       "owner": "deploy/caddy/phase10-phase7-retire.caddy",
@@ -378,6 +400,7 @@
         "value": "/api/supplier-offers/my",
         "exclude": []
       },
+      "served_literals": [],
       "status_code": 404,
       "upstream": null,
       "owner": "deploy/caddy/phase10-phase7-retire.caddy",
@@ -402,6 +425,7 @@
           "/api/supplier-offers/my"
         ]
       },
+      "served_literals": [],
       "status_code": 404,
       "upstream": null,
       "owner": "deploy/caddy/phase10-phase7-retire.caddy",
@@ -423,6 +447,7 @@
         "value": "/api/supplier-offers",
         "exclude": []
       },
+      "served_literals": [],
       "status_code": 404,
       "upstream": null,
       "owner": "deploy/caddy/phase10-phase7-retire.caddy",
@@ -442,10 +467,11 @@
       "match": {
         "kind": "regex",
         "value": "^/api/supplier-offers/[^/]+$",
-        "exclude": [
-          "/api/supplier-offers/my"
-        ]
+        "exclude": []
       },
+      "served_literals": [
+        "/api/supplier-offers/my"
+      ],
       "status_code": 404,
       "upstream": null,
       "owner": "deploy/caddy/phase10-phase7-retire.caddy",
@@ -467,6 +493,7 @@
         "value": "^/api/supplier-offers/[^/]+/withdraw$",
         "exclude": []
       },
+      "served_literals": [],
       "status_code": 404,
       "upstream": null,
       "owner": "deploy/caddy/phase10-phase7-retire.caddy",

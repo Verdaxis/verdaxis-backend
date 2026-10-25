@@ -7,7 +7,9 @@
 # dynamic id segment matches any single segment, because Python's router does
 # the same and only rejects a bad id later, so a UUID-only matcher would leak
 # braced, URN and percent-encoded spellings back to Python. The one real
-# static sibling (/api/supplier-offers/my) is excluded. Trailing slashes,
+# static sibling (/api/supplier-offers/my) has its own GET operation, so only
+# the GET matcher excludes it; Python serves PUT /my through the parametric
+# PUT handler, so the PUT matcher owns that spelling too. Trailing slashes,
 # other methods, extra segments and prefix siblings stay on the fallback.
 #
 # Rollback is one change: remove the single import line. All 20 operations
@@ -180,7 +182,6 @@ handle @phase7_offer_create {
 @phase7_offer_update {
 	method PUT OPTIONS
 	path_regexp phase7_offer_update ^/api/supplier-offers/[^/]+$
-	not path /api/supplier-offers/my
 }
 handle @phase7_offer_update {
 	respond 404
