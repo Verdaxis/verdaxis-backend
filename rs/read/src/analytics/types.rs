@@ -796,29 +796,45 @@ impl BehavioralWindow {
             return Err(BehavioralWindowError::IncoherentComponent);
         }
         let statuses = self.components();
-        let mut unavailable = statuses
+        let core_unavailable = statuses
             .iter()
             .filter(|status| **status == ComponentStatus::Unavailable)
             .count();
-        let mut incomplete = statuses
+        let core_incomplete = statuses
             .iter()
             .filter(|status| **status == ComponentStatus::Partial)
             .count();
-        // Per-property components are part of the window: a property result
-        // may be partial while every core component is available.
+        // Per-property components follow the same rule, counted separately:
+        // the unavailable rule compares each family against its own length,
+        // and a partial property may accompany available core components.
+        let mut property_unavailable = 0;
+        let mut property_incomplete = 0;
         for property in &self.property_results {
             match property.result.status() {
-                ComponentStatus::Unavailable | ComponentStatus::NotRequested => unavailable += 1,
-                ComponentStatus::Partial => incomplete += 1,
+                ComponentStatus::Unavailable => property_unavailable += 1,
+                ComponentStatus::Partial => property_incomplete += 1,
                 ComponentStatus::Available => {}
+                // A requested pair is either available or unavailable; a
+                // not-requested property result contradicts the request.
+                ComponentStatus::NotRequested => {
+                    return Err(BehavioralWindowError::IncoherentAvailability)
+                }
             }
         }
+        let properties = self.property_results.len();
         let consistent = match self.availability {
             BehavioralAvailability::Unavailable => {
-                unavailable == statuses.len() && self.diagnostic.is_some()
+                core_unavailable == statuses.len()
+                    && property_unavailable == properties
+                    && self.diagnostic.is_some()
             }
-            BehavioralAvailability::Available => unavailable == 0,
-            BehavioralAvailability::Partial => unavailable + incomplete > 0,
+            BehavioralAvailability::Available => {
+                core_unavailable == 0 && property_unavailable == 0
+            }
+            BehavioralAvailability::Partial => {
+                core_unavailable + core_incomplete > 0
+                    || property_unavailable + property_incomplete > 0
+            }
         };
         if consistent {
             Ok(())
