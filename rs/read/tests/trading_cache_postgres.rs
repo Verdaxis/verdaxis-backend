@@ -1554,13 +1554,19 @@ async fn public_route_wrappers_check_generations_and_time_without_listener_wakes
                     .authority()
                     .refresh(runtime.record_path(), clock.now().monotonic);
                 for _ in 0..2 {
-                    sqlx::query("UPDATE orderbook_orders SET price_per_mt_usd = price_per_mt_usd + 1")
-                        .execute(&mut writer)
-                        .await
-                        .unwrap();
+                    sqlx::query(
+                        "UPDATE orderbook_orders SET price_per_mt_usd = price_per_mt_usd + 1",
+                    )
+                    .execute(&mut writer)
+                    .await
+                    .unwrap();
                     let expected = route_json(&disabled, &path).await;
                     assert_eq!(expected.0, 200, "{unavailable}: {path}");
-                    assert_eq!(route_json(&state, &path).await, expected, "{unavailable}: {path}");
+                    assert_eq!(
+                        route_json(&state, &path).await,
+                        expected,
+                        "{unavailable}: {path}"
+                    );
                     assert!(state.public_trading_cache.is_empty());
                 }
             }
@@ -1631,7 +1637,9 @@ async fn public_reads_during_revocation_return_current_database_values() {
                 .unwrap();
             record.revoke(2);
             publish_record(&runtime, &record);
-            runtime.authority().refresh(runtime.record_path(), Instant::now());
+            runtime
+                .authority()
+                .refresh(runtime.record_path(), Instant::now());
             // This independent connection commits after the request's snapshot.
             sqlx::query("UPDATE orderbook_orders SET price_per_mt_usd = price_per_mt_usd + 1")
                 .execute(&mut writer)

@@ -48,8 +48,7 @@ pub async fn run_admitted<T: Send + 'static>(
         &'c mut sqlx::PgConnection,
     ) -> std::pin::Pin<
         Box<dyn std::future::Future<Output = Result<T, ApiError>> + Send + 'c>,
-    > + Clone
-    + Send
+    > + Send
     + 'static,
 ) -> Result<T, ApiError> {
     // The request middleware already admitted selected GETs; reuse its permit so
@@ -206,7 +205,10 @@ where
                 .map_err(|_| ApiError::database())?;
             let Some((token, generation)) = admitted else {
                 let value = load(&mut transaction, clock).await?.value;
-                transaction.rollback().await.map_err(|_| ApiError::database())?;
+                transaction
+                    .rollback()
+                    .await
+                    .map_err(|_| ApiError::database())?;
                 return Ok(value);
             };
             observer
@@ -315,7 +317,10 @@ async fn uncached_trading_read<T>(
         .await
         .map_err(|_| ApiError::database())?;
     let value = load(&mut transaction, clock).await?.value;
-    transaction.rollback().await.map_err(|_| ApiError::database())?;
+    transaction
+        .rollback()
+        .await
+        .map_err(|_| ApiError::database())?;
     Ok(value)
 }
 
