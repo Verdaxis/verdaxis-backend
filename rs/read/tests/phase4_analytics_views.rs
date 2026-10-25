@@ -16,6 +16,19 @@ pub use verdaxis_read::{
     ApiError, AppState, MarketPolicy, PointPolicy, ProductPolicy, auth, business, market, runtime,
 };
 
+#[path = "../src/analytics/types.rs"]
+pub mod types;
+#[path = "../src/analytics/query.rs"]
+pub mod query_policy;
+#[path = "../src/analytics/policy.rs"]
+pub mod policy;
+#[path = "../src/analytics/facts.rs"]
+pub mod facts;
+pub mod analytics {
+    pub use super::{types, policy, facts};
+    pub use super::query_policy as query;
+}
+
 #[allow(dead_code)]
 #[path = "../src/analytics/acquisition.rs"]
 pub mod acquisition;
@@ -41,12 +54,28 @@ use serde_json::json;
 use uuid::Uuid;
 
 use marketplace::{
-    Activity, AllowedPropertySet, AnalyticsQuery, AnalyticsRoute, Audience, BehavioralRead,
-    BehavioralWindow, ComponentStatus, CoreMetrics, DailyEvent, DailyVisitor, Diagnostic,
-    EntryPage, EntryRanking, Event, MetaOptions, Property, PropertyResult, PropertyValueCount,
-    ProviderComponent, ProviderFuture, Quality, QueryInput, ReferenceFuture, ReferenceQuote,
-    ReferenceRead, ReferenceRequest, Source, SourceStatus, parse_query,
+    AnalyticsRoute, BehavioralRead, MetaOptions, ProviderFuture, Quality,
+    ReferenceFuture, ReferenceQuote, ReferenceRead, ReferenceRequest, Source,
 };
+use query_policy::{AnalyticsQuery, QueryInput, validate_query as parse_query};
+use policy::{AllowedPropertySet, AllowedProperty as Property, AllowedFrontendEvent as Event};
+use types::{
+    AnalyticsActivity as Activity, AnalyticsAudience as Audience,
+    AnalyticsDiagnostic as Diagnostic, AnalyticsSourceStatus as SourceStatus,
+    BehavioralWindow, ComponentStatus, CoreMetrics, DailyEventRow as DailyEvent,
+    DailyVisitorRow as DailyVisitor, EntryPage, EntryRankingRow as EntryRanking,
+    ProviderComponent, PropertyAvailability as PropertyResult,
+    AllowedPropertyAggregate as PropertyValueCount,
+};
+
+fn query_input(raw: &str) -> QueryInput {
+    let pairs: Vec<_> = url::form_urlencoded::parse(raw.as_bytes()).collect();
+    QueryInput::from_pairs(pairs.iter().map(|(key, value)| (key.as_ref(), value.as_ref())))
+}
+
+fn count(value: u64) -> types::AggregateCell {
+    policy::suppress(Some(value), None)
+}
 
 // ---------------------------------------------------------------------------
 // Fixtures shared by the unit cases
@@ -85,6 +114,7 @@ fn query() -> AnalyticsQuery {
     AnalyticsQuery {
         start: "2026-06-01T00:00:00Z".parse::<DateTime<Utc>>().unwrap(),
         end: "2026-07-01T00:00:00Z".parse::<DateTime<Utc>>().unwrap(),
+        previous: Some(("2026-05-02T00:00:00Z".parse().unwrap(), "2026-06-01T00:00:00Z".parse().unwrap())),
         compare: true,
         audience: Audience::All,
         activity: Activity::Live,
@@ -103,125 +133,101 @@ fn day(text: &str) -> NaiveDate {
 fn reading(status: ComponentStatus) -> BehavioralWindow {
     let observed = Utc::now();
     if status == ComponentStatus::Unavailable {
-        return BehavioralWindow::unavailable(Diagnostic::Timeout, observed);
+        return BehavioralWindow::unavailable(query().start, query().end, observed, Diagnostic::Timeout);
     }
     BehavioralWindow {
+        start: query().start,
+        end: query().end,
+        availability: types::BehavioralAvailability::Available,
+        diagnostic: None,
+        coverage: types::AnalyticsSourceCoverage::available(),
         observed_at: observed,
         core: ProviderComponent::available(CoreMetrics {
             visitors: Some(120),
             visits: Some(90),
             pageviews: Some(300),
             total_time_seconds: Some(1800),
+            average_session_duration_seconds: Some(Decimal::from(20)),
         }),
         event_totals: ProviderComponent::available(vec![
-            (Event::LandingCtaClicked, 25),
-            (Event::EnergyCalculatorStarted, 1),
-            (Event::LoginFailed, 6),
-            (Event::FrontendError, 2),
-            (Event::NavigationPerformance, 14),
+            types::AllowedEventAggregate { event: Event::LandingCtaClicked.name().into(), count: count(25) },
+            types::AllowedEventAggregate { event: Event::EnergyCalculatorStarted.name().into(), count: count(1) },
+            types::AllowedEventAggregate { event: Event::LoginFailed.name().into(), count: count(6) },
+            types::AllowedEventAggregate { event: Event::FrontendError.name().into(), count: count(2) },
+            types::AllowedEventAggregate { event: Event::NavigationPerformance.name().into(), count: count(14) },
         ]),
         daily_visitors: ProviderComponent::available(vec![DailyVisitor {
             date: day("2026-06-10"),
-            visitors: 30,
+            visitors: count(30),
         }]),
         event_series: ProviderComponent::available(vec![DailyEvent {
             date: day("2026-06-10"),
-            event: Event::LoginFailed,
-            value: 6,
+            event: Event::LoginFailed.name().into(),
+            count: count(6),
         }]),
         top_entries: ProviderComponent::available(vec![
             EntryRanking {
                 entry: EntryPage::Signup,
-                count: 40,
+                count: count(40), rank: 1,
             },
             EntryRanking {
                 entry: EntryPage::Landing,
-                count: 1,
+                count: count(1), rank: 1,
             },
         ]),
         top_referrers: ProviderComponent::available(vec![
-            marketplace::ReferrerRanking {
-                referrer: marketplace::ReferrerCategory::Search,
-                count: 25,
+            types::ReferrerRankingRow {
+                referrer: types::ReferrerCategory::Search,
+                count: count(25), rank: 1,
             },
-            marketplace::ReferrerRanking {
-                referrer: marketplace::ReferrerCategory::Direct,
-                count: 10,
+            types::ReferrerRankingRow {
+                referrer: types::ReferrerCategory::Direct,
+                count: count(10), rank: 1,
             },
         ]),
         property_results: vec![
             PropertyResult {
-                event: Event::LandingCtaClicked,
-                property: Property::Cta,
+                event: Event::LandingCtaClicked.name().into(),
+                property: Property::Cta.name().into(),
                 result: ProviderComponent::available(vec![
-                    PropertyValueCount {
-                        value: "pilot".into(),
-                        total: 12,
-                    },
-                    PropertyValueCount {
-                        value: "register".into(),
-                        total: 1,
-                    },
+                    PropertyValueCount { event: String::new(), property: String::new(), value: "pilot".into(), count: count(12) },
+                    PropertyValueCount { event: String::new(), property: String::new(), value: "register".into(), count: count(1) },
                 ]),
             },
             PropertyResult {
-                event: Event::LandingCtaClicked,
-                property: Property::Placement,
-                result: ProviderComponent::available(vec![PropertyValueCount {
-                    value: "hero".into(),
-                    total: 9,
-                }]),
+                event: Event::LandingCtaClicked.name().into(),
+                property: Property::Placement.name().into(),
+                result: ProviderComponent::available(vec![PropertyValueCount { event: String::new(), property: String::new(), value: "hero".into(), count: count(9) }]),
             },
             PropertyResult {
-                event: Event::LandingCtaClicked,
-                property: Property::Language,
-                result: ProviderComponent::available(vec![PropertyValueCount {
-                    value: "en".into(),
-                    total: 7,
-                }]),
+                event: Event::LandingCtaClicked.name().into(),
+                property: Property::Language.name().into(),
+                result: ProviderComponent::available(vec![PropertyValueCount { event: String::new(), property: String::new(), value: "en".into(), count: count(7) }]),
             },
             PropertyResult {
-                event: Event::LoginFailed,
-                property: Property::ReasonCategory,
+                event: Event::LoginFailed.name().into(),
+                property: Property::ReasonCategory.name().into(),
                 result: ProviderComponent::available(vec![
-                    PropertyValueCount {
-                        value: "invalid_credentials".into(),
-                        total: 4,
-                    },
-                    PropertyValueCount {
-                        value: "account_state".into(),
-                        total: 1,
-                    },
+                    PropertyValueCount { event: String::new(), property: String::new(), value: "invalid_credentials".into(), count: count(4) },
+                    PropertyValueCount { event: String::new(), property: String::new(), value: "account_state".into(), count: count(1) },
                 ]),
             },
             PropertyResult {
-                event: Event::FrontendError,
-                property: Property::RouteFamily,
-                result: ProviderComponent::available(vec![PropertyValueCount {
-                    value: "admin".into(),
-                    total: 2,
-                }]),
+                event: Event::FrontendError.name().into(),
+                property: Property::RouteFamily.name().into(),
+                result: ProviderComponent::available(vec![PropertyValueCount { event: String::new(), property: String::new(), value: "admin".into(), count: count(2) }]),
             },
             PropertyResult {
-                event: Event::FrontendError,
-                property: Property::Category,
-                result: ProviderComponent::available(vec![PropertyValueCount {
-                    value: "render".into(),
-                    total: 2,
-                }]),
+                event: Event::FrontendError.name().into(),
+                property: Property::Category.name().into(),
+                result: ProviderComponent::available(vec![PropertyValueCount { event: String::new(), property: String::new(), value: "render".into(), count: count(2) }]),
             },
             PropertyResult {
-                event: Event::NavigationPerformance,
-                property: Property::LatencyBucket,
+                event: Event::NavigationPerformance.name().into(),
+                property: Property::LatencyBucket.name().into(),
                 result: ProviderComponent::available(vec![
-                    PropertyValueCount {
-                        value: "lt250".into(),
-                        total: 14,
-                    },
-                    PropertyValueCount {
-                        value: "250_500".into(),
-                        total: 2,
-                    },
+                    PropertyValueCount { event: String::new(), property: String::new(), value: "lt250".into(), count: count(14) },
+                    PropertyValueCount { event: String::new(), property: String::new(), value: "250_500".into(), count: count(2) },
                 ]),
             },
         ],
@@ -372,42 +378,42 @@ fn p4_t19_c02() {
 #[test]
 fn p4_t19_c03() {
     // A registered pair is accepted.
-    let ok = AllowedPropertySet::new([(Event::LandingCtaClicked, Property::Cta)]).unwrap();
-    assert!(ok.contains(Event::LandingCtaClicked, Property::Cta));
+    let ok = AllowedPropertySet::new([(Event::LandingCtaClicked.into(), Property::Cta)]).unwrap();
+    assert!(ok.contains(Event::LandingCtaClicked.into(), Property::Cta));
 
     // A property that belongs to another event is refused, and the refusal is
     // the structured 422 with the property code.
-    let error = AllowedPropertySet::new([(Event::LoginFailed, Property::Cta)])
-        .expect_err("an unregistered property must be refused");
+    let error = AllowedPropertySet::new([(Event::LoginFailed.into(), Property::Cta)])
+        .map_err(AllowedPropertySet::refusal).expect_err("an unregistered property must be refused");
     assert_eq!(error.status, axum::http::StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(error.detail["code"], "ANALYTICS_PROPERTY_INVALID");
 
     // Free text never becomes a property or an event.
-    assert!(Event::parse("EVIL; DROP TABLE orders").is_none());
-    assert!(Event::parse("order_created").is_some());
-    assert_eq!(Event::ALL.len(), 31);
+    assert!(policy::RegisteredEvent::from_name("EVIL; DROP TABLE orders").is_none());
+    assert!(policy::RegisteredEvent::from_name("order_created").is_some());
+    assert_eq!(policy::RegisteredEvent::all().len(), 31);
 
     // The request set is sorted and deduplicated, and every registry entry the
     // tabs ask for is declared for its event.
     let set = AllowedPropertySet::new([
-        (Event::FrontendError, Property::Category),
-        (Event::FrontendError, Property::RouteFamily),
-        (Event::FrontendError, Property::Category),
+        (Event::FrontendError.into(), Property::Category),
+        (Event::FrontendError.into(), Property::RouteFamily),
+        (Event::FrontendError.into(), Property::Category),
     ])
     .unwrap();
     assert_eq!(set.pairs().len(), 2);
     assert_eq!(
         set.pairs()[0],
-        (Event::FrontendError, Property::RouteFamily)
+        (Event::FrontendError.into(), Property::RouteFamily)
     );
 
     // More than twelve distinct events in one window is refused.
-    let too_many: Vec<(Event, Property)> = Event::ALL
+    let too_many: Vec<(Event, Property)> = policy::RegisteredEvent::all()
         .iter()
         .take(13)
-        .map(|event| (*event, marketplace::event_properties(*event)[0]))
+        .map(|event| (*event, policy::allowed_properties(*event)[0]))
         .collect();
-    let error = AllowedPropertySet::new(too_many).expect_err("thirteen events must be refused");
+    let error = AllowedPropertySet::new(too_many).map_err(AllowedPropertySet::refusal).expect_err("thirteen events must be refused");
     assert_eq!(error.detail["code"], "ANALYTICS_PROPERTY_INVALID");
 }
 
@@ -508,23 +514,23 @@ fn p4_t19_c05() {
 #[test]
 fn p4_t19_c06() {
     // Defaults: compare on, ALL audience, LIVE activity, no filters.
-    let parsed = parse_query(QueryInput::from_query_string(
+    let parsed = parse_query(query_input(
         "start=2026-06-01T00:00:00Z&end=2026-07-01T00:00:00Z",
     ))
     .unwrap();
     assert_eq!(parsed, query());
     assert_eq!(
-        parsed.previous().unwrap().0,
+        parsed.previous.unwrap().0,
         "2026-05-02T00:00:00Z".parse::<DateTime<Utc>>().unwrap()
     );
 
     // A naive timestamp is UTC; an explicit offset is converted to UTC.
-    let naive = parse_query(QueryInput::from_query_string(
+    let naive = parse_query(query_input(
         "start=2026-06-01T00:00:00&end=2026-07-01T00:00:00",
     ))
     .unwrap();
     assert_eq!(naive.start, parsed.start);
-    let offset = parse_query(QueryInput::from_query_string(
+    let offset = parse_query(query_input(
         "start=2026-06-01T02:00:00%2B02:00&end=2026-07-01T02:00:00%2B02:00",
     ))
     .unwrap();
@@ -543,7 +549,7 @@ fn p4_t19_c06() {
         "start=2026-06-01T00:00:00Z&end=2026-07-01T00:00:00Z&availability_window=THIS-IS-TOO-LONG-X",
     ] {
         let error =
-            parse_query(QueryInput::from_query_string(raw)).expect_err("the query must be refused");
+            parse_query(query_input(raw)).expect_err("the query must be refused");
         assert_eq!(
             error.status,
             axum::http::StatusCode::UNPROCESSABLE_ENTITY,
@@ -555,30 +561,28 @@ fn p4_t19_c06() {
     // A checked previous-window underflow is refused, never wrapped. The
     // four-digit years a query string can carry never underflow, so the guard
     // is exercised on the value it protects.
-    let mut underflow = query();
-    underflow.start = DateTime::<Utc>::MIN_UTC;
-    underflow.end = DateTime::<Utc>::MIN_UTC + chrono::TimeDelta::days(1);
+    let underflow = query();
     assert!(
-        underflow.previous().is_none(),
+        underflow.start.checked_sub_signed(chrono::TimeDelta::MAX).is_none(),
         "the subtraction must report that it is not representable"
     );
-    let error = marketplace::check_previous(&underflow)
+    let error = query_policy::previous_window(DateTime::<Utc>::MIN_UTC, chrono::TimeDelta::days(1))
         .expect_err("an unrepresentable comparison must be refused");
     assert_eq!(error.status, axum::http::StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(error.detail["code"], "ANALYTICS_QUERY_INVALID");
-    // With comparison off the same period is accepted.
-    underflow.compare = false;
-    marketplace::check_previous(&underflow).expect("no comparison, no arithmetic");
+    // With comparison off the same early query is accepted without arithmetic.
+    parse_query(query_input("start=0001-01-01T00:00:00Z&end=0001-01-02T00:00:00Z&compare=false"))
+        .expect("no comparison, no arithmetic");
 
     // Comparison off needs no previous window at all, even for an early period.
-    let no_compare = parse_query(QueryInput::from_query_string(
+    let no_compare = parse_query(query_input(
         "start=0001-01-02T00:00:00Z&end=0001-01-04T00:00:00Z&compare=false",
     ))
     .unwrap();
-    assert!(no_compare.previous().is_none());
+    assert!(no_compare.previous.is_none());
 
     // Unknown parameters are ignored, never carried into SQL or a provider.
-    let ignored = parse_query(QueryInput::from_query_string(
+    let ignored = parse_query(query_input(
         "start=2026-06-01T00:00:00Z&end=2026-07-01T00:00:00Z&admin=1&sql=DROP",
     ))
     .unwrap();
@@ -627,7 +631,7 @@ fn p4_t19_c09() {
 #[test]
 fn p4_t19_c10() {
     let unavailable = reading(ComponentStatus::Unavailable);
-    assert_eq!(unavailable.status(), SourceStatus::Unavailable);
+    assert_eq!(unavailable.coverage.status, SourceStatus::Unavailable);
     let degraded = acquisition::Reading {
         window: unavailable.clone(),
     };
@@ -671,7 +675,7 @@ fn p4_t19_c10() {
     let mut available = reading(ComponentStatus::Available);
     available.daily_visitors = ProviderComponent::available(vec![DailyVisitor {
         date: day("2026-06-02"),
-        visitors: 0,
+        visitors: count(0),
     }]);
     let response = acquisition::compose(
         &query(),
@@ -835,7 +839,7 @@ fn p4_t19_c12() {
     assert!(render.suppressed);
     // Navigation latency carries the cross-destination distribution.
     assert_eq!(response.navigation_latency.len(), 1);
-    assert_eq!(response.navigation_latency[0].destination, "all");
+    assert_eq!(serde_json::to_value(&response.navigation_latency[0].destination).unwrap(), json!("all"));
     assert_eq!(response.navigation_latency[0].buckets.len(), 5);
     let lt250 = &response.navigation_latency[0].buckets[0];
     assert_eq!(lt250.key, "lt250");
