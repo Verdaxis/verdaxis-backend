@@ -291,14 +291,23 @@ pub fn behavioral_event_cell(window: Option<&BehavioralWindow>, event: &str) -> 
             suppressed: false,
         };
     };
-    let total: u64 = rows
-        .iter()
-        .filter(|row| row.event == event)
-        .map(|row| row.count.count.unwrap_or(0))
-        .sum();
-    let mut cell = super::policy::suppress(Some(total), None);
-    cell.key = event.to_owned();
-    cell
+    merge_provider_cells(event, rows.iter().filter(|row| row.event == event).map(|row| &row.count))
+}
+
+/// A missing label in an answered collection is zero. A present hidden or
+/// absent contribution makes the entire sum hidden or absent, respectively.
+pub fn merge_provider_cells<'a>(key: &str, cells: impl Iterator<Item = &'a AggregateCell>) -> AggregateCell {
+    let mut total = Some(0_u64);
+    let mut hidden = false;
+    for cell in cells {
+        hidden |= cell.suppressed;
+        total = total.zip(cell.count).and_then(|(sum, value)| sum.checked_add(value));
+    }
+    if hidden {
+        AggregateCell { key: key.into(), count: None, suppressed: true }
+    } else {
+        super::policy::suppress(total, None).with_key(key)
+    }
 }
 
 pub fn behavioral_metric(
@@ -331,19 +340,11 @@ pub fn behavioral_daily_series(
     let Some(rows) = window.daily_visitors.data() else {
         return Vec::new();
     };
-    let mut values: BTreeMap<NaiveDate, u64> = BTreeMap::new();
-    for row in rows {
-        let total = values.entry(row.date).or_insert(0);
-        *total += row.visitors.count.unwrap_or(0);
-    }
     let mut points = Vec::new();
     let mut cursor = query.start.date_naive();
     while cursor < query.end.date_naive() && points.len() < super::policy::MAX_SERIES_POINTS {
-        let value = values.get(&cursor).copied().unwrap_or(0);
-        points.push(super::types::SeriesPoint {
-            date: cursor,
-            value: super::policy::suppress(Some(value), None).count,
-        });
+        let cell = merge_provider_cells("", rows.iter().filter(|row| row.date == cursor).map(|row| &row.visitors));
+        points.push(super::types::SeriesPoint { date: cursor, value: cell.count });
         cursor += TimeDelta::days(1);
     }
     points

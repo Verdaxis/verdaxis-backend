@@ -139,7 +139,7 @@ pub fn engagement(
                         let (_, destination) = DESTINATIONS
                             .iter()
                             .find(|(value, _)| *value == row.value.as_str())?;
-                        let cell = super::policy::suppress(row.count.count, None);
+                        let cell = super::aggregates::merge_provider_cells(&row.value, std::iter::once(&row.count));
                         Some(NavigationDestinationRow {
                             destination: *destination,
                             total: AggregateCell {
@@ -155,35 +155,24 @@ pub fn engagement(
             })
             .unwrap_or_default();
 
-    let mut steps: Vec<(String, Option<u64>, Option<u64>)> = Vec::new();
-    for (event, index) in [("tutorial_step_completed", 1), ("tutorial_step_skipped", 2)] {
+    let mut step_names = std::collections::BTreeSet::new();
+    for event in ["tutorial_step_completed", "tutorial_step_skipped"] {
         for row in behavioral_property_rows(behavioral, event, "step").unwrap_or_default() {
-            match steps.iter_mut().find(|(step, _, _)| *step == row.value) {
-                Some(entry) => {
-                    if index == 1 {
-                        entry.1 = Some(row.count.count.unwrap_or(0));
-                    } else {
-                        entry.2 = Some(row.count.count.unwrap_or(0));
-                    }
-                }
-                None => {
-                    let completed = (index == 1).then_some(row.count.count.unwrap_or(0));
-                    let skipped = (index == 2).then_some(row.count.count.unwrap_or(0));
-                    steps.push((row.value.clone(), completed, skipped));
-                }
-            }
+            step_names.insert(row.value.clone());
         }
     }
-    steps.sort_by(|left, right| left.0.cmp(&right.0));
-    let tutorial_steps: Vec<TutorialStepRow> = steps
-        .into_iter()
-        .take(TUTORIAL_STEP_LIMIT)
-        .map(|(step, completed, skipped)| TutorialStepRow {
-            completed: quality.cell("completed", completed, None),
-            skipped: quality.cell("skipped", skipped, None),
-            step,
-        })
-        .collect();
+    let tutorial_steps = step_names.into_iter().take(TUTORIAL_STEP_LIMIT).map(|step| {
+        let mut component = |event, key| {
+            let rows = behavioral_property_rows(behavioral, event, "step");
+            let cell = match rows {
+                Some(rows) => super::aggregates::merge_provider_cells(key, rows.iter().filter(|row| row.value == step).map(|row| &row.count)),
+                None => AggregateCell { key: key.into(), count: None, suppressed: false },
+            };
+            if cell.suppressed { quality.suppressed_cell_count += 1; }
+            cell
+        };
+        TutorialStepRow { completed: component("tutorial_step_completed", "completed"), skipped: component("tutorial_step_skipped", "skipped"), step }
+    }).collect();
 
     EngagementResponse {
         meta: AnalyticsMeta {
@@ -231,9 +220,5 @@ fn workflow_ratio(
     numerator_event: &str,
     denominator_event: &str,
 ) -> LabeledRatio {
-    super::activation::aggregate_ratio(
-        key,
-        super::overview::raw_event_total(behavioral, numerator_event),
-        super::overview::raw_event_total(behavioral, denominator_event),
-    )
+    super::activation::provider_ratio(key, behavioral, numerator_event, denominator_event)
 }

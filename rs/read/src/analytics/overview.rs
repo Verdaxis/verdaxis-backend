@@ -279,11 +279,5 @@ pub fn overview(
 /// Raw event total for a business rule. `None` means the provider did not
 /// answer; callers never substitute zero for it.
 pub fn raw_event_total(window: Option<&BehavioralWindow>, event: &str) -> Option<u64> {
-    let rows = window?.event_totals.data()?;
-    Some(
-        rows.iter()
-            .filter(|row| row.event == event)
-            .map(|row| row.count.count.unwrap_or(0))
-            .sum(),
-    )
+    super::aggregates::behavioral_event_cell(window, event).count
 }

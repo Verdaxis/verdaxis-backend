@@ -208,11 +208,7 @@ pub fn activation(
             suppressed: live_order_suppressed,
         },
         drop_off,
-        ratios: vec![aggregate_ratio(
-            "signup_started_to_submitted",
-            super::overview::raw_event_total(behavioral, "signup_submitted"),
-            super::overview::raw_event_total(behavioral, "signup_started"),
-        )],
+        ratios: vec![provider_ratio("signup_started_to_submitted", behavioral, "signup_submitted", "signup_started")],
     }
 }
 
@@ -246,4 +242,15 @@ pub fn aggregate_ratio(
         kind: ConversionRatioKind::AggregateEvent,
         ratio: super::policy::ratio_from_counts(numerator, denominator, true),
     }
+}
+
+/// Ratios retain the privacy state of both provider components.
+pub fn provider_ratio(key: &str, window: Option<&BehavioralWindow>, numerator: &str, denominator: &str) -> LabeledRatio {
+    let numerator = behavioral_event_cell(window, numerator);
+    let denominator = behavioral_event_cell(window, denominator);
+    let mut result = aggregate_ratio(key, numerator.count, denominator.count);
+    if numerator.suppressed || denominator.suppressed {
+        result.ratio = RatioValue { numerator: None, denominator: None, rate_pct: None, suppressed: true, cohort_complete: true };
+    }
+    result
 }
