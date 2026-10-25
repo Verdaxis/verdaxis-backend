@@ -1105,6 +1105,7 @@ mod postgres {
         let appends = events.appends().len();
         let reply = put(
             &f.app,
+            &peer(14),
             "/api/auth/me",
             &plain,
             &json!({"role": "BUYER", "first_name": "Ada2"}),
