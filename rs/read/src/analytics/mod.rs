@@ -1,14 +1,19 @@
-//! Product Analytics shared primitives.
+//! Product Analytics shared primitives and operator analytics surfaces.
 //!
-//! Phase 4 Task 15 owns the leaves; the integration owner adds this module
-//! file and its declaration in `rs/read/src/lib.rs`. It mounts no route and
-//! starts no sender, scheduler or timer.
+//! Phase 4 Task 15 owns the shared leaves (facts, policy, query, retention,
+//! types); Tasks 17a/17b/18/19 add one route family each. The module mounts no
+//! route, starts no sender, scheduler or timer; the legacy dashboard and the
+//! identified user listing are operator reads with their own typed response
+//! contracts, never payloads for the product-analytics tabs.
 
 pub mod facts;
 pub mod policy;
 pub mod query;
 pub mod retention;
 pub mod types;
+
+pub mod legacy_dashboard;
+pub mod users;
 
 pub use facts::{MarketProvenance, classify_order, classify_trade};
 pub use policy::{

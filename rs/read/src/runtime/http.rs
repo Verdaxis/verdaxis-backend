@@ -427,6 +427,26 @@ pub fn authenticated_routes(
     )]
 }
 
+/// Administrator analytics routes (P02–P04).
+///
+/// Component composition only: the serving binary mounts these under the P group
+/// cutover. The returned router already carries its own route state, so the
+/// caller merges it into the serving router after `router_with`; the health and
+/// readiness routes are untouched.
+pub fn analytics_routes(
+    state: crate::AppState,
+    verification: std::sync::Arc<crate::auth::VerificationSettings>,
+    limits: crate::auth::limits::SharedLimits,
+) -> Router {
+    Router::new()
+        .merge(crate::analytics::legacy_dashboard::router(
+            state.clone(),
+            verification.clone(),
+            limits.clone(),
+        ))
+        .merge(crate::analytics::users::router(state, verification, limits))
+}
+
 pub fn public_router(state: crate::AppState) -> Router {
     router_with(public_routes(), state)
 }
