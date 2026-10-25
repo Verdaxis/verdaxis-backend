@@ -654,6 +654,10 @@ async fn inventory_declaration_merge_preserves_private_terms_and_derived_fields(
         .await;
     assert_eq!(status, 200, "{patched}");
     assert_eq!(patched["fame_terms"], created["fame_terms"]);
+    assert_eq!(created["fame_terms"]["astm_grade"], Value::Null);
+    assert!(created["fame_terms"].get("astm_grade").is_some());
+    assert_eq!(created["fame_terms"]["quality_evidence"], Value::Null);
+    assert!(created["fame_terms"].get("quality_evidence").is_some());
     assert_eq!(
         f.request("PATCH", &path, json!({"fame_terms":null}))
             .await
