@@ -63,7 +63,7 @@ impl Fixture {
         body["id"].as_str().unwrap().parse().unwrap()
     }
     async fn counts(&mut self) -> (i64,i64,i64) {
-        let row=sqlx::query("SELECT (SELECT count(*) FROM market_event_outbox WHERE participant_org_ids @> ARRAY[$1]::uuid[]) AS events,(SELECT count(*) FROM audit_logs WHERE actor_id=$2) AS audits,(SELECT count(*) FROM notifications WHERE user_id=$2) AS notifications").bind(self.organization).bind(self.actor).fetch_one(&mut self.admin).await.unwrap();
+        let row=sqlx::query("SELECT (SELECT count(*) FROM market_event_outbox WHERE participant_org_ids::jsonb @> jsonb_build_array($1::text)) AS events,(SELECT count(*) FROM audit_logs WHERE user_id=$2) AS audits,(SELECT count(*) FROM notifications WHERE user_id=$2) AS notifications").bind(self.organization).bind(self.actor).fetch_one(&mut self.admin).await.unwrap();
         (row.get("events"),row.get("audits"),row.get("notifications"))
     }
     async fn reference(&mut self,id:Uuid,status:&str,trade:Option<&str>) {
