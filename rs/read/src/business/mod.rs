@@ -8,6 +8,8 @@ pub mod error;
 pub mod joins;
 pub mod membership;
 pub mod organizations;
+pub mod profile;
 pub mod status;
+pub mod survey;
 pub mod transaction;
 pub mod vessels;
