@@ -1,8 +1,8 @@
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use uuid::Uuid;
-use verdaxis_read::order_write::matching::{MatchBound, OrderRow, OrderStatus, Side, plan_match};
-use verdaxis_read::order_write::{MarketErrorCode, MarketWriteError};
+use verdaxis_read::market_matching::{MatchBound, OrderRow, OrderStatus, Side, plan_match};
+use verdaxis_read::{MarketErrorCode, MarketWriteError};
 
 fn d(raw: &str) -> Decimal {
     Decimal::from_str_exact(raw).unwrap()

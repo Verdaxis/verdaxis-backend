@@ -5,8 +5,8 @@ use rust_decimal::Decimal;
 use sqlx::{Connection, PgConnection, Row};
 use uuid::Uuid;
 use verdaxis_read::market_contract::matching::{apply, lock_and_plan, preview};
-use verdaxis_read::order_write::MarketErrorCode;
-use verdaxis_read::order_write::matching::MatchBound;
+use verdaxis_read::MarketErrorCode;
+use verdaxis_read::market_matching::MatchBound;
 
 fn now() -> DateTime<Utc> {
     "2026-10-25T12:00:00Z".parse().unwrap()
