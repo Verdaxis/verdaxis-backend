@@ -79,6 +79,37 @@ pub struct MutationEffect {
     pub changes: Value,
     pub event: Option<ParticipantEvent>,
     pub at: DateTime<Utc>,
+    pub audit_context: AuditContext,
+}
+
+/// Bounded request metadata carried into the existing audit columns.
+#[derive(Clone,Debug,Default)]
+pub struct AuditContext {
+    ip_address: Option<String>,
+    request_id: Option<String>,
+}
+impl AuditContext {
+    pub fn new(ip_address:Option<String>,request_id:Option<String>)->Result<Self,MarketWriteError> {
+        if ip_address.as_ref().is_some_and(|s|s.chars().count()>45 || s.chars().any(char::is_control))
+            || request_id.as_ref().is_some_and(|s|s.chars().count()>36 || s.chars().any(char::is_control)) {
+            return Err(MarketWriteError::new(MarketErrorCode::ValidationFailed));
+        }
+        Ok(Self {ip_address,request_id})
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub struct EffectSlice {
+    pub product_id: Uuid,
+    pub delivery_point_id: Uuid,
+    pub availability_window: String,
+}
+/// A caller-declared insertion under an already held organization and slice.
+#[derive(Clone,Debug)]
+pub struct NewOrderEffect {
+    pub order_id:Uuid,
+    pub organization_id:Uuid,
+    pub slice:EffectSlice,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
@@ -91,6 +122,7 @@ struct Slice {
 
 struct OrderState {
     id: Uuid,
+    organization_id:Uuid,
     slice: Slice,
     version: i32,
     status: String,
@@ -120,9 +152,36 @@ impl OrderState {
 /// It cannot be constructed from caller JSON or a consumer-time target lookup.
 pub struct BeforeEffects {
     orders: Vec<OrderState>,
+    new_orders: Vec<NewOrderEffect>,
+    slices: BTreeSet<Slice>,
     aggregates: Vec<Value>,
     targets: Vec<Value>,
     at: DateTime<Utc>,
+}
+
+/// All descriptors for one economic transaction are staged before finalization.
+pub struct EffectSet {
+    before:BeforeEffects,
+    effects:Vec<MutationEffect>,
+    expiry:Vec<ExpiryEffect>,
+}
+impl BeforeEffects {
+    pub fn stage(self)->EffectSet {EffectSet {before:self,effects:Vec::new(),expiry:Vec::new()}}
+}
+impl EffectSet {
+    pub fn push(&mut self,effect:MutationEffect)->Result<(),MarketWriteError> {
+        if effect.at!=self.before.at || effect.kind.is_retired() {return Err(inconsistent());}
+        self.effects.push(effect);Ok(())
+    }
+    pub fn expired(&mut self,facts:Vec<ExpiryEffect>,effects:Vec<MutationEffect>)->Result<(),MarketWriteError> {
+        if facts.len()!=effects.len() {return Err(inconsistent());}
+        for fact in &facts {
+            if !self.before.orders.iter().any(|o|o.id==fact.order_id && o.version==fact.previous_version && o.status==fact.previous_status && o.remaining==fact.remaining_quantity_mt.value() && fact.previous_version.checked_add(1)==Some(fact.version))
+                || effects.iter().filter(|e|matches!(e.kind,MutationKind::OrderExpired) && e.resource_id==fact.order_id && e.organization_id==fact.organization_id).count()!=1 {return Err(inconsistent());}
+        }
+        for effect in effects {self.push(effect)?;}
+        self.expiry.extend(facts);Ok(())
+    }
 }
 
 /// Borrowed only from the ordered transaction after all economic locks.
@@ -153,32 +212,42 @@ impl<'a> EffectPort<'a> {
         ids: &[Uuid],
         at: DateTime<Utc>,
     ) -> Result<BeforeEffects, MarketWriteError> {
+        self.capture_mutation(policy,config,ids,&[],&[],at).await
+    }
+
+    pub async fn capture_mutation(
+        &mut self,policy:&MarketPolicy,config:&Config,ids:&[Uuid],
+        declared_slices:&[EffectSlice],new_orders:&[NewOrderEffect],at:DateTime<Utc>,
+    )->Result<BeforeEffects,MarketWriteError> {
         self.locked.require_economic_phase()?;
-        if ids.iter().any(|id| !self.order_ids.contains(id)) {
-            return Err(inconsistent());
+        if ids.iter().any(|id|!self.order_ids.contains(id)) {return Err(inconsistent());}
+        let mut ids=ids.to_vec();ids.sort_unstable();ids.dedup();
+        let orders=load_orders(self.conn,policy,config,&ids,at).await?;
+        let mut slices=slices(&orders);
+        for declared in declared_slices.iter().chain(new_orders.iter().map(|n|&n.slice)) {
+            self.locked.require_effect_slice(&super::locks::SliceKey {product_id:declared.product_id,
+                delivery_point_id:Some(declared.delivery_point_id),availability_window:declared.availability_window.clone()})?;
+            let product=policy.products.iter().find(|p|p.id==declared.product_id).ok_or_else(inconsistent)?;
+            let window=normalize_window(&declared.availability_window,at.date_naive()).map_err(|_|inconsistent())?;
+            if window!=declared.availability_window {return Err(inconsistent());}
+            slices.insert(Slice {product_id:declared.product_id,product:product.code.clone(),point:declared.delivery_point_id,window});
         }
-        let mut ids = ids.to_vec();
-        ids.sort_unstable();
-        ids.dedup();
-        let orders = load_orders(self.conn, policy, config, &ids, at).await?;
-        let slices = slices(&orders);
-        let aggregates = aggregates(self.conn, policy, config, &slices, at).await?;
-        // One statement snapshot defines event-time subscriptions for this mutation.
-        let slice_json = slice_values(&slices);
-        let rows = sqlx::query("SELECT t.id,t.watchlist_id,w.user_id,t.target_type,t.order_id,t.market_product_code,t.delivery_point_id,t.availability_window_code FROM watchlist_targets t JOIN watchlists w ON w.id=t.watchlist_id WHERE (t.target_type='PIN' AND t.order_id=ANY($1)) OR (t.target_type='SLICE' AND EXISTS (SELECT 1 FROM jsonb_to_recordset($2::jsonb) AS s(product text,point uuid,window_code text) WHERE s.product=t.market_product_code AND s.point=t.delivery_point_id AND s.window_code=t.availability_window_code)) ORDER BY t.id")
-            .bind(&ids).bind(slice_json).fetch_all(&mut *self.conn).await?;
-        let targets = rows.iter().map(|r| -> Result<Value,sqlx::Error> {
-            Ok(json!({"target_id":r.try_get::<Uuid,_>("id")?,"watchlist_id":r.try_get::<Uuid,_>("watchlist_id")?,
-                "observer_id":r.try_get::<Uuid,_>("user_id")?,"target_type":r.try_get::<String,_>("target_type")?,
-                "order_id":r.try_get::<Option<Uuid>,_>("order_id")?,"market_product":r.try_get::<String,_>("market_product_code")?,
-                "delivery_point_id":r.try_get::<Uuid,_>("delivery_point_id")?,"availability_window":r.try_get::<String,_>("availability_window_code")?}))
-        }).collect::<Result<Vec<_>,_>>()?;
-        Ok(BeforeEffects {
-            orders,
-            aggregates,
-            targets,
-            at,
-        })
+        let mut all_ids=ids.clone();
+        for new in new_orders {
+            self.locked.require_effect_organization(new.organization_id)?;
+            if all_ids.contains(&new.order_id) {return Err(inconsistent());}
+            all_ids.push(new.order_id);
+        }
+        let new_ids:Vec<_>=new_orders.iter().map(|n|n.order_id).collect();
+        let existing:i64=sqlx::query_scalar("SELECT count(*) FROM orderbook_orders WHERE id=ANY($1)")
+            .bind(&new_ids).fetch_one(&mut *self.conn).await?;
+        if existing!=0 {return Err(inconsistent());}
+        let aggregates=aggregates(self.conn,policy,config,&slices,at).await?;
+        let slice_json=slice_values(&slices);
+        let rows=sqlx::query("SELECT t.id,t.watchlist_id,w.user_id,t.target_type,t.order_id,t.market_product_code,t.delivery_point_id,t.availability_window_code FROM watchlist_targets t JOIN watchlists w ON w.id=t.watchlist_id WHERE (t.target_type='PIN' AND t.order_id=ANY($1)) OR (t.target_type='SLICE' AND EXISTS (SELECT 1 FROM jsonb_to_recordset($2::jsonb) AS s(product text,point uuid,window_code text) WHERE s.product=t.market_product_code AND s.point=t.delivery_point_id AND s.window_code=t.availability_window_code)) ORDER BY t.id")
+            .bind(&all_ids).bind(slice_json).fetch_all(&mut *self.conn).await?;
+        let targets=rows.iter().map(|r|->Result<Value,sqlx::Error>{Ok(json!({"target_id":r.try_get::<Uuid,_>("id")?,"watchlist_id":r.try_get::<Uuid,_>("watchlist_id")?,"observer_id":r.try_get::<Uuid,_>("user_id")?,"target_type":r.try_get::<String,_>("target_type")?,"order_id":r.try_get::<Option<Uuid>,_>("order_id")?,"market_product":r.try_get::<String,_>("market_product_code")?,"delivery_point_id":r.try_get::<Uuid,_>("delivery_point_id")?,"availability_window":r.try_get::<String,_>("availability_window_code")?}))}).collect::<Result<Vec<_>,_>>()?;
+        Ok(BeforeEffects {orders,new_orders:new_orders.to_vec(),slices,aggregates,targets,at})
     }
 
     pub async fn order_cancelled(
@@ -258,102 +327,53 @@ impl<'a> EffectPort<'a> {
         facts: &[ExpiryEffect],
         effect: MutationEffect,
     ) -> Result<Uuid, MarketWriteError> {
-        if !matches!(effect.kind, MutationKind::OrderExpired)
-            || facts.len() != before.orders.len()
-            || facts.iter().any(|fact| {
-                !before.orders.iter().any(|o| {
-                    o.id == fact.order_id
-                        && o.version == fact.previous_version
-                        && o.status == fact.previous_status
-                        && o.remaining == fact.remaining_quantity_mt.value()
-                        && fact.previous_version.checked_add(1) == Some(fact.version)
-                })
-            })
-        {
-            return Err(inconsistent());
-        }
-        let ids: Vec<_> = before.orders.iter().map(|o| o.id).collect();
-        let after = load_orders(self.conn, policy, config, &ids, effect.at).await?;
-        if facts.iter().any(|fact| {
-            !after.iter().any(|o| {
-                o.id == fact.order_id && o.version == fact.version && o.status == "EXPIRED"
-            })
-        }) {
-            return Err(inconsistent());
-        }
-        self.apply(policy, config, before, effect).await
+        let mut set=before.stage();
+        set.expired(facts.to_vec(),vec![effect])?;
+        self.finish(policy,config,set).await
     }
 
-    async fn apply(
-        &mut self,
-        policy: &MarketPolicy,
-        config: &Config,
-        before: BeforeEffects,
-        effect: MutationEffect,
-    ) -> Result<Uuid, MarketWriteError> {
-        self.locked.require_economic_phase()?;
-        if effect.kind.is_retired() {
-            return Err(MarketWriteError::new(
-                MarketErrorCode::MarketSupportLegacyMutationRetired,
-            ));
-        }
-        if !effect.kind.changes_order_economics() && !before.orders.is_empty() {
-            return Err(inconsistent());
-        }
-        if before.at != effect.at {
-            return Err(inconsistent());
-        }
-        let ids: Vec<_> = before.orders.iter().map(|o| o.id).collect();
-        let after = load_orders(self.conn, policy, config, &ids, effect.at).await?;
-        if before
-            .orders
-            .iter()
-            .zip(&after)
-            .any(|(a, b)| a.id != b.id || a.slice != b.slice)
-        {
-            return Err(inconsistent());
-        }
-        let slices = slices(&after);
-        let aggregate_after = aggregates(self.conn, policy, config, &slices, effect.at).await?;
-        rebuild_benchmarks(self.conn, &aggregate_after, effect.at).await?;
-        let orders=before.orders.iter().zip(&after).enumerate().map(|(index,(a,b))|json!({"transition_index":index,"before":a.evidence(),"after":b.evidence()})).collect();
-        if let Some(action) = effect.kind.audit_action() {
-            append_audit(
-                self.conn,
-                &AuditFact {
-                    id: Uuid::new_v4(),
-                    actor_id: if matches!(effect.kind, MutationKind::OrderExpired) {
-                        None
-                    } else {
-                        Some(effect.actor_id)
-                    },
-                    action: action.into(),
-                    resource_type: effect.resource_type,
-                    resource_id: Some(effect.resource_id.to_string()),
-                    changes: Some(effect.changes),
-                    ip_address: None,
-                    request_id: None,
-                    at: effect.at,
-                },
-            )
-            .await?;
-        }
-        // Terminal lock phase: never acquire an economic row after this call.
-        self.locked.begin_target_phase()?;
-        sync_pin_display(self.conn, &after).await?;
-        let evidence = ProducerEvidence {
-            mutation_id: Uuid::new_v4(),
-            captured_at: effect.at,
-            orders,
-            aggregates_before: before.aggregates,
-            aggregates_after: aggregate_after,
-            targets: before.targets,
-        };
-        match &effect.event {
-            Some(event) => super::outbox::append(self.conn, event, &evidence).await,
-            None => Ok(evidence.mutation_id),
-        }
+    async fn apply(&mut self,policy:&MarketPolicy,config:&Config,before:BeforeEffects,effect:MutationEffect)->Result<Uuid,MarketWriteError> {
+        let mut set=before.stage();set.push(effect)?;self.finish(policy,config,set).await
     }
+
+    /// Flush the complete transaction effect set, then close its economic phase once.
+    pub async fn finish(&mut self,policy:&MarketPolicy,config:&Config,set:EffectSet)->Result<Uuid,MarketWriteError> {
+        self.locked.require_economic_phase()?;
+        if set.effects.is_empty() {return Err(inconsistent());}
+        let before=set.before;
+        let mut ids:Vec<_>=before.orders.iter().map(|o|o.id).chain(before.new_orders.iter().map(|n|n.order_id)).collect();
+        ids.sort_unstable();
+        let after=load_orders(self.conn,policy,config,&ids,before.at).await?;
+        if before.orders.iter().any(|a|!after.iter().any(|b|a.id==b.id && a.slice==b.slice)) {return Err(inconsistent());}
+        for new in &before.new_orders {
+            let order=after.iter().find(|o|o.id==new.order_id).ok_or_else(inconsistent)?;
+            if order.organization_id!=new.organization_id || order.slice.product_id!=new.slice.product_id || order.slice.point!=new.slice.delivery_point_id || order.slice.window!=new.slice.availability_window {return Err(inconsistent());}
+        }
+        for fact in &set.expiry {
+            if !after.iter().any(|o|o.id==fact.order_id && o.version==fact.version && o.status=="EXPIRED") {return Err(inconsistent());}
+        }
+        if !ids.is_empty() && !set.effects.iter().any(|e|e.kind.changes_order_economics()) {return Err(inconsistent());}
+        let aggregate_after=aggregates(self.conn,policy,config,&before.slices,before.at).await?;
+        rebuild_benchmarks(self.conn,&aggregate_after,before.at).await?;
+        let orders:Vec<_>=after.iter().enumerate().map(|(index,b)|json!({"order_id":b.id,"transition_index":index,"before":before.orders.iter().find(|a|a.id==b.id).map(OrderState::evidence),"after":b.evidence()})).collect();
+        for effect in &set.effects {
+            if let Some(action)=effect.kind.audit_action() {
+                let actorless=matches!(effect.kind,MutationKind::OrderExpired);
+                append_audit(self.conn,&AuditFact {id:Uuid::new_v4(),actor_id:if actorless {None}else{Some(effect.actor_id)},action:action.into(),resource_type:effect.resource_type.clone(),resource_id:Some(effect.resource_id.to_string()),changes:Some(effect.changes.clone()),ip_address:if actorless {None}else{effect.audit_context.ip_address.clone()},request_id:if actorless {None}else{effect.audit_context.request_id.clone()},at:effect.at}).await?;
+            }
+        }
+        self.locked.begin_target_phase()?;
+        sync_pin_display(self.conn,&after).await?;
+        let mutation_id=Uuid::new_v4();
+        for effect in set.effects {
+            if let Some(event)=effect.event {
+                let evidence=ProducerEvidence {mutation_id,captured_at:before.at,orders:orders.clone(),aggregates_before:before.aggregates.clone(),aggregates_after:aggregate_after.clone(),targets:before.targets.clone()};
+                super::outbox::append(self.conn,&event,&evidence).await?;
+            }
+        }
+        Ok(mutation_id)
+    }
+
 }
 
 fn inconsistent() -> MarketWriteError {
@@ -401,7 +421,7 @@ async fn load_orders(
             ),
         );
     }
-    let rows=sqlx::query("SELECT o.id,o.product_id,o.delivery_point_id,o.availability_window,o.version,o.status::text AS status,o.side::text AS side,o.price_per_mt_usd,o.quantity_mt,o.remaining_quantity_mt,o.provenance::text AS provenance,dp.name AS point_name FROM orderbook_orders o JOIN delivery_points dp ON dp.id=o.delivery_point_id WHERE o.id=ANY($1) ORDER BY o.id")
+    let rows=sqlx::query("SELECT o.id,o.organization_id,o.product_id,o.delivery_point_id,o.availability_window,o.version,o.status::text AS status,o.side::text AS side,o.price_per_mt_usd,o.quantity_mt,o.remaining_quantity_mt,o.provenance::text AS provenance,dp.name AS point_name FROM orderbook_orders o JOIN delivery_points dp ON dp.id=o.delivery_point_id WHERE o.id=ANY($1) ORDER BY o.id")
         .bind(ids).fetch_all(conn).await?;
     if rows.len() != ids.len() {
         return Err(inconsistent());
@@ -419,6 +439,7 @@ async fn load_orders(
             let admitted = public.remove(&id);
             Ok(OrderState {
                 id,
+                organization_id:r.try_get("organization_id")?,
                 slice: Slice {
                     product_id,
                     product: product.code.clone(),
@@ -777,6 +798,9 @@ pub mod contract {
             changes,
             event,
             at,
+            audit_context:if matches!(probe.kind,MutationKind::CommissionChanged) {
+                AuditContext::new(Some("192.0.2.44".into()),Some("11111111-2222-4333-8444-555555555555".into()))?
+            } else {AuditContext::default()},
         })
     }
     async fn apply_port(
@@ -1062,4 +1086,92 @@ pub mod contract {
         tx.rollback().await?;
         Ok(errors)
     }
+    pub struct BatchProbeResult {
+        pub staged_audits:i64,pub staged_events:i64,
+        pub observer_audits:i64,pub observer_events:i64,pub late_lock_code:String,
+    }
+    async fn batch_result(pool:&sqlx::PgPool,conn:&mut PgConnection,locked:&Locked)->Result<BatchProbeResult,MarketWriteError> {
+        let staged_audits=sqlx::query_scalar("SELECT count(*) FROM audit_logs").fetch_one(&mut *conn).await?;
+        let staged_events=sqlx::query_scalar("SELECT count(*) FROM market_event_outbox").fetch_one(&mut *conn).await?;
+        let mut observer=pool.acquire().await?;
+        let observer_audits=sqlx::query_scalar("SELECT count(*) FROM audit_logs").fetch_one(&mut *observer).await?;
+        let observer_events=sqlx::query_scalar("SELECT count(*) FROM market_event_outbox").fetch_one(&mut *observer).await?;
+        let late_lock_code=locked.require_economic_phase().expect_err("terminal effect phase").code.as_str().to_owned();
+        Ok(BatchProbeResult {staged_audits,staged_events,observer_audits,observer_events,late_lock_code})
+    }
+    async fn slice_for(conn:&mut PgConnection,id:Uuid)->Result<EffectSlice,MarketWriteError> {
+        let row=sqlx::query("SELECT product_id,delivery_point_id,availability_window FROM orderbook_orders WHERE id=$1").bind(id).fetch_one(conn).await?;
+        Ok(EffectSlice {product_id:row.try_get("product_id")?,delivery_point_id:row.try_get("delivery_point_id")?,availability_window:row.try_get("availability_window")?})
+    }
+    pub async fn run_new_order_effect_probe(pool:&sqlx::PgPool,probe:EffectProbe,new_id:Uuid)->Result<(),MarketWriteError> {
+        let mut tx=pool.begin().await?;
+        let preview=plan(&mut tx,&probe,None).await.map_err(attempt_error)?;
+        let locked=preview.locks.acquire(&mut tx).await?;
+        let slice=slice_for(&mut tx,probe.order_id).await?;
+        let policy=policy()?;let config=config()?;let at=Utc::now();
+        let before=EffectPort::new(&mut tx,&[],&locked).capture_mutation(&policy,&config,&[],std::slice::from_ref(&slice),&[NewOrderEffect {order_id:new_id,organization_id:probe.organization_id,slice}],at).await?;
+        sqlx::query("SELECT effect_fixture_insert_order($1,$2)").bind(probe.order_id).bind(new_id).execute(&mut *tx).await?;
+        let mut next=probe.clone();next.order_id=new_id;
+        let descriptor=effect(&mut tx,&next,&policy,at).await?;
+        let mut set=before.stage();set.push(descriptor)?;
+        EffectPort::new(&mut tx,&[],&locked).finish(&policy,&config,set).await?;
+        tx.commit().await?;Ok(())
+    }
+    pub async fn run_revoke_batch_probe(pool:&sqlx::PgPool,probe:EffectProbe,assignment:Uuid,contexts:Vec<Uuid>,commit:bool)->Result<BatchProbeResult,MarketWriteError> {
+        let mut tx=pool.begin().await?;
+        let mut preview=plan(&mut tx,&probe,None).await.map_err(attempt_error)?;
+        // Context rows have already been declared with all actors by the caller.
+        let users:Vec<Uuid>=sqlx::query_scalar("SELECT actor_user_id FROM market_support_contexts WHERE id=ANY($1)").bind(&contexts).fetch_all(&mut *tx).await?;
+        let parties=PartyLockPreview::new([probe.organization_id],users,probe.actor_id,json!({"contexts":contexts}));
+        let mut locks=OperationLockPlan::new(MarketOperation::Cancel);locks.parties(&parties)?;
+        locks.resources(LockClass::Capability,[assignment])?;locks.resources(LockClass::Context,contexts.clone())?;
+        preview.parties=parties;preview.locks=locks;
+        let locked=preview.locks.acquire(&mut tx).await?;
+        let policy=policy()?;let config=config()?;let at=Utc::now();
+        let before=EffectPort::new(&mut tx,&[],&locked).capture_before(&policy,&config,&[],at).await?;
+        sqlx::query("SELECT effect_fixture_revoke($1,$2,$3)").bind(assignment).bind(&contexts).bind(probe.actor_id).execute(&mut *tx).await?;
+        let mut set=before.stage();let mut descriptor=effect(&mut tx,&probe,&policy,at).await?;descriptor.resource_id=assignment;set.push(descriptor)?;
+        for id in contexts {
+            let mut context_probe=probe.clone();context_probe.kind=MutationKind::SupportContextRevoked;context_probe.order_id=id;
+            let mut descriptor=effect(&mut tx,&context_probe,&policy,at).await?;
+            descriptor.changes=json!({"status":"REVOKED","reason":"Fixture request","capability_assignment_id":assignment});
+            set.push(descriptor)?;
+        }
+        EffectPort::new(&mut tx,&[],&locked).finish(&policy,&config,set).await?;
+        let result=batch_result(pool,&mut tx,&locked).await?;
+        if commit {tx.commit().await?;}else{tx.rollback().await?;}
+        Ok(result)
+    }
+    pub async fn run_expiry_batch_probe(pool:&sqlx::PgPool,probe:EffectProbe,mut ids:Vec<Uuid>,commit:bool)->Result<BatchProbeResult,MarketWriteError> {
+        let mut tx=pool.begin().await?;ids.sort_unstable();
+        let rows=sqlx::query("SELECT organization_id,owner_user_id FROM orderbook_orders WHERE id=ANY($1)").bind(&ids).fetch_all(&mut *tx).await?;
+        let orgs=rows.iter().map(|r|r.get::<Uuid,_>("organization_id")).collect::<Vec<_>>();
+        let users=rows.iter().filter_map(|r|r.get::<Option<Uuid>,_>("owner_user_id")).collect::<Vec<_>>();
+        let slice=slice_for(&mut tx,probe.order_id).await?;
+        let parties=PartyLockPreview::new(orgs,users,probe.actor_id,json!({"orders":ids}));
+        let mut plan=OperationLockPlan::new(MarketOperation::Cancel);plan.parties(&parties)?;
+        plan.slices([SliceKey {product_id:slice.product_id,delivery_point_id:Some(slice.delivery_point_id),availability_window:slice.availability_window.clone()}])?;
+        plan.orders(ids.clone())?;
+        let locked=plan.acquire(&mut tx).await?;
+        let policy=policy()?;let config=config()?;let at=Utc::now();
+        let before=EffectPort::new(&mut tx,&ids,&locked).capture_before(&policy,&config,&ids,at).await?;
+        let expiry_slice=super::super::ExpirySlice {product_id:slice.product_id,delivery_point_id:Some(slice.delivery_point_id),availability_window:&slice.availability_window,side:"ASK"};
+        let facts={
+            let mut port=LockedMarketTransaction::from_effect_fixture(&mut tx,&plan,&locked);
+            port.stock_ledger()?.expire_slice(&expiry_slice,at).await?
+        };
+        let mut descriptors=Vec::new();
+        for fact in &facts {
+            let mut next=probe.clone();next.order_id=fact.order_id;next.organization_id=fact.organization_id;
+            let mut descriptor=effect(&mut tx,&next,&policy,at).await?;
+            descriptor.changes=json!({"status":"EXPIRED","released_quantity_mt":fact.remaining_quantity_mt.value().to_string()});
+            descriptors.push(descriptor);
+        }
+        let mut set=before.stage();set.expired(facts,descriptors)?;
+        EffectPort::new(&mut tx,&ids,&locked).finish(&policy,&config,set).await?;
+        let result=batch_result(pool,&mut tx,&locked).await?;
+        if commit {tx.commit().await?;}else{tx.rollback().await?;}
+        Ok(result)
+    }
+
 }

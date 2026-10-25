@@ -137,17 +137,18 @@ pub(super) async fn append(
     {
         return Err(invalid_event());
     }
+    let event_id=Uuid::new_v4();
     super::transaction::append_market_effect(
         conn,
         event,
         &participants,
         &payload,
         &evidence.database_value(),
-        evidence.mutation_id,
+        event_id,
         evidence.captured_at,
     )
     .await?;
-    Ok(evidence.mutation_id)
+    Ok(event_id)
 }
 
 fn invalid_event() -> MarketWriteError {
