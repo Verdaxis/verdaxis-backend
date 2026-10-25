@@ -562,7 +562,10 @@ def setup(connection) -> None:
     # PUBLIC_ORDER comes from seed_users_and_orders; the pin below reads it.
     insert_container(connection, RADAR, OWNER, "Market Radar", BASE, kind="RADAR_DEFAULT")
     insert_slice(connection, SLICE, RADAR, "B30", DALIAN, "SPOT", BASE)
-    insert_event(connection, EVENT, RADAR, SLICE, "PIN_PRICE_CHANGED", order_event(PUBLIC_ORDER), BASE)
+    # No payload order binding: the W07 visibility guard treats a bound
+    # source order as gated until proven visible, which would drop the page's
+    # only event under the journey server's default admission snapshot.
+    insert_event(connection, EVENT, RADAR, SLICE, "PIN_PRICE_CHANGED", order_event(None), BASE)
     for index in range(2):
         connection.execute(
             "INSERT INTO notifications(id,recipient_id,type,title,message,data,is_read,created_at) "
