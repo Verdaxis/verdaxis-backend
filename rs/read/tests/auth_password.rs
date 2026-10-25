@@ -66,6 +66,14 @@ async fn password_prehash_boundary_72_and_maximum_1024() {
         Err(PasswordError::TooShort)
     );
     assert_eq!(password::validate_bytes(&"a".repeat(8)), Ok(()));
+    // Python's password floors (`Field(min_length=8)` and the manual
+    // `len(...) < 8` checks) count characters, so a five-character password
+    // of eight UTF-8 bytes is short. Only the ceiling stays in bytes.
+    assert_eq!(
+        password::validate_bytes("A1１２b"),
+        Err(PasswordError::TooShort)
+    );
+    assert_eq!(password::validate_bytes("A1１２bb"), Ok(()));
     assert_eq!(password::validate_bytes(&maximum), Ok(()));
     assert_eq!(password::MAX_PASSWORD_BYTES, 1024);
     assert_eq!(password::BCRYPT_COST, 12);

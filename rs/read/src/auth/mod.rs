@@ -37,4 +37,6 @@ pub mod login;
 
 pub mod refresh;
 
+pub mod invitation_accept;
+
 pub mod registration;
