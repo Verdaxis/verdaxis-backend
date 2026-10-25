@@ -8,12 +8,12 @@
 //! behaviour the plan fixes: the bounds and the stored scale, the one rounding
 //! call site, checked overflow, the total SQLSTATE table and the error envelope.
 
-#[path = "../src/order_write/error.rs"]
-mod error;
-#[path = "../src/order_write/decimal.rs"]
-mod decimal;
 #[path = "../src/order_write/authority.rs"]
 mod authority;
+#[path = "../src/order_write/decimal.rs"]
+mod decimal;
+#[path = "../src/order_write/error.rs"]
+mod error;
 
 /// The authority projection reads the verified access through this path.
 mod auth {
