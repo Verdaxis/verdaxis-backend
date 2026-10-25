@@ -389,12 +389,10 @@ async fn orderbook_distinct_labels_keep_order_and_nulls() {
                     ..PublicOrderFilters::default()
                 };
                 let old_sql = order_query_sql(OLD_DISTINCT);
-                let candidate = order_query_sql_projected(
-                    OLD_DISTINCT,
-                    "o.product_id, o.delivery_point_id,",
-                )
-                .sql()
-                .replace(OLD_DISTINCT, &existence_tail(field));
+                let candidate =
+                    order_query_sql_projected(OLD_DISTINCT, "o.product_id, o.delivery_point_id,")
+                        .sql()
+                        .replace(OLD_DISTINCT, &existence_tail(field));
                 let old = rows(
                     &mut connection,
                     &wrap(old_sql.sql(), ""),
@@ -418,11 +416,8 @@ async fn orderbook_distinct_labels_keep_order_and_nulls() {
                 let shipped = rows(
                     &mut connection,
                     &wrap(
-                        order_query_sql_projected(
-                            distinct,
-                            "o.product_id, o.delivery_point_id,",
-                        )
-                        .sql(),
+                        order_query_sql_projected(distinct, "o.product_id, o.delivery_point_id,")
+                            .sql(),
                         "",
                     ),
                     &policy,
