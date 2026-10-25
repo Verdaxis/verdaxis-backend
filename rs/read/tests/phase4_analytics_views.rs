@@ -1430,10 +1430,10 @@ mod postgres {
         })).unwrap();
         let health = sqlx::postgres::PgPoolOptions::new().max_connections(1).connect_lazy(&fixture.app_url).unwrap();
         let app = AppState::new(config, runtime::db::Pools { read: pool.clone(), health }, policy()).unwrap();
-        let settings = auth::VerificationSettings::hs256(KEY);
+        let settings = auth::VerificationSettings::new(KEY.into(), None, "test".into(), "test".into());
         let now = Utc::now().timestamp();
         let token = jsonwebtoken::encode(&jsonwebtoken::Header::default(), &json!({
-            "sub": fixture.admin_user.to_string(), "type": "access", "iat": now, "exp": now + 600
+            "sub": fixture.admin_user.to_string(), "type": "access", "iat": now, "exp": now + 600, "iss": "test", "aud": "test"
         }), &jsonwebtoken::EncodingKey::from_secret(KEY.as_bytes())).unwrap();
         let router = marketplace::router(app, settings, auth::limits::SharedLimits::default(), service(ComponentStatus::Unavailable));
         let uri = format!("{}?start=2026-06-01T00:00:00Z&end=2026-07-01T00:00:00Z", AnalyticsRoute::Acquisition.template());
