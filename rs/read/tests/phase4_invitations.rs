@@ -444,8 +444,10 @@ fn p4_t5_c69() {
 #[test]
 fn p4_t5_c71() {
     // The ambiguous and non-trading organization types are valid model values
-    // but never self-signup options: a new invitation organization that names
-    // one is refused, and none of them matches either account side.
+    // but never self-signup options: none of them matches either account
+    // side, so an invitation that names one is refused by the role/type
+    // check. The A05 parser itself keeps the full model domain: only the
+    // shared matrix separates signup options from invitation-only types.
     for kind in [
         "BUNKER_BROKER",
         "PORT_AUTHORITY",
@@ -456,14 +458,11 @@ fn p4_t5_c71() {
     ] {
         let mut payload = new_organization_payload();
         payload["new_organization"]["type"] = json!(kind);
-        assert_eq!(
-            CreateInvitation::parse(&payload)
-                .unwrap_err()
-                .status
-                .as_u16(),
-            422,
-            "{kind} must not be a signup option"
-        );
+        let invitation = body(&payload);
+        let OrganizationSource::New(organization) = invitation.organization else {
+            unreachable!("new organization");
+        };
+        assert_eq!(organization.kind, kind);
         assert!(
             !store::organization_type_matches_role("BUYER", kind),
             "{kind}"
@@ -471,6 +470,10 @@ fn p4_t5_c71() {
         assert!(
             !store::organization_type_matches_role("SUPPLIER", kind),
             "{kind}"
+        );
+        assert!(
+            !store::organization_type_matches_role(invitation.role.as_str(), &organization.kind),
+            "{kind} never matches an account side"
         );
     }
 }
