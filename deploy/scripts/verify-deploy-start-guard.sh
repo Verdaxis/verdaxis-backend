@@ -3,14 +3,22 @@
 # the exact restart window.
 #
 # The unit runs this file before any Rust artifact exists, so it must never call
-# the binary or an interpreter. It uses bash, stat, dd and util-linux flock only.
-# Every input it cannot read, or does not expect, denies the start. Owner
-# controlled directories and files remove other identities from the path; the
-# guard is not a defence against the deploy identity itself.
+# the binary or an interpreter. It uses bash, dirname, stat, dd and util-linux
+# flock only; on a system without /proc/self/fd, perl's fstat stands in for the
+# descriptor identity. Every input it cannot read, or does not expect, denies
+# the start. Owner controlled directories and files remove other identities
+# from the path; the guard is not a defence against the deploy identity itself.
+# That exclusion also covers the runtime root, which is checked by its path and
+# never opened: a swap of the root between that check and the state open is
+# deploy-identity territory.
 #
-# Each file is opened once. The open, the descriptor checks and the read happen
-# inside one subshell, so a failed open returns a status instead of ending the
-# guard, and every check runs on the descriptor that was actually opened.
+# Each file is opened once, and only after its path is proven to hold a regular
+# file, so a FIFO or any other non-regular entry denies before the open can
+# block on it. A race that swaps in a FIFO after that check blocks the open
+# until the unit's start timeout ends it, which still fails closed. The open,
+# the descriptor checks and the read happen inside one subshell, so a failed
+# open returns a status instead of ending the guard, and every check runs on
+# the descriptor that was actually opened.
 set -euo pipefail
 export LC_ALL=C
 umask 077
@@ -109,14 +117,17 @@ private_entry() {
     (( (8#$mode & 8#022) == 0 ))
 }
 
-# The helper's own location is its authority: <runtime-root>/scripts/<name>.
+# The helper's own location is its authority: only the shipped layout
+# <runtime-root>/deploy/scripts/<name> is accepted, and the runtime root is the
+# parent of that deploy tree. Any other location denies.
 helper=${BASH_SOURCE[0]}
 [[ $helper == /* ]] || helper=$PWD/$helper
 helper_directory=$(dirname -- "$helper")
-if [[ ${helper_directory##*/} != scripts ]]; then
+helper_parent=${helper_directory%/*}
+if [[ ${helper_directory##*/} != scripts || ${helper_parent##*/} != deploy ]]; then
     deny 'misplaced helper'
 fi
-runtime_root=$(dirname -- "$helper_directory")
+runtime_root=$(dirname -- "$helper_parent")
 if [[ ! -d $runtime_root || -L $runtime_root || ! -O $runtime_root ]]; then
     deny 'untrusted runtime root'
 fi
@@ -142,6 +153,12 @@ deploy_mode=$(stat_mode "$deploy_directory") || deny 'deploy state is unsearchab
 # descriptor. Exit 0 means the bytes were printed; other codes name the refusal.
 read_state() (
     local path=$1 descriptor=$fd_root/7
+    # A FIFO or any other non-regular entry is refused before the open, so the
+    # open cannot block on it. Only a path with nothing there at all reaches
+    # the open, whose failure the caller may read as a normal start.
+    if [[ -e $path || -L $path ]]; then
+        [[ -f $path && ! -L $path ]] || exit 10
+    fi
     exec 7<"$path" || exit 14
     if [[ ! -f $descriptor ]] || [[ -L $path ]]; then
         exit 10
@@ -168,6 +185,10 @@ read_state() (
 # kernel error, denies. Exit 0 means held, 1 means free.
 lock_state() (
     local path=$1 descriptor=$fd_root/8 status
+    # The same pre-open rule: a non-regular lock entry denies before the open.
+    if [[ -e $path || -L $path ]]; then
+        [[ -f $path && ! -L $path ]] || exit 23
+    fi
     exec 8<"$path" || exit 20
     if [[ ! -f $descriptor ]] || [[ -L $path ]]; then
         exit 23
