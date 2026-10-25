@@ -1,13 +1,27 @@
 (
     SELECT b.*
     FROM orderbook_orders AS b
-    WHERE EXISTS (
-        SELECT 1
+    WHERE (
+        b.product_id,
+        b.delivery_point_id,
+        b.availability_window,
+        b.provenance::text
+    ) IN (
+        SELECT (k ->> 'product_id')::uuid,
+               (k ->> 'delivery_point_id')::uuid,
+               k ->> 'availability_window',
+               k ->> 'provenance'
         FROM jsonb_array_elements($14::jsonb) AS k
-        WHERE b.product_id = (k ->> 'product_id')::uuid
-          AND b.delivery_point_id IS NOT DISTINCT FROM
-              (k ->> 'delivery_point_id')::uuid
-          AND b.availability_window = k ->> 'availability_window'
-          AND b.provenance::text = k ->> 'provenance'
+    )
+    UNION ALL
+    SELECT b.*
+    FROM orderbook_orders AS b
+    WHERE b.delivery_point_id IS NULL
+      AND (b.product_id, b.availability_window, b.provenance::text) IN (
+        SELECT (k ->> 'product_id')::uuid,
+               k ->> 'availability_window',
+               k ->> 'provenance'
+        FROM jsonb_array_elements($14::jsonb) AS k
+        WHERE (k ->> 'delivery_point_id')::uuid IS NULL
     )
 )
