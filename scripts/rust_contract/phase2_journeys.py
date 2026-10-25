@@ -705,6 +705,9 @@ def run(runner, args) -> None:
                "-v", f"migrator_role={MIGRATOR_ROLE}", "-v", f"backup_role={BACKUP_ROLE}",
                "-f", f"{policy_dir}/{script}")
     with connect(port, DB_NAME) as source:
+        # The server authenticates as the app role with the scenario password;
+        # start_database created it with the owner password instead.
+        source.execute(f"ALTER ROLE \"{APP_ROLE}\" PASSWORD '{PASSWORD}'")
         setup(source)
 
     subprocess.run(["cargo", "build", "--manifest-path", "rs/Cargo.toml", "--locked",
