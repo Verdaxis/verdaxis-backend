@@ -85,9 +85,7 @@ impl Fixture {
             .expect("deploy directory mode");
         fs::write(
             self.state(environment),
-            format!(
-                "DEPLOYMENT_STATE={phase}\nENVIRONMENT={environment}\nRELEASE_SHA={sha}\n"
-            ),
+            format!("DEPLOYMENT_STATE={phase}\nENVIRONMENT={environment}\nRELEASE_SHA={sha}\n"),
         )
         .expect("state");
         set_mode(&self.state(environment), 0o644);
@@ -338,7 +336,12 @@ fn deploy_guard_allows_absent_state() {
             "unsupported environment",
         ),
         (
-            vec!["--environment", "staging", "--expected-release-sha", "short"],
+            vec![
+                "--environment",
+                "staging",
+                "--expected-release-sha",
+                "short",
+            ],
             "invalid release sha",
         ),
         (
@@ -361,11 +364,7 @@ fn deploy_guard_allows_absent_state() {
             "invalid arguments",
         ),
     ] {
-        assert_denied(
-            &run_guard(&fixture, &arguments),
-            "usage refusal",
-            reason,
-        );
+        assert_denied(&run_guard(&fixture, &arguments), "usage refusal", reason);
     }
 }
 
