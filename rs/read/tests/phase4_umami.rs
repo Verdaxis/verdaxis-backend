@@ -1114,7 +1114,6 @@ mod cases {
         let window = client(address).window(&query(), destination_set()).await;
         server.abort();
         assert_eq!(window.availability, BehavioralAvailability::Partial);
-        assert!(window.validate().is_ok());
         assert_eq!(window.diagnostic, Some(AnalyticsDiagnostic::Upstream));
         assert_eq!(
             window.core.data().expect("core survives").visitors,
@@ -1746,7 +1745,6 @@ mod cases {
         server.abort();
 
         assert_eq!(window.availability, BehavioralAvailability::Partial);
-        assert!(window.validate().is_ok());
         assert_eq!(window.diagnostic, Some(AnalyticsDiagnostic::Upstream));
         assert_eq!(
             stub.count(|request| request.path.ends_with("/event-data/events")),

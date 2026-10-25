@@ -178,11 +178,7 @@ pub(crate) fn assemble(
         diagnostic,
         coverage: coverage(start, end, observed_at, availability, diagnostic),
         core: ProviderComponent::available(rows.stats),
-        event_totals: if property_failures > 0 {
-            ProviderComponent::partial(Some(event_totals), diagnostic)
-        } else {
-            ProviderComponent::available(event_totals)
-        },
+        event_totals: ProviderComponent::available(event_totals),
         daily_visitors: ProviderComponent::available(daily_visitors),
         event_series: ProviderComponent::available(event_series),
         top_entries: ProviderComponent::available(top_entries),
