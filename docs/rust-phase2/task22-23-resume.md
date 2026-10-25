@@ -2,6 +2,75 @@
 
 ## Status
 
+## Task 24 — correctness evidence and go/no-go, 25 October 2026
+
+Branch head `8c3a0da4b` (tests/harness only after the merge `2d6faf3fa`; no
+Rust production source beyond the event-cursor fix below). All runs on the M1
+(`verdaxis-m1-test`); no measurement ran (decision 110); nothing was deployed.
+
+Simulations (steps 7-10, correctness only):
+
+| Size | SHA | UTC | Result |
+| --- | --- | --- | --- |
+| small (`--phase2-group all --phase2-races`) | `cb69cb210` | 01:11–01:39 | exit 0; 22 scenarios, 383 actions, 9 race schedules |
+| large | `5b63650da` | 04:55–05:08 | exit 0; 22 scenarios, 383 actions, 9 race schedules |
+
+Defects found by the simulations, each fixed test-first (decision 113):
+
+- `order_event` fixtures wrote `demo_status "DEMO"` — no `MarketDemoStatus`
+  value; the Python W07 read answered 422 where Rust coerced to UNKNOWN.
+  Fixtures now use the writer's real vocabulary `DEMO_SEED/DEMO_ONLY`, and a
+  test refuses any fixture payload outside the schema enums
+  (`dab03f273`, `a24ec5611`).
+- The Rust event cursor always printed six fraction digits; Python's
+  `isoformat` omits the fraction for whole seconds, so twin pages carried
+  different cursor text. Rust now encodes Python's spelling; the decoder
+  already accepted both (`1fb1e7dc3`, `cc9e77ee0`).
+- The feedback admin-page and notification second-page assertions assumed the
+  un-queried listing serves the 200 maximum and that a page carries the whole
+  remainder; both routes cap `limit` (50 default / 100 max). Assertions now
+  use the caps (`1b5ee1067`, `5b63650da`).
+- W09/W10 (legacy entries) were wrongly scheduled against the Rust candidate;
+  they stay on Python in Phase 2 (plan record; `test_routing.py` pins the
+  paths Python-owned). The activity scenario and the client journey no longer
+  schedule them, and the checklist records them uncovered (`cb69cb210`).
+
+Client journeys (step 2): one HTTP journey per CRUD group following
+`verdaxis-frontend/src/services/api.ts`, at `6d02dd533`, exit 0 —
+notifications 5, preferences 3, feedback 2, watchlists 8, alerts 5,
+referrals 5 calls. The journey runner (`phase2_journeys.run`) needed its own
+repairs: role validation only after the migration owns its tables, the base
+organization row before the fixture's UNKNOWN-provenance order, the app-role
+password aligned with the server URL, the market policy loaded (an empty
+policy refused every slice), page-path captures, and a deliverable invite
+address (`.invalid` is a special-use domain the validator refuses).
+
+Business-rule checklist (step 3): `outputs/rust-phase2/business-rules.md`
+maps every Python-suite rule for the 25 moved operations to a named Rust test
+or PostgreSQL twin scenario; no rule lacks a proof. W09/W10 rules stay with
+the Python suite that owns them.
+
+Gate report (steps 19-20): `phase2_report --scope disposable-artifact` over
+`t24-evidence/` produced **INCONCLUSIVE** — one named incomplete cell,
+`stale candidate bytes`: the signed release binary does not exist because
+hosted CI publishes it only on a staging/prod push (entry condition 3 moved
+by PD2-T24b to before any staging deployment and before Task 25). Zero
+unexplained differences; no failures. Outputs:
+`outputs/rust-phase2/{gate.json,go-no-go.md,business-rules.md,t24-evidence/*}`.
+
+Final gate batch at `8c3a0da4b`, all on the M1:
+
+| Gate | UTC | Exit |
+| --- | --- | --- |
+| fmt; Clippy; Clippy contract-tests; offline workspace; `cd rs && cargo audit` | 11:00–11:09 | 0 each; offline 440 passed, 1 ignored |
+| Rust PostgreSQL workspace | 11:09–11:14 | 0; 450 passed, 1 ignored |
+| All Phase 2 scenarios | 11:14–11:39 | 0; 22 scenarios, 383 actions |
+| Standalone races | 11:39–11:52 | 0; 9 scenarios, 27 races |
+
+Not pushed, pending independent review. No local `rs/target` exists (all
+builds ran on the M1). Temporary gate helpers stay untracked in the worktree.
+
+
 The Task 22 review fixes, the Task 23 runtime projection, the two PM items
 for that round (watchlist settings from release metadata; one payload order
 rule) and PD2-SEC-1 are committed. The final gate batch records its results in the section
