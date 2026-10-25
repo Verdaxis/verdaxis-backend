@@ -9,21 +9,30 @@
 
 use chrono::{DateTime, NaiveDate, Utc};
 
+pub use crate::analytics::types::{
+    AllowedEventAggregate, AllowedPropertyAggregate, BehavioralAvailability, BehavioralWindow,
+    CoreMetrics, DailyEventRow, DailyVisitorRow, EntryPage, EntryRankingRow, PropertyAvailability,
+    ReferrerCategory, ReferrerRankingRow,
+};
 use crate::analytics::{
     events::RegisteredEvent,
-    types::{AggregateCell, AnalyticsDiagnostic, AnalyticsSourceCoverage, AnalyticsSourceStatus,
-        ComponentStatus, ProviderComponent},
+    types::{
+        AggregateCell, AnalyticsDiagnostic, AnalyticsSourceCoverage, AnalyticsSourceStatus,
+        ComponentStatus, ProviderComponent,
+    },
 };
-pub use crate::analytics::types::{AllowedEventAggregate, AllowedPropertyAggregate,
-    BehavioralAvailability, BehavioralWindow, CoreMetrics, DailyEventRow, DailyVisitorRow,
-    EntryPage, EntryRankingRow, PropertyAvailability, ReferrerCategory, ReferrerRankingRow};
 
 fn coverage(
-    start: DateTime<Utc>, end: DateTime<Utc>, observed_at: DateTime<Utc>,
-    availability: BehavioralAvailability, diagnostic: Option<AnalyticsDiagnostic>,
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    observed_at: DateTime<Utc>,
+    availability: BehavioralAvailability,
+    diagnostic: Option<AnalyticsDiagnostic>,
 ) -> AnalyticsSourceCoverage {
     AnalyticsSourceCoverage {
-        coverage_start: Some(start), coverage_end: Some(end), observed_at: Some(observed_at),
+        coverage_start: Some(start),
+        coverage_end: Some(end),
+        observed_at: Some(observed_at),
         status: match availability {
             BehavioralAvailability::Available => AnalyticsSourceStatus::Available,
             BehavioralAvailability::Partial => AnalyticsSourceStatus::Partial,
@@ -119,7 +128,12 @@ pub(crate) fn assemble(
         }
     }
     event_points.sort_by_key(|row| (row.0, row.1));
-    event_points.truncate(MAX_SERIES_POINTS);
+    let mut points_per_event = std::collections::BTreeMap::new();
+    event_points.retain(|(_, event, _)| {
+        let retained = points_per_event.entry(*event).or_insert(0);
+        *retained += 1;
+        *retained <= MAX_SERIES_POINTS
+    });
     let event_series = event_points
         .into_iter()
         .map(|(date, event, count)| DailyEventRow {
