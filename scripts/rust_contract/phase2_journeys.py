@@ -681,12 +681,13 @@ def run(runner, args) -> None:
     for name in ("app_acl_policy.sql", "converge_runtime_object_acls.sql",
                  "bootstrap_roles.sql", "validate_roles.sql"):
         docker("cp", str(ROOT / "deploy/postgres" / name), f"{runner.container}:{policy_dir}/{name}")
-    bootstrap = ("bootstrap_roles.sql", "validate_roles.sql")
-    for script in bootstrap:
-        docker("exec", runner.container, "psql", "-X", "-v", "ON_ERROR_STOP=1", "-U", "postgres",
-               "-d", DB_NAME, "-v", f"database_name={DB_NAME}", "-v", f"app_role={APP_ROLE}",
-               "-v", f"migrator_role={MIGRATOR_ROLE}", "-v", f"backup_role={BACKUP_ROLE}",
-               "-f", f"{policy_dir}/{script}")
+    # Before the migration only the roles exist. `validate_roles.sql` asserts
+    # the migrator owns `alembic_version`, so it runs after `migrate_and_seed`,
+    # exactly as the scenario path orders it.
+    docker("exec", runner.container, "psql", "-X", "-v", "ON_ERROR_STOP=1", "-U", "postgres",
+           "-d", DB_NAME, "-v", f"database_name={DB_NAME}", "-v", f"app_role={APP_ROLE}",
+           "-v", f"migrator_role={MIGRATOR_ROLE}", "-v", f"backup_role={BACKUP_ROLE}",
+           "-f", f"{policy_dir}/bootstrap_roles.sql")
     with connect(port, DB_NAME) as source:
         source.execute(f"ALTER ROLE \"{MIGRATOR_ROLE}\" PASSWORD '{PASSWORD}'")
     migrator_url = f"postgresql+asyncpg://{MIGRATOR_ROLE}:{PASSWORD}@127.0.0.1:{port}/{DB_NAME}"
