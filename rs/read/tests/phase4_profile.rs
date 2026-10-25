@@ -1086,9 +1086,12 @@ mod postgres {
         assert_eq!(reply.body["role"], "BUYER");
         assert_eq!(reply.body["first_name"], "Ada");
         assert_eq!(reply.body["last_name"], "Lovelace");
+        // Python builds the response after the commit, so the new role is
+        // already part of the projection: the policy runs and a PENDING
+        // review without grace is KYC_REQUIRED, not NOT_APPLICABLE.
         assert_eq!(
             reply.body["execution_eligibility"]["reason"],
-            "NOT_APPLICABLE"
+            "KYC_REQUIRED"
         );
         assert_eq!(events.visible_calls(), vec![f.users[14], f.users[14]]);
         assert_eq!(

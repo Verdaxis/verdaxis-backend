@@ -49,8 +49,10 @@ pub struct ProfileKycParty {
 /// is a presentation state of the profile route, never a market decision.
 /// The wire labels are Python's literals, not this enum's variant names.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum KycReason {
     NotApplicable,
+    #[serde(rename = "KYC_NOT_ENFORCED")]
     NotEnforced,
     #[serde(rename = "KYC_APPROVED")]
     Approved,
