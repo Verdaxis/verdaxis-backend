@@ -503,13 +503,13 @@ def _captured(body, key):
     """Read one value from a response body; a `/`-path walks into pages."""
     for segment in key.split("/"):
         if isinstance(body, list):
-            require(body, "cannot capture from an empty list")
-            body = body[0]
-            require(isinstance(segment, str) and not segment.isdigit(),
-                    "numeric page paths are not supported")
-        mapping(body, "captured response")
-        require(body.get(segment), f"captured field {key} is missing")
-        body = body[segment]
+            index = int(segment)
+            require(0 <= index < len(body), f"captured path {key} is out of range")
+            body = body[index]
+        else:
+            mapping(body, "captured response")
+            require(body.get(segment), f"captured field {key} is missing")
+            body = body[segment]
     return body
 
 
