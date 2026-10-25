@@ -45,7 +45,8 @@ def test_production_policy_is_the_reviewed_activation_with_the_bootstrap_unit():
     assert "venv/bin/python" not in unit
 
 
-def test_production_runtime_projects_only_its_app_identity(tmp_path):
+@pytest.mark.parametrize("revision", ["p0_20261016_union", "prc_20261026_changes"])
+def test_production_runtime_projects_only_its_app_identity(tmp_path, revision):
     preparer = _load_preparer()
     env = tmp_path / ".env"
     env.write_text(
@@ -54,7 +55,7 @@ def test_production_runtime_projects_only_its_app_identity(tmp_path):
         "KYC_EXECUTION_GATE_ENABLED=false\nJWT_SECRET=do-not-project\n"
     )
     result = preparer.prepare(
-        env, SHA, tmp_path / "runtime", ROOT, "p0_20261016_union",
+        env, SHA, tmp_path / "runtime", ROOT, revision,
         environment="production",
     )
     text = result["runtime_env"].read_text()
@@ -65,7 +66,7 @@ def test_production_runtime_projects_only_its_app_identity(tmp_path):
     env.write_text(env.read_text().replace("verdaxis_app:", "verdaxis_app_staging:"))
     with pytest.raises(preparer.RustRuntimeError, match="identity"):
         preparer.prepare(
-            env, SHA, tmp_path / "runtime", ROOT, "p0_20261016_union",
+            env, SHA, tmp_path / "runtime", ROOT, revision,
             environment="production",
         )
 
