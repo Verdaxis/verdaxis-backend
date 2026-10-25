@@ -620,3 +620,97 @@ async fn r10_login_vs_password_reset_serializes() {
     );
     f.remove().await;
 }
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL"]
+async fn password_change_before_refresh_keeps_only_its_successor() {
+    let f = Fixture::new().await;
+    let mut blocker = f.owner.begin().await.unwrap();
+    auth::store::lock_user(&mut blocker, f.user).await.unwrap();
+    let access = auth::TokenIssuer::new(SECRET,"verdaxis","verdaxis-api").access(f.user,Utc::now(),None);
+    let change = auth::password_change::router(auth::password_change::PasswordChangeState::new(f.runtime.clone(),"production",SECRET,None,"verdaxis","verdaxis-api",SharedLimits::default()));
+    let device = f.device.clone();
+    let changing = tokio::spawn(async move { send(change,"/api/auth/me/password",Some(&access),&device,json!({"current_password":"RacePassword123","new_password":"ChangedPassword456"})).await });
+    blocked(&f.owner).await;
+    let rotating = tokio::spawn(refresh(f.refresh(None),f.token.clone(),f.device.clone()));
+    blocked_count(&f.owner,2).await;
+    blocker.commit().await.unwrap();
+    assert_eq!(changing.await.unwrap().0,200);
+    assert_eq!(rotating.await.unwrap().0,401);
+    assert_eq!(f.live().await,1);
+    f.remove().await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL"]
+async fn login_before_rejection_leaves_no_live_session() {
+    let f = Fixture::new().await;
+    let held = Arc::new(Barrier::new(2));
+    let logging_in = tokio::spawn(login(f.runtime.clone(),f.email.clone(),f.device.clone(),Some(held.clone())));
+    held.wait().await;
+    let pool = f.owner.clone(); let user = f.user;
+    let rejecting = tokio::spawn(async move {
+        let mut tx = pool.begin().await.unwrap();
+        sqlx::query("UPDATE users SET status='REJECTED' WHERE id=$1").bind(user).execute(&mut *tx).await.unwrap();
+        auth::store::revoke_user_authentication(&mut tx,user,Utc::now()).await.unwrap();
+        tx.commit().await.unwrap();
+    });
+    blocked(&f.owner).await;
+    held.wait().await;
+    assert_eq!(logging_in.await.unwrap(),200);
+    rejecting.await.unwrap();
+    assert_eq!(f.live().await,0);
+    f.remove().await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL"]
+async fn invitation_accept_before_refresh_keeps_only_its_family() {
+    let f = Fixture::new().await;
+    let organization = Uuid::new_v4(); let invitation = generate_token();
+    sqlx::query("INSERT INTO organizations (id,name,type,verification_status,provenance) VALUES ($1,'Race fixture','FUEL_BUYER','APPROVED','UNKNOWN')").bind(organization).execute(&f.owner).await.unwrap();
+    sqlx::query("UPDATE users SET organization_id=$2,email_verified=false,must_change_password=true,password_reset_token_hash=$3,password_reset_expires=now()+interval '1 hour' WHERE id=$1").bind(f.user).bind(organization).bind(token_digest(&invitation)).execute(&f.owner).await.unwrap();
+    let mut blocker = f.owner.begin().await.unwrap();
+    auth::store::lock_user(&mut blocker,f.user).await.unwrap();
+    let accept = auth::invitation_accept::router(auth::invitation_accept::InvitationAcceptState::new(f.runtime.clone(),"production",SECRET,"verdaxis","verdaxis-api",ORIGIN,SharedLimits::default()));
+    let device = f.device.clone();
+    let accepting = tokio::spawn(async move { send(accept,"/api/auth/invitations/accept",None,&device,json!({"token":invitation,"new_password":"AcceptedPassword123","accept_terms":true})).await });
+    blocked(&f.owner).await;
+    let rotating = tokio::spawn(refresh(f.refresh(None),f.token.clone(),f.device.clone()));
+    blocked_count(&f.owner,2).await;
+    blocker.commit().await.unwrap();
+    assert_eq!(accepting.await.unwrap().0,200);
+    assert_eq!(rotating.await.unwrap().0,401);
+    assert_eq!(f.live().await,1);
+    let pool = f.owner.clone(); f.remove().await;
+    sqlx::query("DELETE FROM organizations WHERE id=$1").bind(organization).execute(&pool).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL"]
+async fn password_reset_before_login_refuses_the_old_password() {
+    let f = Fixture::new().await; let token = generate_token();
+    sqlx::query("INSERT INTO password_reset_tokens (user_id,token_hash,expires_at) VALUES ($1,$2,now()+interval '1 hour')").bind(f.user).bind(token_digest(&token)).execute(&f.owner).await.unwrap();
+    let mut blocker = f.owner.begin().await.unwrap();
+    auth::store::lock_user(&mut blocker,f.user).await.unwrap();
+    let settings = auth::email_verification::EmailSettings::new(f.runtime.clone(),auth::email::MailDispatcher::new(verdaxis_read::crud::referrals::invite::MailClient::disabled()));
+    let resetting = tokio::spawn(async move { auth::password_reset::reset(&settings,&token,"ResetPassword456").await });
+    blocked(&f.owner).await;
+    let logging_in = tokio::spawn(login(f.runtime.clone(),f.email.clone(),f.device.clone(),None));
+    blocked_count(&f.owner,2).await;
+    blocker.commit().await.unwrap();
+    assert!(resetting.await.unwrap().is_ok());
+    assert_eq!(logging_in.await.unwrap(),401);
+    assert_eq!(f.live().await,0);
+    f.remove().await;
+}
+
+async fn blocked_count(pool: &PgPool, count: i64) {
+    tokio::time::timeout(std::time::Duration::from_secs(15),async {
+        loop {
+            let waiting: i64 = sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND cardinality(pg_blocking_pids(pid))>0").fetch_one(pool).await.unwrap();
+            if waiting >= count { return; }
+            tokio::task::yield_now().await;
+        }
+    }).await.expect("both independent operations must wait before releasing the row");
+}

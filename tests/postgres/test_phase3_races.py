@@ -24,6 +24,10 @@ from tests.postgres.test_phase3_cross_stack_auth import (
 )
 
 RUST_RACE_CASES = (
+    "password_change_before_refresh_keeps_only_its_successor",
+    "login_before_rejection_leaves_no_live_session",
+    "invitation_accept_before_refresh_keeps_only_its_family",
+    "password_reset_before_login_refuses_the_old_password",
     "r1_concurrent_refresh_same_token_yields_one_successor",
     "r2_refresh_replay_after_grace_revokes_family",
     "r3_refresh_vs_logout_revokes_successor",
