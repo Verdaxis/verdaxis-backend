@@ -142,9 +142,11 @@ async fn refresh_addresses_in_one_prefix_share_the_endpoint_budget() {
 
 #[tokio::test]
 async fn refresh_address_churn_preserves_new_clients_and_verified_user_quota() {
-    let mut state = state();
     let authority = SharedLimits::default();
-    state.limits = authority.clone();
+    let state = refresh::RefreshState::new(
+        PgPoolOptions::new().connect_lazy("postgres://unused:unused@127.0.0.1:1/unused").unwrap(),
+        "production",SECRET,None,"verdaxis","verdaxis-api",authority.clone(),
+    );
     let app = refresh::router(state);
     let user = uuid::Uuid::new_v4().to_string();
     // Keep a spent verified-user bucket throughout untrusted address churn.
