@@ -246,7 +246,7 @@ async fn dependency_triggers_must_fire_for_every_session_role() {
     // write made under another replication role skip the generation bump.
     for weaker in ["DISABLE TRIGGER", "ENABLE TRIGGER"] {
         sqlx::query(sqlx::AssertSqlSafe(format!(
-            "ALTER TABLE public.products {weaker} public_read_cache_changed"
+            "ALTER TABLE public.products {weaker} public_read_cache_changed_update"
         )))
         .execute(&mut writer)
         .await
@@ -255,7 +255,7 @@ async fn dependency_triggers_must_fire_for_every_session_role() {
         let refused = CacheEvents::connect(&options, "UTC", process.clone(), budget()).await;
         assert!(refused.is_err(), "{weaker}");
     }
-    sqlx::query("ALTER TABLE public.products ENABLE ALWAYS TRIGGER public_read_cache_changed")
+    sqlx::query("ALTER TABLE public.products ENABLE ALWAYS TRIGGER public_read_cache_changed_update")
         .execute(&mut writer)
         .await
         .unwrap();
