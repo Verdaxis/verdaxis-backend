@@ -129,10 +129,18 @@ pub struct MatchPlan {
     aggressor_after: OrderRow,
     fills: Vec<Fill>,
     now: DateTime<Utc>,
+    acquired_orders: Vec<Uuid>,
+    acquired_inventory: Vec<Uuid>,
 }
 impl MatchPlan {
     pub fn fills(&self) -> &[Fill] {
         &self.fills
+    }
+    pub(super) fn locked_order_ids(&self) -> Vec<Uuid> {
+        self.acquired_orders.clone()
+    }
+    pub(super) fn inventory_ids(&self) -> Vec<Uuid> {
+        self.acquired_inventory.clone()
     }
     pub fn aggressor_after(&self) -> &OrderRow {
         &self.aggressor_after
@@ -195,6 +203,8 @@ pub fn plan_match(
         aggressor_after: aggressor.clone(),
         fills: Vec::new(),
         now: bound.now,
+        acquired_orders: Vec::new(),
+        acquired_inventory: Vec::new(),
     };
     if !aggressor.live_at(bound.now) || !aggressor.organization_approved {
         return Ok(plan);
@@ -291,12 +301,12 @@ impl<'a> MatchingPort<'a> {
         self.locked.require_economic_phase()?;
         self.locked.require_effect_slice(&aggressor.slice())?;
         // Candidate locks belong before inventory and terminal target locks.
-        if self
-            .plan
-            .trace()
-            .iter()
-            .any(|(class, _)| matches!(class, LockClass::Inventory | LockClass::Pin))
-        {
+        if self.plan.trace().iter().any(|(class, _)| {
+            matches!(
+                class,
+                LockClass::Order | LockClass::Inventory | LockClass::Pin
+            )
+        }) {
             return Err(changed());
         }
         let candidates = select_candidates(self.conn, aggressor, bound, None).await?;
@@ -332,7 +342,17 @@ impl<'a> MatchingPort<'a> {
         if candidates.len() > MAX_CROSSING_ORDERS_PER_MATCH {
             rows.push(candidates[MAX_CROSSING_ORDERS_PER_MATCH].clone());
         }
-        plan_match(&rows, aggressor, bound)
+        let mut result = plan_match(&rows, aggressor, bound)?;
+        result.acquired_inventory = rows
+            .iter()
+            .take(MAX_CROSSING_ORDERS_PER_MATCH)
+            .filter_map(|row| row.inventory_item_id)
+            .chain(aggressor.inventory_item_id)
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        result.acquired_orders = ids.into_iter().chain([aggressor.id]).collect();
+        Ok(result)
     }
     pub(super) async fn apply_plan(
         &mut self,
@@ -387,7 +407,10 @@ fn decode(row: sqlx::postgres::PgRow) -> Result<OrderRow, MarketWriteError> {
         inventory_item_id: row.try_get("inventory_item_id")?,
     })
 }
-async fn load_order(conn: &mut PgConnection, id: Uuid) -> Result<OrderRow, MarketWriteError> {
+pub(super) async fn load_order(
+    conn: &mut PgConnection,
+    id: Uuid,
+) -> Result<OrderRow, MarketWriteError> {
     let sql = format!(
         "SELECT {ORDER_COLUMNS} FROM orderbook_orders o JOIN organizations g ON g.id=o.organization_id WHERE o.id=$1"
     );
@@ -444,9 +467,10 @@ async fn update_order(
     conn: &mut PgConnection,
     before: &OrderRow,
     after: &OrderRow,
+    at: DateTime<Utc>,
 ) -> Result<(), MarketWriteError> {
-    let result = sqlx::query("UPDATE orderbook_orders SET remaining_quantity_mt=$2,status=$3,version=$4 WHERE id=$1 AND version=$5")
-        .bind(after.id).bind(after.remaining_quantity_mt).bind(after.status.as_str()).bind(after.version).bind(before.version).execute(conn).await?;
+    let result = sqlx::query("UPDATE orderbook_orders SET remaining_quantity_mt=$2,status=$3,version=$4,updated_at=$6 WHERE id=$1 AND version=$5")
+        .bind(after.id).bind(after.remaining_quantity_mt).bind(after.status.as_str()).bind(after.version).bind(before.version).bind(at).execute(conn).await?;
     if result.rows_affected() != 1 {
         return Err(changed());
     }
@@ -494,8 +518,8 @@ async fn apply_plan(
             return Err(inconsistent());
         }
 
-        update_order(conn, resting, &fill.resting_after).await?;
-        update_order(conn, &aggressor, &fill.aggressor_after).await?;
+        update_order(conn, resting, &fill.resting_after, plan.now).await?;
+        update_order(conn, &aggressor, &fill.aggressor_after, plan.now).await?;
         aggressor = fill.aggressor_after.clone();
         outcome.changed_orders.push(ChangedOrder {
             before: resting.clone(),
@@ -527,6 +551,131 @@ pub mod contract {
     #[derive(Debug)]
     pub struct PlannedMatch {
         pub plan: MatchPlan,
+    }
+    pub struct SealedMatchResult {
+        pub outcome: MatchOutcome,
+        pub captured_orders: Vec<Uuid>,
+        pub order_lock_order: Vec<Uuid>,
+        pub inventory_after_orders: bool,
+    }
+    struct SealedMatch {
+        aggressor: Uuid,
+        at: DateTime<Utc>,
+    }
+    impl super::super::transaction::MarketCommand for SealedMatch {
+        type Output = SealedMatchResult;
+        fn preview<'a>(
+            &'a self,
+            conn: &'a mut PgConnection,
+            actor: Uuid,
+        ) -> super::super::transaction::BoxFuture<
+            'a,
+            Result<
+                super::super::transaction::MarketPreview,
+                super::super::transaction::MarketAttemptError,
+            >,
+        > {
+            Box::pin(async move {
+                use super::super::locks::{MarketOperation, PartyLockPreview};
+                let aggressor = load_order(conn, self.aggressor).await?;
+                let rows =
+                    select_candidates(conn, &aggressor, MatchBound::new(self.at), None).await?;
+                let parties = PartyLockPreview::new(
+                    rows.iter().chain([&aggressor]).map(|r| r.organization_id),
+                    rows.iter()
+                        .chain([&aggressor])
+                        .filter_map(|r| r.owner_user_id),
+                    actor,
+                    serde_json::json!({"aggressor":aggressor.id,"candidates":rows.iter().map(|r|r.id).collect::<Vec<_>>()}),
+                );
+                let mut locks = OperationLockPlan::new(MarketOperation::Amend);
+                locks.parties(&parties)?.slices([aggressor.slice()])?;
+                Ok(super::super::transaction::MarketPreview { parties, locks })
+            })
+        }
+        fn execute<'a>(
+            &'a self,
+            tx: &'a mut super::super::transaction::LockedMarketTransaction<'_>,
+            _actor: &'a super::super::AuthenticatedActor,
+        ) -> super::super::transaction::BoxFuture<
+            'a,
+            Result<Self::Output, super::super::transaction::MarketAttemptError>,
+        > {
+            Box::pin(async move {
+                let aggressor = tx.matching_order(self.aggressor).await?;
+                let plan = tx
+                    .prepare_match(&aggressor, MatchBound::new(self.at))
+                    .await?;
+                let ids = plan.locked_order_ids();
+                let policy: crate::MarketPolicy = serde_json::from_str(include_str!(
+                    "../../../../deploy/rust/market-policy.json"
+                ))
+                .map_err(|_| inconsistent())?;
+                let config: crate::Config = serde_json::from_value(serde_json::json!({"environment":"test","release_sha":"test","migration_revision":"p89_20261022_watchlist_producer","database_url":"","db_session_time_zone":"UTC","bind":"127.0.0.1:0","pool_max":4,"python_budget":0,"configured_max_connections":100})).map_err(|_| inconsistent())?;
+                let _before = tx
+                    .effects()?
+                    .capture_before(&policy, &config, &ids, self.at)
+                    .await?;
+                tx.stock_ledger()?.verify_invariants().await?;
+                let outcome = tx.apply_match(&plan).await?;
+                for fill in plan.fills() {
+                    for item in [
+                        fill.resting_before.inventory_item_id,
+                        plan.aggressor_before.inventory_item_id,
+                    ]
+                    .into_iter()
+                    .flatten()
+                    {
+                        tx.stock_ledger()?
+                            .consume_reserved(
+                                item,
+                                super::super::StockQuantity::checked(fill.quantity_mt)?,
+                            )
+                            .await?;
+                    }
+                }
+                tx.stock_ledger()?.verify_invariants().await?;
+                let trace = tx.matching_trace();
+                let first_inventory = trace
+                    .iter()
+                    .position(|(class, _)| *class == LockClass::Inventory)
+                    .unwrap_or(trace.len());
+                let inventory_after_orders = trace[first_inventory..]
+                    .iter()
+                    .all(|(class, _)| *class != LockClass::Order);
+                Ok(SealedMatchResult {
+                    outcome,
+                    captured_orders: ids,
+                    order_lock_order: trace
+                        .iter()
+                        .filter(|(class, _)| *class == LockClass::Order)
+                        .map(|(_, id)| *id)
+                        .collect(),
+                    inventory_after_orders,
+                })
+            })
+        }
+    }
+    pub async fn run_sealed_match(
+        pool: &sqlx::PgPool,
+        aggressor: Uuid,
+        at: DateTime<Utc>,
+    ) -> Result<SealedMatchResult, MarketWriteError> {
+        let mut discovery = pool.acquire().await?;
+        let row = load_order(&mut discovery, aggressor).await?;
+        drop(discovery);
+        super::super::transaction::run_market_command(
+            pool.clone(),
+            std::sync::Arc::new(tokio::sync::Semaphore::new(1)),
+            crate::auth::VerifiedAccess {
+                subject: row.owner_user_id.ok_or_else(changed)?,
+                issued_at: Some(Utc::now()),
+                issuance_out_of_range: false,
+            },
+            SealedMatch { aggressor, at },
+            super::super::AdmissionClass::Cleanup,
+        )
+        .await
     }
     pub async fn probe_order_lock(conn: &mut PgConnection, id: Uuid) -> Result<Uuid, sqlx::Error> {
         sqlx::query_scalar("SELECT id FROM orderbook_orders WHERE id=$1 FOR UPDATE NOWAIT")
