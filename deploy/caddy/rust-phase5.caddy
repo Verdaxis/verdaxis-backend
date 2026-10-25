@@ -1,0 +1,47 @@
+# Import inside the existing site's route block, before its Python fallback.
+# Argument 0 is the Phase 5 Rust upstream; argument 1 is the environment's
+# Python upstream. Method B (one switch): every Phase 5 route moves together,
+# and rollback is removing this single import — no per-route edit exists.
+#
+# lb_policy first keeps the reviewed order. A refused connection is a dial
+# error before any request bytes are sent; Caddy 2.11 always retries it, while
+# a non-GET request is not retried after a connection succeeded
+# (reverseproxy.go tryAgain and httptransport.go DialError). Passive health
+# remembers the failure, so later requests choose Python directly instead of
+# redialing Rust.
+(verdaxis_rust_phase5) {
+	@rust_phase5_public {
+		method GET
+		path /api/benchmarks /api/benchmarks/ /api/availability /api/availability/ /api/demand /api/demand/ /api/fleet-intelligence /api/fleet-intelligence/ /api/producers /api/producers/ /api/compliance/fuels /api/compliance/fuels/
+	}
+	handle @rust_phase5_public {
+		reverse_proxy {args[0]} {args[1]} {
+			lb_policy first
+			lb_try_duration 10s
+			lb_try_interval 250ms
+			fail_duration 30s
+			max_fails 1
+			flush_interval -1
+			transport http {
+				keepalive off
+			}
+		}
+	}
+	@rust_phase5_compliance {
+		method GET POST
+		path /api/compliance/fleet /api/compliance/fleet/ /api/compliance/vessels/{vessel_id}/score /api/compliance/vessels/{vessel_id}/score/ /api/compliance/pricing-overlay /api/compliance/pricing-overlay/ /api/compliance/scenario /api/compliance/scenario/
+	}
+	handle @rust_phase5_compliance {
+		reverse_proxy {args[0]} {args[1]} {
+			lb_policy first
+			lb_try_duration 10s
+			lb_try_interval 250ms
+			fail_duration 30s
+			max_fails 1
+			flush_interval -1
+			transport http {
+				keepalive off
+			}
+		}
+	}
+}
