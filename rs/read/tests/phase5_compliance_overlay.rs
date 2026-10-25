@@ -7,10 +7,10 @@
 //! The `#[cfg(feature = "contract-tests")]` cases use the disposable market
 //! fixture that `run_market_contract.sh` seeds: the authenticated order and
 //! scoped fleet counts, the 500 ms actor-lock and 5 s statement deadlines, the
-//! deterministic statement snapshot, and the accepted read index. That runner
-//! is the only one that sets the fixture URL and manifest; `run_postgres.sh`
-//! reaches the same cases without either and they return before any assertion,
-//! which is recorded in the lane report rather than reported as a pass.
+//! one-statement snapshot, the real 5 s statement deadline and the accepted
+//! read index. That runner sets `RUST_OVERLAY_REQUIRED=1`, so a missing fixture
+//! refuses instead of passing empty; `run_postgres.sh` names all five populated
+//! cases in its skip list, so the foundation suite reports them as skipped.
 
 pub use verdaxis_read::{
     ApiError, ApiErrorKind, AppState, Config, MarketPolicy, auth, market, routes, runtime,
@@ -204,6 +204,7 @@ fn compliance_overlay_cases() {
                 fleet_vessel_count: 7,
             },
         ],
+        None,
     )
     .unwrap();
     assert_eq!(response.overlays.len(), 2);
@@ -216,6 +217,18 @@ fn compliance_overlay_cases() {
         pricing::FinancialBenefitStatus::Unpriced
     );
     assert_eq!(response.assumptions.fleet_vessel_count, 7);
+
+    // Python serializes the two legacy penalty fields from `Decimal("0.00")`,
+    // so the client reads a two-decimal string, not `"0"`.
+    let value = serde_json::to_value(&response).expect("overlay response");
+    for key in ["penalty_avoided_eur_per_mt", "penalty_avoided_usd_per_mt"] {
+        assert_eq!(
+            value["overlays"][&first.to_string()][key],
+            "0.00",
+            "{key} keeps Python's spelling"
+        );
+    }
+
     let empty = OverlayRequest::validate(json!({"order_ids": []})).unwrap();
     let response = project(
         &empty,
@@ -226,10 +239,84 @@ fn compliance_overlay_cases() {
             lcv: None,
             fleet_vessel_count: 7,
         }],
+        None,
     )
     .unwrap();
     assert!(response.overlays.is_empty());
     assert_eq!(response.assumptions.fleet_vessel_count, 7);
+}
+
+/// The configured exchange rate reaches every response, and an absent override
+/// keeps the pricing core's published default.
+#[test]
+fn compliance_overlay_fx_cases() {
+    use overlay::{OverlayRow, project};
+    use rust_decimal::Decimal;
+    let request = OverlayRequest::validate(json!({"order_ids": []})).unwrap();
+    let rows = || {
+        vec![OverlayRow {
+            requested_id: None,
+            fuel_type: None,
+            ci: None,
+            lcv: None,
+            fleet_vessel_count: 0,
+        }]
+    };
+    let configured = project(&request, rows(), Some(Decimal::new(110, 2))).unwrap();
+    assert_eq!(configured.assumptions.eur_usd_rate, Decimal::new(110, 2));
+    assert_eq!(
+        serde_json::to_value(&configured).unwrap()["assumptions"]["eur_usd_rate"],
+        "1.10"
+    );
+    let default = project(&request, rows(), None).unwrap();
+    assert_eq!(
+        serde_json::to_value(&default).unwrap()["assumptions"]["eur_usd_rate"],
+        "1.08"
+    );
+    // The core still refuses a nonpositive configured rate.
+    assert!(project(&request, rows(), Some(Decimal::ZERO)).is_err());
+}
+
+/// The runner guard: the market-contract runner states that it carries the
+/// populated matrix, and then a missing URL is a failure, not a skip.
+#[cfg(feature = "contract-tests")]
+#[test]
+fn compliance_overlay_fixture_guard() {
+    assert_eq!(
+        fixture_target(FixtureState {
+            url: Some("postgres://fixture".into()),
+            required: false,
+            manifest: false,
+        }),
+        Some("postgres://fixture".into())
+    );
+    assert_eq!(
+        fixture_target(FixtureState {
+            url: None,
+            required: false,
+            manifest: false,
+        }),
+        None
+    );
+    // A manifest without its URL is a broken market-contract invocation.
+    for manifest in [false, true] {
+        let refused = std::panic::catch_unwind(|| {
+            fixture_target(FixtureState {
+                url: None,
+                required: true,
+                manifest,
+            })
+        });
+        assert!(refused.is_err(), "a required runner must not skip");
+    }
+    let refused = std::panic::catch_unwind(|| {
+        fixture_target(FixtureState {
+            url: None,
+            required: false,
+            manifest: true,
+        })
+    });
+    assert!(refused.is_err(), "a manifest without its URL must not skip");
 }
 
 #[test]
@@ -334,48 +421,6 @@ async fn compliance_overlay_http_cases() {
     assert_eq!(response.headers()["allow"], "POST");
 }
 
-/// A database failure supplied through SQLx's public error interface.
-#[cfg(feature = "contract-tests")]
-#[derive(Debug)]
-struct DatabaseFailure(&'static str);
-
-#[cfg(feature = "contract-tests")]
-impl std::fmt::Display for DatabaseFailure {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("Database operation failed.")
-    }
-}
-
-#[cfg(feature = "contract-tests")]
-impl std::error::Error for DatabaseFailure {}
-
-#[cfg(feature = "contract-tests")]
-impl sqlx::error::DatabaseError for DatabaseFailure {
-    fn message(&self) -> &str {
-        "Database operation failed."
-    }
-
-    fn code(&self) -> Option<std::borrow::Cow<'_, str>> {
-        Some(std::borrow::Cow::Borrowed(self.0))
-    }
-
-    fn as_error(&self) -> &(dyn std::error::Error + Send + Sync + 'static) {
-        self
-    }
-
-    fn as_error_mut(&mut self) -> &mut (dyn std::error::Error + Send + Sync + 'static) {
-        self
-    }
-
-    fn into_error(self: Box<Self>) -> Box<dyn std::error::Error + Send + Sync + 'static> {
-        self
-    }
-
-    fn kind(&self) -> sqlx::error::ErrorKind {
-        sqlx::error::ErrorKind::Other
-    }
-}
-
 #[cfg(feature = "contract-tests")]
 fn signed_token(subject: Uuid) -> String {
     use chrono::{Duration, Utc};
@@ -397,22 +442,44 @@ fn signed_token(subject: Uuid) -> String {
     .unwrap()
 }
 
-/// The populated fixture URL, or `None` in the foundation runner.
+/// The three inputs that decide whether this runner carries the populated
+/// overlay matrix. Kept as a value so the rule is testable without process
+/// environment mutation.
+#[cfg(feature = "contract-tests")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FixtureState {
+    pub url: Option<String>,
+    pub required: bool,
+    pub manifest: bool,
+}
+
+/// The populated fixture URL, or `None` in a runner that does not carry it.
+///
+/// `run_market_contract.sh` sets `RUST_OVERLAY_REQUIRED=1` because it seeds the
+/// fixture; there, a missing URL or manifest is a broken invocation and must
+/// refuse rather than report an empty pass. A manifest without its URL is the
+/// same mistake in any runner. Only a runner that says nothing and sets
+/// neither value skips this matrix, and `run_postgres.sh` names the cases in its
+/// skip list instead.
+#[cfg(feature = "contract-tests")]
+pub fn fixture_target(state: FixtureState) -> Option<String> {
+    match (state.url, state.required, state.manifest) {
+        (Some(url), _, _) => Some(url),
+        (None, true, _) => panic!("the overlay fixture requires RUST_MARKET_TEST_DATABASE_URL"),
+        (None, false, true) => {
+            panic!("the overlay fixture manifest is set without its database URL")
+        }
+        (None, false, false) => None,
+    }
+}
+
 #[cfg(feature = "contract-tests")]
 fn fixture_url() -> Option<String> {
-    match std::env::var("RUST_MARKET_TEST_DATABASE_URL") {
-        Ok(url) => Some(url),
-        Err(_) => {
-            // `run_market_contract.sh` seeds the market fixture and always
-            // sets both values; a manifest without its URL is a broken
-            // invocation, not a runner that does not carry this matrix.
-            assert!(
-                std::env::var("RUST_OVERLAY_TEST_CASES").is_err(),
-                "the overlay fixture URL is required when its manifest is set"
-            );
-            None
-        }
-    }
+    fixture_target(FixtureState {
+        url: std::env::var("RUST_MARKET_TEST_DATABASE_URL").ok(),
+        required: std::env::var("RUST_OVERLAY_REQUIRED").is_ok_and(|value| value == "1"),
+        manifest: std::env::var("RUST_OVERLAY_TEST_CASES").is_ok(),
+    })
 }
 
 #[cfg(feature = "contract-tests")]
@@ -651,6 +718,25 @@ async fn compliance_overlay_authenticated_cases() {
         );
     }
 
+    // A configured COMPLIANCE_EUR_USD_RATE reaches the response through the
+    // route's own configuration, as Python's `_effective_eur_usd_rate` does.
+    let fx_state = authenticated_state(&test_config(
+        url.clone(),
+        Some(rust_decimal::Decimal::new(110, 2)),
+    ))
+    .await;
+    let fx_body = json_body(
+        post(
+            overlay_app(fx_state),
+            Body::from(empty_body.clone()),
+            Some(member_token.as_str()),
+            false,
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(fx_body["assumptions"]["eur_usd_rate"], "1.10");
+
     // Every requested key is present, hidden rows are indistinguishable from a
     // missing id, and the two qualified rows keep distinct lifecycle values.
     let response = post(
@@ -840,17 +926,43 @@ async fn compliance_overlay_timeout_cases() {
     );
     holder.rollback().await.expect("release the actor row");
 
-    // A domain statement that reaches the shared deadline is a typed
-    // read-unavailable answer with one retry hint, not a generic 500.
-    let timeout = sqlx::Error::Database(Box::new(DatabaseFailure("57014")));
-    let mapped =
-        routes::market_data_error::database_failure(compliance::http::OVERLAY_PATH, &timeout)
-            .into_response();
+    // A statement that passes the shared 5 s deadline inside the admitted
+    // closure is refused by PostgreSQL itself, and the route's own failure
+    // mapping answers a typed read-unavailable response with one retry hint.
+    let access =
+        auth::verify_access(&token, &settings(), chrono::Utc::now()).expect("signed access token");
+    let started = Instant::now();
+    let refused: Result<(), auth::AuthenticatedError> = auth::run_authenticated(
+        &state,
+        access,
+        auth::AuthenticatedRequest::new("POST", compliance::http::OVERLAY_PATH, false),
+        |transaction| {
+            Box::pin(async move {
+                let error = sqlx::query("SELECT pg_sleep(6)")
+                    .execute(&mut *transaction.connection())
+                    .await
+                    .expect_err("the scoped statement deadline must refuse the sleep");
+                Err(overlay::overlay_failure(overlay::OverlayError::Database(
+                    error,
+                )))
+            })
+        },
+    )
+    .await;
+    let elapsed = started.elapsed();
+    let Err(auth::AuthenticatedError::Database(error)) = refused else {
+        panic!("a statement deadline is a database refusal: {refused:?}");
+    };
+    let mapped = error.into_response();
     assert_eq!(mapped.status(), StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(mapped.headers()["retry-after"], "1");
     assert_eq!(
         json_body(mapped).await["detail"]["code"],
         "READ_UNAVAILABLE"
+    );
+    assert!(
+        elapsed >= Duration::from_secs(4),
+        "the statement must run to the five-second deadline: {elapsed:?}"
     );
 }
 
@@ -1135,7 +1247,10 @@ async fn compliance_overlay_postgres_cases() {
             row.get("lcv"),
         )
         .unwrap();
-        assert_eq!(response.overlays[id], expected);
+        assert_eq!(
+            response.overlays[id],
+            expected.map(overlay::OverlayListing::from)
+        );
     }
     let fixture = manifest();
     let qualified = uuids(&fixture, "visible_ids");
