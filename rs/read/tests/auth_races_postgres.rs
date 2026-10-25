@@ -30,13 +30,24 @@ struct Fixture {
 }
 impl Fixture {
     async fn new() -> Self {
+        let tag = format!("session-race-{}", Uuid::new_v4());
+        let observer_tag = tag.clone();
+        let runtime_tag = tag.clone();
         let owner = PgPoolOptions::new()
             .max_connections(6)
+            .after_connect(move |connection, _| {
+                let tag = observer_tag.clone();
+                Box::pin(async move { sqlx::query("SELECT set_config('application_name',$1,false)").bind(tag).execute(connection).await?; Ok(()) })
+            })
             .connect(&std::env::var("AUTH_EMAIL_TEST_OWNER_URL").unwrap())
             .await
             .unwrap();
         let runtime = PgPoolOptions::new()
             .max_connections(6)
+            .after_connect(move |connection, _| {
+                let tag = runtime_tag.clone();
+                Box::pin(async move { sqlx::query("SELECT set_config('application_name',$1,false)").bind(tag).execute(connection).await?; Ok(()) })
+            })
             .connect(&std::env::var("AUTH_EMAIL_TEST_DATABASE_URL").unwrap())
             .await
             .unwrap();
@@ -165,14 +176,7 @@ async fn refresh(
     )
 }
 async fn blocked(pool: &PgPool) {
-    tokio::time::timeout(std::time::Duration::from_secs(15),async {
-        loop {
-            let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND cardinality(pg_blocking_pids(pid))>0)")
-                .fetch_one(pool).await.unwrap();
-            if waiting { return; }
-            tokio::task::yield_now().await;
-        }
-    }).await.expect("the independent writer did not wait for the held lock");
+    blocked_count(pool, 1).await;
 }
 
 #[tokio::test]
@@ -248,18 +252,17 @@ async fn r3_refresh_vs_logout_revokes_successor() {
         } else {
             // Hold the same device lock for the logout transaction, then let
             // refresh reach PostgreSQL before the logout commits.
-            let mut tx = f.owner.begin().await.unwrap();
-            auth::store::lock_device(&mut tx, &token_digest(&f.device))
-                .await
-                .unwrap();
-            let rotation =
-                tokio::spawn(refresh(f.refresh(None), f.token.clone(), f.device.clone()));
+            let held = Arc::new(Barrier::new(2));
+            let mut state = auth::logout::LogoutState::new(f.runtime.clone(),"production",SECRET,None,"verdaxis","verdaxis-api");
+            state.device_locked = Some(held.clone());
+            let device = f.device.clone();
+            let logging_out = tokio::spawn(async move { send(auth::logout::router(state),"/api/auth/logout",None,&device,Value::Null).await });
+            held.wait().await;
+            let rotation = tokio::spawn(refresh(f.refresh(None), f.token.clone(), f.device.clone()));
             blocked(&f.owner).await;
-            auth::store::revoke_device_families(&mut tx, &token_digest(&f.device), None)
-                .await
-                .unwrap();
-            tx.commit().await.unwrap();
-            assert_eq!(rotation.await.unwrap().0, 401);
+            held.wait().await;
+            assert_eq!(logging_out.await.unwrap().0,204);
+            assert_eq!(rotation.await.unwrap().0,401);
         }
         assert_eq!(f.live().await, 0);
         f.remove().await;
@@ -446,27 +449,25 @@ async fn r6_login_vs_account_status_change_writes_no_session() {
 #[tokio::test]
 #[ignore = "requires disposable PostgreSQL"]
 async fn r7_device_session_limit_is_one_live_family() {
-    let f = Fixture::new().await;
-    let held = Arc::new(Barrier::new(2));
-    let first = tokio::spawn(login(
-        f.runtime.clone(),
-        f.email.clone(),
-        f.device.clone(),
-        Some(held.clone()),
-    ));
-    held.wait().await;
-    let second = tokio::spawn(login(
-        f.runtime.clone(),
-        f.email.clone(),
-        f.device.clone(),
-        None,
-    ));
-    blocked(&f.owner).await;
-    held.wait().await;
-    assert_eq!(first.await.unwrap(), 200);
-    assert_eq!(second.await.unwrap(), 200);
-    assert_eq!(f.live().await, 1);
-    f.remove().await;
+    for reverse in [false, true] {
+        let a = Fixture::new().await;
+        let b = Fixture::new().await;
+        let (first, second) = if reverse { (&b, &a) } else { (&a, &b) };
+        let device = a.device.clone();
+        let held = Arc::new(Barrier::new(2));
+        let winner = tokio::spawn(login(a.runtime.clone(),first.email.clone(),device.clone(),Some(held.clone())));
+        held.wait().await;
+        let later = tokio::spawn(login(a.runtime.clone(),second.email.clone(),device.clone(),None));
+        blocked(&a.owner).await;
+        held.wait().await;
+        assert_eq!(winner.await.unwrap(),200);
+        assert_eq!(later.await.unwrap(),200);
+        let rows: Vec<(Uuid,bool)> = sqlx::query_as("SELECT user_id,revoked FROM refresh_sessions WHERE device_id_hash=$1")
+            .bind(token_digest(&device)).fetch_all(&a.owner).await.unwrap();
+        assert!(rows.iter().filter(|(id,_)| *id==first.user).all(|(_,revoked)| *revoked));
+        assert_eq!(rows.iter().filter(|(id,revoked)| *id==second.user && !revoked).count(),1);
+        a.remove().await; b.remove().await;
+    }
 }
 
 #[tokio::test]
@@ -775,7 +776,7 @@ async fn password_reset_before_login_refuses_the_old_password() {
 async fn blocked_count(pool: &PgPool, count: i64) {
     tokio::time::timeout(std::time::Duration::from_secs(15),async {
         loop {
-            let waiting: i64 = sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND cardinality(pg_blocking_pids(pid))>0").fetch_one(pool).await.unwrap();
+            let waiting: i64 = sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity a WHERE a.datname=current_database() AND a.application_name=$1 AND a.wait_event_type='Lock' AND EXISTS (SELECT 1 FROM pg_locks l WHERE l.pid=a.pid AND NOT l.granted AND (l.locktype='advisory' OR l.locktype='transactionid') )").bind(sqlx::query_scalar::<_, String>("SHOW application_name").fetch_one(pool).await.unwrap()).fetch_one(pool).await.unwrap();
             if waiting >= count { return; }
             tokio::task::yield_now().await;
         }
