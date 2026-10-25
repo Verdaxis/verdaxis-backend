@@ -544,8 +544,8 @@ async fn suggestions_require_lng_registration_when_flag_is_omitted() {
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn suggestions_apply_fame_evidence_defaults_on_migrated_schema() {
-    let bid = json!({"schema_version":1,"side":"BID","standard":"EN_14214","standard_edition":"2012+A2:2019","sustainability_scheme":"ISCC_EU"});
-    let ask = json!({"schema_version":1,"side":"ASK","uco_mass_pct":100,"standard":"EN_14214","standard_edition":"2012+A2:2019","sustainability_scheme":"ISCC_EU","certificate_reference":"private-cert","certificate_holder":"private-holder","certificate_valid_until":"2099-01-01","evidence_status":"PENDING","evidence_due":"BEFORE_LOADING","batch_reference":"private-batch","producing_site":"private-site"});
+    let bid = json!({"schema_version":1,"side":"BID","neat_fame":true,"standard":"EN_14214","standard_edition":"2012+A2:2019","sustainability_scheme":"ISCC_EU"});
+    let ask = json!({"schema_version":1,"side":"ASK","neat_fame":true,"uco_mass_pct":100,"standard":"EN_14214","standard_edition":"2012+A2:2019","sustainability_scheme":"ISCC_EU","certificate_reference":"private-cert","certificate_holder":"private-holder","certificate_valid_until":"2099-01-01","evidence_status":"PENDING","evidence_due":"BEFORE_LOADING","batch_reference":"private-batch","producing_site":"private-site"});
     let mut incompatible = ask.clone();
     incompatible["evidence_due"] = json!("BEFORE_DELIVERY");
     let f = MigratedFixture::new("fame_v1", bid, ask, incompatible).await;
