@@ -217,7 +217,10 @@ impl ScenarioRequest {
 /// A stored CII rating, treating the empty string as absent so it takes the
 /// neutral C band, as Python's `(cii_rating or "C")` does.
 fn stored_rating(vessel: &VesselRow) -> Option<&str> {
-    vessel.cii_rating.as_deref().filter(|rating| !rating.is_empty())
+    vessel
+        .cii_rating
+        .as_deref()
+        .filter(|rating| !rating.is_empty())
 }
 
 /// The vessel label and CII rating a scenario reports.
