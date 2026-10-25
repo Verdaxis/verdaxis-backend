@@ -235,7 +235,9 @@ pub fn order_query_sql(tail: &'static str) -> OrderQuery {
 pub fn opposing_order_query_sql() -> OrderQuery {
     OrderQuery(format!(
         "WITH eligible_orders AS NOT MATERIALIZED ({}) {}",
-        relation_sql(include_str!("../../sql/orderbook/opposing_keyed_orders.sql")),
+        relation_sql(include_str!(
+            "../../sql/orderbook/opposing_keyed_orders.sql"
+        )),
         include_str!("../../sql/orderbook/opposing.sql")
     ))
 }

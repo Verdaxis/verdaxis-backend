@@ -7,8 +7,8 @@ use crate::market::{
     live_benchmarks::LiveBenchmarkCache,
     order_projection::PublicOrder,
     visibility::{
-        OrderSurface, PublicOrderFilters, VisibilityClock, bind_order_query, opposing_order_query_sql,
-        order_query_sql,
+        OrderSurface, PublicOrderFilters, VisibilityClock, bind_order_query,
+        opposing_order_query_sql, order_query_sql,
     },
     windows::normalize_window,
 };
