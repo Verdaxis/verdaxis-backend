@@ -23,7 +23,11 @@ fn ordered_hash(rows: &[String]) -> String {
         digest.update((row.len() as u64).to_be_bytes());
         digest.update(row.as_bytes());
     }
-    digest.finalize().iter().map(|byte| format!("{byte:02x}")).collect()
+    digest
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 fn equivalent(old: &[String], new: &[String], case: &str) {
@@ -44,16 +48,44 @@ pub(super) async fn aggregate_identity_equivalence(
         config.kyc_execution_gate_enabled = gate;
         for (name, filters) in [
             ("all", PublicOrderFilters::default()),
-            ("bid", PublicOrderFilters { side: Some("BID"), ..Default::default() }),
-            ("ask", PublicOrderFilters { side: Some("ASK"), ..Default::default() }),
-            ("empty", PublicOrderFilters { product_id: Some(Uuid::nil()), ..Default::default() }),
+            (
+                "bid",
+                PublicOrderFilters {
+                    side: Some("BID"),
+                    ..Default::default()
+                },
+            ),
+            (
+                "ask",
+                PublicOrderFilters {
+                    side: Some("ASK"),
+                    ..Default::default()
+                },
+            ),
+            (
+                "empty",
+                PublicOrderFilters {
+                    product_id: Some(Uuid::nil()),
+                    ..Default::default()
+                },
+            ),
         ] {
             for limit in [1000, 1, 0] {
                 let mut results = Vec::new();
                 for tail in [OLD, CANDIDATE, SHIPPED] {
                     let sql = order_query_sql_projected(tail, MAP_PROJECTION);
-                    results.push(rows(connection, &typed_rows(sql.sql()), policy, clock,
-                        &config, &filters, &[Extra::Int(limit)]).await);
+                    results.push(
+                        rows(
+                            connection,
+                            &typed_rows(sql.sql()),
+                            policy,
+                            clock,
+                            &config,
+                            &filters,
+                            &[Extra::Int(limit)],
+                        )
+                        .await,
+                    );
                 }
                 let case = format!("{name} gate={gate} limit={limit}");
                 equivalent(&results[0], &results[1], &case);
@@ -64,22 +96,46 @@ pub(super) async fn aggregate_identity_equivalence(
                     assert!(!results[0].is_empty(), "populated result: {case}");
                 }
                 if name == "all" && limit == 1000 {
-                    let values: Vec<Value> = results[0].iter()
-                        .map(|row| serde_json::from_str(row).unwrap()).collect();
-                    assert!(values.iter().any(|row| row["value"]["order_count"].as_i64().unwrap() > 1),
-                        "eligible duplicate keys must contribute more than once");
-                    broad_counts.push(values.iter().map(|row| row["value"]["order_count"].as_i64().unwrap()).sum::<i64>());
+                    let values: Vec<Value> = results[0]
+                        .iter()
+                        .map(|row| serde_json::from_str(row).unwrap())
+                        .collect();
+                    assert!(
+                        values
+                            .iter()
+                            .any(|row| row["value"]["order_count"].as_i64().unwrap() > 1),
+                        "eligible duplicate keys must contribute more than once"
+                    );
+                    broad_counts.push(
+                        values
+                            .iter()
+                            .map(|row| row["value"]["order_count"].as_i64().unwrap())
+                            .sum::<i64>(),
+                    );
                     for row in values {
-                        assert_eq!(row["types"], serde_json::json!(["numeric", "numeric", "numeric", "bigint", "bigint"]));
+                        assert_eq!(
+                            row["types"],
+                            serde_json::json!([
+                                "numeric", "numeric", "numeric", "bigint", "bigint"
+                            ])
+                        );
                     }
                 }
             }
         }
     }
-    assert!(broad_counts[1] > broad_counts[0], "the fixture must exercise strict and advisory admission");
+    assert!(
+        broad_counts[1] > broad_counts[0],
+        "the fixture must exercise strict and advisory admission"
+    );
     let raw: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe("SELECT count(*) FROM orderbook_orders"))
-        .fetch_one(&mut *connection).await.unwrap();
-    assert!(raw > broad_counts[1], "ineligible fixture rows must be excluded before grouping");
+        .fetch_one(&mut *connection)
+        .await
+        .unwrap();
+    assert!(
+        raw > broad_counts[1],
+        "ineligible fixture rows must be excluded before grouping"
+    );
     synthetic_labels(connection).await;
 }
 
@@ -117,17 +173,33 @@ eligible_orders AS (
         let mut results = Vec::new();
         for tail in [OLD, CANDIDATE, SHIPPED] {
             let sql = typed_rows(&format!("{prefix}{}", tail.replace("$14", "$2")));
-            let result = sqlx::query(sqlx::AssertSqlSafe(sql)).bind(&policy).bind(limit)
-                .fetch_all(&mut *connection).await.unwrap().into_iter()
-                .map(|row| row.get::<String, _>("row")).collect::<Vec<_>>();
+            let result = sqlx::query(sqlx::AssertSqlSafe(sql))
+                .bind(&policy)
+                .bind(limit)
+                .fetch_all(&mut *connection)
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|row| row.get::<String, _>("row"))
+                .collect::<Vec<_>>();
             results.push(result);
         }
-        equivalent(&results[0], &results[1], "collation, duplicate labels and numeric types");
+        equivalent(
+            &results[0],
+            &results[1],
+            "collation, duplicate labels and numeric types",
+        );
         equivalent(&results[0], &results[2], "shipped synthetic labels");
         if limit == 1000 {
             assert_eq!(results[0].len(), 5);
-            let values: Vec<Value> = results[0].iter().map(|row| serde_json::from_str(row).unwrap()).collect();
-            let duplicate = values.iter().find(|row| row["value"]["order_count"] == 2).unwrap();
+            let values: Vec<Value> = results[0]
+                .iter()
+                .map(|row| serde_json::from_str(row).unwrap())
+                .collect();
+            let duplicate = values
+                .iter()
+                .find(|row| row["value"]["order_count"] == 2)
+                .unwrap();
             assert_eq!(duplicate["value"]["total_quantity_text"], "15.000");
             assert_eq!(duplicate["value"]["min_price_text"], "100.00");
             assert_eq!(duplicate["value"]["max_price_text"], "120.00");
