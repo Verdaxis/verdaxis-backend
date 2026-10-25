@@ -386,7 +386,7 @@ removing wire-spelling emulation. See `docs/rust-phase1/same-meaning-contract.md
 
 ## Trusted watchlist producer schema
 
-Revision `p89_20261022_watchlist_producer` follows `prc_20261018_cache`.
+Revision `p89_20261022_watchlist_producer` follows `p3_20261020_auth_tokens`.
 It adds five producer identity columns, their all-or-none CHECK and replay
 identity index to `watchlist_events`, nullable internal JSONB evidence to
 `market_event_outbox`, and the singleton `watchlist_producer_state` watermark.

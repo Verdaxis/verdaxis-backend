@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import re
 from typing import Any
-
 from sqlalchemy import Enum, Float, Numeric, String
+
 
 # PostGIS owns spatial_ref_sys in public and the geocoder tables in its tiger
 # schema. Schema is part of every fingerprint so an application table such as
