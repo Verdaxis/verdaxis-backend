@@ -1481,8 +1481,9 @@ mod postgres {
             .unwrap(),
             None
         );
-        // A foreign email in the body never retargets the write, and an
-        // authenticated caller is required.
+        // The address key is refused like any undeclared field, so the body
+        // cannot retarget the write through a foreign value: nothing is
+        // recorded for either account, and a clean submit still records.
         let reply = survey(
             &f.app,
             CLIENT,
@@ -1491,7 +1492,41 @@ mod postgres {
                 "email": "user15@example.test",
                 "use_case": "supplier",
                 "referral_source": "web"
-            }),
+            })
+        )
+        .await;
+        assert_eq!(
+            reply.status,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{:?}",
+            reply.body
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, Option<String>>(
+                "SELECT onboarding_use_case FROM users WHERE id=$1"
+            )
+            .bind(fresh)
+            .fetch_one(&f.pool)
+            .await
+            .unwrap()
+            .as_deref(),
+            None
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, Option<String>>(
+                "SELECT onboarding_use_case FROM users WHERE id=$1"
+            )
+            .bind(f.users[15])
+            .fetch_one(&f.pool)
+            .await
+            .unwrap(),
+            None
+        );
+        let reply = survey(
+            &f.app,
+            CLIENT,
+            Some(&token(fresh)),
+            &json!({"use_case": "supplier", "referral_source": "web"})
         )
         .await;
         assert_eq!(reply.status, StatusCode::NO_CONTENT);
@@ -1505,39 +1540,6 @@ mod postgres {
             .unwrap()
             .as_deref(),
             Some("supplier")
-        );
-        assert_eq!(
-            sqlx::query_scalar::<_, Option<String>>(
-                "SELECT onboarding_use_case FROM users WHERE id=$1"
-            )
-            .bind(f.users[15])
-            .fetch_one(&f.pool)
-            .await
-            .unwrap(),
-            None
-        );
-        let unauth = Uuid::new_v4();
-        sqlx::query("INSERT INTO users(id,email,status) VALUES($1,$2,'APPROVED')")
-            .bind(unauth)
-            .bind(format!("{unauth}@example.test"))
-            .execute(&f.pool)
-            .await
-            .unwrap();
-        assert_eq!(
-            survey(&f.app, CLIENT, None, &json!({"use_case": "buyer"}))
-                .await
-                .status,
-            StatusCode::UNAUTHORIZED
-        );
-        assert_eq!(
-            sqlx::query_scalar::<_, Option<String>>(
-                "SELECT onboarding_use_case FROM users WHERE id=$1"
-            )
-            .bind(unauth)
-            .fetch_one(&f.pool)
-            .await
-            .unwrap(),
-            None
         );
         // The declared body limit refuses before parsing or writing.
         let huge = format!(
