@@ -635,19 +635,19 @@ pub mod contract {
             MutationKind::InventoryDeleted => ("inventory_deleted", "inventory", "deleted"),
             MutationKind::InventoryPublished => ("inventory_published", "inventory", "published"),
             MutationKind::SupportCapabilityGranted => {
-                ("capability_granted", "capability", "ACTIVE")
+                ("capability_granted", "staff_capability_assignment", "ACTIVE")
             }
             MutationKind::SupportCapabilityRevoked => {
-                ("capability_revoked", "capability", "REVOKED")
+                ("capability_revoked", "staff_capability_assignment", "REVOKED")
             }
-            MutationKind::SupportContextStarted => ("context_started", "context", "ACTIVE"),
-            MutationKind::SupportContextExited => ("context_exited", "context", "EXITED"),
-            MutationKind::SupportContextRevoked => ("context_revoked", "context", "REVOKED"),
+            MutationKind::SupportContextStarted => ("context_started", "market_support_context", "ACTIVE"),
+            MutationKind::SupportContextExited => ("context_exited", "market_support_context", "EXITED"),
+            MutationKind::SupportContextRevoked => ("context_revoked", "market_support_context", "REVOKED"),
             MutationKind::SupportAuthorizationCreated => {
-                ("authorization_created", "authorization", "ACTIVE")
+                ("authorization_created", "market_support_authorization", "ACTIVE")
             }
             MutationKind::SupportAuthorizationRevoked => {
-                ("authorization_revoked", "authorization", "REVOKED")
+                ("authorization_revoked", "market_support_authorization", "REVOKED")
             }
             MutationKind::CommissionChanged => ("commission_updated", "commission", "PAID"),
         }
@@ -800,6 +800,11 @@ pub mod contract {
             }
         }
     }
+    fn cancel_request_hash() -> String {
+        super::super::command_request_hash(&super::super::Canonical::Object(BTreeMap::from([
+            ("operation".into(), super::super::Canonical::Text("order.cancel".into())),
+        ])))
+    }
     struct OrderedEffectCommand {
         probe: EffectProbe,
         key: String,
@@ -828,7 +833,7 @@ pub mod contract {
                         Operation::OrderCancel,
                         self.probe.order_id,
                         &self.key,
-                        "effect-cancel-v1",
+                        &cancel_request_hash(),
                     )
                     .await?)
             })
@@ -857,7 +862,7 @@ pub mod contract {
                         support_context_id: None,
                         operation: Operation::OrderCancel,
                         idempotency_key: self.key.clone(),
-                        request_hash: "effect-cancel-v1".into(),
+                        request_hash: cancel_request_hash(),
                         resource_id: self.probe.order_id,
                         response_status: 204,
                         response_body: Value::Null,
