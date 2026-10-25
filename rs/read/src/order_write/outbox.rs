@@ -36,7 +36,7 @@ impl ParticipantEvent {
             ParticipantFields::Inventory {
                 inventory_id,
                 action,
-            } => json!({"inventory_id":inventory_id,"action":action}),
+            } => json!({"inventory_id":inventory_id,"action":action,"status":action}),
             ParticipantFields::Support { context_id, status } => {
                 json!({"context_id":context_id,"status":status})
             }

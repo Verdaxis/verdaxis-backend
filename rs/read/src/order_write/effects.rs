@@ -9,6 +9,7 @@ use sqlx::{PgConnection, Row};
 use uuid::Uuid;
 
 use super::outbox::{ParticipantEvent, ProducerEvidence};
+use super::locks::Locked;
 use super::{ExpiryEffect, MarketErrorCode, MarketWriteError};
 use crate::business::audit::{AuditFact, append_audit};
 use crate::market::live_benchmarks::{candidate_is_benchmark_qualified, qualified_vwap};
@@ -23,9 +24,15 @@ use crate::{Config, MarketPolicy};
 pub enum MutationKind {
     OrderCancelled,
     OrderExpired,
+    InventoryCreated,
+    InventoryUpdated,
+    InventoryDeleted,
     InventoryPublished,
     SupportContextStarted,
     SupportContextExited,
+    SupportContextRevoked,
+    SupportAuthorizationCreated,
+    SupportAuthorizationRevoked,
     SupportCapabilityGranted,
     SupportCapabilityRevoked,
     CommissionChanged,
@@ -36,9 +43,15 @@ impl MutationKind {
         match self {
             Self::OrderCancelled => "order.cancelled",
             Self::OrderExpired => "order.expired",
+            Self::InventoryCreated => "inventory.created",
+            Self::InventoryUpdated => "inventory.updated",
+            Self::InventoryDeleted => "inventory.deleted",
             Self::InventoryPublished => "inventory.published",
             Self::SupportContextStarted => "market_support.context_started",
             Self::SupportContextExited => "market_support.context_exited",
+            Self::SupportContextRevoked => "market_support.context_revoked",
+            Self::SupportAuthorizationCreated => "market_support.authorization_created",
+            Self::SupportAuthorizationRevoked => "market_support.authorization_revoked",
             Self::SupportCapabilityGranted => "market_support.capability_granted",
             Self::SupportCapabilityRevoked => "market_support.capability_revoked",
             Self::CommissionChanged => "commission.updated",
@@ -114,11 +127,12 @@ pub struct BeforeEffects {
 pub struct EffectPort<'a> {
     conn: &'a mut PgConnection,
     order_ids: &'a [Uuid],
+    locked: &'a Locked,
 }
 
 impl<'a> EffectPort<'a> {
-    pub(super) fn new(conn: &'a mut PgConnection, order_ids: &'a [Uuid]) -> Self {
-        Self { conn, order_ids }
+    pub(super) fn new(conn: &'a mut PgConnection, order_ids: &'a [Uuid], locked: &'a Locked) -> Self {
+        Self { conn, order_ids, locked }
     }
 
     pub async fn capture_before(
@@ -128,6 +142,7 @@ impl<'a> EffectPort<'a> {
         ids: &[Uuid],
         at: DateTime<Utc>,
     ) -> Result<BeforeEffects, MarketWriteError> {
+        self.locked.require_economic_phase()?;
         if ids.iter().any(|id| !self.order_ids.contains(id)) {
             return Err(inconsistent());
         }
@@ -175,7 +190,7 @@ impl<'a> EffectPort<'a> {
         before: BeforeEffects,
         effect: MutationEffect,
     ) -> Result<Uuid, MarketWriteError> {
-        if !matches!(effect.kind, MutationKind::InventoryPublished) {
+        if !matches!(effect.kind, MutationKind::InventoryCreated | MutationKind::InventoryUpdated | MutationKind::InventoryDeleted | MutationKind::InventoryPublished) {
             return Err(inconsistent());
         }
         self.apply(policy, config, before, effect).await
@@ -192,6 +207,9 @@ impl<'a> EffectPort<'a> {
             effect.kind,
             MutationKind::SupportContextStarted
                 | MutationKind::SupportContextExited
+                | MutationKind::SupportContextRevoked
+                | MutationKind::SupportAuthorizationCreated
+                | MutationKind::SupportAuthorizationRevoked
                 | MutationKind::SupportCapabilityGranted
                 | MutationKind::SupportCapabilityRevoked
         ) {
@@ -256,6 +274,7 @@ impl<'a> EffectPort<'a> {
         before: BeforeEffects,
         effect: MutationEffect,
     ) -> Result<Uuid, MarketWriteError> {
+        self.locked.require_economic_phase()?;
         if before.at != effect.at {
             return Err(inconsistent());
         }
@@ -291,6 +310,7 @@ impl<'a> EffectPort<'a> {
         sqlx::query("INSERT INTO notifications(id,recipient_id,type,title,message,data,is_read,created_at) SELECT gen_random_uuid(),id,$2,$3,$4,$5::json,false,$6 FROM users WHERE organization_id=$1 ORDER BY id")
             .bind(effect.organization_id).bind(&effect.notification.kind).bind(&effect.notification.title).bind(&effect.notification.message).bind(&effect.notification.data).bind(effect.at).execute(&mut *self.conn).await?;
         // Terminal lock phase: never acquire an economic row after this call.
+        self.locked.begin_target_phase()?;
         sync_pin_display(self.conn, &after).await?;
         let evidence = ProducerEvidence {
             mutation_id: Uuid::new_v4(),
@@ -414,32 +434,45 @@ async fn aggregates(
             let rows = bind_order_query(&sql, policy, &clock, config, &filters)?
                 .fetch_all(&mut *conn)
                 .await?;
-            let mut economic = Vec::new();
-            let mut real = 0usize;
+            let mut real = Vec::new();
+            let mut demo = Vec::new();
             for row in rows {
                 let private: Value = row.try_get("private_digest_input")?;
-                if candidate_is_benchmark_qualified(policy, &private, &clock) {
-                    if row.try_get::<String, _>("provenance")? == "REAL" {
-                        real += 1;
-                    }
-                    economic.push((
-                        row.try_get::<Decimal, _>("remaining_quantity_mt")?,
-                        row.try_get::<Decimal, _>("price_per_mt_usd")?,
-                    ));
+                if !candidate_is_benchmark_qualified(policy, &private, &clock) {
+                    continue;
+                }
+                let economic = (row.try_get::<Decimal,_>("remaining_quantity_mt")?,
+                    row.try_get::<Decimal,_>("price_per_mt_usd")?);
+                match row.try_get::<String,_>("provenance")?.as_str() {
+                    "REAL" => real.push(economic),
+                    "DEMO" => demo.push(economic),
+                    _ => return Err(inconsistent()),
                 }
             }
-            let quantity = economic.iter().try_fold(Decimal::ZERO, |sum, (q, _)| {
-                sum.checked_add(*q).ok_or_else(inconsistent)
-            })?;
-            let best = economic
-                .iter()
-                .map(|(_, p)| *p)
-                .reduce(|a, b| if side == "BID" { a.max(b) } else { a.min(b) });
+            let economic: Vec<_> = real.iter().chain(&demo).copied().collect();
+            let quantity = total_quantity(&economic)?;
+            let best = best_price(&economic,side);
             let vwap = qualified_vwap(&economic);
-            values.push(json!({"market_product":slice.product,"delivery_point_id":slice.point,"availability_window":slice.window,"side":side,"quantity_mt":quantity.to_string(),"order_count":economic.len(),"real_count":real,"demo_count":economic.len()-real,"best_price_per_mt_usd":best.map(|p|p.to_string()),"benchmark_price_per_mt_usd":vwap.map(|p|p.to_string())}));
+            values.push(json!({"market_product":slice.product,"delivery_point_id":slice.point,
+                "availability_window":slice.window,"side":side,"quantity_mt":quantity.to_string(),
+                "order_count":economic.len(),"real_count":real.len(),"demo_count":demo.len(),
+                "real":provenance_aggregate(&real,side)?,"demo":provenance_aggregate(&demo,side)?,
+                "best_price_per_mt_usd":best.map(|p|p.to_string()),
+                "benchmark_price_per_mt_usd":vwap.map(|p|p.to_string())}));
         }
     }
     Ok(values)
+}
+
+fn total_quantity(rows: &[(Decimal,Decimal)]) -> Result<Decimal,MarketWriteError> {
+    rows.iter().try_fold(Decimal::ZERO,|sum,(q,_)|sum.checked_add(*q).ok_or_else(inconsistent))
+}
+fn best_price(rows:&[(Decimal,Decimal)],side:&str) -> Option<Decimal> {
+    rows.iter().map(|(_,price)|*price).reduce(|a,b|if side=="BID" {a.max(b)} else {a.min(b)})
+}
+fn provenance_aggregate(rows:&[(Decimal,Decimal)],side:&str) -> Result<Value,MarketWriteError> {
+    Ok(json!({"quantity_mt":total_quantity(rows)?.to_string(),"order_count":rows.len(),
+        "best_price_per_mt_usd":best_price(rows,side).map(|p|p.to_string())}))
 }
 
 async fn rebuild_benchmarks(
@@ -484,8 +517,18 @@ async fn sync_pin_display(
 
 #[cfg(feature = "contract-tests")]
 pub mod contract {
-    use super::super::outbox::ParticipantFields;
     use super::*;
+    use super::super::authority::admission::AdmissionClass;
+    use super::super::locks::{LockClass, MarketOperation, OperationLockPlan, PartyLockPreview, SliceKey};
+    use super::super::outbox::ParticipantFields;
+    use super::super::transaction::{BoxFuture, CommittedCommand, LockedMarketTransaction,
+        MarketAttemptError, MarketCommand, MarketPreview, run_market_command};
+    use super::super::{AuthenticatedActor, Operation, ReceiptRecord};
+    use crate::auth::VerifiedAccess;
+    use std::sync::Arc;
+    use tokio::sync::Semaphore;
+
+    #[derive(Clone)]
     pub struct EffectProbe {
         pub order_id: Uuid,
         pub actor_id: Uuid,
@@ -500,141 +543,189 @@ pub mod contract {
         pub writer_pin_status: String,
         pub observer_pin_status: String,
     }
-    pub async fn run_effect_probe(
-        pool: &sqlx::PgPool,
-        probe: EffectProbe,
-    ) -> Result<ProbeResult, MarketWriteError> {
-        let policy: MarketPolicy =
-            serde_json::from_str(include_str!("../../../../deploy/rust/market-policy.json"))
-                .map_err(|_| internal())?;
-        let config:Config=serde_json::from_value(json!({"environment":"test","release_sha":"test","migration_revision":"p89_20261022_watchlist_producer","database_url":"","db_session_time_zone":"UTC","bind":"127.0.0.1:0","pool_max":4,"python_budget":0,"configured_max_connections":100})).map_err(|_|internal())?;
-        let at = Utc::now();
-        let mut tx = pool.begin().await?;
-        sqlx::query("SELECT id FROM organizations WHERE id=$1 FOR UPDATE")
-            .bind(probe.organization_id)
-            .fetch_one(&mut *tx)
-            .await?;
-        sqlx::query("SELECT id FROM users WHERE id=$1 FOR UPDATE")
-            .bind(probe.actor_id)
-            .fetch_one(&mut *tx)
-            .await?;
-        sqlx::query("SELECT id FROM orderbook_orders WHERE id=$1 FOR UPDATE")
-            .bind(probe.order_id)
-            .fetch_one(&mut *tx)
-            .await?;
-        let ids = [probe.order_id];
-        if !probe.replay {
-            let before = EffectPort::new(&mut tx, &ids)
-                .capture_before(&policy, &config, &ids, at)
-                .await?;
-            if matches!(probe.kind, MutationKind::OrderCancelled) {
-                sqlx::query(
-                    "UPDATE orderbook_orders SET status='CANCELLED',version=version+1 WHERE id=$1",
-                )
-                .bind(probe.order_id)
-                .execute(&mut *tx)
-                .await?;
+    fn policy() -> Result<MarketPolicy,MarketWriteError> {
+        serde_json::from_str(include_str!("../../../../deploy/rust/market-policy.json"))
+            .map_err(|_|internal())
+    }
+    fn config() -> Result<Config,MarketWriteError> {
+        serde_json::from_value(json!({"environment":"test","release_sha":"test",
+            "migration_revision":"p89_20261022_watchlist_producer","database_url":"",
+            "db_session_time_zone":"UTC","bind":"127.0.0.1:0","pool_max":4,
+            "python_budget":0,"configured_max_connections":100})).map_err(|_|internal())
+    }
+    fn access(actor:Uuid) -> VerifiedAccess {
+        VerifiedAccess {subject:actor,issued_at:Some(Utc::now()),issuance_out_of_range:false}
+    }
+    async fn plan(conn:&mut PgConnection,probe:&EffectProbe,key:Option<&str>) -> Result<MarketPreview,MarketAttemptError> {
+        let row=sqlx::query("SELECT organization_id,owner_user_id,product_id,delivery_point_id,availability_window,inventory_item_id FROM orderbook_orders WHERE id=$1")
+            .bind(probe.order_id).fetch_one(conn).await?;
+        let organization:Uuid=row.try_get("organization_id")?;
+        let owner:Option<Uuid>=row.try_get("owner_user_id")?;
+        let product:Uuid=row.try_get("product_id")?;
+        let point:Option<Uuid>=row.try_get("delivery_point_id")?;
+        let window:String=row.try_get("availability_window")?;
+        let item:Option<Uuid>=row.try_get("inventory_item_id")?;
+        let parties=PartyLockPreview::new([organization],owner,probe.actor_id,
+            json!({"order_id":probe.order_id,"organization_id":organization,"owner_user_id":owner,
+                "product_id":product,"delivery_point_id":point,"availability_window":window,"inventory_item_id":item}));
+        let mut locks=OperationLockPlan::new(MarketOperation::Cancel);
+        locks.parties(&parties)?;
+        if let Some(key)=key { locks.idempotency(probe.actor_id,Operation::OrderCancel.as_str(),key)?; }
+        locks.slices([SliceKey {product_id:product,delivery_point_id:point,availability_window:window}])?;
+        locks.orders([probe.order_id])?;
+        locks.inventory(item)?;
+        Ok(MarketPreview {parties,locks})
+    }
+    fn metadata(kind:MutationKind)->(&'static str,&'static str,&'static str) {
+        match kind {
+            MutationKind::OrderCancelled=>("order_cancelled","order","CANCELLED"),
+            MutationKind::OrderExpired=>("order_expired","order","EXPIRED"),
+            MutationKind::InventoryCreated=>("inventory_created","inventory","created"),
+            MutationKind::InventoryUpdated=>("inventory_updated","inventory","updated"),
+            MutationKind::InventoryDeleted=>("inventory_deleted","inventory","deleted"),
+            MutationKind::InventoryPublished=>("inventory_published","inventory","published"),
+            MutationKind::SupportCapabilityGranted=>("capability_granted","capability","ACTIVE"),
+            MutationKind::SupportCapabilityRevoked=>("capability_revoked","capability","REVOKED"),
+            MutationKind::SupportContextStarted=>("context_started","context","ACTIVE"),
+            MutationKind::SupportContextExited=>("context_exited","context","EXITED"),
+            MutationKind::SupportContextRevoked=>("context_revoked","context","REVOKED"),
+            MutationKind::SupportAuthorizationCreated=>("authorization_created","authorization","ACTIVE"),
+            MutationKind::SupportAuthorizationRevoked=>("authorization_revoked","authorization","REVOKED"),
+            MutationKind::CommissionChanged=>("commission_updated","commission","PAID"),
+        }
+    }
+    fn effect(probe:&EffectProbe,at:DateTime<Utc>)->MutationEffect {
+        let (event_type,resource,status)=metadata(probe.kind);
+        let fields=match resource {
+            "order"=>ParticipantFields::Order {order_id:probe.order_id,status:status.into()},
+            "inventory"=>ParticipantFields::Inventory {inventory_id:probe.order_id,action:status.into()},
+            "commission"=>ParticipantFields::Commission {commission_id:probe.order_id,status:status.into()},
+            _=>ParticipantFields::Support {context_id:probe.order_id,status:status.into()},
+        };
+        MutationEffect {kind:probe.kind,actor_id:probe.actor_id,organization_id:probe.organization_id,
+            resource_type:resource.into(),resource_id:probe.order_id,
+            changes:json!({"status":{"before":"OPEN","after":status}}),
+            notification:OrganizationNotification {kind:"ORDER_UPDATE".into(),title:"Market update".into(),
+                message:"Market state changed".into(),data:json!({"action":probe.kind.audit_action(),"resource_id":probe.order_id})},
+            event:ParticipantEvent {event_type:event_type.into(),aggregate_type:resource.into(),
+                aggregate_id:probe.order_id.to_string(),participant_org_ids:vec![probe.organization_id],
+                fields,public_invalidated:resource=="order"},at}
+    }
+    async fn apply_port(port:&mut EffectPort<'_>,policy:&MarketPolicy,config:&Config,before:BeforeEffects,effect:MutationEffect) -> Result<Uuid,MarketWriteError> {
+        match effect.kind {
+            MutationKind::OrderCancelled=>port.order_cancelled(policy,config,before,effect).await,
+            MutationKind::OrderExpired=>Err(inconsistent()),
+            MutationKind::InventoryCreated|MutationKind::InventoryUpdated|MutationKind::InventoryDeleted|MutationKind::InventoryPublished=>port.inventory_changed(policy,config,before,effect).await,
+            MutationKind::CommissionChanged=>port.commission_changed(policy,config,before,effect).await,
+            _=>port.support_changed(policy,config,before,effect).await,
+        }
+    }
+    async fn perform(tx:&mut LockedMarketTransaction<'_>,probe:&EffectProbe,at:DateTime<Utc>) -> Result<(),MarketWriteError> {
+        let policy=policy()?;
+        let config=config()?;
+        let ids=if matches!(probe.kind,MutationKind::OrderCancelled) { vec![probe.order_id] } else {Vec::new()};
+        let before=tx.effects()?.capture_before(&policy,&config,&ids,at).await?;
+        if matches!(probe.kind,MutationKind::OrderCancelled) { tx.effect_stage_order(probe.order_id,"CANCELLED").await?; }
+        apply_port(&mut tx.effects()?,&policy,&config,before,effect(probe,at)).await?;
+        Ok(())
+    }
+    pub async fn run_effect_probe(pool:&sqlx::PgPool,probe:EffectProbe)->Result<ProbeResult,MarketWriteError> {
+        let mut tx=pool.begin().await?;
+        let plan=plan(&mut tx,&probe,None).await.map_err(attempt_error)?;
+        let locked=plan.locks.acquire(&mut tx).await?;
+        let at=Utc::now();
+        let mut port=LockedMarketTransaction::from_effect_fixture(&mut tx,&plan.locks,&locked);
+        if !probe.replay { perform(&mut port,&probe,at).await?; }
+        let visible_from_writer=sqlx::query_scalar("SELECT count(*) FROM market_event_outbox").fetch_one(&mut *tx).await?;
+        let writer_pin_status=sqlx::query_scalar("SELECT snapshot_status FROM watchlist_targets WHERE order_id=$1").bind(probe.order_id).fetch_one(&mut *tx).await?;
+        let mut observer=pool.acquire().await?;
+        let visible_from_observer=sqlx::query_scalar("SELECT count(*) FROM market_event_outbox").fetch_one(&mut *observer).await?;
+        let observer_pin_status=sqlx::query_scalar("SELECT snapshot_status FROM watchlist_targets WHERE order_id=$1").bind(probe.order_id).fetch_one(&mut *observer).await?;
+        if probe.commit {tx.commit().await?;} else {tx.rollback().await?;}
+        Ok(ProbeResult {visible_from_writer,visible_from_observer,writer_pin_status,observer_pin_status})
+    }
+    fn attempt_error(error:MarketAttemptError)->MarketWriteError {
+        match error {
+            MarketAttemptError::Database(e)=>e.into(),
+            MarketAttemptError::Refusal(e)=>e,
+            MarketAttemptError::PreviewChanged=>MarketWriteError::new(MarketErrorCode::MarketSliceChanged),
+        }
+    }
+    struct OrderedEffectCommand { probe:EffectProbe,key:String }
+    impl MarketCommand for OrderedEffectCommand {
+        type Output=CommittedCommand;
+        fn preview<'a>(&'a self,conn:&'a mut PgConnection,_actor:Uuid)->BoxFuture<'a,Result<MarketPreview,MarketAttemptError>> {
+            Box::pin(async move {plan(conn,&self.probe,Some(&self.key)).await})
+        }
+        fn replay<'a>(&'a self,tx:&'a mut LockedMarketTransaction<'_>,actor:&'a AuthenticatedActor)->BoxFuture<'a,Result<Option<Self::Output>,MarketAttemptError>> {
+            Box::pin(async move {
+                let context=tx.execution_context(actor,self.probe.organization_id,Utc::now(),true).await?;
+                Ok(tx.replay_receipt(&context,Operation::OrderCancel,self.probe.order_id,&self.key,"effect-cancel-v1").await?)
+            })
+        }
+        fn execute<'a>(&'a self,tx:&'a mut LockedMarketTransaction<'_>,actor:&'a AuthenticatedActor)->BoxFuture<'a,Result<Self::Output,MarketAttemptError>> {
+            Box::pin(async move {
+                let context=tx.execution_context(actor,self.probe.organization_id,Utc::now(),true).await?;
+                perform(tx,&self.probe,context.now()).await?;
+                let response=CommittedCommand {response_status:204,response_body:Value::Null,replayed:false};
+                tx.record_receipt(&context,&ReceiptRecord {id:Uuid::new_v4(),actor_user_id:self.probe.actor_id,
+                    effective_organization_id:self.probe.organization_id,support_context_id:None,operation:Operation::OrderCancel,
+                    idempotency_key:self.key.clone(),request_hash:"effect-cancel-v1".into(),resource_id:self.probe.order_id,
+                    response_status:204,response_body:Value::Null}).await?;
+                Ok(response)
+            })
+        }
+        fn prepare_response(&self,value:&Self::Output)->Result<(),MarketAttemptError> {
+            serde_json::to_vec(&value.response_body).map_err(|_|internal())?;
+            Ok(())
+        }
+    }
+    pub async fn run_ordered_effect_probe(pool:&sqlx::PgPool,probe:EffectProbe,key:String)->Result<CommittedCommand,MarketWriteError> {
+        run_market_command(pool.clone(),Arc::new(Semaphore::new(1)),access(probe.actor_id),
+            OrderedEffectCommand {probe,key},AdmissionClass::Cleanup).await
+    }
+    pub async fn run_expiry_effect_probe(pool:&sqlx::PgPool,probe:EffectProbe)->Result<Vec<ExpiryEffect>,MarketWriteError> {
+        let mut tx=pool.begin().await?;
+        let preview=plan(&mut tx,&probe,None).await.map_err(attempt_error)?;
+        let locked=preview.locks.acquire(&mut tx).await?;
+        let row=sqlx::query("SELECT product_id,delivery_point_id,availability_window,side::text AS side FROM orderbook_orders WHERE id=$1")
+            .bind(probe.order_id).fetch_one(&mut *tx).await?;
+        let window:String=row.try_get("availability_window")?;
+        let side:String=row.try_get("side")?;
+        let slice=super::super::ExpirySlice {product_id:row.try_get("product_id")?,
+            delivery_point_id:row.try_get("delivery_point_id")?,availability_window:&window,side:&side};
+        let policy=policy()?;
+        let config=config()?;
+        let at=Utc::now();
+        let mut port=LockedMarketTransaction::from_effect_fixture(&mut tx,&preview.locks,&locked);
+        let before=port.effects()?.capture_before(&policy,&config,&[probe.order_id],at).await?;
+        let facts=port.stock_ledger()?.expire_slice(&slice,at).await?;
+        port.effects()?.orders_expired(&policy,&config,before,&facts,effect(&probe,at)).await?;
+        tx.commit().await?;
+        Ok(facts)
+    }
+    pub async fn run_terminal_phase_probe(pool:&sqlx::PgPool,probe:EffectProbe)->Result<Vec<String>,MarketWriteError> {
+        let mut tx=pool.begin().await?;
+        let preview=plan(&mut tx,&probe,None).await.map_err(attempt_error)?;
+        let locked=preview.locks.acquire(&mut tx).await?;
+        let mut port=LockedMarketTransaction::from_effect_fixture(&mut tx,&preview.locks,&locked);
+        perform(&mut port,&probe,Utc::now()).await?;
+        let mut errors=Vec::new();
+        // Each plan uses a different economic class. The phase guard runs before SQL.
+        for class in [LockClass::Order,LockClass::User,LockClass::Slice,LockClass::Inventory] {
+            let mut next=OperationLockPlan::new(MarketOperation::Cancel);
+            let parties=PartyLockPreview::new([probe.organization_id],[probe.actor_id],probe.actor_id,json!({}));
+            next.parties(&parties)?;
+            match class {
+                LockClass::Order=>{next.orders([probe.order_id])?;},
+                LockClass::Inventory=>{next.inventory([probe.order_id])?;},
+                LockClass::Slice=>{next.slices([SliceKey {product_id:probe.order_id,delivery_point_id:None,availability_window:"SPOT".into()}])?;},
+                _=>{},
             }
-            let (event_type, fields) = match probe.kind {
-                MutationKind::OrderCancelled => (
-                    "order_cancelled",
-                    ParticipantFields::Order {
-                        order_id: probe.order_id,
-                        status: "CANCELLED".into(),
-                    },
-                ),
-                MutationKind::InventoryPublished => (
-                    "inventory_published",
-                    ParticipantFields::Inventory {
-                        inventory_id: probe.order_id,
-                        action: "published".into(),
-                    },
-                ),
-                MutationKind::SupportContextStarted => (
-                    "context_started",
-                    ParticipantFields::Support {
-                        context_id: probe.order_id,
-                        status: "ACTIVE".into(),
-                    },
-                ),
-                _ => (
-                    "commission_updated",
-                    ParticipantFields::Commission {
-                        commission_id: probe.order_id,
-                        status: "PAID".into(),
-                    },
-                ),
-            };
-            let effect = MutationEffect {
-                kind: probe.kind,
-                actor_id: probe.actor_id,
-                organization_id: probe.organization_id,
-                resource_type: "order".into(),
-                resource_id: probe.order_id,
-                changes: json!({"status":{"before":"OPEN","after":"CANCELLED"}}),
-                notification: OrganizationNotification {
-                    kind: "ORDER_UPDATE".into(),
-                    title: "Order update".into(),
-                    message: "Order state changed".into(),
-                    data: json!({"order_id":probe.order_id}),
-                },
-                event: ParticipantEvent {
-                    event_type: event_type.into(),
-                    aggregate_type: "order".into(),
-                    aggregate_id: probe.order_id.to_string(),
-                    participant_org_ids: vec![probe.organization_id],
-                    fields,
-                    public_invalidated: matches!(probe.kind, MutationKind::OrderCancelled),
-                },
-                at,
-            };
-            let mut port = EffectPort::new(&mut tx, &ids);
-            match probe.kind {
-                MutationKind::OrderCancelled => {
-                    port.order_cancelled(&policy, &config, before, effect)
-                        .await?
-                }
-                MutationKind::InventoryPublished => {
-                    port.inventory_changed(&policy, &config, before, effect)
-                        .await?
-                }
-                MutationKind::SupportContextStarted => {
-                    port.support_changed(&policy, &config, before, effect)
-                        .await?
-                }
-                _ => {
-                    port.commission_changed(&policy, &config, before, effect)
-                        .await?
-                }
-            };
+            let error=port.effect_reacquire(&next).await.expect_err("target phase must refuse later acquisition");
+            errors.push(error.code.as_str().to_owned());
         }
-        let visible_from_writer = sqlx::query_scalar("SELECT count(*) FROM market_event_outbox")
-            .fetch_one(&mut *tx)
-            .await?;
-        let writer_pin_status =
-            sqlx::query_scalar("SELECT snapshot_status FROM watchlist_targets WHERE order_id=$1")
-                .bind(probe.order_id)
-                .fetch_one(&mut *tx)
-                .await?;
-        let mut observer = pool.acquire().await?;
-        let visible_from_observer = sqlx::query_scalar("SELECT count(*) FROM market_event_outbox")
-            .fetch_one(&mut *observer)
-            .await?;
-        let observer_pin_status =
-            sqlx::query_scalar("SELECT snapshot_status FROM watchlist_targets WHERE order_id=$1")
-                .bind(probe.order_id)
-                .fetch_one(&mut *observer)
-                .await?;
-        if probe.commit {
-            tx.commit().await?;
-        } else {
-            tx.rollback().await?;
-        }
-        Ok(ProbeResult {
-            visible_from_writer,
-            visible_from_observer,
-            writer_pin_status,
-            observer_pin_status,
-        })
+        tx.rollback().await?;
+        Ok(errors)
     }
 }
