@@ -489,39 +489,106 @@ async fn cancellation_effect_failure_rolls_back_stock_and_receipt() {
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn cancel_waits_for_the_declared_slice_on_an_independent_connection() {
     let mut f = Fixture::new().await;
-    let mut holder = PgConnection::connect(&std::env::var("RUST_CANCEL_ADMIN_DATABASE_URL").unwrap()).await.unwrap();
-    let key:i64 = sqlx::query_scalar("SELECT cancel_fixture_slice_key($1)").bind(f.order).fetch_one(&mut holder).await.unwrap();
+    let mut holder =
+        PgConnection::connect(&std::env::var("RUST_CANCEL_ADMIN_DATABASE_URL").unwrap())
+            .await
+            .unwrap();
+    let key: i64 = sqlx::query_scalar("SELECT cancel_fixture_slice_key($1)")
+        .bind(f.order)
+        .fetch_one(&mut holder)
+        .await
+        .unwrap();
     sqlx::query("BEGIN").execute(&mut holder).await.unwrap();
-    sqlx::query("SELECT cancel_fixture_hold($1)").bind(key).execute(&mut holder).await.unwrap();
-    let router=f.router.clone();let actor=f.actor;let order=f.order;
-    let task=tokio::spawn(async move {
-        let now=chrono::Utc::now().timestamp();
+    sqlx::query("SELECT cancel_fixture_hold($1)")
+        .bind(key)
+        .execute(&mut holder)
+        .await
+        .unwrap();
+    let router = f.router.clone();
+    let actor = f.actor;
+    let order = f.order;
+    let task = tokio::spawn(async move {
+        let now = chrono::Utc::now().timestamp();
         let token=encode(&Header::default(),&json!({"sub":actor,"type":"access","iat":now,"exp":now+600,"iss":"cancel-tests","aud":"cancel-tests"}),&EncodingKey::from_secret(KEY.as_bytes())).unwrap();
-        router.oneshot(Request::builder().method("DELETE").uri(format!("/api/orderbook/{order}")).header("authorization",format!("Bearer {token}")).body(Body::empty()).unwrap()).await.unwrap().status()
+        router
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(format!("/api/orderbook/{order}"))
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap()
+            .status()
     });
-    let mut observed=false;
+    let mut observed = false;
     for _ in 0..100 {
         let waiting:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND usename='rust_app' AND wait_event_type='Lock' AND pid<>pg_backend_pid())").fetch_one(&mut f.admin).await.unwrap();
-        if waiting {observed=true;break;}tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+        if waiting {
+            observed = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(2)).await;
     }
-    assert!(observed,"the independent request must wait on the held slice");
-    assert_eq!(f.state().await["status"],"PARTIALLY_FILLED");
+    assert!(
+        observed,
+        "the independent request must wait on the held slice"
+    );
+    assert_eq!(f.state().await["status"], "PARTIALLY_FILLED");
     sqlx::query("ROLLBACK").execute(&mut holder).await.unwrap();
-    assert_eq!(task.await.unwrap(),StatusCode::NO_CONTENT);
-    assert_eq!(f.state().await["current"],"6");
+    assert_eq!(task.await.unwrap(), StatusCode::NO_CONTENT);
+    assert_eq!(f.state().await["current"], "6");
 }
 
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn cancel_receipt_resource_and_actor_are_bound() {
-    let mut f=Fixture::new().await;
-    assert_eq!(f.cancel(f.actor,Some("bound-command")).await.0,StatusCode::NO_CONTENT);
+    let mut f = Fixture::new().await;
+    assert_eq!(
+        f.cancel(f.actor, Some("bound-command")).await.0,
+        StatusCode::NO_CONTENT
+    );
     f.change("owner_rows").await;
-    let other:Uuid=sqlx::query_scalar("SELECT id FROM orderbook_orders WHERE organization_id=$1 AND id<>$2 LIMIT 1").bind(f.organization).bind(f.order).fetch_one(&mut f.admin).await.unwrap();
-    let before=f.state().await;
-    let response=f.request("DELETE",&format!("/api/orderbook/{other}"),f.actor,None,Some("bound-command"),None,None).await;
-    assert_eq!(response.0,StatusCode::CONFLICT);
-    assert_eq!(response.1["detail"]["code"],"RECEIPT_RESOURCE_MISMATCH");
-    assert_eq!(f.cancel(f.member,Some("bound-command")).await.0,StatusCode::FORBIDDEN);
-    assert_eq!(f.state().await,before);
+    let other: Uuid = sqlx::query_scalar(
+        "SELECT id FROM orderbook_orders WHERE organization_id=$1 AND id<>$2 LIMIT 1",
+    )
+    .bind(f.organization)
+    .bind(f.order)
+    .fetch_one(&mut f.admin)
+    .await
+    .unwrap();
+    let before = f.state().await;
+    let response = f
+        .request(
+            "DELETE",
+            &format!("/api/orderbook/{other}"),
+            f.actor,
+            None,
+            Some("bound-command"),
+            None,
+            None,
+        )
+        .await;
+    assert_eq!(response.0, StatusCode::CONFLICT);
+    assert_eq!(response.1["detail"]["code"], "RECEIPT_RESOURCE_MISMATCH");
+    assert_eq!(
+        f.cancel(f.member, Some("bound-command")).await.0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(f.state().await, before);
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn owner_read_keeps_private_typed_declarations() {
+    let mut f=Fixture::new().await;
+    f.change("typed_owner").await;
+    let response=f.request("GET","/api/orderbook/my",f.actor,None,None,None,None).await;
+    assert_eq!(response.0,StatusCode::OK);
+    let row=&response.1[0];
+    assert_eq!(row["fame_terms"]["certificate_reference"],"PRIVATE-CERTIFICATE-ID");
+    assert_eq!(row["fame_terms"]["batch_reference"],"PRIVATE-BATCH-001");
+    assert_eq!(row["fame_terms"]["quality_evidence"]["laboratory"],"PRIVATE-LABORATORY");
 }
