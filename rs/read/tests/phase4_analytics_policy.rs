@@ -1125,8 +1125,7 @@ fn p4_t15_c13() {
     let mut not_requested = serde_json::to_value(&all_available).unwrap();
     not_requested["property_results"][0]["result"] =
         json!({"status": "not_requested", "data": null});
-    let not_requested: types::BehavioralWindow =
-        serde_json::from_value(not_requested).unwrap();
+    let not_requested: types::BehavioralWindow = serde_json::from_value(not_requested).unwrap();
     assert_eq!(
         not_requested.validate(),
         Err(types::BehavioralWindowError::IncoherentAvailability)
