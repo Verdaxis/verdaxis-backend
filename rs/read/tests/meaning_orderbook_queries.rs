@@ -370,6 +370,10 @@ async fn orderbook_distinct_labels_keep_order_and_nulls() {
     let policy = policy();
     let clock = clock();
     let mut connection = pools.read.acquire().await.unwrap();
+    sqlx::query("SET jit = off")
+        .execute(&mut *connection)
+        .await
+        .unwrap();
     let distinct = include_str!("../sql/orderbook/distinct.sql");
     for field in ["products", "regions", "fuel-types"] {
         for gate in [true, false] {
