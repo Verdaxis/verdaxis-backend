@@ -36,7 +36,9 @@ def test_default_entity_and_table_selects_retain_literal_sql(entity, columns):
 
 
 def test_rust_owned_schema_exclusions_are_exact():
-    assert getattr(migration_drift, "RUST_OWNED_SCHEMA_OBJECTS", set()) == RUST_OBJECTS
+    from tests.postgres.test_phase9_schema import FREEZE_OBJECTS
+
+    assert getattr(migration_drift, "RUST_OWNED_SCHEMA_OBJECTS", set()) == RUST_OBJECTS | FREEZE_OBJECTS
 
 
 @pytest.mark.parametrize("schema,table,column", [

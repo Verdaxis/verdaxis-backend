@@ -104,11 +104,11 @@ fn cache_checkpoint_is_accepted_and_earlier_checkpoints_stay_accepted() {
 }
 
 #[test]
-fn production_requires_its_exact_database_and_producer_checkpoint() {
+fn production_requires_its_exact_database_and_freeze_checkpoint() {
     let mut base = staging();
     base.environment = "production".into();
     base.database_url = "postgres://verdaxis_app:local-secret@127.0.0.1:5432/verdaxis_prod".into();
-    base.migration_revision = "p89_20261022_watchlist_producer".into();
+    base.migration_revision = "p89_20261022_trade_freeze".into();
     base.bind = "127.0.0.1:8010".parse().unwrap();
     assert!(validate_config(&base).is_err());
     base.prepared_budget = Some(budget_document(compiled_sha()));
@@ -127,6 +127,9 @@ fn production_requires_its_exact_database_and_producer_checkpoint() {
         "kycg_20261014_staging",
         "p0_20261016_union",
         "prc_20261018_cache",
+        "p89_20261022_watchlist_producer",
+        "*",
+        "head",
         "unlisted_revision",
     ] {
         base.migration_revision = revision.into();

@@ -97,7 +97,8 @@ def test_producer_schema_revision_is_additive_and_single_headed(supplier_scratch
     from alembic.config import Config
     from alembic.script import ScriptDirectory
     graph = ScriptDirectory.from_config(Config(str(ROOT / "alembic.ini")))
-    assert graph.get_heads() == [REVISION]
+    assert graph.get_heads() == ["p89_20261022_trade_freeze"]
+    assert graph.get_revision("p89_20261022_trade_freeze").down_revision == REVISION
     assert graph.get_revision(REVISION).down_revision == PARENT
     after = json.loads(sql("""SELECT json_agg(row_to_json(c) ORDER BY table_name,column_name) FROM
         (SELECT table_name,column_name,data_type,is_nullable,column_default FROM information_schema.columns
@@ -207,7 +208,12 @@ def test_python_entity_flush_keeps_original_insert_and_returning_columns(supplie
 
 def test_producer_metadata_matches_migrated_head(supplier_scratch_database):
     sql, migrate = supplier_scratch_database
-    migrate("upgrade", REVISION)
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    graph = ScriptDirectory.from_config(Config(str(ROOT / "alembic.ini")))
+    assert graph.get_heads() == ["p89_20261022_trade_freeze"]
+    migrate("upgrade", graph.get_current_head())
     url = make_url(os.environ["MARKET_INTEGRITY_TEST_DATABASE_URL"]).set(
         database=sql("SELECT current_database()")
     ).render_as_string(hide_password=False)
@@ -222,7 +228,12 @@ def test_producer_metadata_matches_migrated_head(supplier_scratch_database):
 @pytest.mark.parametrize("relation", ["market_event_outbox", "watchlist_events"])
 def test_unlisted_event_column_still_reports_schema_drift(supplier_scratch_database, relation):
     sql, migrate = supplier_scratch_database
-    migrate("upgrade", REVISION)
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    graph = ScriptDirectory.from_config(Config(str(ROOT / "alembic.ini")))
+    assert graph.get_heads() == ["p89_20261022_trade_freeze"]
+    migrate("upgrade", graph.get_current_head())
     sql(f"ALTER TABLE {relation} ADD COLUMN unlisted_extra text")
     url = make_url(os.environ["MARKET_INTEGRITY_TEST_DATABASE_URL"]).set(
         database=sql("SELECT current_database()")

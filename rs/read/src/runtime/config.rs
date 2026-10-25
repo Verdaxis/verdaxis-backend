@@ -325,8 +325,8 @@ pub fn validate_config(config: &Config) -> Result<(), String> {
     .map_err(|_| "invalid compiled revision allowlist")?;
     check_revision(&config.migration_revision, &allowed)?;
     if config.environment == "production" {
-        if config.migration_revision != "p89_20261022_watchlist_producer" {
-            return Err("production requires its reviewed producer checkpoint".into());
+        if config.migration_revision != "p89_20261022_trade_freeze" {
+            return Err("production requires its reviewed freeze checkpoint".into());
         }
         if config.prepared_budget.is_none() {
             return Err("production requires its prepared connection budget".into());

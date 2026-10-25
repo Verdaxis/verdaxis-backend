@@ -64,7 +64,7 @@ EXTERNAL_SCHEMA_FINGERPRINTS = {
     ("public", "rfqs", "reference_number_key", "unique_constraint", None, None, None, ("reference_number",)),
 }
 
-# Rust owns these schema objects (Phases 8-9 Task 5a).
+# Rust owns these explicitly declared producer and trade freeze objects.
 RUST_OWNED_SCHEMA_OBJECTS = {
     ("public", "watchlist_producer_state", "table", "watchlist_producer_state"),
     ("public", "watchlist_events", "column", "producer"),
@@ -75,6 +75,33 @@ RUST_OWNED_SCHEMA_OBJECTS = {
     ("public", "watchlist_events", "check_constraint", "ck_watchlist_events_producer_identity"),
     ("public", "watchlist_events", "index", "uq_watchlist_events_producer_source_target_derived"),
     ("public", "market_event_outbox", "column", "producer_evidence"),
+    ("public", "trade_freezes", "check_constraint", "ck_trade_freezes_clear"),
+    ("public", "trade_freezes", "check_constraint", "ck_trade_freezes_note"),
+    ("public", "trade_freezes", "check_constraint", "ck_trade_freezes_reason"),
+    ("public", "trade_freezes", "check_constraint", "ck_trade_freezes_status"),
+    ("public", "trade_freezes", "check_constraint", "ck_trade_freezes_version"),
+    ("public", "trade_freezes", "column", "clear_note"),
+    ("public", "trade_freezes", "column", "cleared_at"),
+    ("public", "trade_freezes", "column", "cleared_by_user_id"),
+    ("public", "trade_freezes", "column", "frozen_at"),
+    ("public", "trade_freezes", "column", "frozen_by_user_id"),
+    ("public", "trade_freezes", "column", "id"),
+    ("public", "trade_freezes", "column", "note"),
+    ("public", "trade_freezes", "column", "reason_code"),
+    ("public", "trade_freezes", "column", "status"),
+    ("public", "trade_freezes", "column", "trade_id"),
+    ("public", "trade_freezes", "column", "version"),
+    ("public", "trade_freezes", "foreign_key_constraint", "trade_freezes_cleared_by_user_id_fkey"),
+    ("public", "trade_freezes", "foreign_key_constraint", "trade_freezes_frozen_by_user_id_fkey"),
+    ("public", "trade_freezes", "foreign_key_constraint", "trade_freezes_trade_id_fkey"),
+    ("public", "trade_freezes", "index", "ix_trade_freezes_active_frozen_at"),
+    ("public", "trade_freezes", "index", "uq_trade_freezes_one_active"),
+    ("public", "trade_freezes", "primary_key_constraint", "trade_freezes_pkey"),
+    ("public", "trade_freezes", "table", "trade_freezes"),
+    ("public", "trade_freezes", "trigger", "trade_freezes_history_guard"),
+    ("public", "trade_freezes_history_guard", "function", "trade_freezes_history_guard"),
+    ("public", "trades", "trigger", "trades_freeze_guard"),
+    ("public", "trades_freeze_guard", "function", "trades_freeze_guard"),
 }
 
 # Historical Verdaxis migrations retain these tables for data moves, but the
@@ -110,6 +137,13 @@ def include_object(
     table_schema = getattr(table, "schema", None) or "public"
     identity = (object_schema, name, type_, name) if type_ == "table" else (table_schema, table_name, type_, name)
     if reflected and compare_to is None and identity in RUST_OWNED_SCHEMA_OBJECTS:
+        if identity == ("public", "trade_freezes", "table", "trade_freezes"):
+            declared_columns = {
+                entry[3] for entry in RUST_OWNED_SCHEMA_OBJECTS
+                if entry[:3] == ("public", "trade_freezes", "column")
+            }
+            if {column.name for column in object_.columns} != declared_columns:
+                return True
         return False
     if table is not None and _is_postgis_system_table(table):
         return False
