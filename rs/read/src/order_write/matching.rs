@@ -334,11 +334,7 @@ impl<'a> MatchingPort<'a> {
         }
         plan_match(&rows, aggressor, bound)
     }
-    pub(super) fn catalog_products() -> Result<serde_json::Value, MarketWriteError> {
-    let policy: serde_json::Value = serde_json::from_str(include_str!("../../../../deploy/rust/market-policy.json")).map_err(|_| inconsistent())?;
-    Ok(policy["products"].clone())
-}
-async fn apply_plan(
+    pub(super) async fn apply_plan(
         &mut self,
         plan: &MatchPlan,
     ) -> Result<MatchOutcome, MarketWriteError> {
@@ -456,6 +452,13 @@ async fn update_order(
     }
     Ok(())
 }
+fn catalog_products() -> Result<serde_json::Value, MarketWriteError> {
+    let policy: serde_json::Value =
+        serde_json::from_str(include_str!("../../../../deploy/rust/market-policy.json"))
+            .map_err(|_| inconsistent())?;
+    Ok(policy["products"].clone())
+}
+
 async fn apply_plan(
     conn: &mut PgConnection,
     plan: &MatchPlan,

@@ -4,8 +4,8 @@ use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use sqlx::{Connection, PgConnection, Row};
 use uuid::Uuid;
-use verdaxis_read::market_contract::matching::{apply, lock_and_plan, preview};
 use verdaxis_read::MarketErrorCode;
+use verdaxis_read::market_contract::matching::{apply, lock_and_plan, preview};
 use verdaxis_read::market_matching::MatchBound;
 
 fn now() -> DateTime<Utc> {
