@@ -24,7 +24,10 @@ fn ordered_hash(rows: &[String]) -> String {
         hash.update((row.len() as u64).to_be_bytes());
         hash.update(row.as_bytes());
     }
-    format!("{:x}", hash.finalize())
+    hash.finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 async fn opposing_rows(
