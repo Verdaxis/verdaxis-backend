@@ -1,6 +1,6 @@
 //! One typed order-book command, its lock plan and its committed result.
 //!
-//! The request hash is Python-compatible by design. The reviewed oracle hashes
+//! The request hash is Python-compatible by design. The reference producer hashes
 //! `json.dumps(canonical, allow_nan=False, sort_keys=True, separators=(",", ":"))`
 //! with `ensure_ascii=True` after normalizing typed values, so a receipt this
 //! boundary stores compares equal to one the Python path stored. A hash with
