@@ -20,9 +20,10 @@ use rust_decimal::{Decimal, RoundingStrategy};
 use sqlx::{PgConnection, Row};
 use uuid::Uuid;
 
+use super::query::AnalyticsQuery;
 use super::types::{
-    AggregateCell, AnalyticsDataQuality, AnalyticsDiagnostic, AnalyticsQuery,
-    AnalyticsSourceCoverage, AnalyticsSourceStatus, BehavioralWindow, MetricValue,
+    AggregateCell, AnalyticsDataQuality, AnalyticsDiagnostic,
+    AnalyticsSourceCoverage, AnalyticsSourceStatus, BehavioralAvailability, BehavioralWindow, MetricValue,
 };
 
 /// Synthetic market organizations (`app/demo_identities.py`). Stored provenance
@@ -46,8 +47,8 @@ pub const DEMO_MARKET_ORG_IDS: [Uuid; 14] = [
 ];
 
 /// Three is the smallest population that can be published; 1 and 2 suppress.
-/// The decision itself lives in `types::suppress`.
-pub const MAX_COHORTS: usize = 54;
+/// The decision itself lives in `policy::suppress`.
+pub const MAX_COHORTS: usize = super::policy::MAX_COHORT_ROWS;
 
 fn count(value: i64) -> u64 {
     u64::try_from(value).unwrap_or(0)
@@ -83,7 +84,7 @@ impl QualityTracker {
     /// unavailable, not suppressed. The decision itself is the shared CF4_03
     /// `suppress` scalar; this wrapper only keeps the quality counters.
     pub fn cell(&mut self, key: &str, count: Option<u64>, entities: Option<u64>) -> AggregateCell {
-        let mut cell = super::types::suppress(count, entities);
+        let mut cell = super::policy::suppress(count, entities);
         cell.key = key.to_owned();
         if cell.suppressed {
             self.suppressed_cell_count += 1;
@@ -115,13 +116,7 @@ impl QualityTracker {
 /// Rate percentage rounded half away from zero; `None` for a non-positive
 /// denominator, which is never rendered as `0`.
 pub fn rate_pct(numerator: u64, denominator: u64) -> Option<Decimal> {
-    if denominator == 0 {
-        return None;
-    }
-    Some(
-        (Decimal::from(numerator) / Decimal::from(denominator) * Decimal::ONE_HUNDRED)
-            .round_dp_with_strategy(2, RoundingStrategy::MidpointAwayFromZero),
-    )
+    super::policy::ratio_from_counts(Some(numerator), Some(denominator), true).rate_pct
 }
 
 /// Median duration in hours, one decimal place (banker's rounding as Python).
@@ -242,10 +237,11 @@ pub fn behavioral_status(window: Option<&BehavioralWindow>) -> AnalyticsSourceSt
     let Some(window) = window else {
         return AnalyticsSourceStatus::Unavailable;
     };
-    if window.availability == AnalyticsSourceStatus::Available && window.core.data().is_none() {
-        AnalyticsSourceStatus::Unavailable
-    } else {
-        window.availability
+    match window.availability {
+        BehavioralAvailability::Available if window.core.data().is_none() => AnalyticsSourceStatus::Unavailable,
+        BehavioralAvailability::Available => AnalyticsSourceStatus::Available,
+        BehavioralAvailability::Partial => AnalyticsSourceStatus::Partial,
+        BehavioralAvailability::Unavailable => AnalyticsSourceStatus::Unavailable,
     }
 }
 
@@ -262,7 +258,7 @@ pub fn behavioral_coverage(window: Option<&BehavioralWindow>) -> AnalyticsSource
     let status = behavioral_status(Some(window));
     let diagnostic = window
         .diagnostic
-        .or(window.core.diagnostic)
+        .or(window.core.diagnostic())
         .or(Some(AnalyticsDiagnostic::Upstream));
     AnalyticsSourceCoverage {
         coverage_start: window.coverage.coverage_start,
@@ -298,7 +294,7 @@ pub fn behavioral_event_cell(window: Option<&BehavioralWindow>, event: &str) -> 
         .filter(|row| row.event == event)
         .map(|row| row.count.count.unwrap_or(0))
         .sum();
-    let mut cell = super::types::suppress(Some(total), None);
+    let mut cell = super::policy::suppress(Some(total), None);
     cell.key = event.to_owned();
     cell
 }
@@ -312,8 +308,8 @@ pub fn behavioral_metric(
     let before = previous
         .and_then(|window| window.core.data())
         .and_then(field);
-    let current_cell = super::types::suppress(current, None);
-    let previous_cell = super::types::suppress(before, None);
+    let current_cell = super::policy::suppress(current, None);
+    let previous_cell = super::policy::suppress(before, None);
     MetricValue {
         value: current_cell.count,
         previous: previous_cell.count,
@@ -344,7 +340,7 @@ pub fn behavioral_daily_series(
         let value = values.get(&cursor).copied().unwrap_or(0);
         points.push(super::types::SeriesPoint {
             date: cursor,
-            value: super::types::suppress(Some(value), None).count,
+            value: super::policy::suppress(Some(value), None).count,
         });
         cursor += TimeDelta::days(1);
     }

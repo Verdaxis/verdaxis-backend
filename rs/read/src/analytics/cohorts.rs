@@ -15,8 +15,9 @@ use super::aggregates::{
     MAX_COHORTS, QualityTracker, RetentionFacts, behavioral_coverage, date_window, fact_coverage,
     rate_pct, week_start,
 };
+use super::query::AnalyticsQuery;
 use super::types::{
-    AnalyticsCoverage, AnalyticsMeta, AnalyticsQuery, AnalyticsSourceCoverage,
+    AnalyticsCoverage, AnalyticsMeta, AnalyticsSourceCoverage,
     AnalyticsSourceStatus, CohortCell, CohortRow, MetricValue, RetentionKpis, RetentionResponse,
 };
 

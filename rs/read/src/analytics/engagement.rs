@@ -11,8 +11,9 @@ use super::aggregates::{
     EngagementFacts, QualityTracker, behavioral_coverage, behavioral_event_cell,
     behavioral_property_rows, date_window, fact_coverage, rate_pct,
 };
+use super::query::AnalyticsQuery;
 use super::types::{
-    AggregateCell, AnalyticsCoverage, AnalyticsMeta, AnalyticsQuery, AnalyticsSourceCoverage,
+    AggregateCell, AnalyticsCoverage, AnalyticsMeta, AnalyticsSourceCoverage,
     AnalyticsSourceStatus, BehavioralWindow, EngagementKpis, EngagementResponse,
     FeatureAdoptionRow, LabeledRatio, MetricValue, NavigationDestination, NavigationDestinationRow,
     TutorialStepRow,
@@ -138,7 +139,7 @@ pub fn engagement(
                         let (_, destination) = DESTINATIONS
                             .iter()
                             .find(|(value, _)| *value == row.value.as_str())?;
-                        let cell = super::types::suppress(row.count.count, None);
+                        let cell = super::policy::suppress(row.count.count, None);
                         Some(NavigationDestinationRow {
                             destination: *destination,
                             total: AggregateCell {

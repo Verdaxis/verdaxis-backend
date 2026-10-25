@@ -10,10 +10,11 @@ use chrono::{DateTime, Utc};
 
 use super::aggregates::{
     ActivationFacts, QualityTracker, behavioral_coverage, behavioral_event_cell, date_window,
-    fact_coverage, median_hours, rate_pct,
+    fact_coverage, median_hours,
 };
+use super::query::AnalyticsQuery;
 use super::types::{
-    ActivationResponse, AggregateCell, AnalyticsCoverage, AnalyticsMeta, AnalyticsQuery,
+    ActivationResponse, AggregateCell, AnalyticsCoverage, AnalyticsMeta,
     AnalyticsSourceCoverage, AnalyticsSourceStatus, BehavioralWindow, ConversionRatioKind,
     DurationDistribution, JourneySource, JourneyStage, LabeledRatio, RatioValue,
 };
@@ -96,7 +97,7 @@ pub fn activation(
         }
     }
     let first_login_count = first_login_durations.len() as u64;
-    let first_login_cell = super::types::suppress(Some(first_login_count), None);
+    let first_login_cell = super::policy::suppress(Some(first_login_count), None);
     let first_login_suppressed = first_login_cell.suppressed;
     if first_login_suppressed {
         quality.suppressed_cell_count += 1;
@@ -121,7 +122,7 @@ pub fn activation(
         }
     }
     let live_order_count = live_order_durations.len() as u64;
-    let live_order_cell = super::types::suppress(Some(live_order_count), None);
+    let live_order_cell = super::policy::suppress(Some(live_order_count), None);
     let live_order_suppressed = live_order_cell.suppressed;
     if live_order_suppressed {
         quality.suppressed_cell_count += 1;
@@ -226,7 +227,7 @@ pub fn aggregate_ratio(
     numerator: Option<u64>,
     denominator: Option<u64>,
 ) -> LabeledRatio {
-    let small = |value: Option<u64>| value.is_some_and(|value| (1..3).contains(&value));
+    let small = |value| super::policy::suppress(value, None).suppressed;
     if small(numerator) || small(denominator) {
         return LabeledRatio {
             key: key.to_owned(),
@@ -240,19 +241,9 @@ pub fn aggregate_ratio(
             },
         };
     }
-    let rate = match (numerator, denominator) {
-        (Some(numerator), Some(denominator)) if denominator > 0 => rate_pct(numerator, denominator),
-        _ => None,
-    };
     LabeledRatio {
         key: key.to_owned(),
         kind: ConversionRatioKind::AggregateEvent,
-        ratio: RatioValue {
-            numerator,
-            denominator,
-            rate_pct: rate,
-            suppressed: false,
-            cohort_complete: true,
-        },
+        ratio: super::policy::ratio_from_counts(numerator, denominator, true),
     }
 }

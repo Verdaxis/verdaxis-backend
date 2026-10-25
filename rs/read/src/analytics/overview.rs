@@ -12,8 +12,9 @@ use super::aggregates::{
     LoginFacts, OverviewFacts, QualityTracker, behavioral_coverage, behavioral_daily_series,
     behavioral_metric, behavioral_status, date_window, dense_series, fact_coverage,
 };
+use super::query::AnalyticsQuery;
 use super::types::{
-    ActivityTrend, AnalyticsCoverage, AnalyticsMeta, AnalyticsQuery, AnalyticsSourceCoverage,
+    ActivityTrend, AnalyticsCoverage, AnalyticsMeta, AnalyticsSourceCoverage,
     AnalyticsSourceStatus, BehavioralWindow, LifecycleStage, LifecycleStageKey, MarketplaceBalance,
     MetricValue, NeedsAttentionItem, NeedsAttentionRule, OverviewKpis, OverviewResponse,
     SeriesPoint,
