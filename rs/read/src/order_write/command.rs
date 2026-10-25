@@ -749,7 +749,12 @@ mod replay_tests {
         let mut f = f;
         let publication = Uuid::new_v4();
         sqlx::query(include_str!("../../tests/fixtures/phase8_publication.sql"))
-            .bind(publication).bind(f.org).bind(owner).execute(&mut f.admin).await.unwrap();
+            .bind(publication)
+            .bind(f.org)
+            .bind(owner)
+            .execute(&mut f.admin)
+            .await
+            .unwrap();
         assert_eq!(
             transaction::inventory_replay_probe(&f.pool, owner, f.org, "publication", "same")
                 .await
