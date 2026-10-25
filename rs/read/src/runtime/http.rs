@@ -39,13 +39,13 @@ pub fn client_ip(peer: Option<IpAddr>, forwarded: Option<&str>) -> String {
         .unwrap_or_else(|| "unknown".into())
 }
 
-#[derive(Clone)]
 /// The one pre-auth authority path Caddy calls before it chooses an owner.
 /// It is loopback-only in deployment and never part of the public inventory.
 pub const PREAUTH_PATH: &str = "/internal/admin-preauth";
 /// Marks a request the authority already counted. Caddy sets it after a 2xx.
 pub const PREAUTH_COUNTED_HEADER: &str = "x-verdaxis-preauth-counted";
 
+#[derive(Clone)]
 struct HttpState {
     started: Instant,
     buckets: Arc<Mutex<ClientBuckets>>,
@@ -622,6 +622,11 @@ impl QueryFields {
                 .into_owned()
                 .collect(),
         )
+    }
+
+    /// The raw text of a query parameter, before any declared conversion.
+    pub fn raw(&self, name: &str) -> Option<&str> {
+        self.0.get(name).map(String::as_str)
     }
 
     pub fn validate(
