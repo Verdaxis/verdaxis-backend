@@ -48,9 +48,10 @@ async fn access_vectors_match_python_http_outcomes() {
             let approved = &vector["approved_difference"];
             let credential_refusal = |detail: &Value| {
                 detail["detail"]["code"] == "AUTH_CREDENTIALS_INVALID"
-                    && detail["detail"].get("message").and_then(Value::as_str).is_some_and(|m| {
-                        !m.is_empty()
-                    })
+                    && detail["detail"]
+                        .get("message")
+                        .and_then(Value::as_str)
+                        .is_some_and(|m| !m.is_empty())
             };
             if approved.get("defect").is_some() {
                 assert_eq!(approved["defect"], "PD7", "{id}: defect record");
@@ -103,11 +104,15 @@ async fn access_vectors_match_python_http_outcomes() {
             if expected_body["detail"]["code"] == "AUTH_CREDENTIALS_INVALID" {
                 // PD89-CF4-1: the message is free; the code and the rest of
                 // the envelope are pinned by the vector.
-                assert_eq!(body["detail"]["code"], "AUTH_CREDENTIALS_INVALID", "{id}: code");
+                assert_eq!(
+                    body["detail"]["code"], "AUTH_CREDENTIALS_INVALID",
+                    "{id}: code"
+                );
                 assert!(
-                    body["detail"].get("message").and_then(Value::as_str).is_some_and(|m| {
-                        !m.is_empty()
-                    }),
+                    body["detail"]
+                        .get("message")
+                        .and_then(Value::as_str)
+                        .is_some_and(|m| { !m.is_empty() }),
                     "{id}: response message"
                 );
             } else {
@@ -192,8 +197,7 @@ async fn access_vectors_match_python_http_outcomes() {
             if expected_body["detail"]["code"] == "AUTH_CREDENTIALS_INVALID" {
                 // Same free-wording rule as the direct comparison above.
                 assert_eq!(
-                    paired_body["detail"]["code"],
-                    "AUTH_CREDENTIALS_INVALID",
+                    paired_body["detail"]["code"], "AUTH_CREDENTIALS_INVALID",
                     "{id}: paired HTTP code"
                 );
                 assert!(
