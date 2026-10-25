@@ -1,0 +1,44 @@
+{
+  "suite": "phase4_races",
+  "source_sha_rule": "created by the integration owner with the suite; single commit",
+  "cases": {
+    "join_approval_and_org_rejection_do_not_deadlock": {
+      "orders": ["join_first", "organization_first"],
+      "repetitions": 5,
+      "observation": "pg_blocking_pids on a watcher connection"
+    },
+    "kyc_submit_vs_membership_change_revalidates": {
+      "membership_moved_after_preview": true,
+      "allowed_outcomes": ["KYC_MEMBERSHIP_CHANGED", "409"]
+    },
+    "reject_vs_refresh_revokes_successor": {
+      "python_writers_continue": ["auth maintenance on users and refresh_sessions"]
+    },
+    "approval_email_finalize_preserves_newer_transition": {
+      "python_writers_continue": ["auth-maintenance approval mail retry timer"]
+    },
+    "invitation_rotation_vs_acceptance_is_serialized": {
+      "python_writers_continue": ["admin invitation routes until their switch"]
+    },
+    "org_write_injected_conflicts_retry_or_refuse_atomically": {
+      "sqlstates": ["40001", "40P01"],
+      "outcomes": ["retry_success", "busy_refusal"],
+      "partial_writes": "none"
+    },
+    "rejected_party_new_execution_refused_but_existing_deliver_pay_allowed": {
+      "routes": ["A08", "A10", "N01", "K06"],
+      "invariants": ["immutable participants", "unlinked membership", "preserved ownership"]
+    },
+    "concurrent_subscription_bootstrap_is_one_row": {
+      "writers": 3,
+      "unique_key": "subscriptions.organization_id"
+    },
+    "status_history_failure_rolls_back_admission_atomically": {
+      "failure_point": "between status write and history insert"
+    },
+    "organization_write_cancellation_does_not_duplicate_commit": {
+      "points": ["BeforeCommit", "AfterCommit", "AfterCommit+lost_ack"],
+      "commit_retried": false
+    }
+  }
+}
