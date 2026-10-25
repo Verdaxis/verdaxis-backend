@@ -103,24 +103,37 @@ export RUST_COMPLIANCE_TEST_WRITER_URL="postgres://task9_writer:disposable_write
 export RUST_COMPLIANCE_REQUIRED=1
 
 log=$(mktemp "${test_home}/runs/task9-tests.XXXXXX")
-stamp cargo-test
+stamp scores-test
 set +e
 cargo test --manifest-path "$repo/rs/Cargo.toml" --locked -p verdaxis-read \
   --features contract-tests --test phase5_compliance_scores -- --test-threads=1 --nocapture 2>&1 | tee "$log"
-cargo_status=${PIPESTATUS[0]}
+scores_status=${PIPESTATUS[0]}
+echo "SCORES_TEST_EXIT=$scores_status"
+grep -E '^test result' "$log" || true
+rm -f "$log"
+log=$(mktemp "${test_home}/runs/task12-tests.XXXXXX")
+stamp task12-test
+cargo test --manifest-path "$repo/rs/Cargo.toml" --locked -p verdaxis-read \
+  --features contract-tests --test phase5_postgres -- --test-threads=1 --nocapture 2>&1 | tee "$log"
+task12_status=${PIPESTATUS[0]}
 set -e
-echo "SCORES_TEST_EXIT=$cargo_status"
+echo "TASK12_TEST_EXIT=$task12_status"
 grep -E '^test |^test result' "$log" || true
-if (( cargo_status != 0 )); then
+if (( scores_status != 0 )); then
   rm -f "$log"
-  exit "$cargo_status"
+  exit "$scores_status"
+fi
+if (( task12_status != 0 )); then
+  rm -f "$log"
+  exit "$task12_status"
 fi
 if ! grep -Eq '^test result: ok\. [1-9][0-9]* passed' "$log"; then
   echo "no compliance test ran: refusing a green result" >&2
   rm -f "$log"
   exit 1
 fi
-if grep -q 'compliance score database matrix not run' "$log"; then
+if grep -q 'compliance score database matrix not run' "$log" \
+   || grep -q 'cross-group matrix not run' "$log"; then
   echo "database matrix did not run: refusing a green result" >&2
   rm -f "$log"
   exit 1
