@@ -940,14 +940,8 @@ mod postgres {
         // pinned body field and the header: `truncated` is a boolean, true at
         // the 501-row cap and false under it.
         let router = app(&f, auth::limits::SharedLimits::default());
-        let (status, _, body) = send(
-            &router,
-            "GET",
-            format!("{}?limit=500", request::LIST_PATH),
-            Some(&token(f.actor)),
-            None,
-        )
-        .await;
+        let at_cap = format!("{}?limit=500", request::LIST_PATH);
+        let (status, _, body) = send(&router, "GET", &at_cap, Some(&token(f.actor)), None).await;
         assert_eq!(status, 200);
         assert_eq!(
             body["truncated"],
@@ -956,10 +950,11 @@ mod postgres {
         );
         assert_eq!(body["truncated_header"], "true");
         assert_eq!(body["items"].as_array().unwrap().len(), 500);
+        let under_cap = format!("{}?limit=100", request::LIST_PATH);
         let (status, _, body) = send(
             &router,
             "GET",
-            format!("{}?limit=100", request::LIST_PATH),
+            &under_cap,
             Some(&token(f.actor)),
             None,
         )
