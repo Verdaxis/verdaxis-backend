@@ -322,19 +322,27 @@ fn repository_root() -> PathBuf {
 const ORDER_BOOK_TEST_WRITER: &str = "rs/read/tests/trading_cache_postgres.rs";
 
 /// The exact statements that file may issue, in `normalized` (uppercase,
-/// whitespace-collapsed) form. Any other order-book DML in it stays a
-/// violation, so a new INSERT, DELETE, TRUNCATE or different UPDATE turns the
-/// scan red. Assembled at run time, so this file carries no forbidden text.
-fn reviewed_order_book_test_writes() -> Vec<String> {
+/// whitespace-collapsed) form, each with the number of times the file issues
+/// it. Any other order-book DML in it stays a violation, so a new INSERT,
+/// DELETE, TRUNCATE, different UPDATE or extra use turns the scan red.
+/// Assembled at run time, so this file carries no forbidden text.
+fn reviewed_order_book_test_writes() -> Vec<(String, usize)> {
     [
-        ["UPDATE ", "orderbook_orders SET expires_at = $1"].concat(),
-        [
-            "UPDATE ",
-            "orderbook_orders SET price_per_mt_usd = price_per_mt_usd + 1",
-        ]
-        .concat(),
+        (
+            ["UPDATE ", "orderbook_orders SET expires_at = $1"].concat(),
+            1,
+        ),
+        // The stale-generation case and the two authority-change cases.
+        (
+            [
+                "UPDATE ",
+                "orderbook_orders SET price_per_mt_usd = price_per_mt_usd + 1",
+            ]
+            .concat(),
+            3,
+        ),
     ]
-    .map(|statement| normalized(&statement))
+    .map(|(statement, uses)| (normalized(&statement), uses))
     .to_vec()
 }
 
@@ -378,7 +386,9 @@ fn scan_repository() -> Vec<String> {
             }
             if let Some(rule) = orderbook_dml(&literal) {
                 let reviewed_test_write = path == &order_book_test_writer
-                    && reviewed_order_book_test_writes().contains(&literal);
+                    && reviewed_order_book_test_writes()
+                        .iter()
+                        .any(|(statement, _)| statement == &literal);
                 if !reviewed_test_write {
                     violations.push(format!("{}: {rule}", path.display()));
                 }
@@ -443,15 +453,19 @@ fn the_cache_exception_covers_only_its_reviewed_writes() {
         .filter(|literal| orderbook_dml(literal).is_some())
         .collect();
     let reviewed = reviewed_order_book_test_writes();
+    let reviewed_uses: usize = reviewed.iter().map(|(_, uses)| uses).sum();
     assert_eq!(
         found.len(),
-        reviewed.len(),
+        reviewed_uses,
         "unreviewed order-book DML in the exempted file: {found:?}"
     );
-    for literal in &found {
-        assert!(
-            reviewed.contains(literal),
-            "unreviewed statement: {literal}"
+    // With the total equal, matching each statement's count leaves no room
+    // for an unreviewed statement.
+    for (statement, uses) in &reviewed {
+        let actual = found.iter().filter(|literal| *literal == statement).count();
+        assert_eq!(
+            actual, *uses,
+            "reviewed statement used {actual} times: {statement}"
         );
     }
 }
