@@ -408,7 +408,7 @@ async fn p4_t17b_c02() {
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["total"], 7);
     let items = body["items"].as_array().unwrap();
-    assert_eq!(items.len(), 5);
+    assert_eq!(items.len(), 7);
     // Newest account first; the administrator and the NULL-role account are
     // never listed.
     let ids: Vec<&str> = items
@@ -675,8 +675,9 @@ async fn p4_t17b_c04() {
         ("limit=2", 2, USER_BUYER_A),
         ("limit=100", 7, USER_BUYER_A),
         ("limit=1&offset=1", 1, USER_SUPPLIER_A),
-        ("offset=4", 1, USER_SUPPLIER_C),
-        ("offset=5", 0, USER_UNKNOWN_TOKEN),
+        ("offset=4", 3, USER_SUPPLIER_C),
+        ("offset=6", 1, "00000000-0000-4000-8000-0000000000b9"),
+        ("offset=7", 0, USER_UNKNOWN_TOKEN),
         ("offset=10000", 0, USER_UNKNOWN_TOKEN),
     ] {
         let (status, body) = f
