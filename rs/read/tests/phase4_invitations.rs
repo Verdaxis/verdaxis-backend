@@ -433,8 +433,8 @@ fn p4_t5_c69() {
         payload["new_organization"]["type"] = json!(kind);
         let invitation = body(&payload);
         match invitation.organization {
-            OrganizationSource::New(NewOrganization { ref kind: parsed, .. }) => {
-                assert_eq!(parsed, kind);
+            OrganizationSource::New(organization) => {
+                assert_eq!(organization.kind, kind);
             }
             OrganizationSource::Existing(_) => unreachable!("new organization"),
         }
