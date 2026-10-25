@@ -38,7 +38,7 @@ use uuid::Uuid;
 
 use super::command::{
     CommandContext, Operation, OrderCommand, OutboxEvent, Receipt, ReceiptRecord,
-    command_request_hash,
+    command_request_hash, validate_receipt,
 };
 use super::locks::{
     MARKET_LOCK_TIMEOUT, MARKET_STATEMENT_TIMEOUT, idempotency_lock_key, normalize_idempotency_key,
@@ -119,6 +119,10 @@ pub struct CommittedCommand {
 /// PostgreSQL session implements it, and the boundary tests drive the shell
 /// through a recording double.
 trait WriteSession {
+    #[cfg(feature = "contract-tests")]
+    fn prepare_response<'a>(&'a mut self) -> BoxFuture<'a, Result<(), WriteError>> {
+        Box::pin(async { Ok(()) })
+    }
     /// Set the transaction-local lock and statement bounds.
     fn lock_bounds<'a>(&'a mut self) -> BoxFuture<'a, Result<(), WriteError>>;
     /// Take the transaction-scoped idempotency advisory lock.
@@ -188,6 +192,8 @@ enum AttemptFailure {
     Ambiguous,
     OrderNotFound,
     ReplayConflict,
+    Refusal(ApiError),
+    ReceiptRace,
     Database {
         error: WriteError,
         phase: LockPhase,
@@ -252,7 +258,40 @@ where
                 let _ = session.rollback().await;
                 return Ok(committed);
             }
-            Err(AttemptFailure::Ambiguous) => return Err(ApiError::database()),
+            Err(AttemptFailure::Ambiguous) => {
+                return Err(market_refusal(
+                    super::error::MarketErrorCode::CommitOutcomeUnknown,
+                ));
+            }
+            Err(AttemptFailure::Refusal(error)) => {
+                let _ = session.rollback().await;
+                return Err(error);
+            }
+            Err(AttemptFailure::ReceiptRace) => {
+                // The losing transaction includes effects: discard all of them.
+                session.rollback().await.map_err(|_| ApiError::database())?;
+                let mut reader = opener().await.map_err(|_| ApiError::database())?;
+                let result = async {
+                    let key = plan
+                        .idempotency_key
+                        .as_deref()
+                        .ok_or_else(ApiError::database)?;
+                    let receipt = reader
+                        .load_receipt(plan.actor_user_id, plan.operation.as_str(), key)
+                        .await
+                        .map_err(|_| ApiError::database())?
+                        .ok_or_else(ApiError::database)?;
+                    validate_plan_receipt(&receipt, &plan)?;
+                    Ok(CommittedCommand {
+                        response_status: receipt.response_status,
+                        response_body: receipt.response_body,
+                        replayed: true,
+                    })
+                }
+                .await;
+                reader.rollback().await.map_err(|_| ApiError::database())?;
+                return result;
+            }
             Err(AttemptFailure::OrderNotFound) => {
                 let _ = session.rollback().await;
                 return Err(expected(StatusCode::NOT_FOUND, ORDER_NOT_FOUND_MESSAGE));
@@ -314,14 +353,7 @@ async fn run_attempt<S: WriteSession>(
                 phase: LockPhase::Idempotency,
             })?;
         if let Some(stored) = stored {
-            if stored.request_hash != plan.request_hash
-                || stored.effective_organization_id != plan.effective_organization_id
-                || stored.support_context_id != plan.support_context_id
-                || stored.resource_type != plan.operation.resource_type()
-                || stored.resource_id != plan.resource_id
-            {
-                return Err(AttemptFailure::ReplayConflict);
-            }
+            validate_plan_receipt(&stored, plan).map_err(AttemptFailure::Refusal)?;
             return Ok(AttemptOutcome::Replayed(CommittedCommand {
                 response_status: stored.response_status,
                 response_body: stored.response_body,
@@ -329,6 +361,15 @@ async fn run_attempt<S: WriteSession>(
             }));
         }
     }
+
+    #[cfg(feature = "contract-tests")]
+    session
+        .prepare_response()
+        .await
+        .map_err(|error| AttemptFailure::Database {
+            error,
+            phase: LockPhase::Row,
+        })?;
 
     for lock_key in slice_keys {
         session
@@ -388,6 +429,12 @@ async fn run_attempt<S: WriteSession>(
                 phase: LockPhase::Row,
             })?;
     }
+    // Fully own the result before COMMIT. No response read or assembly follows it.
+    let prepared = CommittedCommand {
+        response_status: command.response_status,
+        response_body: command.response_body.clone(),
+        replayed: false,
+    };
     if let Some(key) = plan.idempotency_key.as_deref() {
         let receipt = ReceiptRecord {
             id: Uuid::new_v4(),
@@ -401,13 +448,16 @@ async fn run_attempt<S: WriteSession>(
             response_status: command.response_status,
             response_body: command.response_body.clone(),
         };
-        session
-            .insert_receipt(&receipt)
-            .await
-            .map_err(|error| AttemptFailure::Database {
-                error,
-                phase: LockPhase::Row,
-            })?;
+        session.insert_receipt(&receipt).await.map_err(|error| {
+            if error.sqlstate.as_deref() == Some("receipt-race") {
+                AttemptFailure::ReceiptRace
+            } else {
+                AttemptFailure::Database {
+                    error,
+                    phase: LockPhase::Row,
+                }
+            }
+        })?;
     }
 
     session.commit().await.map_err(|error| {
@@ -420,11 +470,7 @@ async fn run_attempt<S: WriteSession>(
             }
         }
     })?;
-    Ok(AttemptOutcome::Committed(CommittedCommand {
-        response_status: command.response_status,
-        response_body: command.response_body.clone(),
-        replayed: false,
-    }))
+    Ok(AttemptOutcome::Committed(prepared))
 }
 
 fn expected(status: StatusCode, detail: &str) -> ApiError {
@@ -450,6 +496,10 @@ fn map_database_failure(phase: LockPhase, error: &WriteError) -> ApiError {
         (LockPhase::Slice, Some(LOCK_TIMEOUT_SQLSTATE)) => {
             expected(StatusCode::SERVICE_UNAVAILABLE, SLICE_TIMEOUT_MESSAGE)
         }
+        #[cfg(feature = "contract-tests")]
+        (_, Some("admission-refused")) => {
+            expected(StatusCode::FORBIDDEN, "Fresh execution refused")
+        }
         _ => ApiError::database(),
     }
 }
@@ -461,10 +511,25 @@ struct PgWriteSession {
     _permit: OwnedSemaphorePermit,
     #[cfg(feature = "contract-tests")]
     fixture: Option<Value>,
+    #[cfg(feature = "contract-tests")]
+    replay_fault: ReplayFault,
+    #[cfg(feature = "contract-tests")]
+    observation: Arc<ReplayObservation>,
 }
 
 impl PgWriteSession {
     fn connection(&mut self) -> Result<&mut PgConnection, WriteError> {
+        #[cfg(feature = "contract-tests")]
+        if self
+            .observation
+            .committed
+            .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            self.observation
+                .queries_after_commit
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            return Err(WriteError::other());
+        }
         self.transaction
             .as_deref_mut()
             .ok_or_else(WriteError::other)
@@ -477,10 +542,14 @@ impl PgWriteSession {
         };
         if commit {
             // Never return an uncertain commit connection to the pool.
-            transaction
-                .commit()
-                .await
-                .map_err(|_| WriteError::ambiguous())
+            transaction.commit().await.map_err(|error| {
+                // A server ErrorResponse proves failure; lost transport does not.
+                if error.as_database_error().is_some() {
+                    write_error(&error)
+                } else {
+                    WriteError::ambiguous()
+                }
+            })
         } else {
             transaction
                 .rollback()
@@ -491,6 +560,23 @@ impl PgWriteSession {
 }
 
 impl WriteSession for PgWriteSession {
+    #[cfg(feature = "contract-tests")]
+    fn prepare_response<'a>(&'a mut self) -> BoxFuture<'a, Result<(), WriteError>> {
+        Box::pin(async move {
+            match &self.replay_fault {
+                ReplayFault::BeforeResponse => Err(WriteError::other()),
+                ReplayFault::RejectFresh => Err(WriteError {
+                    sqlstate: Some("admission-refused".into()),
+                    ambiguous_commit: false,
+                }),
+                ReplayFault::ReceiptRace(barrier) => {
+                    barrier.wait().await;
+                    Ok(())
+                }
+                _ => Ok(()),
+            }
+        })
+    }
     fn lock_bounds<'a>(&'a mut self) -> BoxFuture<'a, Result<(), WriteError>> {
         Box::pin(async move {
             // Values come from the reviewed constants, so the executed text and
@@ -512,6 +598,10 @@ impl WriteSession for PgWriteSession {
 
     fn lock_idempotency<'a>(&'a mut self, lock_key: i64) -> BoxFuture<'a, Result<(), WriteError>> {
         Box::pin(async move {
+            #[cfg(feature = "contract-tests")]
+            if matches!(self.replay_fault, ReplayFault::ReceiptRace(_)) {
+                return Ok(());
+            }
             let connection = self.connection()?;
             sqlx::query("SELECT pg_advisory_xact_lock($1)")
                 .bind(lock_key)
@@ -692,13 +782,43 @@ impl WriteSession for PgWriteSession {
             .bind(response_body)
             .execute(&mut *connection)
             .await
-            .map_err(|error| write_error(&error))?;
+            .map_err(|error| {
+                if is_command_receipt_collision(&error) {
+                    WriteError {
+                        sqlstate: Some("receipt-race".into()),
+                        ambiguous_commit: false,
+                    }
+                } else {
+                    write_error(&error)
+                }
+            })?;
             Ok(())
         })
     }
 
     fn commit<'a>(&'a mut self) -> BoxFuture<'a, Result<(), WriteError>> {
-        Box::pin(self.finish(true))
+        Box::pin(async move {
+            #[cfg(feature = "contract-tests")]
+            if let ReplayFault::CommitFailure(state) = self.replay_fault {
+                self.finish(false).await?;
+                return Err(WriteError {
+                    sqlstate: Some(state.into()),
+                    ambiguous_commit: false,
+                });
+            }
+            self.finish(true).await?;
+            #[cfg(feature = "contract-tests")]
+            self.observation
+                .committed
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            // AfterCommit leaves the connection tripwire armed. Any response
+            // query now fails and increments the independently observed count.
+            #[cfg(feature = "contract-tests")]
+            if matches!(self.replay_fault, ReplayFault::LostCommitAck) {
+                return Err(WriteError::ambiguous());
+            }
+            Ok(())
+        })
     }
 
     fn rollback<'a>(&'a mut self) -> BoxFuture<'a, Result<(), WriteError>> {
@@ -731,6 +851,10 @@ async fn open_session(
         _permit: permit,
         #[cfg(feature = "contract-tests")]
         fixture: None,
+        #[cfg(feature = "contract-tests")]
+        replay_fault: ReplayFault::None,
+        #[cfg(feature = "contract-tests")]
+        observation: Arc::new(ReplayObservation::default()),
     })
 }
 
@@ -1444,9 +1568,156 @@ pub mod stock_contract {
 #[path = "contract.rs"]
 pub(super) mod contract;
 
+fn market_refusal(code: super::error::MarketErrorCode) -> ApiError {
+    let error = super::error::MarketWriteError::new(code);
+    ApiError {
+        status: error.status,
+        detail: json!({"code":error.code.as_str(),"message":error.message}),
+        retry_after: None,
+        kind: ApiErrorKind::Expected,
+    }
+}
+
+fn validate_plan_receipt(receipt: &Receipt, plan: &WritePlan) -> Result<(), ApiError> {
+    let context = CommandContext {
+        actor_user_id: plan.actor_user_id,
+        effective_organization_id: Some(plan.effective_organization_id),
+        support_context_id: plan.support_context_id,
+        idempotency_key: plan.idempotency_key.clone(),
+    };
+    validate_receipt(
+        receipt,
+        &context,
+        plan.operation,
+        plan.resource_id,
+        &plan.request_hash,
+    )
+    .map_err(|error| market_refusal(error.code))
+}
+
+fn is_command_receipt_collision(error: &sqlx::Error) -> bool {
+    error.as_database_error().is_some_and(|failure| {
+        failure.code().as_deref() == Some("23505")
+            && failure.constraint() == Some("uq_market_command_results_actor_operation_key")
+    })
+}
+
+#[cfg(feature = "contract-tests")]
+#[derive(Clone, Default)]
+pub(super) enum ReplayFault {
+    #[default]
+    None,
+    RejectFresh,
+    BeforeResponse,
+    AfterCommit,
+    LostCommitAck,
+    ReceiptRace(Arc<tokio::sync::Barrier>),
+    CommitFailure(&'static str),
+}
+
+#[cfg(feature = "contract-tests")]
+#[derive(Default)]
+struct ReplayObservation {
+    committed: std::sync::atomic::AtomicBool,
+    queries_after_commit: std::sync::atomic::AtomicUsize,
+}
+
+#[cfg(feature = "contract-tests")]
+pub(super) struct ReplayProbe {
+    pub result: Result<CommittedCommand, ApiError>,
+    pub attempts: usize,
+    pub queries_after_commit: usize,
+}
+
+#[cfg(feature = "contract-tests")]
+pub(super) async fn replay_probe(
+    pool: sqlx::PgPool,
+    context: CommandContext,
+    command: OrderCommand,
+    fault: ReplayFault,
+) -> ReplayProbe {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let count = attempts.clone();
+    let observation = Arc::new(ReplayObservation::default());
+    let observed = observation.clone();
+    let opener = move || -> BoxFuture<'static, Result<PgWriteSession, WriteError>> {
+        let pool = pool.clone();
+        let mut fault = fault.clone();
+        let observation = observed.clone();
+        let attempt = count.fetch_add(1, Ordering::SeqCst);
+        if attempt > 0 {
+            fault = ReplayFault::None;
+        }
+        Box::pin(async move {
+            let mut session = open_session(Arc::new(Semaphore::new(1)), pool).await?;
+            session.replay_fault = fault;
+            session.observation = observation;
+            Ok(session)
+        })
+    };
+    let result = run_write_unit(opener, context, command).await;
+    ReplayProbe {
+        result,
+        attempts: attempts.load(Ordering::SeqCst),
+        queries_after_commit: observation.queries_after_commit.load(Ordering::SeqCst),
+    }
+}
+
+/// Caller supplies the recorded organization after ownership authorization;
+/// current organization membership is not publication replay authority.
+pub(super) async fn load_inventory_replay(
+    connection: &mut PgConnection,
+    actor: Uuid,
+    organization: Uuid,
+    key: &str,
+    hash: &str,
+) -> Result<Option<Uuid>, super::error::MarketWriteError> {
+    let row = sqlx::query("SELECT id, owner_user_id, created_by_actor_user_id, idempotency_request_hash FROM orderbook_orders WHERE organization_id=$1 AND idempotency_operation='inventory.publish' AND idempotency_key=$2")
+        .bind(organization).bind(key).fetch_optional(connection).await?;
+    let Some(row) = row else {
+        return Ok(None);
+    };
+    let stored_hash: Option<String> = row.try_get("idempotency_request_hash")?;
+    super::command::validate_inventory_replay(
+        actor,
+        row.try_get("owner_user_id")?,
+        row.try_get("created_by_actor_user_id")?,
+        stored_hash.as_deref().unwrap_or_default(),
+        hash,
+    )?;
+    Ok(Some(row.try_get("id")?))
+}
+
+#[cfg(feature = "contract-tests")]
+pub(super) async fn inventory_replay_probe(
+    pool: &sqlx::PgPool,
+    actor: Uuid,
+    organization: Uuid,
+    key: &str,
+    hash: &str,
+) -> Result<Option<Uuid>, super::error::MarketWriteError> {
+    let mut tx = pool.begin().await?;
+    let result = load_inventory_replay(&mut tx, actor, organization, key, hash).await;
+    tx.rollback().await?;
+    result
+}
+
 /// Typed market commands run only inside the sealed, organization-first owner.
 pub(super) trait MarketCommand: Send + Sync + 'static {
     type Output: Send + 'static;
+    fn prepare_response(&self, _value: &Self::Output) -> Result<(), MarketAttemptError> {
+        Ok(())
+    }
+    /// Authorize the recorded resource/context and replay before fresh admission.
+    /// This hook must not mutate. Recovery invokes only this hook.
+    fn replay<'a>(
+        &'a self,
+        _tx: &'a mut LockedMarketTransaction<'_>,
+        _actor: &'a super::AuthenticatedActor,
+    ) -> BoxFuture<'a, Result<Option<Self::Output>, MarketAttemptError>> {
+        Box::pin(async { Ok(None) })
+    }
     fn preview<'a>(
         &'a self,
         conn: &'a mut PgConnection,
@@ -1471,8 +1742,7 @@ pub(super) struct LockedMarketTransaction<'a> {
     locked: &'a super::locks::Locked,
 }
 impl LockedMarketTransaction<'_> {
-    /// Borrow the stock port over the complete L5/L8 sets already locked by
-    /// the owner. No connection, new row lock or commit escapes this port.
+    /// Borrow only stock rows in the owner's complete locked sets (A's bridge).
     pub(super) fn stock_ledger(&mut self) -> StockLedger<'_> {
         StockLedger::new(self.conn, self.plan.inventory_ids(), self.plan.order_ids())
     }
@@ -1547,8 +1817,15 @@ pub(super) async fn run_market_command<C: MarketCommand>(
             .map_err(|_| super::MarketWriteError::new(super::MarketErrorCode::DatabaseError))?;
         let access = Arc::new(access);
         for attempt in 0..DEFAULT_MARKET_TRANSACTION_ATTEMPTS {
-            match market_attempt(&pool, &access, &command, class).await {
+            match market_attempt(&pool, &access, &command, class, false).await {
                 Ok(value) => return Ok(value),
+                Err(MarketAttemptError::Database(error))
+                    if is_command_receipt_collision(&error) =>
+                {
+                    return market_attempt(&pool, &access, &command, class, true)
+                        .await
+                        .map_err(MarketAttemptError::response);
+                }
                 Err(error)
                     if error.retryable() && attempt + 1 < DEFAULT_MARKET_TRANSACTION_ATTEMPTS =>
                 {
@@ -1568,6 +1845,7 @@ async fn market_attempt<C: MarketCommand>(
     access: &Arc<crate::auth::VerifiedAccess>,
     command: &C,
     class: super::authority::admission::AdmissionClass,
+    recovery_only: bool,
 ) -> Result<C::Output, MarketAttemptError> {
     use sqlx::Connection;
     let mut connection = pool.acquire().await?;
@@ -1599,7 +1877,7 @@ async fn market_attempt<C: MarketCommand>(
             &mut tx,
             &locked,
             access.clone(),
-            class,
+            super::authority::admission::AdmissionClass::Cleanup,
         )
         .await?;
         let mut port = LockedMarketTransaction {
@@ -1607,6 +1885,21 @@ async fn market_attempt<C: MarketCommand>(
             plan: &preview.locks,
             locked: &locked,
         };
+        if let Some(value) = command.replay(&mut port, &actor).await? {
+            return Ok(value);
+        }
+        if recovery_only {
+            return Err(
+                super::MarketWriteError::new(super::MarketErrorCode::IdempotencyConflict).into(),
+            );
+        }
+        let actor = super::authority::admission::authenticate_shared(
+            port.conn,
+            &locked,
+            access.clone(),
+            class,
+        )
+        .await?;
         command.execute(&mut port, &actor).await
     }
     .await;
@@ -1622,13 +1915,18 @@ async fn market_attempt<C: MarketCommand>(
             Err(error)
         }
         Ok(value) => {
+            if let Err(error) = command.prepare_response(&value) {
+                tx.rollback().await?;
+                let _ = connection.close().await;
+                return Err(error);
+            }
             if let Err(error) = tx.commit().await {
                 let retryable = error
                     .as_database_error()
                     .and_then(|error| error.code())
                     .is_some_and(|code| matches!(code.as_ref(), "40001" | "40P01"));
                 let _ = connection.close().await;
-                return Err(if retryable {
+                return Err(if retryable || error.as_database_error().is_some() {
                     MarketAttemptError::Database(error)
                 } else {
                     super::MarketWriteError::new(super::MarketErrorCode::CommitOutcomeUnknown)
@@ -1787,4 +2085,117 @@ pub(super) async fn run_paused_market_probe(
         super::authority::admission::AdmissionClass::Cleanup,
     )
     .await
+}
+
+impl LockedMarketTransaction<'_> {
+    pub(super) async fn replay_receipt(
+        &mut self,
+        context: &super::WriteContext,
+        operation: Operation,
+        resource_id: Uuid,
+        key: &str,
+        hash: &str,
+    ) -> Result<Option<CommittedCommand>, super::MarketWriteError> {
+        let normalized = normalize_idempotency_key(key)
+            .map_err(|_| super::MarketWriteError::new(super::MarketErrorCode::ValidationFailed))?;
+        let row=sqlx::query("SELECT request_hash,effective_organization_id,support_context_id,resource_type,resource_id,response_status,response_body::text AS response_body FROM market_command_results WHERE actor_user_id=$1 AND operation=$2 AND idempotency_key=$3")
+            .bind(context.actor().user_id()).bind(operation.as_str()).bind(normalized).fetch_optional(&mut *self.conn).await?;
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        let status: i16 = row.try_get("response_status")?;
+        let body: Option<String> = row.try_get("response_body")?;
+        let receipt = Receipt {
+            request_hash: row.try_get("request_hash")?,
+            effective_organization_id: row.try_get("effective_organization_id")?,
+            support_context_id: row.try_get("support_context_id")?,
+            resource_type: row.try_get("resource_type")?,
+            resource_id: row.try_get("resource_id")?,
+            response_status: u16::try_from(status)
+                .map_err(|_| super::MarketWriteError::new(super::MarketErrorCode::DatabaseError))?,
+            response_body: decode_body(body)
+                .map_err(|_| super::MarketWriteError::new(super::MarketErrorCode::DatabaseError))?,
+        };
+        let command_context = CommandContext {
+            actor_user_id: context.actor().user_id(),
+            effective_organization_id: Some(context.effective_organization_id()),
+            support_context_id: context.support_context_id(),
+            idempotency_key: None,
+        };
+        validate_receipt(&receipt, &command_context, operation, resource_id, hash)?;
+        Ok(Some(CommittedCommand {
+            response_status: receipt.response_status,
+            response_body: receipt.response_body,
+            replayed: true,
+        }))
+    }
+
+    pub(super) async fn record_receipt(
+        &mut self,
+        context: &super::WriteContext,
+        record: &ReceiptRecord,
+    ) -> Result<(), MarketAttemptError> {
+        if record.actor_user_id != context.actor().user_id()
+            || record.effective_organization_id != context.effective_organization_id()
+            || record.support_context_id != context.support_context_id()
+            || !(200..300).contains(&record.response_status)
+        {
+            return Err(
+                super::MarketWriteError::new(super::MarketErrorCode::IdempotencyConflict).into(),
+            );
+        }
+        let body = serde_json::to_string(&record.response_body)
+            .map_err(|_| super::MarketWriteError::new(super::MarketErrorCode::ValidationFailed))?;
+        sqlx::query("INSERT INTO market_command_results(id,actor_user_id,effective_organization_id,support_context_id,operation,idempotency_key,request_hash,resource_type,resource_id,response_status,response_body) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb)")
+            .bind(record.id).bind(record.actor_user_id).bind(record.effective_organization_id).bind(record.support_context_id).bind(record.operation.as_str()).bind(&record.idempotency_key).bind(&record.request_hash).bind(record.operation.resource_type()).bind(record.resource_id).bind(record.response_status as i16).bind(body).execute(&mut *self.conn).await?;
+        Ok(())
+    }
+
+    pub(super) async fn replay_inventory(
+        &mut self,
+        context: &super::WriteContext,
+        key: &str,
+        hash: &str,
+    ) -> Result<Option<Uuid>, super::MarketWriteError> {
+        load_inventory_replay(
+            self.conn,
+            context.actor().user_id(),
+            context.effective_organization_id(),
+            key,
+            hash,
+        )
+        .await
+    }
+}
+
+impl LockedMarketTransaction<'_> {
+    pub(super) async fn cleanup_context(
+        &mut self,
+        actor: &super::AuthenticatedActor,
+        trade: Uuid,
+        side: super::authority::TradeSide,
+    ) -> Result<super::WriteContext, super::MarketWriteError> {
+        let access = crate::auth::VerifiedAccess {
+            subject: actor.user_id(),
+            issued_at: actor.access().issued_at,
+            issuance_out_of_range: actor.access().issuance_out_of_range,
+        };
+        super::authority::admission::cleanup_context_for_trade(
+            self.conn,
+            self.locked,
+            access,
+            trade,
+            side,
+        )
+        .await
+    }
+}
+
+#[cfg(all(test, feature = "contract-tests"))]
+#[path = "ordered_contract.rs"]
+mod ordered_contract;
+
+#[cfg(all(test, feature = "contract-tests"))]
+pub(super) async fn ordered_receipt_case(name: &str) -> Value {
+    ordered_contract::case(name).await
 }
