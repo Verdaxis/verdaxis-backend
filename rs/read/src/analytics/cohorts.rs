@@ -12,8 +12,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use chrono::{DateTime, NaiveDate, Utc};
 
 use super::aggregates::{
-    behavioral_coverage, date_window, fact_coverage, rate_pct, week_start, QualityTracker,
-    RetentionFacts, MAX_COHORTS,
+    MAX_COHORTS, QualityTracker, RetentionFacts, behavioral_coverage, date_window, fact_coverage,
+    rate_pct, week_start,
 };
 use super::query::AnalyticsQuery;
 use super::types::{
