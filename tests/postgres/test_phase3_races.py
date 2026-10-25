@@ -17,6 +17,10 @@ from tests.postgres.test_phase3_cross_stack_auth import (
     ROOT,
     account,
     cargo,
+    loopback_cookies,
+)
+from tests.postgres.test_phase3_cross_stack_auth import (
+    rust_auth_server as rust_auth_server,
 )
 
 RUST_RACE_CASES = (
@@ -68,7 +72,7 @@ async def test_maintenance_deletion_races_a_live_rust_family(
     analytics_pg_url, rust_auth_server, maintenance_first,
 ):
     async with account(analytics_pg_url) as (owner, runtime, user, _, email):
-        async with httpx.AsyncClient(base_url=rust_auth_server, headers={"Origin": ORIGIN}) as rust:
+        async with httpx.AsyncClient(base_url=rust_auth_server, headers={"Origin": ORIGIN}, event_hooks={"response": [loopback_cookies]}) as rust:
             logged_in = await rust.post("/api/auth/login", data={"username": email, "password": PASSWORD})
             assert logged_in.status_code == 200
             # The maintenance writer has an expired row in the same family.

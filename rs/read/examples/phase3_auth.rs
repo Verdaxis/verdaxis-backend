@@ -68,7 +68,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .merge(auth::login::router(
             auth::login::LoginState::new(
                 pool.clone(),
-                "production",
+                "test",
                 &secret,
                 None,
                 &issuer,
@@ -79,7 +79,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ))
         .merge(auth::refresh::router(auth::refresh::RefreshState::new(
             pool.clone(),
-            "production",
+            "test",
             &secret,
             None,
             &issuer,
@@ -88,7 +88,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )))
         .merge(auth::logout::router(auth::logout::LogoutState::new(
             pool.clone(),
-            "production",
+            "test",
             &secret,
             None,
             &issuer,

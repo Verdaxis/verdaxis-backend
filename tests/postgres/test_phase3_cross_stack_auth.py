@@ -21,7 +21,7 @@ from app.rate_limit import limiter
 from app.routers.auth_simple import router as auth_router
 
 ROOT = Path(__file__).resolve().parents[2]
-ORIGIN = "https://app.verdaxis.exchange"
+ORIGIN = "https://test"
 PASSWORD = "CoexistencePassword9"
 
 
@@ -118,6 +118,13 @@ def python_app(engine):
     return app, factory
 
 
+async def loopback_cookies(response):
+    # The disposable adapter uses HTTP on numeric loopback. Preserve the real
+    # Set-Cookie bytes but let the test transport return its Secure cookies.
+    for cookie in response.cookies.jar:
+        cookie.secure = False
+
+
 def copy_cookies(source, destination):
     for cookie in source.cookies.jar:
         destination.cookies.set(cookie.name, cookie.value, path="/api/auth")
@@ -138,7 +145,7 @@ async def test_real_handlers_accept_each_others_tokens_and_sessions(
         monkeypatch.setattr(stream, "AsyncSessionLocal", factory)
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="https://test",
                                      headers={"Origin": ORIGIN}) as python, \
-                   httpx.AsyncClient(base_url=rust_auth_server, headers={"Origin": ORIGIN}) as rust:
+                   httpx.AsyncClient(base_url=rust_auth_server, headers={"Origin": ORIGIN}, event_hooks={"response": [loopback_cookies]}) as rust:
             for producer, consumer in ((python, rust), (rust, python)):
                 producer.cookies.clear()
                 consumer.cookies.clear()
@@ -182,7 +189,7 @@ async def test_python_maintenance_deletes_a_rust_written_row(analytics_pg_url, r
 
     monkeypatch.setattr(limiter, "enabled", False)
     async with account(analytics_pg_url) as (owner, runtime, user, _, email):
-        async with httpx.AsyncClient(base_url=rust_auth_server, headers={"Origin": ORIGIN}) as rust:
+        async with httpx.AsyncClient(base_url=rust_auth_server, headers={"Origin": ORIGIN}, event_hooks={"response": [loopback_cookies]}) as rust:
             login = await rust.post("/api/auth/login", data={"username": email, "password": PASSWORD})
             assert login.status_code == 200
         async with owner.begin() as conn:
