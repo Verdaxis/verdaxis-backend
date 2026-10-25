@@ -911,3 +911,18 @@ async fn ordinary_context_requires_current_locked_execution() {
     drop(conn);
     f.finish().await;
 }
+
+
+#[tokio::test]
+#[ignore = "requires explicit disposable PostgreSQL"]
+async fn assisted_context_cannot_add_a_contended_member() {
+    let mut f=Fixture::open().await;admission::test_seed_assisted(&mut f.admin,"valid").await;
+    let mut blocker=f.pool.acquire().await.unwrap();let mut blocker_tx=blocker.begin().await.unwrap();
+    sqlx::query("SELECT id FROM users WHERE id=$1 FOR UPDATE").bind(id(4)).fetch_one(&mut *blocker_tx).await.unwrap();
+    let mut conn=f.pool.acquire().await.unwrap();let mut tx=conn.begin().await.unwrap();
+    let parties=PartyLockPreview::new([id(10),id(20)],[id(1),id(2)],id(1),serde_json::Value::Null);
+    let mut plan=OperationLockPlan::new(MarketOperation::Create);plan.parties(&parties).unwrap();plan.resources(LockClass::Capability,[id(60),id(61)]).unwrap();plan.resources(LockClass::Context,[id(62)]).unwrap();
+    let locked=plan.acquire(&mut tx).await.unwrap();let actor=admission::authenticate(&mut tx,&locked,f.access(id(1)).await,AdmissionClass::Execution).await.unwrap();
+    assert!(admission::execution_context(&mut tx,&locked,actor,id(10),Some(id(62)),Utc::now(),true).await.is_err());
+    tx.rollback().await.unwrap();blocker_tx.rollback().await.unwrap();drop(conn);drop(blocker);f.finish().await;
+}
