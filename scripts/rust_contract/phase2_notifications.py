@@ -127,7 +127,9 @@ def scenario():
                   action("count-empty", "N02", "GET", "/api/notifications/unread-count", D, check=empty_count),
                   action("page-full", "N01", "GET", "/api/notifications?limit=100", status=200, check=full_page),
                   action("page-second", "N01", "GET", "/api/notifications?skip=100&limit=100", status=200,
-                         check=read_only(max(0, visible - 100))),
+                         # The route caps `limit` at 100, so the second page is
+                         # also bounded by the page size, not the remainder.
+                         check=read_only(min(100, max(0, visible - 100)))),
                   action("page-beyond-end", "N01", "GET", "/api/notifications?skip=100000&limit=100", status=200,
                          check=read_only(0)),
                   action("list-b", "N01", "GET", "/api/notifications", B),
