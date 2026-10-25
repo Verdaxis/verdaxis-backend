@@ -217,6 +217,7 @@ where
             // Independent snapshots can finish out of order. Retain the
             // high-water mark for storage without revoking an older read.
             if !authority.observe_snapshot(&token, generation, observer.now().monotonic) {
+                cache.remove_ticket(&key, &FillTicket::new(token, generation));
                 transaction
                     .rollback()
                     .await
@@ -241,7 +242,7 @@ where
                             .map_err(|_| ApiError::database())?;
                         observer.checkpoint(TradingReadStage::BeforePublish).await;
                         if !authority.accepts(ticket.token(), observer.now().monotonic) {
-                            cache.remove(&key);
+                            cache.remove_ticket(&key, &ticket);
                             return uncached_trading_read(connection, clock, reload).await;
                         }
                         return Ok(value);
@@ -265,7 +266,7 @@ where
             // Stale-fill barriers. A fill started under one authority and
             // fence may neither be stored nor answered after either moved.
             if !authority.accepts(ticket.token(), observer.now().monotonic) {
-                cache.remove(&key);
+                cache.remove_ticket(&key, &ticket);
                 return uncached_trading_read(connection, clock, reload).await;
             }
             // A newer generation verified by this process since the fill
@@ -291,7 +292,7 @@ where
             // Publishing the response repeats the fence check, so a change
             // after the insertion cannot let an old authority answer.
             if !authority.accepts(ticket.token(), observer.now().monotonic) {
-                cache.remove(&key);
+                cache.remove_ticket(&key, &ticket);
                 return uncached_trading_read(connection, clock, reload).await;
             }
             Ok(fill.value)

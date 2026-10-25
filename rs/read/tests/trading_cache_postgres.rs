@@ -1543,6 +1543,7 @@ async fn public_route_wrappers_check_generations_and_time_without_listener_wakes
             runtime
                 .authority()
                 .refresh(runtime.record_path(), clock.now().monotonic);
+            set_generation(&mut writer, before_rotation + 100).await;
             state.trading_caches.clear();
             for unavailable in ["revoked", "absent", "unreadable"] {
                 match unavailable {
