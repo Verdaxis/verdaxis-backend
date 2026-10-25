@@ -7,8 +7,8 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use std::{
-    collections::HashMap,
-    net::{IpAddr, SocketAddr},
+    collections::{BTreeSet, HashMap},
+    net::{IpAddr, Ipv6Addr, SocketAddr},
     sync::{Arc, Mutex},
     time::Instant,
 };
@@ -42,7 +42,7 @@ pub fn client_ip(peer: Option<IpAddr>, forwarded: Option<&str>) -> String {
 #[derive(Clone)]
 struct HttpState {
     started: Instant,
-    buckets: Arc<Mutex<HashMap<(String, String), RateBucket>>>,
+    buckets: Arc<Mutex<ClientBuckets>>,
     phase2_limits: Arc<Mutex<crate::auth::limits::Phase2Limits>>,
 }
 
@@ -57,7 +57,7 @@ pub fn middleware_with_state(routes: Router, app_state: crate::AppState) -> Rout
 fn compose(routes: Router, app_state: Option<crate::AppState>) -> Router {
     let state = HttpState {
         started: Instant::now(),
-        buckets: Arc::new(Mutex::new(HashMap::new())),
+        buckets: Arc::new(Mutex::new(ClientBuckets::default())),
         phase2_limits: Arc::new(Mutex::new(crate::auth::limits::Phase2Limits::default())),
     };
     let environment = app_state
@@ -352,18 +352,11 @@ async fn dispatch_boundary(
                 .and_then(|v| v.to_str().ok()),
         );
         let now = state.started.elapsed().as_millis() as u64;
-        let accepted = {
-            let mut buckets = state.buckets.lock().expect("rate bucket lock");
-            buckets.retain(|_, bucket| now.saturating_sub(bucket.started_ms) < 60_000);
-            admit(
-                buckets.entry((client, path.into())).or_insert(RateBucket {
-                    started_ms: now,
-                    used: 0,
-                }),
-                limit,
-                now,
-            )
-        };
+        let accepted = state
+            .buckets
+            .lock()
+            .expect("rate bucket lock")
+            .accept(&client, path, limit, now);
         if !accepted {
             return ApiError {
                 status: StatusCode::TOO_MANY_REQUESTS,
@@ -586,19 +579,88 @@ impl QueryFields {
     }
 }
 
-pub struct RateBucket {
-    pub started_ms: u64,
-    pub used: u32,
+/// The address-keyed AD-01 price-limit accounting: one fixed window per
+/// client and route, bounded and evicting so a flood of distinct addresses
+/// cannot grow memory without limit or make each request O(n).
+///
+/// Ported from the accepted PD2-SEC-1 pre-auth store: an ordered expiration
+/// index keeps expiry and eviction bounded, eviction drops the
+/// soonest-expiring entry (the oldest accounting; every entry shares the one
+/// 60 s window) and is counted by a warn-level number that names no client,
+/// and IPv6 clients are grouped to one /64 bucket with IPv4-mapped addresses
+/// folded onto their IPv4 bucket. A refused request never extends its window.
+#[derive(Default)]
+pub struct ClientBuckets {
+    buckets: HashMap<(String, String), (u64, u32)>,
+    expiration: BTreeSet<(u64, (String, String))>,
+    evictions: u64,
 }
 
-pub fn admit(bucket: &mut RateBucket, limit: u32, now_ms: u64) -> bool {
-    if now_ms.saturating_sub(bucket.started_ms) >= 60_000 {
-        bucket.started_ms = now_ms;
-        bucket.used = 0;
+/// Every entry shares one window length, so the soonest-expiring entry is the
+/// oldest accounting. Refusing the new client instead would let a flood of
+/// fresh addresses lock out every legitimate client.
+const MAX_BUCKETS: usize = 50_000;
+
+const WINDOW_MS: u64 = 60_000;
+
+impl ClientBuckets {
+    /// Drop expired entries, then account one request for `client` on `path`.
+    pub fn accept(&mut self, client: &str, path: &str, limit: u32, now_ms: u64) -> bool {
+        while let Some((expires_at, _)) = self.expiration.first() {
+            if *expires_at > now_ms {
+                break;
+            }
+            let (_, identity) = self.expiration.pop_first().expect("expiration entry");
+            self.buckets.remove(&identity);
+        }
+        let identity = (network_identity(client), path.into());
+        if !self.buckets.contains_key(&identity) {
+            if self.buckets.len() >= MAX_BUCKETS {
+                // Only the identity being admitted is new; its own entry does
+                // not exist yet, so eviction can never drop the caller's own
+                // accounting, only the soonest-expiring other entry.
+                let (_, evicted) = self.expiration.pop_first().expect("full quota index");
+                self.buckets.remove(&evicted);
+                self.evictions = self.evictions.saturating_add(1);
+                tracing::warn!(evictions = self.evictions, "price quota eviction");
+            }
+            let expires_at = now_ms.saturating_add(WINDOW_MS);
+            self.expiration.insert((expires_at, identity.clone()));
+            self.buckets.insert(identity.clone(), (now_ms, 0));
+        }
+        let bucket = self.buckets.get_mut(&identity).expect("quota entry");
+        debug_assert!(bucket.0.saturating_add(WINDOW_MS) > now_ms);
+        if bucket.1 >= limit {
+            return false;
+        }
+        bucket.1 += 1;
+        true
     }
-    if bucket.used >= limit {
-        return false;
+
+    /// Test visibility into the bounded size of the accounting.
+    pub fn entries(&self) -> usize {
+        self.buckets.len()
     }
-    bucket.used += 1;
-    true
+
+    /// Evictions since start. A plain number: it names no client.
+    pub fn evictions(&self) -> u64 {
+        self.evictions
+    }
+}
+
+/// One bucket per IPv4 address; IPv6 grouped to /64, with IPv4-mapped
+/// addresses folded onto their IPv4 bucket. Unparseable keys keep their own
+/// single shared bucket, so they cannot multiply buckets.
+fn network_identity(client: &str) -> String {
+    match client.parse::<IpAddr>() {
+        Ok(IpAddr::V6(address)) => {
+            if let Some(ipv4) = address.to_ipv4_mapped() {
+                return ipv4.to_string();
+            }
+            let prefix = u128::from(address) & (u128::MAX << 64);
+            Ipv6Addr::from(prefix).to_string()
+        }
+        Ok(IpAddr::V4(address)) => address.to_string(),
+        Err(_) => "unknown".into(),
+    }
 }
