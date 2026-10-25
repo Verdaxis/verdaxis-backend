@@ -261,3 +261,79 @@ async fn preview_and_locked_selection_keep_acceptance_priority() {
     assert_eq!(planned.plan.fills()[1].resting_before.id, f.resting[1]);
     tx.rollback().await.unwrap();
 }
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn lookahead_row_is_not_locked_or_changed() {
+    let mut f = Fixture::new(101, "100").await;
+    let mut tx = f.writer.begin().await.unwrap();
+    let planned = lock_and_plan(&mut tx, f.aggressor, MatchBound::new(now()))
+        .await
+        .unwrap();
+    let mut probe = f.observer.begin().await.unwrap();
+    let unlocked: Uuid = sqlx::query_scalar("SELECT id FROM orderbook_orders WHERE id=$1 FOR UPDATE NOWAIT")
+        .bind(f.resting[100])
+        .fetch_one(&mut *probe)
+        .await
+        .unwrap();
+    assert_eq!(unlocked, f.resting[100]);
+    probe.rollback().await.unwrap();
+    let mut probe = f.observer.begin().await.unwrap();
+    let busy = sqlx::query("SELECT id FROM orderbook_orders WHERE id=$1 FOR UPDATE NOWAIT")
+        .bind(f.resting[0])
+        .fetch_one(&mut *probe)
+        .await
+        .unwrap_err();
+    assert_eq!(busy.as_database_error().unwrap().code().as_deref(), Some("55P03"));
+    probe.rollback().await.unwrap();
+    apply(&mut tx, planned).await.unwrap();
+    tx.rollback().await.unwrap();
+    Fixture::unchanged(&mut f.observer, f.aggressor, "100").await;
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn concurrent_matches_do_not_consume_the_same_remainder_twice() {
+    let mut f = Fixture::new(1, "1").await;
+    let mut tx = f.writer.begin().await.unwrap();
+    let first = lock_and_plan(&mut tx, f.aggressor, MatchBound::new(now()))
+        .await
+        .unwrap();
+    let aggressor = f.aggressor;
+    let url = std::env::var("RUST_MATCHING_DATABASE_URL").unwrap();
+    let mut second = PgConnection::connect(&url).await.unwrap();
+    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut second)
+        .await
+        .unwrap();
+    let contender = tokio::spawn(async move {
+        let mut tx = second.begin().await.unwrap();
+        let result = lock_and_plan(&mut tx, aggressor, MatchBound::new(now())).await;
+        tx.rollback().await.unwrap();
+        result
+    });
+    let mut waiting = false;
+    for _ in 0..100 {
+        waiting = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_locks WHERE pid=$1 AND NOT granted)")
+            .bind(pid)
+            .fetch_one(&mut f.admin)
+            .await
+            .unwrap();
+        if waiting { break; }
+        tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+    }
+    assert!(waiting, "the independent transaction must reach a held lock");
+    apply(&mut tx, first).await.unwrap();
+    tx.commit().await.unwrap();
+    let result = contender.await.unwrap();
+    match result {
+        Ok(plan) => assert!(plan.plan.fills().is_empty()),
+        Err(error) => assert!(matches!(error.code, MarketErrorCode::MarketSliceChanged | MarketErrorCode::MarketBusy)),
+    }
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM trades")
+        .fetch_one(&mut f.observer)
+        .await
+        .unwrap();
+    assert_eq!(count, 1);
+    f.conserved().await;
+}
