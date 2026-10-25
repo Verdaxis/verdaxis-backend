@@ -11,6 +11,9 @@
 //! evidence. Task 3 builds the actor and the context inside the transaction
 //! from verified access and the locked projection; Task 10 produces support
 //! contexts. Until then these declarations are the Interface contract only.
+// Until the integration owner wires this leaf into `order_write`, the boundary
+// tests compile it on its own, so not every declaration has a consumer yet.
+#![allow(dead_code)]
 
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
