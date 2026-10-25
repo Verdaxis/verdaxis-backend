@@ -1399,4 +1399,32 @@ mod postgres {
         assert_eq!(response.kpis.active_members.value, Some(304));
         f.finish().await;
     }
+    #[tokio::test]
+    async fn p4_t18_c16() {
+        let mut f = Fixture::new().await;
+        sqlx::raw_sql(sqlx::AssertSqlSafe(include_str!("fixtures/analytics_facts_large.sql").to_owned()))
+            .execute(&mut f.admin).await.unwrap();
+        let mut wide = query();
+        wide.start = utc(2025, 1, 1);
+        wide.end = utc(2027, 1, 1);
+        wide.previous = None;
+        wide.compare = false;
+        let facts = aggregates::load_retention_facts(&mut f.app, &wide).await.unwrap();
+        assert!(facts.member_cohorts.len() <= 54 * 54);
+        assert!(facts.organization_cohorts.len() <= 54 * 54);
+        let response = retention(&facts, None, &wide, observed());
+        assert_eq!(response.member_cohorts.len(), 54);
+        assert_eq!(response.organization_cohorts.len(), 54);
+        let first = &response.member_cohorts[0];
+        assert_eq!(first.cohort_start, day(2025, 1, 6));
+        assert_eq!(first.size.count, Some(4));
+        assert_eq!(first.cells.len(), 54);
+        assert!(first.cells.iter().all(|c| c.cell.count == Some(4) && c.pct == Some(Decimal::ONE_HUNDRED)));
+        let activation_facts = aggregates::load_activation_facts(&mut f.app, &wide).await.unwrap();
+        assert_eq!(activation_facts.logins.first_login.count, 244);
+        assert_eq!(activation_facts.first_live_orders.count, 243);
+        assert!(activation_facts.logins.first_login.median_hours.is_some());
+        f.finish().await;
+    }
+
 }
