@@ -1603,7 +1603,12 @@ mod postgres {
             &json!({"use_case": "buyer", "email": "someone@example.test"}),
         )
         .await;
-        assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY, "{:?}", reply.body);
+        assert_eq!(
+            reply.status,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{:?}",
+            reply.body
+        );
         let reply = survey(
             &f.app,
             CLIENT,
