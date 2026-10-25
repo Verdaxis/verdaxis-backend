@@ -266,8 +266,7 @@ async fn trades(
     }
 }
 
-/// A cursor is absent, or 1 to 19 ASCII digits within `i64`. Anything else is
-/// refused before the token is even read.
+
 fn parse_cursor(raw: Option<&str>) -> Option<Option<i64>> {
     match raw {
         None => Some(None),
@@ -281,6 +280,3 @@ fn parse_cursor(raw: Option<&str>) -> Option<Option<i64>> {
         Some(_) => None,
     }
 }
-
-/// A cursor is absent, or 1 to 19 ASCII digits within `i64`. Anything else is
-/// refused before the token is even read.
