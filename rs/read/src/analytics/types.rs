@@ -832,7 +832,12 @@ impl BehavioralWindow {
                     && property_unavailable == properties
                     && self.diagnostic.is_some()
             }
-            BehavioralAvailability::Available => core_unavailable == 0 && property_unavailable == 0,
+            BehavioralAvailability::Available => {
+                core_unavailable == 0
+                    && core_incomplete == 0
+                    && property_unavailable == 0
+                    && property_incomplete == 0
+            }
             BehavioralAvailability::Partial => {
                 core_unavailable + core_incomplete > 0
                     || property_unavailable + property_incomplete > 0
