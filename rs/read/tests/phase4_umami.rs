@@ -397,7 +397,7 @@ mod cases {
     }
 
     #[tokio::test]
-    async fn p4_t16_c73() {
+    async fn p4_t16_c80() {
         let properties: policy::AllowedPropertySet = destination_set();
         let (address, server) = serve(healthy()).await;
         let window: types::BehavioralWindow = client(address).window(&query(), properties).await;
@@ -904,7 +904,7 @@ mod cases {
     }
 
     #[tokio::test]
-    async fn p4_t16_c74() {
+    async fn p4_t16_c81() {
         let events = ["signup_started", "platform_navigation", "listing_opened", "tutorial_started"];
         let mut series = Vec::new();
         for day in 0..365 {
