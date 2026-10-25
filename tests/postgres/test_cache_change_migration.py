@@ -119,7 +119,7 @@ def test_exact_sequencer_statement_counts_only_assigned_rows(cache_database):
     statement = statement.replace("$1", "500")
     insert = INSERTS["market_event_outbox"].format(row=ROW, org=ORG)
     sql("BEGIN; DELETE FROM market_event_outbox; CREATE TEMP TABLE cache_before AS " + snapshot_sql() + "; "
-        + statement + "; DO $$ BEGIN ASSERT (SELECT generation FROM public_read_cache_generations WHERE domain='trading') = (SELECT generation FROM cache_before); END $$; "
+        + statement + "; DO $$ BEGIN ASSERT (SELECT generation FROM public_read_cache_generations WHERE domain='trading') = (SELECT generation FROM cache_before); ASSERT (SELECT count(*) FROM public_read_cache_events) = (SELECT count FROM cache_before); END $$; "
         + "INSERT INTO market_event_outbox " + insert + "; " + statement
         + "; DO $$ BEGIN ASSERT (SELECT generation FROM public_read_cache_generations WHERE domain='trading') = (SELECT generation+2 FROM cache_before); END $$; ROLLBACK")
 
