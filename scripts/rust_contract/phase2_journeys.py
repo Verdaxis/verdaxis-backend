@@ -500,16 +500,23 @@ def journeys() -> dict[str, tuple[JourneyCall, ...]]:
 
 
 def _captured(body, key):
-    """Read one value from a response body; a `/`-path walks into pages."""
+    """Read one value from a response body; a `/`-path walks into pages.
+
+    A list step without a numeric segment reads the first item, so a plain
+    `id` capture keeps its meaning on a list body.
+    """
     for segment in key.split("/"):
         if isinstance(body, list):
-            index = int(segment)
-            require(0 <= index < len(body), f"captured path {key} is out of range")
-            body = body[index]
-        else:
-            mapping(body, "captured response")
-            require(body.get(segment), f"captured field {key} is missing")
-            body = body[segment]
+            if segment.isdigit():
+                index = int(segment)
+                require(0 <= index < len(body), f"captured path {key} is out of range")
+                body = body[index]
+                continue
+            require(body, "cannot capture from an empty list")
+            body = body[0]
+        mapping(body, "captured response")
+        require(body.get(segment), f"captured field {key} is missing")
+        body = body[segment]
     return body
 
 

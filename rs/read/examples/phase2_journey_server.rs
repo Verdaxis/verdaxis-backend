@@ -51,11 +51,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state = AppState::new(
         config,
         pools,
-        MarketPolicy {
-            source_sha: verdaxis_read::compiled_sha().into(),
-            products: vec![],
-            points: vec![],
-        },
+        // The shared market policy: the watchlist target writes admit product
+        // codes only from it, so the journey server loads the deployed policy
+        // exactly as the other contract servers do.
+        serde_json::from_str::<MarketPolicy>(include_str!(
+            "../../../deploy/rust/market-policy.json"
+        ))?,
     )?;
     let limits = SharedLimits::default();
     let verification = VerificationSettings::new(
