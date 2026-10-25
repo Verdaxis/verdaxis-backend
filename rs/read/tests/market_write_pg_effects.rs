@@ -44,7 +44,7 @@ impl Fixture {
             .bind(actor).bind(format!("{actor}@example.test")).bind(organization).execute(&mut admin).await.unwrap();
         let order = Uuid::new_v4();
         for (id, side, price) in [(order,"ASK",100), (Uuid::new_v4(),"BID",90)] {
-            sqlx::query("INSERT INTO orderbook_orders(id,organization_id,owner_user_id,created_by_actor_user_id,creation_method,provenance,side,product_id,delivery_point_id,quantity_mt,remaining_quantity_mt,price_per_mt_usd,availability_window,status,off_spec,certification_declared,certification_scheme,specification_standard,msds_available,carbon_intensity_gco2_mj,carbon_intensity_method,feedstock,origin) VALUES($1,$2,$3,$3,'DIRECT','REAL',$4,$5,$6,10,10,$7,'SPOT','OPEN',false,true,'ISCC EU',$8,true,10,'LIFECYCLE','residue','NL')")
+            sqlx::query("INSERT INTO orderbook_orders(id,organization_id,owner_user_id,created_by_actor_user_id,creation_method,provenance,side,product_id,delivery_point_id,quantity_mt,remaining_quantity_mt,price_per_mt_usd,availability_window,status,off_spec,certification_declared,certification_scheme,specification_standard,msds_available,carbon_intensity_gco2_mj,carbon_intensity_method,feedstock,origin) VALUES($1,$2,$3,$3,'SELF_SERVICE','REAL',$4,$5,$6,10,10,$7,'SPOT','OPEN',false,true,'ISCC EU',$8,true,10,'LIFECYCLE','residue','NL')")
                 .bind(id).bind(organization).bind(actor).bind(side).bind(product_id).bind(point).bind(rust_decimal::Decimal::from(price))
                 .bind(product["specification_standard"].as_str().unwrap_or("ISO 8217"))
                 .execute(&mut admin).await.unwrap();
