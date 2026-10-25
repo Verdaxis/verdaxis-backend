@@ -231,6 +231,24 @@ fn config_for(vector: &Value, settings: &Value) -> VerificationSettings {
 }
 
 #[test]
+fn forced_password_change_allows_only_the_profile_and_password_paths() {
+    let now = chrono::Utc::now();
+    let subject = uuid::Uuid::new_v4();
+    let issuer = verdaxis_read::auth::TokenIssuer::new("synthetic-forced-change-key-32-chars", "issuer", "audience");
+    let settings = VerificationSettings::new("synthetic-forced-change-key-32-chars".into(), None, "issuer".into(), "audience".into());
+    let access = verify_access(&issuer.access(subject, now, None), &settings, now).unwrap();
+    let mut account = AccountState { exists: true, status: "APPROVED".into(), must_change_password: true, password_changed_at: None, authentication_revoked_at: None };
+    for path in ["/api/auth/me", "/api/auth/me/", "/api/auth/me/password", "/api/auth/me/password/"] {
+        assert!(verdaxis_read::auth::validate_account_for_path(&access, &account, path).is_ok(), "{path}");
+    }
+    for path in ["/api/notifications", "/api/auth/me/other", "/api/auth/me/password/other"] {
+        assert_eq!(verdaxis_read::auth::validate_account_for_path(&access, &account, path).err(), Some(verdaxis_read::auth::AuthError::PasswordChangeRequired));
+    }
+    account.authentication_revoked_at = Some(now.timestamp_micros() + 1);
+    assert_eq!(verdaxis_read::auth::validate_account_for_path(&access, &account, "/api/auth/me").err(), Some(verdaxis_read::auth::AuthError::SessionRevoked));
+}
+
+#[test]
 fn verification_settings_debug_is_redacted() {
     let settings = VerificationSettings::new(
         "synthetic-current-secret".into(),
