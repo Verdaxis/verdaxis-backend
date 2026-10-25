@@ -9,7 +9,7 @@
 //! Runtime composition (mounting this router) remains with the integration
 //! owner. This module mounts nothing by itself.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -24,6 +24,8 @@ use serde::Serialize;
 use sqlx::PgConnection;
 use uuid::Uuid;
 
+use super::policy::RegisteredEvent;
+use super::types::{AggregateCell, AnalyticsDiagnostic, BehavioralAvailability, BehavioralWindow};
 use crate::auth::limits::{BusinessLimitKeys, SharedLimits};
 use crate::auth::{
     AuthenticatedError, AuthenticatedRequest, CurrentActor, VerificationSettings,
@@ -114,123 +116,8 @@ impl UsageDays {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum BehavioralStatus {
-    Available,
-    Partial,
-    Unavailable,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum AnalyticsDiagnostic {
-    Disabled,
-    Configuration,
-    Authentication,
-    Timeout,
-    Upstream,
-    MalformedResponse,
-    InsufficientCoverage,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct CoreMetrics {
-    pub visitors: u64,
-    pub visits: u64,
-    pub pageviews: u64,
-    pub total_time_seconds: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct DailyVisitorPoint {
-    pub date: String,
-    pub value: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct DailyEventPoint {
-    pub date: String,
-    pub event: String,
-    pub value: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct MetricEntry {
-    pub name: String,
-    pub value: u64,
-}
-
-/// The CF4_03 behavioral input shape this route consumes.
-#[derive(Debug, Clone)]
-pub struct BehavioralWindow {
-    pub status: BehavioralStatus,
-    pub diagnostic: Option<AnalyticsDiagnostic>,
-    pub observed_at: DateTime<Utc>,
-    pub core: Option<CoreMetrics>,
-    pub event_totals: Option<BTreeMap<String, u64>>,
-    pub daily_visitors: Option<Vec<DailyVisitorPoint>>,
-    pub event_series: Option<Vec<DailyEventPoint>>,
-    pub top_entries: Option<Vec<MetricEntry>>,
-    pub top_referrers: Option<Vec<MetricEntry>>,
-}
-
-impl BehavioralWindow {
-    pub fn unavailable(diagnostic: AnalyticsDiagnostic, observed_at: DateTime<Utc>) -> Self {
-        Self {
-            status: BehavioralStatus::Unavailable,
-            diagnostic: Some(diagnostic),
-            observed_at,
-            core: None,
-            event_totals: None,
-            daily_visitors: None,
-            event_series: None,
-            top_entries: None,
-            top_referrers: None,
-        }
-    }
-}
-
-/// The closed event domain from the accepted behavioral contract. Unknown
-/// events are dropped before aggregation and never echoed.
-const REGISTERED_EVENTS: [&str; 31] = [
-    "registration_completed",
-    "organization_created",
-    "order_created",
-    "trade_created",
-    "landing_cta_clicked",
-    "energy_calculator_started",
-    "energy_calculator_completed",
-    "public_language_changed",
-    "signup_started",
-    "signup_role_selected",
-    "signup_submitted",
-    "signup_organization_required",
-    "signup_organization_submitted",
-    "login_submitted",
-    "login_succeeded",
-    "login_failed",
-    "platform_navigation",
-    "market_slice_selected",
-    "listing_opened",
-    "order_form_opened",
-    "order_form_submitted",
-    "trade_confirmation_opened",
-    "tutorial_started",
-    "tutorial_step_completed",
-    "tutorial_step_skipped",
-    "tutorial_completed",
-    "estimator_opened",
-    "estimator_completed",
-    "frontend_error",
-    "backend_unavailable",
-    "navigation_performance",
-];
-
 fn registered_event(event: &str) -> bool {
-    static REGISTERED: std::sync::LazyLock<HashSet<&'static str>> =
-        std::sync::LazyLock::new(|| REGISTERED_EVENTS.into_iter().collect());
-    REGISTERED.contains(event)
+    RegisteredEvent::from_name(event).is_some()
 }
 
 #[derive(Debug, Default, Serialize, PartialEq, Eq)]
@@ -284,7 +171,7 @@ pub struct ProductUsageResponse {
     pub days: u8,
     pub period_start: DateTime<Utc>,
     pub period_end: DateTime<Utc>,
-    pub behavioral_status: BehavioralStatus,
+    pub behavioral_status: BehavioralAvailability,
     pub diagnostic: Option<AnalyticsDiagnostic>,
     pub observed_at: DateTime<Utc>,
     pub behavioral: BehavioralUsage,
@@ -294,103 +181,132 @@ pub struct ProductUsageResponse {
 
 #[derive(Debug, Serialize)]
 pub struct BehavioralUsage {
-    pub visitors: u64,
-    pub visits: u64,
-    pub pageviews: u64,
-    pub total_time_seconds: u64,
-    pub average_session_duration_seconds: f64,
-    pub event_totals: BTreeMap<String, u64>,
-    pub event_series: Vec<DailyEventPoint>,
-    pub daily_visitors: Vec<DailyVisitorPoint>,
-    pub top_entries: Vec<MetricEntry>,
-    pub top_referrers: Vec<MetricEntry>,
+    pub visitors: Option<u64>,
+    pub visits: Option<u64>,
+    pub pageviews: Option<u64>,
+    pub total_time_seconds: Option<u64>,
+    pub average_session_duration_seconds: Option<f64>,
+    pub event_totals: Option<BTreeMap<String, Option<u64>>>,
+    pub event_series: Option<Vec<DailyEventPoint>>,
+    pub daily_visitors: Option<Vec<DailyVisitorPoint>>,
+    pub top_entries: Option<Vec<MetricEntry>>,
+    pub top_referrers: Option<Vec<MetricEntry>>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DailyVisitorPoint {
+    pub date: chrono::NaiveDate,
+    pub value: Option<u64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DailyEventPoint {
+    pub date: chrono::NaiveDate,
+    pub event: String,
+    pub value: Option<u64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MetricEntry {
+    pub name: String,
+    pub value: Option<u64>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct FunnelStage {
     pub name: &'static str,
-    pub value: u64,
+    pub value: Option<u64>,
     pub conversion_from_previous_pct: Option<f64>,
 }
 
-/// Round to one decimal place, as the Python route does.
 fn one_decimal(value: f64) -> f64 {
     (value * 10.0).round() / 10.0
 }
 
-fn conversion(value: u64, previous: u64) -> Option<f64> {
-    (previous > 0).then(|| one_decimal(value as f64 / previous as f64 * 100.0))
+fn conversion(value: Option<u64>, previous: Option<u64>) -> Option<f64> {
+    match (value, previous) {
+        (Some(value), Some(previous)) if previous > 0 => {
+            Some(one_decimal(value as f64 / previous as f64 * 100.0))
+        }
+        _ => None,
+    }
+}
+
+fn visible(cell: &AggregateCell) -> Option<u64> {
+    if cell.suppressed { None } else { cell.count }
 }
 
 impl BehavioralUsage {
-    /// Available components are projected; an unavailable or partial window
-    /// leaves every missing behavioral value at Python's required default.
     fn from_window(window: &BehavioralWindow) -> Self {
-        let available = window.status != BehavioralStatus::Unavailable;
-        let core = if available {
-            window.core.unwrap_or_default()
-        } else {
-            CoreMetrics::default()
-        };
-        let average_session_duration_seconds = if available && core.visits > 0 {
-            one_decimal(core.total_time_seconds as f64 / core.visits as f64)
-        } else {
-            0.0
-        };
-        let event_totals = if available {
-            window
-                .event_totals
-                .iter()
-                .flatten()
-                .filter(|(event, _)| registered_event(event))
-                .map(|(event, value)| (event.clone(), *value))
-                .collect()
-        } else {
-            BTreeMap::new()
-        };
-        let mut event_series: Vec<DailyEventPoint> = if available {
-            window
-                .event_series
-                .iter()
-                .flatten()
-                .filter(|point| registered_event(&point.event))
-                .cloned()
-                .collect()
-        } else {
-            Vec::new()
-        };
-        if event_series.len() > EVENT_SERIES_MAX {
-            event_series.drain(..event_series.len() - EVENT_SERIES_MAX);
-        }
-        let daily_visitors = if available {
-            window
-                .daily_visitors
-                .iter()
-                .flatten()
-                .take(DAILY_VISITOR_MAX)
-                .cloned()
-                .collect()
-        } else {
-            Vec::new()
-        };
-        let ranks = |rows: &Option<Vec<MetricEntry>>| {
-            if available {
-                rows.iter().flatten().take(RANK_MAX).cloned().collect()
-            } else {
-                Vec::new()
-            }
-        };
+        let core = window.core.data();
+        let visits = core.and_then(|core| core.visits);
+        let total_time = core.and_then(|core| core.total_time_seconds);
         Self {
-            visitors: core.visitors,
-            visits: core.visits,
-            pageviews: core.pageviews,
-            total_time_seconds: core.total_time_seconds,
-            average_session_duration_seconds,
-            event_totals,
-            event_series,
-            daily_visitors,
-            top_entries: ranks(&window.top_entries),
-            top_referrers: ranks(&window.top_referrers),
+            visitors: core.and_then(|core| core.visitors),
+            visits,
+            pageviews: core.and_then(|core| core.pageviews),
+            total_time_seconds: total_time,
+            average_session_duration_seconds: match (total_time, visits) {
+                (Some(total), Some(visits)) if visits > 0 => {
+                    Some(one_decimal(total as f64 / visits as f64))
+                }
+                _ => None,
+            },
+            event_totals: window.event_totals.data().map(|rows| {
+                rows.iter()
+                    .filter(|row| registered_event(&row.event))
+                    .map(|row| (row.event.clone(), visible(&row.count)))
+                    .collect()
+            }),
+            daily_visitors: window.daily_visitors.data().map(|rows| {
+                rows.iter()
+                    .take(DAILY_VISITOR_MAX)
+                    .map(|row| DailyVisitorPoint {
+                        date: row.date,
+                        value: visible(&row.visitors),
+                    })
+                    .collect()
+            }),
+            event_series: window.event_series.data().map(|rows| {
+                let rows: Vec<_> = rows
+                    .iter()
+                    .filter(|row| registered_event(&row.event))
+                    .collect();
+                rows.iter()
+                    .skip(rows.len().saturating_sub(EVENT_SERIES_MAX))
+                    .map(|row| DailyEventPoint {
+                        date: row.date,
+                        event: row.event.clone(),
+                        value: visible(&row.count),
+                    })
+                    .collect()
+            }),
+            top_entries: window.top_entries.data().map(|rows| {
+                rows.iter()
+                    .take(RANK_MAX)
+                    .map(|row| MetricEntry {
+                        name: serde_json::to_value(row.entry)
+                            .expect("closed entry enum")
+                            .as_str()
+                            .expect("entry label")
+                            .to_owned(),
+                        value: visible(&row.count),
+                    })
+                    .collect()
+            }),
+            top_referrers: window.top_referrers.data().map(|rows| {
+                rows.iter()
+                    .take(RANK_MAX)
+                    .map(|row| MetricEntry {
+                        name: serde_json::to_value(row.referrer)
+                            .expect("closed referrer enum")
+                            .as_str()
+                            .expect("referrer label")
+                            .to_owned(),
+                        value: visible(&row.count),
+                    })
+                    .collect()
+            }),
         }
     }
 }
@@ -409,13 +325,16 @@ pub fn compose(
         ("visitors", behavioral.visitors),
         (
             "signup_started",
-            *behavioral.event_totals.get("signup_started").unwrap_or(&0),
+            behavioral
+                .event_totals
+                .as_ref()
+                .and_then(|events| events.get("signup_started").copied().flatten()),
         ),
-        ("registrations", authoritative.registrations),
-        ("users_logging_in", authoritative.users_logging_in),
+        ("registrations", Some(authoritative.registrations)),
+        ("users_logging_in", Some(authoritative.users_logging_in)),
         (
             "order_placing_organizations",
-            authoritative.order_placing_organizations,
+            Some(authoritative.order_placing_organizations),
         ),
     ];
     let funnel = stages
@@ -435,7 +354,7 @@ pub fn compose(
         days: days.value(),
         period_start,
         period_end,
-        behavioral_status: window.status,
+        behavioral_status: window.availability,
         diagnostic: window.diagnostic,
         observed_at: window.observed_at,
         behavioral,
@@ -580,7 +499,12 @@ async fn product_usage(
     let observed = match authority.source.clone() {
         Some(source) => source.window(window).await,
         // No provider is configured: the tab stays authoritative.
-        None => BehavioralWindow::unavailable(AnalyticsDiagnostic::Disabled, Utc::now()),
+        None => BehavioralWindow::unavailable(
+            window.start,
+            window.end,
+            Utc::now(),
+            AnalyticsDiagnostic::Disabled,
+        ),
     };
     let response = compose(days, window.start, window.end, authoritative, &observed);
     Ok(axum::Json(response).into_response())

@@ -11,22 +11,22 @@ pub use verdaxis_read::*;
 mod usage;
 
 #[allow(dead_code)]
-#[path = "../src/analytics/types.rs"]
-mod types;
-#[allow(dead_code)]
 #[path = "../src/analytics/policy.rs"]
 mod policy;
+#[allow(dead_code)]
+#[path = "../src/analytics/types.rs"]
+mod types;
 
-use types::{AnalyticsDiagnostic, BehavioralAvailability, BehavioralWindow, CoreMetrics,
-    ProviderComponent, AggregateCell, AnalyticsSourceCoverage, AllowedEventAggregate,
-    DailyVisitorRow, DailyEventRow, EntryRankingRow, ReferrerRankingRow, EntryPage, ReferrerCategory};
+use types::{
+    AggregateCell, AllowedEventAggregate, AnalyticsDiagnostic, AnalyticsSourceCoverage,
+    BehavioralAvailability, BehavioralWindow, CoreMetrics, DailyEventRow, DailyVisitorRow,
+    EntryPage, EntryRankingRow, ProviderComponent, ReferrerCategory, ReferrerRankingRow,
+};
 
 use axum::http::StatusCode;
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use serde_json::{Value, json};
-use usage::{
-    AuthoritativeUsage, UsageDays,
-};
+use usage::{AuthoritativeUsage, UsageDays};
 use uuid::Uuid;
 use verdaxis_read::runtime::db::Pools;
 
@@ -47,26 +47,44 @@ fn available() -> BehavioralWindow {
         observed_at: now(),
         coverage: AnalyticsSourceCoverage::available(),
         core: ProviderComponent::available(CoreMetrics {
-            visitors: Some(10), visits: Some(5), pageviews: Some(20),
+            visitors: Some(10),
+            visits: Some(5),
+            pageviews: Some(20),
             total_time_seconds: Some(100),
             average_session_duration_seconds: Some(rust_decimal::Decimal::from(20)),
         }),
         event_totals: ProviderComponent::available(vec![
-            AllowedEventAggregate { event: "signup_started".into(), count: cell(4) },
-            AllowedEventAggregate { event: "order_created".into(), count: cell(3) },
-            AllowedEventAggregate { event: "not_a_registered_event".into(), count: cell(9) },
+            AllowedEventAggregate {
+                event: "signup_started".into(),
+                count: cell(4),
+            },
+            AllowedEventAggregate {
+                event: "order_created".into(),
+                count: cell(3),
+            },
+            AllowedEventAggregate {
+                event: "not_a_registered_event".into(),
+                count: cell(9),
+            },
         ]),
         daily_visitors: ProviderComponent::available(vec![DailyVisitorRow {
-            date: now().date_naive(), visitors: cell(3),
+            date: now().date_naive(),
+            visitors: cell(3),
         }]),
         event_series: ProviderComponent::available(vec![DailyEventRow {
-            date: now().date_naive(), event: "signup_started".into(), count: cell(2),
+            date: now().date_naive(),
+            event: "signup_started".into(),
+            count: cell(2),
         }]),
         top_entries: ProviderComponent::available(vec![EntryRankingRow {
-            entry: EntryPage::Signup, count: cell(4), rank: 1,
+            entry: EntryPage::Signup,
+            count: cell(4),
+            rank: 1,
         }]),
         top_referrers: ProviderComponent::available(vec![ReferrerRankingRow {
-            referrer: ReferrerCategory::Search, count: cell(2), rank: 1,
+            referrer: ReferrerCategory::Search,
+            count: cell(2),
+            rank: 1,
         }]),
         property_results: Vec::new(),
     }
@@ -108,7 +126,10 @@ fn p4_t17a_c01() {
 
     assert_eq!(body["behavioral"]["visitors"], Value::Null);
     assert_eq!(body["behavioral"]["visits"], Value::Null);
-    assert_eq!(body["behavioral"]["average_session_duration_seconds"], Value::Null);
+    assert_eq!(
+        body["behavioral"]["average_session_duration_seconds"],
+        Value::Null
+    );
     assert_eq!(body["behavioral"]["event_totals"], Value::Null);
     assert_eq!(body["behavioral"]["daily_visitors"], Value::Null);
     assert_eq!(body["behavioral"]["event_series"], Value::Null);
@@ -224,36 +245,82 @@ fn p4_t17a_c03() {
     partial.availability = BehavioralAvailability::Partial;
     partial.core = ProviderComponent::not_requested();
     partial.event_totals = ProviderComponent::available(vec![AllowedEventAggregate {
-        event: "signup_started".into(), count: cell(2),
+        event: "signup_started".into(),
+        count: cell(2),
     }]);
     let body = serde_json::to_value(usage::compose(
-        UsageDays::Thirty, now() - Duration::days(30), now(),
-        authoritative(2, 2, 1), &partial,
-    )).unwrap();
+        UsageDays::Thirty,
+        now() - Duration::days(30),
+        now(),
+        authoritative(2, 2, 1),
+        &partial,
+    ))
+    .unwrap();
     assert_eq!(body["behavioral"]["visitors"], Value::Null);
-    assert_eq!(body["behavioral"]["event_totals"]["signup_started"], Value::Null);
+    assert_eq!(
+        body["behavioral"]["event_totals"]["signup_started"],
+        Value::Null
+    );
     assert_eq!(body["funnel"][1]["value"], Value::Null);
-    assert_eq!(body["funnel"][2]["conversion_from_previous_pct"], Value::Null);
+    assert_eq!(
+        body["funnel"][2]["conversion_from_previous_pct"],
+        Value::Null
+    );
 
     // Response bounds remain independent of the optional adapter.
     let mut wide = available();
-    wide.daily_visitors = ProviderComponent::available(vec![DailyVisitorRow {
-        date: now().date_naive(), visitors: cell(3),
-    }; 400]);
-    wide.event_series = ProviderComponent::available(vec![DailyEventRow {
-        date: now().date_naive(), event: "signup_started".into(), count: cell(3),
-    }; 2600]);
-    wide.top_entries = ProviderComponent::available(vec![EntryRankingRow {
-        entry: EntryPage::Other, count: cell(3), rank: 1,
-    }; 30]);
+    wide.daily_visitors = ProviderComponent::available(vec![
+        DailyVisitorRow {
+            date: now().date_naive(),
+            visitors: cell(3),
+        };
+        400
+    ]);
+    wide.event_series = ProviderComponent::available(vec![
+        DailyEventRow {
+            date: now().date_naive(),
+            event: "signup_started".into(),
+            count: cell(3),
+        };
+        2600
+    ]);
+    wide.top_entries = ProviderComponent::available(vec![
+        EntryRankingRow {
+            entry: EntryPage::Other,
+            count: cell(3),
+            rank: 1,
+        };
+        30
+    ]);
     let bounded = serde_json::to_value(usage::compose(
-        UsageDays::Ninety, now() - Duration::days(90), now(),
-        authoritative(1, 1, 1), &wide,
-    )).unwrap();
-    assert_eq!(bounded["behavioral"]["daily_visitors"].as_array().unwrap().len(), 92);
-    assert_eq!(bounded["behavioral"]["event_series"].as_array().unwrap().len(), 2500);
-    assert_eq!(bounded["behavioral"]["top_entries"].as_array().unwrap().len(), 20);
-
+        UsageDays::Ninety,
+        now() - Duration::days(90),
+        now(),
+        authoritative(1, 1, 1),
+        &wide,
+    ))
+    .unwrap();
+    assert_eq!(
+        bounded["behavioral"]["daily_visitors"]
+            .as_array()
+            .unwrap()
+            .len(),
+        92
+    );
+    assert_eq!(
+        bounded["behavioral"]["event_series"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2500
+    );
+    assert_eq!(
+        bounded["behavioral"]["top_entries"]
+            .as_array()
+            .unwrap()
+            .len(),
+        20
+    );
 }
 
 /// c04: only 7, 30 and 90 select a period; the default is 30.
@@ -347,7 +414,12 @@ async fn p4_t17a_c09() {
         fn window(&self, window: usage::UsageWindow) -> usage::BehavioralFuture<'_> {
             Box::pin(async move {
                 assert_eq!(window.end - window.start, Duration::days(7));
-                BehavioralWindow::unavailable(window.start, window.end, window.end, AnalyticsDiagnostic::Upstream)
+                BehavioralWindow::unavailable(
+                    window.start,
+                    window.end,
+                    window.end,
+                    AnalyticsDiagnostic::Upstream,
+                )
             })
         }
     }
