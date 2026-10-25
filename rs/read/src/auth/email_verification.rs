@@ -231,7 +231,7 @@ async fn verify_route(
     query: Result<Query<VerifyQuery>, axum::extract::rejection::QueryRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let client = client_address(peer, &headers);
-    settings.limits.check_endpoint(
+    settings.limits.check_address_endpoint(
         &client,
         "/api/auth/verify-email",
         Utc::now().timestamp() as u64,
@@ -252,7 +252,7 @@ async fn resend_route(
     let body: Value = auth_json(&headers, body).await?;
     let address = email_address(&body)?;
     let client = client_address(peer, &headers);
-    settings.limits.check_endpoint(
+    settings.limits.check_address_endpoint(
         &client,
         "/api/auth/resend-verification-email",
         Utc::now().timestamp() as u64,

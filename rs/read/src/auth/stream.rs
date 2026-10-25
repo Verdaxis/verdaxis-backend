@@ -46,7 +46,7 @@ impl StreamTokens {
         let organization = actor
             .organization_id
             .ok_or_else(|| ApiError::from(AuthFailure::new(AuthCode::OrganizationRequired)))?;
-        self.limits.check_endpoint(
+        self.limits.check_address_endpoint(
             client,
             "/api/auth/stream-token",
             now.timestamp().max(0) as u64,

@@ -226,7 +226,7 @@ async fn accept(
     // typed validation, so a refused request spends nothing, and before any
     // database read.
     let client = client_address(peer, &headers);
-    state.limits.check_endpoint(
+    state.limits.check_address_endpoint(
         &client,
         "/api/auth/invitations/accept",
         Utc::now().timestamp().max(0) as u64,

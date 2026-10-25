@@ -172,7 +172,7 @@ fn admit(
         .limits
         .preauth_check(&client, path, now)
         .map_err(|r| ApiError::from(r.auth_failure()))?;
-    settings.limits.check_endpoint(&client, path, now)
+    settings.limits.check_address_endpoint(&client, path, now)
 }
 pub fn router(settings: RegistrationSettings) -> Router {
     Router::new()

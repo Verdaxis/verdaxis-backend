@@ -158,7 +158,7 @@ async fn forgot_route(
     let address = email_address(&body)?;
     settings
         .limits
-        .check_endpoint(&client, "/api/auth/forgot-password", now)?;
+        .check_address_endpoint(&client, "/api/auth/forgot-password", now)?;
     forgot(&settings, &address.to_lowercase()).await.map(Json)
 }
 async fn reset_route(
@@ -169,7 +169,7 @@ async fn reset_route(
 ) -> Result<Json<Value>, ApiError> {
     let body: ResetRequest = auth_json(&headers, body).await?;
     password::validate_bytes(&body.new_password).map_err(|_| validation())?;
-    settings.limits.check_endpoint(
+    settings.limits.check_address_endpoint(
         &client_address(peer, &headers),
         "/api/auth/reset-password",
         Utc::now().timestamp() as u64,

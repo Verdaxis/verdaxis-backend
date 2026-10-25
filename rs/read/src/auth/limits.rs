@@ -56,6 +56,13 @@ impl SharedLimits {
         self.lock_recovering().preauth(client, "/api/admin/", now)
     }
 
+    /// Address-owned auth endpoints use normalized, evicting accounting.
+    /// Verified-user endpoint counters are never allocated through this API.
+    pub fn check_address_endpoint(&self, client: &str, path: &str, now: u64) -> Result<(), crate::ApiError> {
+        self.lock_recovering().address_endpoint_check(client,path,now)
+            .map_err(|refusal| refusal.auth_failure().into())
+    }
+
     /// Route adapters call this after bearer/current-account admission and
     /// typed validation. Invalid authentication never consumes endpoint quota.
     ///
@@ -147,9 +154,8 @@ impl QuotaStore {
                 if !evict {
                     return false;
                 }
-                // Only the pre-auth store evicts (PM decision PD2-SEC-1). Every
-                // entry shares one window length, so the soonest-expiring entry
-                // is the oldest accounting. Refusing the new client instead
+                // Untrusted address stores evict their soonest-expiring entry.
+                // Verified-user stores refuse new identities at capacity. Refusing the new client instead
                 // would let a flood of fresh addresses lock out every
                 // legitimate client, administrators included. The trade is
                 // deliberate: under sustained churn a client can be evicted and
@@ -183,6 +189,7 @@ impl QuotaStore {
 #[derive(Default)]
 pub struct Phase2Limits {
     preauth_store: QuotaStore,
+    address_endpoint_store: QuotaStore,
     user_store: QuotaStore,
 }
 
@@ -226,6 +233,15 @@ impl Phase2Limits {
             retry_after_seconds: remaining,
         })
     }
+    pub fn address_endpoint_check(&mut self, client: &str, path: &str, now: u64) -> Result<(), Refusal> {
+        let Some((key,limit,window)) = auth_endpoint_policy(path) else { return Ok(()); };
+        let owner = network_identity(client);
+        if self.address_endpoint_store.accept(&owner,key,limit,window,now,true) { return Ok(()); }
+        let remaining = self.address_endpoint_store.buckets.get(&(owner,key.into()))
+            .map_or(window,|bucket|bucket.expires_at.saturating_sub(now).max(1));
+        Err(Refusal { retry_after_seconds:remaining })
+    }
+
     /// Pre-auth evictions since start. A plain number: it names no client.
     pub fn preauth_evictions(&self) -> u64 {
         self.preauth_store.evictions
@@ -235,6 +251,9 @@ impl Phase2Limits {
         self.endpoint_check(user, path, now).is_ok()
     }
     pub fn endpoint_check(&mut self, user: &str, path: &str, now: u64) -> Result<(), Refusal> {
+        if auth_endpoint_policy(path).is_some() {
+            return self.address_endpoint_check(user,path,now);
+        }
         let Some((key, limit, window)) = endpoint_policy(path) else {
             return Ok(());
         };
