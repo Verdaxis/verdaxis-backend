@@ -11,8 +11,11 @@
 //! Runs against the seeded disposable market-contract database only; see
 //! `rs/read/tests/run_market_contract.sh`.
 
+#[path = "support/aggregate_identity.rs"]
+mod aggregate_identity;
 #[path = "support/opposing_equivalence.rs"]
 mod opposing_equivalence;
+use aggregate_identity::aggregate_identity_equivalence;
 
 use serde_json::Value;
 use sqlx::{PgConnection, Row};
@@ -174,6 +177,7 @@ async fn orderbook_aggregate_narrow_projection_keeps_every_group() {
     let clock = clock();
     let mut connection = pools.read.acquire().await.unwrap();
     let aggregate = include_str!("../sql/orderbook/aggregate.sql");
+    aggregate_identity_equivalence(&mut connection, &policy, &clock, &config).await;
     for gate in [true, false] {
         let mut config = config.clone();
         config.kyc_execution_gate_enabled = gate;
