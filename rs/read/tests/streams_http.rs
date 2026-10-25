@@ -42,6 +42,18 @@ fn app(streams: Option<Streams>) -> Router {
     routes().with_state(StreamsState::for_tests(config(), streams))
 }
 
+fn live() -> Router {
+    app(Some(Streams {
+        hub: Default::default(),
+        verification: VerificationSettings::new(
+            "test-secret-key-for-streams-minimum-32".into(),
+            None,
+            "verdaxis-test-api".into(),
+            "verdaxis-test-web".into(),
+        ),
+    }))
+}
+
 async fn send(router: &Router, request: Request<Body>) -> (StatusCode, Vec<(String, String)>, Vec<u8>) {
     use tower::ServiceExt;
     let response = router.clone().oneshot(request).await.unwrap();
