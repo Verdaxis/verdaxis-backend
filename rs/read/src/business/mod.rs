@@ -5,6 +5,7 @@ pub mod attention;
 pub mod audit;
 pub mod audit_query;
 pub mod error;
+pub mod invitations;
 pub mod joins;
 pub mod membership;
 pub mod organizations;
