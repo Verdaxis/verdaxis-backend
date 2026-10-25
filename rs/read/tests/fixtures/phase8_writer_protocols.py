@@ -9,7 +9,8 @@ def main():
     from sqlalchemy.engine import make_url
     url = make_url(os.environ["RUST_TEST_MIGRATOR_DATABASE_URL"])
     assert url.host == "127.0.0.1" and url.database.endswith("_test")
-    admin = url.set(drivername="postgresql+asyncpg", database="postgres")
+    admin = make_url(os.environ["POSTGRES_ADMIN_TEST_DATABASE_URL"]).set(drivername="postgresql+asyncpg", database="postgres")
+    assert admin.host == "127.0.0.1"
     target = url.set(drivername="postgresql+asyncpg", database="p89_protocol_market_integrity_test",username="rust_migrator")
     import asyncio
 

@@ -1,7 +1,6 @@
 //! Per-operation acquisition and locked admission. No serving route is enabled.
 #![cfg(feature = "contract-tests")]
 use verdaxis_read::market_contract::{admission, authority, error, locks};
-use verdaxis_read::{ApiError, ApiErrorKind};
 mod auth {
     pub use verdaxis_read::auth::*;
 }
@@ -574,9 +573,7 @@ mod maintenance_probe {
 #[cfg(feature = "contract-tests")]
 use authority::AuthenticatedActor;
 #[cfg(feature = "contract-tests")]
-use error::{MarketErrorCode, MarketWriteError};
-#[cfg(feature = "contract-tests")]
-use verdaxis_read::AppState;
+use error::MarketErrorCode;
 #[cfg(feature = "contract-tests")]
 use verdaxis_read::market_contract::transaction;
 
