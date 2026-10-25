@@ -1040,6 +1040,98 @@ fn p4_t15_c13() {
         serde_json::from_value(property_partial).unwrap();
     assert_eq!(property_partial.validate(), Ok(()));
 
+    // An unavailable window as the provider builds it — every core component
+    // and every allowed property unavailable with the same diagnostic — is
+    // coherent. The property components count toward the same rule.
+    let mut provider_unavailable = serde_json::to_value(&window).unwrap();
+    provider_unavailable["property_results"] = json!([{
+        "event": "visit",
+        "property": "ref",
+        "result": {
+            "status": "unavailable",
+            "diagnostic": "authentication",
+            "data": null,
+        }
+    }]);
+    let provider_unavailable: types::BehavioralWindow =
+        serde_json::from_value(provider_unavailable).unwrap();
+    assert_eq!(provider_unavailable.validate(), Ok(()));
+
+    // An unavailable property that carries data, or reports available, is
+    // incoherent in an unavailable window.
+    for bad in [
+        json!({
+            "status": "unavailable",
+            "diagnostic": "authentication",
+            "data": [],
+        }),
+        json!({
+            "status": "available",
+            "data": null,
+        }),
+    ] {
+        let mut fabricated = serde_json::to_value(&provider_unavailable).unwrap();
+        fabricated["property_results"][0]["result"] = bad;
+        let fabricated: types::BehavioralWindow =
+            serde_json::from_value(fabricated).unwrap();
+        assert_eq!(
+            fabricated.validate(),
+            Err(types::BehavioralWindowError::IncoherentAvailability)
+        );
+    }
+
+    // An available window refuses any property that is partial or
+    // unavailable, and accepts when every property is available.
+    let mut all_available = serde_json::to_value(&window).unwrap();
+    all_available["availability"] = json!("available");
+    for key in [
+        "core",
+        "event_totals",
+        "daily_visitors",
+        "event_series",
+        "top_entries",
+        "top_referrers",
+    ] {
+        all_available[key] = json!({
+            "status": "available",
+            "data": null,
+        });
+    }
+    all_available["property_results"] = json!([{
+        "event": "visit",
+        "property": "ref",
+        "result": {"status": "available", "data": []}
+    }]);
+    let all_available: types::BehavioralWindow =
+        serde_json::from_value(all_available).unwrap();
+    assert_eq!(all_available.validate(), Ok(()));
+    for bad in [
+        json!({"status": "partial", "diagnostic": "insufficient_coverage", "data": null}),
+        json!({"status": "unavailable", "diagnostic": "timeout", "data": null}),
+    ] {
+        let mut fabricated = serde_json::to_value(&all_available).unwrap();
+        fabricated["property_results"][0]["result"] = bad;
+        let fabricated: types::BehavioralWindow =
+            serde_json::from_value(fabricated).unwrap();
+        assert_eq!(
+            fabricated.validate(),
+            Err(types::BehavioralWindowError::IncoherentAvailability)
+        );
+    }
+
+    // The provider never marks a property not-requested: a requested pair is
+    // either available or unavailable. A not-requested property result is a
+    // contradiction, whatever the window claims.
+    let mut not_requested = serde_json::to_value(&all_available).unwrap();
+    not_requested["property_results"][0]["result"] =
+        json!({"status": "not_requested", "data": null});
+    let not_requested: types::BehavioralWindow =
+        serde_json::from_value(not_requested).unwrap();
+    assert_eq!(
+        not_requested.validate(),
+        Err(types::BehavioralWindowError::IncoherentAvailability)
+    );
+
     // A window that claims available while every component is unavailable is
     // equally rejected.
     let mut mislabelled = serde_json::to_value(&window).unwrap();
