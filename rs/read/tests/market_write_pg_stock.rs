@@ -1,35 +1,11 @@
 //! Caller-owned stock movements on an explicitly disposable PostgreSQL database.
 #![cfg(feature = "contract-tests")]
-#![allow(dead_code)]
-
-// Compile the real private boundary, without opening another production entry.
-#[path = "../src/order_write/authority.rs"]
-mod authority;
-#[path = "../src/order_write/command.rs"]
-mod command;
-#[path = "../src/order_write/decimal.rs"]
-mod decimal;
-#[path = "../src/order_write/error.rs"]
-mod error;
-#[path = "../src/order_write/expiry.rs"]
-mod expiry;
-#[path = "../src/order_write/locks.rs"]
-mod locks;
-#[path = "../src/order_write/transaction.rs"]
-mod transaction;
-
-pub use verdaxis_read::{ApiError, ApiErrorKind, AppState, auth, market};
+use verdaxis_read::market_contract::{MarketErrorCode, StockQuantity, stock_contract as stock};
 
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use sqlx::{Connection, PgConnection, Row};
 use uuid::Uuid;
-
-pub use authority::AuthenticatedActor;
-use decimal::StockQuantity;
-use error::MarketErrorCode;
-pub use error::MarketWriteError;
-use transaction::stock_contract as stock;
 
 fn d(value: &str) -> Decimal {
     Decimal::from_str_exact(value).unwrap()

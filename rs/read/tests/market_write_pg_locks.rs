@@ -1,23 +1,10 @@
 //! Per-operation acquisition and locked admission. No serving route is enabled.
-#[allow(dead_code)]
-#[path = "../src/order_write/authority.rs"]
-mod authority;
-#[allow(dead_code)]
-#[path = "../src/order_write/error.rs"]
-mod error;
-#[allow(dead_code)]
-#[path = "../src/order_write/locks.rs"]
-mod locks;
-use authority::admission;
-
+#![cfg(feature = "contract-tests")]
+use verdaxis_read::market_contract::{admission, authority, error, locks};
+use verdaxis_read::{ApiError, ApiErrorKind};
 mod auth {
     pub use verdaxis_read::auth::*;
 }
-mod market {
-    pub use verdaxis_read::market::windows;
-}
-pub use verdaxis_read::{ApiError, ApiErrorKind};
-
 use admission::{AdmissionClass, PartyRef};
 use authority::{ActorRole, TradeSide};
 use chrono::{Duration, Utc};
@@ -585,12 +572,7 @@ mod maintenance_probe {
 }
 
 #[cfg(feature = "contract-tests")]
-#[allow(dead_code)]
-#[path = "../src/order_write/command.rs"]
-mod command;
-#[cfg(feature = "contract-tests")]
-#[path = "../src/order_write/transaction.rs"]
-mod transaction;
+use verdaxis_read::market_contract::transaction;
 #[cfg(feature = "contract-tests")]
 use authority::AuthenticatedActor;
 #[cfg(feature = "contract-tests")]

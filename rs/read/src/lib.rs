@@ -192,3 +192,6 @@ pub fn verify_release(value: &str) -> Result<(), &'static str> {
         Err("release identity mismatch")
     }
 }
+
+#[cfg(feature = "contract-tests")]
+pub use order_write::test_contract as market_contract;

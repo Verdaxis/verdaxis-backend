@@ -1704,7 +1704,7 @@ pub(super) async fn inventory_replay_probe(
 }
 
 /// Typed market commands run only inside the sealed, organization-first owner.
-pub(super) trait MarketCommand: Send + Sync + 'static {
+pub trait MarketCommand: Send + Sync + 'static {
     type Output: Send + 'static;
     fn prepare_response(&self, _value: &Self::Output) -> Result<(), MarketAttemptError> {
         Ok(())
@@ -1731,12 +1731,12 @@ pub(super) trait MarketCommand: Send + Sync + 'static {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub(super) struct MarketPreview {
+pub struct MarketPreview {
     pub parties: super::locks::PartyLockPreview,
     pub locks: super::locks::OperationLockPlan,
 }
 
-pub(super) struct LockedMarketTransaction<'a> {
+pub struct LockedMarketTransaction<'a> {
     conn: &'a mut PgConnection,
     plan: &'a super::locks::OperationLockPlan,
     locked: &'a super::locks::Locked,
@@ -1764,7 +1764,7 @@ impl LockedMarketTransaction<'_> {
 }
 
 #[derive(Debug)]
-pub(super) enum MarketAttemptError {
+pub enum MarketAttemptError {
     Database(sqlx::Error),
     Refusal(super::MarketWriteError),
     PreviewChanged,
@@ -1803,7 +1803,7 @@ impl MarketAttemptError {
 
 /// Cancellation does not release the permit or connection while SQL still runs.
 /// Preview drift and genuine aborts rebuild discovery, at most twice.
-pub(super) async fn run_market_command<C: MarketCommand>(
+pub async fn run_market_command<C: MarketCommand>(
     pool: sqlx::PgPool,
     permits: Arc<Semaphore>,
     access: crate::auth::VerifiedAccess,
@@ -1942,13 +1942,13 @@ async fn market_attempt<C: MarketCommand>(
 
 #[cfg(feature = "contract-tests")]
 impl LockedMarketTransaction<'_> {
-    pub(super) async fn test_stage_effect(&mut self) -> Result<(), super::MarketWriteError> {
+    pub async fn test_stage_effect(&mut self) -> Result<(), super::MarketWriteError> {
         sqlx::query("UPDATE lock_effects SET value=value+1 WHERE id=1")
             .execute(&mut *self.conn)
             .await?;
         Ok(())
     }
-    pub(super) async fn test_server_abort(
+    pub async fn test_server_abort(
         &mut self,
         state: &str,
     ) -> Result<(), super::MarketWriteError> {
@@ -1968,7 +1968,7 @@ impl LockedMarketTransaction<'_> {
     }
 }
 #[cfg(feature = "contract-tests")]
-pub(super) async fn install_acquisition_abort(conn: &mut PgConnection, state: &str) {
+pub async fn install_acquisition_abort(conn: &mut PgConnection, state: &str) {
     let state = match state {
         "40001" => "40001",
         "40P01" => "40P01",
@@ -1987,7 +1987,7 @@ pub(super) async fn install_acquisition_abort(conn: &mut PgConnection, state: &s
 }
 
 #[cfg(feature = "contract-tests")]
-pub(super) async fn protocol_hold_key(conn: &mut PgConnection, key: i64) {
+pub async fn protocol_hold_key(conn: &mut PgConnection, key: i64) {
     use sqlx::Connection;
     let mut tx = conn.begin().await.unwrap();
     sqlx::query("SELECT pg_advisory_xact_lock($1)")
@@ -2008,7 +2008,7 @@ pub(super) async fn protocol_hold_key(conn: &mut PgConnection, key: i64) {
 }
 
 #[cfg(feature = "contract-tests")]
-pub(super) async fn protocol_preview(
+pub async fn protocol_preview(
     conn: &mut PgConnection,
 ) -> (Vec<Uuid>, Vec<Uuid>, Vec<Uuid>, Vec<super::locks::SliceKey>) {
     let organizations = sqlx::query_scalar("SELECT id FROM organizations ORDER BY id LIMIT 200")
@@ -2033,7 +2033,7 @@ pub(super) async fn protocol_preview(
 }
 
 #[cfg(feature = "contract-tests")]
-pub(super) async fn run_paused_market_probe(
+pub async fn run_paused_market_probe(
     pool: sqlx::PgPool,
     permits: Arc<Semaphore>,
     access: crate::auth::VerifiedAccess,

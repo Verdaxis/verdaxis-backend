@@ -53,3 +53,29 @@ pub use transaction::{
 
 #[cfg(feature = "contract-tests")]
 pub use transaction::contract::serve_contract;
+
+/// Feature-only access to the integrated transaction test ports.
+#[cfg(feature = "contract-tests")]
+pub mod test_contract {
+    pub use super::{MarketErrorCode, MarketWriteError, StockQuantity};
+    pub mod authority {
+        pub use super::super::authority::{ActorRole, AuthenticatedActor, TradeSide};
+    }
+    pub mod admission {
+        pub use super::super::authority::admission::*;
+    }
+    pub mod error {
+        pub use super::super::{MarketErrorCode, MarketWriteError};
+    }
+    pub mod locks {
+        pub use super::super::locks::*;
+    }
+    pub mod transaction {
+        pub use super::super::transaction::{
+            BoxFuture, LockedMarketTransaction, MarketAttemptError, MarketCommand, MarketPreview,
+            install_acquisition_abort, protocol_hold_key, protocol_preview, run_market_command,
+            run_paused_market_probe,
+        };
+    }
+    pub use super::transaction::stock_contract;
+}

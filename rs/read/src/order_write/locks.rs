@@ -568,7 +568,7 @@ impl Locked {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "contract-tests"))]
 pub fn lock_failure_for_test(state: &str, class: LockClass) -> MarketWriteError {
     MarketWriteError::lock_code_for_test(state, class == LockClass::Idempotency)
 }

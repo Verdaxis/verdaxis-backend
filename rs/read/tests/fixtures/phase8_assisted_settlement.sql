@@ -1,0 +1,5 @@
+UPDATE users SET status='APPROVED',email_verified=true,must_change_password=false,password_changed_at=NULL,authentication_revoked_at=NULL;
+UPDATE users SET role='ADMIN',organization_id=NULL WHERE id='00000000-0000-0000-0000-000000000002';
+UPDATE users SET role='SUPPLIER',organization_id='00000000-0000-0000-0000-000000000014' WHERE id='00000000-0000-0000-0000-000000000004';
+UPDATE orderbook_orders SET organization_id='00000000-0000-0000-0000-000000000014',owner_user_id='00000000-0000-0000-0000-000000000002',created_by_actor_user_id='00000000-0000-0000-0000-000000000002',creation_method='MARKET_SUPPORT',side='ASK' WHERE id='00000000-0000-0000-0000-00000000005a';
+UPDATE trades SET ask_order_id='00000000-0000-0000-0000-00000000005a' WHERE id='00000000-0000-0000-0000-00000000001e';
