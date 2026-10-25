@@ -15,6 +15,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -242,6 +243,10 @@ class RustReleaseFixture:
             "JWT_SECRET=" + "k" * 40 + "\n"
             "JWT_ISSUER=verdaxis-staging-api\n"
             "JWT_AUDIENCE=verdaxis-staging-web\n"
+            "FRONTEND_URL=https://staging.verdaxis.exchange\n"
+            "EMAIL_FROM=Verdaxis <noreply@verdaxis.exchange>\n"
+            "RESEND_API_KEY=re_fixture_key\n"
+            "OPENAI_API_KEY=sk-unrelated\n"
             "DATABASE_HOST=127.0.0.1\n"
             "DATABASE_PORT=5432\n"
             "DATABASE_NAME=verdaxis_staging\n"
@@ -489,8 +494,11 @@ exit 0
         environment = self.deploy_environment(self.old_sha)
         return environment
 
-    def deploy(self, release_sha: str, *, fail_phase: str = "", **overrides) -> subprocess.CompletedProcess[str]:
+    def deploy(self, release_sha: str, *, fail_phase: str = "", cache_listener: str | None = None, **overrides) -> subprocess.CompletedProcess[str]:
         self._write_deployed_env(release_sha)
+        if cache_listener is not None:
+            with (self.checkout / ".env").open("a") as environment_file:
+                environment_file.write(f"RUST_CACHE_LISTENER={cache_listener}\n")
         environment = self.deploy_environment(release_sha, fail_phase=fail_phase)
         environment.update(overrides)
         return subprocess.run(
@@ -514,6 +522,10 @@ exit 0
             "JWT_SECRET=" + "k" * 40 + "\n"
             "JWT_ISSUER=verdaxis-staging-api\n"
             "JWT_AUDIENCE=verdaxis-staging-web\n"
+            "FRONTEND_URL=https://staging.verdaxis.exchange\n"
+            "EMAIL_FROM=Verdaxis <noreply@verdaxis.exchange>\n"
+            "RESEND_API_KEY=re_fixture_key\n"
+            "OPENAI_API_KEY=sk-unrelated\n"
             "DATABASE_HOST=127.0.0.1\n"
             "DATABASE_PORT=5432\n"
             "DATABASE_NAME=verdaxis_staging\n"
@@ -527,13 +539,20 @@ exit 0
         return body if kyc_gate is None else body + f"KYC_EXECUTION_GATE_ENABLED={kyc_gate}\n"
 
     def prepare_runtime_environment(
-        self, release_sha: str, *, kyc_gate: str | None = "false"
+        self, release_sha: str, *, kyc_gate: str | None = "false",
+        previous: str | None = None, omit: str | None = None,
     ) -> Path:
         """Run the real Rust runtime preparation over the deployed `.env`."""
         environment_file = self.checkout / ".env"
-        environment_file.write_text(
-            self.deployed_env_text(release_sha, kyc_gate=kyc_gate)
-        )
+        body = self.deployed_env_text(release_sha, kyc_gate=kyc_gate)
+        if previous is not None:
+            body += f"JWT_SECRET_PREVIOUS={previous}\n"
+        if omit is not None:
+            body = "".join(
+                line for line in body.splitlines(keepends=True)
+                if not line.startswith(f"{omit}=")
+            )
+        environment_file.write_text(body)
         module = _load_preparer()
         result = module.prepare(
             environment_file,
@@ -910,6 +929,93 @@ def test_changed_budget_refuses_and_blocks(release_fixture):
     assert release_fixture.stopped_services() == set()
 
 
+def test_deploy_without_the_listener_key_keeps_the_budget_byte_identical(release_fixture):
+    """No key, or 0: the deployed artifact equals a flag-less preparation."""
+    for cache_listener in (None, "0"):
+        new_sha = release_fixture.push_rust_release(enabled=True)
+        release_fixture.build_artifact(new_sha)
+        result = release_fixture.deploy(new_sha, cache_listener=cache_listener)
+        assert result.returncode == 0, result.stderr
+        deployed = release_fixture.checkout / ".runtime-rust/budget.json"
+        with tempfile.TemporaryDirectory() as directory:
+            reference = Path(directory) / "reference-budget.json"
+            _budget_module().prepare(
+                release_fixture.checkout / ".env", new_sha, reference
+            )
+            assert deployed.read_bytes() == reference.read_bytes()
+        assert "cache_listener" not in json.loads(deployed.read_text())
+        assert "--cache-listener 0" in _budget_line(release_fixture.ledger)
+
+
+def test_deploy_with_the_listener_flag_budgets_the_dedicated_connection(release_fixture):
+    """`RUST_CACHE_LISTENER=1` carries `cache_listener: 1` and its connection."""
+    new_sha = release_fixture.push_rust_release(enabled=True)
+    release_fixture.build_artifact(new_sha)
+    result = release_fixture.deploy(new_sha, cache_listener="1")
+    assert result.returncode == 0, result.stderr
+    deployed = json.loads(
+        (release_fixture.checkout / ".runtime-rust/budget.json").read_text()
+    )
+    assert deployed["cache_listener"] == 1
+    with tempfile.TemporaryDirectory() as directory:
+        reference = Path(directory) / "reference-budget.json"
+        _budget_module().prepare(
+            release_fixture.checkout / ".env", new_sha, reference, 1
+        )
+        plain = Path(directory) / "plain-budget.json"
+        _budget_module().prepare(
+            release_fixture.checkout / ".env", new_sha, plain
+        )
+        assert deployed == json.loads(reference.read_text())
+        assert deployed["total"] == json.loads(plain.read_text())["total"] + 1
+    ledger = release_fixture.ledger
+    assert "--cache-listener 1" in _budget_line(ledger)
+    # The deploy's own drift recheck accepts the recorded listener choice.
+    assert any(
+        "--verify" in e for e in ledger if "prepare_rust_budget.py" in e
+    )
+
+
+@pytest.mark.parametrize("value", ["2", "yes", "true", ""])
+def test_deploy_refuses_an_invalid_listener_value_before_schema_change(
+    release_fixture, value
+):
+    """Any other value refuses before the migration checkpoint helper runs."""
+    new_sha = release_fixture.push_rust_release(enabled=True)
+    release_fixture.build_artifact(new_sha)
+    result = release_fixture.deploy(new_sha, cache_listener=value)
+    assert result.returncode != 0
+    assert "RUST_CACHE_LISTENER" in (result.stderr + result.stdout)
+    # The refusal happens at the budget step, before any schema change or
+    # service restart.
+    assert not any("apply_migration_checkpoint.py" in e for e in release_fixture.ledger)
+    assert not any(e.startswith("sudo:systemctl restart") for e in release_fixture.ledger)
+    # ...and leaves the deploy in the fail-closed blocked state.
+    assert "DEPLOYMENT_STATE=blocked" in release_fixture.state_text()
+    assert release_fixture.stopped_services() == set()
+
+
+def _budget_line(ledger: list[str]) -> str:
+    return next(e for e in ledger if "prepare_rust_budget.py" in e and "--verify" not in e)
+
+
+_BUDGET_MODULE = None
+
+
+def _budget_module():
+    """The one loaded instance, like `_load_preparer` above."""
+    global _BUDGET_MODULE
+    if _BUDGET_MODULE is None:
+        spec = importlib.util.spec_from_file_location(
+            "prepare_rust_budget", ROOT / "scripts" / "prepare_rust_budget.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(module)
+        _BUDGET_MODULE = module
+    return _BUDGET_MODULE
+
+
 def test_stale_authorization_does_not_authorize_a_unit_start(release_fixture):
     """A leftover restart-authorized state denies unit starts until cleared.
 
@@ -1105,6 +1211,12 @@ def test_runtime_environment_carries_only_the_projected_settings(release_fixture
         "DB_SESSION_TIME_ZONE",
         "READ_ADMISSION_SLOTS",
         "KYC_EXECUTION_GATE_ENABLED",
+        "JWT_SECRET",
+        "JWT_ISSUER",
+        "JWT_AUDIENCE",
+        "FRONTEND_URL",
+        "EMAIL_FROM",
+        "RESEND_API_KEY",
     }
     # The shipped fixture `.env` carries the Private Beta switch state, so the
     # projection is proven to follow the deployed file rather than a default.
@@ -1116,11 +1228,17 @@ def test_runtime_environment_carries_only_the_projected_settings(release_fixture
             'DATABASE_URL="postgresql://verdaxis_app_staging:fixture-password'
             '@127.0.0.1:5432/verdaxis_staging"',
             "DB_SESSION_TIME_ZONE=UTC",
+            'EMAIL_FROM="Verdaxis <noreply@verdaxis.exchange>"',
             "ENVIRONMENT=staging",
+            'FRONTEND_URL="https://staging.verdaxis.exchange"',
+            "JWT_AUDIENCE=verdaxis-staging-web",
+            "JWT_ISSUER=verdaxis-staging-api",
+            "JWT_SECRET=" + "k" * 40,
             "KYC_EXECUTION_GATE_ENABLED=false",
             f"MIGRATION_REVISION={MIGRATION_TARGET}",
             "READ_ADMISSION_SLOTS=16",
             f"RELEASE_SHA={new_sha}",
+            "RESEND_API_KEY=re_fixture_key",
         ]
     )
 
@@ -1144,6 +1262,146 @@ def test_runtime_environment_refuses_an_ambiguous_kyc_switch(release_fixture):
         release_fixture.prepare_runtime_environment(
             release_fixture.old_sha, kyc_gate="maybe"
         )
+
+
+def test_runtime_environment_projects_the_phase2_private_settings(release_fixture):
+    """Task 23: the six groups need one verification and invite authority."""
+    runtime_env = release_fixture.prepare_runtime_environment(
+        release_fixture.old_sha, previous="p" * 40
+    )
+    body = runtime_env.read_text()
+    for line in (
+        "JWT_SECRET=" + "k" * 40,
+        "JWT_SECRET_PREVIOUS=" + "p" * 40,
+        "JWT_ISSUER=verdaxis-staging-api",
+        "JWT_AUDIENCE=verdaxis-staging-web",
+        'FRONTEND_URL="https://staging.verdaxis.exchange"',
+        'EMAIL_FROM="Verdaxis <noreply@verdaxis.exchange>"',
+        "RESEND_API_KEY=re_fixture_key",
+    ):
+        assert line + "\n" in body
+    # The migrator and an unrelated provider key never reach the long-running
+    # process; only the invite provider is projected.
+    assert "MIGRATOR" not in body
+    assert "OPENAI_API_KEY" not in body
+    assert runtime_env.stat().st_mode & 0o777 == 0o600
+    assert runtime_env.stat().st_uid == os.geteuid()
+
+
+def test_runtime_environment_blank_previous_key_is_absent(release_fixture):
+    """No rotation in progress means no previous key, not an empty one."""
+    body = release_fixture.prepare_runtime_environment(
+        release_fixture.old_sha, previous="   "
+    ).read_text()
+    assert "JWT_SECRET_PREVIOUS" not in body
+
+
+def test_runtime_environment_refuses_a_missing_or_short_phase2_key(release_fixture):
+    module = _load_preparer()
+    with pytest.raises(module.RustRuntimeError, match="RESEND_API_KEY") as error:
+        release_fixture.prepare_runtime_environment(
+            release_fixture.old_sha, omit="RESEND_API_KEY"
+        )
+    # The refusal names the key, never its value.
+    assert "re_fixture_key" not in str(error.value)
+    with pytest.raises(module.RustRuntimeError, match="JWT_SECRET_PREVIOUS"):
+        release_fixture.prepare_runtime_environment(
+            release_fixture.old_sha, previous="p" * 20
+        )
+
+
+def test_phase2_projection_refuses_a_partial_or_unusable_value():
+    """"all or nothing" and URL/secret checks live in the projection itself."""
+    module = _load_preparer()
+    values = {
+        "JWT_SECRET": "k" * 40,
+        "JWT_ISSUER": "verdaxis-staging-api",
+        "JWT_AUDIENCE": "verdaxis-staging-web",
+        "FRONTEND_URL": "https://staging.verdaxis.exchange",
+        "EMAIL_FROM": "Verdaxis <noreply@verdaxis.exchange>",
+        "RESEND_API_KEY": "re_fixture_key",
+    }
+    assert set(module.phase2_settings(values)) == set(module.PHASE2_REQUIRED_KEYS)
+    for key in module.PHASE2_REQUIRED_KEYS:
+        broken = dict(values)
+        broken.pop(key)
+        with pytest.raises(module.RustRuntimeError, match=key):
+            module.phase2_settings(broken)
+    for url in ("", "staging.verdaxis.exchange", "ftp://example.test", "https://a b"):
+        with pytest.raises(module.RustRuntimeError, match="FRONTEND_URL"):
+            module.phase2_settings({**values, "FRONTEND_URL": url})
+    with pytest.raises(module.RustRuntimeError, match="at least 32"):
+        module.phase2_settings({**values, "JWT_SECRET": "short"})
+
+
+def test_runtime_environment_never_projects_the_watchlist_activation(tmp_path):
+    """PD5: only the release metadata records the watchlist producer activation.
+
+    A value in the deployed `.env` is not release metadata, so the private
+    runtime file never carries it and Rust cannot read it from there.
+    """
+    module = _load_preparer()
+    release_sha = "a" * 40
+    environment_file = tmp_path / ".env"
+    environment_file.write_text(
+        f"ENVIRONMENT=staging\nRELEASE_SHA={release_sha}\n"
+        "DATABASE_URL=postgresql+asyncpg://verdaxis_app_staging:fixture-secret"
+        "@127.0.0.1:5432/verdaxis_staging\n"
+        "JWT_SECRET=" + "k" * 40 + "\n"
+        "JWT_ISSUER=verdaxis-staging-api\n"
+        "JWT_AUDIENCE=verdaxis-staging-web\n"
+        "FRONTEND_URL=https://staging.verdaxis.exchange\n"
+        "EMAIL_FROM=Verdaxis <noreply@verdaxis.exchange>\n"
+        "RESEND_API_KEY=re_fixture_key\n"
+        "WATCHLIST_PRODUCER_ACTIVATED_AT=2026-11-01T00:00:00+00:00\n"
+    )
+    result = module.prepare(
+        environment_file, release_sha, tmp_path / "runtime", ROOT, MIGRATION_TARGET
+    )
+    assert "WATCHLIST_PRODUCER_ACTIVATED_AT" not in result["runtime_env"].read_text()
+
+
+def test_runtime_environment_preserves_quoted_secret_bytes(tmp_path):
+    module = _load_preparer()
+    values = {
+        "JWT_SECRET": '  current\\key"' + "k" * 40 + "  ",
+        "JWT_SECRET_PREVIOUS": ' previous\\key"' + "p" * 40 + " ",
+        "JWT_ISSUER": " issuer ",
+        "JWT_AUDIENCE": " audience ",
+        "FRONTEND_URL": "https://example.test/path/",
+        "EMAIL_FROM": '"Verdaxis Support" <sender@example.test>',
+        "RESEND_API_KEY": "re_fixture_key",
+    }
+    projected = module.phase2_settings(values)
+    assert projected == values
+    body = module.write_env_file(tmp_path / "runtime", projected).read_text()
+    for key, value in values.items():
+        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+        assert f'{key}="{escaped}"\n' in body or f"{key}={value}\n" in body
+
+
+@pytest.mark.parametrize("boundary", ["source", "directory", "target"])
+def test_runtime_environment_refuses_symlink_boundaries(tmp_path, boundary):
+    module = _load_preparer()
+    source = tmp_path / "source.env"
+    source.write_text("do not read through a link")
+    output = tmp_path / "runtime"
+    output.mkdir()
+    if boundary == "source":
+        link = tmp_path / "linked.env"
+        link.symlink_to(source)
+        with pytest.raises(module.RustRuntimeError, match="regular file"):
+            module.read_regular(link)
+    elif boundary == "directory":
+        link = tmp_path / "linked-runtime"
+        link.symlink_to(output, target_is_directory=True)
+        with pytest.raises(module.RustRuntimeError, match="real directory"):
+            module.write_env_file(link, {"JWT_SECRET": "k" * 40})
+    else:
+        (output / "runtime.env").symlink_to(source)
+        with pytest.raises(module.RustRuntimeError, match="symlink"):
+            module.write_env_file(output, {"JWT_SECRET": "k" * 40})
+    assert source.read_text() == "do not read through a link"
 
 
 def test_no_rust_unit_manifest_entry_disables_rust_even_if_policy_enabled(release_fixture):

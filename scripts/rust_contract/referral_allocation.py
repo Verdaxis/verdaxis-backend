@@ -10,6 +10,7 @@ from scripts.rust_contract.phase2_referrals import headers as base_headers
 from scripts.rust_contract.phase2_referrals import servers as base_servers
 from scripts.rust_contract.phase2_scenarios import Action, Race, Scenario
 from scripts.rust_contract.phase2_seed import connect
+from scripts.rust_contract.phase2_state import expect_cache_invalidations
 
 IDS = [f'20000000-0000-4000-8000-{i:012d}' for i in range(101, 109)]
 CODES = {IDS[0]: ['VDX-TAKEN1'] * 10, IDS[1]: ['VDX-TAKEN1'] * 9 + ['VDX-FREE01'],
@@ -60,9 +61,12 @@ def assert_cache_change(expected, after, count):
 
 def only_code(before, after, response, mail):
     expected = copy.deepcopy(before)
+    changed = 0
     for key, row in expected['users']['rows'].items():
-        row['referral_code'] = after['users']['rows'][key]['referral_code']
-    assert_cache_change(expected, after, int(response["status"] == 200))
+        code = after['users']['rows'][key]['referral_code']
+        changed += row['referral_code'] != code
+        row['referral_code'] = code
+    expect_cache_invalidations(expected, changed)
     assert expected == after
     assert not mail
 
@@ -93,7 +97,7 @@ def races(context):
                 from contextlib import ExitStack
                 with ExitStack() as stack:
                     gates = [(database, stack.enter_context(connect(port,database,autocommit=True)))
-                             for database in ('phase2_route_0_python_test','phase2_route_0_rust_test')]
+                             for database in context.race_databases]
                     keys = [78000+int(actor[-3:]) for actor in (first,second)]
                     for database, gate in gates:
                         if collision:
@@ -122,10 +126,7 @@ def races(context):
     for first, second, collision in [(IDS[2],IDS[2],False),(IDS[3],IDS[4],True),(IDS[5],IDS[5],False),(IDS[6],IDS[7],True)]:
         thread = schedule(first,second,collision)
         def invariant(before,after,results):
-            expected = copy.deepcopy(before)
-            for key,row in expected['users']['rows'].items(): row['referral_code']=after['users']['rows'][key]['referral_code']
-            assert_cache_change(expected, after, 1)
-            assert expected == after
+            only_code(before, after, None, [])
             assert not errors, errors
         yield Race((Action('first','R01','POST','/api/referrals/my-code',200,headers=auth(first),actor_id=first),
                     Action('second','R01','POST','/api/referrals/my-code',500 if collision else 200,headers=auth(second),actor_id=second)),invariant,repeats=1)

@@ -58,7 +58,8 @@ def test_created_route_databases_follow_runtime_test_target_grammar(monkeypatch)
     class StopBeforeServers(Exception):
         pass
 
-    def stop(_context):
+    def stop(context):
+        assert context.race_databases == ("phase2_route_0_python_test", "phase2_route_0_rust_test")
         raise StopBeforeServers
 
     monkeypatch.setattr(phase2_routes, "connect", lambda *_args, **_kwargs: Connection())
@@ -417,3 +418,72 @@ def test_loopback_mail_records_failures_and_closes():
             assert response.status == 201
         assert len(stub.ledger("python")) == 2
     assert not stub.thread.is_alive()
+
+
+def test_group_wide_race_run_skips_scenarios_without_schedules():
+    """The plan runs every group with races; only scheduled scenarios race."""
+    from types import SimpleNamespace
+
+    from scripts.rust_contract import phase2_routes
+
+    racing = SimpleNamespace(name="racing", races=lambda _context: [])
+    plain = SimpleNamespace(name="plain", races=None)
+    selected, skipped = phase2_routes.race_selection([racing, plain], True)
+    assert selected == [racing]
+    assert skipped == ["plain"]
+    assert phase2_routes.race_selection([racing, plain], False) == ([], [])
+    with pytest.raises(phase2_routes.ScenarioError, match="no race schedules"):
+        phase2_routes.race_selection([plain], True)
+
+
+def test_race_selection_is_decided_before_the_database_starts(monkeypatch):
+    from types import SimpleNamespace
+
+    from scripts.rust_contract import phase2_routes, run_disposable
+
+    def refuse(_selected, _enabled):
+        raise phase2_routes.ScenarioError("selected scenarios register no race schedules")
+
+    monkeypatch.setattr(phase2_routes, "race_selection", refuse)
+    runner = SimpleNamespace(start_database=lambda: pytest.fail("database started before race selection"))
+    scenario = SimpleNamespace(name="plain", races=None)
+    with pytest.raises(phase2_routes.ScenarioError, match="no race schedules"):
+        phase2_routes.run_registered(runner, SimpleNamespace(phase2_races=True), [scenario])
+
+
+def test_watchlist_event_fixture_payloads_use_only_schema_enum_values(monkeypatch):
+    """A stored payload the real writer cannot produce would not be a contract.
+
+    The W07 read projects every stored payload through the schema enums, and
+    Python rejects an unknown value where Rust coerces to the default, so a
+    fixture spelling outside the enum would fake a stack difference.
+    """
+    from types import SimpleNamespace
+
+    from app.schemas.market_activity import (
+        MarketDemoStatus,
+        MarketScope,
+        MarketSourceKind,
+    )
+    from scripts.rust_contract import phase2_watchlist_activity
+    from scripts.rust_contract.phase2_sizes import profile as size_profile
+
+    source_kinds = {member.value for member in MarketSourceKind}
+    scopes = {member.value for member in MarketScope}
+    demo_statuses = {member.value for member in MarketDemoStatus}
+
+    # Collect every event payload the activity schedule's setup and volume
+    # hooks insert, by standing in for the shared `insert_event` helper.
+    payloads = []
+    monkeypatch.setattr(
+        phase2_watchlist_activity, "insert_event",
+        lambda _connection, _event_id, _container, _target, _type, payload, *_rest: payloads.append(payload))
+    connection = SimpleNamespace(execute=lambda *_args, **_kwargs: None)
+    scenario = phase2_watchlist_activity.scenario()
+    scenario.setup(connection)
+    scenario.volume(connection, size_profile("large"))
+    assert payloads, "no watchlist event payload collected"
+    for payload in payloads:
+        assert payload.get("source_kind") in source_kinds, payload
+        assert payload.get("scope") in scopes, payload
+        assert payload.get("demo_status") in demo_statuses, payload

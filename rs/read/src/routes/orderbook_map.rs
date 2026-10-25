@@ -49,7 +49,7 @@ pub fn product_counts(codes: &[String], rows: &[(String, u64)]) -> BTreeMap<Stri
     counts
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct Filters {
     product: Option<Uuid>,
     point: Option<Uuid>,
@@ -594,10 +594,12 @@ async fn distinct(state: AppState, field: &'static str) -> ApiResult {
         None,
         move |connection| {
             Box::pin(async move {
-                let sql = order_query_sql_projected(
-                    include_str!("../../sql/orderbook/distinct.sql"),
-                    DISTINCT_PROJECTION,
-                );
+                let tail = match field {
+                    "products" => include_str!("../../sql/orderbook/distinct_products.sql"),
+                    "fuel-types" => include_str!("../../sql/orderbook/distinct_fuel_types.sql"),
+                    _ => include_str!("../../sql/orderbook/distinct.sql"),
+                };
+                let sql = order_query_sql_projected(tail, DISTINCT_PROJECTION);
                 let path = format!("/api/orderbook/{field}");
                 let mut tx = map_transaction(connection, &path).await?;
                 let rows = bind_order_query(
@@ -608,7 +610,6 @@ async fn distinct(state: AppState, field: &'static str) -> ApiResult {
                     &PublicOrderFilters::default(),
                 )
                 .map_err(|error| query_error(&path, &error))?
-                .bind(field)
                 .fetch_all(&mut *tx)
                 .await
                 .map_err(|error| query_error(&path, &error))?;

@@ -107,6 +107,7 @@ pub async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         pool_max: 17,
         python_budget: 52,
         configured_max_connections: 100,
+        phase2: Default::default(),
     };
     // The shared runner names its clones phase2_route_N_{python,rust,mixed},
     // not *_test, so the deployed config connector correctly refuses them.
@@ -133,19 +134,9 @@ pub async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     let pools = crate::runtime::db::Pools { read: pool, health };
     let policy: MarketPolicy =
         serde_json::from_str(include_str!("../../../../deploy/rust/market-policy.json"))?;
-    let policy_identity = crate::market::cache_dependencies::policy_identity(&config, &policy);
-    let state = AppState {
-        policy_identity,
-        trading_caches: Arc::new(crate::runtime::cache::TradingCaches::default()),
-        trading_cache: None,
-        public_trading_cache: Arc::new(crate::runtime::cache::TradingCache::default()),
-        trading_read_observer: Arc::new(crate::runtime::admission::RealtimeTradingRead),
-        config: Arc::new(config),
-        pools,
-        policy: Arc::new(policy),
-        reads: Arc::new(tokio::sync::Semaphore::new(16)),
-        reference_cache: Arc::new(crate::runtime::cache::ReferenceCache::default()),
-    };
+    // The contract harness serves one group and does not project Phase 2, so
+    // the default options leave `phase2` as `None`.
+    let state = AppState::new(config, pools, policy)?;
     let app = super::router(
         state,
         crate::auth::VerificationSettings::new(

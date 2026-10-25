@@ -56,6 +56,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         pool_max: 5,
         python_budget: 20,
         configured_max_connections: 100,
+        phase2: Default::default(),
     };
     let pools = verdaxis_read::connect(&config)
         .await

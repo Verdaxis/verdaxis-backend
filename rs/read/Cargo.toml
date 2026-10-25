@@ -40,6 +40,10 @@ required-features = ["contract-tests"]
 name = "phase3_auth"
 required-features = ["contract-tests"]
 
+[[example]]
+name = "preauth_server"
+required-features = ["contract-tests"]
+
 [features]
 contract-tests = []
 

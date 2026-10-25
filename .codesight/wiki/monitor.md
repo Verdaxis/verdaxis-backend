@@ -2,11 +2,11 @@
 
 > **Navigation aid.** Route list and file locations extracted via AST. Read the source files listed below before implementing or modifying this subsystem.
 
-The Monitor subsystem handles **1 routes** and touches: auth, db.
+The Monitor subsystem handles **1 routes** and touches: db.
 
 ## Routes
 
-- `POST` `/signup-canary-cleanup` → in: CanaryCleanupRequest, out: CanaryCleanupResponse [auth, db]
+- `POST` `/signup-canary-cleanup` → in: CanaryCleanupRequest, out: CanaryCleanupResponse [db]
   `app/routers/monitor.py`
 
 ## Source Files

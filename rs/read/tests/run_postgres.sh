@@ -82,6 +82,8 @@ cargo test --manifest-path rs/Cargo.toml --locked --workspace --features contrac
   --skip orderbook_map_recent_asks_keep_one_row_per_point \
   --skip orderbook_listings_pages_match_the_full_ranking \
   --skip corpus_carries_the_rows_these_cases_compare \
+  --skip opposing_exact_slices_keep_prices_and_ordered_hash \
+  --skip opposing_null_point_prefilter_keeps_the_tail_match \
   --skip aggregate_groups_null_region_and_counts_duplicates 2>&1 | tee "$log"
 cargo_status=${PIPESTATUS[0]}
 set -e

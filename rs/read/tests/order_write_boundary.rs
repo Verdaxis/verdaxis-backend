@@ -315,6 +315,12 @@ fn repository_root() -> PathBuf {
         .expect("repository root")
 }
 
+/// The one integration test that commits an order-book change as the disposable
+/// owner role, to prove a stale generation invalidates a warm cache entry. It
+/// must simulate another writer's change, so it cannot drive the command
+/// boundary; a release build never compiles it.
+const ORDER_BOOK_TEST_WRITER: &str = "rs/read/tests/trading_cache_postgres.rs";
+
 /// Every source-boundary violation in the repository, as `path: rule` text.
 /// The one integration test that commits an order-book change as the disposable
 /// owner role, to prove a stale generation replaces a warm cache entry. It
@@ -385,15 +391,14 @@ fn scan_repository() -> Vec<String> {
                 }
                 continue;
             }
-            // The disposable cache fixture advances committed rows to prove
-            // invalidation. It is not an application command entry point, and
-            // only its two reviewed statements are accepted (CACHE-FIXTURE).
-            let reviewed_test_write = path == &order_book_test_writer
-                && reviewed_order_book_test_writes().contains(&literal);
-            if let Some(rule) = orderbook_dml(&literal)
-                && !reviewed_test_write
-            {
-                violations.push(format!("{}: {rule}", path.display()));
+            if let Some(rule) = orderbook_dml(&literal) {
+                let reviewed_test_write = path == &order_book_test_writer
+                    && reviewed_order_book_test_writes()
+                        .iter()
+                        .any(|(statement, _)| statement == &literal);
+                if !reviewed_test_write {
+                    violations.push(format!("{}: {rule}", path.display()));
+                }
             }
             if orderbook_row_lock(&literal) {
                 violations.push(format!("{}: order-book row FOR UPDATE", path.display()));
@@ -443,6 +448,49 @@ fn scan_repository() -> Vec<String> {
         }
     }
     violations
+}
+
+#[test]
+fn the_cache_exception_covers_only_its_reviewed_writes() {
+    // The excepted file carries exactly the reviewed statements. A new
+    // order-book INSERT, DELETE, TRUNCATE or different UPDATE fails here
+    // before the scan can silently accept it.
+    let root = repository_root();
+    let text = std::fs::read_to_string(root.join(ORDER_BOOK_TEST_WRITER))
+        .expect("the exempted integration test must exist");
+    let found: Vec<String> = literal_ranges(&text)
+        .into_iter()
+        .map(|(start, end)| normalized(&text[start..end]))
+        .filter(|literal| orderbook_dml(literal).is_some())
+        .collect();
+    let reviewed = reviewed_order_book_test_writes();
+    let reviewed_uses: usize = reviewed.iter().map(|(_, uses)| uses).sum();
+    assert_eq!(
+        found.len(),
+        reviewed_uses,
+        "unreviewed order-book DML in the exempted file: {found:?}"
+    );
+    // With the total equal, matching each statement's count leaves no room
+    // for an unreviewed statement.
+    for (statement, uses) in &reviewed {
+        let actual = found.iter().filter(|literal| *literal == statement).count();
+        assert_eq!(
+            actual, *uses,
+            "reviewed statement used {actual} times: {statement}"
+        );
+    }
+}
+
+/// The one DML exception is an integration test target, never release source.
+#[test]
+fn the_dml_exception_is_an_integration_test() {
+    // Test-only: no release source, example or other test may be exempt.
+    assert!(ORDER_BOOK_TEST_WRITER.starts_with("rs/read/tests/"));
+    let root = repository_root();
+    assert!(
+        root.join(ORDER_BOOK_TEST_WRITER).exists(),
+        "the excepted fixture must exist"
+    );
 }
 
 #[test]

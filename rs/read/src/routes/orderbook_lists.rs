@@ -7,7 +7,8 @@ use crate::market::{
     live_benchmarks::LiveBenchmarkCache,
     order_projection::PublicOrder,
     visibility::{
-        OrderSurface, PublicOrderFilters, VisibilityClock, bind_order_query, order_query_sql,
+        OrderSurface, PublicOrderFilters, VisibilityClock, bind_order_query,
+        opposing_order_query_sql, order_query_sql,
     },
     windows::normalize_window,
 };
@@ -92,6 +93,7 @@ impl Surface {
         matches!(self, Self::Bids | Self::Asks)
     }
 }
+#[derive(Clone)]
 struct ListQuery {
     product: Option<Uuid>,
     point: Option<Uuid>,
@@ -381,7 +383,7 @@ async fn load_list(
     // toggle. Restrict to the page's exact slices and provenance in one batch.
     let opposing = if surface.paginated() && !orders.is_empty() {
         let keys: Vec<_> = orders.iter().map(crossing_key).collect();
-        let sql = order_query_sql(include_str!("../../sql/orderbook/opposing.sql"));
+        let sql = opposing_order_query_sql();
         let filters = PublicOrderFilters {
             surface: OrderSurface::Orderbook,
             side: Some(if surface == Surface::Bids {

@@ -267,6 +267,7 @@ async fn harness() -> Option<Harness> {
         pool_max: 17,
         python_budget: 52,
         configured_max_connections: 100,
+        phase2: Default::default(),
     };
     verdaxis_read::validate_config(&config).expect("valid disposable configuration");
     let pools = verdaxis_read::connect(&config)

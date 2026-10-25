@@ -216,8 +216,9 @@ async fn send_invite(
     let sender = settings.email_from.clone();
     let prepared = run_authenticated(&state, access, request, move |transaction| {
         Box::pin(async move {
-            let recipient =
-                validate_and_admit(body, &admission, |body| invite::normalize_email(&body))?;
+            let recipient = validate_and_admit(body, &admission, transaction.actor().id, |body| {
+                invite::normalize_email(&body)
+            })?;
             let actor = transaction.actor().clone();
             let (email, first, last): (String, Option<String>, Option<String>) =
                 sqlx::query_as("SELECT email,first_name,last_name FROM users WHERE id=$1")

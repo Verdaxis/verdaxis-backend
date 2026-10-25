@@ -302,6 +302,7 @@ fn test_config(database_url: String) -> Config {
         pool_max: 5,
         python_budget: 20,
         configured_max_connections: 100,
+        phase2: Default::default(),
     }
 }
 

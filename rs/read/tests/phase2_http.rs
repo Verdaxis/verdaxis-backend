@@ -83,6 +83,127 @@ async fn split_upstreams_share_one_pre_auth_authority() {
     );
 }
 
+#[tokio::test]
+async fn admin_authority_charges_once_and_marks_the_admitted_request() {
+    use axum::routing::get;
+    use verdaxis_read::auth::limits::SharedLimits;
+    use verdaxis_read::runtime::http::{PREAUTH_COUNTED_HEADER, PREAUTH_PATH};
+    let authority = SharedLimits::default();
+    let app = verdaxis_read::runtime::http::middleware_with_limits(
+        Router::new().route("/api/admin/feedback", get(|| async { "rust-owned" })),
+        authority,
+    );
+    for _ in 0..300 {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(PREAUTH_PATH)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 204);
+        assert_eq!(response.headers()[PREAUTH_COUNTED_HEADER], "1");
+    }
+    let refused = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(PREAUTH_PATH)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(refused.status(), 429);
+    assert_eq!(refused.headers()["retry-after"], "60");
+    let body = to_bytes(refused.into_body(), 4096).await.unwrap();
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
+        serde_json::json!({"detail": {"code": "RATE_LIMITED", "message": "Rate limit exceeded"}})
+    );
+    // The owning route trusts the mark: charging again would halve the limit.
+    let marked = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/admin/feedback")
+                .header(PREAUTH_COUNTED_HEADER, "1")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(marked.status(), 200);
+    // An unmarked request is charged and the exhausted window refuses it.
+    let unmarked = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/admin/feedback")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(unmarked.status(), 429);
+}
+
+#[tokio::test]
+async fn only_the_get_authority_and_the_exact_mark_change_admission() {
+    use axum::routing::get;
+    use verdaxis_read::auth::limits::SharedLimits;
+    use verdaxis_read::runtime::http::{PREAUTH_COUNTED_HEADER, PREAUTH_PATH};
+    let authority = SharedLimits::default();
+    let app = verdaxis_read::runtime::http::middleware_with_limits(
+        Router::new().route("/api/admin/feedback", get(|| async { "rust-owned" })),
+        authority,
+    );
+    // A POST to the authority path is not the authority: it is not counted,
+    // not marked, and finds no route.
+    let post = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(PREAUTH_PATH)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(post.status(), 404);
+    assert!(post.headers().get(PREAUTH_COUNTED_HEADER).is_none());
+    for _ in 0..300 {
+        assert_eq!(
+            app.clone()
+                .oneshot(
+                    Request::builder()
+                        .uri(PREAUTH_PATH)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap()
+                .status(),
+            204
+        );
+    }
+    // Only the exact value "1" marks a counted request.
+    let impostor = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/admin/feedback")
+                .header(PREAUTH_COUNTED_HEADER, "0")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(impostor.status(), 429);
+}
+
 #[test]
 fn invalid_authentication_does_not_consume_endpoint_quota_and_floor_is_bounded() {
     use verdaxis_read::auth::limits::{SharedLimits, sample_floor};
@@ -137,7 +258,7 @@ async fn request_pipeline_enforces_syntax_auth_validation_quota_order() {
         let calls = calls.clone();
         let result=admit_request(raw.as_bytes(), &context, move || async move {
             calls.fetch_add(1,Ordering::SeqCst);
-            if authenticated {Ok(())}else{Err(verdaxis_read::auth::AuthError::Credentials)}
+            if authenticated {Ok(uuid::Uuid::nil())}else{Err(verdaxis_read::auth::AuthError::Credentials)}
         }, |body| {
             if body.get("message").and_then(serde_json::Value::as_str).is_some() {Ok(body)} else {
                 Err(verdaxis_read::ApiError { status:axum::http::StatusCode::UNPROCESSABLE_ENTITY,
@@ -154,15 +275,41 @@ async fn request_pipeline_enforces_syntax_auth_validation_quota_order() {
     );
     for _ in 0..5 {
         assert!(
-            admit_request(b"{\"message\":\"ok\"}", &context, || async { Ok(()) }, Ok)
-                .await
-                .is_ok()
+            admit_request(
+                b"{\"message\":\"ok\"}",
+                &context,
+                || async { Ok(uuid::Uuid::nil()) },
+                Ok
+            )
+            .await
+            .is_ok()
         );
     }
-    let rejected = admit_request(b"{\"message\":\"ok\"}", &context, || async { Ok(()) }, Ok)
-        .await
-        .unwrap_err();
+    let rejected = admit_request(
+        b"{\"message\":\"ok\"}",
+        &context,
+        || async { Ok(uuid::Uuid::nil()) },
+        Ok,
+    )
+    .await
+    .unwrap_err();
     assert_eq!(rejected.status(), 429);
+    let moved = RequestAdmission {
+        client: "different-address".into(),
+        ..context
+    };
+    assert_eq!(
+        admit_request(b"{}", &moved, || async { Ok(uuid::Uuid::nil()) }, Ok)
+            .await
+            .unwrap_err()
+            .status(),
+        429
+    );
+    assert!(
+        admit_request(b"{}", &moved, || async { Ok(uuid::Uuid::from_u128(1)) }, Ok)
+            .await
+            .is_ok()
+    );
 }
 
 #[tokio::test]
@@ -194,7 +341,7 @@ async fn admission_order_is_observed_through_http_and_early_cors() {
                     &context,
                     || async move {
                         if authorized {
-                            Ok(())
+                            Ok(uuid::Uuid::nil())
                         } else {
                             Err(verdaxis_read::auth::AuthError::Credentials)
                         }

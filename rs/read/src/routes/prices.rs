@@ -116,7 +116,7 @@ pub(crate) fn uuid(raw: &str, name: &str) -> Result<Option<Uuid>, ApiError> {
         _ => Err(ApiError::internal()),
     }
 }
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct PriceFilters {
     product: Option<Uuid>,
     point: Option<Uuid>,

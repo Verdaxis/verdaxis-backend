@@ -28,9 +28,25 @@ validation vectors and scenario definitions. `feedback_scenario.py` registers
 31 real-route twin-database actions with full committed-state, rollback,
 postcommit no-replay and empty-mail-ledger assertions. The feature-gated
 `feedback_contract` example and Python test adapter control IDs and clocks without
-changing deployed settings. These routers are
-not activated in the serving binary. Feedback stays on Python at cutover until
-Task 22 provides the shared Python–Rust quota counter across real processes.
+changing deployed settings. Runtime composition now mounts the 25 non-legacy
+Phase 2 operations when `runtime/phase2.rs` accepts the private verification and
+invite settings. W09/W10 remain Python-owned. `deploy/caddy/rust-crud.caddy`
+selects each of six groups independently and uses Python as its fallback.
+Before the admin route split, Caddy calls Rust's single pre-auth authority;
+external quota marks are removed and only CORS preflights bypass counting. An
+owner is reached only after the authority answers 204 with its admission mark;
+an unmarked success is refused. Group proxies forward the trusted client
+address, and a group on Python uses the site's fallback without passive-health
+quarantine. Quota lives in two independent stores, each capped at 50,000
+buckets. The pre-auth store is keyed by the trusted client address, with IPv4
+kept per address and IPv6 grouped to its /64; authenticated endpoint quotas are
+keyed by verified user ID, never by address, so an unauthenticated flood cannot
+spend them. A full pre-auth store evicts its soonest-expiring bucket and counts
+the eviction in a number-only counter instead of refusing the new client.
+Buckets expire on their own windows; refusals use `RATE_LIMITED` with
+`Retry-After`. The operator order and rollback are in
+`docs/rust-phase2/release-runbook.md`. Actual cutover remains unapproved until
+the separate Task 24 operator window.
 
 
 ## Rust Phase 3 auth storage and lock primitives
@@ -119,6 +135,22 @@ advisory lock after the authenticated user lock and before counting, admitting
 one create and refusing the other with the existing 403, leaving five active rows.
 No organization row lock, Python change, or runtime ACL grant is required. Evidence is in `docs/rust-phase2/task16-handoff.md`.
 Coverage requirements are data in `tests/rust_contract/phase2/alerts-scenarios.json`.
+
+## Rust Phase 2 watchlist feed and read state
+
+Task 15 adds `rs/read/src/crud/watchlists/events.rs` for W07 and W08. The feed
+pages by `(created_at DESC, id DESC)` with a cursor of RFC 3339 UTC plus the
+event id, and applies the PD4-G guard in SQL before `LIMIT`: best-price events
+and events whose payload names an order outside the full public order scope are
+hidden, and a PIN target must name a public order. Acknowledgement commits
+`is_read` only when the row is still unread and refuses a guarded event before
+any write. The feed, the read state and the container counts read a payload's
+source order through one SQL expression, and a response names only that order.
+Python remains the event producer; the trusted Rust producer is a design
+proposal in `docs/rust-phase2-task15-producer-design.md`. The serving router
+takes the producer activation (PD5) only from the release metadata key
+`WATCHLIST_PRODUCER_ACTIVATED_AT`; no Phase 2 release records one, and
+`rs/read/tests/watchlist_activation_source.rs` refuses a clock or default there.
 
 ## Rust Phase 2 referral routes
 
@@ -242,6 +274,13 @@ digest input remains separate. `market/map_decimal.rs` preserves exact aggregate
 arithmetic, and `market/listing_terms.rs` retains compatibility schema ordering.
 R18/R26 use decision 23's created-time/UUID descending pagination in both languages.
 All projections apply shared eligibility before sorting, grouping and pagination.
+BID/ASK opposing prices use `visibility::opposing_order_query_sql` to restrict
+base orders to the page's exact product/point/window/provenance keys before
+shared admission. The final opposing key join and numeric price aggregate stay
+unchanged; duplicate keys cannot multiply the base scan.
+Distinct product, fuel-type and region labels use static `orderbook/distinct*.sql`
+tails with one bounded eligible-order probe per catalog product/point pair;
+SQL DISTINCT and collation order remain database-owned.
 
 Task 6a adds `market/live_benchmarks.rs` and `sql/live_benchmarks.sql` for
 read-only, request-cached same-side benchmarks. It applies full typed/scalar
@@ -395,8 +434,9 @@ hook starts its loop only with `cache_listener=1` in the prepared budget; otherw
 no cache runtime or extra connection is created. `runtime/admission.rs::run_trading_read`
 checks identity and generation in one admitted read-only REPEATABLE READ snapshot
 and checks the fence again before insertion and before publication. With the
-runtime on, a read on a connection that is not admitted returns the database
-error, also when it would not cache. Overlapping snapshots each answer at their
+runtime on, unavailable cache authority uses an uncached database read. A fence
+change before publication discards the previous result and reloads it in a fresh
+read-only snapshot under the same admission permit. Overlapping snapshots each answer at their
 own generation; an older fill never replaces a newer entry. Restore detection
 belongs to the external activation protocol. `AppState::trading_read_observer`
 supplies the read clock and lifecycle checkpoints: serving uses the real clock,

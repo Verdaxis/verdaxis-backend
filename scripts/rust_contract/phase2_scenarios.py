@@ -133,6 +133,9 @@ class Scenario:
     dispatch: Callable | None = None
     assert_mixed: Callable | None = None
     route_qualification: bool = True
+    # Adds the rows that follow --phase2-size after the fixed fixture, so the
+    # same route schedule proves page and history behaviour at both sizes.
+    volume: Callable | None = None
 
 
 REGISTRY: dict[str, Scenario] = {}
@@ -166,12 +169,16 @@ def _users(state):
     return {row.get("id", key): row for key, row in rows.items()}
 
 
-def _check_result(action, response, error):
+def _check_result(action, response, error, runtime="?"):
     if error:
         if not action.allow_transport_error:
-            raise ScenarioError(f"{action.name}: unexpected transport failure {error}")
+            raise ScenarioError(f"{action.name} ({runtime}): unexpected transport failure {error}")
     elif response["status"] not in (action.accepted_statuses or (action.expected_status,)):
-        raise ScenarioError(f"{action.name}: unexpected HTTP status {response['status']}")
+        detail = response.get("body", b"")
+        if isinstance(detail, bytes):
+            detail = detail[:400].decode("utf-8", "replace")
+        raise ScenarioError(
+            f"{action.name} ({runtime}): unexpected HTTP status {response['status']} {detail}")
 
 
 def _request(cell, action):
@@ -181,12 +188,61 @@ def _request(cell, action):
         return None, type(error).__name__
 
 
+def _leaderboard_pair(responses):
+    """PD2-L1: retain wire checks while allowing Python's undefined ties."""
+    import copy
+
+    normalized = copy.deepcopy(responses)
+    groups = []
+    for response in normalized:
+        entries = json.loads(response["body"])
+        if not isinstance(entries, list) or len(entries) > 10:
+            raise ScenarioError("invalid leaderboard length")
+        counts = []
+        members = {}
+        for rank, entry in enumerate(entries, start=1):
+            if set(entry) != {"rank", "user_name", "organization_name", "referral_count"}:
+                raise ScenarioError("invalid leaderboard fields")
+            count = entry["referral_count"]
+            if type(entry["rank"]) is not int or entry["rank"] != rank or type(count) is not int or count <= 0:
+                raise ScenarioError("invalid leaderboard rank or count")
+            if not isinstance(entry["user_name"], str) or not (
+                    entry["organization_name"] is None or isinstance(entry["organization_name"], str)):
+                raise ScenarioError("invalid leaderboard member")
+            counts.append(count)
+            member = (entry["user_name"], entry["organization_name"])
+            bucket = members.setdefault(count, set())
+            if member in bucket:
+                raise ScenarioError("duplicate leaderboard member")
+            bucket.add(member)
+        if counts != sorted(counts, reverse=True):
+            raise ScenarioError("leaderboard counts are not descending")
+        groups.append((counts, members))
+    if groups[0][0] != groups[1][0]:
+        raise ScenarioError("leaderboard counts differ by rank")
+    counts = groups[0][0]
+    for count in set(counts):
+        if len(counts) == 10 and count == counts[-1]:
+            continue
+        if groups[0][1][count] != groups[1][1][count]:
+            raise ScenarioError("complete leaderboard tie members differ")
+    # Compare the unchanged status and headers through the standard profile.
+    # Content-Length was validated against the original body, not this projection.
+    for response in normalized:
+        length = next((v for k, v in response["headers"].items() if k.lower() == "content-length"), None)
+        if length is not None and int(length) != len(response["body"]):
+            raise ScenarioError("leaderboard Content-Length mismatch")
+        response["headers"] = {k: v for k, v in response["headers"].items() if k.lower() != "content-length"}
+        response["body"] = b"[]"
+    return normalized
+
+
 def _compare_http(action, responses, errors):
     if errors[0] != errors[1]:
         raise ScenarioError(f"{action.name}: transport outcomes differ")
-    for response, error in zip(responses, errors):
+    for runtime, response, error in zip(("python", "rust"), responses, errors):
         if error:
-            _check_result(action, response, error)
+            _check_result(action, response, error, runtime)
     if not any(errors):
         if action.approved_difference:
             # One response may carry several named rules, written as "PD2+PD3".
@@ -197,9 +253,14 @@ def _compare_http(action, responses, errors):
             # response need not be JSON.
             action.assert_http_difference(list(responses))
             return
-        for response, error in zip(responses, errors):
-            _check_result(action, response, error)
-        wire = [{key: response[key] for key in ("status", "headers", "body")} for response in responses]
+        for runtime, response, error in zip(("python", "rust"), responses, errors):
+            _check_result(action, response, error, runtime)
+        compared = responses
+        if (action.route_id == "R03" and action.method == "GET"
+                and action.path == "/api/referrals/leaderboard"
+                and all(response["status"] == 200 for response in responses)):
+            compared = _leaderboard_pair(responses)
+        wire = [{key: response[key] for key in ("status", "headers", "body")} for response in compared]
         problems = compare_responses(*wire, profile="phase2-meaning-v1", route_id=action.route_id,
                                     rules_sha256=hashlib.sha256(RULES.read_bytes()).hexdigest(),
                                     request_id=action.headers.get("x-request-id"))
@@ -396,6 +457,12 @@ from scripts.rust_contract.phase2_watchlist_targets import (
 register(watchlist_targets_scenario())
 register(watchlist_targets_gate_off_scenario())
 register(watchlist_targets_hidden_scenario())
+# Phase 2 Task 24: W07/W08/W09/W10 activity schedules.
+from scripts.rust_contract.phase2_watchlist_activity import (
+    scenario as watchlist_activity_scenario,
+)
+
+register(watchlist_activity_scenario())
 # Phase 2 Task 10: feedback route scenario.
 from scripts.rust_contract.feedback_scenario import feedback_scenario
 

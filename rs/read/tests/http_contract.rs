@@ -1,4 +1,3 @@
-use verdaxis_read::runtime::http::{RateBucket, admit};
 use verdaxis_read::{busy, database_error, request_id, selected_read};
 
 use axum::{
@@ -161,6 +160,7 @@ async fn router_health_methods_and_empty_routes() {
         pool_max: 17,
         python_budget: 52,
         configured_max_connections: 100,
+        phase2: Default::default(),
         prepared_budget: None,
     };
     let pools = verdaxis_read::runtime::db::Pools {
@@ -323,6 +323,7 @@ async fn post_orderbook_answers_python_auth_boundary() {
         pool_max: 17,
         python_budget: 52,
         configured_max_connections: 100,
+        phase2: Default::default(),
         prepared_budget: None,
     };
     let pools = verdaxis_read::runtime::db::Pools {
@@ -497,21 +498,8 @@ fn database_errors_keep_market_scope() {
     );
 }
 
-#[test]
-fn exact_limit_and_reset() {
-    for limit in [60, 30, 10] {
-        let mut bucket = RateBucket {
-            started_ms: 1_000,
-            used: 0,
-        };
-        for _ in 0..limit {
-            assert!(admit(&mut bucket, limit, 1_000));
-        }
-        assert!(!admit(&mut bucket, limit, 60_999));
-        assert_eq!(bucket.started_ms, 1_000);
-        assert!(admit(&mut bucket, limit, 61_000));
-    }
-}
+// Window and reset semantics live in tests/ad01_limiter.rs, driven through
+// the bounded per-client store the middleware now uses.
 
 #[test]
 fn admission_default_is_rust_owned() {
@@ -769,6 +757,7 @@ async fn cors_wraps_saturated_admission() {
         pool_max: 17,
         python_budget: 52,
         configured_max_connections: 100,
+        phase2: Default::default(),
         prepared_budget: None,
     };
     let pools = verdaxis_read::runtime::db::Pools {
