@@ -114,12 +114,19 @@ impl UsersQuery {
                     Some(upper)
                 } else {
                     // The source treats an unknown status as a client error,
-                    // not as an empty page.
-                    return Err(refusal(
-                        StatusCode::BAD_REQUEST,
-                        "INVALID_STATUS_FILTER",
-                        "The status filter is not an account status.",
-                    ));
+                    // not as an empty page — but the typed framework
+                    // validates every parameter first, so the 400 is emitted
+                    // only when typed validation collected no other error.
+                    // A double-invalid query keeps the typed 422 envelope.
+                    if !errors.is_empty() {
+                        None
+                    } else {
+                        return Err(refusal(
+                            StatusCode::BAD_REQUEST,
+                            "INVALID_STATUS_FILTER",
+                            "The status filter is not an account status.",
+                        ));
+                    }
                 }
             }
         };
