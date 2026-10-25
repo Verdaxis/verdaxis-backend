@@ -13,6 +13,8 @@
 
 #[path = "support/aggregate_identity.rs"]
 mod aggregate_identity;
+#[path = "support/opposing_equivalence.rs"]
+mod opposing_equivalence;
 use aggregate_identity::aggregate_identity_equivalence;
 
 use serde_json::Value;

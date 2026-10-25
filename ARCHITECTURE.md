@@ -127,6 +127,10 @@ digest input remains separate. `market/map_decimal.rs` preserves exact aggregate
 arithmetic, and `market/listing_terms.rs` retains compatibility schema ordering.
 R18/R26 use decision 23's created-time/UUID descending pagination in both languages.
 All projections apply shared eligibility before sorting, grouping and pagination.
+BID/ASK opposing prices use `visibility::opposing_order_query_sql` to restrict
+base orders to the page's exact product/point/window/provenance keys before
+shared admission. The final opposing key join and numeric price aggregate stay
+unchanged; duplicate keys cannot multiply the base scan.
 Distinct product, fuel-type and region labels use static `orderbook/distinct*.sql`
 tails with one bounded eligible-order probe per catalog product/point pair;
 SQL DISTINCT and collation order remain database-owned.

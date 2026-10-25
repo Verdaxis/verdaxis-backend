@@ -227,6 +227,20 @@ pub fn order_query_sql(tail: &'static str) -> OrderQuery {
     )))
 }
 
+/// Opposing prices for a page's exact slices. The membership scan cannot
+/// multiply orders for duplicate keys; the unchanged tail retains its key join.
+/// Only developer-owned SQL selects the base relation and tail. All admission
+/// predicates remain in the shared relation, and request keys use bind `$14`.
+pub fn opposing_order_query_sql() -> OrderQuery {
+    OrderQuery(format!(
+        "WITH eligible_orders AS NOT MATERIALIZED ({}) {}",
+        relation_sql(include_str!(
+            "../../sql/orderbook/opposing_keyed_orders.sql"
+        )),
+        include_str!("../../sql/orderbook/opposing.sql")
+    ))
+}
+
 /// The shared relation with a narrow projection, for tails that aggregate or
 /// deduplicate and never read an order's wide columns. The predicate set is
 /// the shared one; only the projected columns differ from `order_query_sql`.
