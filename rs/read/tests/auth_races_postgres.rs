@@ -829,7 +829,7 @@ async fn password_reset_before_login_refuses_the_old_password() {
 async fn blocked_count(pool: &PgPool, count: i64) {
     tokio::time::timeout(std::time::Duration::from_secs(15),async {
         loop {
-            let waiting: i64 = sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity a WHERE a.datname=current_database() AND a.application_name=$1 AND a.wait_event_type='Lock' AND EXISTS (SELECT 1 FROM pg_locks l WHERE l.pid=a.pid AND NOT l.granted AND (l.locktype='advisory' OR l.locktype='transactionid') )").bind(sqlx::query_scalar::<_, String>("SHOW application_name").fetch_one(pool).await.unwrap()).fetch_one(pool).await.unwrap();
+            let waiting: i64 = sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity a WHERE a.datname=current_database() AND a.application_name=$1 AND EXISTS (SELECT 1 FROM pg_locks l WHERE l.pid=a.pid AND NOT l.granted AND (l.locktype='advisory' OR l.locktype='transactionid') )").bind(sqlx::query_scalar::<_, String>("SHOW application_name").fetch_one(pool).await.unwrap()).fetch_one(pool).await.unwrap();
             if waiting >= count { return; }
             tokio::task::yield_now().await;
         }
