@@ -25,8 +25,8 @@ pub use policy::{
     property_domain, ratio_from_counts, suppress, suppress_cell, suppress_value,
 };
 pub use query::{
-    AnalyticsQuery, MAX_AVAILABILITY_WINDOW_CHARS, MAX_RANGE_SECONDS, MIN_QUERY_INSTANT, QueryInput,
-    previous_window, validate_query,
+    AnalyticsQuery, MAX_AVAILABILITY_WINDOW_CHARS, MAX_RANGE_SECONDS, MIN_QUERY_INSTANT,
+    QueryInput, previous_window, validate_query,
 };
 pub use retention::{
     AnalyticsFactFamily, MAX_SERIES_DATES, RETAINED_DATES, login_day_is_retained,

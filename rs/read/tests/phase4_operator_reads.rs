@@ -1304,7 +1304,6 @@ async fn p4_t4_c06() {
     let admin = fixture.actor("ADMIN").await;
     let buyer = fixture.actor("BUYER").await;
     let supplier = fixture.actor("SUPPLIER").await;
-    // A NULL-role authenticated caller meets the same != ADMIN refusal.
     let null_role_id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO users(id,email,role,status,email_verified,must_change_password,created_at) \
@@ -1316,14 +1315,14 @@ async fn p4_t4_c06() {
     .execute(&mut fixture.admin)
     .await
     .unwrap();
-    let null_role = token(null_role_id);
     fixture.seed(&Spec::new("visible@example.test")).await;
 
     let shared = limits();
     let app = app(fixture.pool.clone(), fixture.url(), shared.clone());
     // Wrong-role and non-admin callers get the same refusal on every path
     // shape, including an unrelated path that shares no route state.
-    for bearer in [buyer, supplier, null_role] {
+    // A NULL-role authenticated caller meets the same != ADMIN refusal.
+    for bearer in [buyer, supplier, null_role_id] {
         let mut first_refusal = None;
         for path in [
             "/api/admin/onboarding-attention",

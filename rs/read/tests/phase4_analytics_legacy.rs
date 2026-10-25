@@ -748,7 +748,9 @@ async fn p4_t17b_c04() {
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
     let detail = body["detail"].as_array().unwrap();
     assert!(
-        detail.iter().any(|error| error["loc"] == json!(["query", "limit"])),
+        detail
+            .iter()
+            .any(|error| error["loc"] == json!(["query", "limit"])),
         "{body}"
     );
 
