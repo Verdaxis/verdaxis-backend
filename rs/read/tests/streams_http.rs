@@ -5,8 +5,6 @@
 //! Private replay admission is exercised through its error classes; the
 //! database-backed replay behaviour belongs to `streams_replay`.
 
-use std::sync::Arc;
-
 
 use axum::{
     Router,
@@ -15,7 +13,7 @@ use axum::{
 };
 
 use verdaxis_read::{
-    AppState, Config,
+    Config,
     auth::VerificationSettings,
     streams::http::{Streams, StreamsState, routes},
 };
