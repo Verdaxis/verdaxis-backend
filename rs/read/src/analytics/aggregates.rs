@@ -152,7 +152,7 @@ pub fn dense_series(
     let mut cursor = start.date_naive();
     while (cursor < end.date_naive()
         || (cursor == end.date_naive() && end.time() != chrono::NaiveTime::MIN))
-        && points.len() < 366
+        && points.len() < super::policy::MAX_SERIES_POINTS
     {
         points.push(super::types::SeriesPoint {
             date: cursor,
@@ -338,7 +338,7 @@ pub fn behavioral_daily_series(
     }
     let mut points = Vec::new();
     let mut cursor = query.start.date_naive();
-    while cursor < query.end.date_naive() && points.len() < 366 {
+    while cursor < query.end.date_naive() && points.len() < super::policy::MAX_SERIES_POINTS {
         let value = values.get(&cursor).copied().unwrap_or(0);
         points.push(super::types::SeriesPoint {
             date: cursor,
@@ -1173,7 +1173,7 @@ pub async fn load_member_days(
     )
     .map(|(_, upper)| upper)
     .unwrap_or(end.date_naive());
-    let floor = upper - TimeDelta::days(799);
+    let floor = super::retention::login_retention_cutoff(upper);
     let rows = sqlx::query(
         "SELECT DISTINCT user_id, activity_date
          FROM user_login_days

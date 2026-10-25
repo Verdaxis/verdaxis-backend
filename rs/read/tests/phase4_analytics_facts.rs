@@ -14,6 +14,9 @@ mod policy;
 #[path = "../src/analytics/query.rs"]
 mod query;
 #[allow(dead_code)]
+#[path = "../src/analytics/retention.rs"]
+mod retention;
+#[allow(dead_code)]
 #[path = "../src/analytics/types.rs"]
 mod types;
 
