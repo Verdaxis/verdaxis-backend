@@ -93,6 +93,7 @@ impl Surface {
         matches!(self, Self::Bids | Self::Asks)
     }
 }
+#[derive(Clone)]
 struct ListQuery {
     product: Option<Uuid>,
     point: Option<Uuid>,

@@ -309,6 +309,21 @@ impl<K: Eq> TradingCache<K> {
             .retain(|stored| &stored.key != key);
     }
 
+    /// Retire only this fill's entry; a successor may already share the key.
+    pub fn remove_ticket(&self, key: &K, ticket: &FillTicket) {
+        self.entries
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .retain(|stored| {
+                &stored.key != key
+                    || !stored.entry.matches(
+                        ticket.token(),
+                        ticket.generation(),
+                        &stored.entry.policy_identity,
+                    )
+            });
+    }
+
     pub fn clear(&self) {
         self.entries
             .lock()
