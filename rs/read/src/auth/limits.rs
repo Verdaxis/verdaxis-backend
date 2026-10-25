@@ -282,9 +282,10 @@ mod tests {
         let removed = before - store.buckets.len();
         assert!(removed <= EXPIRED_CLEANUP_BUDGET + 1, "removed {removed}");
         // Most of the flood is still stored; the next request removes only
-        // another bounded batch, never the rest at once.
+        // another bounded batch, never the rest at once. The caller's fresh
+        // window is spent (limit 1), so its refusal changes no accounting.
         let before = store.buckets.len();
-        assert!(store.accept("caller", "k", 1, window, 101, false));
+        assert!(!store.accept("caller", "k", 1, window, 101, false));
         assert!(before - store.buckets.len() <= EXPIRED_CLEANUP_BUDGET);
     }
 
