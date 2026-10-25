@@ -132,6 +132,8 @@ async fn opposing_exact_slices_keep_prices_and_ordered_hash() {
     let keys = keys.as_array().unwrap();
     assert!(keys.len() > 5, "the seeded slice matrix must be populated");
     let old = order_query_sql(OLD_OPPOSING);
+    // The historical IN trial is pinned only for the full eligible relation:
+    // that relation's inner point join and lane check exclude NULL points.
     let trial = old.sql().replace(
         "FROM orderbook_orders AS o",
         &format!(

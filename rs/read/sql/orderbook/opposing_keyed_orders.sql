@@ -1,16 +1,13 @@
 (
     SELECT b.*
     FROM orderbook_orders AS b
-    WHERE (
-        b.product_id,
-        b.delivery_point_id,
-        b.availability_window,
-        b.provenance::text
-    ) IN (
-        SELECT (k ->> 'product_id')::uuid,
-               (k ->> 'delivery_point_id')::uuid,
-               k ->> 'availability_window',
-               k ->> 'provenance'
+    WHERE EXISTS (
+        SELECT 1
         FROM jsonb_array_elements($14::jsonb) AS k
+        WHERE b.product_id = (k ->> 'product_id')::uuid
+          AND b.delivery_point_id IS NOT DISTINCT FROM
+              (k ->> 'delivery_point_id')::uuid
+          AND b.availability_window = k ->> 'availability_window'
+          AND b.provenance::text = k ->> 'provenance'
     )
 )
