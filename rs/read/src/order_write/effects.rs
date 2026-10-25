@@ -139,7 +139,7 @@ impl<'a> EffectPort<'a> {
         let aggregates = aggregates(self.conn, policy, config, &slices, at).await?;
         // One statement snapshot defines event-time subscriptions for this mutation.
         let slice_json = slice_values(&slices);
-        let rows = sqlx::query("SELECT t.id,t.watchlist_id,w.user_id,t.target_type,t.order_id,t.market_product_code,t.delivery_point_id,t.availability_window_code FROM watchlist_targets t JOIN watchlists w ON w.id=t.watchlist_id WHERE (t.target_type='PIN' AND t.order_id=ANY($1)) OR (t.target_type='SLICE' AND EXISTS (SELECT 1 FROM jsonb_to_recordset($2::jsonb) AS s(product text,point uuid,window text) WHERE s.product=t.market_product_code AND s.point=t.delivery_point_id AND s.window=t.availability_window_code)) ORDER BY t.id")
+        let rows = sqlx::query("SELECT t.id,t.watchlist_id,w.user_id,t.target_type,t.order_id,t.market_product_code,t.delivery_point_id,t.availability_window_code FROM watchlist_targets t JOIN watchlists w ON w.id=t.watchlist_id WHERE (t.target_type='PIN' AND t.order_id=ANY($1)) OR (t.target_type='SLICE' AND EXISTS (SELECT 1 FROM jsonb_to_recordset($2::jsonb) AS s(product text,point uuid,window_code text) WHERE s.product=t.market_product_code AND s.point=t.delivery_point_id AND s.window_code=t.availability_window_code)) ORDER BY t.id")
             .bind(&ids).bind(slice_json).fetch_all(&mut *self.conn).await?;
         let targets = rows.iter().map(|r| -> Result<Value,sqlx::Error> {
             Ok(json!({"target_id":r.try_get::<Uuid,_>("id")?,"watchlist_id":r.try_get::<Uuid,_>("watchlist_id")?,
@@ -317,7 +317,7 @@ fn slice_values(slices: &BTreeSet<Slice>) -> Value {
     json!(
         slices
             .iter()
-            .map(|s| json!({"product":s.product,"point":s.point,"window":s.window}))
+            .map(|s| json!({"product":s.product,"point":s.point,"window_code":s.window}))
             .collect::<Vec<_>>()
     )
 }
