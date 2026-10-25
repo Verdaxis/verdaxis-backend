@@ -428,7 +428,9 @@ pub fn validate_receipt(
 ) -> Result<(), super::error::MarketWriteError> {
     use super::error::{MarketErrorCode, MarketWriteError};
     if receipt.resource_id != resource_id {
-        return Err(MarketWriteError::new(MarketErrorCode::ReceiptResourceMismatch));
+        return Err(MarketWriteError::new(
+            MarketErrorCode::ReceiptResourceMismatch,
+        ));
     }
     if receipt.request_hash != request_hash
         || Some(receipt.effective_organization_id) != context.effective_organization_id
@@ -452,7 +454,9 @@ pub fn validate_inventory_replay(
 ) -> Result<(), super::error::MarketWriteError> {
     use super::error::{MarketErrorCode, MarketWriteError};
     if owner_user_id != Some(actor) || accountable_actor_user_id != Some(actor) {
-        return Err(MarketWriteError::new(MarketErrorCode::ReplayPrincipalMismatch));
+        return Err(MarketWriteError::new(
+            MarketErrorCode::ReplayPrincipalMismatch,
+        ));
     }
     if stored_hash != request_hash {
         return Err(MarketWriteError::new(MarketErrorCode::IdempotencyConflict));
@@ -474,7 +478,6 @@ pub struct ReceiptRecord {
     pub response_status: u16,
     pub response_body: Value,
 }
-
 
 #[cfg(all(test, feature = "contract-tests"))]
 mod replay_tests {
@@ -506,48 +509,101 @@ mod replay_tests {
             assert_eq!(runtime_target.username(), "rust_app");
             let mut admin = PgConnection::connect(&admin_url).await.unwrap();
             let schema = format!("receipt_{}", Uuid::new_v4().simple());
-            sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}; SET search_path TO {schema}")))
-                .execute(&mut admin).await.unwrap();
+            sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+                "CREATE SCHEMA {schema}; SET search_path TO {schema}"
+            )))
+            .execute(&mut admin)
+            .await
+            .unwrap();
             sqlx::raw_sql(include_str!("../../tests/fixtures/phase8_receipts.sql"))
-                .execute(&mut admin).await.unwrap();
+                .execute(&mut admin)
+                .await
+                .unwrap();
             sqlx::raw_sql(sqlx::AssertSqlSafe(format!("GRANT USAGE ON SCHEMA {schema} TO rust_app; GRANT SELECT,INSERT ON ALL TABLES IN SCHEMA {schema} TO rust_app")))
                 .execute(&mut admin).await.unwrap();
             let path = format!("SET search_path TO {schema}");
-            let pool = PgPoolOptions::new().max_connections(5).after_connect(move |conn, _| {
-                let path = path.clone();
-                Box::pin(async move { sqlx::raw_sql(sqlx::AssertSqlSafe(path)).execute(conn).await?; Ok(()) })
-            }).connect(&runtime_url).await.unwrap();
-            Self { pool, admin, schema, actor: Uuid::new_v4(), org: Uuid::new_v4() }
+            let pool = PgPoolOptions::new()
+                .max_connections(5)
+                .after_connect(move |conn, _| {
+                    let path = path.clone();
+                    Box::pin(async move {
+                        sqlx::raw_sql(sqlx::AssertSqlSafe(path))
+                            .execute(conn)
+                            .await?;
+                        Ok(())
+                    })
+                })
+                .connect(&runtime_url)
+                .await
+                .unwrap();
+            Self {
+                pool,
+                admin,
+                schema,
+                actor: Uuid::new_v4(),
+                org: Uuid::new_v4(),
+            }
         }
 
         fn request(&self, operation: Operation) -> (CommandContext, OrderCommand) {
-            (CommandContext {
-                actor_user_id: self.actor,
-                effective_organization_id: Some(self.org), support_context_id: None,
-                idempotency_key: Some(Uuid::new_v4().to_string()),
-            }, OrderCommand {
-                operation, resource_id: Uuid::new_v4(), payload: Canonical::Text("request".into()),
-                locks: LockPlan::default(), events: vec![OutboxEvent {
-                    event_type: "receipt.case".into(), aggregate_type: "case".into(),
-                    aggregate_id: Uuid::new_v4().to_string(), participant_org_ids: vec![self.org.to_string()],
-                    payload: serde_json::json!({"effect":1}),
-                }], response_status: if operation == Operation::OrderCancel {204} else {200},
-                response_body: if operation == Operation::OrderCancel {Value::Null} else {serde_json::json!({"protected":"stored"})},
-            })
+            (
+                CommandContext {
+                    actor_user_id: self.actor,
+                    effective_organization_id: Some(self.org),
+                    support_context_id: None,
+                    idempotency_key: Some(Uuid::new_v4().to_string()),
+                },
+                OrderCommand {
+                    operation,
+                    resource_id: Uuid::new_v4(),
+                    payload: Canonical::Text("request".into()),
+                    locks: LockPlan::default(),
+                    events: vec![OutboxEvent {
+                        event_type: "receipt.case".into(),
+                        aggregate_type: "case".into(),
+                        aggregate_id: Uuid::new_v4().to_string(),
+                        participant_org_ids: vec![self.org.to_string()],
+                        payload: serde_json::json!({"effect":1}),
+                    }],
+                    response_status: if operation == Operation::OrderCancel {
+                        204
+                    } else {
+                        200
+                    },
+                    response_body: if operation == Operation::OrderCancel {
+                        Value::Null
+                    } else {
+                        serde_json::json!({"protected":"stored"})
+                    },
+                },
+            )
         }
 
-        async fn run(&self, context: CommandContext, command: OrderCommand, fault: ReplayFault) -> transaction::ReplayProbe {
+        async fn run(
+            &self,
+            context: CommandContext,
+            command: OrderCommand,
+            fault: ReplayFault,
+        ) -> transaction::ReplayProbe {
             transaction::replay_probe(self.pool.clone(), context, command, fault).await
         }
 
         async fn effects(&self) -> i64 {
-            sqlx::query_scalar("SELECT count(*) FROM market_event_outbox").fetch_one(&self.pool).await.unwrap()
+            sqlx::query_scalar("SELECT count(*) FROM market_event_outbox")
+                .fetch_one(&self.pool)
+                .await
+                .unwrap()
         }
 
         async fn finish(mut self) {
             self.pool.close().await;
-            sqlx::raw_sql(sqlx::AssertSqlSafe(format!("DROP SCHEMA {} CASCADE",self.schema)))
-                .execute(&mut self.admin).await.unwrap();
+            sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+                "DROP SCHEMA {} CASCADE",
+                self.schema
+            )))
+            .execute(&mut self.admin)
+            .await
+            .unwrap();
         }
     }
 
@@ -555,158 +611,269 @@ mod replay_tests {
     async fn receipt_rejects_wrong_resource_and_context() {
         let mut f = Fixture::new().await;
         let (context, command) = f.request(Operation::TradeDeliver);
-        assert!(f.run(context.clone(), command.clone(), ReplayFault::None).await.result.is_ok());
-        let mut wrong = command.clone(); wrong.resource_id = Uuid::new_v4();
-        let refused = f.run(context.clone(), wrong, ReplayFault::None).await.result.unwrap_err();
-        assert_eq!(refused.status.as_u16(),409);
-        assert_eq!(refused.detail["code"],"RECEIPT_RESOURCE_MISMATCH");
+        assert!(
+            f.run(context.clone(), command.clone(), ReplayFault::None)
+                .await
+                .result
+                .is_ok()
+        );
+        let mut wrong = command.clone();
+        wrong.resource_id = Uuid::new_v4();
+        let refused = f
+            .run(context.clone(), wrong, ReplayFault::None)
+            .await
+            .result
+            .unwrap_err();
+        assert_eq!(refused.status.as_u16(), 409);
+        assert_eq!(refused.detail["code"], "RECEIPT_RESOURCE_MISMATCH");
         assert!(!refused.detail.to_string().contains("protected"));
-        for field in ["hash","organization","support","type","status"] {
-            let mut ctx = context.clone(); let mut cmd = command.clone();
+        for field in ["hash", "organization", "support", "type", "status"] {
+            let mut ctx = context.clone();
+            let mut cmd = command.clone();
             match field {
-                "hash" => cmd.payload=Canonical::Text("different".into()),
-                "organization" => ctx.effective_organization_id=Some(Uuid::new_v4()),
-                "support" => ctx.support_context_id=Some(Uuid::new_v4()),
-                "type" => { sqlx::query("UPDATE market_command_results SET resource_type='order'").execute(&mut f.admin).await.unwrap(); },
-                "status" => { sqlx::query("UPDATE market_command_results SET response_status=500").execute(&mut f.admin).await.unwrap(); },
+                "hash" => cmd.payload = Canonical::Text("different".into()),
+                "organization" => ctx.effective_organization_id = Some(Uuid::new_v4()),
+                "support" => ctx.support_context_id = Some(Uuid::new_v4()),
+                "type" => {
+                    sqlx::query("UPDATE market_command_results SET resource_type='order'")
+                        .execute(&mut f.admin)
+                        .await
+                        .unwrap();
+                }
+                "status" => {
+                    sqlx::query("UPDATE market_command_results SET response_status=500")
+                        .execute(&mut f.admin)
+                        .await
+                        .unwrap();
+                }
                 _ => unreachable!(),
             }
-            let error=f.run(ctx,cmd,ReplayFault::None).await.result.unwrap_err();
-            assert_eq!(error.status.as_u16(),409);
-            assert_eq!(error.detail["code"],"IDEMPOTENCY_CONFLICT");
-            sqlx::query("UPDATE market_command_results SET resource_type='trade',response_status=200").execute(&mut f.admin).await.unwrap();
+            let error = f.run(ctx, cmd, ReplayFault::None).await.result.unwrap_err();
+            assert_eq!(error.status.as_u16(), 409);
+            assert_eq!(error.detail["code"], "IDEMPOTENCY_CONFLICT");
+            sqlx::query(
+                "UPDATE market_command_results SET resource_type='trade',response_status=200",
+            )
+            .execute(&mut f.admin)
+            .await
+            .unwrap();
         }
-        assert_eq!(f.effects().await,1);
+        assert_eq!(f.effects().await, 1);
         f.finish().await;
     }
 
     #[tokio::test]
     async fn receipt_replay_matrix() {
-        let f=Fixture::new().await;
+        let f = Fixture::new().await;
         for operation in Operation::ALL {
-            let (context,command)=f.request(operation);
-            let first=f.run(context.clone(),command.clone(),ReplayFault::None).await.result.unwrap();
+            let (context, command) = f.request(operation);
+            let first = f
+                .run(context.clone(), command.clone(), ReplayFault::None)
+                .await
+                .result
+                .unwrap();
             assert!(!first.replayed);
             // Admission is deliberately unavailable: the exact stored replay precedes it.
-            let replay=f.run(context.clone(),command.clone(),ReplayFault::RejectFresh).await.result.unwrap();
-            assert!(replay.replayed); assert_eq!(replay.response_status,first.response_status);
-            assert_eq!(replay.response_body,first.response_body);
-            let mut stranger=context; stranger.actor_user_id=Uuid::new_v4();
-            let denied=f.run(stranger,command,ReplayFault::RejectFresh).await.result.unwrap_err();
-            assert_eq!(denied.status.as_u16(),403);
+            let replay = f
+                .run(context.clone(), command.clone(), ReplayFault::RejectFresh)
+                .await
+                .result
+                .unwrap();
+            assert!(replay.replayed);
+            assert_eq!(replay.response_status, first.response_status);
+            assert_eq!(replay.response_body, first.response_body);
+            let mut stranger = context;
+            stranger.actor_user_id = Uuid::new_v4();
+            let denied = f
+                .run(stranger, command, ReplayFault::RejectFresh)
+                .await
+                .result
+                .unwrap_err();
+            assert_eq!(denied.status.as_u16(), 403);
         }
-        assert_eq!(f.effects().await,6);
+        assert_eq!(f.effects().await, 6);
         f.finish().await;
     }
 
     #[test]
     fn receipt_hash_matches_python_vector() {
-        let vectors: Value=serde_json::from_str(include_str!("../../../../tests/rust_contract/phase8/hash-vectors.json")).unwrap();
+        let vectors: Value = serde_json::from_str(include_str!(
+            "../../../../tests/rust_contract/phase8/hash-vectors.json"
+        ))
+        .unwrap();
         for vector in vectors["command_request_hashes"].as_array().unwrap() {
-            let payload=Canonical::from_tagged(&vector["payload"]).unwrap();
-            assert_eq!(command_request_hash(&payload),vector["sha256"].as_str().unwrap());
+            let payload = Canonical::from_tagged(&vector["payload"]).unwrap();
+            assert_eq!(
+                command_request_hash(&payload),
+                vector["sha256"].as_str().unwrap()
+            );
         }
         for vector in vectors["idempotency_request_hashes"].as_array().unwrap() {
-            let payload=Canonical::from_tagged(&vector["payload"]).unwrap();
-            assert_eq!(idempotency_request_hash(&payload).unwrap(),vector["sha256"].as_str().unwrap());
+            let payload = Canonical::from_tagged(&vector["payload"]).unwrap();
+            assert_eq!(
+                idempotency_request_hash(&payload).unwrap(),
+                vector["sha256"].as_str().unwrap()
+            );
         }
     }
 
     #[tokio::test]
     async fn inventory_replay_is_principal_bound() {
-        let f=Fixture::new().await;
-        let owner=f.actor; let accountable=f.actor;
-        assert!(validate_inventory_replay(owner,Some(owner),Some(accountable),"same","same").is_ok());
+        let f = Fixture::new().await;
+        let owner = f.actor;
+        let accountable = f.actor;
+        assert!(
+            validate_inventory_replay(owner, Some(owner), Some(accountable), "same", "same")
+                .is_ok()
+        );
         for (actor, recorded_owner, recorded_actor) in [
-            (Uuid::new_v4(),Some(owner),Some(accountable)),
-            (owner,Some(Uuid::new_v4()),Some(accountable)),
-            (owner,Some(owner),Some(Uuid::new_v4())),
-            (owner,None,Some(accountable)), (owner,Some(owner),None),
+            (Uuid::new_v4(), Some(owner), Some(accountable)),
+            (owner, Some(Uuid::new_v4()), Some(accountable)),
+            (owner, Some(owner), Some(Uuid::new_v4())),
+            (owner, None, Some(accountable)),
+            (owner, Some(owner), None),
         ] {
-            let error=validate_inventory_replay(actor,recorded_owner,recorded_actor,"same","same").unwrap_err();
-            assert_eq!(error.status.as_u16(),403);
-            assert_eq!(error.code.as_str(),"REPLAY_PRINCIPAL_MISMATCH");
+            let error =
+                validate_inventory_replay(actor, recorded_owner, recorded_actor, "same", "same")
+                    .unwrap_err();
+            assert_eq!(error.status.as_u16(), 403);
+            assert_eq!(error.code.as_str(), "REPLAY_PRINCIPAL_MISMATCH");
         }
-        assert_eq!(validate_inventory_replay(owner,Some(owner),Some(accountable),"other","same").unwrap_err().status.as_u16(),409);
-        assert_eq!(f.effects().await,0); f.finish().await;
+        assert_eq!(
+            validate_inventory_replay(owner, Some(owner), Some(accountable), "other", "same")
+                .unwrap_err()
+                .status
+                .as_u16(),
+            409
+        );
+        assert_eq!(f.effects().await, 0);
+        f.finish().await;
     }
 
     #[tokio::test]
     async fn no_query_after_commit_for_keyed_and_unkeyed() {
-        let f=Fixture::new().await;
-        for keyed in [true,false] {
-            let (mut context,command)=f.request(Operation::OrderAmend);
-            if !keyed {context.idempotency_key=None;}
-            let before=f.effects().await;
-            let failed=f.run(context.clone(),command.clone(),ReplayFault::BeforeResponse).await;
-            assert!(failed.result.is_err()); assert_eq!(failed.attempts,1);
-            assert_eq!(f.effects().await,before);
-            let committed=f.run(context,command,ReplayFault::AfterCommit).await;
-            assert!(committed.result.is_ok()); assert_eq!(committed.attempts,1);
-            assert_eq!(committed.queries_after_commit,0);
-            assert_eq!(f.effects().await,before+1);
+        let f = Fixture::new().await;
+        for keyed in [true, false] {
+            let (mut context, command) = f.request(Operation::OrderAmend);
+            if !keyed {
+                context.idempotency_key = None;
+            }
+            let before = f.effects().await;
+            let failed = f
+                .run(
+                    context.clone(),
+                    command.clone(),
+                    ReplayFault::BeforeResponse,
+                )
+                .await;
+            assert!(failed.result.is_err());
+            assert_eq!(failed.attempts, 1);
+            assert_eq!(f.effects().await, before);
+            let committed = f.run(context, command, ReplayFault::AfterCommit).await;
+            assert!(committed.result.is_ok());
+            assert_eq!(committed.attempts, 1);
+            assert_eq!(committed.queries_after_commit, 0);
+            assert_eq!(f.effects().await, before + 1);
         }
         f.finish().await;
     }
 
     #[tokio::test]
     async fn receipt_insert_contention_replays_the_winner() {
-        let f=Fixture::new().await;
-        let (context,command)=f.request(Operation::TradeConfirm);
-        let barrier=Arc::new(Barrier::new(2));
-        let (a,b)=tokio::join!(
-            f.run(context.clone(),command.clone(),ReplayFault::ReceiptRace(barrier.clone())),
-            f.run(context,command,ReplayFault::ReceiptRace(barrier)));
-        let a=a.result.unwrap(); let b=b.result.unwrap();
-        assert_ne!(a.replayed,b.replayed); assert_eq!(a.response_body,b.response_body);
-        assert_eq!(f.effects().await,1); f.finish().await;
+        let f = Fixture::new().await;
+        let (context, command) = f.request(Operation::TradeConfirm);
+        let barrier = Arc::new(Barrier::new(2));
+        let (a, b) = tokio::join!(
+            f.run(
+                context.clone(),
+                command.clone(),
+                ReplayFault::ReceiptRace(barrier.clone())
+            ),
+            f.run(context, command, ReplayFault::ReceiptRace(barrier))
+        );
+        let a = a.result.unwrap();
+        let b = b.result.unwrap();
+        assert_ne!(a.replayed, b.replayed);
+        assert_eq!(a.response_body, b.response_body);
+        assert_eq!(f.effects().await, 1);
+        f.finish().await;
     }
 
     #[tokio::test]
     async fn receipt_insert_contention_revalidates_the_winner() {
-        let f=Fixture::new().await;
-        let (context,command)=f.request(Operation::TradeConfirm);
-        let mut different=command.clone(); different.resource_id=Uuid::new_v4();
-        let barrier=Arc::new(Barrier::new(2));
-        let (a,b)=tokio::join!(
-            f.run(context.clone(),command,ReplayFault::ReceiptRace(barrier.clone())),
-            f.run(context,different,ReplayFault::ReceiptRace(barrier)));
-        let (success,refusal)=if a.result.is_ok() {(a.result,b.result)} else {(b.result,a.result)};
+        let f = Fixture::new().await;
+        let (context, command) = f.request(Operation::TradeConfirm);
+        let mut different = command.clone();
+        different.resource_id = Uuid::new_v4();
+        let barrier = Arc::new(Barrier::new(2));
+        let (a, b) = tokio::join!(
+            f.run(
+                context.clone(),
+                command,
+                ReplayFault::ReceiptRace(barrier.clone())
+            ),
+            f.run(context, different, ReplayFault::ReceiptRace(barrier))
+        );
+        let (success, refusal) = if a.result.is_ok() {
+            (a.result, b.result)
+        } else {
+            (b.result, a.result)
+        };
         assert!(!success.unwrap().replayed);
-        assert_eq!(refusal.unwrap_err().detail["code"],"RECEIPT_RESOURCE_MISMATCH");
-        assert_eq!(f.effects().await,1); f.finish().await;
+        assert_eq!(
+            refusal.unwrap_err().detail["code"],
+            "RECEIPT_RESOURCE_MISMATCH"
+        );
+        assert_eq!(f.effects().await, 1);
+        f.finish().await;
     }
 
     #[tokio::test]
     async fn ambiguous_commit_is_not_retried() {
-        let f=Fixture::new().await;
-        for keyed in [true,false] {
-            let (mut context,command)=f.request(Operation::TradePay);
-            if !keyed {context.idempotency_key=None;}
-            let result=f.run(context.clone(),command.clone(),ReplayFault::LostCommitAck).await;
-            let error=result.result.unwrap_err();
-            assert_eq!(error.status.as_u16(),503);
-            assert_eq!(error.detail["code"],"COMMIT_OUTCOME_UNKNOWN");
-            assert_eq!(result.attempts,1);
+        let f = Fixture::new().await;
+        for keyed in [true, false] {
+            let (mut context, command) = f.request(Operation::TradePay);
+            if !keyed {
+                context.idempotency_key = None;
+            }
+            let result = f
+                .run(context.clone(), command.clone(), ReplayFault::LostCommitAck)
+                .await;
+            let error = result.result.unwrap_err();
+            assert_eq!(error.status.as_u16(), 503);
+            assert_eq!(error.detail["code"], "COMMIT_OUTCOME_UNKNOWN");
+            assert_eq!(result.attempts, 1);
             if keyed {
-                assert!(f.run(context,command,ReplayFault::RejectFresh).await.result.unwrap().replayed);
+                assert!(
+                    f.run(context, command, ReplayFault::RejectFresh)
+                        .await
+                        .result
+                        .unwrap()
+                        .replayed
+                );
             }
         }
-        assert_eq!(f.effects().await,2); f.finish().await;
+        assert_eq!(f.effects().await, 2);
+        f.finish().await;
     }
 
     #[tokio::test]
     async fn safely_aborted_commit_retries_only_the_approved_states() {
-        let f=Fixture::new().await;
-        for state in ["40001","40P01","23505","55P03","57014"] {
-            let (context,command)=f.request(Operation::TradeDeliver);
-            let result=f.run(context,command,ReplayFault::CommitFailure(state)).await;
-            if ["40001","40P01"].contains(&state) {
-                assert_eq!(result.attempts,2); assert!(result.result.is_ok());
+        let f = Fixture::new().await;
+        for state in ["40001", "40P01", "23505", "55P03", "57014"] {
+            let (context, command) = f.request(Operation::TradeDeliver);
+            let result = f
+                .run(context, command, ReplayFault::CommitFailure(state))
+                .await;
+            if ["40001", "40P01"].contains(&state) {
+                assert_eq!(result.attempts, 2);
+                assert!(result.result.is_ok());
             } else {
-                assert_eq!(result.attempts,1); assert!(result.result.is_err());
+                assert_eq!(result.attempts, 1);
+                assert!(result.result.is_err());
             }
         }
-        assert_eq!(f.effects().await,2); f.finish().await;
+        assert_eq!(f.effects().await, 2);
+        f.finish().await;
     }
 }
