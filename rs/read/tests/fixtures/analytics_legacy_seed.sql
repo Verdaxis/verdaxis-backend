@@ -36,7 +36,14 @@ INSERT INTO users (id, email, first_name, last_name, role, status, organization_
     ('00000000-0000-4000-8000-0000000000b8', 'ops2@example.test', 'Oli', 'Rowe', 'ADMIN', 'APPROVED',
      '00000000-0000-4000-8000-0000000000d2', true, false, NULL, now() - interval '6 days'),
     ('00000000-0000-4000-8000-0000000000b5', 'legacy@example.test', 'Lee', 'Gacy', NULL, 'PENDING',
-     '00000000-0000-4000-8000-0000000000d3', false, false, NULL, now() - interval '7 days');
+     '00000000-0000-4000-8000-0000000000d3', false, false, NULL, now() - interval '7 days'),
+    -- The tiebreak pair: identical created_at to the microsecond, inserted in
+    -- an order opposite to their id order, so only `ORDER BY created_at DESC,
+    -- id DESC` puts tie-...@ before tie-...9 (the greater id first).
+    ('00000000-0000-4000-8000-0000000000b9', 'tie-nine@example.test', 'Tina', 'Nile', 'BUYER', 'APPROVED',
+     '00000000-0000-4000-8000-0000000000a1', true, false, NULL, now() - interval '10 days'),
+    ('00000000-0000-4000-8000-0000000000ba', 'tie-ten@example.test', 'Tess', 'Tenor', 'BUYER', 'APPROVED',
+     '00000000-0000-4000-8000-0000000000a1', true, false, NULL, now() - interval '10 days');
 
 -- Five orders from the two market organizations: three today, one yesterday,
 -- one five days ago. Three are live (OPEN / PARTIALLY_FILLED with no expiry or a

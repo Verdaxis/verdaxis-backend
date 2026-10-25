@@ -285,13 +285,14 @@ async fn p4_t17b_c01() {
 
     let (status, body) = f.get("/api/admin/analytics/overview", Some(&admin)).await;
     assert_eq!(status, StatusCode::OK, "{body}");
-    // Five market accounts (buyer A, supplier A, buyer B, orgless buyer,
-    // supplier C). The administrator and the NULL-role account are not
-    // market members, and the demo organization has no account at all.
+    // Seven market accounts (buyer A, supplier A, buyer B, orgless buyer,
+    // supplier C, plus the two tiebreak buyers in Alpha Shipping). The
+    // administrator and the NULL-role account are not market members, and
+    // the demo organization has no account at all.
     assert_eq!(
         overview_selection(&body),
         json!({
-            "total_users": 5,
+            "total_users": 7,
             "active_users_7d": 1,
             "total_organizations": 3,
             "total_orders": 5,
@@ -405,7 +406,7 @@ async fn p4_t17b_c02() {
 
     let (status, body) = f.get("/api/admin/analytics/users", Some(&admin)).await;
     assert_eq!(status, StatusCode::OK, "{body}");
-    assert_eq!(body["total"], 5);
+    assert_eq!(body["total"], 7);
     let items = body["items"].as_array().unwrap();
     assert_eq!(items.len(), 5);
     // Newest account first; the administrator and the NULL-role account are
@@ -422,10 +423,17 @@ async fn p4_t17b_c02() {
             USER_BUYER_B.to_string(),
             USER_ORGLESS.to_string(),
             USER_SUPPLIER_C.to_string(),
+            // The tiebreak pair shares one created_at to the microsecond;
+            // the greater id is listed first, pinning `(created_at, id)`.
+            "00000000-0000-4000-8000-0000000000ba".to_string(),
+            "00000000-0000-4000-8000-0000000000b9".to_string(),
         ]
     );
 
     let buyer_a = &items[0];
+    // The listing row is exactly the fifteen contract fields; a sixteenth
+    // (for example an accidentally projected secret) must fail here.
+    assert_eq!(buyer_a.as_object().unwrap().len(), 15, "{buyer_a}");
     assert_eq!(buyer_a["email"], "alpha@example.test");
     assert_eq!(buyer_a["first_name"], "Pat");
     assert_eq!(buyer_a["last_name"], "Lee");
@@ -472,13 +480,13 @@ async fn p4_t17b_c02() {
     // Status filters are the closed account-status set, case-insensitive,
     // and `all` is the explicit no-filter spelling.
     for (filter, expected) in [
-        ("APPROVED", 4),
+        ("APPROVED", 6),
         ("approved", 4),
         ("PENDING", 1),
         ("pending", 1),
         ("REJECTED", 0),
-        ("all", 5),
-        ("ALL", 5),
+        ("all", 7),
+        ("ALL", 7),
     ] {
         let (status, body) = f
             .get(
@@ -491,7 +499,7 @@ async fn p4_t17b_c02() {
     }
 
     // Name and email search are case-insensitive substring matches.
-    for (search, expected) in [("pat", 1), ("PARK", 1), ("example.test", 5), ("nobody", 0)] {
+    for (search, expected) in [("pat", 1), ("PARK", 1), ("example.test", 7), ("nobody", 0)] {
         let (status, body) = f
             .get(
                 &format!("/api/admin/analytics/users?search={search}"),
@@ -532,9 +540,13 @@ async fn p4_t17b_c03() {
         .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
 
-    // Refusals that happen before the quota is consumed never spend it: 60
-    // authentication refusals and 60 authority refusals leave the identity
-    // able to make an ordinary request afterwards.
+    // Authentication and authority refusals leave an unrelated identity
+    // able to make an ordinary request afterwards. The refused identities
+    // (an invalid token and a non-administrator) have no success path on this
+    // route, so their own counters cannot be compared against a served
+    // request here; what this observes is that the shared counter authority
+    // keeps serving after refusals, and the route order (quota after the role
+    // refusal) is pinned by construction in the adapter.
     for _ in 0..60 {
         let (status, _) = f
             .get("/api/admin/analytics/overview", Some("not-a-token"))
@@ -661,7 +673,7 @@ async fn p4_t17b_c04() {
     // size of the page.
     for (query, count, first) in [
         ("limit=2", 2, USER_BUYER_A),
-        ("limit=100", 5, USER_BUYER_A),
+        ("limit=100", 7, USER_BUYER_A),
         ("limit=1&offset=1", 1, USER_SUPPLIER_A),
         ("offset=4", 1, USER_SUPPLIER_C),
         ("offset=5", 0, USER_UNKNOWN_TOKEN),
@@ -671,7 +683,7 @@ async fn p4_t17b_c04() {
             .get(&format!("/api/admin/analytics/users?{query}"), Some(&admin))
             .await;
         assert_eq!(status, StatusCode::OK, "{query}: {body}");
-        assert_eq!(body["total"], 5, "{query}");
+        assert_eq!(body["total"], 7, "{query}");
         let items = body["items"].as_array().unwrap();
         assert_eq!(items.len(), count, "{query}: {body}");
         if count > 0 {
@@ -724,12 +736,28 @@ async fn p4_t17b_c04() {
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
     assert_eq!(body["detail"]["code"], "INVALID_STATUS_FILTER");
 
+    // A double-invalid query keeps the typed-validation envelope (422, both
+    // errors reported): the typed framework validates every parameter before
+    // the handler runs, so the 400 status filter never shadows them.
+    let (status, body) = f
+        .get(
+            "/api/admin/analytics/users?status=ARCHIVED&limit=0",
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    let detail = body["detail"].as_array().unwrap();
+    assert!(
+        detail.iter().any(|error| error["loc"] == json!(["query", "limit"])),
+        "{body}"
+    );
+
     // An empty search behaves as no filter, as the reference does.
     let (status, body) = f
         .get("/api/admin/analytics/users?search=", Some(&admin))
         .await;
     assert_eq!(status, StatusCode::OK, "{body}");
-    assert_eq!(body["total"], 5);
+    assert_eq!(body["total"], 7);
 
     f.finish().await;
 }
