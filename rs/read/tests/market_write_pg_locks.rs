@@ -825,3 +825,32 @@ async fn ordered_protocol_contender() {
     }
     tx.rollback().await.unwrap();
 }
+
+
+#[cfg(feature = "contract-tests")]
+#[tokio::test]
+#[ignore = "requires explicit disposable PostgreSQL"]
+async fn ordered_cancellation_retains_admission_until_completion() {
+    let mut f=Fixture::open().await;
+    sqlx::query("UPDATE users SET status='APPROVED',authentication_revoked_at=NULL,must_change_password=false WHERE id=$1").bind(id(1)).execute(&mut f.admin).await.unwrap();
+    let permit=std::sync::Arc::new(tokio::sync::Semaphore::new(1));
+    let entered=std::sync::Arc::new(tokio::sync::Notify::new());let release=std::sync::Arc::new(tokio::sync::Notify::new());
+    let task=tokio::spawn(transaction::run_paused_market_probe(f.pool.clone(),permit.clone(),f.access(id(1)).await,entered.clone(),release.clone()));
+    entered.notified().await;task.abort();
+    assert_eq!(permit.available_permits(),0);
+    release.notify_one();
+    let acquired=tokio::time::timeout(std::time::Duration::from_secs(5),permit.acquire()).await.unwrap().unwrap();drop(acquired);
+    let value:i32=sqlx::query_scalar("SELECT value FROM lock_effects WHERE id=1").fetch_one(&mut f.admin).await.unwrap();assert_eq!(value,1);
+    f.finish().await;
+}
+
+#[tokio::test]
+#[ignore = "requires explicit disposable PostgreSQL"]
+async fn ordinary_context_requires_current_locked_execution() {
+    let mut f=Fixture::open().await;
+    sqlx::query("UPDATE users SET organization_id=$1,status='APPROVED',email_verified=true,must_change_password=false,authentication_revoked_at=NULL,kyc_status='APPROVED',kyc_organization_id=$1 WHERE id=$2").bind(id(10)).bind(id(1)).execute(&mut f.admin).await.unwrap();
+    let mut conn=f.pool.acquire().await.unwrap();let mut tx=conn.begin().await.unwrap();let mut plan=OperationLockPlan::new(MarketOperation::Create);plan.parties(&preview(id(1))).unwrap();let locked=plan.acquire(&mut tx).await.unwrap();
+    let actor=admission::authenticate(&mut tx,&locked,f.access(id(1)).await,AdmissionClass::Execution).await.unwrap();
+    let ctx=admission::execution_context(&mut tx,&locked,actor,id(10),None,Utc::now(),true).await.unwrap();assert_eq!(ctx.actor().user_id(),id(1));assert_eq!(ctx.effective_organization_id(),id(10));assert!(ctx.support().is_none());
+    tx.rollback().await.unwrap();drop(conn);f.finish().await;
+}
