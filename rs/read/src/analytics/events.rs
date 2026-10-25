@@ -16,13 +16,15 @@ use std::collections::BTreeSet;
 use axum::http::StatusCode;
 use serde::{Serialize, Serializer};
 
-pub use crate::analytics::policy::{AllowedFrontendEvent, AllowedProperty, AllowedPropertySet, AllowedServerEvent, RegisteredEvent};
-pub use crate::analytics::types::{EntryPage, ReferrerCategory};
 use crate::analytics::policy::{allowed_properties, check_property_value, PropertyValueCheck};
+pub use crate::analytics::policy::{
+    AllowedFrontendEvent, AllowedProperty, AllowedPropertySet, AllowedServerEvent, RegisteredEvent,
+};
+pub use crate::analytics::types::{EntryPage, ReferrerCategory};
 
 use crate::{
-    ApiError, MarketPolicy, analytics::types::AggregateCell, business::error::refusal,
-    market::terms::ISO_3166_1_ALPHA_2, market::windows::is_canonical_window,
+    analytics::types::AggregateCell, business::error::refusal, market::terms::ISO_3166_1_ALPHA_2,
+    market::windows::is_canonical_window, ApiError, MarketPolicy,
 };
 
 /// The one refusal shared by every policy violation in this module.
@@ -66,6 +68,9 @@ impl EntryPage {
     /// Classify one raw entry metric. Query strings and fragments are dropped;
     /// only a leading path segment is consulted.
     pub fn from_raw_path(raw: &str) -> Self {
+        // Match the source metric's 500-character cap before inspecting it.
+        let bounded: String = raw.chars().take(500).collect();
+        let raw = bounded.as_str();
         let without_origin = match raw.find("://") {
             Some(index) => match raw[index + 3..].find('/') {
                 Some(slash) => &raw[index + 3 + slash..],
@@ -74,13 +79,15 @@ impl EntryPage {
             None => raw,
         };
         let path = without_origin.split(['?', '#']).next().unwrap_or("").trim();
-        let normalized = {
-            let mut path = path.to_owned();
-            while path.contains("//") {
-                path = path.replace("//", "/");
+        let mut normalized = String::with_capacity(path.len());
+        let mut previous_slash = false;
+        for character in path.chars() {
+            let slash = character == '/';
+            if !slash || !previous_slash {
+                normalized.push(character);
             }
-            path
-        };
+            previous_slash = slash;
+        }
         let segment = normalized
             .trim_start_matches('/')
             .split('/')
@@ -258,10 +265,16 @@ impl AllowedPropertyValue {
             PropertyValueCheck::Allowed => true,
             PropertyValueCheck::Rejected => false,
             PropertyValueCheck::External => match property {
-                AllowedProperty::CanonicalProduct | AllowedProperty::Product | AllowedProperty::Fuel => catalog.is_product(raw),
-                AllowedProperty::DeliveryPoint | AllowedProperty::Port => catalog.is_delivery_point(raw),
+                AllowedProperty::CanonicalProduct
+                | AllowedProperty::Product
+                | AllowedProperty::Fuel => catalog.is_product(raw),
+                AllowedProperty::DeliveryPoint | AllowedProperty::Port => {
+                    catalog.is_delivery_point(raw)
+                }
                 AllowedProperty::Country => catalog.is_country(raw),
-                AllowedProperty::AvailabilityWindow | AllowedProperty::Window => canonical_window(raw),
+                AllowedProperty::AvailabilityWindow | AllowedProperty::Window => {
+                    canonical_window(raw)
+                }
                 _ => false,
             },
         };
@@ -319,8 +332,7 @@ impl ServerEvent {
         let values: Vec<_> = values.into_iter().collect();
         for (property, value) in &values {
             if value.property() != *property
-                || !allowed_properties(RegisteredEvent::Server(event))
-                    .contains(property)
+                || !allowed_properties(RegisteredEvent::Server(event)).contains(property)
             {
                 return Err(property_refusal());
             }
