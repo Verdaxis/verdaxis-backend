@@ -73,7 +73,7 @@ async fn password_prehash_boundary_72_and_maximum_1024() {
         password::validate_bytes("A1１２b"),
         Err(PasswordError::TooShort)
     );
-    assert_eq!(password::validate_bytes("A1１２bb"), Ok(()));
+    assert_eq!(password::validate_bytes("A1１２bbbb"), Ok(()));
     assert_eq!(password::validate_bytes(&maximum), Ok(()));
     assert_eq!(password::MAX_PASSWORD_BYTES, 1024);
     assert_eq!(password::BCRYPT_COST, 12);
