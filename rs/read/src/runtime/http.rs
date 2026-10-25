@@ -352,11 +352,21 @@ async fn dispatch_boundary(
                 .and_then(|v| v.to_str().ok()),
         );
         let now = state.started.elapsed().as_millis() as u64;
-        let accepted = state
-            .buckets
-            .lock()
-            .expect("rate bucket lock")
-            .accept(&client, path, limit, now);
+        let accepted = {
+            let mut buckets = match state.buckets.lock() {
+                Ok(guard) => guard,
+                Err(poisoned) => {
+                    // Keep the counters: clearing them would grant fresh quota.
+                    // Clear poison while holding the recovered guard so only
+                    // this recovery emits a warning, not every later request.
+                    let guard = poisoned.into_inner();
+                    state.buckets.clear_poison();
+                    tracing::warn!(recoveries = 1_u64, "price quota lock recovery");
+                    guard
+                }
+            };
+            buckets.accept(&client, path, limit, now)
+        };
         if !accepted {
             return ApiError {
                 status: StatusCode::TOO_MANY_REQUESTS,
@@ -603,17 +613,32 @@ const MAX_BUCKETS: usize = 50_000;
 
 const WINDOW_MS: u64 = 60_000;
 
+// A small fixed batch bounds synchronous cleanup under the shared lock. At
+// 32 entries per request, stale accounting drains faster than new clients can
+// add it, without making one caller release all 50,000 expired entries.
+const EXPIRED_CLEANUP_BUDGET: usize = 32;
+
 impl ClientBuckets {
-    /// Drop expired entries, then account one request for `client` on `path`.
+    /// Reset the caller if expired, clean one bounded batch, then account it.
     pub fn accept(&mut self, client: &str, path: &str, limit: u32, now_ms: u64) -> bool {
-        while let Some((expires_at, _)) = self.expiration.first() {
+        let identity = (network_identity(client), path.into());
+        if let Some(&(started_ms, _)) = self.buckets.get(&identity)
+            && started_ms.saturating_add(WINDOW_MS) <= now_ms
+        {
+            self.expiration
+                .remove(&(started_ms.saturating_add(WINDOW_MS), identity.clone()));
+            self.buckets.remove(&identity);
+        }
+        for _ in 0..EXPIRED_CLEANUP_BUDGET {
+            let Some((expires_at, _)) = self.expiration.first() else {
+                break;
+            };
             if *expires_at > now_ms {
                 break;
             }
-            let (_, identity) = self.expiration.pop_first().expect("expiration entry");
-            self.buckets.remove(&identity);
+            let (_, expired) = self.expiration.pop_first().expect("expiration entry");
+            self.buckets.remove(&expired);
         }
-        let identity = (network_identity(client), path.into());
         if !self.buckets.contains_key(&identity) {
             if self.buckets.len() >= MAX_BUCKETS {
                 // Only the identity being admitted is new; its own entry does
@@ -703,7 +728,10 @@ mod limiter_tests {
         for (path, _) in paths {
             routes = routes.route(path, get(|| async { "prices" }));
         }
-        let app = routes.layer(middleware::from_fn_with_state(state.clone(), dispatch_boundary));
+        let app = routes.layer(middleware::from_fn_with_state(
+            state.clone(),
+            dispatch_boundary,
+        ));
         for (path, limit) in paths {
             let response = app
                 .clone()
@@ -728,13 +756,22 @@ mod limiter_tests {
     fn bounded_cleanup_keeps_one_index_tuple_per_identity() {
         let mut store = ClientBuckets::default();
         for index in 0..50_000_u32 {
-            assert!(store.accept(&std::net::Ipv4Addr::from(index).to_string(), "/api/prices", 1, 0));
+            assert!(store.accept(
+                &std::net::Ipv4Addr::from(index).to_string(),
+                "/api/prices",
+                1,
+                0
+            ));
         }
         for now in [60_000, 120_000, 180_000] {
             assert!(store.accept("0.0.195.79", "/api/prices", 1, now));
             assert_eq!(store.expiration.len(), store.buckets.len());
             for (identity, (started, _)) in &store.buckets {
-                assert!(store.expiration.contains(&(started + WINDOW_MS, identity.clone())));
+                assert!(
+                    store
+                        .expiration
+                        .contains(&(started + WINDOW_MS, identity.clone()))
+                );
             }
         }
     }
