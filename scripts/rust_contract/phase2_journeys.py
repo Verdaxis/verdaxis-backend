@@ -522,11 +522,9 @@ def validate_target(base_url: str, token: str) -> None:
 def setup(connection) -> None:
     """Rows the six journeys need; the base seed supplies products and points."""
     from scripts.rust_contract.phase2_watchlist_fixtures import (
-        FAR_FUTURE,
         ORGANIZATION,
         insert_container,
         insert_event,
-        insert_order,
         insert_slice,
         order_event,
         seed_users_and_orders,
@@ -552,7 +550,7 @@ def setup(connection) -> None:
             "must_change_password,first_name,last_name,referral_code) "
             "VALUES (%s,%s,'not-a-login',%s,'APPROVED',%s,true,false,'Journey','User',%s)",
             (user, email, role, organization, REFERRAL_CODE if user == OWNER else None))
-    insert_order(connection, PUBLIC_ORDER, DEMO_ORGANIZATION, None, "DEMO", DALIAN, FAR_FUTURE)
+    # PUBLIC_ORDER comes from seed_users_and_orders; the pin below reads it.
     insert_container(connection, RADAR, OWNER, "Market Radar", BASE, kind="RADAR_DEFAULT")
     insert_slice(connection, SLICE, RADAR, "B30", DALIAN, "SPOT", BASE)
     insert_event(connection, EVENT, RADAR, SLICE, "PIN_PRICE_CHANGED", order_event(PUBLIC_ORDER), BASE)
