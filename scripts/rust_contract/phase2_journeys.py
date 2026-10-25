@@ -25,6 +25,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from scripts.rust_contract.phase2_mail import MailStub
+
 ROOT = Path(__file__).resolve().parents[2]
 SECRET = "test-secret-key-for-testing-minimum-32-chars"
 ISSUER = "verdaxis-test-api"
