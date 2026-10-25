@@ -11,7 +11,18 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
-      ]
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_http.rs",
+      "test_name": "prices_get_alias_matches_canonical",
+      "red": [
+        "missing_interface"
+      ],
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::http"
+      }
     },
     {
       "id": "R02",
@@ -23,7 +34,18 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
-      ]
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_http.rs",
+      "test_name": "orderbook_get_alias_matches_canonical",
+      "red": [
+        "missing_interface"
+      ],
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::http"
+      }
     },
     {
       "id": "R03",
@@ -35,7 +57,18 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
-      ]
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_http.rs",
+      "test_name": "trades_get_alias_matches_canonical",
+      "red": [
+        "missing_interface"
+      ],
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::http"
+      }
     },
     {
       "id": "R04",
@@ -47,7 +80,18 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
-      ]
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_http.rs",
+      "test_name": "trades_rejects_bearer_400_stream_auth_conflict",
+      "red": [
+        "missing_interface"
+      ],
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::http"
+      }
     },
     {
       "id": "R05",
@@ -59,7 +103,18 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
-      ]
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_http.rs",
+      "test_name": "trades_rejects_bad_cursor_400_stream_cursor_invalid",
+      "red": [
+        "missing_interface"
+      ],
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::http"
+      }
     },
     {
       "id": "R06",
@@ -71,7 +126,18 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
-      ]
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_http.rs",
+      "test_name": "trades_requires_token_401_stream_token_required",
+      "red": [
+        "missing_interface"
+      ],
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::http"
+      }
     },
     {
       "id": "R07",
@@ -83,7 +149,18 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
-      ]
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_http.rs",
+      "test_name": "trades_rejects_bad_token_401_stream_token_invalid",
+      "red": [
+        "missing_interface"
+      ],
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::http"
+      }
     },
     {
       "id": "R08",
@@ -95,7 +172,18 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
-      ]
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_http.rs",
+      "test_name": "trades_auth_store_down_503_stream_auth_unavailable",
+      "red": [
+        "missing_interface"
+      ],
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::http"
+      }
     },
     {
       "id": "R09",
@@ -107,7 +195,18 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
-      ]
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_http.rs",
+      "test_name": "stream_routes_reject_head_and_post_405_envelope",
+      "red": [
+        "missing_interface"
+      ],
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::http"
+      }
     },
     {
       "id": "R10",
@@ -119,7 +218,18 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
-      ]
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_http.rs",
+      "test_name": "activity_route_is_404_in_rust",
+      "red": [
+        "missing_interface"
+      ],
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::http"
+      }
     },
     {
       "id": "R11",
@@ -131,7 +241,18 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
-      ]
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_http.rs",
+      "test_name": "issuer_route_is_not_mounted",
+      "red": [
+        "missing_interface"
+      ],
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::http"
+      }
     },
     {
       "id": "R12",
@@ -143,7 +264,18 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
-      ]
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_http.rs",
+      "test_name": "stream_subsystem_down_503_stream_unavailable",
+      "red": [
+        "missing_interface"
+      ],
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::http"
+      }
     },
     {
       "id": "R13",
@@ -155,7 +287,18 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
-      ]
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_http.rs",
+      "test_name": "stream_cursor_header_precedes_query",
+      "red": [
+        "missing_interface"
+      ],
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::http"
+      }
     },
     {
       "id": "R14",
@@ -167,7 +310,18 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
-      ]
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_http.rs",
+      "test_name": "no_pid_origin_comment_in_rust_stream",
+      "red": [
+        "missing_interface"
+      ],
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::http"
+      }
     },
     {
       "id": "R15",
@@ -179,7 +333,18 @@
       "scopes": [
         "candidate",
         "cutover-rehearsal"
-      ]
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_http.rs",
+      "test_name": "stream_error_order_and_envelope",
+      "red": [
+        "missing_interface"
+      ],
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::http"
+      }
     },
     {
       "id": "T01",
