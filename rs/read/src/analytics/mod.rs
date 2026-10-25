@@ -6,9 +6,14 @@
 //! identified user listing are operator reads with their own typed response
 //! contracts, never payloads for the product-analytics tabs.
 
+pub mod acquisition;
 pub mod behavioral;
+pub mod commercial;
 pub mod events;
 pub mod facts;
+pub mod liquidity;
+pub mod marketplace;
+pub mod reliability;
 pub mod policy;
 pub mod query;
 pub mod retention;
