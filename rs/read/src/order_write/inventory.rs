@@ -170,7 +170,11 @@ fn validate_fields(fields: &mut Map<String, Value>) -> Result<(), MarketWriteErr
             "energy_density_mj_kg" | "carbon_intensity_gco2_mj" if !value.is_null() => {
                 let text = decimal_text(value)?;
                 let amount = StockQuantity::parse_exact(&text)?.value();
-                let maximum = if key == "energy_density_mj_kg" { Decimal::new(99999,2) } else { Decimal::from(10000) };
+                let maximum = if key == "energy_density_mj_kg" {
+                    Decimal::new(99999, 2)
+                } else {
+                    Decimal::from(10000)
+                };
                 if amount > maximum {
                     return Err(invalid());
                 }
@@ -209,14 +213,51 @@ fn decimal_text(value: &Value) -> Result<String, MarketWriteError> {
     }
 }
 fn complete_declaration(declaration: &mut Value, profile: &str) -> Result<(), MarketWriteError> {
-    let fields=declaration.as_object_mut().ok_or_else(invalid)?;
+    let fields = declaration.as_object_mut().ok_or_else(invalid)?;
     let optional: &[&str] = if profile == "fame_v1" {
-        for (key,value) in [("schema_version",json!(1)),("neat_fame",json!(true)),("nomination_status",json!("PENDING")),("document_references",json!([]))] { fields.entry(key).or_insert(value); }
-        &["astm_grade","en_climate_class","production_origin","feedstock_origin","shipping_location","cfpp_c","cloud_point_c","ci_gco2e_mj","ci_methodology","ci_boundary","ci_basis","lhv_mj_kg","certificate_scope","quality_evidence","sustainability_evidence","batch_reference","producing_site"]
-    } else { &["feedstock_detail","min_methane_number"] };
-    for key in optional {fields.entry(*key).or_insert(Value::Null);}
-    let decimals: &[&str] = if profile == "fame_v1" { &["cfpp_c","cloud_point_c","ci_gco2e_mj","lhv_mj_kg"] } else { &["bio_share_pct","wtt_ghg_gco2e_mj","min_methane_number"] };
-    for key in decimals { if !fields[*key].is_null() { fields.insert((*key).into(),numeric_string(&fields[*key])?); } }
+        for (key, value) in [
+            ("schema_version", json!(1)),
+            ("neat_fame", json!(true)),
+            ("nomination_status", json!("PENDING")),
+            ("document_references", json!([])),
+        ] {
+            fields.entry(key).or_insert(value);
+        }
+        &[
+            "astm_grade",
+            "en_climate_class",
+            "production_origin",
+            "feedstock_origin",
+            "shipping_location",
+            "cfpp_c",
+            "cloud_point_c",
+            "ci_gco2e_mj",
+            "ci_methodology",
+            "ci_boundary",
+            "ci_basis",
+            "lhv_mj_kg",
+            "certificate_scope",
+            "quality_evidence",
+            "sustainability_evidence",
+            "batch_reference",
+            "producing_site",
+        ]
+    } else {
+        &["feedstock_detail", "min_methane_number"]
+    };
+    for key in optional {
+        fields.entry(*key).or_insert(Value::Null);
+    }
+    let decimals: &[&str] = if profile == "fame_v1" {
+        &["cfpp_c", "cloud_point_c", "ci_gco2e_mj", "lhv_mj_kg"]
+    } else {
+        &["bio_share_pct", "wtt_ghg_gco2e_mj", "min_methane_number"]
+    };
+    for key in decimals {
+        if !fields[*key].is_null() {
+            fields.insert((*key).into(), numeric_string(&fields[*key])?);
+        }
+    }
     Ok(())
 }
 fn derive_metadata(

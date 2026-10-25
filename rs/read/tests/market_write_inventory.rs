@@ -88,12 +88,15 @@ fn inventory_create_rejects_unclassified_fields() {
 
 #[test]
 fn inventory_required_and_optional_scalar_fields_keep_their_bounds() {
-    let mut missing=body(); missing.as_object_mut().unwrap().remove("current_stock_mt");
-    assert!(InventoryInput::create(missing,&policy()).is_err());
+    let mut missing = body();
+    missing.as_object_mut().unwrap().remove("current_stock_mt");
+    assert!(InventoryInput::create(missing, &policy()).is_err());
     for value in ["1000", "10000"] {
-        let mut input=body(); input["energy_density_mj_kg"]=json!(value);
-        assert!(InventoryInput::create(input,&policy()).is_err());
+        let mut input = body();
+        input["energy_density_mj_kg"] = json!(value);
+        assert!(InventoryInput::create(input, &policy()).is_err());
     }
-    let mut input=body(); input["energy_density_mj_kg"]=json!("999.99");
-    assert!(InventoryInput::create(input,&policy()).is_ok());
+    let mut input = body();
+    input["energy_density_mj_kg"] = json!("999.99");
+    assert!(InventoryInput::create(input, &policy()).is_ok());
 }
