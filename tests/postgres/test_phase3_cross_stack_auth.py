@@ -230,6 +230,7 @@ async def test_cross_stack_account_refusals(analytics_pg_url, rust_auth_server, 
             login = await producer.post("/api/auth/login", data={"username": email,"password": PASSWORD})
             assert login.status_code == 200
             token = login.json()["access_token"]
+            retained_cookie = "; ".join(f"{c.name}={c.value}" for c in producer.cookies.jar)
             claims = jwt.decode(token, options={"verify_signature": False})
             issued = datetime.fromtimestamp(claims["iat_us"] // 1000000, UTC).replace(microsecond=claims["iat_us"] % 1000000)
 
@@ -249,6 +250,10 @@ async def test_cross_stack_account_refusals(analytics_pg_url, rust_auth_server, 
                     assert [r.status_code for r in responses] == [expected,expected], (column,delta,[r.text for r in responses])
                     if expected == 401:
                         assert all(r.json()["detail"]["code"] == code for r in responses)
+                        refresh_responses = [await client.post("/api/auth/refresh", headers={"Cookie":retained_cookie}) for client in (python,rust)]
+                        assert [r.status_code for r in refresh_responses] == [401,401]
+                        refresh_code = "REFRESH_PASSWORD_CHANGED" if column == "password_changed_at" else "REFRESH_SESSION_REVOKED"
+                        assert all(r.json()["detail"]["code"] == refresh_code for r in refresh_responses)
                 await update(**{column:None})
 
             await update(status="REJECTED", authentication_revoked_at=issued)

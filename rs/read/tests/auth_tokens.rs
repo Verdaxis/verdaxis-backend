@@ -51,10 +51,10 @@ async fn access_vectors_match_python_http_outcomes() {
                 // but their wording is not copied into the fixture.
                 detail["detail"]["code"] == "AUTH_CREDENTIALS_INVALID"
             };
-            if approved.get("defect").is_some() {
-                assert_eq!(approved["defect"], "PD7", "{id}: defect record");
+            if approved.get("case").is_some() {
+                assert_eq!(approved["case"], "ISSUANCE-RANGE", "{id}: case record");
                 assert_eq!(approved["decision"], 94, "{id}: decision record");
-                assert_eq!(vector["python"]["status"], 500, "{id}: PD7 baseline");
+                assert_eq!(vector["python"]["status"], 500, "{id}: issuance-range baseline");
             } else if approved["decision"] == "ACCESS-EXPIRY" {
                 // Rust requires `exp`; Python accepts this token. The code is
                 // pinned and the message wording stays free.

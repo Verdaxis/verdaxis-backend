@@ -3940,7 +3940,7 @@
       },
       "approved_difference": {
         "decision": 94,
-        "defect": "PD7",
+        "case": "ISSUANCE-RANGE",
         "reference_sha": "cf0cb692d75d7d6ce9a372dc80c7d09cdef6fdb7"
       },
       "rust_expected": {
@@ -4065,7 +4065,7 @@
       },
       "approved_difference": {
         "decision": 94,
-        "defect": "PD7",
+        "case": "ISSUANCE-RANGE",
         "reference_sha": "cf0cb692d75d7d6ce9a372dc80c7d09cdef6fdb7"
       },
       "rust_expected": {
@@ -4374,7 +4374,7 @@
       },
       "approved_difference": {
         "decision": 94,
-        "defect": "PD7",
+        "case": "ISSUANCE-RANGE",
         "reference_sha": "cf0cb692d75d7d6ce9a372dc80c7d09cdef6fdb7"
       },
       "rust_expected": {
@@ -4499,7 +4499,7 @@
       },
       "approved_difference": {
         "decision": 94,
-        "defect": "PD7",
+        "case": "ISSUANCE-RANGE",
         "reference_sha": "cf0cb692d75d7d6ce9a372dc80c7d09cdef6fdb7"
       },
       "rust_expected": {
