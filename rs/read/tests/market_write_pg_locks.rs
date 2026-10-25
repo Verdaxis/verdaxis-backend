@@ -515,3 +515,49 @@ async fn continuing_writer_user_prefix_has_a_bounded_outcome() {
     drop(python);
     f.finish().await;
 }
+
+
+#[test]
+fn maintenance_and_phase7_sources_keep_canonical_locks_and_columns() {
+    let quarantine=include_str!("../../../app/services/market_quarantine.py");
+    assert!(quarantine.contains("Acquire maintenance idempotency then canonical sorted slice locks"));
+    assert!(quarantine.contains("SET LOCAL lock_timeout = '500ms'"));
+    assert!(quarantine.contains("SET LOCAL statement_timeout = '5s'"));
+    assert!(quarantine.contains("market_slice_lock_key("));
+    let demo=include_str!("../../../app/services/demo_activity.py");
+    assert!(demo.contains("acquire_market_slice_locks("));
+    assert!(demo.contains("remaining_quantity_mt"));
+    assert!(demo.contains("buyer_user_id"));
+    let seed=include_str!("../../../app/seeds/market_seed.py");
+    for column in ["buyer_user_id","seller_user_id","bid_order_id","ask_order_id"] {assert!(seed.contains(column));}
+    for source in [include_str!("../../../app/routers/rfq.py"),include_str!("../../../app/routers/supplier_offers.py")] {
+        assert!(source.contains("acquire_market_slice_lock"));
+    }
+}
+
+#[cfg(feature = "contract-tests")]
+#[tokio::test]
+#[ignore = "requires explicit disposable PostgreSQL"]
+async fn maintenance_slice_holder_bounds_rust_without_late_party_locks() {
+    let f=Fixture::open().await;
+    let mut maintenance=f.pool.acquire().await.unwrap();
+    let mut maintenance_tx=maintenance.begin().await.unwrap();
+    // Existing maintenance and Phase 7 writers use this exact shared identity.
+    maintenance_probe::hold_slice(&mut maintenance_tx,locks::market_slice_lock_key(id(100),None,"SPOT")).await;
+
+    let mut rust=f.pool.acquire().await.unwrap();
+    let mut rust_tx=rust.begin().await.unwrap();
+    let mut rust_plan=OperationLockPlan::new(MarketOperation::Publish);
+    rust_plan.parties(&preview(id(1))).unwrap();rust_plan.slices([slice()]).unwrap();
+    let error=rust_plan.acquire(&mut rust_tx).await.unwrap_err();
+    assert_eq!(error.code,error::MarketErrorCode::MarketBusy);
+    rust_tx.rollback().await.unwrap();maintenance_tx.rollback().await.unwrap();
+    drop(rust);drop(maintenance);f.finish().await;
+}
+
+#[cfg(feature = "contract-tests")]
+mod maintenance_probe {
+    pub async fn hold_slice(conn:&mut sqlx::PgConnection,key:i64) {
+        sqlx::query("SELECT pg_advisory_xact_lock($1)").bind(key).execute(conn).await.unwrap();
+    }
+}
