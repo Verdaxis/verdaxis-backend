@@ -1593,6 +1593,17 @@ mod postgres {
         )
         .await;
         assert_eq!(reply.status, StatusCode::NO_CONTENT);
+        // The typed model refuses every field it does not declare, including
+        // the address key an older client still sends; the answer is not
+        // recorded and a later clean submit still succeeds.
+        let reply = survey(
+            &f.app,
+            CLIENT,
+            Some(&bearer),
+            &json!({"use_case": "buyer", "email": "someone@example.test"}),
+        )
+        .await;
+        assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY, "{:?}", reply.body);
         let reply = survey(
             &f.app,
             CLIENT,
