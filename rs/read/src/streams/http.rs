@@ -18,13 +18,13 @@ use axum::{
     },
     routing::get,
 };
-use futures_util::stream::Stream;
+use futures_util::stream::unfold;
 use serde::Deserialize;
 
 use super::{
     auth::{StreamError, verify_stream},
-    bus::{Delivery, PublicChannel, StreamHub, Subscription},
-    replay::{PgReplaySource, Replay, ReplayFrame, WallClock},
+    bus::{PublicChannel, StreamHub},
+    replay::{PgReplaySource, Replay, WallClock},
 };
 use crate::AppState;
 
@@ -148,33 +148,19 @@ fn public(state: &StreamsState, channel: PublicChannel) -> Response {
     let Ok(subscription) = hub.subscribe_public(channel) else {
         return unavailable();
     };
-    let body = Sse::new(SubscriptionStream { subscription })
-        .keep_alive(KeepAlive::new().interval(Duration::from_secs(30)));
+    let body = Sse::new(unfold(subscription, |mut subscription| async move {
+        subscription
+            .recv()
+            .await
+            .map(|delivery| {
+                let event: Result<Event, Infallible> = Ok(delivery.into_event());
+                (event, subscription)
+            })
+    }))
+    .keep_alive(KeepAlive::new().interval(Duration::from_secs(30)));
     let mut response = body.into_response();
     sse(&mut response);
     response
-}
-
-/// One owned public body: the subscription itself is the stream, so dropping
-/// the body (client cancel or disconnect) drops the registration.
-struct SubscriptionStream {
-    subscription: Subscription,
-}
-
-impl Stream for SubscriptionStream {
-    type Item = Result<Event, Infallible>;
-
-    fn poll_next(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
-        use futures_util::StreamExt;
-        self.subscription.poll_next_unpin(cx).map(|option| {
-            option.map(|delivery| {
-                Ok(delivery.into_event())
-            })
-        })
-    }
 }
 
 /// The trades admission order: cursor syntax, Authorization conflict, token
@@ -248,18 +234,18 @@ async fn trades(
         }
     };
     let source = PgReplaySource::new(state.state.pools.read.clone());
-    match Replay::open(
-        source,
-        &streams.hub,
-        principal,
-        cursor,
-        WallClock,
-    )
-    .await
-    {
+    match Replay::open(source, &streams.hub, principal, cursor, WallClock).await {
         Ok(replay) => {
-            let body = Sse::new(ReplayStream { replay })
-                .keep_alive(KeepAlive::new().interval(Duration::from_secs(30)));
+            let body = Sse::new(unfold(replay, |mut replay| async move {
+                replay
+                    .next()
+                    .await
+                    .map(|frame| {
+                    let event: Result<Event, Infallible> = Ok(frame.into_event());
+                    (event, replay)
+                })
+            }))
+            .keep_alive(KeepAlive::new().interval(Duration::from_secs(30)));
             let mut response = body.into_response();
             sse(&mut response);
             response
@@ -296,25 +282,5 @@ fn parse_cursor(raw: Option<&str>) -> Option<Option<i64>> {
     }
 }
 
-/// One owned private body; dropping it cancels replay and releases the
-/// registration and any in-flight read.
-struct ReplayStream<S> {
-    replay: Replay<S>,
-}
-
-impl<S: super::replay::ReplaySource> Stream for ReplayStream<S> {
-    type Item = Result<Event, Infallible>;
-
-    fn poll_next(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
-        use futures_util::StreamExt;
-        self.replay.poll_next_unpin(cx).map(|option| {
-            option.map(|frame| Ok(match frame {
-                ReplayFrame::Business(_) | ReplayFrame::Terminal(_) => frame.into_event(),
-                ReplayFrame::Heartbeat => Event::default().comment("keepalive"),
-            }))
-        })
-    }
-}
+/// A cursor is absent, or 1 to 19 ASCII digits within `i64`. Anything else is
+/// refused before the token is even read.
