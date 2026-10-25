@@ -47,6 +47,18 @@ connection. Phase 9 freezes its plan and Decimal rate on each new trade; later
 subscription changes do not reprice existing trades. Component routes are not
 activated in the serving router by this module.
 
+## Rust Phase 4 product usage
+
+`rs/read/src/analytics/usage.rs` supplies the unmounted P01 component router.
+It authenticates the account, checks administrator authority and token quota,
+then reads authoritative counts in the authenticated transaction. Optional
+behavioral I/O runs after the transaction releases its connection and locks.
+The component consumes the shared provider envelope and privacy cells;
+unavailable values stay null and suppressed counts cannot feed conversions.
+The integration owner supplies the real provider adapter and composes the route
+without replacing public routes, health or readiness. No serving route is
+activated by the leaf module.
+
 ## Rust Phase 2 feedback
 
 Task 8 adds organization verification, explicit membership review and bounded

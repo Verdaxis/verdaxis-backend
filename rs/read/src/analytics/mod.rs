@@ -13,6 +13,7 @@ pub mod policy;
 pub mod query;
 pub mod retention;
 pub mod types;
+pub mod usage;
 
 pub mod legacy_dashboard;
 pub mod users;

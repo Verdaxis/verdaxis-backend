@@ -449,6 +449,18 @@ pub fn analytics_routes(
         .merge(crate::analytics::users::router(state, verification, limits))
 }
 
+/// Compose P01 without replacing health, readiness or any public route.
+/// The caller supplies the accepted provider adapter and shared quota authority.
+pub fn usage_router(
+    state: crate::AppState,
+    authority: crate::analytics::usage::UsageAuthority,
+) -> Router {
+    router_with(
+        public_routes().merge(crate::analytics::usage::routes(authority)),
+        state,
+    )
+}
+
 pub fn public_router(state: crate::AppState) -> Router {
     router_with(public_routes(), state)
 }
