@@ -22,8 +22,8 @@ use uuid::Uuid;
 
 use super::query::AnalyticsQuery;
 use super::types::{
-    AggregateCell, AnalyticsDataQuality, AnalyticsDiagnostic,
-    AnalyticsSourceCoverage, AnalyticsSourceStatus, BehavioralAvailability, BehavioralWindow, MetricValue,
+    AggregateCell, AnalyticsDataQuality, AnalyticsDiagnostic, AnalyticsSourceCoverage,
+    AnalyticsSourceStatus, BehavioralAvailability, BehavioralWindow, MetricValue,
 };
 
 /// Synthetic market organizations (`app/demo_identities.py`). Stored provenance
@@ -238,7 +238,9 @@ pub fn behavioral_status(window: Option<&BehavioralWindow>) -> AnalyticsSourceSt
         return AnalyticsSourceStatus::Unavailable;
     };
     match window.availability {
-        BehavioralAvailability::Available if window.core.data().is_none() => AnalyticsSourceStatus::Unavailable,
+        BehavioralAvailability::Available if window.core.data().is_none() => {
+            AnalyticsSourceStatus::Unavailable
+        }
         BehavioralAvailability::Available => AnalyticsSourceStatus::Available,
         BehavioralAvailability::Partial => AnalyticsSourceStatus::Partial,
         BehavioralAvailability::Unavailable => AnalyticsSourceStatus::Unavailable,

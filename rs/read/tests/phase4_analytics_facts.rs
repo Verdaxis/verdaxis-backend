@@ -8,14 +8,14 @@
 pub use verdaxis_read::{ApiError, business};
 
 #[allow(dead_code)]
-#[path = "../src/analytics/types.rs"]
-mod types;
-#[allow(dead_code)]
 #[path = "../src/analytics/policy.rs"]
 mod policy;
 #[allow(dead_code)]
 #[path = "../src/analytics/query.rs"]
 mod query;
+#[allow(dead_code)]
+#[path = "../src/analytics/types.rs"]
+mod types;
 
 #[path = "../src/analytics/activation.rs"]
 mod activation;
@@ -40,12 +40,12 @@ use chrono::{DateTime, NaiveDate, TimeDelta, TimeZone, Utc};
 use cohorts::{cohorts, retention};
 use engagement::engagement;
 use overview::{login_metric, overview};
+use policy::suppress;
+use query::AnalyticsQuery;
 use rust_decimal::Decimal;
 /// The leaves reach the CF4_03 declarations as `super::types`; the test body
 /// uses the same names directly.
 use types::*;
-use policy::suppress;
-use query::AnalyticsQuery;
 use uuid::Uuid;
 
 trait BehavioralFixture {
@@ -71,7 +71,13 @@ impl BehavioralFixture for BehavioralWindow {
                 status: AnalyticsSourceStatus::Available,
                 diagnostic: None,
             },
-            core: ProviderComponent::available(CoreMetrics { visitors: None, visits: None, pageviews: None, total_time_seconds: None, average_session_duration_seconds: None }),
+            core: ProviderComponent::available(CoreMetrics {
+                visitors: None,
+                visits: None,
+                pageviews: None,
+                total_time_seconds: None,
+                average_session_duration_seconds: None,
+            }),
             event_totals: ProviderComponent::available(Vec::new()),
             daily_visitors: ProviderComponent::available(Vec::new()),
             event_series: ProviderComponent::available(Vec::new()),

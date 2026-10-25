@@ -17,8 +17,8 @@ use super::aggregates::{
 };
 use super::query::AnalyticsQuery;
 use super::types::{
-    AnalyticsCoverage, AnalyticsMeta, AnalyticsSourceCoverage,
-    AnalyticsSourceStatus, CohortCell, CohortRow, MetricValue, RetentionKpis, RetentionResponse,
+    AnalyticsCoverage, AnalyticsMeta, AnalyticsSourceCoverage, AnalyticsSourceStatus, CohortCell,
+    CohortRow, MetricValue, RetentionKpis, RetentionResponse,
 };
 
 /// Cohort cells keep the first 54 weekly offsets (53 ISO weeks plus one).

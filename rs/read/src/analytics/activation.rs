@@ -14,9 +14,9 @@ use super::aggregates::{
 };
 use super::query::AnalyticsQuery;
 use super::types::{
-    ActivationResponse, AggregateCell, AnalyticsCoverage, AnalyticsMeta,
-    AnalyticsSourceCoverage, AnalyticsSourceStatus, BehavioralWindow, ConversionRatioKind,
-    DurationDistribution, JourneySource, JourneyStage, LabeledRatio, RatioValue,
+    ActivationResponse, AggregateCell, AnalyticsCoverage, AnalyticsMeta, AnalyticsSourceCoverage,
+    AnalyticsSourceStatus, BehavioralWindow, ConversionRatioKind, DurationDistribution,
+    JourneySource, JourneyStage, LabeledRatio, RatioValue,
 };
 
 /// Signup journey stages in the order the funnel presents them.
