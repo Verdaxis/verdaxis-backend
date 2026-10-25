@@ -1093,6 +1093,17 @@ fn p4_t18_c15() {
     assert!(aggregates::behavioral_event_cell(Some(&window), "signup_submitted").suppressed);
 }
 
+#[test]
+fn p4_t18_c17() {
+    let facts = RetentionFacts {
+        member_cohorts: vec![aggregates::CohortFact { cohort_start: day(2026, 6, 1), size: 1, offset: 0, count: 1 }],
+        organization_cohorts: vec![aggregates::CohortFact { cohort_start: day(2026, 6, 1), size: 2, offset: 0, count: 2 }],
+        ..Default::default()
+    };
+    let response = retention(&facts, None, &query(), observed());
+    assert_eq!(response.meta.data_quality.suppressed_cell_count, 4);
+}
+
 #[cfg(feature = "contract-tests")]
 mod postgres {
     use super::*;
