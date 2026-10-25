@@ -76,10 +76,7 @@ fn crate_pools() -> verdaxis_read::runtime::db::Pools {
 }
 
 fn empty_policy() -> verdaxis_read::MarketPolicy {
-    serde_json::from_str(include_str!(
-        "../../../../deploy/rust/market-policy.json"
-    ))
-    .unwrap()
+    serde_json::from_str(include_str!("../data/market-policy.json")).unwrap()
 }
 
 fn live() -> Router {
