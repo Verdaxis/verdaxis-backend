@@ -796,14 +796,23 @@ impl BehavioralWindow {
             return Err(BehavioralWindowError::IncoherentComponent);
         }
         let statuses = self.components();
-        let unavailable = statuses
+        let mut unavailable = statuses
             .iter()
             .filter(|status| **status == ComponentStatus::Unavailable)
             .count();
-        let incomplete = statuses
+        let mut incomplete = statuses
             .iter()
             .filter(|status| **status == ComponentStatus::Partial)
             .count();
+        // Per-property components are part of the window: a property result
+        // may be partial while every core component is available.
+        for property in &self.property_results {
+            match property.result.status() {
+                ComponentStatus::Unavailable => unavailable += 1,
+                ComponentStatus::Partial => incomplete += 1,
+                ComponentStatus::Available => {}
+            }
+        }
         let consistent = match self.availability {
             BehavioralAvailability::Unavailable => {
                 unavailable == statuses.len() && self.diagnostic.is_some()
