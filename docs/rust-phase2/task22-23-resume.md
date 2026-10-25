@@ -2,6 +2,51 @@
 
 ## Status
 
+## Pre-pull-request round — boundary exception, spec digest, quota bound, staging merge, 25 October 2026
+
+Final head `4b60b9cce` (merge `58aafb65e` plus merge-repair commits). All gates
+below ran on the M1. Nothing was pushed.
+
+Work before the merge, tests first where behaviour changes:
+
+- The trading-cache integration test's order-book exception is now the exact
+  two reviewed statements in that one file, with a test that fails if a third
+  order-book statement appears there; the whole-file form is gone
+  (`f3971165a`). The same rules as the Phase 5 tree, taken from it unchanged.
+- The market-write spec digest for the deploy access policy was regenerated;
+  the generator's `--check` failed before and passes after, and the only
+  change in the file is that one digest line (`ebb004972`).
+- The quota store now resets the caller's own expired bucket directly, removes
+  at most a fixed small batch of other expired entries per request, and
+  recovers a poisoned lock while keeping every spent quota; tests cover the
+  caller-reset case, a full 50,000-entry flood, and the poison recovery
+  (`e09dd6b7e`, `f078da9ca`, with follow-ups `c97ef151c`, `8e6e211eb`).
+
+The staging merge (`58aafb65e`) brought the bounded price accounting, the
+order-book aggregate change and the cache-listener deploy flag. Conflicts:
+`runtime/http.rs` keeps staging's bounded price buckets together with this
+branch's shared quota authority, pre-auth path and phase 2 group composition;
+`tests/monitor/test_source_ownership.py` pins the merged deploy script digest.
+Two merge repairs followed: the query raw reader and pre-auth constants
+(`b13acb803`), and the shared fallback applied after the group merge so a
+group's own fallback cannot break it (`4b60b9cce`). No assertion was dropped;
+the only removed test exercised the superseded unbounded price bucket.
+
+Gates at `4b60b9cce` (all exit 0):
+
+| Gate | Result | UTC |
+| --- | --- | --- |
+| fmt; Clippy; Clippy contract-tests | 0 each | 16:16 |
+| Offline workspace | 454 passed, 1 ignored | 16:16 |
+| `cd rs && cargo audit` | 0 | 16:21 |
+| Rust PostgreSQL workspace | 464 passed, 1 ignored | 15:28–15:33 |
+| All Phase 2 scenarios | 22 scenarios, 383 actions | 15:33–16:03 |
+| Standalone races | 9 scenarios, 27 races | 16:03–16:13 |
+| Six client journeys | all groups passed | 16:14 |
+| Market-write generator `--check` | matches | 16:21 |
+| `tests/security/test_rust_order_write_boundary.py` | 8 passed | 16:21 |
+
+
 ## Task 24 — correctness evidence and go/no-go, 25 October 2026
 
 Branch head `8c3a0da4b` (tests/harness only after the merge `2d6faf3fa`; no
