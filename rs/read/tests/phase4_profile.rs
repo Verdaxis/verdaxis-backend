@@ -517,7 +517,7 @@ impl Fixture {
             ),
             (
                 14,
-                Some("BUYER"),
+                None,
                 "APPROVED",
                 Some(o1),
                 "PENDING",
@@ -1280,7 +1280,7 @@ mod postgres {
     #[tokio::test]
     async fn p4_t3_c10() {
         let f = Fixture::new(true, RecordingEvents::new()).await;
-        let bearer = token(f.users[14]);
+        let bearer = token(f.users[15]);
         // The account already has BUYER, so every one of these is refused.
         for _ in 0..20 {
             let reply = put(
@@ -1298,7 +1298,8 @@ mod postgres {
             );
         }
         // The 10/minute bucket is still whole, and the next call is the one
-        // that exhausts it.
+        // that exhausts it. This fixture row has no role, so these writes are
+        // plain profile updates with no event work.
         for index in 0..10 {
             let reply = put(
                 &f.app,

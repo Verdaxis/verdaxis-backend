@@ -47,14 +47,18 @@ pub struct ProfileKycParty {
 
 /// The reason strings `ExecutionEligibilityResponse` allows. `NOT_APPLICABLE`
 /// is a presentation state of the profile route, never a market decision.
+/// The wire labels are Python's literals, not this enum's variant names.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum KycReason {
     NotApplicable,
     NotEnforced,
+    #[serde(rename = "KYC_APPROVED")]
     Approved,
+    #[serde(rename = "KYC_REJECTED")]
     Rejected,
+    #[serde(rename = "KYC_GRACE")]
     Grace,
+    #[serde(rename = "KYC_REQUIRED")]
     Required,
 }
 
