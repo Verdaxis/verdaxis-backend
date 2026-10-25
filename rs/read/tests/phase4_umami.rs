@@ -1611,6 +1611,17 @@ mod cases {
         }
     }
 
+    #[test]
+    fn p4_t16_c75() {
+        let beyond_bound = format!("{}signup", "/".repeat(500));
+        assert_eq!(EntryPage::from_raw_path(&beyond_bound), EntryPage::Landing);
+        let long_path = format!("{}signup", "/".repeat(900_000));
+        assert_eq!(EntryPage::from_raw_path(&long_path), EntryPage::Landing);
+        assert_eq!(EntryPage::from_raw_path("///signup//next"), EntryPage::Signup);
+        let unicode_prefix = format!("https://{}/signup", "é".repeat(492));
+        assert_eq!(EntryPage::from_raw_path(&unicode_prefix), EntryPage::Landing);
+    }
+
     // ---------------------------------------------------------------------------
     // c61: each core payload shape drift is a typed unavailable window.
     // ---------------------------------------------------------------------------
