@@ -62,12 +62,12 @@ def test_phase3_rust_session_races(analytics_pg_url):
             assert f"test {name} ... ok" in run.stdout, run.stdout
 
 
-async def wait_for_blocked(owner):
+async def wait_for_blocked(owner, blocker_pid):
     async with asyncio.timeout(15):
         while True:
             async with owner.connect() as conn:
                 if (await conn.execute(text("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE "
-                                            "datname=current_database() AND cardinality(pg_blocking_pids(pid))>0)"))).scalar_one():
+                                            "datname=current_database() AND :blocker=ANY(pg_blocking_pids(pid)) AND wait_event_type='Lock')"), {"blocker":blocker_pid})).scalar_one():
                     return
             await asyncio.sleep(0)
 
@@ -101,12 +101,13 @@ async def test_maintenance_deletion_races_a_live_rust_family(
 
             async with owner.connect() as blocker:
                 tx = await blocker.begin()
+                blocker_pid = (await blocker.execute(text("SELECT pg_backend_pid()"))).scalar_one()
                 try:
                     if maintenance_first:
                         await blocker.execute(text("SELECT id FROM refresh_sessions WHERE user_id=:id "
                                                    "AND expires_at<now() FOR UPDATE"), {"id": user})
                         pending = asyncio.create_task(maintenance())
-                        await wait_for_blocked(owner)
+                        await wait_for_blocked(owner, blocker_pid)
                         rotated = await rust.post("/api/auth/refresh")
                         assert rotated.status_code == 200
                         await tx.commit()
@@ -114,7 +115,7 @@ async def test_maintenance_deletion_races_a_live_rust_family(
                     else:
                         await blocker.execute(text("SELECT id FROM users WHERE id=:id FOR UPDATE"), {"id": user})
                         pending = asyncio.create_task(rust.post("/api/auth/refresh"))
-                        await wait_for_blocked(owner)
+                        await wait_for_blocked(owner, blocker_pid)
                         counts = await maintenance()
                         await tx.commit()
                         rotated = await pending
