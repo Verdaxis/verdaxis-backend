@@ -1,21 +1,19 @@
 //! Exact money and quantity primitives, and the single SQLSTATE mapping
 //! (Phases 8-9 plan §6.1, §8.5 and §11.2; Task 2).
 //!
-//! The test reaches the real boundary leaves through a test-local module tree.
-//! The production module list is an integration-owner file, so this test
-//! declares the three files it needs instead of editing it, and the
+//! The test reaches the real boundary leaves through test-local module
+//! declarations. The production module list is an integration-owner file, so
+//! this test declares the three files it needs instead of editing it, and the
 //! declarations keep working after the wiring lands. Each assertion names the
 //! behaviour the plan fixes: the bounds and the stored scale, the one rounding
 //! call site, checked overflow, the total SQLSTATE table and the error envelope.
 
-mod shell {
-    #[path = "../src/order_write/error.rs"]
-    pub mod error;
-    #[path = "../src/order_write/decimal.rs"]
-    pub mod decimal;
-    #[path = "../src/order_write/authority.rs"]
-    pub mod authority;
-}
+#[path = "../src/order_write/error.rs"]
+mod error;
+#[path = "../src/order_write/decimal.rs"]
+mod decimal;
+#[path = "../src/order_write/authority.rs"]
+mod authority;
 
 /// The authority projection reads the verified access through this path.
 mod auth {
@@ -29,12 +27,12 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use rust_decimal::Decimal;
 
-use shell::authority::{AuthenticatedActor, SupportContextRef, WriteContext};
-use shell::decimal::{
+use authority::{AuthenticatedActor, SupportContextRef, WriteContext};
+use decimal::{
     AggregateMoney, CommissionPercent, FeePerMt, Money, OrderQuantity, OrderRemainder, Price,
     StockQuantity, TradeQuantity, checked_multiply, cmp_percentage, quantize_cents,
 };
-use shell::error::{MarketErrorCode, MarketWriteError};
+use error::{MarketErrorCode, MarketWriteError};
 
 fn exact(text: &str) -> Decimal {
     Decimal::from_str_exact(text).expect("a finite literal")
