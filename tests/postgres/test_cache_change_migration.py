@@ -193,3 +193,35 @@ async def test_upgrade_refuses_existing_reader_without_partial_ddl(supplier_scra
         await reader.close()
         await later.close()
     await asyncio.to_thread(migrate, "upgrade", REVISION)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("previous", [PREVIOUS, "p0_20261016_union"])
+async def test_dependency_lock_ceiling_during_upgrade(supplier_scratch_database, previous):
+    import importlib.util
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+    from sqlalchemy.engine import make_url
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    sql, migrate = supplier_scratch_database
+    await asyncio.to_thread(migrate, "upgrade", previous)
+    database = await asyncio.to_thread(sql, "SELECT current_database()")
+    url = make_url(os.environ["MARKET_INTEGRITY_TEST_DATABASE_URL"]).set(database=database)
+    engine = create_async_engine(url)
+    try:
+        async with engine.connect() as connection:
+            def upgrade_and_check(sync_connection):
+                revisions = [REVISION] if previous == PREVIOUS else [PREVIOUS, REVISION]
+                with Operations.context(MigrationContext.configure(sync_connection)):
+                    for revision in revisions:
+                        spec = __import__('importlib.util', fromlist=['']).spec_from_file_location(revision, ROOT / "alembic/versions" / (revision + ".py"))
+                        module = importlib.util.module_from_spec(spec)
+                        spec.loader.exec_module(module)
+                        module.upgrade()
+                        locks = sync_connection.exec_driver_sql("SELECT DISTINCT mode FROM pg_locks WHERE pid=pg_backend_pid() AND relation IN (SELECT oid FROM pg_class WHERE relname IN (" + ",".join("'" + table + "'" for table in INSERTS) + "))").scalars().all()
+                        assert locks == ["ShareRowExclusiveLock"], locks
+            await connection.run_sync(upgrade_and_check)
+            await connection.rollback()
+    finally:
+        await engine.dispose()
