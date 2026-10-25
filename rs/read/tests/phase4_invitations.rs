@@ -418,6 +418,83 @@ fn p4_t5_c01() {
     );
 }
 
+#[test]
+fn p4_t5_c69() {
+    // Every self-signup organization type parses as a new invitation
+    // organization; the parser keeps the exact type string.
+    for kind in [
+        "SHIPPING_LINE",
+        "SHIP_MANAGER",
+        "FUEL_BUYER",
+        "CHARTERER",
+        "FUEL_SUPPLIER",
+    ] {
+        let mut payload = new_organization_payload();
+        payload["new_organization"]["type"] = json!(kind);
+        let invitation = body(&payload);
+        match invitation.organization {
+            OrganizationSource::New(NewOrganization { ref kind: parsed, .. }) => {
+                assert_eq!(parsed, kind);
+            }
+            OrganizationSource::Existing(_) => unreachable!("new organization"),
+        }
+    }
+}
+
+#[test]
+fn p4_t5_c71() {
+    // The ambiguous and non-trading organization types are valid model values
+    // but never self-signup options: a new invitation organization that names
+    // one is refused, and none of them matches either account side.
+    for kind in [
+        "BUNKER_BROKER",
+        "PORT_AUTHORITY",
+        "FUEL_TRADER",
+        "FINANCIER",
+        "INSURER",
+        "INDUSTRY_ASSOC",
+    ] {
+        let mut payload = new_organization_payload();
+        payload["new_organization"]["type"] = json!(kind);
+        assert_eq!(
+            CreateInvitation::parse(&payload)
+                .unwrap_err()
+                .status
+                .as_u16(),
+            422,
+            "{kind} must not be a signup option"
+        );
+        assert!(
+            !store::organization_type_matches_role("BUYER", kind),
+            "{kind}"
+        );
+        assert!(
+            !store::organization_type_matches_role("SUPPLIER", kind),
+            "{kind}"
+        );
+    }
+}
+
+#[test]
+fn p4_t5_c72() {
+    // The full role/type matrix for account sides, including the pairs the
+    // signup flow and the invitation flow share.
+    for (role, kind, allowed) in [
+        ("BUYER", "SHIPPING_LINE", true),
+        ("BUYER", "FUEL_SUPPLIER", false),
+        ("SUPPLIER", "FUEL_SUPPLIER", true),
+        ("SUPPLIER", "FUEL_TRADER", true),
+        ("BUYER", "FUEL_TRADER", false),
+        ("SUPPLIER", "FUEL_BUYER", false),
+    ] {
+        assert_eq!(
+            store::organization_type_matches_role(role, kind),
+            allowed,
+            "{role}/{kind}"
+        );
+    }
+}
+
 // ---------------------------------------------------------------------------
 // PostgreSQL cases.
 // ---------------------------------------------------------------------------
