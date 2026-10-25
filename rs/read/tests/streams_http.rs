@@ -7,12 +7,14 @@
 
 use std::sync::Arc;
 
+use http_body_util::BodyExt;
+use tower::ServiceExt;
 use axum::{
     Router,
     body::Body,
     http::{Request, StatusCode, header},
 };
-use axum::body::HttpBody;
+
 use verdaxis_read::{
     AppState, Config,
     auth::VerificationSettings,
@@ -38,9 +40,47 @@ fn config() -> Config {
 }
 
 fn app(streams: Option<Streams>) -> Router {
-    let mut state = AppState::new(config()).expect("test state");
-    state.streams = streams.map(Arc::new);
+    // Reuse the read-config helper shape: an unreachable pool is fine because
+    // the routes under test never touch it in these cases.
+    let state = AppState {
+        config: Arc::new(config()),
+        pools: crate_pools(),
+        policy: Arc::new(empty_policy()),
+        reads: Arc::new(tokio::sync::Semaphore::new(1)),
+        reference_cache: Arc::new(Default::default()),
+        phase2: Default::default(),
+        streams: streams.map(Arc::new),
+        trading_caches: Arc::new(Default::default()),
+        trading_cache: None,
+        public_trading_cache: Arc::new(Default::default()),
+        trading_read_observer: Arc::new(
+            verdaxis_read::runtime::admission::RealtimeTradingRead,
+        ),
+        policy_identity: String::new(),
+    };
     routes().with_state(StreamsState { state: Arc::new(state) })
+}
+
+fn crate_pools() -> verdaxis_read::runtime::db::Pools {
+    // A pool typed against a database that is never contacted: sqlx pools are
+    // lazy, so constructing options needs no server.
+    let options: sqlx::postgres::PgConnectOptions =
+        "postgres://unused@127.0.0.1/unused".parse().unwrap();
+    verdaxis_read::runtime::db::Pools {
+        read: sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect_lazy_with(options.clone()),
+        health: sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect_lazy_with(options),
+    }
+}
+
+fn empty_policy() -> verdaxis_read::MarketPolicy {
+    serde_json::from_str(include_str!(
+        "../../../../deploy/rust/market-policy.json"
+    ))
+    .unwrap()
 }
 
 fn live() -> Router {
@@ -56,7 +96,7 @@ fn live() -> Router {
 }
 
 async fn send(router: &Router, request: Request<Body>) -> (StatusCode, Vec<(String, String)>, Vec<u8>) {
-    use tower::ServiceExt;
+    use tower::{Service, ServiceExt};
     let mut service = router.clone();
     let response = service.ready().await.unwrap().call(request).await.unwrap();
     let status = response.status();
@@ -65,11 +105,13 @@ async fn send(router: &Router, request: Request<Body>) -> (StatusCode, Vec<(Stri
         .iter()
         .map(|(name, value)| (name.to_string(), value.to_str().unwrap_or("").to_string()))
         .collect();
-    let mut body = response.into_body();
-    let mut bytes = Vec::new();
-    while let Some(chunk) = body.data().await {
-        bytes.extend_from_slice(&chunk.unwrap());
-    }
+    let bytes = response
+        .into_body()
+        .collect()
+        .await
+        .unwrap()
+        .to_bytes()
+        .to_vec();
     (status, headers, bytes)
 }
 
