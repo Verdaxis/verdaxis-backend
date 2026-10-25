@@ -1142,8 +1142,6 @@ async fn p4_t4_c03() {
         test,
         canary_org,
     ];
-    fixture.seed(&wrong_audit).await;
-    fixture.seed(&right_audit).await;
     // The pending rows live outside the user projection and are classified
     // with the same rules. A used registration is not a candidate at all, so
     // only the unused ones enter the parity set.
