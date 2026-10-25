@@ -26,7 +26,7 @@ fn config() -> Config {
         environment: "test".into(),
         release_sha: verdaxis_read::compiled_sha().into(),
         migration_revision: "kycg_20261014_staging".into(),
-        database_url: "postgres://unused@127.0.0.1/unused".into(),
+        database_url: "postgres://fixture:fixture-secret@127.0.0.1/verdaxis_test".into(),
         db_session_time_zone: "UTC".into(),
         prepared_budget: None,
         bind: "127.0.0.1:0".parse().expect("loopback bind"),
