@@ -90,6 +90,8 @@ impl Fixture {
     }
     async fn remove(self) {
         for statement in [
+            // Migrator-only cleanup of this disposable fixture's audit rows.
+            "DELETE FROM audit_logs WHERE user_id=$1",
             "DELETE FROM user_login_days WHERE user_id=$1",
             "DELETE FROM refresh_sessions WHERE user_id=$1",
         ] {
