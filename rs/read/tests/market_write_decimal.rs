@@ -90,7 +90,10 @@ impl sqlx::error::DatabaseError for FixtureDatabaseError {
     }
 }
 
-fn sqlstate_error(code: Option<&'static str>, constraint: Option<&'static str>) -> MarketWriteError {
+fn sqlstate_error(
+    code: Option<&'static str>,
+    constraint: Option<&'static str>,
+) -> MarketWriteError {
     MarketWriteError::from(sqlx::Error::Database(Box::new(FixtureDatabaseError {
         message: "server text that must never reach a client",
         code,
