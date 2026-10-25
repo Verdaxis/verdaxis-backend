@@ -53,8 +53,14 @@ async fn access_vectors_match_python_http_outcomes() {
             };
             if approved.get("case").is_some() {
                 assert_eq!(approved["case"], "ISSUANCE-RANGE", "{id}: case record");
-                assert_eq!(approved["contract"], "ISSUANCE-RANGE", "{id}: contract record");
-                assert_eq!(vector["python"]["status"], 500, "{id}: issuance-range baseline");
+                assert_eq!(
+                    approved["contract"], "ISSUANCE-RANGE",
+                    "{id}: contract record"
+                );
+                assert_eq!(
+                    vector["python"]["status"], 500,
+                    "{id}: issuance-range baseline"
+                );
             } else if approved["decision"] == "ACCESS-EXPIRY" {
                 // Rust requires `exp`; Python accepts this token. The code is
                 // pinned and the message wording stays free.
