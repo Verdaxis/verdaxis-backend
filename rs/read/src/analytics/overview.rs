@@ -282,7 +282,9 @@ pub fn raw_event_total(window: Option<&BehavioralWindow>, event: &str) -> Option
     let rows = window?.event_totals.data()?;
     let mut total = 0_u64;
     for row in rows.iter().filter(|row| row.event == event) {
-        if row.count.suppressed { return None; }
+        if row.count.suppressed {
+            return None;
+        }
         total = total.checked_add(row.count.count?)?;
     }
     Some(total)

@@ -139,7 +139,10 @@ pub fn engagement(
                         let (_, destination) = DESTINATIONS
                             .iter()
                             .find(|(value, _)| *value == row.value.as_str())?;
-                        let cell = super::aggregates::merge_provider_cells(&row.value, std::iter::once(&row.count));
+                        let cell = super::aggregates::merge_provider_cells(
+                            &row.value,
+                            std::iter::once(&row.count),
+                        );
                         Some(NavigationDestinationRow {
                             destination: *destination,
                             total: AggregateCell {
@@ -161,18 +164,39 @@ pub fn engagement(
             step_names.insert(row.value.clone());
         }
     }
-    let tutorial_steps = step_names.into_iter().take(TUTORIAL_STEP_LIMIT).map(|step| {
-        let mut component = |event, key| {
-            let rows = behavioral_property_rows(behavioral, event, "step");
-            let cell = match rows {
-                Some(rows) if rows.iter().any(|row| row.value == step) => super::aggregates::merge_provider_cells(key, rows.iter().filter(|row| row.value == step).map(|row| &row.count)),
-                _ => AggregateCell { key: key.into(), count: None, suppressed: false },
+    let tutorial_steps = step_names
+        .into_iter()
+        .take(TUTORIAL_STEP_LIMIT)
+        .map(|step| {
+            let mut component = |event, key| {
+                let rows = behavioral_property_rows(behavioral, event, "step");
+                let cell = match rows {
+                    Some(rows) if rows.iter().any(|row| row.value == step) => {
+                        super::aggregates::merge_provider_cells(
+                            key,
+                            rows.iter()
+                                .filter(|row| row.value == step)
+                                .map(|row| &row.count),
+                        )
+                    }
+                    _ => AggregateCell {
+                        key: key.into(),
+                        count: None,
+                        suppressed: false,
+                    },
+                };
+                if cell.suppressed {
+                    quality.suppressed_cell_count += 1;
+                }
+                cell
             };
-            if cell.suppressed { quality.suppressed_cell_count += 1; }
-            cell
-        };
-        TutorialStepRow { completed: component("tutorial_step_completed", "completed"), skipped: component("tutorial_step_skipped", "skipped"), step }
-    }).collect();
+            TutorialStepRow {
+                completed: component("tutorial_step_completed", "completed"),
+                skipped: component("tutorial_step_skipped", "skipped"),
+                step,
+            }
+        })
+        .collect();
 
     EngagementResponse {
         meta: AnalyticsMeta {
