@@ -755,6 +755,691 @@ fn decode_body(text: Option<String>) -> Result<Value, WriteError> {
     }
 }
 
+// Stock operations borrow the caller's transaction after L5/L8 locks. The
+// complete ID sets are fixed before the first movement; no late locks occur.
+use super::decimal::StockQuantity;
+use super::error::{MarketErrorCode, MarketWriteError};
+use super::expiry::{ExpiryEffect, ExpirySlice, MAX_EXPIRY_ORDERS};
+use chrono::{DateTime, Utc};
+use rust_decimal::Decimal;
+
+pub(super) fn inconsistent_stock() -> MarketWriteError {
+    MarketWriteError::new(MarketErrorCode::InventoryInconsistent)
+}
+
+fn stock_value(value: Decimal) -> Result<Decimal, MarketWriteError> {
+    StockQuantity::checked(value)
+        .map(|q| q.value())
+        .map_err(|_| inconsistent_stock())
+}
+
+fn stock_add(a: Decimal, b: Decimal) -> Result<Decimal, MarketWriteError> {
+    stock_value(a.checked_add(b).ok_or_else(inconsistent_stock)?)
+}
+
+fn stock_sub(a: Decimal, b: Decimal) -> Result<Decimal, MarketWriteError> {
+    stock_value(a.checked_sub(b).ok_or_else(inconsistent_stock)?)
+}
+
+pub(super) struct StockLedger<'a> {
+    conn: &'a mut PgConnection,
+    inventory_ids: Vec<Uuid>,
+    order_ids: Vec<Uuid>,
+}
+
+pub(super) struct StockOrder {
+    pub id: Uuid,
+    pub organization: Uuid,
+    pub item: Option<Uuid>,
+    pub status: String,
+    pub total: Decimal,
+    pub remaining: Decimal,
+    pub version: i32,
+    pub expires_at: Option<DateTime<Utc>>,
+}
+
+impl StockOrder {
+    fn live(&self) -> bool {
+        matches!(self.status.as_str(), "OPEN" | "PARTIALLY_FILLED")
+    }
+}
+
+impl<'a> StockLedger<'a> {
+    // Only transaction.rs can construct this port. The coordinator has already
+    // acquired every declared order and inventory row in ascending UUID order.
+    fn new(conn: &'a mut PgConnection, inventory_ids: &[Uuid], order_ids: &[Uuid]) -> Self {
+        Self {
+            conn,
+            inventory_ids: inventory_ids.to_vec(),
+            order_ids: order_ids.to_vec(),
+        }
+    }
+
+    fn owns_item(&self, id: Uuid) -> Result<(), MarketWriteError> {
+        if self.inventory_ids.contains(&id) {
+            Ok(())
+        } else {
+            Err(inconsistent_stock())
+        }
+    }
+
+    async fn order(&mut self, id: Uuid) -> Result<StockOrder, MarketWriteError> {
+        if !self.order_ids.contains(&id) {
+            return Err(inconsistent_stock());
+        }
+        let row = sqlx::query("SELECT id,organization_id,inventory_item_id,status::text AS status,quantity_mt,remaining_quantity_mt,version,expires_at FROM orderbook_orders WHERE id=$1")
+            .bind(id).fetch_optional(&mut *self.conn).await?.ok_or_else(inconsistent_stock)?;
+        let order = StockOrder {
+            id: row.try_get("id")?,
+            organization: row.try_get("organization_id")?,
+            item: row.try_get("inventory_item_id")?,
+            status: row.try_get("status")?,
+            total: row.try_get("quantity_mt")?,
+            remaining: row.try_get("remaining_quantity_mt")?,
+            version: row.try_get("version")?,
+            expires_at: row.try_get("expires_at")?,
+        };
+        if let Some(item) = order.item {
+            self.owns_item(item)?;
+        }
+        stock_value(order.remaining)?;
+        super::decimal::OrderQuantity::checked(order.total).map_err(|_| inconsistent_stock())?;
+        if order.remaining > order.total || order.version < 1 {
+            return Err(inconsistent_stock());
+        }
+        Ok(order)
+    }
+
+    async fn balance(&mut self, item: Uuid) -> Result<(Decimal, Decimal), MarketWriteError> {
+        self.owns_item(item)?;
+        let row = sqlx::query("SELECT current_stock_mt,reserved_stock_mt,incoming_stock_mt FROM inventory_items WHERE id=$1")
+            .bind(item).fetch_optional(&mut *self.conn).await?.ok_or_else(inconsistent_stock)?;
+        let current = stock_value(row.try_get("current_stock_mt")?)?;
+        let reserved = stock_value(row.try_get("reserved_stock_mt")?)?;
+        stock_value(row.try_get("incoming_stock_mt")?)?;
+        Ok((current, reserved))
+    }
+
+    async fn committed(&mut self, order: Uuid) -> Result<Decimal, MarketWriteError> {
+        let values: Vec<Decimal> = sqlx::query_scalar("SELECT quantity_mt FROM trades WHERE (bid_order_id=$1 OR ask_order_id=$1) AND status::text IN ('PENDING_CONFIRMATION','CONFIRMED','DELIVERED','PAID')")
+            .bind(order).fetch_all(&mut *self.conn).await?;
+        let mut total = Decimal::ZERO;
+        for value in values {
+            super::decimal::TradeQuantity::checked(value).map_err(|_| inconsistent_stock())?;
+            total = stock_add(total, value)?;
+        }
+        Ok(total)
+    }
+
+    async fn check_order_remainder(
+        &mut self,
+        order: &StockOrder,
+        remaining: Decimal,
+        live: bool,
+    ) -> Result<(), MarketWriteError> {
+        stock_value(remaining)?;
+        if remaining > order.total {
+            return Err(inconsistent_stock());
+        }
+        if live {
+            let expected = stock_sub(order.total, self.committed(order.id).await?)?;
+            if expected != remaining {
+                return Err(inconsistent_stock());
+            }
+            debug_assert_eq!(expected, remaining);
+        }
+        Ok(())
+    }
+
+    async fn expected_reserved(&mut self, item: Uuid) -> Result<Decimal, MarketWriteError> {
+        self.projected_reserved(item, None).await
+    }
+
+    async fn projected_reserved(
+        &mut self,
+        item: Uuid,
+        change: Option<(Uuid, Decimal, &str)>,
+    ) -> Result<Decimal, MarketWriteError> {
+        let orders = sqlx::query("SELECT id,quantity_mt,remaining_quantity_mt,status::text AS status FROM orderbook_orders WHERE inventory_item_id=$1")
+            .bind(item).fetch_all(&mut *self.conn).await?;
+        let mut expected = Decimal::ZERO;
+        for row in orders {
+            let id: Uuid = row.try_get("id")?;
+            let total: Decimal = row.try_get("quantity_mt")?;
+            let stored_remaining = stock_value(row.try_get("remaining_quantity_mt")?)?;
+            super::decimal::OrderQuantity::checked(total).map_err(|_| inconsistent_stock())?;
+            let stored_status: String = row.try_get("status")?;
+            let (remaining, status) = match change {
+                Some((changed, remaining, status)) if changed == id => {
+                    (stock_value(remaining)?, status)
+                }
+                _ => (stored_remaining, stored_status.as_str()),
+            };
+            if remaining > total {
+                return Err(inconsistent_stock());
+            }
+            if matches!(status, "OPEN" | "PARTIALLY_FILLED") {
+                let calculated = stock_sub(total, self.committed(id).await?)?;
+                if calculated != remaining {
+                    return Err(inconsistent_stock());
+                }
+                debug_assert_eq!(calculated, remaining);
+                expected = stock_add(expected, remaining)?;
+            }
+        }
+        let pending: Vec<Decimal> = sqlx::query_scalar("SELECT t.quantity_mt FROM trades t WHERE t.status::text='PENDING_CONFIRMATION' AND EXISTS (SELECT 1 FROM orderbook_orders o WHERE o.inventory_item_id=$1 AND (o.id=t.bid_order_id OR o.id=t.ask_order_id))")
+            .bind(item).fetch_all(&mut *self.conn).await?;
+        for value in pending {
+            super::decimal::TradeQuantity::checked(value).map_err(|_| inconsistent_stock())?;
+            expected = stock_add(expected, value)?;
+        }
+        Ok(expected)
+    }
+
+    /// Checks every locked item's identity and every declared live order. The
+    /// per-order check also applies to orders without inventory backing.
+    pub(super) async fn verify_invariants(&mut self) -> Result<(), MarketWriteError> {
+        for id in self.inventory_ids.clone() {
+            let (_, reserved) = self.balance(id).await?;
+            let expected = self.expected_reserved(id).await?;
+            if reserved != expected {
+                return Err(inconsistent_stock());
+            }
+            debug_assert_eq!(reserved, expected);
+        }
+        for id in self.order_ids.clone() {
+            let order = self.order(id).await?;
+            self.check_order_remainder(&order, order.remaining, order.live())
+                .await?;
+        }
+        Ok(())
+    }
+
+    async fn write_balance(
+        &mut self,
+        item: Uuid,
+        current: Decimal,
+        reserved: Decimal,
+    ) -> Result<(), MarketWriteError> {
+        stock_value(current)?;
+        stock_value(reserved)?;
+        let expected = self.expected_reserved(item).await?;
+        if reserved != expected {
+            return Err(inconsistent_stock());
+        }
+        debug_assert_eq!(reserved, expected);
+        sqlx::query(
+            "UPDATE inventory_items SET current_stock_mt=$2,reserved_stock_mt=$3 WHERE id=$1",
+        )
+        .bind(item)
+        .bind(current)
+        .bind(reserved)
+        .execute(&mut *self.conn)
+        .await?;
+        self.verify_invariants().await
+    }
+
+    /// The caller has staged the matching order/trade changes in this same
+    /// transaction. Check their projected identity before the inventory write.
+    pub(super) async fn reserve(
+        &mut self,
+        item: Uuid,
+        quantity: StockQuantity,
+    ) -> Result<(), MarketWriteError> {
+        let (current, reserved) = self.balance(item).await?;
+        let next_current = stock_sub(current, quantity.value())?;
+        let next_reserved = stock_add(reserved, quantity.value())?;
+        self.write_balance(item, next_current, next_reserved).await
+    }
+
+    pub(super) async fn release(
+        &mut self,
+        item: Uuid,
+        quantity: StockQuantity,
+        to_current: bool,
+    ) -> Result<(), MarketWriteError> {
+        let (current, reserved) = self.balance(item).await?;
+        let next_current = if to_current {
+            stock_add(current, quantity.value())?
+        } else {
+            current
+        };
+        let next_reserved = stock_sub(reserved, quantity.value())?;
+        self.write_balance(item, next_current, next_reserved).await
+    }
+
+    pub(super) async fn consume_reserved(
+        &mut self,
+        item: Uuid,
+        quantity: StockQuantity,
+    ) -> Result<(), MarketWriteError> {
+        self.release(item, quantity, false).await
+    }
+
+    pub(super) async fn withdraw_order(
+        &mut self,
+        order: &StockOrder,
+        status: &str,
+    ) -> Result<(), MarketWriteError> {
+        if !order.live() || !matches!(status, "CANCELLED" | "EXPIRED") {
+            return Err(inconsistent_stock());
+        }
+        self.verify_invariants().await?;
+        let version = order
+            .version
+            .checked_add(1)
+            .ok_or_else(inconsistent_stock)?;
+        // Validate the resulting stock before changing either row.
+        if let Some(item) = order.item {
+            let (current, reserved) = self.balance(item).await?;
+            stock_add(current, order.remaining)?;
+            let projected = stock_sub(reserved, order.remaining)?;
+            let expected = self
+                .projected_reserved(item, Some((order.id, order.remaining, status)))
+                .await?;
+            if projected != expected {
+                return Err(inconsistent_stock());
+            }
+        }
+        sqlx::query("UPDATE orderbook_orders SET status=$2,version=$3 WHERE id=$1")
+            .bind(order.id)
+            .bind(status)
+            .bind(version)
+            .execute(&mut *self.conn)
+            .await?;
+        if let Some(item) = order.item {
+            self.release(
+                item,
+                StockQuantity::checked(order.remaining).map_err(|_| inconsistent_stock())?,
+                true,
+            )
+            .await?;
+        }
+        self.verify_invariants().await
+    }
+
+    /// The caller has changed exactly one committed trade to DECLINED/CANCELLED.
+    /// Restore its quantity without resurrecting a terminal or elapsed order.
+    pub(super) async fn restore_order_remainder(
+        &mut self,
+        id: Uuid,
+        quantity: StockQuantity,
+        now: DateTime<Utc>,
+    ) -> Result<(), MarketWriteError> {
+        let order = self.order(id).await?;
+        let remaining = stock_add(order.remaining, quantity.value())?;
+        let restorable = matches!(
+            order.status.as_str(),
+            "OPEN" | "PARTIALLY_FILLED" | "FILLED"
+        );
+        self.check_order_remainder(&order, remaining, restorable)
+            .await?;
+        let elapsed = restorable && order.expires_at.is_some_and(|at| at <= now);
+        let release = if elapsed {
+            remaining
+        } else if !restorable {
+            quantity.value()
+        } else {
+            Decimal::ZERO
+        };
+        if let Some(item) = order.item {
+            let (current, reserved) = self.balance(item).await?;
+            stock_add(current, release)?;
+            stock_sub(reserved, release)?;
+        }
+        let status = if elapsed {
+            "EXPIRED"
+        } else if restorable {
+            if remaining == order.total {
+                "OPEN"
+            } else if remaining.is_zero() {
+                "FILLED"
+            } else {
+                "PARTIALLY_FILLED"
+            }
+        } else {
+            order.status.as_str()
+        };
+        if let Some(item) = order.item {
+            let (_, reserved) = self.balance(item).await?;
+            let projected = stock_sub(reserved, release)?;
+            let expected = self
+                .projected_reserved(item, Some((id, remaining, status)))
+                .await?;
+            if projected != expected {
+                return Err(inconsistent_stock());
+            }
+        }
+        let version = order
+            .version
+            .checked_add(1)
+            .ok_or_else(inconsistent_stock)?;
+        sqlx::query(
+            "UPDATE orderbook_orders SET remaining_quantity_mt=$2,status=$3,version=$4 WHERE id=$1",
+        )
+        .bind(id)
+        .bind(remaining)
+        .bind(status)
+        .bind(version)
+        .execute(&mut *self.conn)
+        .await?;
+        if let Some(item) = order.item
+            && !release.is_zero()
+        {
+            self.release(
+                item,
+                StockQuantity::checked(release).map_err(|_| inconsistent_stock())?,
+                true,
+            )
+            .await?;
+        }
+        self.verify_invariants().await
+    }
+
+    pub(super) async fn expire_slice(
+        &mut self,
+        slice: &ExpirySlice<'_>,
+        now: DateTime<Utc>,
+    ) -> Result<Vec<ExpiryEffect>, MarketWriteError> {
+        super::expiry::expire_slice(self, slice, now).await
+    }
+
+    pub(super) async fn expired_orders(
+        &mut self,
+        slice: &ExpirySlice<'_>,
+        now: DateTime<Utc>,
+    ) -> Result<Vec<StockOrder>, MarketWriteError> {
+        let ids: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM orderbook_orders WHERE product_id=$1 AND delivery_point_id IS NOT DISTINCT FROM $2 AND availability_window=$3 AND side::text=$4 AND status::text IN ('OPEN','PARTIALLY_FILLED') AND expires_at <= $5 ORDER BY id LIMIT $6")
+            .bind(slice.product_id).bind(slice.delivery_point_id).bind(slice.availability_window).bind(slice.side).bind(now).bind(MAX_EXPIRY_ORDERS as i64)
+            .fetch_all(&mut *self.conn).await?;
+        let mut orders = Vec::with_capacity(ids.len());
+        for id in ids {
+            orders.push(self.order(id).await?);
+        }
+        Ok(orders)
+    }
+}
+
+/// A bounded snapshot of the selected expiry rows and their inventory totals.
+/// Aggregate inputs stay in PostgreSQL; only one result per selected key leaves it.
+pub(super) struct ExpiryBatch<'a> {
+    conn: &'a mut PgConnection,
+    pub orders: Vec<StockOrder>,
+    balances: std::collections::BTreeMap<Uuid, (Decimal, Decimal, Decimal)>,
+}
+
+impl ExpiryBatch<'_> {
+    pub(super) async fn withdraw(&mut self, order: &StockOrder) -> Result<(), MarketWriteError> {
+        let version = order
+            .version
+            .checked_add(1)
+            .ok_or_else(inconsistent_stock)?;
+        let balance = if let Some(item) = order.item {
+            let (current, reserved, expected) =
+                *self.balances.get(&item).ok_or_else(inconsistent_stock)?;
+            let next = (
+                stock_add(current, order.remaining)?,
+                stock_sub(reserved, order.remaining)?,
+                stock_sub(expected, order.remaining)?,
+            );
+            if next.1 != next.2 {
+                return Err(inconsistent_stock());
+            }
+            debug_assert_eq!(next.1, next.2);
+            Some((item, next))
+        } else {
+            None
+        };
+        sqlx::query("UPDATE orderbook_orders SET status='EXPIRED',version=$2 WHERE id=$1")
+            .bind(order.id)
+            .bind(version)
+            .execute(&mut *self.conn)
+            .await?;
+        if let Some((item, next)) = balance {
+            sqlx::query(
+                "UPDATE inventory_items SET current_stock_mt=$2,reserved_stock_mt=$3 WHERE id=$1",
+            )
+            .bind(item)
+            .bind(next.0)
+            .bind(next.1)
+            .execute(&mut *self.conn)
+            .await?;
+            self.balances.insert(item, next);
+        }
+        Ok(())
+    }
+}
+
+impl StockLedger<'_> {
+    pub(super) async fn prepare_expiry(
+        &mut self,
+        slice: &ExpirySlice<'_>,
+        now: DateTime<Utc>,
+    ) -> Result<ExpiryBatch<'_>, MarketWriteError> {
+        let rows = sqlx::query("SELECT id,organization_id,inventory_item_id,status::text AS status,quantity_mt,remaining_quantity_mt,version,expires_at FROM orderbook_orders WHERE product_id=$1 AND delivery_point_id IS NOT DISTINCT FROM $2 AND availability_window=$3 AND side::text=$4 AND status::text IN ('OPEN','PARTIALLY_FILLED') AND expires_at <= $5 ORDER BY id LIMIT $6")
+            .bind(slice.product_id).bind(slice.delivery_point_id).bind(slice.availability_window).bind(slice.side).bind(now).bind(MAX_EXPIRY_ORDERS as i64)
+            .fetch_all(&mut *self.conn).await?;
+        let mut orders = Vec::with_capacity(rows.len());
+        for row in rows {
+            let order = StockOrder {
+                id: row.try_get("id")?,
+                organization: row.try_get("organization_id")?,
+                item: row.try_get("inventory_item_id")?,
+                status: row.try_get("status")?,
+                total: row.try_get("quantity_mt")?,
+                remaining: row.try_get("remaining_quantity_mt")?,
+                version: row.try_get("version")?,
+                expires_at: row.try_get("expires_at")?,
+            };
+            if !self.order_ids.contains(&order.id) {
+                return Err(inconsistent_stock());
+            }
+            if let Some(item) = order.item {
+                self.owns_item(item)?;
+            }
+            stock_value(order.remaining)?;
+            super::decimal::OrderQuantity::checked(order.total)
+                .map_err(|_| inconsistent_stock())?;
+            if order.remaining > order.total || order.version < 1 || order.version == i32::MAX {
+                return Err(inconsistent_stock());
+            }
+            orders.push(order);
+        }
+        let ids: Vec<Uuid> = orders.iter().map(|order| order.id).collect();
+        let items: Vec<Uuid> = orders
+            .iter()
+            .filter_map(|order| order.item)
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        // Each aggregate returns one row per selected order, irrespective of its
+        // trade history. No LIMIT truncates the quantity being validated.
+        let commitments = sqlx::query("SELECT o.id,COALESCE(sum(t.quantity_mt),0) AS committed,COALESCE(bool_and(t.quantity_mt>0 AND t.quantity_mt<=100000 AND scale(t.quantity_mt)<=2),true) AS valid FROM orderbook_orders o LEFT JOIN trades t ON (t.bid_order_id=o.id OR t.ask_order_id=o.id) AND t.status::text IN ('PENDING_CONFIRMATION','CONFIRMED','DELIVERED','PAID') WHERE o.id=ANY($1) GROUP BY o.id")
+            .bind(&ids).fetch_all(&mut *self.conn).await?;
+        let mut committed = std::collections::BTreeMap::new();
+        for row in commitments {
+            if !row.try_get::<bool, _>("valid")? {
+                return Err(inconsistent_stock());
+            }
+            committed.insert(
+                row.try_get::<Uuid, _>("id")?,
+                stock_value(row.try_get("committed")?)?,
+            );
+        }
+        for order in &orders {
+            let expected = stock_sub(
+                order.total,
+                *committed.get(&order.id).ok_or_else(inconsistent_stock)?,
+            )?;
+            if expected != order.remaining {
+                return Err(inconsistent_stock());
+            }
+            debug_assert_eq!(expected, order.remaining);
+        }
+        // Existing indexes and the selected inventory keys bound the result.
+        // Pending quantities on terminal orders remain part of the reservation.
+        let totals = sqlx::query("SELECT i.id,i.current_stock_mt,i.reserved_stock_mt,i.incoming_stock_mt,COALESCE(l.remaining,0)+COALESCE(p.pending,0) AS expected,COALESCE(l.valid,true) AND COALESCE(p.valid,true) AS valid FROM inventory_items i LEFT JOIN LATERAL (SELECT sum(o.remaining_quantity_mt) AS remaining,bool_and(o.remaining_quantity_mt>=0 AND o.remaining_quantity_mt<=o.quantity_mt AND o.quantity_mt>0 AND o.quantity_mt<=100000 AND scale(o.remaining_quantity_mt)<=2 AND scale(o.quantity_mt)<=2 AND o.remaining_quantity_mt=o.quantity_mt-COALESCE((SELECT sum(c.quantity_mt) FROM trades c WHERE (c.bid_order_id=o.id OR c.ask_order_id=o.id) AND c.status::text IN ('PENDING_CONFIRMATION','CONFIRMED','DELIVERED','PAID')),0)) AS valid FROM orderbook_orders o WHERE o.inventory_item_id=i.id AND o.status::text IN ('OPEN','PARTIALLY_FILLED')) l ON true LEFT JOIN LATERAL (SELECT sum(t.quantity_mt) AS pending,bool_and(t.quantity_mt>0 AND t.quantity_mt<=100000 AND scale(t.quantity_mt)<=2) AS valid FROM trades t WHERE t.status::text='PENDING_CONFIRMATION' AND EXISTS (SELECT 1 FROM orderbook_orders o WHERE o.inventory_item_id=i.id AND (o.id=t.bid_order_id OR o.id=t.ask_order_id))) p ON true WHERE i.id=ANY($1)")
+            .bind(&items).fetch_all(&mut *self.conn).await?;
+        let mut balances = std::collections::BTreeMap::new();
+        for row in totals {
+            let id: Uuid = row.try_get("id")?;
+            let current = stock_value(row.try_get("current_stock_mt")?)?;
+            let reserved = stock_value(row.try_get("reserved_stock_mt")?)?;
+            stock_value(row.try_get("incoming_stock_mt")?)?;
+            let expected = stock_value(row.try_get("expected")?)?;
+            if !row.try_get::<bool, _>("valid")? || reserved != expected {
+                return Err(inconsistent_stock());
+            }
+            debug_assert_eq!(reserved, expected);
+            balances.insert(id, (current, reserved, expected));
+        }
+        if balances.len() != items.len() {
+            return Err(inconsistent_stock());
+        }
+        // Validate every projected movement before issuing the first write.
+        let mut projected = balances.clone();
+        for order in &orders {
+            if let Some(item) = order.item {
+                let (current, reserved, expected) =
+                    projected.get_mut(&item).ok_or_else(inconsistent_stock)?;
+                *current = stock_add(*current, order.remaining)?;
+                *reserved = stock_sub(*reserved, order.remaining)?;
+                *expected = stock_sub(*expected, order.remaining)?;
+                if *reserved != *expected {
+                    return Err(inconsistent_stock());
+                }
+            }
+        }
+        Ok(ExpiryBatch {
+            conn: self.conn,
+            orders,
+            balances,
+        })
+    }
+}
+
+#[cfg(feature = "contract-tests")]
+pub mod stock_contract {
+    use super::*;
+    use sqlx::Connection;
+
+    pub async fn lock(conn: &mut PgConnection, ids: &[Uuid]) -> Result<(), MarketWriteError> {
+        sqlx::query("SELECT id FROM inventory_items WHERE id=ANY($1) ORDER BY id FOR UPDATE")
+            .bind(ids)
+            .fetch_all(conn)
+            .await?;
+        Ok(())
+    }
+
+    async fn ledger(conn: &mut PgConnection) -> Result<StockLedger<'_>, MarketWriteError> {
+        let orders: Vec<Uuid> =
+            sqlx::query_scalar("SELECT id FROM orderbook_orders ORDER BY id FOR UPDATE")
+                .fetch_all(&mut *conn)
+                .await?;
+        let items: Vec<Uuid> =
+            sqlx::query_scalar("SELECT id FROM inventory_items ORDER BY id FOR UPDATE")
+                .fetch_all(&mut *conn)
+                .await?;
+        Ok(StockLedger::new(conn, &items, &orders))
+    }
+
+    pub async fn verify(conn: &mut PgConnection, ids: &[Uuid]) -> Result<(), MarketWriteError> {
+        let mut port = ledger(conn).await?;
+        if ids.iter().any(|id| !port.inventory_ids.contains(id)) {
+            return Err(inconsistent_stock());
+        }
+        port.verify_invariants().await
+    }
+
+    pub async fn reserve(
+        conn: &mut PgConnection,
+        id: Uuid,
+        q: StockQuantity,
+    ) -> Result<(), MarketWriteError> {
+        let mut tx = conn.begin().await?;
+        let mut port = ledger(&mut tx).await?;
+        port.inventory_ids.retain(|item| *item == id);
+        let orders: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT id FROM orderbook_orders WHERE inventory_item_id=$1 ORDER BY id",
+        )
+        .bind(id)
+        .fetch_all(&mut *port.conn)
+        .await?;
+        port.order_ids = orders;
+        port.reserve(id, q).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    pub async fn consume(
+        conn: &mut PgConnection,
+        id: Uuid,
+        q: StockQuantity,
+    ) -> Result<(), MarketWriteError> {
+        let mut tx = conn.begin().await?;
+        ledger(&mut tx).await?.consume_reserved(id, q).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    pub async fn withdraw(
+        conn: &mut PgConnection,
+        id: Uuid,
+        status: &str,
+    ) -> Result<(), MarketWriteError> {
+        let mut tx = conn.begin().await?;
+        let mut port = ledger(&mut tx).await?;
+        let order = port.order(id).await?;
+        port.withdraw_order(&order, status).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    pub async fn restore(
+        conn: &mut PgConnection,
+        id: Uuid,
+        q: StockQuantity,
+        now: DateTime<Utc>,
+    ) -> Result<(), MarketWriteError> {
+        let mut tx = conn.begin().await?;
+        ledger(&mut tx)
+            .await?
+            .restore_order_remainder(id, q, now)
+            .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    pub async fn expire(
+        conn: &mut PgConnection,
+        product: Uuid,
+        delivery: Option<Uuid>,
+        window: &str,
+        side: &str,
+        now: DateTime<Utc>,
+    ) -> Result<Vec<ExpiryEffect>, MarketWriteError> {
+        let mut tx = conn.begin().await?;
+        let order_ids: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM orderbook_orders WHERE product_id=$1 AND delivery_point_id IS NOT DISTINCT FROM $2 AND availability_window=$3 AND side::text=$4 AND status::text IN ('OPEN','PARTIALLY_FILLED') AND expires_at<=$5 ORDER BY id LIMIT 100 FOR UPDATE")
+            .bind(product).bind(delivery).bind(window).bind(side).bind(now).fetch_all(&mut *tx).await?;
+        let item_ids: Vec<Uuid> = sqlx::query_scalar("SELECT DISTINCT inventory_item_id FROM orderbook_orders WHERE id=ANY($1) AND inventory_item_id IS NOT NULL")
+            .bind(&order_ids).fetch_all(&mut *tx).await?;
+        lock(&mut tx, &item_ids).await?;
+        let result = super::super::expiry::expire_slice(
+            &mut StockLedger::new(&mut tx, &item_ids, &order_ids),
+            &ExpirySlice {
+                product_id: product,
+                delivery_point_id: delivery,
+                availability_window: window,
+                side,
+            },
+            now,
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(result)
+    }
+}
+
 #[cfg(feature = "contract-tests")]
 #[path = "contract.rs"]
 pub(super) mod contract;
@@ -786,6 +1471,11 @@ pub(super) struct LockedMarketTransaction<'a> {
     locked: &'a super::locks::Locked,
 }
 impl LockedMarketTransaction<'_> {
+    /// Borrow the stock port over the complete L5/L8 sets already locked by
+    /// the owner. No connection, new row lock or commit escapes this port.
+    pub(super) fn stock_ledger(&mut self) -> StockLedger<'_> {
+        StockLedger::new(self.conn, self.plan.inventory_ids(), self.plan.order_ids())
+    }
     pub(super) async fn require_execution(
         &mut self,
         party: &super::authority::admission::PartyRef,

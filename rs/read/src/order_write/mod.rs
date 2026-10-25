@@ -17,6 +17,7 @@ mod authority;
 pub mod command;
 pub mod decimal;
 mod error;
+mod expiry;
 pub mod locks;
 mod transaction;
 
@@ -35,6 +36,7 @@ pub use decimal::{
     checked_subtract, cmp_percentage, quantize_cents,
 };
 pub use error::{MarketErrorCode, MarketWriteError};
+pub use expiry::{ExpiryEffect, ExpirySlice, MAX_EXPIRY_ORDERS};
 pub use locks::{
     IDEMPOTENCY_KEY_BOUNDS, IDEMPOTENCY_KEY_MAX, IDEMPOTENCY_KEY_MIN, IDEMPOTENCY_LOCK_TIMEOUT,
     IDEMPOTENCY_STATEMENT_TIMEOUT, MARKET_LOCK_TIMEOUT, MARKET_STATEMENT_TIMEOUT, SliceKey,
