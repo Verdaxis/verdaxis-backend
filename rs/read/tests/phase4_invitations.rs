@@ -950,19 +950,12 @@ mod postgres {
         );
         assert_eq!(body["truncated_header"], "true");
         assert_eq!(body["items"].as_array().unwrap().len(), 500);
-        let under_cap = format!("{}?limit=100", request::LIST_PATH);
-        let (status, _, body) = send(
-            &router,
-            "GET",
-            &under_cap,
-            Some(&token(f.actor)),
-            None,
-        )
-        .await;
+        let final_page = format!("{}?limit=100&offset=500", request::LIST_PATH);
+        let (status, _, body) = send(&router, "GET", &final_page, Some(&token(f.actor)), None).await;
         assert_eq!(status, 200);
         assert_eq!(body["truncated"], Value::Bool(false));
         assert_eq!(body["truncated_header"], "false");
-        assert_eq!(body["items"].as_array().unwrap().len(), 100);
+        assert_eq!(body["items"].as_array().unwrap().len(), 2);
         f.finish().await;
     }
 
