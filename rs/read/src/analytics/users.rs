@@ -104,6 +104,11 @@ impl UsersQuery {
         let fields = QueryFields::parse(query);
         let mut errors: Vec<Value> = Vec::new();
 
+        // The status arm records the refusal but does not return it yet: the
+        // typed framework validates every parameter before the handler runs,
+        // so a query with a bad status *and* a bad typed parameter must get
+        // the typed 422 envelope, not the handler's 400.
+        let mut invalid_status = false;
         let status = match fields.raw("status") {
             None => None,
             Some("") => None,
@@ -113,20 +118,8 @@ impl UsersQuery {
                 if STATUSES.contains(&upper.as_str()) {
                     Some(upper)
                 } else {
-                    // The source treats an unknown status as a client error,
-                    // not as an empty page — but the typed framework
-                    // validates every parameter first, so the 400 is emitted
-                    // only when typed validation collected no other error.
-                    // A double-invalid query keeps the typed 422 envelope.
-                    if !errors.is_empty() {
-                        None
-                    } else {
-                        return Err(refusal(
-                            StatusCode::BAD_REQUEST,
-                            "INVALID_STATUS_FILTER",
-                            "The status filter is not an account status.",
-                        ));
-                    }
+                    invalid_status = true;
+                    None
                 }
             }
         };
@@ -173,6 +166,15 @@ impl UsersQuery {
                 retry_after: None,
                 kind: crate::ApiErrorKind::Expected,
             });
+        }
+        if invalid_status {
+            // The source treats an unknown status as a client error, not as
+            // an empty page; reached only when typed validation passed.
+            return Err(refusal(
+                StatusCode::BAD_REQUEST,
+                "INVALID_STATUS_FILTER",
+                "The status filter is not an account status.",
+            ));
         }
         Ok(Self {
             status,

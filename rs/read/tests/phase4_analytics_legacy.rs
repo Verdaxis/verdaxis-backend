@@ -483,7 +483,7 @@ async fn p4_t17b_c02() {
     // and `all` is the explicit no-filter spelling.
     for (filter, expected) in [
         ("APPROVED", 6),
-        ("approved", 4),
+        ("approved", 6),
         ("PENDING", 1),
         ("pending", 1),
         ("REJECTED", 0),
