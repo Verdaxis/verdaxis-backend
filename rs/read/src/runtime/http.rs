@@ -348,9 +348,7 @@ async fn dispatch_boundary(
         .get(PREAUTH_COUNTED_HEADER)
         .is_some_and(|value| value == "1");
     let quota_now = chrono::Utc::now().timestamp().max(0) as u64;
-    if !counted
-        && let Err(refusal) = state.phase2_limits.preauth_check(&client, path, quota_now)
-    {
+    if !counted && let Err(refusal) = state.phase2_limits.preauth_check(&client, path, quota_now) {
         return preauth_refusal(path, refusal);
     }
     request
