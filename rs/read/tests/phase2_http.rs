@@ -92,6 +92,7 @@ async fn admin_authority_charges_once_and_marks_the_admitted_request() {
     let app = verdaxis_read::runtime::http::middleware_with_limits(
         Router::new().route("/api/admin/feedback", get(|| async { "rust-owned" })),
         authority,
+        "staging",
     );
     for _ in 0..300 {
         let response = app
@@ -159,6 +160,7 @@ async fn only_the_get_authority_and_the_exact_mark_change_admission() {
     let app = verdaxis_read::runtime::http::middleware_with_limits(
         Router::new().route("/api/admin/feedback", get(|| async { "rust-owned" })),
         authority,
+        "staging",
     );
     // A POST to the authority path is not the authority: it is not counted,
     // not marked, and finds no route.

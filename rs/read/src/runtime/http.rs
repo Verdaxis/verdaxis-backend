@@ -549,7 +549,8 @@ pub fn router_with(extra: Router<crate::AppState>, state: crate::AppState) -> Ro
     let routes = routes
         .fallback(fallback)
         .method_not_allowed_fallback(method_not_allowed);
-    compose(routes, Some(state), limits)
+    let environment = state.config.environment.clone();
+    compose(routes, Some(state), limits, &environment)
 }
 
 async fn method_not_allowed() -> Response {
