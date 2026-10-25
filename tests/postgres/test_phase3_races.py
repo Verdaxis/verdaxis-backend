@@ -77,6 +77,9 @@ async def test_maintenance_deletion_races_a_live_rust_family(
         async with httpx.AsyncClient(base_url=rust_auth_server, headers={"Origin": ORIGIN}, event_hooks={"response": [loopback_cookies]}) as rust:
             logged_in = await rust.post("/api/auth/login", data={"username": email, "password": PASSWORD})
             assert logged_in.status_code == 200
+            # Numeric-loopback HTTP cannot return Secure cookies automatically.
+            # Send the actual issued cookie values explicitly for this adapter.
+            rust.headers["Cookie"] = "; ".join(f"{cookie.name}={cookie.value}" for cookie in rust.cookies.jar)
             # The maintenance writer has an expired row in the same family.
             # It must not remove the live predecessor or the new successor.
             async with owner.begin() as conn:

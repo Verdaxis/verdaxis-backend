@@ -65,6 +65,22 @@ and revokes all user refresh families without committing. Missing users return
 `tests/postgres/test_phase3_auth_revocation.py`, covers concurrent updates and
 caller rollback on the migrated runtime role.
 
+## Rust Phase 3 coexistence and session schedules
+
+`tests/postgres/test_phase3_cross_stack_auth.py` runs the real Python auth
+handlers and the release-profile, loopback-only `phase3_auth` example on one
+migrated disposable database. It passes actual login tokens and cookies in both
+directions, checks Python stream admission for Rust-issued tokens, and runs the
+Python maintenance writer against Rust-created rows. The example does not mount
+routes in the serving binary or change deployment revision pins.
+`auth_coexistence_postgres.rs` checks Python's device-key derivation against Rust
+and proves contention on independent connections. `auth_races_postgres.rs` and
+`test_phase3_races.py` cover single-stack session writers and the retained Python
+maintenance writer with database-observed lock waits. Python credential-route
+writer races are not required after the one-switch cutover.
+The shared authenticated transaction permits forced-change accounts on the exact
+profile and password paths, but still applies status and token cutoffs there.
+
 ## Rust Phase 2 order-write boundary
 
 Task 20 adds `rs/read/src/order_write/` for Python-derived lock identities,
