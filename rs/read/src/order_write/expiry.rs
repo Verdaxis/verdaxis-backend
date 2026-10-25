@@ -68,7 +68,9 @@ pub(super) async fn expire_slice(
             released_quantity_mt: released,
             previous_version,
             version,
-            expires_at: order.expires_at.ok_or_else(super::transaction::inconsistent_stock)?,
+            expires_at: order
+                .expires_at
+                .ok_or_else(super::transaction::inconsistent_stock)?,
         });
     }
     Ok(effects)
