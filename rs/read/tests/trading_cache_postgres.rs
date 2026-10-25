@@ -820,11 +820,9 @@ fn barrier(directory: &Path, reader: &str, step: &str) -> PathBuf {
     directory.join(format!("{reader}.{step}"))
 }
 
-/// A fill that loses its authority while the query runs is neither stored nor
-/// answered. The revocation happens inside the loader, after the snapshot and
-/// generation were read but before the result is published.
+/// A fill that loses its authority is loaded again without cache publication.
 #[tokio::test]
-async fn a_fill_that_loses_its_authority_is_not_stored_or_answered() {
+async fn a_fill_that_loses_its_authority_reads_without_storage() {
     let _serial = SERIAL.lock().await;
     let Some((url, mut writer)) = writer().await else {
         return;
@@ -869,10 +867,7 @@ async fn a_fill_that_loses_its_authority_is_not_stored_or_answered() {
     )
     .await;
 
-    assert!(
-        result.is_err(),
-        "a fill from a revoked authority must not be answered"
-    );
+    assert_eq!(result.unwrap(), generation(&mut writer).await);
     assert!(
         cache.is_empty(),
         "a fill from a revoked authority must not be stored"
@@ -882,7 +877,7 @@ async fn a_fill_that_loses_its_authority_is_not_stored_or_answered() {
 }
 
 #[tokio::test]
-async fn unadmitted_connections_never_publish() {
+async fn connections_without_cache_authority_read_without_storage() {
     let _serial = SERIAL.lock().await;
     let Some((url, mut writer)) = writer().await else {
         return;
@@ -945,7 +940,7 @@ async fn unadmitted_connections_never_publish() {
             },
         )
         .await;
-        if result.is_ok() {
+        if result.ok() != Some(42) {
             published.push(reason);
         }
         assert!(cache.is_empty());
@@ -955,7 +950,7 @@ async fn unadmitted_connections_never_publish() {
     writer.close().await.unwrap();
     assert!(
         published.is_empty(),
-        "unadmitted responses published: {published:?}"
+        "uncached reads did not return the database value: {published:?}"
     );
 }
 
@@ -1541,7 +1536,6 @@ async fn public_route_wrappers_check_generations_and_time_without_listener_wakes
             "exact expiry: {path}"
         );
         // Reused and reduced generations retain new authority ownership.
-        let before_rotation = generation(&mut writer).await;
         for offset in [0, -1] {
             let current = generation(&mut writer).await;
             revision += 1;
@@ -1550,7 +1544,40 @@ async fn public_route_wrappers_check_generations_and_time_without_listener_wakes
             runtime
                 .authority()
                 .refresh(runtime.record_path(), clock.now().monotonic);
-            assert_eq!(route_json(&state, &path).await.0, 500, "revoked: {path}");
+            let retained: i64 = sqlx::query_scalar(
+                "SELECT coalesce(max(generation), 0) FROM public_read_cache_events",
+            )
+            .fetch_one(&mut writer)
+            .await
+            .unwrap();
+            set_generation(&mut writer, current.max(retained) + 100).await;
+            state.trading_caches.clear();
+            for unavailable in ["revoked", "absent", "unreadable"] {
+                match unavailable {
+                    "absent" => std::fs::remove_file(runtime.record_path()).unwrap(),
+                    "unreadable" => std::fs::write(runtime.record_path(), b"invalid").unwrap(),
+                    _ => {}
+                }
+                runtime
+                    .authority()
+                    .refresh(runtime.record_path(), clock.now().monotonic);
+                for _ in 0..2 {
+                    sqlx::query(
+                        "UPDATE orderbook_orders SET price_per_mt_usd = price_per_mt_usd + 1",
+                    )
+                    .execute(&mut writer)
+                    .await
+                    .unwrap();
+                    let expected = route_json(&disabled, &path).await;
+                    assert_eq!(expected.0, 200, "{unavailable}: {path}");
+                    assert_eq!(
+                        route_json(&state, &path).await,
+                        expected,
+                        "{unavailable}: {path}"
+                    );
+                    assert!(state.public_trading_cache.is_empty());
+                }
+            }
             revision += 1;
             let successor = authority(revision);
             bind(&mut writer, &successor, true).await;
@@ -1569,9 +1596,77 @@ async fn public_route_wrappers_check_generations_and_time_without_listener_wakes
         }
         // The disposable restore reused event keys too. Move beyond retained
         // events before the next economic write; do not leave a duplicate key.
-        set_generation(&mut writer, before_rotation + 100).await;
+        let retained: i64 =
+            sqlx::query_scalar("SELECT coalesce(max(generation), 0) FROM public_read_cache_events")
+                .fetch_one(&mut writer)
+                .await
+                .unwrap();
+        let next_generation = generation(&mut writer).await.max(retained) + 100;
+        set_generation(&mut writer, next_generation).await;
     }
     reset(&mut writer).await;
+    writer.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn public_reads_during_revocation_return_current_database_values() {
+    let _serial = SERIAL.lock().await;
+    let Ok(url) = std::env::var("ROUTE_CACHE_TEST_DATABASE_URL") else {
+        return;
+    };
+    let mut writer = PgConnection::connect_with(&options(&url)).await.unwrap();
+    for stage in [
+        TradingReadStage::SnapshotEstablished,
+        TradingReadStage::BeforeInsert,
+        TradingReadStage::BeforePublish,
+    ] {
+        for warm in [false, true] {
+            let (mut state, runtime, record) = admitted_state(&url, &mut writer).await;
+            state.policy = Arc::new(
+                serde_json::from_slice::<MarketPolicy>(include_bytes!(
+                    "../../../deploy/rust/market-policy.json"
+                ))
+                .unwrap(),
+            );
+            let mut disabled = state.clone();
+            disabled.trading_cache = None;
+            let path = "/api/orderbook/bids";
+            if warm {
+                assert_eq!(route_json(&state, path).await.0, 200);
+            }
+            // A hit does not visit BeforeInsert.
+            if warm && stage == TradingReadStage::BeforeInsert {
+                continue;
+            }
+            let gate = Arc::new(ReadBarrier {
+                stage,
+                entered: tokio::sync::Notify::new(),
+                release: tokio::sync::Notify::new(),
+            });
+            let mut paused = state.clone();
+            paused.trading_read_observer = gate.clone();
+            let request = tokio::spawn(async move { route_json(&paused, path).await });
+            tokio::time::timeout(Duration::from_secs(30), gate.entered.notified())
+                .await
+                .unwrap();
+            record.revoke(2);
+            publish_record(&runtime, &record);
+            runtime
+                .authority()
+                .refresh(runtime.record_path(), Instant::now());
+            // This independent connection commits after the request's snapshot.
+            sqlx::query("UPDATE orderbook_orders SET price_per_mt_usd = price_per_mt_usd + 1")
+                .execute(&mut writer)
+                .await
+                .unwrap();
+            let expected = route_json(&disabled, path).await;
+            gate.release.notify_one();
+            assert_eq!(expected.0, 200);
+            assert_eq!(request.await.unwrap(), expected, "{stage:?}, warm={warm}");
+            assert!(state.public_trading_cache.is_empty());
+            reset(&mut writer).await;
+        }
+    }
     writer.close().await.unwrap();
 }
 
@@ -1714,9 +1809,10 @@ async fn authority_rotation_at_each_publication_barrier_rejects_old_fills() {
             );
 
             gate.release.notify_one();
-            assert!(
-                old.await.unwrap().is_err(),
-                "{stage:?}, {variant}: obsolete response"
+            assert_eq!(
+                old.await.unwrap().unwrap(),
+                successor.database_epoch,
+                "{stage:?}, {variant}: fresh database response"
             );
             // Only the successor's entry remains, and it still answers.
             assert_eq!(

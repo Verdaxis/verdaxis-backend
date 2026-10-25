@@ -49,7 +49,7 @@ pub fn product_counts(codes: &[String], rows: &[(String, u64)]) -> BTreeMap<Stri
     counts
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct Filters {
     product: Option<Uuid>,
     point: Option<Uuid>,

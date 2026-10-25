@@ -34,7 +34,7 @@ pub fn routes() -> Router<AppState> {
     Router::new().route(PATH, get(snapshot))
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct SnapshotQuery {
     pub market_product: String,
     pub delivery_point_id: Uuid,
