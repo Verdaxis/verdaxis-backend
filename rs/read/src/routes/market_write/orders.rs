@@ -18,6 +18,11 @@ use crate::market_orders::{
 };
 use crate::{AppState, auth::VerificationSettings};
 
+/// Request input the client must correct before it can be accepted.
+fn invalid_request(status: StatusCode, message: &'static str) -> MarketWriteError {
+    refusal(MarketErrorCode::ValidationFailed, status, message)
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct CancelInput {
     pub reason: Option<String>,
@@ -33,13 +38,13 @@ impl CancelInput {
     ) -> Result<Self, MarketWriteError> {
         let reason = if let Some(body) = body {
             let reason = body.get("reason").and_then(Value::as_str).ok_or_else(|| {
-                refusal(
+                invalid_request(
                     StatusCode::UNPROCESSABLE_ENTITY,
                     "A cancellation reason is required",
                 )
             })?;
             if !(3..=500).contains(&reason.chars().count()) || reason.trim().is_empty() {
-                return Err(refusal(
+                return Err(invalid_request(
                     StatusCode::UNPROCESSABLE_ENTITY,
                     "A cancellation reason must have 3-500 characters",
                 ));
@@ -49,7 +54,7 @@ impl CancelInput {
             None
         };
         if post && reason.is_none() {
-            return Err(refusal(
+            return Err(invalid_request(
                 StatusCode::BAD_REQUEST,
                 "A cancellation reason is required",
             ));
@@ -61,7 +66,7 @@ impl CancelInput {
             .map(|key| {
                 let key = key.trim();
                 if key.is_empty() || key.chars().count() > 255 {
-                    Err(refusal(
+                    Err(invalid_request(
                         StatusCode::UNPROCESSABLE_ENTITY,
                         "Idempotency-Key must have 1-255 characters",
                     ))
@@ -82,10 +87,7 @@ impl CancelInput {
             .map(|raw| {
                 let (expected, version) = parse_etag(raw)?;
                 if expected != id {
-                    return Err(refusal(
-                        StatusCode::PRECONDITION_FAILED,
-                        "Listing changed; reload and retry",
-                    ));
+                    return Err(MarketWriteError::new(MarketErrorCode::OrderVersionStale));
                 }
                 Ok(version)
             })
@@ -96,7 +98,7 @@ pub fn order_etag(id: Uuid, version: i32) -> String {
     format!("W/\"order-{id}-v{version}\"")
 }
 fn parse_etag(raw: &str) -> Result<(Uuid, i32), MarketWriteError> {
-    let invalid = || refusal(StatusCode::BAD_REQUEST, "If-Match is malformed");
+    let invalid = || MarketWriteError::new(MarketErrorCode::IfMatchMalformed);
     let text = raw
         .trim()
         .strip_prefix("W/\"order-")
@@ -246,13 +248,13 @@ async fn handle(
     };
     let result = async {
         if body.len() > 64 * 1024 {
-            return Err(refusal(
+            return Err(invalid_request(
                 StatusCode::PAYLOAD_TOO_LARGE,
                 "The request body is too large",
             ));
         }
         if page.skip < 0 || !(1..=100).contains(&page.limit) {
-            return Err(refusal(
+            return Err(invalid_request(
                 StatusCode::UNPROCESSABLE_ENTITY,
                 "Pagination is outside the permitted range",
             ));
@@ -261,7 +263,7 @@ async fn handle(
             None
         } else {
             Some(serde_json::from_slice(&body).map_err(|_| {
-                refusal(
+                invalid_request(
                     StatusCode::UNPROCESSABLE_ENTITY,
                     "The JSON body is not valid",
                 )
@@ -272,7 +274,7 @@ async fn handle(
                 .get(name)
                 .map(|v| {
                     v.to_str().map_err(|_| {
-                        refusal(StatusCode::BAD_REQUEST, "A request header is not valid")
+                        invalid_request(StatusCode::BAD_REQUEST, "A request header is not valid")
                     })
                 })
                 .transpose()
@@ -281,15 +283,18 @@ async fn handle(
             .filter(|s| !s.trim().is_empty())
             .map(|s| {
                 s.parse().map_err(|_| {
-                    refusal(StatusCode::BAD_REQUEST, "The support context is not valid")
+                    invalid_request(StatusCode::BAD_REQUEST, "The support context is not valid")
                 })
             })
             .transpose()?;
         if context.is_some() && !state.support_enabled {
-            return Err(refusal(StatusCode::NOT_FOUND, "Support context not found"));
+            return Err(invalid_request(
+                StatusCode::NOT_FOUND,
+                "Support context not found",
+            ));
         }
         if context.is_some() && id.is_some() && !post {
-            return Err(refusal(
+            return Err(invalid_request(
                 StatusCode::FORBIDDEN,
                 "Use the assisted cancellation route",
             ));

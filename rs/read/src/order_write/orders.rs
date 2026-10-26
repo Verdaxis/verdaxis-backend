@@ -20,16 +20,13 @@ use super::{
 };
 use crate::{AppState, MarketPolicy};
 
-pub(crate) fn refusal(status: axum::http::StatusCode, message: &'static str) -> MarketWriteError {
-    let code = match message {
-        "Order not found" => MarketErrorCode::OrderNotFound,
-        "The order is not owned by this actor" => MarketErrorCode::OrderOwnerForbidden,
-        "If-Match is required" => MarketErrorCode::IfMatchRequired,
-        "If-Match is malformed" => MarketErrorCode::IfMatchMalformed,
-        "Listing changed; reload and retry" => MarketErrorCode::OrderVersionStale,
-        "Only a live order can be cancelled" => MarketErrorCode::OrderTerminal,
-        _ => MarketErrorCode::ValidationFailed,
-    };
+/// A refusal with an explicit code, and the status and text these routes keep
+/// for their clients where they differ from the code's own row.
+pub(crate) fn refusal(
+    code: MarketErrorCode,
+    status: axum::http::StatusCode,
+    message: &'static str,
+) -> MarketWriteError {
     let mut error = MarketWriteError::new(code);
     error.status = status;
     error.message = message;
@@ -39,10 +36,7 @@ fn internal() -> MarketWriteError {
     MarketWriteError::new(MarketErrorCode::DatabaseError)
 }
 fn forbidden() -> MarketWriteError {
-    refusal(
-        axum::http::StatusCode::FORBIDDEN,
-        "The order is not owned by this actor",
-    )
+    MarketWriteError::new(MarketErrorCode::OrderOwnerForbidden)
 }
 
 #[derive(Clone)]
@@ -106,7 +100,7 @@ struct OrderIdentity {
 }
 async fn identity(conn: &mut PgConnection, id: Uuid) -> Result<OrderIdentity, MarketWriteError> {
     let row = sqlx::query("SELECT id,organization_id,owner_user_id,product_id,delivery_point_id,availability_window,inventory_item_id,creation_method::text AS creation_method,support_authorization_id,version,status::text AS status FROM orderbook_orders WHERE id=$1")
-        .bind(id).fetch_optional(conn).await?.ok_or_else(|| refusal(axum::http::StatusCode::NOT_FOUND,"Order not found"))?;
+        .bind(id).fetch_optional(conn).await?.ok_or(MarketWriteError::new(MarketErrorCode::OrderNotFound))?;
     Ok(OrderIdentity {
         id,
         organization: row.try_get("organization_id")?,
@@ -227,6 +221,7 @@ impl MarketCommand for OrderCommand {
             if order.method == "MARKET_SUPPORT" {
                 if self.request.input.reason.is_none() {
                     return Err(refusal(
+                        MarketErrorCode::ValidationFailed,
                         axum::http::StatusCode::BAD_REQUEST,
                         "Assisted cancellation requires a reason",
                     )
@@ -234,22 +229,16 @@ impl MarketCommand for OrderCommand {
                 }
                 let expected = self.request.input.expected_version(id)?;
                 if expected.is_none() {
-                    return Err(refusal(
-                        axum::http::StatusCode::PRECONDITION_REQUIRED,
-                        "If-Match is required",
-                    )
-                    .into());
+                    return Err(MarketWriteError::new(MarketErrorCode::IfMatchRequired).into());
                 }
                 if expected != Some(order.version) {
-                    return Err(refusal(
-                        axum::http::StatusCode::PRECONDITION_FAILED,
-                        "Listing changed; reload and retry",
-                    )
-                    .into());
+                    return Err(MarketWriteError::new(MarketErrorCode::OrderVersionStale).into());
                 }
             }
             if !matches!(order.status.as_str(), "OPEN" | "PARTIALLY_FILLED") {
+                // Cancellation keeps its 400 refusal for an order that is no longer live.
                 return Err(refusal(
+                    MarketErrorCode::OrderTerminal,
                     axum::http::StatusCode::BAD_REQUEST,
                     "Only a live order can be cancelled",
                 )
@@ -496,6 +485,7 @@ impl<'a> OrderPort<'a> {
         } else {
             actor.account().current_organization_id.ok_or_else(|| {
                 refusal(
+                    MarketErrorCode::ValidationFailed,
                     axum::http::StatusCode::BAD_REQUEST,
                     "User must belong to an organization",
                 )
