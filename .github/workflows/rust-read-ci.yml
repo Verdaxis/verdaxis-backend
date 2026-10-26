@@ -223,6 +223,14 @@ jobs:
           install -D -m 0755 caddy "$RUNNER_TEMP/bin/caddy"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
+      - name: Run the Phase 5 routing tests against the pinned Caddy
+        env:
+          ENVIRONMENT: test
+          RELEASE_SHA: test
+          JWT_SECRET: test-secret-key-for-testing-minimum-32-characters-long
+          DATABASE_URL: "sqlite+aiosqlite:///:memory:"
+        run: venv/bin/python -m pytest tests/rust_contract/test_phase5_routing.py tests/unit/test_rust_phase5_candidate.py -q
+
       - name: Download the release artifact
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:

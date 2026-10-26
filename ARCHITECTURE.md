@@ -52,11 +52,15 @@ the organization-scoped vessel count. `rs/read/tests/phase5_compliance_scores.rs
 `rs/read/tests/phase5_compliance_fuels.rs` cover them;
 `rs/read/tests/phase5_postgres.rs` adds the cross-group integration cases and
 `rs/read/tests/run_compliance_scores.sh` runs the migrated matrix.
-`rs/read/tests/phase5_routing.rs` and `deploy/caddy/rust-phase5.caddy` pin the
-exact ten-route row of the one-switch form, with `scripts/rust_phase5_candidate.py`
-producing the private site candidate; nothing is imported on any host.
-`tests/rust_contract/phase5/evidence-manifest.json` and `test_phase5_gate.py`
-carry the neutral release evidence checks.
+`deploy/caddy/rust-phase5.caddy` routes the ten routes of the inventory by exact
+method and path in one switch, beside the first read groups' snippet.
+`scripts/rust_phase5_candidate.py` produces the private staging or production
+site candidate, and its rollback is the original file. `rs/read/tests/phase5_routing.rs`
+checks the Rust side of the row against `tests/rust_contract/phase5/routes.json`;
+`tests/rust_contract/test_phase5_routing.py` checks the Caddy side with a real
+Caddy. Nothing is imported on any host.
+`tests/rust_contract/phase5/evidence-manifest.json`, its schema and
+`test_phase5_gate.py` carry the neutral release evidence checks.
 
 ## Phase 5 public market reads
 
