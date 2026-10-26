@@ -572,11 +572,7 @@ async fn owner_and_organization_are_revalidated_under_lock() {
     .execute(&mut *holding)
     .await
     .unwrap();
-    sqlx::query("SELECT id FROM orderbook_orders WHERE id=$1 FOR UPDATE")
-        .bind(f.resting[0])
-        .fetch_one(&mut *holding)
-        .await
-        .unwrap();
+    probe_order_lock(&mut holding, f.resting[0]).await.unwrap();
     let mut contender = runtime_connection().await;
     let pid = backend_pid(&mut contender).await;
     let aggressor = f.aggressor;
