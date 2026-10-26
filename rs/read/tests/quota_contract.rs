@@ -1,8 +1,7 @@
 //! The rate-limit tables must not lock out new clients.
 //!
-//! Every case here uses only the public authority surface, so this file also
-//! runs unchanged against the implementation before the fix and fails on an
-//! assertion rather than a compile error.
+//! Every case here uses only the public authority surface, so a change to a
+//! store's behaviour fails an assertion rather than a compile step.
 
 use verdaxis_read::auth::limits::{QuotaStores, SharedLimits};
 
