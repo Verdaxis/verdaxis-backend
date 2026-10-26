@@ -514,7 +514,9 @@ impl<'a> InventoryPort<'a> {
                 }
                 let merged = InventoryInput::create(Value::Object(merged), &app.policy)?;
                 let current = response(row.clone())?;
-                let changed = FIELDS.iter().any(|key| !same_inventory_value(key, &current[*key], &merged.0[*key]));
+                let changed = FIELDS
+                    .iter()
+                    .any(|key| !same_inventory_value(key, &current[*key], &merged.0[*key]));
                 let before = super::effects::EffectPort::new(self.conn, &[], self.locked)
                     .capture_before(&app.policy, &app.config, &[], now)
                     .await?;
@@ -861,7 +863,16 @@ impl<'a> InventoryPort<'a> {
     }
 }
 fn same_inventory_value(field: &str, before: &Value, after: &Value) -> bool {
-    if matches!(field, "current_stock_mt" | "incoming_stock_mt" | "price_per_mt_usd" | "energy_density_mj_kg" | "carbon_intensity_gco2_mj") && !before.is_null() && !after.is_null() {
+    if matches!(
+        field,
+        "current_stock_mt"
+            | "incoming_stock_mt"
+            | "price_per_mt_usd"
+            | "energy_density_mj_kg"
+            | "carbon_intensity_gco2_mj"
+    ) && !before.is_null()
+        && !after.is_null()
+    {
         return matches!((decimal_from_json(before), decimal_from_json(after)), (Ok(left), Ok(right)) if left == right);
     }
     before == after
