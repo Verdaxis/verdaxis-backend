@@ -156,7 +156,9 @@ fn address_flood_does_not_refuse_a_verified_users_endpoint_quota() {
     for client in 0..50_100_u32 {
         let address = std::net::Ipv4Addr::from(client).to_string();
         assert!(
-            limits.check_endpoint_by_address(&address, "/api/auth/login", 100).is_ok(),
+            limits
+                .check_endpoint_by_address(&address, "/api/auth/login", 100)
+                .is_ok(),
             "flood client {client} was refused"
         );
     }

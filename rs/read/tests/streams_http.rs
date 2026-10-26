@@ -5,7 +5,6 @@
 //! Private replay admission is exercised through its error classes; the
 //! database-backed replay behaviour belongs to `streams_replay`.
 
-
 use axum::{
     Router,
     body::Body,
@@ -52,7 +51,10 @@ fn live() -> Router {
     }))
 }
 
-async fn send(router: &Router, request: Request<Body>) -> (StatusCode, Vec<(String, String)>, Vec<u8>) {
+async fn send(
+    router: &Router,
+    request: Request<Body>,
+) -> (StatusCode, Vec<(String, String)>, Vec<u8>) {
     use tower::ServiceExt;
     let response = router.clone().oneshot(request).await.unwrap();
     let status = response.status();
@@ -73,7 +75,11 @@ fn get(path: &str) -> Request<Body> {
 }
 
 fn method(method: &str, path: &str) -> Request<Body> {
-    Request::builder().method(method).uri(path).body(Body::empty()).unwrap()
+    Request::builder()
+        .method(method)
+        .uri(path)
+        .body(Body::empty())
+        .unwrap()
 }
 
 fn code(bytes: &[u8]) -> String {
@@ -104,10 +110,17 @@ async fn prices_get_alias_matches_canonical() {
     for path in ["/api/stream/prices", "/api/stream/prices/"] {
         let (status, headers) = head(&live(), path).await;
         assert_eq!(status, StatusCode::OK, "{path}");
-        assert!(headers
-            .iter()
-            .any(|(name, value)| name == "content-type" && value.starts_with("text/event-stream")), "{path}");
-        assert!(!headers.iter().any(|(name, _)| name == "www-authenticate"), "{path}");
+        assert!(
+            headers
+                .iter()
+                .any(|(name, value)| name == "content-type"
+                    && value.starts_with("text/event-stream")),
+            "{path}"
+        );
+        assert!(
+            !headers.iter().any(|(name, _)| name == "www-authenticate"),
+            "{path}"
+        );
     }
 }
 
@@ -116,9 +129,13 @@ async fn orderbook_get_alias_matches_canonical() {
     for path in ["/api/stream/orderbook", "/api/stream/orderbook/"] {
         let (status, headers) = head(&live(), path).await;
         assert_eq!(status, StatusCode::OK, "{path}");
-        assert!(headers
-            .iter()
-            .any(|(name, value)| name == "content-type" && value.starts_with("text/event-stream")), "{path}");
+        assert!(
+            headers
+                .iter()
+                .any(|(name, value)| name == "content-type"
+                    && value.starts_with("text/event-stream")),
+            "{path}"
+        );
     }
 }
 
@@ -170,9 +187,11 @@ async fn trades_rejects_bad_token_401_stream_token_invalid() {
     let (status, headers, bytes) = send(&live(), request).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
     assert_eq!(code(&bytes), "STREAM_TOKEN_INVALID");
-    assert!(!headers
-        .iter()
-        .any(|(name, value)| name == "content-type" && value.starts_with("text/event-stream")));
+    assert!(
+        !headers
+            .iter()
+            .any(|(name, value)| name == "content-type" && value.starts_with("text/event-stream"))
+    );
 }
 
 #[tokio::test]
@@ -200,14 +219,19 @@ async fn trades_auth_store_down_503_stream_auth_unavailable() {
         "iat": chrono::Utc::now().timestamp(),
         "exp": (chrono::Utc::now() + chrono::Duration::minutes(1)).timestamp(),
     });
-    claims["exp"] = serde_json::json!((chrono::Utc::now() + chrono::Duration::seconds(60)).timestamp());
+    claims["exp"] =
+        serde_json::json!((chrono::Utc::now() + chrono::Duration::seconds(60)).timestamp());
     let token = encode(
         &Header::new(Algorithm::HS256),
         &claims,
         &EncodingKey::from_secret("test-secret-key-for-streams-minimum-32".as_bytes()),
     )
     .unwrap();
-    let (status, _, bytes) = send(&router, get(&format!("/api/stream/trades?stream_token={token}"))).await;
+    let (status, _, bytes) = send(
+        &router,
+        get(&format!("/api/stream/trades?stream_token={token}")),
+    )
+    .await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(code(&bytes), "STREAM_AUTH_UNAVAILABLE");
 }

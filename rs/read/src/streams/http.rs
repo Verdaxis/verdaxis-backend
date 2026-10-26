@@ -71,7 +71,9 @@ impl StreamsState {
         .expect("test state");
         let mut state = state;
         state.streams = streams.map(Arc::new);
-        Self { state: Arc::new(state) }
+        Self {
+            state: Arc::new(state),
+        }
     }
 }
 
@@ -181,13 +183,10 @@ fn public(state: &StreamsState, channel: PublicChannel) -> Response {
         return unavailable();
     };
     let body = Sse::new(unfold(subscription, |mut subscription| async move {
-        subscription
-            .recv()
-            .await
-            .map(|delivery| {
-                let event: Result<Event, Infallible> = Ok(delivery.into_event());
-                (event, subscription)
-            })
+        subscription.recv().await.map(|delivery| {
+            let event: Result<Event, Infallible> = Ok(delivery.into_event());
+            (event, subscription)
+        })
     }))
     .keep_alive(KeepAlive::new().interval(Duration::from_secs(30)));
     let mut response = body.into_response();
@@ -248,31 +247,28 @@ async fn trades(
                 StatusCode::UNAUTHORIZED,
                 "STREAM_TOKEN_REQUIRED",
                 "A stream token is required",
-            )
+            );
         }
         Err(StreamError::TokenInvalid) => {
             return stream_error(
                 StatusCode::UNAUTHORIZED,
                 "STREAM_TOKEN_INVALID",
                 "The stream token is invalid",
-            )
+            );
         }
         Err(StreamError::AuthorizationUnavailable) => {
             return stream_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "STREAM_AUTH_UNAVAILABLE",
                 "Stream authorization is temporarily unavailable",
-            )
+            );
         }
     };
     let source = PgReplaySource::new(state.state.pools.read.clone());
     match Replay::open(source, &streams.hub, principal, cursor, WallClock).await {
         Ok(replay) => {
             let body = Sse::new(unfold(replay, |mut replay| async move {
-                replay
-                    .next()
-                    .await
-                    .map(|frame| {
+                replay.next().await.map(|frame| {
                     let event: Result<Event, Infallible> = Ok(frame.into_event());
                     (event, replay)
                 })
@@ -297,7 +293,6 @@ async fn trades(
         Err(_) => unavailable(),
     }
 }
-
 
 fn parse_cursor(raw: Option<&str>) -> Option<Option<i64>> {
     match raw {

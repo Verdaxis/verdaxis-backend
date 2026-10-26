@@ -83,12 +83,7 @@ impl SharedLimits {
     ///
     /// An auth route's refusal is the auth envelope with `Retry-After`; the
     /// Phase 2 routes keep their existing refusal body.
-    pub fn check_endpoint(
-        &self,
-        user: &str,
-        path: &str,
-        now: u64,
-    ) -> Result<(), crate::ApiError> {
+    pub fn check_endpoint(&self, user: &str, path: &str, now: u64) -> Result<(), crate::ApiError> {
         let check = self
             .0
             .lock()
@@ -262,7 +257,9 @@ impl QuotaStores {
         };
         self.preauth_store
             .accept_check(&network_identity(client), key, limit, window, now, true)
-            .map_err(|retry_after_seconds| Refusal { retry_after_seconds })
+            .map_err(|retry_after_seconds| Refusal {
+                retry_after_seconds,
+            })
     }
 
     /// The Phase 3 endpoint form with the same user-keyed store as
@@ -273,7 +270,9 @@ impl QuotaStores {
         };
         self.user_store
             .accept_check(user, key, limit, window, now, false)
-            .map_err(|retry_after_seconds| Refusal { retry_after_seconds })
+            .map_err(|retry_after_seconds| Refusal {
+                retry_after_seconds,
+            })
     }
 
     /// Endpoint admission keyed by client address in the evicting address
@@ -291,7 +290,9 @@ impl QuotaStores {
         };
         self.preauth_store
             .accept_check(&network_identity(client), key, limit, window, now, true)
-            .map_err(|retry_after_seconds| Refusal { retry_after_seconds })
+            .map_err(|retry_after_seconds| Refusal {
+                retry_after_seconds,
+            })
     }
 
     /// Pre-auth evictions since start. A plain number: it names no client.
