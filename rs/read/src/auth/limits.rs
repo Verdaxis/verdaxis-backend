@@ -172,9 +172,9 @@ impl QuotaStore {
                 if !evict {
                     return Err(window.max(1));
                 }
-                // Only the pre-auth store evicts (PM decision PD2-SEC-1). Every
-                // entry shares one window length, so the soonest-expiring entry
-                // is the oldest accounting. Refusing the new client instead
+                // Only the address store evicts. Every entry shares one window
+                // length, so the soonest-expiring entry is the oldest
+                // accounting. Refusing the new client instead
                 // would let a flood of fresh addresses lock out every
                 // legitimate client, administrators included. The trade is
                 // deliberate: under sustained churn a client can be evicted and
