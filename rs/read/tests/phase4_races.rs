@@ -501,11 +501,11 @@ async fn join_approval_and_org_rejection_do_not_deadlock() {
             // contender waiting on the shared row lock. Observed, not timed.
             let contender_pid = f.wait_any_blocked_by(holder).await;
             gate.open();
-            let held_outcome = held_task.await;
+            let held_outcome = std::pin::pin!(held_task).await;
             let _ = held_outcome
                 .expect("holder task finished")
                 .expect("holder command succeeded");
-            let contender_outcome = contender_task.await;
+            let contender_outcome = std::pin!(contender_task).await;
             let _ = contender_outcome
                 .expect("contender task finished")
                 .expect("contender command succeeded");
