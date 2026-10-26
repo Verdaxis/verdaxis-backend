@@ -4,7 +4,7 @@ use std::sync::Arc;
 use axum::{
     Router,
     body::Bytes,
-    extract::{Path, Query, State},
+    extract::{ConnectInfo, Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{delete, get, post},
@@ -114,8 +114,17 @@ fn parse_etag(raw: &str) -> Result<(Uuid, i32), MarketWriteError> {
 struct RouteState {
     app: AppState,
     verification: Arc<VerificationSettings>,
+    support_enabled: bool,
 }
 pub fn router(app: AppState, verification: VerificationSettings) -> Router {
+    router_with_support(app, verification, false)
+}
+
+pub fn router_with_support(
+    app: AppState,
+    verification: VerificationSettings,
+    support_enabled: bool,
+) -> Router {
     Router::new()
         .route("/api/orderbook/my", get(owner_orders))
         .route(
@@ -127,6 +136,7 @@ pub fn router(app: AppState, verification: VerificationSettings) -> Router {
         .with_state(RouteState {
             app,
             verification: Arc::new(verification),
+            support_enabled,
         })
 }
 #[derive(Deserialize)]
@@ -143,6 +153,7 @@ async fn delete_order(
     State(state): State<RouteState>,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
+    peer: Option<axum::Extension<ConnectInfo<std::net::SocketAddr>>>,
     body: Bytes,
 ) -> Response {
     handle(
@@ -153,6 +164,7 @@ async fn delete_order(
         body,
         Page { skip: 0, limit: 50 },
         false,
+        peer.map(|p| p.0.0.ip()),
     )
     .await
 }
@@ -160,6 +172,7 @@ async fn post_cancel(
     State(state): State<RouteState>,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
+    peer: Option<axum::Extension<ConnectInfo<std::net::SocketAddr>>>,
     body: Bytes,
 ) -> Response {
     handle(
@@ -170,6 +183,7 @@ async fn post_cancel(
         body,
         Page { skip: 0, limit: 50 },
         false,
+        peer.map(|p| p.0.0.ip()),
     )
     .await
 }
@@ -177,10 +191,25 @@ async fn owner_orders(
     State(state): State<RouteState>,
     headers: HeaderMap,
     Query(page): Query<Page>,
+    peer: Option<axum::Extension<ConnectInfo<std::net::SocketAddr>>>,
 ) -> Response {
-    handle(state, headers, None, false, Bytes::new(), page, false).await
+    handle(
+        state,
+        headers,
+        None,
+        false,
+        Bytes::new(),
+        page,
+        false,
+        peer.map(|p| p.0.0.ip()),
+    )
+    .await
 }
-async fn latest_template(State(state): State<RouteState>, headers: HeaderMap) -> Response {
+async fn latest_template(
+    State(state): State<RouteState>,
+    headers: HeaderMap,
+    peer: Option<axum::Extension<ConnectInfo<std::net::SocketAddr>>>,
+) -> Response {
     handle(
         state,
         headers,
@@ -189,9 +218,11 @@ async fn latest_template(State(state): State<RouteState>, headers: HeaderMap) ->
         Bytes::new(),
         Page { skip: 0, limit: 1 },
         true,
+        peer.map(|p| p.0.0.ip()),
     )
     .await
 }
+#[allow(clippy::too_many_arguments)]
 async fn handle(
     state: RouteState,
     headers: HeaderMap,
@@ -200,6 +231,7 @@ async fn handle(
     body: Bytes,
     page: Page,
     template: bool,
+    peer: Option<std::net::IpAddr>,
 ) -> Response {
     let now = chrono::Utc::now();
     let access = match crate::auth::verify_authorization(
@@ -253,6 +285,9 @@ async fn handle(
                 })
             })
             .transpose()?;
+        if context.is_some() && !state.support_enabled {
+            return Err(refusal(StatusCode::NOT_FOUND, "Support context not found"));
+        }
         if context.is_some() && id.is_some() && !post {
             return Err(refusal(
                 StatusCode::FORBIDDEN,
@@ -261,7 +296,11 @@ async fn handle(
         }
         let input =
             CancelInput::parse(post, body, header("If-Match")?, header("Idempotency-Key")?)?;
-        let audit = AuditContext::new(None, header("x-request-id")?.map(str::to_owned))?;
+        let ip = crate::runtime::http::client_ip(peer, header("x-forwarded-for")?);
+        let audit = AuditContext::new(
+            Some(ip),
+            Some(crate::runtime::logging::request_id(header("x-request-id")?)),
+        )?;
         let result = dispatch(
             state.app,
             access,
@@ -309,7 +348,7 @@ pub fn contract_router(pool: sqlx::PgPool, key: &str) -> Router {
         reads: Arc::new(tokio::sync::Semaphore::new(6)),
         reference_cache: Arc::new(crate::runtime::cache::ReferenceCache::default()),
     };
-    router(
+    router_with_support(
         app,
         VerificationSettings::new(
             key.into(),
@@ -317,5 +356,6 @@ pub fn contract_router(pool: sqlx::PgPool, key: &str) -> Router {
             "cancel-tests".into(),
             "cancel-tests".into(),
         ),
+        true,
     )
 }

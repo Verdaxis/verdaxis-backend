@@ -21,7 +21,16 @@ use super::{
 use crate::{AppState, MarketPolicy};
 
 pub(crate) fn refusal(status: axum::http::StatusCode, message: &'static str) -> MarketWriteError {
-    let mut error = MarketWriteError::new(MarketErrorCode::ValidationFailed);
+    let code = match message {
+        "Order not found" => MarketErrorCode::OrderNotFound,
+        "The order is not owned by this actor" => MarketErrorCode::OrderOwnerForbidden,
+        "If-Match is required" => MarketErrorCode::IfMatchRequired,
+        "If-Match is malformed" => MarketErrorCode::IfMatchMalformed,
+        "Listing changed; reload and retry" => MarketErrorCode::OrderVersionStale,
+        "Only a live order can be cancelled" => MarketErrorCode::OrderTerminal,
+        _ => MarketErrorCode::ValidationFailed,
+    };
+    let mut error = MarketWriteError::new(code);
     error.status = status;
     error.message = message;
     error
@@ -329,6 +338,9 @@ impl<'a> OrderPort<'a> {
         now: DateTime<Utc>,
     ) -> Result<WriteContext, MarketWriteError> {
         let order = self.load(id).await?;
+        if support.is_none() && actor.account().role == super::authority::ActorRole::Admin {
+            return Err(forbidden());
+        }
         if support.is_some() {
             if order.method != "MARKET_SUPPORT" || order.authorization.is_none() {
                 return Err(forbidden());
@@ -389,7 +401,7 @@ impl<'a> OrderPort<'a> {
         };
         let changes = json!({"status":"CANCELLED","reason":request.input.reason,"actor_user_id":ctx.actor().user_id(),"effective_organization_id":ctx.effective_organization_id(),"original_principal_user_id":order.owner,"cancellation_principal_user_id":ctx.actor().user_id(),"support_context_id":ctx.support_context_id(),"original_support_context_id":original_context,"version":order.version.checked_add(1).ok_or_else(internal)?});
         let provenance: String = row.try_get("provenance")?;
-        let activity_row = sqlx::query("SELECT o.side::text AS side,p.market_product::text AS market_product,d.name AS point_name FROM orderbook_orders o JOIN products p ON p.id=o.product_id LEFT JOIN delivery_points d ON d.id=o.delivery_point_id WHERE o.id=$1").bind(order.id).fetch_one(&mut *self.conn).await?;
+        let activity_row = sqlx::query("SELECT o.side::text AS side,p.id AS product_id,d.name AS point_name FROM orderbook_orders o JOIN products p ON p.id=o.product_id LEFT JOIN delivery_points d ON d.id=o.delivery_point_id WHERE o.id=$1").bind(order.id).fetch_one(&mut *self.conn).await?;
         let activity = OrderActivity {
             id: order.id,
             side: activity_row.try_get("side")?,
@@ -422,7 +434,13 @@ impl<'a> OrderPort<'a> {
             .into(),
             is_demo_listing: provenance == "DEMO",
             unknown_count: u32::from(provenance == "UNKNOWN"),
-            market_product: activity_row.try_get("market_product")?,
+            market_product: policy
+                .products
+                .iter()
+                .find(|p| p.id == order.product)
+                .ok_or_else(internal)?
+                .code
+                .clone(),
             delivery_point_id: order.point.ok_or_else(internal)?,
             availability_window: order.window.clone(),
             observed_at: None,
@@ -493,8 +511,8 @@ impl<'a> OrderPort<'a> {
             true,
         )
         .await?;
-        let rows=sqlx::query("SELECT to_jsonb(o) || jsonb_build_object('quantity_mt',o.quantity_mt::text,'remaining_quantity_mt',o.remaining_quantity_mt::text,'price_per_mt_usd',o.price_per_mt_usd::text,'carbon_intensity_gco2_mj',o.carbon_intensity_gco2_mj::text,'energy_density_mj_kg',o.energy_density_mj_kg::text) AS data,p.name AS product_name,p.market_product::text AS market_product,p.fuel_type AS fuel_type,p.fuel_grade AS fuel_grade,d.name AS point_name,d.region AS region,(SELECT count(*) FROM trades t WHERE (o.side::text='ASK' AND t.ask_order_id=o.id) OR (o.side::text='BID' AND t.bid_order_id=o.id)) AS trade_count FROM orderbook_orders o JOIN products p ON p.id=o.product_id LEFT JOIN delivery_points d ON d.id=o.delivery_point_id WHERE o.organization_id=$1 AND (NOT $2 OR (o.side::text='ASK' AND (o.expires_at IS NULL OR o.expires_at>$3))) ORDER BY o.created_at DESC,o.id DESC OFFSET $4 LIMIT $5")
-            .bind(organization).bind(request.template).bind(now).bind(if request.template{0}else{request.skip}).bind(if request.template{1}else{request.limit}).fetch_all(&mut *self.conn).await?;
+        let rows=sqlx::query("SELECT to_jsonb(o) || jsonb_build_object('quantity_mt',o.quantity_mt::text,'remaining_quantity_mt',o.remaining_quantity_mt::text,'price_per_mt_usd',o.price_per_mt_usd::text,'carbon_intensity_gco2_mj',o.carbon_intensity_gco2_mj::text,'energy_density_mj_kg',o.energy_density_mj_kg::text) AS data,p.name AS product_name,(SELECT value->>'code' FROM jsonb_array_elements($6::jsonb->'products') WHERE value->>'id'=p.id::text) AS market_product,p.fuel_type AS fuel_type,p.fuel_grade AS fuel_grade,d.name AS point_name,d.region AS region,(SELECT count(*) FROM trades t WHERE (o.side::text='ASK' AND t.ask_order_id=o.id) OR (o.side::text='BID' AND t.bid_order_id=o.id)) AS trade_count FROM orderbook_orders o JOIN products p ON p.id=o.product_id LEFT JOIN delivery_points d ON d.id=o.delivery_point_id WHERE o.organization_id=$1 AND (NOT $2 OR (o.side::text='ASK' AND (o.expires_at IS NULL OR o.expires_at>$3))) ORDER BY o.created_at DESC,o.id DESC OFFSET $4 LIMIT $5")
+            .bind(organization).bind(request.template).bind(now).bind(if request.template{0}else{request.skip}).bind(if request.template{1}else{request.limit}).bind(serde_json::to_value(policy).map_err(|_|internal())?).fetch_all(&mut *self.conn).await?;
         if request.template {
             return rows
                 .first()
@@ -635,7 +653,8 @@ fn owner_projection(row: &sqlx::postgres::PgRow) -> Result<Value, MarketWriteErr
         .ok_or_else(internal)?
         .parse()
         .map_err(|_| internal())?;
-    let version = data["version"].as_i64().ok_or_else(internal)? as i32;
+    let version =
+        i32::try_from(data["version"].as_i64().ok_or_else(internal)?).map_err(|_| internal())?;
     out.insert("terms_digest".into(), json!(digest));
     out.insert(
         "etag".into(),

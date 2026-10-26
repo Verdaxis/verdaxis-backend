@@ -583,12 +583,20 @@ async fn cancel_receipt_resource_and_actor_are_bound() {
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn owner_read_keeps_private_typed_declarations() {
-    let mut f=Fixture::new().await;
+    let mut f = Fixture::new().await;
     f.change("typed_owner").await;
-    let response=f.request("GET","/api/orderbook/my",f.actor,None,None,None,None).await;
-    assert_eq!(response.0,StatusCode::OK);
-    let row=&response.1[0];
-    assert_eq!(row["fame_terms"]["certificate_reference"],"PRIVATE-CERTIFICATE-ID");
-    assert_eq!(row["fame_terms"]["batch_reference"],"PRIVATE-BATCH-001");
-    assert_eq!(row["fame_terms"]["quality_evidence"]["laboratory"],"PRIVATE-LABORATORY");
+    let response = f
+        .request("GET", "/api/orderbook/my", f.actor, None, None, None, None)
+        .await;
+    assert_eq!(response.0, StatusCode::OK);
+    let row = &response.1[0];
+    assert_eq!(
+        row["fame_terms"]["certificate_reference"],
+        "PRIVATE-CERTIFICATE-ID"
+    );
+    assert_eq!(row["fame_terms"]["batch_reference"], "PRIVATE-BATCH-001");
+    assert_eq!(
+        row["fame_terms"]["quality_evidence"]["laboratory"],
+        "PRIVATE-LABORATORY"
+    );
 }
