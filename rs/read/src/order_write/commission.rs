@@ -197,6 +197,10 @@ impl MarketCommand for CommissionCommand {
                     tx.commissions(actor)?.summary().await?,
                 )),
                 CommissionOperation::Patch { id, .. } => {
+                    let before = tx
+                        .effects()?
+                        .capture_before(&self.policy, &self.config, &[], self.at)
+                        .await?;
                     let Some((response, changes)) = tx
                         .commissions(actor)?
                         .patch(*id, patch.as_ref().expect("validated patch"))
@@ -208,10 +212,6 @@ impl MarketCommand for CommissionCommand {
                             "The commission was not found",
                         ));
                     };
-                    let before = tx
-                        .effects()?
-                        .capture_before(&self.policy, &self.config, &[], self.at)
-                        .await?;
                     let mut set = before.stage();
                     set.push(MutationEffect {
                         kind: MutationKind::CommissionChanged,

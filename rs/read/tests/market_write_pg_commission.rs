@@ -159,13 +159,13 @@ async fn commission_patch_is_serialized_and_audited() {
             async move { request(app, token, "PUT", &p, json!({"status":"INVOICED"})).await },
         );
     let mut observed = false;
-    for _ in 0..200 {
+    for _ in 0..400 {
         let waiting:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock' AND query LIKE '%commissions%' AND pid<>pg_backend_pid())").fetch_one(&mut f.admin).await.unwrap();
         if waiting {
             observed = true;
             break;
         }
-        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
     }
     assert!(
         observed,
@@ -176,13 +176,19 @@ async fn commission_patch_is_serialized_and_audited() {
     let p = path.clone();
     let second =
         tokio::spawn(async move { request(app, token, "PUT", &p, json!({"status":"PAID"})).await });
-    for _ in 0..200 {
+    let mut both_waiting = false;
+    for _ in 0..400 {
         let waiting:i64=sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity WHERE wait_event_type='Lock' AND query LIKE '%commissions%' AND pid<>pg_backend_pid()").fetch_one(&mut f.admin).await.unwrap();
         if waiting >= 2 {
+            both_waiting = true;
             break;
         }
-        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
     }
+    assert!(
+        both_waiting,
+        "both administrator connections must reach the commission row"
+    );
     blocker.commit().await.unwrap();
     let a = first.await.unwrap();
     let b = second.await.unwrap();
@@ -203,6 +209,15 @@ async fn commission_patch_is_serialized_and_audited() {
         ]
     );
     assert_eq!(f.counts().await, (2, 0, 0));
+    let contexts: Vec<Option<String>> = sqlx::query_scalar("SELECT request_id FROM audit_logs")
+        .fetch_all(&mut f.admin)
+        .await
+        .unwrap();
+    assert!(
+        contexts
+            .iter()
+            .all(|value| value.as_deref() == Some("11111111-2222-4333-8444-555555555555"))
+    );
     let rows: Vec<(String, String, String)> =
         sqlx::query_as("SELECT action,resource_type,resource_id FROM audit_logs")
             .fetch_all(&mut f.admin)
@@ -261,11 +276,23 @@ async fn commission_list_is_unbounded_and_preserves_the_array_shape() {
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn commission_views_do_not_derive_from_trades() {
     let mut f = Fixture::new().await;
-    let policy: Value = serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap();
-    let product = policy["products"].as_array().unwrap().iter().find(|p| p["qualification_profile"] == "scalar" && p["execution_mode"] == "ORDERBOOK").unwrap();
+    let policy: Value =
+        serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap();
+    let product = policy["products"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["qualification_profile"] == "scalar" && p["execution_mode"] == "ORDERBOOK")
+        .unwrap();
     sqlx::query("SELECT commission_fixture_trade($1,$2,$3)")
         .bind(product["id"].as_str().unwrap().parse::<Uuid>().unwrap())
-        .bind(product["lanes"][0].as_str().unwrap().parse::<Uuid>().unwrap())
+        .bind(
+            product["lanes"][0]
+                .as_str()
+                .unwrap()
+                .parse::<Uuid>()
+                .unwrap(),
+        )
         .bind(product["code"].as_str().unwrap())
         .execute(&mut f.admin)
         .await
