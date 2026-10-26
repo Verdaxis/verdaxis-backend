@@ -127,7 +127,7 @@ impl Fixture {
         .unwrap();
         sqlx::raw_sql(
             "CREATE TABLE organizations(id uuid PRIMARY KEY,type text DEFAULT 'FUEL_BUYER',verification_status text DEFAULT 'PENDING_REVIEW',provenance text DEFAULT 'UNKNOWN',refuse_invalidation boolean DEFAULT false,name text,tax_id text); \
-             CREATE TABLE users(id uuid PRIMARY KEY,organization_id uuid,role text,status text DEFAULT 'APPROVED',email_verified boolean DEFAULT true,must_change_password boolean DEFAULT false,password_changed_at timestamptz,authentication_revoked_at timestamptz,email text DEFAULT 'member@example.test',first_name text,last_name text,kyc_status text,kyc_organization_id uuid,kyc_rejection_reason text,kyc_external_evidence_reference text,kyc_review_note text,kyc_reviewed_by uuid,kyc_reviewed_at timestamptz,password_reset_token_hash text,password_reset_expires timestamptz,referred_by_id uuid,pending_approval_email_transition_id uuid,pending_approval_email_payload jsonb,pending_approval_email_retry_at timestamptz); \
+             CREATE TABLE users(id uuid PRIMARY KEY,organization_id uuid,role text,status text DEFAULT 'APPROVED',email_verified boolean DEFAULT true,must_change_password boolean DEFAULT false,password_changed_at timestamptz,authentication_revoked_at timestamptz,email text DEFAULT 'member@example.test',password_hash text DEFAULT 'synthetic',email_verification_token_hash text,email_verification_token_expires_at timestamptz,referral_code text,first_name text,last_name text,kyc_status text,kyc_organization_id uuid,kyc_rejection_reason text,kyc_external_evidence_reference text,kyc_review_note text,kyc_reviewed_by uuid,kyc_reviewed_at timestamptz,password_reset_token_hash text,password_reset_expires timestamptz,referred_by_id uuid,pending_approval_email_transition_id uuid,pending_approval_email_payload jsonb,pending_approval_email_retry_at timestamptz); \
              CREATE TABLE organization_join_requests(id uuid PRIMARY KEY,user_id uuid,organization_id uuid,status text DEFAULT 'PENDING',requested_at timestamptz DEFAULT now(),reviewed_by uuid,reviewed_at timestamptz,review_note text); \
              CREATE TABLE audit_logs(id uuid PRIMARY KEY,user_id uuid,action text,resource_type text,resource_id text,changes jsonb,ip_address text,request_id text,timestamp timestamptz); \
              CREATE TABLE user_status_transitions(id uuid PRIMARY KEY,user_id uuid,organization_id uuid,role text,from_status text,to_status text,effective_at timestamptz,provenance text); \
@@ -177,7 +177,7 @@ impl Fixture {
             .unwrap();
         let actor = Uuid::new_v4();
         let organization = Uuid::new_v4();
-        sqlx::query("INSERT INTO organizations(id) VALUES($1)")
+        sqlx::query("INSERT INTO organizations(id,verification_status) VALUES($1,'APPROVED')")
             .bind(organization)
             .execute(&mut admin)
             .await
@@ -1164,10 +1164,12 @@ async fn organization_write_cancellation_does_not_duplicate_commit() {
 async fn concurrent_subscription_bootstrap_is_one_row() {
     let mut f = Fixture::new().await;
     let other = f.user(None, "BUYER").await;
-    sqlx::raw_sql(
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "CREATE TABLE subscriptions(id uuid PRIMARY KEY,organization_id uuid NOT NULL UNIQUE,tier text NOT NULL DEFAULT 'PILOT',rate numeric,updated_at timestamptz DEFAULT now()); \
-         CREATE TABLE subscription_events(id uuid PRIMARY KEY);",
-    )
+         CREATE TABLE subscription_events(id uuid PRIMARY KEY); \
+         GRANT SELECT,INSERT,UPDATE,DELETE ON {schema}.subscriptions,{schema}.subscription_events TO rust_app",
+        schema = f.schema
+    )))
     .execute(&mut f.admin)
     .await
     .unwrap();
