@@ -269,12 +269,12 @@ async fn stream_cursor_header_precedes_query() {
         .header("last-event-id", "5")
         .body(Body::empty())
         .unwrap();
-    // Both are syntactically valid, so the admission order decides: the
-    // conflict/token checks follow the cursor parse, and 401 proves the
-    // cursor layer accepted rather than answering 400.
+    // Both are syntactically valid, so the cursor layer accepts and the
+    // supplied bogus token then decides: the token-presence stage passed and
+    // the token-validity stage refused it.
     let (status, _, bytes) = send(&live(), request).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
-    assert_eq!(code(&bytes), "STREAM_TOKEN_REQUIRED");
+    assert_eq!(code(&bytes), "STREAM_TOKEN_INVALID");
     // An empty header falls back to the query value.
     let request = Request::builder()
         .uri("/api/stream/trades?stream_token=x&last_event_id=abc")
