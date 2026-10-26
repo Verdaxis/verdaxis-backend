@@ -624,7 +624,7 @@ async fn cors_covers_every_status_and_denied_origin() {
         assert_eq!(headers["access-control-allow-credentials"], "true");
         assert_eq!(
             headers["access-control-expose-headers"],
-            "Retry-After, X-Request-ID, X-Verdaxis-Market-Support-Context-Invalid"
+            "Retry-After, X-Request-ID, X-Result-Truncated, X-Verdaxis-Market-Support-Context-Invalid"
         );
         assert_eq!(
             headers

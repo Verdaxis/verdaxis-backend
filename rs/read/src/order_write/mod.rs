@@ -1,27 +1,28 @@
-//! The single sealed order-book write boundary (Phase 2, Task 20).
+//! The single sealed market row-write boundary.
 //!
-//! One write transaction boundary: the command, its locks, its receipt, its
-//! outbox and its bounded retry. It is deliberately narrow. There is no matcher
-//! and no wider market lifecycle here, no route consumes it yet, and no module
-//! outside `order_write` may lock or change an order-book row.
-//!
-//! [`execute_order_command`] is the only entry point. `command` holds the typed
-//! data, `locks` holds the canonical lock identity, and `transaction` holds the
-//! shell and its [`WriteSession`] port.
+//! Standalone order commands use [`execute_order_command`]. Ordered business
+//! commands enter only through the borrowed [`invalidate_organization`]
+//! subcommand after business-owner organization/user locks; that subcommand
+//! never owns completion or retries. No module outside `order_write` locks or
+//! changes order/trade/inventory rows.
 
 // Plan §6.1: no float arithmetic anywhere in the write boundary. The copy in
 // `decimal.rs` keeps the rule true for that file under any module owner.
 #![deny(clippy::float_arithmetic)]
 
 mod authority;
+mod benchmarks;
 pub mod command;
 pub mod decimal;
 pub mod effects;
 mod error;
+mod events;
 mod expiry;
+mod invalidation;
 pub mod locks;
 pub mod matching;
 pub mod outbox;
+mod reservations;
 mod transaction;
 
 pub use authority::admission::{
@@ -29,6 +30,9 @@ pub use authority::admission::{
     require_cleanup, require_execution,
 };
 pub use authority::{AuthenticatedActor, SupportContextRef, WriteContext};
+pub use benchmarks::{
+    BenchmarkRebuildKey, BenchmarkRebuildResult, rebuild_live_slice_benchmarks_for_keys,
+};
 pub use command::{
     Canonical, CanonicalError, CommandContext, LockPlan, Operation, OrderCommand, OutboxEvent,
     Receipt, ReceiptRecord, command_request_hash, idempotency_request_hash, python_json,
@@ -40,6 +44,9 @@ pub use decimal::{
 };
 pub use error::{MarketErrorCode, MarketWriteError};
 pub use expiry::{ExpiryEffect, ExpirySlice, MAX_EXPIRY_ORDERS};
+pub use invalidation::{
+    InvalidateOrganization, InvalidationError, InvalidationResult, invalidate_organization,
+};
 pub use locks::{
     IDEMPOTENCY_KEY_BOUNDS, IDEMPOTENCY_KEY_MAX, IDEMPOTENCY_KEY_MIN, IDEMPOTENCY_LOCK_TIMEOUT,
     IDEMPOTENCY_STATEMENT_TIMEOUT, MARKET_LOCK_TIMEOUT, MARKET_STATEMENT_TIMEOUT, SliceKey,

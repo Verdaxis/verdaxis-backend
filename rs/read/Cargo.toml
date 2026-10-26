@@ -16,6 +16,12 @@ required-features = ["contract-tests"]
 name = "market_contract_postgres"
 required-features = ["contract-tests"]
 
+# Phase 4 Task 13: three offline cases run in every workspace test; the
+# PostgreSQL cases inside the file are feature-gated by contract-tests.
+[[test]]
+name = "phase4_subscriptions"
+path = "tests/phase4_subscriptions.rs"
+
 [[example]]
 name = "contract_server"
 required-features = ["contract-tests"]
@@ -30,6 +36,9 @@ required-features = ["contract-tests"]
 
 [features]
 contract-tests = []
+
+[[test]]
+name = "phase4_analytics_policy"
 
 [dev-dependencies]
 verdaxis-contract = { path = "../contract" }

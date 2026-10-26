@@ -53,7 +53,7 @@ impl BusinessCommand for Dismiss {
             // of the execution switch. It introduces no execution obligation.
             let sql = format!(
                 "WITH anchor AS (SELECT 1) {} SELECT EXISTS(SELECT 1 FROM eligible_owners WHERE user_id=$1 AND organization_id=$3)",
-                crate::market::visibility::eligibility_sets_sql("false")
+                crate::market::visibility::eligibility_sets_sql("false", "$2")
             );
             let admitted: bool = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
                 .bind(actor.id)
