@@ -181,6 +181,20 @@ def test_accepted_scenarios_bind_distinct_source_tests():
             assert case["missing_interface"]["symbol"]
 
 
+def test_stream_route_rows_name_reproducible_red_kinds():
+    # Every Task 8 test was committed after the stream route module, so none
+    # can fail to compile for a missing interface. Each row names an assertion
+    # RED or a negative control.
+    cases = [
+        case for case in load("required-scenarios.json")["scenarios"] if case["task"] == "8"
+    ]
+    assert len(cases) == 21
+    for case in cases:
+        assert case["red"], case["id"]
+        assert set(case["red"]) <= {"assertion", "negative_control"}, case["id"]
+        assert "missing_interface" not in case, case["id"]
+
+
 def test_required_scenarios_are_not_optional():
     document = load("required-scenarios.json")
     validate_required(document)
