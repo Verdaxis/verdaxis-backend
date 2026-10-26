@@ -995,3 +995,61 @@ async fn inventory_edit_accepts_terminal_only_references() {
     }
     assert_eq!(f.counts().await, (6, 0, 0));
 }
+
+#[tokio::test]
+#[ignore = "requires explicitly provisioned disposable PostgreSQL"]
+async fn inventory_replanning_stays_within_the_attempt_bound() {
+    let mut f = Fixture::new().await;
+    let id = f.create().await;
+    // A fixture policy counts each locked read of this record. Odd reads fail
+    // with a serialization failure; even reads hide the row, as a delete that
+    // commits while the request waits does. The read-only preview still sees
+    // the row, so every attempt plans to lock it.
+    let install = format!(
+        "CREATE SEQUENCE inventory_lock_probe_calls;
+        GRANT USAGE ON SEQUENCE inventory_lock_probe_calls TO rust_app;
+        CREATE FUNCTION inventory_lock_probe(item uuid) RETURNS boolean LANGUAGE plpgsql VOLATILE AS $$
+        BEGIN
+            IF item <> '{id}' OR current_setting('transaction_read_only') = 'on' THEN
+                RETURN true;
+            END IF;
+            IF nextval('inventory_lock_probe_calls') % 2 = 1 THEN
+                RAISE EXCEPTION 'fixture serialization failure' USING ERRCODE = '40001';
+            END IF;
+            RETURN false;
+        END $$;
+        ALTER TABLE inventory_items ENABLE ROW LEVEL SECURITY;
+        CREATE POLICY inventory_lock_probe ON inventory_items USING (inventory_lock_probe(id));"
+    );
+    sqlx::raw_sql(sqlx::AssertSqlSafe(install))
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
+    let (status, body) = f
+        .request(
+            "PATCH",
+            &format!("/api/inventory/{id}"),
+            json!({"current_stock_mt":"5"}),
+        )
+        .await;
+    let locked_reads: i64 = sqlx::query_scalar(
+        "SELECT CASE WHEN is_called THEN last_value ELSE 0 END FROM inventory_lock_probe_calls",
+    )
+    .fetch_one(&mut f.admin)
+    .await
+    .unwrap();
+    sqlx::raw_sql(
+        "DROP POLICY inventory_lock_probe ON inventory_items;
+        ALTER TABLE inventory_items DISABLE ROW LEVEL SECURITY;
+        DROP FUNCTION inventory_lock_probe(uuid);
+        DROP SEQUENCE inventory_lock_probe_calls;",
+    )
+    .execute(&mut f.admin)
+    .await
+    .unwrap();
+    // One client request runs at most the shared two attempts.
+    assert_eq!(locked_reads, 2, "{status}: {body}");
+    assert_eq!(status, 503, "{body}");
+    assert_eq!(body["detail"]["code"], "TRANSACTION_RETRY_EXHAUSTED");
+    assert_eq!(f.counts().await, (1, 0, 0));
+}
