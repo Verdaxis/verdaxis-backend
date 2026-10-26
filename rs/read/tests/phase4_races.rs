@@ -739,7 +739,15 @@ async fn approval_email_finalize_preserves_newer_transition() {
         .unwrap()
         .expect("the old transition is claimable");
 
-    // Rejection then reapproval creates a newer transition with a new lease.
+    // A claim is a committed lease, not a lock held across the send: the
+    // claim transaction commits, releasing the user row, and the delayed
+    // send finalizes later on its own connection.
+    drop(tx);
+    drop(conn);
+
+    // While the old send is in flight, rejection and reapproval create a
+    // newer transition with a new lease. These commit before the old send
+    // returns.
     let new_transition = Uuid::new_v4();
     sqlx::query("UPDATE users SET status='REJECTED' WHERE id=$1")
         .bind(user)
@@ -751,12 +759,13 @@ async fn approval_email_finalize_preserves_newer_transition() {
         .await
         .unwrap();
 
-    // The delayed old finalize commits against its stale claim.
-    finalize_approval_mail(&mut *tx, &old_claim, true, now + chrono::Duration::minutes(10))
+    // The delayed old send now finalizes against its stale claim on a fresh
+    // connection; its guarded UPDATE must match no row.
+    let mut late = f.pool.acquire().await.unwrap();
+    finalize_approval_mail(&mut *late, &old_claim, true, now + chrono::Duration::minutes(10))
         .await
         .unwrap();
-    tx.commit().await.unwrap();
-    drop(conn);
+    drop(late);
 
     let (transition, payload_left, retry_at): (Option<Uuid>, Option<Value>, Option<DateTime<Utc>>) =
         sqlx::query_as("SELECT pending_approval_email_transition_id,pending_approval_email_payload,pending_approval_email_retry_at FROM users WHERE id=$1")
