@@ -1,44 +1,86 @@
 {
   "suite": "phase4_races",
   "source_sha_rule": "created by the integration owner with the suite; single commit",
+  "observation": "each race waits on pg_blocking_pids reported by a watcher connection; no sleep decides an outcome",
+  "orders": "both acquisition orders wherever two commands contend",
+  "injected_sqlstates": ["40001", "40P01"],
   "cases": {
     "join_approval_and_org_rejection_do_not_deadlock": {
       "orders": ["join_first", "organization_first"],
-      "repetitions": 5,
-      "observation": "pg_blocking_pids on a watcher connection"
+      "repetitions": 50,
+      "outcomes": ["both_commit_after_retry", "domain_refusal_after_rejection"]
     },
     "kyc_submit_vs_membership_change_revalidates": {
-      "membership_moved_after_preview": true,
-      "allowed_outcomes": ["KYC_MEMBERSHIP_CHANGED", "409"]
+      "paths": ["membership_moved_while_waiting", "submit_then_organization_rejection", "review_vs_organization_rejection"],
+      "allowed_outcomes": ["KYC_MEMBERSHIP_CHANGED", "KYC_ORGANIZATION_MISMATCH", "binding_reset"]
     },
     "reject_vs_refresh_revokes_successor": {
-      "python_writers_continue": ["auth maintenance on users and refresh_sessions"]
+      "orders": ["rejection_first", "rotation_first"],
+      "session_writer": "stand-in for the Phase 3 refresh route over the shared store primitives"
+    },
+    "rejection_cutoff_covers_a_successor_issued_while_it_waited": {
+      "invariant": "a token issued before the rejection commits stays cut off after reapproval"
+    },
+    "auth_maintenance_delete_vs_rejection_keeps_both_effects": {
+      "python_writers_continue": ["auth maintenance: refresh session cleanup"]
     },
     "approval_email_finalize_preserves_newer_transition": {
-      "python_writers_continue": ["auth-maintenance approval mail retry timer"]
+      "python_writers_continue": ["auth maintenance: approval mail retry timer"],
+      "paths": ["stale_finalize_after_rejection_and_reapproval", "one_lease_two_senders_both_orders"]
     },
     "invitation_rotation_vs_acceptance_is_serialized": {
-      "python_writers_continue": ["admin invitation routes until their switch"]
+      "orders": ["acceptance_first", "rotation_first"],
+      "session_writer": "stand-in for the Phase 3 invitation acceptance route over the shared store primitives"
+    },
+    "auth_maintenance_cannot_clear_a_reissued_invitation_digest": {
+      "python_writers_continue": ["auth maintenance: expired invitation digest cleanup"]
     },
     "org_write_injected_conflicts_retry_or_refuse_atomically": {
-      "sqlstates": ["40001", "40P01"],
-      "outcomes": ["retry_success", "busy_refusal"],
+      "commands": ["approve_account", "reject_account", "reject_account_analytics", "approve_join", "reject_organization", "approve_organization", "approve_kyc", "reject_kyc", "submit_kyc", "bootstrap_subscription"],
+      "outcomes": ["retry_success_on_third_attempt", "retry_exhausted_503"],
       "partial_writes": "none"
     },
-    "rejected_party_new_execution_refused_but_existing_deliver_pay_allowed": {
-      "routes": ["A08", "A10", "N01", "K06"],
-      "invariants": ["immutable participants", "unlinked membership", "preserved ownership"]
+    "outbox_audit_failure_rolls_back_admission": {
+      "failed_tables": ["user_status_transitions", "market_event_outbox", "audit_logs", "kyc_documents"],
+      "retried": false,
+      "partial_writes": "none"
+    },
+    "org_rejection_bound_refuses_atomically": {
+      "bounds": ["101 executable orders", "101 uncancelled trades"],
+      "partial_writes": "none"
+    },
+    "analytics_status_history_is_atomic": {
+      "failure_point": "between the status write and the history insert"
+    },
+    "organization_write_cancellation_does_not_duplicate_commit": {
+      "points": ["BeforeCommit+cancel", "AfterCommit+cancel", "AfterCommit+lost_ack"],
+      "commit_retried": false,
+      "connection": "closed after the commit settles"
     },
     "concurrent_subscription_bootstrap_is_one_row": {
       "writers": 3,
-      "unique_key": "subscriptions.organization_id"
+      "orders": ["bootstrap_first", "administrator_first"],
+      "unique_key": "subscriptions.org_id"
     },
-    "status_history_failure_rolls_back_admission_atomically": {
-      "failure_point": "between status write and history insert"
+    "org_rejection_vs_python_take_preserves_stock": {
+      "python_writers_continue": ["trade lifecycle requests until the market phases"],
+      "orders": ["python_holds_slice_rust_busy_then_repeat", "rust_in_market_stage_python_waits"]
     },
-    "organization_write_cancellation_does_not_duplicate_commit": {
-      "points": ["BeforeCommit", "AfterCommit", "AfterCommit+lost_ack"],
-      "commit_retried": false
+    "auth_maintenance_vs_ordered_write_lock_order": {
+      "python_writers_continue": ["auth maintenance: digest cleanup without organization order"],
+      "natural_sqlstate": "40P01",
+      "victim": "either; the Rust write commits within its retry bound"
+    },
+    "rejected_party_new_execution_refused_but_existing_deliver_pay_allowed": {
+      "routes": ["A08", "A10", "N01", "K06"],
+      "membership": ["linked", "unlinked"],
+      "trade_states": ["PENDING_CONFIRMATION", "CONFIRMED", "DELIVERED"],
+      "invariants": ["immutable participants", "unlinked membership", "preserved reservation", "no freeze"]
     }
+  },
+  "not_covered_here": {
+    "onboarding attention command": "reads only; no row it writes is shared with a Rust route",
+    "ai_cancel_does_not_release_live_call_permit": "owned by the chat adapter's own target",
+    "umami_unavailable_does_not_fail_authoritative_tab": "owned by the analytics adapter targets"
   }
 }
