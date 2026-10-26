@@ -1,4 +1,4 @@
-//! PD2-SEC-1: the rate-limit table must not lock out new clients.
+//! The rate-limit tables must not lock out new clients.
 //!
 //! Every case here uses only the public authority surface, so this file also
 //! runs unchanged against the implementation before the fix and fails on an
@@ -208,6 +208,28 @@ fn registration_flood_does_not_refuse_a_verified_users_endpoint_quota() {
         limits
             .check_endpoint_by_address("203.0.113.7", "/api/auth/register-with-org", 100)
             .is_ok()
+    );
+}
+
+/// Address-keyed endpoint buckets never enter the verified-user store. The
+/// flood writes more address buckets than one store holds (50,000); if they
+/// were kept in the non-evicting user store, it would be full and a user it
+/// has never seen would be refused.
+#[test]
+fn address_keyed_buckets_never_enter_the_verified_user_store() {
+    let limits = SharedLimits::default();
+    for client in 0..25_050_u32 {
+        let address = std::net::Ipv4Addr::from(client).to_string();
+        for route in ["/api/auth/register", "/api/auth/register-with-org"] {
+            // The outcome of each flood request is not the subject here.
+            let _ = limits.check_endpoint_by_address(&address, route, 100);
+        }
+    }
+    assert!(
+        limits
+            .check_endpoint("verified-user-not-seen-before", "/api/feedback", 100)
+            .is_ok(),
+        "address-keyed buckets filled the verified-user store"
     );
 }
 
