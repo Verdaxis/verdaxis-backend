@@ -84,7 +84,6 @@ fn code(bytes: &[u8]) -> String {
         .to_string()
 }
 
-#[tokio::test]
 /// A live stream body never ends, so its proof is status plus headers; the
 /// body is dropped, which is also the client-disconnect contract.
 async fn head(router: &Router, path: &str) -> (StatusCode, Vec<(String, String)>) {
