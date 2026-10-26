@@ -483,6 +483,32 @@ async fn commission_admin_authority_precedes_resource_access() {
 
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
+async fn commission_patch_body_is_bounded() {
+    let mut f = Fixture::new().await;
+    f.seed(1).await;
+    let id = f.id().await;
+    let notes = "n".repeat(1024 * 1024);
+    let (status, body) = f
+        .request(
+            0,
+            "PUT",
+            &format!("/api/orders/admin/commissions/{id}"),
+            json!({"status":"PAID","notes":notes}),
+        )
+        .await;
+    assert_eq!(status, 413);
+    assert_eq!(body["detail"]["code"], "BODY_TOO_LARGE");
+    let stored: String = sqlx::query_scalar("SELECT status FROM commissions WHERE id=$1")
+        .bind(id)
+        .fetch_one(&mut f.admin)
+        .await
+        .unwrap();
+    assert_eq!(stored, "PENDING");
+    assert_eq!(f.counts().await, (0, 0, 0));
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
 async fn commission_update_and_audit_rollback_together() {
     let mut f = Fixture::new().await;
     f.seed(1).await;
