@@ -1,21 +1,40 @@
-# Import inside the existing site's route block, before its Python fallback.
-# Argument 0 is the Phase 5 Rust upstream; argument 1 is the environment's
-# Python upstream. Method B (one switch): every Phase 5 route moves together,
-# and rollback is removing this single import — no per-route edit exists.
+# Import inside the existing site's route block, before its Python fallback,
+# beside the import of the first read groups.
+# Argument 0 is the one Rust upstream for every Phase 5 read route. Argument 1
+# is the environment's Python upstream: each route tries Rust first, then
+# Python, so a stopped Rust service does not return 502.
+#
+# One switch: the three matchers below move together. Rollback is removing
+# this import, or setting argument 0 to the Python upstream, which stops every
+# handle from matching so the site's Python fallback serves all of them. No
+# per-route argument exists.
+#
+# Matchers are exact method and path pairs, not prefixes, and match paths
+# case-sensitively:
+# - the six public reads take GET on the path with or without a trailing
+#   slash, because the Rust service redirects the slash form itself;
+# - the four authenticated routes take their one method on the canonical path
+#   only. The Rust service does not redirect a slash variant of an
+#   authenticated route, so that variant stays on Python, which does;
+# - a vessel id matches any non-empty segment, as Python's route converter
+#   does; a malformed id is the route's own refusal, not a routing decision;
+# - HEAD, OPTIONS, a wrong method, a longer or shorter path and every other
+#   route stay on Python.
 #
 # lb_policy first keeps the reviewed order. A refused connection is a dial
 # error before any request bytes are sent; Caddy 2.11 always retries it, while
-# a non-GET request is not retried after a connection succeeded
-# (reverseproxy.go tryAgain and httptransport.go DialError). Passive health
-# remembers the failure, so later requests choose Python directly instead of
-# redialing Rust.
+# a non-GET request is not retried after a connection succeeded (reverseproxy.go
+# tryAgain and httptransport.go DialError). Passive health remembers the
+# failure, so later requests choose Python directly instead of redialing Rust.
 (verdaxis_rust_phase5) {
 	@rust_phase5_public {
+		expression '{args[0]}' != '{args[1]}'
 		method GET
-		path /api/benchmarks /api/benchmarks/ /api/availability /api/availability/ /api/demand /api/demand/ /api/fleet-intelligence /api/fleet-intelligence/ /api/producers /api/producers/ /api/compliance/fuels /api/compliance/fuels/
+		path_regexp ^/api/(benchmarks|availability|demand|fleet-intelligence|producers|compliance/fuels)/?$
 	}
 	handle @rust_phase5_public {
 		reverse_proxy {args[0]} {args[1]} {
+			header_up X-Forwarded-For {client_ip}
 			lb_policy first
 			lb_try_duration 10s
 			lb_try_interval 250ms
@@ -27,12 +46,33 @@
 			}
 		}
 	}
-	@rust_phase5_compliance {
-		method GET POST
-		path /api/compliance/fleet /api/compliance/fleet/ /api/compliance/vessels/{vessel_id}/score /api/compliance/vessels/{vessel_id}/score/ /api/compliance/pricing-overlay /api/compliance/pricing-overlay/ /api/compliance/scenario /api/compliance/scenario/
+	@rust_phase5_compliance_get {
+		expression '{args[0]}' != '{args[1]}'
+		method GET
+		path_regexp ^/api/compliance/(fleet|vessels/[^/]+/score)$
 	}
-	handle @rust_phase5_compliance {
+	handle @rust_phase5_compliance_get {
 		reverse_proxy {args[0]} {args[1]} {
+			header_up X-Forwarded-For {client_ip}
+			lb_policy first
+			lb_try_duration 10s
+			lb_try_interval 250ms
+			fail_duration 30s
+			max_fails 1
+			flush_interval -1
+			transport http {
+				keepalive off
+			}
+		}
+	}
+	@rust_phase5_compliance_post {
+		expression '{args[0]}' != '{args[1]}'
+		method POST
+		path_regexp ^/api/compliance/(pricing-overlay|scenario)$
+	}
+	handle @rust_phase5_compliance_post {
+		reverse_proxy {args[0]} {args[1]} {
+			header_up X-Forwarded-For {client_ip}
 			lb_policy first
 			lb_try_duration 10s
 			lb_try_interval 250ms

@@ -321,6 +321,10 @@
       "owner": "I"
     },
     {
+      "path": "deploy/caddy/rust-phase5.caddy",
+      "owner": "I"
+    },
+    {
       "path": "deploy/caddy/rust-public-staging.caddy",
       "owner": "I"
     },
@@ -669,6 +673,10 @@
       "owner": "E"
     },
     {
+      "path": "rs/read/tests/phase5_routing.rs",
+      "owner": "I"
+    },
+    {
       "path": "rs/read/tests/runtime.rs",
       "owner": "I"
     },
@@ -690,6 +698,10 @@
     },
     {
       "path": "scripts/rust_caddy_candidate.py",
+      "owner": "I"
+    },
+    {
+      "path": "scripts/rust_phase5_candidate.py",
       "owner": "I"
     },
     {
@@ -766,6 +778,10 @@
     },
     {
       "path": "tests/unit/test_rust_caddy_candidate.py",
+      "owner": "I"
+    },
+    {
+      "path": "tests/unit/test_rust_phase5_candidate.py",
       "owner": "I"
     }
   ]
