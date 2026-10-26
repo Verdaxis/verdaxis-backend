@@ -12,6 +12,57 @@ use uuid::Uuid;
 use verdaxis_read::{AppState, Config, MarketPolicy, auth::VerificationSettings};
 
 const KEY: &str = "inventory-fixture-signing-key-at-least-32-characters";
+const SUPPORT_CONTEXT: &str = "x-verdaxis-market-support-context";
+
+fn bearer(actor: Uuid) -> String {
+    let now = chrono::Utc::now().timestamp();
+    let token = jsonwebtoken::encode(
+        &jsonwebtoken::Header::default(),
+        &json!({"sub":actor,"type":"access","iss":"inventory-test","aud":"inventory-test","iat":now,"exp":now+300}),
+        &jsonwebtoken::EncodingKey::from_secret(KEY.as_bytes()),
+    )
+    .unwrap();
+    format!("Bearer {token}")
+}
+
+/// Send one request to the component router and decode its JSON body.
+async fn send(
+    app: Router,
+    method: &str,
+    path: &str,
+    headers: &[(&str, String)],
+    body: Body,
+) -> (u16, Value) {
+    let mut request = Request::builder().method(method).uri(path);
+    for (name, value) in headers {
+        request = request.header(*name, value.as_str());
+    }
+    let response = app.oneshot(request.body(body).unwrap()).await.unwrap();
+    let status = response.status().as_u16();
+    let bytes = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+    let body = if bytes.is_empty() {
+        Value::Null
+    } else {
+        serde_json::from_slice(&bytes).unwrap()
+    };
+    (status, body)
+}
+
+/// Send one JSON request as the actor.
+async fn authorized(
+    app: Router,
+    actor: Uuid,
+    method: &str,
+    path: &str,
+    body: Value,
+) -> (u16, Value) {
+    let headers = [
+        ("authorization", bearer(actor)),
+        ("content-type", "application/json".to_owned()),
+    ];
+    send(app, method, path, &headers, Body::from(body.to_string())).await
+}
+
 struct Fixture {
     admin: PgConnection,
     app: Router,
@@ -104,32 +155,16 @@ impl Fixture {
         json!({"port_id":self.port,"product_name":self.product["name"],"fuel_type":self.product["fuel_type"],"current_stock_mt":"0","incoming_stock_mt":"12.34","price_per_mt_usd":"123.45"})
     }
     async fn request(&self, method: &str, path: &str, body: Value) -> (u16, Value) {
-        let now = chrono::Utc::now().timestamp();
-        let token=jsonwebtoken::encode(&jsonwebtoken::Header::default(),&json!({"sub":self.actor,"type":"access","iss":"inventory-test","aud":"inventory-test","iat":now,"exp":now+300}),&jsonwebtoken::EncodingKey::from_secret(KEY.as_bytes())).unwrap();
-        let response = self
-            .app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .method(method)
-                    .uri(path)
-                    .header("authorization", format!("Bearer {token}"))
-                    .header("content-type", "application/json")
-                    .body(Body::from(body.to_string()))
-                    .unwrap(),
-            )
+        authorized(self.app.clone(), self.actor, method, path, body).await
+    }
+    async fn set_actor(&mut self, column: &str, value: &str) {
+        sqlx::query("SELECT inventory_fixture_actor($1,$2,$3)")
+            .bind(self.actor)
+            .bind(column)
+            .bind(value)
+            .execute(&mut self.admin)
             .await
             .unwrap();
-        let status = response.status().as_u16();
-        let bytes = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
-        (
-            status,
-            if bytes.is_empty() {
-                Value::Null
-            } else {
-                serde_json::from_slice(&bytes).unwrap()
-            },
-        )
     }
     async fn create(&self) -> Uuid {
         let (status, body) = self.request("POST", "/api/inventory", self.body()).await;
@@ -382,13 +417,29 @@ async fn port_authority_is_enforced() {
     let mut body = f.body();
     body["port_id"] = json!("missing-port");
     assert_eq!(f.request("POST", "/api/inventory", body).await.0, 404);
+    assert_eq!(f.counts().await, (0, 0, 0));
+    // A port outside the canonical delivery points can hold a private record;
+    // only publication refuses it.
     sqlx::query("UPDATE ports SET name='Noncanonical fixture' WHERE id=$1")
         .bind(&f.port)
         .execute(&mut f.admin)
         .await
         .unwrap();
-    assert_eq!(f.request("POST", "/api/inventory", f.body()).await.0, 404);
-    assert_eq!(f.counts().await, (0, 0, 0));
+    let (status, created) = f.request("POST", "/api/inventory", f.body()).await;
+    assert_eq!(status, 200, "{created}");
+    assert_eq!(created["port_id"], json!(f.port));
+    let payload: Value = sqlx::query_scalar(
+        "SELECT payload FROM market_event_outbox WHERE aggregate_id=$1 AND event_type='inventory_created'",
+    )
+    .bind(created["id"].as_str().unwrap())
+    .fetch_one(&mut f.admin)
+    .await
+    .unwrap();
+    assert!(
+        payload.get("_public_market_invalidation").is_none(),
+        "{payload}"
+    );
+    assert_eq!(f.counts().await, (1, 0, 0));
 }
 
 #[tokio::test]
@@ -461,12 +512,18 @@ async fn inventory_tenant_scope_and_pagination() {
         f.request("GET", "/api/inventory", Value::Null).await,
         (200, json!([]))
     );
-    assert_eq!(
-        f.request("PATCH", &format!("/api/inventory/{first}"), json!({}))
-            .await
-            .0,
-        400
-    );
+    // Market admission requires an organization, so every write is refused.
+    let path = format!("/api/inventory/{first}");
+    for (method, url, payload) in [
+        ("POST", "/api/inventory", f.body()),
+        ("PATCH", path.as_str(), json!({})),
+        ("DELETE", path.as_str(), Value::Null),
+    ] {
+        let (status, refusal) = f.request(method, url, payload).await;
+        assert_eq!(status, 403, "{method}: {refusal}");
+        assert_eq!(refusal["detail"]["code"], "EXECUTION_NOT_AVAILABLE");
+    }
+    assert_eq!(f.counts().await, (2, 0, 0));
 }
 
 #[tokio::test]
@@ -515,15 +572,22 @@ async fn inventory_failure_rolls_back_the_record_and_outbox() {
     assert_eq!(f.counts().await, (0, 0, 0));
 }
 
-async fn wait_for_inventory_lock(admin: &mut PgConnection) {
+/// Wait until another session waits for a row lock in a statement on `table`.
+async fn wait_for_lock(admin: &mut PgConnection, table: &str) {
     for _ in 0..200 {
-        let waiting:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock' AND query LIKE '%inventory_items%')").fetch_one(&mut *admin).await.unwrap();
+        let waiting: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock' AND query LIKE $1)",
+        )
+        .bind(format!("%{table}%"))
+        .fetch_one(&mut *admin)
+        .await
+        .unwrap();
         if waiting {
             return;
         }
         tokio::time::sleep(std::time::Duration::from_millis(5)).await;
     }
-    panic!("independent inventory waiter was not observed");
+    panic!("independent {table} waiter was not observed");
 }
 
 #[tokio::test]
@@ -567,7 +631,7 @@ async fn inventory_edit_and_delete_recheck_after_an_independent_lock_holder() {
             .unwrap()
             .status()
         });
-        wait_for_inventory_lock(&mut f.admin).await;
+        wait_for_lock(&mut f.admin, "inventory_items").await;
         sqlx::query("UPDATE inventory_items SET reserved_stock_mt=1 WHERE id=$1")
             .bind(id)
             .execute(&mut *tx)
@@ -609,13 +673,16 @@ async fn inventory_foreign_and_missing_records_share_the_refusal() {
     let mut owner = Fixture::new().await;
     let foreign = Fixture::new().await;
     let id = foreign.create().await;
-    for target in [id, Uuid::new_v4()] {
-        for method in ["PATCH", "DELETE"] {
+    for method in ["PATCH", "DELETE"] {
+        let mut refusals = Vec::new();
+        for target in [id, Uuid::new_v4()] {
             let result = owner
                 .request(method, &format!("/api/inventory/{target}"), json!({}))
                 .await;
             assert_eq!(result.0, 404, "{}", result.1);
+            refusals.push(result.1);
         }
+        assert_eq!(refusals[0], refusals[1], "{method}");
     }
     assert_eq!(
         owner.request("GET", "/api/inventory", Value::Null).await.1,
@@ -689,4 +756,242 @@ async fn inventory_declaration_merge_preserves_private_terms_and_derived_fields(
         created["lng_terms"]["scheme_certificate_number"],
         "ISCC-EU-0001"
     );
+}
+
+async fn stored_lng_terms(admin: &mut PgConnection, record: &Value) -> Value {
+    sqlx::query_scalar("SELECT lng_terms FROM inventory_items WHERE id=$1")
+        .bind(record["id"].as_str().unwrap().parse::<Uuid>().unwrap())
+        .fetch_one(admin)
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+#[ignore = "requires explicitly provisioned disposable PostgreSQL"]
+async fn bio_lng_inventory_create_keeps_the_typed_declaration() {
+    let mut f = Fixture::new().await;
+    let policy: Value =
+        serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap();
+    let lng = policy["products"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["qualification_profile"] == "lng_v1")
+        .unwrap();
+    let vector: Value = serde_json::from_str(include_str!(
+        "../../../tests/rust_contract/vectors/terms/private.json"
+    ))
+    .unwrap();
+    let declaration = vector["row"]["lng_terms"].clone();
+    let mut body = f.body();
+    body["product_name"] = lng["name"].clone();
+    body["fuel_type"] = lng["fuel_type"].clone();
+    body["lng_terms"] = declaration.clone();
+    let (status, created) = f.request("POST", "/api/inventory", body.clone()).await;
+    assert_eq!(status, 200, "{created}");
+    // The display fields follow the declaration; the WTT value never fills
+    // the lifecycle carbon intensity.
+    for (field, expected) in [
+        ("certification_declared", json!(true)),
+        ("certification_scheme", json!("ISCC EU")),
+        ("specification_standard", json!("ISO 23306:2020")),
+        ("feedstock", json!("Manure")),
+        ("origin", json!("NL")),
+        ("carbon_intensity_gco2_mj", Value::Null),
+        ("carbon_intensity_method", Value::Null),
+        ("is_certified", json!(false)),
+    ] {
+        assert_eq!(created[field], expected, "{field}");
+    }
+    assert!(created.get("certifications").is_none(), "{created}");
+    assert_eq!(stored_lng_terms(&mut f.admin, &created).await, declaration);
+    // Omitted optional declarations are stored as explicit nulls, the same
+    // complete shape the typed Python model writes and reads.
+    let mut minimal = declaration.clone();
+    for key in ["feedstock_detail", "min_methane_number"] {
+        minimal.as_object_mut().unwrap().remove(key);
+    }
+    body["lng_terms"] = minimal;
+    let (status, created) = f.request("POST", "/api/inventory", body).await;
+    assert_eq!(status, 200, "{created}");
+    let mut complete = declaration;
+    complete["feedstock_detail"] = Value::Null;
+    complete["min_methane_number"] = Value::Null;
+    assert_eq!(stored_lng_terms(&mut f.admin, &created).await, complete);
+    assert_eq!(f.counts().await, (2, 0, 0));
+}
+
+#[tokio::test]
+#[ignore = "requires explicitly provisioned disposable PostgreSQL"]
+async fn inventory_missing_records_carry_their_own_codes() {
+    let mut f = Fixture::new().await;
+    let mut body = f.body();
+    body["port_id"] = json!("missing-port");
+    let (status, refusal) = f.request("POST", "/api/inventory", body).await;
+    assert_eq!(status, 404, "{refusal}");
+    assert_eq!(refusal["detail"]["code"], "PORT_NOT_FOUND");
+    for method in ["PATCH", "DELETE"] {
+        let (status, refusal) = f
+            .request(
+                method,
+                &format!("/api/inventory/{}", Uuid::new_v4()),
+                json!({}),
+            )
+            .await;
+        assert_eq!(status, 404, "{method}: {refusal}");
+        assert_eq!(refusal["detail"]["code"], "INVENTORY_NOT_FOUND", "{method}");
+    }
+    assert_eq!(f.counts().await, (0, 0, 0));
+}
+
+#[tokio::test]
+#[ignore = "requires explicitly provisioned disposable PostgreSQL"]
+async fn inventory_requests_after_a_concurrent_delete_are_not_found() {
+    for method in ["DELETE", "PATCH"] {
+        let mut f = Fixture::new().await;
+        let id = f.create().await;
+        let url = std::env::var("RUST_INVENTORY_ADMIN_DATABASE_URL").unwrap();
+        let mut holder = PgConnection::connect(&url).await.unwrap();
+        let mut tx = holder.begin().await.unwrap();
+        sqlx::query("DELETE FROM inventory_items WHERE id=$1")
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let app = f.app.clone();
+        let actor = f.actor;
+        let path = format!("/api/inventory/{id}");
+        let task = tokio::spawn(async move {
+            authorized(app, actor, method, &path, json!({"current_stock_mt":"5"})).await
+        });
+        wait_for_lock(&mut f.admin, "inventory_items").await;
+        tx.commit().await.unwrap();
+        let (status, body) = task.await.unwrap();
+        assert_eq!(status, 404, "{method}: {body}");
+        assert_eq!(f.counts().await, (1, 0, 0));
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires explicitly provisioned disposable PostgreSQL"]
+async fn inventory_reads_lock_only_the_user_row() {
+    let mut f = Fixture::new().await;
+    f.create().await;
+    let url = std::env::var("RUST_INVENTORY_ADMIN_DATABASE_URL").unwrap();
+    let mut holder = PgConnection::connect(&url).await.unwrap();
+    // An organization writer does not delay either read.
+    let mut tx = holder.begin().await.unwrap();
+    sqlx::query("SELECT id FROM organizations WHERE id=$1 FOR UPDATE")
+        .bind(f.organization)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    for path in ["/api/inventory", "/api/listings/my"] {
+        let (status, body) = f.request("GET", path, Value::Null).await;
+        assert_eq!(status, 200, "{path}: {body}");
+    }
+    tx.rollback().await.unwrap();
+    // A writer of the actor's own user row does: the read waits for it.
+    let mut tx = holder.begin().await.unwrap();
+    sqlx::query("SELECT id FROM users WHERE id=$1 FOR UPDATE")
+        .bind(f.actor)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let read = authorized(f.app.clone(), f.actor, "GET", "/api/inventory", Value::Null);
+    let task = tokio::spawn(read);
+    wait_for_lock(&mut f.admin, "users").await;
+    tx.rollback().await.unwrap();
+    let (status, body) = task.await.unwrap();
+    assert_eq!(status, 200, "{body}");
+}
+
+#[tokio::test]
+#[ignore = "requires explicitly provisioned disposable PostgreSQL"]
+async fn inventory_authentication_precedes_input_validation() {
+    let mut f = Fixture::new().await;
+    let json_type = [("content-type", "application/json".to_owned())];
+    for (method, path, body) in [
+        ("POST", "/api/inventory", "{}"),
+        ("PATCH", "/api/inventory/not-an-identifier", "{}"),
+        ("DELETE", "/api/inventory/not-an-identifier", ""),
+        ("GET", "/api/inventory?limit=0", ""),
+        ("GET", "/api/listings/my?skip=-1", ""),
+    ] {
+        let (status, detail) =
+            send(f.app.clone(), method, path, &json_type, Body::from(body)).await;
+        assert_eq!(status, 401, "{method} {path}: {detail}");
+    }
+    // JSON syntax is read before the route authenticates.
+    let (status, detail) = send(
+        f.app.clone(),
+        "POST",
+        "/api/inventory",
+        &json_type,
+        Body::from("{"),
+    )
+    .await;
+    assert_eq!(status, 422, "{detail}");
+    // An authenticated actor who is not admitted is refused before the input
+    // is read.
+    f.set_actor("email_verified", "false").await;
+    for (method, path, body) in [
+        ("POST", "/api/inventory", json!({})),
+        ("PATCH", "/api/inventory/not-an-identifier", json!({})),
+        ("DELETE", "/api/inventory/not-an-identifier", Value::Null),
+    ] {
+        let (status, detail) = f.request(method, path, body).await;
+        assert_eq!(status, 403, "{method} {path}: {detail}");
+    }
+    f.set_actor("email_verified", "true").await;
+    // An admitted actor's input is checked before the supplier role.
+    f.set_actor("role", "BUYER").await;
+    assert_eq!(f.request("POST", "/api/inventory", json!({})).await.0, 422);
+    f.set_actor("role", "SUPPLIER").await;
+    assert_eq!(
+        f.request("GET", "/api/inventory?limit=0", Value::Null)
+            .await
+            .0,
+        422
+    );
+    assert_eq!(f.counts().await, (0, 0, 0));
+}
+
+#[tokio::test]
+#[ignore = "requires explicitly provisioned disposable PostgreSQL"]
+async fn inventory_reads_ignore_the_support_context_header() {
+    let f = Fixture::new().await;
+    f.create().await;
+    let headers = [
+        ("authorization", bearer(f.actor)),
+        (SUPPORT_CONTEXT, Uuid::new_v4().to_string()),
+    ];
+    for path in ["/api/inventory", "/api/listings/my"] {
+        let (status, body) = send(f.app.clone(), "GET", path, &headers, Body::empty()).await;
+        assert_eq!(status, 200, "{path}: {body}");
+        assert!(body.is_array(), "{path}: {body}");
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires explicitly provisioned disposable PostgreSQL"]
+async fn inventory_edit_accepts_terminal_only_references() {
+    let mut f = Fixture::new().await;
+    for (status, trade) in [
+        ("CANCELLED", None),
+        ("EXPIRED", None),
+        ("FILLED", Some("DECLINED")),
+    ] {
+        let id = f.create().await;
+        f.reference(id, status, trade).await;
+        let (code, body) = f
+            .request(
+                "PATCH",
+                &format!("/api/inventory/{id}"),
+                json!({"current_stock_mt":"3"}),
+            )
+            .await;
+        assert_eq!(code, 200, "{status} {trade:?}: {body}");
+    }
+    assert_eq!(f.counts().await, (6, 0, 0));
 }
