@@ -40,28 +40,35 @@ pub const TRADING_DEPENDENCY_TABLES: [&str; 16] = [
     "market_event_outbox",
 ];
 
-/// True only when every dependency table still carries the generation trigger,
-/// enabled for every session role: after, per statement, for INSERT, UPDATE,
-/// DELETE and TRUNCATE. A missing or disabled trigger is a silent freshness hole,
-/// so the listener refuses to attach and the caller keeps caching off.
+/// Require all four ALWAYS statement triggers and their transition relations.
+/// Each DML event supplies its changed rows; TRUNCATE has no transition table.
+/// The listener remains off if any event is missing or has another shape.
 pub async fn dependency_triggers_complete(
     connection: &mut sqlx::PgConnection,
 ) -> Result<bool, sqlx::Error> {
-    // tgtype bits: 1 row, 2 before, 4 insert, 8 delete, 16 update, 32 truncate,
-    // 64 instead. 60 with 1, 2 and 64 clear is "after, statement, all four".
+    // tgtype event bits: INSERT=4, DELETE=8, UPDATE=16, TRUNCATE=32.
+    // Equality also excludes row, before, instead-of and combined-event triggers.
     let present: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM unnest($1::text[]) AS dependency(name) WHERE EXISTS ( \
-         SELECT 1 FROM pg_catalog.pg_trigger AS tg \
+        "SELECT count(*) FROM unnest($1::text[]) AS dependency(name) \
+         CROSS JOIN (VALUES \
+           ('insert',4,NULL::text,'cache_changed_rows'), \
+           ('update',16,NULL::text,'cache_changed_rows'), \
+           ('delete',8,'cache_changed_rows',NULL::text), \
+           ('truncate',32,NULL::text,NULL::text) \
+         ) AS event(suffix,shape,old_table,new_table) \
+         WHERE EXISTS (SELECT 1 FROM pg_catalog.pg_trigger AS tg \
          WHERE tg.tgrelid = to_regclass(format('public.%I', dependency.name)) \
-           AND tg.tgname = 'public_read_cache_changed' \
-           AND tg.tgenabled = 'A' \
+           AND tg.tgname = 'public_read_cache_changed_' || event.suffix \
+           AND tg.tgenabled = 'A' AND NOT tg.tgisinternal \
            AND tg.tgfoid = to_regprocedure('public.bump_public_read_cache_generation()') \
-           AND (tg.tgtype & 127) = 60)",
+           AND (tg.tgtype & 127) = event.shape \
+           AND tg.tgoldtable::text IS NOT DISTINCT FROM event.old_table \
+           AND tg.tgnewtable::text IS NOT DISTINCT FROM event.new_table)",
     )
     .bind(TRADING_DEPENDENCY_TABLES.map(str::to_owned).to_vec())
     .fetch_one(connection)
     .await?;
-    Ok(usize::try_from(present).is_ok_and(|count| count == TRADING_DEPENDENCY_TABLES.len()))
+    Ok(usize::try_from(present).is_ok_and(|count| count == TRADING_DEPENDENCY_TABLES.len() * 4))
 }
 
 #[derive(Debug, PartialEq, Eq)]

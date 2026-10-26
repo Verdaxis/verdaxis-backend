@@ -302,13 +302,26 @@ async fn paused_listener_never_serves_the_prior_generation() {
     assert_eq!(runs.load(Ordering::SeqCst), 1);
     assert_eq!(cache.len(), 1);
 
-    // The listener stays attached but is not woken: no event is delivered.
-    sqlx::query("UPDATE public.products SET is_active = is_active")
-        .execute(&mut writer)
-        .await
-        .unwrap();
+    // Keep the listener paused beyond the retained 4,096-generation window.
+    // The next snapshot must reject its entry before any wake is delivered.
+    sqlx::query(
+        "DO $$ BEGIN FOR i IN 1..4097 LOOP \
+         UPDATE public.products SET is_active = is_active; END LOOP; END $$",
+    )
+    .execute(&mut writer)
+    .await
+    .unwrap();
     let committed = generation(&mut writer).await;
-    assert!(committed > before);
+    assert_eq!(committed, before + 4097);
+    assert_eq!(
+        verdaxis_read::runtime::cache_events::CacheEvents::read_batch(&mut writer, before)
+            .await
+            .unwrap(),
+        verdaxis_read::runtime::cache_events::EventBatch::Resynchronize
+    );
+    runtime
+        .authority()
+        .refresh(runtime.record_path(), Instant::now());
 
     let after = read_generation(&state, &cache, runs.clone()).await;
     assert_eq!(

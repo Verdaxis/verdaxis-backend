@@ -144,29 +144,43 @@ async def test_cache_trigger_functions_are_not_publicly_executable(engine):
 
 
 @pytest.mark.asyncio
-async def test_every_dependency_carries_the_always_enabled_statement_trigger(engine):
+async def test_every_dependency_carries_always_enabled_event_triggers(engine):
     async with engine.connect() as connection:
         rows = (
             await connection.execute(
                 text(
                     "SELECT c.relname, tg.tgenabled::text AS enabled, tg.tgtype & 127 AS shape, "
-                    "tg.tgfoid::regproc::text AS function_name "
+                    "tg.tgfoid::regproc::text AS function_name, tg.tgname, "
+                    "tg.tgoldtable, tg.tgnewtable "
                     "FROM pg_trigger tg JOIN pg_class c ON c.oid = tg.tgrelid "
-                    "WHERE tg.tgname = 'public_read_cache_changed' AND NOT tg.tgisinternal"
+                    "WHERE tg.tgname LIKE 'public_read_cache_changed%' AND NOT tg.tgisinternal"
                 )
             )
         ).all()
     assert {row.relname for row in rows} == set(DEPENDENCIES)
+    expected = {
+        "public_read_cache_changed_insert": (4, None, "cache_changed_rows"),
+        "public_read_cache_changed_update": (16, None, "cache_changed_rows"),
+        "public_read_cache_changed_delete": (8, "cache_changed_rows", None),
+        "public_read_cache_changed_truncate": (32, None, None),
+    }
+    legacy = [row for row in rows if row.tgname == "public_read_cache_changed"]
+    assert len(legacy) == len(DEPENDENCIES)
+    assert all(row.enabled == "D" and row.shape == 60 for row in legacy)
+    rows = [row for row in rows if row.tgname != "public_read_cache_changed"]
+    assert len(rows) == len(DEPENDENCIES) * len(expected)
+    for table in DEPENDENCIES:
+        actual = {row.tgname: (row.shape, row.tgoldtable, row.tgnewtable)
+                  for row in rows if row.relname == table}
+        assert actual == expected, table
     for row in rows:
-        # After, per statement, INSERT|DELETE|UPDATE|TRUNCATE, enabled for every
-        # session role, and the one reviewed trigger function.
-        assert (row.enabled, row.shape) == ("A", 60), row.relname
+        assert row.enabled == "A", row.relname
         assert row.function_name.endswith("bump_public_read_cache_generation"), row.relname
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("table", DEPENDENCIES)
-async def test_each_statement_kind_on_each_dependency_advances_the_generation(engine, table):
+async def test_empty_statements_leave_generation_and_events_unchanged(engine, table):
     async with engine.connect() as connection:
         column = await connection.scalar(
             text(
@@ -184,15 +198,47 @@ async def test_each_statement_kind_on_each_dependency_advances_the_generation(en
         ):
             transaction = await connection.begin()
             before = await _generation(connection)
+            events = await connection.scalar(text("SELECT count(*) FROM public_read_cache_events"))
             await connection.execute(text(statement))
-            # A statement trigger fires even when no row matches, once.
-            assert await _generation(connection) == before + 1, statement
+            assert await _generation(connection) == before, statement
+            assert await connection.scalar(text("SELECT count(*) FROM public_read_cache_events")) == events
             await transaction.rollback()
         transaction = await connection.begin()
         before = await _generation(connection)
         await connection.execute(text(f'TRUNCATE public."{table}" CASCADE'))
         assert await _generation(connection) > before, table
         await transaction.rollback()
+
+
+@pytest.mark.asyncio
+async def test_empty_update_assertion_detects_unconditional_statement_trigger(engine):
+    async with engine.connect() as connection:
+        transaction = await connection.begin()
+        try:
+            await connection.execute(text("DROP TRIGGER public_read_cache_changed_update ON products"))
+            await connection.execute(text("""
+                CREATE OR REPLACE FUNCTION public.bump_public_read_cache_generation()
+                RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
+                SET search_path=pg_catalog,public AS $$
+                DECLARE next_generation bigint;
+                BEGIN
+                    UPDATE public_read_cache_generations SET generation=generation+1
+                    WHERE domain='trading' RETURNING generation INTO STRICT next_generation;
+                    INSERT INTO public_read_cache_events(domain,generation)
+                    VALUES ('trading',next_generation);
+                    PERFORM pg_notify('verdaxis_public_read_cache','trading');
+                    RETURN NULL;
+                END $$
+            """))
+            await connection.execute(text(
+                "ALTER TABLE products ENABLE ALWAYS TRIGGER public_read_cache_changed"
+            ))
+            before = await _generation(connection)
+            await connection.execute(text("UPDATE products SET is_active=is_active WHERE false"))
+            with pytest.raises(AssertionError, match="empty update"):
+                assert await _generation(connection) == before, "empty update must keep generation"
+        finally:
+            await transaction.rollback()
 
 
 @pytest.mark.asyncio
@@ -205,7 +251,7 @@ async def test_concurrent_writers_get_distinct_contiguous_generations(engine):
         async def write():
             async with engine.connect() as connection:
                 async with connection.begin():
-                    await connection.execute(text("DELETE FROM public.benchmarks WHERE false"))
+                    await connection.execute(text("UPDATE public.products SET is_active=is_active"))
                     # Hold the generation row so the writers genuinely overlap.
                     await connection.execute(text("SELECT pg_sleep(0.05)"))
 
@@ -290,8 +336,8 @@ async def test_runtime_role_reads_but_never_writes_cache_metadata(runtime_engine
 @pytest.mark.asyncio
 async def test_runtime_role_cannot_bypass_or_remove_the_triggers(runtime_engine):
     for statement in (
-        "ALTER TABLE public.products DISABLE TRIGGER public_read_cache_changed",
-        "DROP TRIGGER public_read_cache_changed ON public.products",
+        "ALTER TABLE public.products DISABLE TRIGGER public_read_cache_changed_update",
+        "DROP TRIGGER public_read_cache_changed_update ON public.products",
         "SET session_replication_role = replica",
     ):
         async with runtime_engine.connect() as connection:
@@ -309,7 +355,11 @@ async def test_runtime_business_write_and_generation_append_share_one_transactio
         transaction = await connection.begin()
         # The app role has no authority on cache metadata; the trigger function
         # owns the write, inside the business statement's own transaction.
-        await connection.execute(text("UPDATE public.orderbook_orders SET status = status WHERE false"))
+        await connection.execute(text(
+            "INSERT INTO market_event_outbox "
+            "(id,event_type,aggregate_type,aggregate_id,participant_org_ids,payload) "
+            "VALUES (gen_random_uuid(),'cache_test','order','test','[\"11111111-1111-4111-8111-111111111111\"]','{}')"
+        ))
         during = await _generation(connection)
         appended = await connection.scalar(
             text("SELECT count(*) FROM public_read_cache_events WHERE domain='trading' AND generation = :g"),
@@ -324,7 +374,11 @@ async def test_runtime_business_write_and_generation_append_share_one_transactio
         ) == 0
         await connection.rollback()
         async with connection.begin():
-            await connection.execute(text("UPDATE public.orderbook_orders SET status = status WHERE false"))
+            await connection.execute(text(
+            "INSERT INTO market_event_outbox "
+            "(id,event_type,aggregate_type,aggregate_id,participant_org_ids,payload) "
+            "VALUES (gen_random_uuid(),'cache_test','order','test','[\"11111111-1111-4111-8111-111111111111\"]','{}')"
+        ))
         assert await _generation(connection) == before + 1
     async with engine.connect() as connection:
         assert await _generation(connection) == before + 1
