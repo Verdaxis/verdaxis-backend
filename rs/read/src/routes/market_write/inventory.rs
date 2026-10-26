@@ -1,13 +1,23 @@
 //! Inventory component routes; serving composition remains separate.
+//!
+//! The routes pass each request on unchecked: the inventory component checks
+//! the query, the record identifier and the body only after authentication
+//! and, for a write, admission. Only JSON syntax is read first, as FastAPI
+//! parses a JSON body before it resolves the route dependencies.
+//!
+//! A support-context header does not change these routes. The reads ignore it,
+//! and the serving boundary refuses any write that carries one before a route
+//! runs, as the Python support-scope middleware does.
 use crate::{
-    AppState, InventoryAction, InventoryInput,
+    AppState, InventoryAction,
     auth::{VerificationSettings, verify_authorization},
     execute_inventory,
 };
 use axum::{
     Router,
+    body::Bytes,
     extract::{Path, RawQuery, State},
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode, header::CONTENT_TYPE},
     response::{IntoResponse, Response},
     routing::get,
 };
@@ -32,21 +42,7 @@ pub fn router(app: AppState, verification: VerificationSettings) -> Router {
             verification: std::sync::Arc::new(verification),
         })
 }
-fn error(status: StatusCode, code: &str, message: &str) -> Response {
-    (
-        status,
-        axum::Json(serde_json::json!({"detail":{"code":code,"message":message}})),
-    )
-        .into_response()
-}
 async fn dispatch(state: RouteState, headers: HeaderMap, action: InventoryAction) -> Response {
-    if headers.contains_key("x-verdaxis-market-support-context") {
-        return error(
-            StatusCode::FORBIDDEN,
-            "SUPPORT_CONTEXT_INVALID",
-            "Support context is not valid for inventory",
-        );
-    }
     let access = match verify_authorization(
         headers.get("authorization").and_then(|v| v.to_str().ok()),
         &state.verification,
@@ -57,125 +53,81 @@ async fn dispatch(state: RouteState, headers: HeaderMap, action: InventoryAction
             return crate::auth::request::RequestError::Authentication(failure).into_response();
         }
     };
-    let deleting = matches!(action, InventoryAction::Delete(_));
+    let deleting = matches!(action, InventoryAction::Delete { .. });
     match execute_inventory(state.app, access, action).await {
         Ok(_) if deleting => StatusCode::NO_CONTENT.into_response(),
         Ok(body) => axum::Json(body).into_response(),
         Err(failure) => failure.into_response(),
     }
 }
-fn page(raw: Option<String>) -> Result<(i64, i64), &'static str> {
-    let mut skip = 0;
-    let mut limit = 50;
-    for (key, value) in url::form_urlencoded::parse(raw.as_deref().unwrap_or_default().as_bytes()) {
-        if key == "skip" || key == "limit" {
-            let parsed = value
-                .parse::<i64>()
-                .map_err(|_| "Pagination is not valid")?;
-            if (key == "skip" && parsed < 0) || (key == "limit" && !(1..=100).contains(&parsed)) {
-                return Err("Pagination is outside its range");
-            }
-            if key == "skip" {
-                skip = parsed
-            } else {
-                limit = parsed
-            }
-        }
+/// Read the body's JSON syntax; `None` means the body is not valid JSON. An
+/// empty body, or one declared with another media type, is passed on as
+/// `null`; the field rules refuse it after admission.
+fn json_body(headers: &HeaderMap, raw: &[u8]) -> Option<Value> {
+    let declared_json = headers
+        .get(CONTENT_TYPE)
+        .is_none_or(|value| value.to_str().is_ok_and(is_json_media_type));
+    if raw.is_empty() || !declared_json {
+        return Some(Value::Null);
     }
-    Ok((skip, limit))
+    serde_json::from_slice(raw).ok()
+}
+fn invalid_json() -> Response {
+    (
+        StatusCode::UNPROCESSABLE_ENTITY,
+        axum::Json(serde_json::json!({"detail":{
+            "code":"VALIDATION_FAILED",
+            "message":"The request body is not valid JSON"}})),
+    )
+        .into_response()
+}
+/// `application/json` or an `application/*+json` type; parameters are ignored.
+fn is_json_media_type(value: &str) -> bool {
+    let essence = value
+        .split(';')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    essence
+        .strip_prefix("application/")
+        .is_some_and(|subtype| subtype == "json" || subtype.ends_with("+json"))
 }
 async fn list(
     State(state): State<RouteState>,
     headers: HeaderMap,
-    RawQuery(raw): RawQuery,
+    RawQuery(query): RawQuery,
 ) -> Response {
-    match page(raw) {
-        Ok((skip, limit)) => dispatch(state, headers, InventoryAction::List { skip, limit }).await,
-        Err(message) => error(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "VALIDATION_FAILED",
-            message,
-        ),
-    }
+    dispatch(state, headers, InventoryAction::List { query }).await
 }
 async fn listings(
     State(state): State<RouteState>,
     headers: HeaderMap,
-    RawQuery(raw): RawQuery,
+    RawQuery(query): RawQuery,
 ) -> Response {
-    match page(raw) {
-        Ok((skip, limit)) => {
-            dispatch(state, headers, InventoryAction::Listings { skip, limit }).await
-        }
-        Err(message) => error(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "VALIDATION_FAILED",
-            message,
-        ),
-    }
+    dispatch(state, headers, InventoryAction::Listings { query }).await
 }
-async fn create(
-    State(state): State<RouteState>,
-    headers: HeaderMap,
-    body: Result<axum::Json<Value>, axum::extract::rejection::JsonRejection>,
-) -> Response {
-    let body = match body {
-        Ok(body) => body.0,
-        Err(_) => {
-            return error(
-                StatusCode::UNPROCESSABLE_ENTITY,
-                "VALIDATION_FAILED",
-                "A JSON inventory record is required",
-            );
-        }
-    };
-    match InventoryInput::create(body, &state.app.policy) {
-        Ok(input) => dispatch(state, headers, InventoryAction::Create(input)).await,
-        Err(error) => error.into_response(),
+async fn create(State(state): State<RouteState>, headers: HeaderMap, raw: Bytes) -> Response {
+    match json_body(&headers, &raw) {
+        Some(body) => dispatch(state, headers, InventoryAction::Create { body }).await,
+        None => invalid_json(),
     }
 }
 async fn update(
     State(state): State<RouteState>,
     headers: HeaderMap,
-    Path(id): Path<String>,
-    body: Result<axum::Json<Value>, axum::extract::rejection::JsonRejection>,
+    Path(item_id): Path<String>,
+    raw: Bytes,
 ) -> Response {
-    let id = match id.parse() {
-        Ok(id) => id,
-        Err(_) => {
-            return error(
-                StatusCode::UNPROCESSABLE_ENTITY,
-                "VALIDATION_FAILED",
-                "Inventory identifier is not valid",
-            );
-        }
-    };
-    let body = match body {
-        Ok(body) => body.0,
-        Err(_) => {
-            return error(
-                StatusCode::UNPROCESSABLE_ENTITY,
-                "VALIDATION_FAILED",
-                "A JSON inventory patch is required",
-            );
-        }
-    };
-    match InventoryInput::patch(body) {
-        Ok(input) => dispatch(state, headers, InventoryAction::Patch { id, input }).await,
-        Err(error) => error.into_response(),
+    match json_body(&headers, &raw) {
+        Some(body) => dispatch(state, headers, InventoryAction::Patch { item_id, body }).await,
+        None => invalid_json(),
     }
 }
 async fn delete(
     State(state): State<RouteState>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Path(item_id): Path<String>,
 ) -> Response {
-    match id.parse() {
-        Ok(id) => dispatch(state, headers, InventoryAction::Delete(id)).await,
-        Err(_) => error(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "VALIDATION_FAILED",
-            "Inventory identifier is not valid",
-        ),
-    }
+    dispatch(state, headers, InventoryAction::Delete { item_id }).await
 }

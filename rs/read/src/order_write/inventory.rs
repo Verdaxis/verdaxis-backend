@@ -1,5 +1,12 @@
 //! Supplier inventory records share the ordered transaction and participant effects.
-use axum::http::StatusCode;
+//!
+//! Writes run in the ordered market transaction, which locks the organization,
+//! the user and then the named record. The two reads take no market lock: like
+//! the Python `get_current_user` dependency, they lock only the actor's user row.
+//! Every request checks its input only after the actor is authenticated and,
+//! for a write, admitted, so refusals keep the Python order: account,
+//! admission, input, then the supplier role.
+use axum::response::{IntoResponse, Response};
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde_json::{Map, Value, json};
@@ -17,7 +24,14 @@ use super::{
         run_market_command,
     },
 };
-use crate::{AppState, MarketPolicy, auth::VerifiedAccess, market::terms};
+use crate::{
+    ApiError, AppState, MarketPolicy,
+    auth::{
+        AuthError, AuthenticatedError, AuthenticatedRequest, CurrentActor, VerifiedAccess,
+        request::RequestError, run_authenticated,
+    },
+    market::terms,
+};
 
 const FIELDS: &[&str] = &[
     "port_id",
@@ -62,14 +76,11 @@ const PATCH_FIELDS: &[&str] = &[
 fn invalid() -> MarketWriteError {
     MarketWriteError::new(MarketErrorCode::ValidationFailed)
 }
-fn refusal(status: StatusCode, message: &'static str) -> MarketWriteError {
-    let mut error = invalid();
-    error.status = status;
-    error.message = message;
-    error
+fn not_available() -> MarketWriteError {
+    MarketWriteError::new(MarketErrorCode::ExecutionNotAvailable)
 }
 fn not_found() -> MarketWriteError {
-    refusal(StatusCode::NOT_FOUND, "Inventory item was not found")
+    MarketWriteError::new(MarketErrorCode::InventoryNotFound)
 }
 
 #[derive(Clone, Debug)]
@@ -323,32 +334,218 @@ fn derive_metadata(
     Ok(())
 }
 
+/// One inventory request as its route received it.
+///
+/// Query strings, record identifiers and bodies are not checked here; the
+/// component checks them after authentication and, for a write, admission.
 #[derive(Clone, Debug)]
 pub enum InventoryAction {
-    List { skip: i64, limit: i64 },
-    Listings { skip: i64, limit: i64 },
+    /// `GET /api/inventory` with its raw query string.
+    List { query: Option<String> },
+    /// `GET /api/listings/my` with its raw query string.
+    Listings { query: Option<String> },
+    /// `POST /api/inventory` with its JSON body.
+    Create { body: Value },
+    /// `PATCH /api/inventory/{item_id}` with its JSON body.
+    Patch { item_id: String, body: Value },
+    /// `DELETE /api/inventory/{item_id}`.
+    Delete { item_id: String },
+}
+impl InventoryAction {
+    /// Whether the request names one existing record.
+    fn names_record(&self) -> bool {
+        matches!(self, Self::Patch { .. } | Self::Delete { .. })
+    }
+    /// The named record, when its identifier is a UUID.
+    fn record_id(&self) -> Option<Uuid> {
+        match self {
+            Self::Patch { item_id, .. } | Self::Delete { item_id } => Uuid::parse_str(item_id).ok(),
+            _ => None,
+        }
+    }
+}
+
+/// A write whose input passed validation.
+enum InventoryWrite {
     Create(InventoryInput),
     Patch { id: Uuid, input: InventoryInput },
     Delete(Uuid),
 }
-impl InventoryAction {
-    fn id(&self) -> Option<Uuid> {
-        match self {
-            Self::Patch { id, .. } | Self::Delete(id) => Some(*id),
-            _ => None,
+impl InventoryWrite {
+    fn validate(action: &InventoryAction, policy: &MarketPolicy) -> Result<Self, MarketWriteError> {
+        let record = || action.record_id().ok_or_else(invalid);
+        match action {
+            InventoryAction::Create { body } => {
+                Ok(Self::Create(InventoryInput::create(body.clone(), policy)?))
+            }
+            InventoryAction::Patch { body, .. } => Ok(Self::Patch {
+                id: record()?,
+                input: InventoryInput::patch(body.clone())?,
+            }),
+            InventoryAction::Delete { .. } => Ok(Self::Delete(record()?)),
+            // Reads run in their own transaction and never reach a write.
+            InventoryAction::List { .. } | InventoryAction::Listings { .. } => Err(invalid()),
         }
     }
-    fn writes(&self) -> bool {
-        matches!(self, Self::Create(_) | Self::Patch { .. } | Self::Delete(_))
-    }
 }
-struct InventoryCommand {
-    app: AppState,
-    action: InventoryAction,
-    now: DateTime<Utc>,
+
+/// Why an inventory request was refused.
+#[derive(Debug)]
+pub enum InventoryFailure {
+    /// The read transaction's account check, as `get_current_user` applies it.
+    Authentication(AuthError),
+    /// A market refusal, including the write transaction's account check.
+    Refusal(MarketWriteError),
+    /// The read transaction could not complete.
+    Database(ApiError),
+}
+impl IntoResponse for InventoryFailure {
+    fn into_response(self) -> Response {
+        match self {
+            Self::Authentication(error) => RequestError::Authentication(error).into_response(),
+            Self::Refusal(error) => error.into_response(),
+            Self::Database(error) => error.into_response(),
+        }
+    }
 }
 
 pub async fn execute_inventory(
+    app: AppState,
+    access: VerifiedAccess,
+    action: InventoryAction,
+) -> Result<Value, InventoryFailure> {
+    match action {
+        InventoryAction::List { query } => {
+            read_inventory(app, access, InventoryRead::Items, query).await
+        }
+        InventoryAction::Listings { query } => {
+            read_inventory(app, access, InventoryRead::Listings, query).await
+        }
+        write => write_inventory(app, access, write)
+            .await
+            .map_err(InventoryFailure::Refusal),
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+enum InventoryRead {
+    Items,
+    Listings,
+}
+impl InventoryRead {
+    fn route(self) -> &'static str {
+        match self {
+            Self::Items => "/api/inventory",
+            Self::Listings => "/api/listings/my",
+        }
+    }
+    async fn run(
+        self,
+        conn: &mut PgConnection,
+        actor: &CurrentActor,
+        query: Option<&str>,
+        policy: &MarketPolicy,
+    ) -> Result<Value, MarketWriteError> {
+        let (skip, limit) = page(query)?;
+        if actor.role.as_deref() != Some("SUPPLIER") {
+            return Err(not_available());
+        }
+        // A supplier without an organization owns no records.
+        let Some(org) = actor.organization_id else {
+            return Ok(json!([]));
+        };
+        match self {
+            Self::Items => inventory_items(conn, org, skip, limit).await,
+            Self::Listings => compatibility_listings(conn, org, skip, limit, policy).await,
+        }
+    }
+}
+
+/// Run one read in the authenticated read transaction.
+///
+/// Neither route is in the Python shared-lock list, so the user row is locked
+/// `FOR UPDATE` whether or not a support-context header is present; no
+/// organization or market lock is taken.
+async fn read_inventory(
+    app: AppState,
+    access: VerifiedAccess,
+    read: InventoryRead,
+    query: Option<String>,
+) -> Result<Value, InventoryFailure> {
+    let request = AuthenticatedRequest::new("GET", read.route(), false);
+    let policy = app.policy.clone();
+    let outcome = run_authenticated(&app, access, request, move |tx| {
+        Box::pin(async move {
+            let actor = tx.actor().clone();
+            match read
+                .run(tx.connection(), &actor, query.as_deref(), &policy)
+                .await
+            {
+                // A database failure rolls the read transaction back.
+                Err(error) if error.code == MarketErrorCode::DatabaseError => {
+                    Err(ApiError::database())
+                }
+                outcome => Ok(outcome),
+            }
+        })
+    })
+    .await;
+    match outcome {
+        Ok(result) => result.map_err(InventoryFailure::Refusal),
+        Err(AuthenticatedError::Authentication(error)) => {
+            Err(InventoryFailure::Authentication(error))
+        }
+        Err(AuthenticatedError::Database(error)) => Err(InventoryFailure::Database(error)),
+        Err(AuthenticatedError::AmbiguousCommit) => {
+            Err(InventoryFailure::Database(ApiError::database()))
+        }
+    }
+}
+
+/// The Python query rules: `skip` at least 0 (default 0) and `limit` from 1 to
+/// 100 (default 50). Only the last value of a repeated parameter applies.
+fn page(query: Option<&str>) -> Result<(i64, i64), MarketWriteError> {
+    let (mut skip, mut limit) = (None, None);
+    for (key, value) in url::form_urlencoded::parse(query.unwrap_or_default().as_bytes()) {
+        match &*key {
+            "skip" => skip = Some(value),
+            "limit" => limit = Some(value),
+            _ => {}
+        }
+    }
+    let skip = skip.map_or(Ok(0), |value| value.parse::<i64>());
+    let limit = limit.map_or(Ok(50), |value| value.parse::<i64>());
+    match (skip, limit) {
+        (Ok(skip), Ok(limit)) if skip >= 0 && (1..=100).contains(&limit) => Ok((skip, limit)),
+        _ => Err(invalid()),
+    }
+}
+
+/// Run one write in the ordered market transaction.
+///
+/// The lock plan names the record that the preview saw. If another request
+/// deletes that record while this one waits for its lock, the transaction
+/// refuses the changed plan. One new attempt then plans from the current rows,
+/// so the caller gets the same 404 as for a record that never existed.
+async fn write_inventory(
+    app: AppState,
+    access: VerifiedAccess,
+    action: InventoryAction,
+) -> Result<Value, MarketWriteError> {
+    let repeat_access = VerifiedAccess {
+        subject: access.subject,
+        issued_at: access.issued_at,
+        issuance_out_of_range: access.issuance_out_of_range,
+    };
+    let names_record = action.names_record();
+    match run_write(app.clone(), access, action.clone()).await {
+        Err(error) if names_record && error.code == MarketErrorCode::MarketSliceChanged => {
+            run_write(app, repeat_access, action).await
+        }
+        result => result,
+    }
+}
+async fn run_write(
     app: AppState,
     access: VerifiedAccess,
     action: InventoryAction,
@@ -368,6 +565,12 @@ pub async fn execute_inventory(
     )
     .await
 }
+
+struct InventoryCommand {
+    app: AppState,
+    action: InventoryAction,
+    now: DateTime<Utc>,
+}
 impl MarketCommand for InventoryCommand {
     type Output = Value;
     fn preview<'a>(
@@ -382,7 +585,8 @@ impl MarketCommand for InventoryCommand {
                     .fetch_optional(&mut *conn)
                     .await?
                     .flatten();
-            let exists = if let (Some(id), Some(org)) = (self.action.id(), org) {
+            let record = self.action.record_id();
+            let exists = if let (Some(id), Some(org)) = (record, org) {
                 sqlx::query_scalar::<_, bool>(
                     "SELECT EXISTS(SELECT 1 FROM inventory_items WHERE id=$1 AND supplier_id=$2)",
                 )
@@ -399,13 +603,13 @@ impl MarketCommand for InventoryCommand {
                 actor,
                 json!({"organization_id":org,"owned_item_exists":exists}),
             );
-            let mut locks = OperationLockPlan::new(if self.action.id().is_some() {
+            let mut locks = OperationLockPlan::new(if self.action.names_record() {
                 MarketOperation::InventoryEdit
             } else {
                 MarketOperation::InventoryCreate
             });
             locks.parties(&parties)?;
-            if let Some(id) = self.action.id().filter(|_| exists) {
+            if let Some(id) = record.filter(|_| exists) {
                 locks.inventory([id])?;
             }
             Ok(MarketPreview { parties, locks })
@@ -440,156 +644,157 @@ impl<'a> InventoryPort<'a> {
         action: &InventoryAction,
         now: DateTime<Utc>,
     ) -> Result<Value, MarketWriteError> {
+        let org = self.require_admission(actor).await?;
+        let write = InventoryWrite::validate(action, &app.policy)?;
         if actor.account().role != ActorRole::Supplier {
-            return Err(MarketWriteError::new(
-                MarketErrorCode::ExecutionNotAvailable,
-            ));
+            return Err(not_available());
         }
-        let org = actor.account().current_organization_id;
-        if action.writes() {
-            let org = org.ok_or_else(|| {
-                refusal(StatusCode::BAD_REQUEST, "The account has no organization")
-            })?;
-            self.require_supplier(actor, org).await?;
-        }
-        match action {
-            InventoryAction::List { skip, limit } => {
-                let Some(org) = org else {
-                    return Ok(json!([]));
-                };
-                let rows=sqlx::query("SELECT to_jsonb(i) AS item FROM inventory_items i WHERE supplier_id=$1 ORDER BY updated_at DESC,id OFFSET $2 LIMIT $3").bind(org).bind(skip).bind(limit).fetch_all(&mut *self.conn).await?;
-                Ok(Value::Array(
-                    rows.into_iter()
-                        .map(|r| response(r.get("item")))
-                        .collect::<Result<_, _>>()?,
-                ))
+        match write {
+            InventoryWrite::Create(input) => self.create(app, actor, org, input, now).await,
+            InventoryWrite::Patch { id, input } => {
+                self.update(app, actor, org, id, input, now).await
             }
-            InventoryAction::Listings { skip, limit } => {
-                self.listings(org, *skip, *limit, &app.policy).await
-            }
-            InventoryAction::Create(input) => {
-                let org = org.ok_or_else(invalid)?;
-                self.require_port(
-                    input.0["port_id"].as_str().ok_or_else(invalid)?,
-                    &app.policy,
-                )
-                .await?;
-                let id = Uuid::new_v4();
-                let before = super::effects::EffectPort::new(self.conn, &[], self.locked)
-                    .capture_before(&app.policy, &app.config, &[], now)
-                    .await?;
-                let mut values = input.0.clone();
-                values.insert("id".into(), json!(id));
-                values.insert("supplier_id".into(), json!(org));
-                values.insert("owner_user_id".into(), json!(actor.user_id()));
-                values.insert("reserved_stock_mt".into(), json!("0"));
-                values.insert("updated_at".into(), json!(now));
-                let row:Value=sqlx::query_scalar("INSERT INTO inventory_items (id,supplier_id,owner_user_id,port_id,fuel_type,product_name,fame_terms,lng_terms,current_stock_mt,incoming_stock_mt,reserved_stock_mt,price_per_mt_usd,energy_density_mj_kg,is_certified,certification_declared,certification_scheme,specification_standard,msds_available,carbon_intensity_gco2_mj,carbon_intensity_method,feedstock,origin,off_spec,off_spec_notes,updated_at) SELECT r.id,r.supplier_id,r.owner_user_id,r.port_id,r.fuel_type,r.product_name,r.fame_terms,r.lng_terms,r.current_stock_mt,r.incoming_stock_mt,r.reserved_stock_mt,r.price_per_mt_usd,r.energy_density_mj_kg,r.is_certified,r.certification_declared,r.certification_scheme,r.specification_standard,r.msds_available,r.carbon_intensity_gco2_mj,r.carbon_intensity_method,r.feedstock,r.origin,r.off_spec,r.off_spec_notes,r.updated_at FROM jsonb_populate_record(NULL::inventory_items,$1) r RETURNING to_jsonb(inventory_items)")
-                    .bind(Value::Object(values)).fetch_one(&mut *self.conn).await.map_err(port_error)?;
-                let public = self.public_visible(id, &app.policy).await?;
-                self.effect(
-                    app,
-                    actor,
-                    org,
-                    id,
-                    MutationKind::InventoryCreated,
-                    public,
-                    before,
-                    now,
-                )
-                .await?;
-                response(row)
-            }
-            InventoryAction::Patch { id, input } => {
-                let org = org.ok_or_else(invalid)?;
-                let row = self.owned(*id, org).await?;
-                self.mutable(*id, &row, false).await?;
-                let public_before = self.public_visible(*id, &app.policy).await?;
-                let mut merged = Map::new();
-                for key in FIELDS {
-                    merged.insert((*key).into(), row[*key].clone());
-                }
-                for (key, value) in &input.0 {
-                    merged.insert(key.clone(), value.clone());
-                }
-                let merged = InventoryInput::create(Value::Object(merged), &app.policy)?;
-                let current = response(row.clone())?;
-                let changed = FIELDS
-                    .iter()
-                    .any(|key| !same_inventory_value(key, &current[*key], &merged.0[*key]));
-                let before = super::effects::EffectPort::new(self.conn, &[], self.locked)
-                    .capture_before(&app.policy, &app.config, &[], now)
-                    .await?;
-                let mut values = merged.0;
-                values.insert("updated_at".into(), json!(now));
-                let updated:Value=sqlx::query_scalar("UPDATE inventory_items i SET product_name=r.product_name,fame_terms=r.fame_terms,lng_terms=r.lng_terms,current_stock_mt=r.current_stock_mt,incoming_stock_mt=r.incoming_stock_mt,price_per_mt_usd=r.price_per_mt_usd,energy_density_mj_kg=r.energy_density_mj_kg,is_certified=r.is_certified,certification_declared=r.certification_declared,certification_scheme=r.certification_scheme,specification_standard=r.specification_standard,msds_available=r.msds_available,carbon_intensity_gco2_mj=r.carbon_intensity_gco2_mj,carbon_intensity_method=r.carbon_intensity_method,feedstock=r.feedstock,origin=r.origin,off_spec=r.off_spec,off_spec_notes=r.off_spec_notes,updated_at=r.updated_at FROM jsonb_populate_record(NULL::inventory_items,$2) r WHERE i.id=$1 RETURNING to_jsonb(i)").bind(id).bind(Value::Object(values)).fetch_one(&mut *self.conn).await?;
-                let public_after = self.public_visible(*id, &app.policy).await?;
-                self.effect(
-                    app,
-                    actor,
-                    org,
-                    *id,
-                    MutationKind::InventoryUpdated,
-                    changed && (public_before || public_after),
-                    before,
-                    now,
-                )
-                .await?;
-                response(updated)
-            }
-            InventoryAction::Delete(id) => {
-                let org = org.ok_or_else(invalid)?;
-                let row = self.owned(*id, org).await?;
-                self.mutable(*id, &row, true).await?;
-                let public = self.public_visible(*id, &app.policy).await?;
-                let before = super::effects::EffectPort::new(self.conn, &[], self.locked)
-                    .capture_before(&app.policy, &app.config, &[], now)
-                    .await?;
-                sqlx::query("DELETE FROM inventory_items WHERE id=$1")
-                    .bind(id)
-                    .execute(&mut *self.conn)
-                    .await
-                    .map_err(|error| {
-                        if error.as_database_error().and_then(|e| e.code()).as_deref()
-                            == Some("23503")
-                        {
-                            MarketWriteError::new(MarketErrorCode::InventoryReferenced)
-                        } else {
-                            error.into()
-                        }
-                    })?;
-                self.effect(
-                    app,
-                    actor,
-                    org,
-                    *id,
-                    MutationKind::InventoryDeleted,
-                    public,
-                    before,
-                    now,
-                )
-                .await?;
-                Ok(Value::Null)
-            }
+            InventoryWrite::Delete(id) => self.delete(app, actor, org, id, now).await,
         }
     }
-    async fn require_supplier(
+    async fn create(
         &mut self,
+        app: &AppState,
         actor: &AuthenticatedActor,
         org: Uuid,
-    ) -> Result<(), MarketWriteError> {
+        input: InventoryInput,
+        now: DateTime<Utc>,
+    ) -> Result<Value, MarketWriteError> {
+        self.require_port(input.0["port_id"].as_str().ok_or_else(invalid)?)
+            .await?;
+        let id = Uuid::new_v4();
+        let before = super::effects::EffectPort::new(self.conn, &[], self.locked)
+            .capture_before(&app.policy, &app.config, &[], now)
+            .await?;
+        let mut values = input.0;
+        values.insert("id".into(), json!(id));
+        values.insert("supplier_id".into(), json!(org));
+        values.insert("owner_user_id".into(), json!(actor.user_id()));
+        values.insert("reserved_stock_mt".into(), json!("0"));
+        values.insert("updated_at".into(), json!(now));
+        let row:Value=sqlx::query_scalar("INSERT INTO inventory_items (id,supplier_id,owner_user_id,port_id,fuel_type,product_name,fame_terms,lng_terms,current_stock_mt,incoming_stock_mt,reserved_stock_mt,price_per_mt_usd,energy_density_mj_kg,is_certified,certification_declared,certification_scheme,specification_standard,msds_available,carbon_intensity_gco2_mj,carbon_intensity_method,feedstock,origin,off_spec,off_spec_notes,updated_at) SELECT r.id,r.supplier_id,r.owner_user_id,r.port_id,r.fuel_type,r.product_name,r.fame_terms,r.lng_terms,r.current_stock_mt,r.incoming_stock_mt,r.reserved_stock_mt,r.price_per_mt_usd,r.energy_density_mj_kg,r.is_certified,r.certification_declared,r.certification_scheme,r.specification_standard,r.msds_available,r.carbon_intensity_gco2_mj,r.carbon_intensity_method,r.feedstock,r.origin,r.off_spec,r.off_spec_notes,r.updated_at FROM jsonb_populate_record(NULL::inventory_items,$1) r RETURNING to_jsonb(inventory_items)")
+            .bind(Value::Object(values)).fetch_one(&mut *self.conn).await.map_err(port_error)?;
+        let public = self.public_visible(id, &app.policy).await?;
+        self.effect(
+            app,
+            actor,
+            org,
+            id,
+            MutationKind::InventoryCreated,
+            public,
+            before,
+            now,
+        )
+        .await?;
+        response(row)
+    }
+    async fn update(
+        &mut self,
+        app: &AppState,
+        actor: &AuthenticatedActor,
+        org: Uuid,
+        id: Uuid,
+        input: InventoryInput,
+        now: DateTime<Utc>,
+    ) -> Result<Value, MarketWriteError> {
+        let row = self.owned(id, org).await?;
+        self.mutable(id, &row, false).await?;
+        let public_before = self.public_visible(id, &app.policy).await?;
+        let mut merged = Map::new();
+        for key in FIELDS {
+            merged.insert((*key).into(), row[*key].clone());
+        }
+        for (key, value) in input.0 {
+            merged.insert(key, value);
+        }
+        let merged = InventoryInput::create(Value::Object(merged), &app.policy)?;
+        let current = response(row.clone())?;
+        let changed = FIELDS
+            .iter()
+            .any(|key| !same_inventory_value(key, &current[*key], &merged.0[*key]));
+        let before = super::effects::EffectPort::new(self.conn, &[], self.locked)
+            .capture_before(&app.policy, &app.config, &[], now)
+            .await?;
+        let mut values = merged.0;
+        values.insert("updated_at".into(), json!(now));
+        let updated:Value=sqlx::query_scalar("UPDATE inventory_items i SET product_name=r.product_name,fame_terms=r.fame_terms,lng_terms=r.lng_terms,current_stock_mt=r.current_stock_mt,incoming_stock_mt=r.incoming_stock_mt,price_per_mt_usd=r.price_per_mt_usd,energy_density_mj_kg=r.energy_density_mj_kg,is_certified=r.is_certified,certification_declared=r.certification_declared,certification_scheme=r.certification_scheme,specification_standard=r.specification_standard,msds_available=r.msds_available,carbon_intensity_gco2_mj=r.carbon_intensity_gco2_mj,carbon_intensity_method=r.carbon_intensity_method,feedstock=r.feedstock,origin=r.origin,off_spec=r.off_spec,off_spec_notes=r.off_spec_notes,updated_at=r.updated_at FROM jsonb_populate_record(NULL::inventory_items,$2) r WHERE i.id=$1 RETURNING to_jsonb(i)").bind(id).bind(Value::Object(values)).fetch_one(&mut *self.conn).await?;
+        let public_after = self.public_visible(id, &app.policy).await?;
+        self.effect(
+            app,
+            actor,
+            org,
+            id,
+            MutationKind::InventoryUpdated,
+            changed && (public_before || public_after),
+            before,
+            now,
+        )
+        .await?;
+        response(updated)
+    }
+    async fn delete(
+        &mut self,
+        app: &AppState,
+        actor: &AuthenticatedActor,
+        org: Uuid,
+        id: Uuid,
+        now: DateTime<Utc>,
+    ) -> Result<Value, MarketWriteError> {
+        let row = self.owned(id, org).await?;
+        self.mutable(id, &row, true).await?;
+        let public = self.public_visible(id, &app.policy).await?;
+        let before = super::effects::EffectPort::new(self.conn, &[], self.locked)
+            .capture_before(&app.policy, &app.config, &[], now)
+            .await?;
+        sqlx::query("DELETE FROM inventory_items WHERE id=$1")
+            .bind(id)
+            .execute(&mut *self.conn)
+            .await
+            .map_err(|error| {
+                if error.as_database_error().and_then(|e| e.code()).as_deref() == Some("23503") {
+                    MarketWriteError::new(MarketErrorCode::InventoryReferenced)
+                } else {
+                    error.into()
+                }
+            })?;
+        self.effect(
+            app,
+            actor,
+            org,
+            id,
+            MutationKind::InventoryDeleted,
+            public,
+            before,
+            now,
+        )
+        .await?;
+        Ok(Value::Null)
+    }
+    /// Indicative market admission, checked again under the organization and
+    /// user locks: the Python `require_security_market_admission` dependency
+    /// (`market_party_is_admitted` with the legacy KYC rule). An account
+    /// without an organization is not admitted. Returns the organization.
+    async fn require_admission(
+        &mut self,
+        actor: &AuthenticatedActor,
+    ) -> Result<Uuid, MarketWriteError> {
+        let org = actor
+            .account()
+            .current_organization_id
+            .ok_or_else(not_available)?;
         if !self.locked.contains(LockClass::Organization, org) || !actor.account().email_verified {
-            return Err(MarketWriteError::new(
-                MarketErrorCode::ExecutionNotAvailable,
-            ));
+            return Err(not_available());
         }
-        let admitted:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users u JOIN organizations o ON o.id=u.organization_id WHERE u.id=$1 AND u.organization_id=$2 AND u.role::text='SUPPLIER' AND u.status::text='APPROVED' AND u.email_verified AND NOT u.must_change_password AND u.kyc_status<>'REJECTED' AND (u.kyc_organization_id IS NULL OR u.kyc_organization_id=u.organization_id) AND o.verification_status::text='APPROVED')").bind(actor.user_id()).bind(org).fetch_one(&mut *self.conn).await?;
+        let admitted:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users u JOIN organizations o ON o.id=u.organization_id WHERE u.id=$1 AND u.organization_id=$2 AND u.role::text IN ('BUYER','SUPPLIER') AND u.status::text='APPROVED' AND u.email_verified AND NOT u.must_change_password AND u.kyc_status<>'REJECTED' AND (u.kyc_organization_id IS NULL OR u.kyc_organization_id=u.organization_id) AND o.verification_status::text='APPROVED')").bind(actor.user_id()).bind(org).fetch_one(&mut *self.conn).await?;
         if !admitted {
-            return Err(MarketWriteError::new(
-                MarketErrorCode::ExecutionNotAvailable,
-            ));
+            return Err(not_available());
         }
-        Ok(())
+        Ok(org)
     }
     async fn owned(&mut self, id: Uuid, org: Uuid) -> Result<Value, MarketWriteError> {
         if !self.locked.contains(LockClass::Inventory, id) {
@@ -631,17 +836,16 @@ impl<'a> InventoryPort<'a> {
         }
         Ok(())
     }
-    async fn require_port(
-        &mut self,
-        port: &str,
-        policy: &MarketPolicy,
-    ) -> Result<(), MarketWriteError> {
-        let name: Option<String> = sqlx::query_scalar("SELECT name FROM ports WHERE id=$1")
+    /// A record needs an existing port, as in the Python handler. A port outside
+    /// the canonical delivery points is refused only when the record is
+    /// published.
+    async fn require_port(&mut self, port: &str) -> Result<(), MarketWriteError> {
+        let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM ports WHERE id=$1)")
             .bind(port)
-            .fetch_optional(&mut *self.conn)
+            .fetch_one(&mut *self.conn)
             .await?;
-        if name.is_none_or(|name| !policy.points.iter().any(|p| p.name == name)) {
-            return Err(refusal(StatusCode::NOT_FOUND, "Port was not found"));
+        if !exists {
+            return Err(MarketWriteError::new(MarketErrorCode::PortNotFound));
         }
         Ok(())
     }
@@ -766,101 +970,117 @@ impl<'a> InventoryPort<'a> {
             .await?;
         Ok(())
     }
-    async fn listings(
-        &mut self,
-        org: Option<Uuid>,
-        skip: i64,
-        limit: i64,
-        policy: &MarketPolicy,
-    ) -> Result<Value, MarketWriteError> {
-        let Some(org) = org else { return Ok(json!([])) };
-        let rows=sqlx::query("SELECT to_jsonb(o) AS item,p.name,p.fuel_type,p.fuel_grade,p.id AS product_id,d.region,(SELECT count(*) FROM trades t WHERE t.ask_order_id=o.id) AS match_count FROM orderbook_orders o LEFT JOIN products p ON p.id=o.product_id LEFT JOIN delivery_points d ON d.id=o.delivery_point_id WHERE o.organization_id=$1 AND o.side::text='ASK' ORDER BY o.created_at DESC,o.id OFFSET $2 LIMIT $3").bind(org).bind(skip).bind(limit).fetch_all(&mut *self.conn).await?;
-        let mut items = Vec::new();
-        for row in rows {
-            let item: Value = row.get("item");
-            let mut out = Map::new();
-            for key in [
-                "id",
-                "availability_window",
-                "certification_declared",
-                "certification_scheme",
-                "specification_standard",
-                "msds_available",
-                "carbon_intensity_method",
-                "feedstock",
-                "origin",
-                "off_spec",
-                "off_spec_notes",
-                "lng_terms",
-                "fame_terms",
-                "status",
-                "expires_at",
-                "delivery_point_id",
-            ] {
-                out.insert(key.into(), item[key].clone());
-            }
-            for key in [
-                "quantity_mt",
-                "price_per_mt_usd",
-                "carbon_intensity_gco2_mj",
-            ] {
-                out.insert(key.into(), numeric_string(&item[key])?);
-            }
-            for (key, column) in [
-                ("product_name", "name"),
-                ("fuel_type", "fuel_type"),
-                ("fuel_grade", "fuel_grade"),
-                ("region", "region"),
-            ] {
-                out.insert(
-                    key.into(),
-                    json!(row.get::<Option<String>, _>(column).unwrap_or_default()),
-                );
-            }
-            out.insert(
-                "market_product".into(),
-                json!(
-                    policy
-                        .products
-                        .iter()
-                        .find(|p| Some(p.id) == row.get::<Option<Uuid>, _>("product_id"))
-                        .map(|p| &p.code)
-                ),
-            );
-            out.insert(
-                "certifications".into(),
-                item["certifications"]
-                    .as_array()
-                    .map(|v| json!(v))
-                    .unwrap_or(json!([])),
-            );
-            out.insert("observed_at".into(), item["created_at"].clone());
-            out.insert(
-                "match_count".into(),
-                json!(row.get::<i64, _>("match_count")),
-            );
-            let provenance = item["provenance"].as_str().unwrap_or("UNKNOWN");
-            let (source, demo, unknown) = match provenance {
-                "REAL" => ("LIVE_ORDER", "REAL_ONLY", 0),
-                "DEMO" => ("DEMO_SEED", "DEMO_ONLY", 0),
-                _ => ("UNKNOWN", "UNKNOWN", 1),
-            };
-            out.insert("source_kind".into(), json!(source));
-            out.insert(
-                "scope".into(),
-                json!(if item["delivery_point_id"].is_null() {
-                    "UNKNOWN"
-                } else {
-                    "DELIVERY_POINT"
-                }),
-            );
-            out.insert("demo_status".into(), json!(demo));
-            out.insert("is_demo_listing".into(), json!(provenance == "DEMO"));
-            out.insert("unknown_count".into(), json!(unknown));
-            items.push(Value::Object(out));
+}
+
+async fn inventory_items(
+    conn: &mut PgConnection,
+    org: Uuid,
+    skip: i64,
+    limit: i64,
+) -> Result<Value, MarketWriteError> {
+    let rows=sqlx::query("SELECT to_jsonb(i) AS item FROM inventory_items i WHERE supplier_id=$1 ORDER BY updated_at DESC,id OFFSET $2 LIMIT $3").bind(org).bind(skip).bind(limit).fetch_all(&mut *conn).await?;
+    Ok(Value::Array(
+        rows.into_iter()
+            .map(|r| response(r.get("item")))
+            .collect::<Result<_, _>>()?,
+    ))
+}
+
+/// The owner's ASK listings in the compatibility shape of the Python
+/// `_listing_payload(..., include_private_terms=True)`.
+async fn compatibility_listings(
+    conn: &mut PgConnection,
+    org: Uuid,
+    skip: i64,
+    limit: i64,
+    policy: &MarketPolicy,
+) -> Result<Value, MarketWriteError> {
+    let rows=sqlx::query("SELECT to_jsonb(o) AS item,p.name,p.fuel_type,p.fuel_grade,p.id AS product_id,d.region,(SELECT count(*) FROM trades t WHERE t.ask_order_id=o.id) AS match_count FROM orderbook_orders o LEFT JOIN products p ON p.id=o.product_id LEFT JOIN delivery_points d ON d.id=o.delivery_point_id WHERE o.organization_id=$1 AND o.side::text='ASK' ORDER BY o.created_at DESC,o.id OFFSET $2 LIMIT $3").bind(org).bind(skip).bind(limit).fetch_all(&mut *conn).await?;
+    let mut items = Vec::new();
+    for row in rows {
+        let item: Value = row.get("item");
+        let mut out = Map::new();
+        for key in [
+            "id",
+            "availability_window",
+            "certification_declared",
+            "certification_scheme",
+            "specification_standard",
+            "msds_available",
+            "carbon_intensity_method",
+            "feedstock",
+            "origin",
+            "off_spec",
+            "off_spec_notes",
+            "lng_terms",
+            "fame_terms",
+            "status",
+            "expires_at",
+            "delivery_point_id",
+        ] {
+            out.insert(key.into(), item[key].clone());
         }
-        Ok(Value::Array(items))
+        for key in [
+            "quantity_mt",
+            "price_per_mt_usd",
+            "carbon_intensity_gco2_mj",
+        ] {
+            out.insert(key.into(), numeric_string(&item[key])?);
+        }
+        for (key, column) in [
+            ("product_name", "name"),
+            ("fuel_type", "fuel_type"),
+            ("fuel_grade", "fuel_grade"),
+            ("region", "region"),
+        ] {
+            out.insert(
+                key.into(),
+                json!(row.get::<Option<String>, _>(column).unwrap_or_default()),
+            );
+        }
+        out.insert(
+            "market_product".into(),
+            json!(
+                policy
+                    .products
+                    .iter()
+                    .find(|p| Some(p.id) == row.get::<Option<Uuid>, _>("product_id"))
+                    .map(|p| &p.code)
+            ),
+        );
+        out.insert(
+            "certifications".into(),
+            item["certifications"]
+                .as_array()
+                .map(|v| json!(v))
+                .unwrap_or(json!([])),
+        );
+        out.insert("observed_at".into(), item["created_at"].clone());
+        out.insert(
+            "match_count".into(),
+            json!(row.get::<i64, _>("match_count")),
+        );
+        let provenance = item["provenance"].as_str().unwrap_or("UNKNOWN");
+        let (source, demo, unknown) = match provenance {
+            "REAL" => ("LIVE_ORDER", "REAL_ONLY", 0),
+            "DEMO" => ("DEMO_SEED", "DEMO_ONLY", 0),
+            _ => ("UNKNOWN", "UNKNOWN", 1),
+        };
+        out.insert("source_kind".into(), json!(source));
+        out.insert(
+            "scope".into(),
+            json!(if item["delivery_point_id"].is_null() {
+                "UNKNOWN"
+            } else {
+                "DELIVERY_POINT"
+            }),
+        );
+        out.insert("demo_status".into(), json!(demo));
+        out.insert("is_demo_listing".into(), json!(provenance == "DEMO"));
+        out.insert("unknown_count".into(), json!(unknown));
+        items.push(Value::Object(out));
     }
+    Ok(Value::Array(items))
 }
 fn same_inventory_value(field: &str, before: &Value, after: &Value) -> bool {
     if matches!(
@@ -914,7 +1134,7 @@ fn port_error(error: sqlx::Error) -> MarketWriteError {
         e.code().as_deref() == Some("23503")
             && e.constraint() == Some("inventory_items_port_id_fkey")
     }) {
-        refusal(StatusCode::NOT_FOUND, "Port was not found")
+        MarketWriteError::new(MarketErrorCode::PortNotFound)
     } else {
         error.into()
     }
