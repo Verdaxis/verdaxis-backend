@@ -1305,11 +1305,17 @@ async def test_automatic_org_classification_downgrade_restores_prior_guard(migra
 
 @pytest.mark.asyncio
 async def test_cache_checkpoint_follows_production_revision(migration_database):
-    """The cache checkpoints retain a linear path from production's revision."""
+    """The cache checkpoints retain a linear path from production's revision.
+
+    ``prc_20261026_changes`` must hang directly off ``prc_20261018_cache``,
+    which hangs directly off the revision production runs
+    (``p0_20261016_union``), and be named by the release allowlist, so the
+    literal upgrade below is the deployed cache path. Later revisions chain
+    after it; the single-head rule is pinned by the newest revision's own test.
+    """
     database_url, _database_name = migration_database
 
     script = ScriptDirectory.from_config(Config(str(_BACKEND_ROOT / "alembic.ini")))
-    assert script.get_current_head() == "prc_20261026_changes"
     assert script.get_revision("prc_20261026_changes").down_revision == "prc_20261018_cache"
     assert script.get_revision("prc_20261018_cache").down_revision == "p0_20261016_union"
     allowlist = json.loads(
@@ -1330,7 +1336,9 @@ async def test_cache_checkpoint_follows_production_revision(migration_database):
     )
     assert current.scalar_one() == "p0_20261016_union"
 
-    upgraded = await asyncio.to_thread(_alembic, database_url, "upgrade", "head")
+    upgraded = await asyncio.to_thread(
+        _alembic, database_url, "upgrade", "prc_20261026_changes"
+    )
     assert upgraded.returncode == 0, upgraded.stderr
     current = await _database_execute(
         database_url, "SELECT version_num FROM alembic_version"

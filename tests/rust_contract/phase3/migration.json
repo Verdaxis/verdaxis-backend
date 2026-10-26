@@ -1,11 +1,11 @@
 {
   "revision": "p3_20261020_auth_tokens",
-  "parent": "prc_20261018_cache",
-  "observed_single_head_at_task_start": "prc_20261018_cache",
-  "observed_on_commit": "93317e5921c9e23c9de8b6c75985a0b935ea5c15",
+  "parent": "prc_20261026_changes",
+  "observed_single_head_at_task_start": "prc_20261026_changes",
+  "observed_on_commit": "bb7b149019514a387aeaffe15cb8743882c0cd00",
   "checkpoint_case": 1,
   "checkpoint_rows": [
-    ["prc_20261018_cache", "p3_20261020_auth_tokens"],
+    ["prc_20261026_changes", "p3_20261020_auth_tokens"],
     ["p3_20261020_auth_tokens", "p3_20261020_auth_tokens"]
   ],
   "table": "password_reset_tokens",
