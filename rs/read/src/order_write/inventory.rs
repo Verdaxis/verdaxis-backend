@@ -524,28 +524,11 @@ fn page(query: Option<&str>) -> Result<(i64, i64), MarketWriteError> {
 /// Run one write in the ordered market transaction.
 ///
 /// The lock plan names the record that the preview saw. If another request
-/// deletes that record while this one waits for its lock, the transaction
-/// refuses the changed plan. One new attempt then plans from the current rows,
-/// so the caller gets the same 404 as for a record that never existed.
+/// deletes that record while this one waits for its lock, the attempt ends as
+/// preview drift, and the next attempt within the shared attempt bound plans
+/// from the current rows. The caller then gets the same 404 as for a record
+/// that never existed.
 async fn write_inventory(
-    app: AppState,
-    access: VerifiedAccess,
-    action: InventoryAction,
-) -> Result<Value, MarketWriteError> {
-    let repeat_access = VerifiedAccess {
-        subject: access.subject,
-        issued_at: access.issued_at,
-        issuance_out_of_range: access.issuance_out_of_range,
-    };
-    let names_record = action.names_record();
-    match run_write(app.clone(), access, action.clone()).await {
-        Err(error) if names_record && error.code == MarketErrorCode::MarketSliceChanged => {
-            run_write(app, repeat_access, action).await
-        }
-        result => result,
-    }
-}
-async fn run_write(
     app: AppState,
     access: VerifiedAccess,
     action: InventoryAction,
@@ -573,6 +556,9 @@ struct InventoryCommand {
 }
 impl MarketCommand for InventoryCommand {
     type Output = Value;
+    fn replans_missing_lock_rows(&self) -> bool {
+        self.action.names_record()
+    }
     fn preview<'a>(
         &'a self,
         conn: &'a mut PgConnection,
