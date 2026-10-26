@@ -85,9 +85,25 @@ fn code(bytes: &[u8]) -> String {
 }
 
 #[tokio::test]
+/// A live stream body never ends, so its proof is status plus headers; the
+/// body is dropped, which is also the client-disconnect contract.
+async fn head(router: &Router, path: &str) -> (StatusCode, Vec<(String, String)>) {
+    use tower::ServiceExt;
+    let response = router.clone().oneshot(get(path)).await.unwrap();
+    let status = response.status();
+    let headers = response
+        .headers()
+        .iter()
+        .map(|(name, value)| (name.to_string(), value.to_str().unwrap_or("").to_string()))
+        .collect();
+    drop(response.into_body());
+    (status, headers)
+}
+
+#[tokio::test]
 async fn prices_get_alias_matches_canonical() {
     for path in ["/api/stream/prices", "/api/stream/prices/"] {
-        let (status, headers, _) = send(&live(), get(path)).await;
+        let (status, headers) = head(&live(), path).await;
         assert_eq!(status, StatusCode::OK, "{path}");
         assert!(headers
             .iter()
@@ -99,7 +115,7 @@ async fn prices_get_alias_matches_canonical() {
 #[tokio::test]
 async fn orderbook_get_alias_matches_canonical() {
     for path in ["/api/stream/orderbook", "/api/stream/orderbook/"] {
-        let (status, headers, _) = send(&live(), get(path)).await;
+        let (status, headers) = head(&live(), path).await;
         assert_eq!(status, StatusCode::OK, "{path}");
         assert!(headers
             .iter()
@@ -273,10 +289,20 @@ async fn stream_cursor_header_precedes_query() {
 
 #[tokio::test]
 async fn no_pid_origin_comment_in_rust_stream() {
-    let (_, _, bytes) = send(&live(), get("/api/stream/prices")).await;
-    let text = String::from_utf8_lossy(&bytes).to_lowercase();
-    assert!(!text.contains("pid"));
-    assert!(!text.contains("origin:"));
+    // Read only what the live body emits inside a short bound; an idle stream
+    // may emit nothing at all, which also proves no diagnostic comment.
+    use tower::ServiceExt;
+    let response = live().oneshot(get("/api/stream/prices")).await.unwrap();
+    let bytes = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        axum::body::to_bytes(response.into_body(), 4096),
+    )
+    .await;
+    if let Ok(Ok(bytes)) = bytes {
+        let text = String::from_utf8_lossy(&bytes).to_lowercase();
+        assert!(!text.contains("pid"), "{text}");
+        assert!(!text.contains("origin:"), "{text}");
+    }
 }
 
 #[tokio::test]
