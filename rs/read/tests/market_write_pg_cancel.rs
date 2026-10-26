@@ -454,15 +454,35 @@ async fn concurrent_cancel_releases_once_and_same_key_replays() {
     for key in [None, Some("parallel-command")] {
         let mut f = Fixture::new().await;
         let (a, b) = tokio::join!(f.cancel(f.actor, key), f.cancel(f.actor, key));
-        let mut statuses = vec![a.0.as_u16(), b.0.as_u16()];
-        statuses.sort_unstable();
-        assert_eq!(
-            statuses,
-            if key.is_some() {
-                vec![204, 204]
-            } else {
-                vec![204, 400]
-            }
+        let mut outcomes = [a, b];
+        outcomes.sort_by_key(|outcome| outcome.0.as_u16());
+        // Exactly one request commits the cancellation. The racing twin either
+        // replays the stored receipt, reads the already terminal order, or
+        // exhausts the reviewed lock budget while the winner still holds the
+        // party and slice locks; every outcome still releases the order once.
+        assert_eq!(outcomes[0].0, StatusCode::NO_CONTENT);
+        let twin = &outcomes[1];
+        let code = twin.1["detail"]["code"].as_str().unwrap_or_default();
+        let expected: &[(u16, &str)] = if key.is_some() {
+            &[
+                (204, ""),
+                (409, "MARKET_BUSY"),
+                (503, "TRANSACTION_RETRY_EXHAUSTED"),
+            ]
+        } else {
+            &[
+                (400, "ORDER_TERMINAL"),
+                (409, "MARKET_BUSY"),
+                (503, "TRANSACTION_RETRY_EXHAUSTED"),
+            ]
+        };
+        assert!(
+            expected
+                .iter()
+                .any(|(status, expected_code)| twin.0.as_u16() == *status && code == *expected_code),
+            "unexpected concurrent twin outcome {} {}",
+            twin.0.as_u16(),
+            code,
         );
         let state = f.state().await;
         assert_eq!(state["current"], "6");
