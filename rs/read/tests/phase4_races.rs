@@ -1,1230 +1,2085 @@
 //! Integrated race and atomicity suite (single-stack part).
 //!
-//! Every race here runs on independent pool connections, in both acquisition
-//! orders where two commands contend, with injected serialization failures
-//! (SQLSTATE 40001 and 40P01) and covers success, retry exhaustion and
-//! domain refusal. Assertions wait on observed lock state (backend pids
-//! reported blocked) — never on sleeps — and every case asserts the absence
-//! of partial stock, history, event or session effects.
+//! Every race runs on independent connections against the real commands of the
+//! business modules (account admission, organization and join review, KYC
+//! submission and review, invitations, subscriptions) and the market
+//! invalidation they call. A command is paused inside its transaction after the
+//! ordered owner took every lock, a contender is started on its own connection,
+//! and the suite waits until PostgreSQL reports the contender blocked before it
+//! lets the first command continue. Nothing waits on a sleep. Each case runs in
+//! both acquisition orders where two commands contend, with serialization
+//! failures and deadlocks (40001 and 40P01) raised inside the transaction, and
+//! covers success, retry exhaustion and domain refusal. Every failure asserts
+//! that no stock, history, event, audit row, membership or session changed.
 //!
-//! Races against Python writers are kept only where a Python job keeps
-//! running after the area's switch (approval-mail claims, onboarding
-//! attention, auth maintenance touching `users` and
-//! `pending_approval_email_*`); they are marked per case. Python routes that
-//! stop at their own switch have no coexistence proof here.
+//! Races against Python writers are kept only where a Python writer keeps
+//! running after its area switches to Rust and touches the same rows as a Rust
+//! command: the approval-mail retry timer and the authentication maintenance
+//! command (both in the `auth_maintenance` job) and the trade-lifecycle
+//! requests (until the market phases). Their statements are modelled in
+//! `phase4_races/python_writers.rs`. Python routes that move with their area
+//! have no coexistence proof here. Refresh rotation and invitation acceptance
+//! are routes of the Phase 3 branch; the races against them use stand-ins that
+//! take the same locks through the same store primitives.
 
 #![cfg(feature = "contract-tests")]
 
-use std::sync::Arc;
+#[path = "phase4_races/commands.rs"]
+mod commands;
+#[path = "phase4_races/python_writers.rs"]
+mod python_writers;
+#[path = "phase4_races/world.rs"]
+mod world;
 
-use chrono::{DateTime, Utc};
-use serde_json::json;
-use sqlx::{Connection, PgConnection, Row, postgres::PgPoolOptions};
-use tokio::sync::{Notify, Semaphore};
-use uuid::Uuid;
-use serde_json::Value;
-use verdaxis_read::{
-    auth::{CurrentActor, VerifiedAccess},
-    business::{
-        admission::{
-            AccountRejection, AdmissionEvents, RejectAccount, RejectionRoute,
-        },
-        joins::{ReviewJoin, ReviewNote},
-        organizations::ReviewOrganization,
-        transaction::{
-            AttemptError, BusinessCommand, CommandFuture, OrganizationWritePlan,
-            run_controlled_write, run_ordered_write,
-        },
-    },
-    kyc::{
-        keyring::KeyRing,
-        policy::{KycParty, KycPolicy, KycReason, KycStatus, eligibility},
-        submission::{SubmitCommand, UploadLimits, parse_multipart},
-    },
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
 };
 
-const KEY: &str = "test-secret-key-for-testing-minimum-32-chars";
-
-fn access(id: Uuid) -> VerifiedAccess {
-    let claims = json!({"sub":id,"iat":Utc::now().timestamp(),"exp":Utc::now().timestamp()+3600,"type":"access","iss":"test","aud":"test"});
-    let token = jsonwebtoken::encode(
-        &jsonwebtoken::Header::default(),
-        &claims,
-        &jsonwebtoken::EncodingKey::from_secret(KEY.as_bytes()),
-    )
-    .unwrap();
-    verdaxis_read::auth::verify_access(
-        &token,
-        &verdaxis_read::auth::VerificationSettings::new(KEY.into(), None, "test".into(), "test".into()),
-        Utc::now(),
-    )
-    .unwrap()
-}
-
-/// The event producer double from the admission suite: one outbox row whose
-/// payload records the binding it observed.
-struct Events;
-impl AdmissionEvents for Events {
-    fn visible<'a>(
-        &'a self,
-        conn: &'a mut PgConnection,
-        user: Uuid,
-    ) -> CommandFuture<'a, bool, AttemptError> {
-        Box::pin(async move {
-            Ok(sqlx::query_scalar::<_, Option<String>>(
-                "SELECT kyc_status FROM users WHERE id=$1",
-            )
-            .bind(user)
-            .fetch_optional(conn)
-            .await?
-            .flatten()
-            .is_some_and(|status| status == "APPROVED"))
-        })
-    }
-    fn append<'a>(
-        &'a self,
-        conn: &'a mut PgConnection,
-        user: Uuid,
-        organization: Uuid,
-        public: bool,
-    ) -> CommandFuture<'a, (), AttemptError> {
-        Box::pin(async move {
-            sqlx::query("INSERT INTO market_event_outbox VALUES($1,$2,$3,$4)")
-                .bind(Uuid::new_v4())
-                .bind(user)
-                .bind(organization)
-                .bind(public)
-                .execute(conn)
-                .await?;
-            Ok(())
-        })
-    }
-}
-
-struct Fixture {
-    pool: sqlx::PgPool,
-    admin: PgConnection,
-    schema: String,
-    actor: Uuid,
-    organization: Uuid,
-    watcher: PgConnection,
-}
-
-impl Fixture {
-    async fn new() -> Self {
-        let url = std::env::var("RUST_TEST_MIGRATOR_DATABASE_URL")
-            .expect("explicit disposable migrator URL required");
-        let parsed = url::Url::parse(&url).unwrap();
-        assert_eq!(parsed.host_str(), Some("127.0.0.1"));
-        assert!(!matches!(parsed.port(), Some(5432 | 8000 | 8001)));
-        let mut admin = PgConnection::connect(&url).await.unwrap();
-        let schema = format!("p4r_{}", Uuid::new_v4().simple());
-        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
-            "CREATE SCHEMA {schema}; SET search_path TO {schema}"
-        )))
-        .execute(&mut admin)
-        .await
-        .unwrap();
-        sqlx::raw_sql(
-            "CREATE TABLE organizations(id uuid PRIMARY KEY,type text DEFAULT 'FUEL_BUYER',verification_status text DEFAULT 'PENDING_REVIEW',provenance text DEFAULT 'UNKNOWN',refuse_invalidation boolean DEFAULT false,name text,tax_id text); \
-             CREATE TABLE users(id uuid PRIMARY KEY,organization_id uuid,role text,status text DEFAULT 'APPROVED',email_verified boolean DEFAULT true,must_change_password boolean DEFAULT false,password_changed_at timestamptz,authentication_revoked_at timestamptz,email text DEFAULT 'member@example.test',password_hash text DEFAULT 'synthetic',email_verification_token_hash text,email_verification_token_expires_at timestamptz,referral_code text,first_name text,last_name text,kyc_status text,kyc_organization_id uuid,kyc_rejection_reason text,kyc_external_evidence_reference text,kyc_review_note text,kyc_reviewed_by uuid,kyc_reviewed_at timestamptz,password_reset_token_hash text,password_reset_expires timestamptz,referred_by_id uuid,pending_approval_email_transition_id uuid,pending_approval_email_payload jsonb,pending_approval_email_retry_at timestamptz); \
-             CREATE TABLE organization_join_requests(id uuid PRIMARY KEY,user_id uuid,organization_id uuid,status text DEFAULT 'PENDING',requested_at timestamptz DEFAULT now(),reviewed_by uuid,reviewed_at timestamptz,review_note text); \
-             CREATE TABLE audit_logs(id uuid PRIMARY KEY,user_id uuid,action text,resource_type text,resource_id text,changes jsonb,ip_address text,request_id text,timestamp timestamptz); \
-             CREATE TABLE user_status_transitions(id uuid PRIMARY KEY,user_id uuid,organization_id uuid,role text,from_status text,to_status text,effective_at timestamptz,provenance text); \
-             CREATE TABLE refresh_sessions(id uuid PRIMARY KEY,user_id uuid,revoked boolean DEFAULT false); \
-             CREATE TABLE market_event_outbox(id uuid PRIMARY KEY,user_id uuid,organization_id uuid,public boolean); \
-             CREATE TABLE kyc_documents(id uuid PRIMARY KEY,submission_id uuid,user_id uuid,organization_id uuid,kind text,content_type text,size_bytes integer,key_id text,wrapped_key bytea,key_nonce bytea,data_nonce bytea,ciphertext bytea,created_at timestamptz DEFAULT now()); \
-             CREATE TABLE trades(id uuid PRIMARY KEY,buyer_id uuid,seller_id uuid,status text,quantity_mt numeric,initiator_org_id uuid); \
-             CREATE TABLE orderbook_orders(id uuid PRIMARY KEY,organization_id uuid,side text,status text,remaining_quantity_mt numeric,inventory_item_id uuid); \
-             CREATE TABLE inventory_items(id uuid PRIMARY KEY,current_stock_mt numeric,reserved_stock_mt numeric); \
-             CREATE TABLE effects(id uuid PRIMARY KEY)",
-        )
-        .execute(&mut admin)
-        .await
-        .unwrap();
-        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
-            "GRANT USAGE ON SCHEMA {schema} TO rust_app; \
-             GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA {schema} TO rust_app"
-        )))
-        .execute(&mut admin)
-        .await
-        .unwrap();
-        let runtime = std::env::var("RUST_TEST_DATABASE_URL").expect("runtime URL required");
-        let target = url::Url::parse(&runtime).unwrap();
-        assert_eq!(target.host_str(), parsed.host_str());
-        assert_eq!(target.port(), parsed.port());
-        assert_eq!(target.path(), parsed.path());
-        assert_eq!(target.username(), "rust_app");
-        let path = format!("SET search_path TO {schema}");
-        let pool = PgPoolOptions::new()
-            .max_connections(6)
-            .after_connect(move |conn, _| {
-                let sql = path.clone();
-                Box::pin(async move {
-                    sqlx::raw_sql(sqlx::AssertSqlSafe(sql))
-                        .execute(conn)
-                        .await?;
-                    Ok(())
-                })
-            })
-            .connect(&runtime)
-            .await
-            .unwrap();
-        let mut watcher = PgConnection::connect(&url).await.unwrap();
-        sqlx::raw_sql(sqlx::AssertSqlSafe(format!("SET search_path TO {schema}")))
-            .execute(&mut watcher)
-            .await
-            .unwrap();
-        let actor = Uuid::new_v4();
-        let organization = Uuid::new_v4();
-        sqlx::query("INSERT INTO organizations(id,verification_status) VALUES($1,'APPROVED')")
-            .bind(organization)
-            .execute(&mut admin)
-            .await
-            .unwrap();
-        sqlx::query("INSERT INTO users(id,organization_id,role,status) VALUES($1,$2,'ADMIN','APPROVED')")
-            .bind(actor)
-            .bind(organization)
-            .execute(&mut admin)
-            .await
-            .unwrap();
-        Self { pool, admin, schema, actor, organization, watcher }
-    }
-
-    async fn user(&mut self, organization: Option<Uuid>, role: &str) -> Uuid {
-        let id = Uuid::new_v4();
-        sqlx::query("INSERT INTO users(id,organization_id,role,status,kyc_status) VALUES($1,$2,$3,'APPROVED','PENDING')")
-            .bind(id)
-            .bind(organization)
-            .bind(role)
-            .execute(&mut self.admin)
-            .await
-            .unwrap();
-        id
-    }
-
-    async fn count(&self, table: &str) -> i64 {
-        assert!(["audit_logs","user_status_transitions","market_event_outbox","effects","kyc_documents"].contains(&table));
-        sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {table}")))
-            .fetch_one(&self.pool)
-            .await
-            .unwrap()
-    }
-
-    /// Wait until some backend is reported blocked by the holder pid and
-    /// return it — observed lock state, never a sleep.
-    async fn wait_any_blocked_by(&mut self, holder: i32) -> i32 {
-        for _ in 0..1200 {
-            let waiter: Option<i32> = sqlx::query_scalar(
-                "SELECT pid FROM pg_stat_activity \
-                 WHERE cardinality(pg_blocking_pids(pid)) > 0 \
-                   AND $1 = ANY(pg_blocking_pids(pid)) LIMIT 1",
-            )
-            .bind(holder)
-            .fetch_optional(&mut self.watcher)
-            .await
-            .unwrap();
-            if let Some(pid) = waiter {
-                return pid;
-            }
-            tokio::task::yield_now().await;
-        }
-        panic!("no backend ever blocked on holder {holder}");
-    }
-
-    async fn finish(mut self) {
-        self.pool.close().await;
-        sqlx::raw_sql(sqlx::AssertSqlSafe(format!("DROP SCHEMA {} CASCADE", self.schema)))
-            .execute(&mut self.admin)
-            .await
-            .unwrap();
-    }
-}
-
-fn rejection(user: Uuid, route: RejectionRoute) -> AccountRejection<Events> {
-    AccountRejection {
-        command: RejectAccount {
-            user_id: user,
-            now: Utc::now(),
-            reason: "review".into(),
-            events: Events,
+use chrono::{DateTime, Duration, TimeZone, Utc};
+use rust_decimal::Decimal;
+use serde_json::Value;
+use sqlx::{Connection, QueryBuilder};
+use tokio::sync::Semaphore;
+use uuid::Uuid;
+use verdaxis_read::{
+    analytics::{
+        AnalyticsActivity, AnalyticsAudience, AnalyticsQuery, StatusFacts,
+        aggregates::load_status_facts,
+    },
+    auth::{AccountState, AuthError, validate_account},
+    business::{
+        admission::RejectionRoute,
+        approval_mail::{
+            ApprovalDelivery, claim_approval_mail, deliver_account_approval_mail,
+            finalize_approval_mail,
         },
-        route,
-        reason: Some("review".into()),
-        audit: Default::default(),
-    }
-}
+        transaction::{
+            CompletionControl, CompletionPoint, run_controlled_write, run_ordered_write,
+        },
+    },
+    kyc::policy::{KycParty, KycPolicy, KycReason, KycSqlParty, bind_eligibility_sql, eligibility},
+    order_write::market_slice_lock_key,
+};
 
-fn organization_review(approve: bool, org: Uuid) -> ReviewOrganization {
-    ReviewOrganization {
-        organization_id: org,
-        approve,
-        reason: None,
-        now: Utc::now(),
-        policy: Arc::new(verdaxis_read::MarketPolicy {
-            source_sha: "race-fixture".into(),
-            products: vec![],
-            points: vec![],
-        }),
-        config: Arc::new(verdaxis_read::Config {
-            kyc_execution_gate_enabled: true,
-            environment: "test".into(),
-            release_sha: verdaxis_read::compiled_sha().into(),
-            migration_revision: "race".into(),
-            database_url: "postgres://race@127.0.0.1:1/race".into(),
-            db_session_time_zone: "UTC".into(),
-            prepared_budget: None,
-            bind: "127.0.0.1:0".parse().unwrap(),
-            read_admission_slots: 4,
-            pool_max: 5,
-            python_budget: 1,
-            configured_max_connections: 100,
-        }),
-    }
-}
+use commands::*;
+use python_writers::{DueMail, Finalized};
+use world::*;
 
-/// Shared metadata for a command paused inside `execute` after every lock is
-/// held: it reports its backend pid, signals entry, and waits for release.
-#[derive(Clone)]
-struct Gate {
-    entered: Arc<Notify>,
-    release: Arc<Notify>,
-    pid: Arc<std::sync::Mutex<Option<i32>>>,
-}
-
-impl Gate {
-    fn new() -> Self {
-        Self {
-            entered: Arc::new(Notify::new()),
-            release: Arc::new(Notify::new()),
-            pid: Arc::new(std::sync::Mutex::new(None)),
-        }
-    }
-    async fn arrived(&self) -> i32 {
-        self.entered.notified().await;
-        self.pid.lock().unwrap().expect("backend pid recorded")
-    }
-    fn open(&self) {
-        self.release.notify_one();
-    }
-}
-
-struct GatedJoin {
-    inner: ReviewJoin,
-    gate: Gate,
-}
-
-impl BusinessCommand for GatedJoin {
-    type Output = verdaxis_read::business::joins::JoinDecision;
-    fn preview<'a>(
-        &'a self,
-        conn: &'a mut PgConnection,
-    ) -> CommandFuture<'a, OrganizationWritePlan, AttemptError> {
-        self.inner.preview(conn)
-    }
-    fn execute<'a>(
-        &'a self,
-        conn: &'a mut PgConnection,
-        actor: &'a CurrentActor,
-    ) -> CommandFuture<'a, Self::Output, AttemptError> {
-        Box::pin(async move {
-            let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
-                .fetch_one(&mut *conn)
-                .await?;
-            *self.gate.pid.lock().unwrap() = Some(pid);
-            self.gate.entered.notify_one();
-            self.gate.release.notified().await;
-            self.inner.execute(conn, actor).await
-        })
-    }
-}
-
-struct GatedOrganization {
-    inner: ReviewOrganization,
-    gate: Gate,
-}
-
-impl BusinessCommand for GatedOrganization {
-    type Output = verdaxis_read::business::organizations::OrganizationDecision;
-    fn preview<'a>(
-        &'a self,
-        conn: &'a mut PgConnection,
-    ) -> CommandFuture<'a, OrganizationWritePlan, AttemptError> {
-        self.inner.preview(conn)
-    }
-    fn execute<'a>(
-        &'a self,
-        conn: &'a mut PgConnection,
-        actor: &'a CurrentActor,
-    ) -> CommandFuture<'a, Self::Output, AttemptError> {
-        Box::pin(async move {
-            let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
-                .fetch_one(&mut *conn)
-                .await?;
-            *self.gate.pid.lock().unwrap() = Some(pid);
-            self.gate.entered.notify_one();
-            self.gate.release.notified().await;
-            self.inner.execute(conn, actor).await
-        })
-    }
-}
-
-/// The contender side: spawn a plain command and identify its backend pid by
-/// holding an external lock it must wait behind, so `wait_blocked` observes
-/// the real wait rather than guessing.
-async fn spawn_contender<C: BusinessCommand + Send + Sync + 'static>(
-    pool: sqlx::PgPool,
+/// One command's observed outcome, ignoring its payload.
+async fn run_to_end<C: verdaxis_read::business::transaction::BusinessCommand>(
+    world: &World,
     actor: Uuid,
     command: C,
-) -> tokio::task::JoinHandle<Result<C::Output, verdaxis_read::ApiError>>
-{
-    tokio::spawn(async move {
-        run_ordered_write(pool, Arc::new(Semaphore::new(2)), access(actor), command).await
-    })
+) -> Verdict {
+    finished(spawn_write(&world.pool, actor, command)).await
 }
 
-fn join_review(join: Uuid) -> ReviewJoin {
-    ReviewJoin {
-        join_request_id: join,
-        approve: true,
-        note: ReviewNote::parse("race").unwrap(),
-        now: Utc::now(),
+async fn row_json(world: &World, sql: &'static str, id: Uuid) -> Value {
+    sqlx::query_scalar(sql)
+        .bind(id)
+        .fetch_one(&world.pool)
+        .await
+        .unwrap()
+}
+
+async fn audits_of(world: &World, action: &str, resource: Uuid) -> i64 {
+    sqlx::query_scalar("SELECT count(*) FROM audit_logs WHERE action=$1 AND resource_id=$2")
+        .bind(action)
+        .bind(resource.to_string())
+        .fetch_one(&world.pool)
+        .await
+        .unwrap()
+}
+
+async fn status_of(world: &World, sql: &'static str, id: Uuid) -> String {
+    world.scalar_text(sql, id).await.expect("a stored status")
+}
+
+async fn organization_status(world: &World, organization: Uuid) -> String {
+    status_of(
+        world,
+        "SELECT verification_status FROM organizations WHERE id=$1",
+        organization,
+    )
+    .await
+}
+
+async fn members_of(world: &World, organization: Uuid) -> i64 {
+    world
+        .count_for(
+            "SELECT count(*) FROM users WHERE organization_id=$1",
+            organization,
+        )
+        .await
+}
+
+async fn user_organization(world: &World, user: Uuid) -> Option<Uuid> {
+    sqlx::query_scalar("SELECT organization_id FROM users WHERE id=$1")
+        .bind(user)
+        .fetch_one(&world.pool)
+        .await
+        .unwrap()
+}
+
+async fn kyc_of(world: &World, user: Uuid) -> (String, Option<Uuid>) {
+    sqlx::query_as("SELECT kyc_status,kyc_organization_id FROM users WHERE id=$1")
+        .bind(user)
+        .fetch_one(&world.pool)
+        .await
+        .unwrap()
+}
+
+async fn order_status(world: &World, order: Uuid) -> String {
+    status_of(
+        world,
+        "SELECT status FROM orderbook_orders WHERE id=$1",
+        order,
+    )
+    .await
+}
+
+const TRADE_ROW: &str = "SELECT to_jsonb(t) FROM trades t WHERE id=$1";
+
+async fn live_sessions(world: &World, user: Uuid) -> i64 {
+    world
+        .count_for(
+            "SELECT count(*) FROM refresh_sessions WHERE user_id=$1 AND NOT revoked",
+            user,
+        )
+        .await
+}
+
+async fn account_state(world: &World, user: Uuid) -> AccountState {
+    let (status, must_change, changed, revoked): (
+        String,
+        bool,
+        Option<DateTime<Utc>>,
+        Option<DateTime<Utc>>,
+    ) = sqlx::query_as("SELECT status,must_change_password,password_changed_at,authentication_revoked_at FROM users WHERE id=$1")
+        .bind(user)
+        .fetch_one(&world.pool)
+        .await
+        .unwrap();
+    AccountState {
+        exists: true,
+        status,
+        must_change_password: must_change,
+        password_changed_at: changed.map(|at| at.timestamp_micros()),
+        authentication_revoked_at: revoked.map(|at| at.timestamp_micros()),
     }
 }
 
-/// Join approval and organization rejection, both acquisition orders, five
-/// deterministic repetitions each. The first command holds every lock inside
-/// `execute`; the contender spawns on its own connection and must block on
-/// the holder — observed through `pg_blocking_pids` on an external watcher
-/// connection, never a sleep — before the holder releases. No inversion:
-/// whichever order ran, a rejected organization never gains a member, and
-/// both commands end in success or a domain conflict with no partial rows.
+// ===========================================================================
+// join_approval_and_org_rejection_do_not_deadlock
+// ===========================================================================
+
+/// Repetitions of each acquisition order.
+const JOIN_REVIEW_REPETITIONS: usize = 50;
+
+/// Join approval and organization rejection contend for the same organization
+/// row. Whichever starts first pauses after its canonical locks; the other
+/// command waits on its own connection and is observed blocked before the first
+/// continues. In both orders neither deadlocks, a rejected organization never
+/// keeps or gains a member, and the pre-existing trade, the stock and the audit
+/// trail come out exactly once.
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL authority"]
 async fn join_approval_and_org_rejection_do_not_deadlock() {
+    let mut world = World::new().await;
     for join_first in [true, false] {
-        for repetition in 0..5 {
-            let mut f = Fixture::new().await;
-            let member = f.user(Some(f.organization), "BUYER").await;
-            let join = Uuid::new_v4();
-            sqlx::query("INSERT INTO organization_join_requests(id,user_id,organization_id,status) VALUES($1,$2,$3,'PENDING')")
-                .bind(join).bind(member).bind(f.organization)
-                .execute(&mut f.admin).await.unwrap();
-            let gate = Gate::new();
-            let pool = f.pool.clone();
-            let actor = f.actor;
-            let org = f.organization;
+        for _ in 0..JOIN_REVIEW_REPETITIONS {
+            let organization = world.organization().await;
+            let member = world.user(Some(organization)).await;
+            world.bind_kyc(member, "APPROVED", Some(organization)).await;
+            let applicant = world.user(None).await;
+            let join = world.join_request(applicant, organization).await;
+            let listing = world.stocked_listing(organization).await;
+            let counterparty_org = world.organization().await;
+            let counterparty = world.user(Some(counterparty_org)).await;
+            let trade = world
+                .trade(
+                    (counterparty_org, counterparty),
+                    (organization, member),
+                    Some(listing.order),
+                    "CONFIRMED",
+                )
+                .await;
+            let trade_before = row_json(&world, TRADE_ROW, trade).await;
 
-            // Start the holder: a gated command that signals once every lock
-            // is held inside execute.
-            let held_pool = pool.clone();
-            let held_actor = actor;
-            type HeldOutcome = std::pin::Pin<
-                Box<
-                    dyn std::future::Future<
-                        Output = Result<
-                            Result<serde_json::Value, verdaxis_read::ApiError>,
-                            tokio::task::JoinError,
-                        >,
-                    > + Send,
-                >,
-            >;
-            let held_task: HeldOutcome = if join_first {
-                let command = GatedJoin { inner: join_review(join), gate: gate.clone() };
-                Box::pin(tokio::spawn(async move {
-                    let outcome = run_ordered_write(
-                        held_pool,
-                        Arc::new(Semaphore::new(2)),
-                        access(held_actor),
-                        command,
-                    )
-                    .await;
-                    outcome.map(|_| serde_json::json!({}))
-                }))
+            let gate = Gate::closed();
+            let (holder, holder_pid, contender) = if join_first {
+                let holder = spawn_write(
+                    &world.pool,
+                    world.actor,
+                    Gated::new(review_join(join, true), &gate),
+                );
+                let pid = gate.arrived().await;
+                let contender = spawn_write(
+                    &world.pool,
+                    world.actor,
+                    review_organization(&world, organization, false),
+                );
+                (holder, pid, contender)
             } else {
-                let command =
-                    GatedOrganization { inner: organization_review(false, org), gate: gate.clone() };
-                Box::pin(tokio::spawn(async move {
-                    let outcome = run_ordered_write(
-                        held_pool,
-                        Arc::new(Semaphore::new(2)),
-                        access(held_actor),
-                        command,
-                    )
-                    .await;
-                    outcome.map(|_| serde_json::json!({}))
-                }))
+                let holder = spawn_write(
+                    &world.pool,
+                    world.actor,
+                    Gated::new(review_organization(&world, organization, false), &gate),
+                );
+                let pid = gate.arrived().await;
+                let contender = spawn_write(&world.pool, world.actor, review_join(join, true));
+                (holder, pid, contender)
             };
-            let holder = gate.arrived().await;
-
-            // Contender: the other command, on its own connection.
-            let pool2 = f.pool.clone();
-            let contender_pool = pool2.clone();
-            let contender_actor = actor;
-            type ContenderOutcome = std::pin::Pin<
-                Box<
-                    dyn std::future::Future<
-                        Output = Result<
-                            Result<serde_json::Value, verdaxis_read::ApiError>,
-                            tokio::task::JoinError,
-                        >,
-                    > + Send,
-                >,
-            >;
-            let contender_task: ContenderOutcome = if join_first {
-                let command = organization_review(false, org);
-                Box::pin(tokio::spawn(async move {
-                    let outcome = run_ordered_write(
-                        contender_pool,
-                        Arc::new(Semaphore::new(2)),
-                        access(contender_actor),
-                        command,
-                    )
-                    .await;
-                    outcome.map(|_| serde_json::json!({}))
-                }))
-            } else {
-                let command = join_review(join);
-                Box::pin(tokio::spawn(async move {
-                    let outcome = run_ordered_write(
-                        contender_pool,
-                        Arc::new(Semaphore::new(2)),
-                        access(contender_actor),
-                        command,
-                    )
-                    .await;
-                    outcome.map(|_| serde_json::json!({}))
-                }))
-            };
-
-            // Exactly one other backend is blocked by the holder: the
-            // contender waiting on the shared row lock. Observed, not timed.
-            let contender_pid = f.wait_any_blocked_by(holder).await;
+            wait_blocked(&mut world.watcher, holder_pid, 1).await;
             gate.open();
-            let held_outcome = std::pin::pin!(held_task).await;
-            let _ = held_outcome
-                .expect("holder task finished")
-                .expect("holder command succeeded");
-            let contender_outcome = std::pin!(contender_task).await;
-            let _ = contender_outcome
-                .expect("contender task finished")
-                .expect("contender command succeeded");
+            let holder = finished(holder).await;
+            let contender = finished(contender).await;
 
-            let org_status: String = sqlx::query_scalar(
-                "SELECT verification_status FROM organizations WHERE id=$1",
-            )
-            .bind(org)
-            .fetch_one(&f.pool)
-            .await
-            .unwrap();
-            let join_status: Option<String> =
-                sqlx::query_scalar("SELECT status FROM organization_join_requests WHERE id=$1")
-                    .bind(join)
-                    .fetch_one(&f.pool)
-                    .await
-                    .unwrap();
-            if org_status == "REJECTED" {
-                assert_ne!(
-                    join_status.as_deref(),
-                    Some("APPROVED"),
-                    "a rejected organization gained a member"
+            assert_eq!(organization_status(&world, organization).await, "REJECTED");
+            assert_eq!(
+                members_of(&world, organization).await,
+                0,
+                "a rejected organization kept or gained a member"
+            );
+            assert_eq!(user_organization(&world, applicant).await, None);
+            assert_eq!(
+                kyc_of(&world, member).await,
+                ("PENDING".to_string(), None),
+                "the member's review stayed bound to the rejected organization"
+            );
+            assert_eq!(
+                row_json(&world, TRADE_ROW, trade).await,
+                trade_before,
+                "the rejection changed a pre-existing trade"
+            );
+            assert_eq!(order_status(&world, listing.order).await, "CANCELLED");
+            assert_eq!(
+                world.stock(listing.inventory).await,
+                (Decimal::from(80), Decimal::from(20)),
+                "only the uncommitted reservation is released"
+            );
+            assert_eq!(
+                audits_of(&world, "admin.organization_rejected", organization).await,
+                1
+            );
+            assert_eq!(
+                audits_of(&world, "kyc.membership_invalidated", member).await,
+                1
+            );
+            let invalidations: i64 = sqlx::query_scalar("SELECT count(*) FROM market_event_outbox WHERE event_type='market_access_invalidated' AND aggregate_id=$1")
+                .bind(organization.to_string())
+                .fetch_one(&world.pool)
+                .await
+                .unwrap();
+            assert_eq!(invalidations, 1);
+            if join_first {
+                // The approval won the organization row; the rejection then saw
+                // the new member, retried from a fresh transaction and unlinked it.
+                holder.expect("join approval committed");
+                contender.expect("organization rejection committed");
+                assert_eq!(
+                    status_of(
+                        &world,
+                        "SELECT status FROM organization_join_requests WHERE id=$1",
+                        join
+                    )
+                    .await,
+                    "APPROVED"
+                );
+                assert_eq!(
+                    audits_of(&world, "organization.join_approved", join).await,
+                    1
+                );
+            } else {
+                // The rejection won; the approval refuses a rejected organization.
+                holder.expect("organization rejection committed");
+                assert_eq!(
+                    refusal(&contender),
+                    (409, "ORGANIZATION_JOIN_ORG_INELIGIBLE".into())
+                );
+                assert_eq!(
+                    status_of(
+                        &world,
+                        "SELECT status FROM organization_join_requests WHERE id=$1",
+                        join
+                    )
+                    .await,
+                    "PENDING"
+                );
+                assert_eq!(
+                    audits_of(&world, "organization.join_approved", join).await,
+                    0
                 );
             }
-            f.finish().await;
         }
     }
+    world.finish().await;
 }
 
-/// A KYC submit whose upload was parsed against the user's current
-/// organization, then membership moves underneath it. The preview ran before
-/// the membership change; the ordered owner re-runs the preview under the
-/// locks, so the outcome is either the current binding stored or a 409 —
-/// never an approval bound to the old organization.
+// ===========================================================================
+// kyc_submit_vs_membership_change_revalidates
+// ===========================================================================
+
+/// A KYC submission is parsed against the user's current organization. The
+/// ordered owner re-reads membership under the canonical locks, so the outcome
+/// is either the current binding stored or a 409 — never evidence bound to an
+/// organization the user has left.
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL authority"]
 async fn kyc_submit_vs_membership_change_revalidates() {
-    let mut f = Fixture::new().await;
-    let org_b = Uuid::new_v4();
-    sqlx::query("INSERT INTO organizations(id) VALUES($1)")
-        .bind(org_b)
-        .execute(&mut f.admin)
+    let mut world = World::new().await;
+
+    // Membership moves while the submission waits for the user row.
+    let origin = world.organization().await;
+    let target = world.organization().await;
+    let user = world.user(Some(origin)).await;
+    let mut mover = world.runtime_connection().await;
+    let mover_pid = backend_pid(&mut mover).await;
+    sqlx::query("BEGIN").execute(&mut mover).await.unwrap();
+    sqlx::query("SELECT 1 FROM users WHERE id=$1 FOR UPDATE")
+        .bind(user)
+        .execute(&mut mover)
         .await
         .unwrap();
-    let user = f.user(Some(f.organization), "BUYER").await;
-    let upload = parse_multipart(
-        axum::body::Body::from(multipart_body()),
-        "multipart/form-data; boundary=race-boundary",
-        UploadLimits::default(),
-    )
-    .await
-    .unwrap();
-    let keys: Arc<KeyRing> = Arc::new(
-        KeyRing::parse(
-            br#"{"active":"a","keys":{"a":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}}"#,
-        )
-        .unwrap(),
-    );
-
-    // Move membership on a direct connection after the command's preview
-    // inputs were captured: the submit must observe the change or refuse.
+    let submit = spawn_write(&world.pool, user, submit_kyc(user, origin).await);
+    wait_blocked(&mut world.watcher, mover_pid, 1).await;
     sqlx::query("UPDATE users SET organization_id=$2 WHERE id=$1")
         .bind(user)
-        .bind(org_b)
-        .execute(&mut f.admin)
+        .bind(target)
+        .execute(&mut mover)
         .await
         .unwrap();
+    sqlx::query("COMMIT").execute(&mut mover).await.unwrap();
+    assert_eq!(
+        refusal(&finished(submit).await),
+        (409, "KYC_MEMBERSHIP_CHANGED".into())
+    );
+    assert_eq!(kyc_of(&world, user).await, ("PENDING".to_string(), None));
+    assert_eq!(
+        world
+            .count_for("SELECT count(*) FROM kyc_documents WHERE user_id=$1", user)
+            .await,
+        0
+    );
+    assert_eq!(audits_of(&world, "kyc.submitted", user).await, 0);
 
-    let result = run_ordered_write(
-        f.pool.clone(),
-        Arc::new(Semaphore::new(1)),
-        access(user),
-        SubmitCommand::new(user, f.organization, upload, keys, Utc::now()),
-    )
-    .await;
-    match result {
-        Ok(_) => panic!("a stale-organization submit must not succeed"),
-        Err(error) => {
-            let code = error.detail["code"].as_str().unwrap_or_default();
-            assert!(
-                code == "KYC_MEMBERSHIP_CHANGED" || error.status.as_u16() == 409,
-                "unexpected refusal {code} ({})",
-                error.status.as_u16()
+    // The submission commits first; the organization is then rejected, which
+    // resets the review it just bound. The evidence rows stay.
+    let origin = world.organization().await;
+    let user = world.user(Some(origin)).await;
+    let gate = Gate::closed();
+    let submit = spawn_write(
+        &world.pool,
+        user,
+        Gated::new(submit_kyc(user, origin).await, &gate),
+    );
+    let holder = gate.arrived().await;
+    let rejection = spawn_write(
+        &world.pool,
+        world.actor,
+        review_organization(&world, origin, false),
+    );
+    wait_blocked(&mut world.watcher, holder, 1).await;
+    gate.open();
+    finished(submit).await.expect("the submission committed");
+    finished(rejection).await.expect("the rejection committed");
+    assert_eq!(kyc_of(&world, user).await, ("PENDING".to_string(), None));
+    assert_eq!(user_organization(&world, user).await, None);
+    assert_eq!(
+        world
+            .count_for("SELECT count(*) FROM kyc_documents WHERE user_id=$1", user)
+            .await,
+        2,
+        "retained evidence is never deleted"
+    );
+    assert_eq!(audits_of(&world, "kyc.submitted", user).await, 1);
+    assert_eq!(
+        audits_of(&world, "kyc.membership_invalidated", user).await,
+        1
+    );
+
+    // A review decision racing the rejection of the organization it is bound
+    // to: approved first, the rejection resets it; rejected first, the approval
+    // finds no current binding. No order leaves an approval bound to the
+    // rejected organization.
+    for approve_first in [true, false] {
+        let origin = world.organization().await;
+        let user = world.user(Some(origin)).await;
+        world.bind_kyc(user, "SUBMITTED", Some(origin)).await;
+        let gate = Gate::closed();
+        let (holder, pid, contender) = if approve_first {
+            let holder = spawn_write(
+                &world.pool,
+                world.actor,
+                Gated::new(review_kyc(user, true), &gate),
             );
+            let pid = gate.arrived().await;
+            let contender = spawn_write(
+                &world.pool,
+                world.actor,
+                review_organization(&world, origin, false),
+            );
+            (holder, pid, contender)
+        } else {
+            let holder = spawn_write(
+                &world.pool,
+                world.actor,
+                Gated::new(review_organization(&world, origin, false), &gate),
+            );
+            let pid = gate.arrived().await;
+            let contender = spawn_write(&world.pool, world.actor, review_kyc(user, true));
+            (holder, pid, contender)
+        };
+        wait_blocked(&mut world.watcher, pid, 1).await;
+        gate.open();
+        let holder = finished(holder).await;
+        let contender = finished(contender).await;
+        holder.expect("the first command committed");
+        if approve_first {
+            contender.expect("the rejection committed");
+            assert_eq!(audits_of(&world, "kyc.approved", user).await, 1);
+        } else {
+            assert_eq!(
+                refusal(&contender),
+                (409, "KYC_ORGANIZATION_MISMATCH".into())
+            );
+            assert_eq!(audits_of(&world, "kyc.approved", user).await, 0);
         }
-    }
-    let (status, bound): (Option<String>, Option<Uuid>) =
-        sqlx::query_as("SELECT kyc_status,kyc_organization_id FROM users WHERE id=$1")
-            .bind(user)
-            .fetch_one(&f.pool)
-            .await
-            .unwrap();
-    assert_ne!(status.as_deref(), Some("SUBMITTED"));
-    assert_ne!(bound, Some(f.organization));
-    assert_eq!(f.count("kyc_documents").await, 0, "no evidence row persists");
-    assert_eq!(f.count("audit_logs").await, 0, "no audit row persists");
-    f.finish().await;
-}
-
-fn multipart_body() -> Vec<u8> {
-    let mut body = Vec::new();
-    for (name, content) in [("passport", b"%PDF-race" as &[u8]), ("company_doc", b"%PDF-race")] {
-        body.extend_from_slice(
-            format!(
-                "--race-boundary\r\nContent-Disposition: form-data; name=\"{name}\"; filename=\"r.pdf\"\r\nContent-Type: application/pdf\r\n\r\n"
-            )
-            .as_bytes(),
+        assert_eq!(organization_status(&world, origin).await, "REJECTED");
+        assert_eq!(
+            kyc_of(&world, user).await,
+            ("PENDING".to_string(), None),
+            "an approval stayed bound to the rejected organization"
         );
-        body.extend_from_slice(content);
-        body.extend_from_slice(b"\r\n");
+        assert_eq!(members_of(&world, origin).await, 0);
     }
-    body.extend_from_slice(b"--race-boundary--\r\n");
-    body
+    world.finish().await;
 }
 
-/// Account rejection racing a Phase 3 refresh on the same user row. The
-/// ordered owner holds the user lock for the whole admission, so the refresh
-/// either completes before the rejection or waits behind it; no successor
-/// access can survive the rejection's cutoff, and no old refresh family
-/// remains active afterwards. The refresh side is the shared Phase 3
-/// primitive, which Python's auth maintenance keeps exercising after the
-/// switch, so this row remains a two-writer row.
+// ===========================================================================
+// reject_vs_refresh_revokes_successor
+// ===========================================================================
+
+/// Account rejection and a refresh rotation serialize on the user row.
+/// Rejection first: the rotation finds the rejected status and the cutoff and
+/// issues nothing. Rotation first: the rejection revokes the successor session
+/// the rotation just issued, so no refresh family of the user stays live.
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL authority"]
 async fn reject_vs_refresh_revokes_successor() {
-    let mut f = Fixture::new().await;
-    let user = f.user(Some(f.organization), "BUYER").await;
-    sqlx::query("INSERT INTO refresh_sessions VALUES($1,$2,false)")
-        .bind(Uuid::new_v4())
-        .bind(user)
-        .execute(&mut f.admin)
-        .await
-        .unwrap();
+    let mut world = World::new().await;
 
-    // Hold the user row on a direct connection so the rejection's lock
-    // acquisition is observable, then run a refresh-family update that must
-    // queue behind it (the shared primitive never writes around the lock).
-    let mut holder = f.pool.acquire().await.unwrap();
-    let holder_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
-        .fetch_one(&mut *holder)
-        .await
-        .unwrap();
-    let mut held_tx = holder.begin().await.unwrap();
-    sqlx::query("SELECT 1 FROM users WHERE id=$1 FOR UPDATE")
-        .bind(user)
-        .fetch_one(&mut *held_tx)
-        .await
-        .unwrap();
-    let rejection = tokio::spawn(run_ordered_write(
-        f.pool.clone(),
-        Arc::new(Semaphore::new(1)),
-        access(f.actor),
-        rejection(user, RejectionRoute::Auth),
-    ));
-    let waiter = f.wait_any_blocked_by(holder_pid).await;
-    assert_ne!(waiter, holder_pid);
-
-    // A refresh write attempts the same row behind the rejection.
-    let mut refresh_conn = f.pool.acquire().await.unwrap();
-    let refresh_task = tokio::spawn(async move {
-        let mut tx = refresh_conn.begin().await.unwrap();
-        sqlx::query("UPDATE refresh_sessions SET revoked=true WHERE user_id=$1 AND revoked=false")
-            .bind(user)
-            .execute(&mut *tx)
-            .await
-            .unwrap();
-        tx.commit().await.unwrap();
+    // Rejection first.
+    let organization = world.organization().await;
+    let user = world.user(Some(organization)).await;
+    let session = world.live_session(user).await;
+    let gate = Gate::closed();
+    let rejection = spawn_write(
+        &world.pool,
+        world.actor,
+        Gated::new(
+            reject_account(user, RejectionRoute::Auth, Utc::now()),
+            &gate,
+        ),
+    );
+    let holder = gate.arrived().await;
+    let refresh = tokio::spawn({
+        let pool = world.pool.clone();
+        async move {
+            lock_for_rotation(&pool, user, &session)
+                .await
+                .finish(Utc::now() - Duration::minutes(10))
+                .await
+        }
     });
-    let second = f.wait_any_blocked_by(holder_pid).await;
-    assert_ne!(second, holder_pid);
-    held_tx.rollback().await.unwrap();
-    drop(holder);
+    wait_blocked(&mut world.watcher, holder, 1).await;
+    gate.open();
+    finished(rejection).await.expect("the rejection committed");
+    assert_eq!(
+        refresh.await.unwrap(),
+        None,
+        "a refresh outlived the rejection"
+    );
+    assert_eq!(live_sessions(&world, user).await, 0);
+    assert_eq!(
+        world
+            .count_for(
+                "SELECT count(*) FROM refresh_sessions WHERE user_id=$1",
+                user
+            )
+            .await,
+        1,
+        "no successor session exists"
+    );
 
-    let outcome = rejection.await.unwrap().expect("rejection finished");
-    let _ = outcome;
-    refresh_task.await.unwrap();
-
-    // No surviving family and a cutoff recorded: the successor cannot use an
-    // old token after the rejection, whichever side committed last.
-    let (active, cutoff): (i64, Option<DateTime<Utc>>) =
-        sqlx::query_as("SELECT count(*) FILTER (WHERE NOT revoked), max(authentication_revoked_at) FROM refresh_sessions rs JOIN users u ON u.id=rs.user_id WHERE u.id=$1")
-            .bind(user)
-            .fetch_one(&f.pool)
-            .await
-            .unwrap();
-    assert_eq!(active, 0, "an old refresh family survived the rejection");
-    assert!(cutoff.is_some(), "no access cutoff was recorded");
-    f.finish().await;
+    // Rotation first.
+    let user = world.user(Some(organization)).await;
+    let session = world.live_session(user).await;
+    let rotation = lock_for_rotation(&world.pool, user, &session).await;
+    let rejection = spawn_write(
+        &world.pool,
+        world.actor,
+        reject_account(user, RejectionRoute::Auth, Utc::now()),
+    );
+    wait_blocked(&mut world.watcher, rotation.backend, 1).await;
+    let successor = rotation.finish(Utc::now()).await;
+    assert!(successor.is_some(), "the rotation ran before the rejection");
+    finished(rejection).await.expect("the rejection committed");
+    assert_eq!(
+        live_sessions(&world, user).await,
+        0,
+        "the successor survived"
+    );
+    assert_eq!(
+        world
+            .count_for(
+                "SELECT count(*) FROM refresh_sessions WHERE user_id=$1",
+                user
+            )
+            .await,
+        2
+    );
+    world.finish().await;
 }
 
-/// An old approval-mail send returns after rejection and reapproval created a
-/// newer transition. The old finalize's guarded UPDATE matches no row, so it
-/// can never clear the new lease or payload. The Python auth-maintenance
-/// timer keeps claiming these rows after the switch, so the claim shape is
-/// asserted exactly as it will be exercised cross-language.
+/// A Python maintenance delete of an expired session holds that row while the
+/// rejection revokes the user's sessions: the revocation waits for the delete,
+/// and the stale row ends deleted and every live session revoked.
+#[tokio::test]
+#[ignore = "requires explicit disposable PostgreSQL authority"]
+async fn auth_maintenance_delete_vs_rejection_keeps_both_effects() {
+    let mut world = World::new().await;
+    let organization = world.organization().await;
+    let user = world.user(Some(organization)).await;
+    world.session(user, Utc::now() - Duration::hours(1)).await;
+    world.live_session(user).await;
+    let mut maintenance = world.runtime_connection().await;
+    let maintenance_pid = backend_pid(&mut maintenance).await;
+    sqlx::query("BEGIN")
+        .execute(&mut maintenance)
+        .await
+        .unwrap();
+    let deleted =
+        python_writers::delete_stale_refresh_sessions(&mut maintenance, Utc::now(), 1000).await;
+    assert_eq!(deleted, 1, "the expired session is the maintenance batch");
+    let rejection = spawn_write(
+        &world.pool,
+        world.actor,
+        reject_account(user, RejectionRoute::Auth, Utc::now()),
+    );
+    wait_blocked(&mut world.watcher, maintenance_pid, 1).await;
+    sqlx::query("COMMIT")
+        .execute(&mut maintenance)
+        .await
+        .unwrap();
+    finished(rejection).await.expect("the rejection committed");
+    assert_eq!(live_sessions(&world, user).await, 0);
+    assert_eq!(
+        world
+            .count_for(
+                "SELECT count(*) FROM refresh_sessions WHERE user_id=$1",
+                user
+            )
+            .await,
+        1,
+        "the maintenance delete and the revocation each kept their effect"
+    );
+    assert!(
+        account_state(&world, user)
+            .await
+            .authentication_revoked_at
+            .is_some()
+    );
+    world.finish().await;
+}
+
+// ===========================================================================
+// approval_email_finalize_preserves_newer_transition
+// ===========================================================================
+
+/// The Python retry timer claims a due approval mail, then rejection and
+/// reapproval replace the marker while its send is in flight. The old finalize
+/// matches no row and cannot clear the new lease or payload; the Rust sender
+/// then delivers the newer transition exactly once and the timer finds nothing.
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL authority"]
 async fn approval_email_finalize_preserves_newer_transition() {
-    use verdaxis_read::business::approval_mail::{
-        FrozenApprovalPayload, claim_approval_mail, finalize_approval_mail,
-    };
-    let mut f = Fixture::new().await;
-    let user = f.user(Some(f.organization), "BUYER").await;
-
-    let payload = FrozenApprovalPayload {
-        from: "ops@verdaxis.exchange".into(),
-        to: ["member@example.test".into()],
-        subject: "Account approved".into(),
-        html: "<p>approved</p>".into(),
-        reply_to: None,
-    };
-    let mark = |user: Uuid, transition: Uuid, retry_at: DateTime<Utc>| {
-        sqlx::query("UPDATE users SET status='APPROVED',email_verified=true,pending_approval_email_transition_id=$2,pending_approval_email_payload=$3,pending_approval_email_retry_at=$4 WHERE id=$1")
+    let mut world = World::new().await;
+    let organization = world.organization().await;
+    let user = world.user(Some(organization)).await;
+    world.set_status(user, "PENDING").await;
+    let marker = |world: &World| {
+        let pool = world.pool.clone();
+        async move {
+            sqlx::query_as::<_, (Option<Uuid>, Option<Value>, Option<DateTime<Utc>>)>(
+                "SELECT pending_approval_email_transition_id,pending_approval_email_payload,pending_approval_email_retry_at FROM users WHERE id=$1",
+            )
             .bind(user)
-            .bind(transition)
-            .bind(serde_json::to_value(&payload).unwrap())
-            .bind(retry_at)
-    };
-
-    // The old send claims the old transition and is then delayed.
-    let old_transition = Uuid::new_v4();
-    let now = Utc::now();
-    mark(user, old_transition, now - chrono::Duration::minutes(5))
-        .execute(&mut f.admin)
-        .await
-        .unwrap();
-    let mut conn = f.pool.acquire().await.unwrap();
-    let mut tx = conn.begin().await.unwrap();
-    let old_claim = claim_approval_mail(&mut *tx, user, old_transition, now)
-        .await
-        .unwrap()
-        .expect("the old transition is claimable");
-
-    // A claim is a committed lease, not a lock held across the send: the
-    // claim transaction commits, releasing the user row, and the delayed
-    // send finalizes later on its own connection.
-    drop(tx);
-    drop(conn);
-
-    // While the old send is in flight, rejection and reapproval create a
-    // newer transition with a new lease. These commit before the old send
-    // returns.
-    let new_transition = Uuid::new_v4();
-    sqlx::query("UPDATE users SET status='REJECTED' WHERE id=$1")
-        .bind(user)
-        .execute(&mut f.admin)
-        .await
-        .unwrap();
-    mark(user, new_transition, now + chrono::Duration::minutes(30))
-        .execute(&mut f.admin)
-        .await
-        .unwrap();
-
-    // The delayed old send now finalizes against its stale claim on a fresh
-    // connection; its guarded UPDATE must match no row.
-    let mut late = f.pool.acquire().await.unwrap();
-    finalize_approval_mail(&mut *late, &old_claim, true, now + chrono::Duration::minutes(10))
-        .await
-        .unwrap();
-    drop(late);
-
-    let (transition, payload_left, retry_at): (Option<Uuid>, Option<Value>, Option<DateTime<Utc>>) =
-        sqlx::query_as("SELECT pending_approval_email_transition_id,pending_approval_email_payload,pending_approval_email_retry_at FROM users WHERE id=$1")
-            .bind(user)
-            .fetch_one(&f.pool)
+            .fetch_one(&pool)
             .await
-            .unwrap();
-    assert_eq!(
-        transition,
-        Some(new_transition),
-        "the old finalize cleared the newer transition"
-    );
-    assert!(payload_left.is_some(), "the old finalize cleared the new payload");
-    assert_eq!(
-        retry_at,
-        Some(now + chrono::Duration::minutes(30)),
-        "the old finalize moved the new lease"
-    );
+            .unwrap()
+        }
+    };
 
-    // The new transition remains claimable exactly once for its own send.
-    let mut conn = f.pool.acquire().await.unwrap();
-    let new_claim = claim_approval_mail(
-        &mut *conn,
-        user,
-        new_transition,
-        now + chrono::Duration::minutes(35),
+    run_to_end(&world, world.actor, approve_account(user, Utc::now()))
+        .await
+        .expect("the approval committed");
+    let (first, ..) = marker(&world).await;
+    let first = first.expect("the approval froze a marker");
+
+    // The timer claims the first transition and its send is delayed.
+    let mut timer = world.runtime_connection().await;
+    assert!(matches!(
+        python_writers::lock_due_approval_mail(&mut timer, user, first, Utc::now()).await,
+        DueMail::Locked
+    ));
+    let lease = python_writers::commit_lease(&mut timer, user, Utc::now()).await;
+
+    // Rejection clears the marker; reapproval freezes a new transition.
+    run_to_end(
+        &world,
+        world.actor,
+        reject_account(user, RejectionRoute::Auth, Utc::now()),
     )
     .await
-    .unwrap()
-    .expect("the newer transition is claimable");
-    assert_eq!(new_claim.marker.transition_id, new_transition);
-    drop(conn);
-    f.finish().await;
+    .expect("the rejection committed");
+    assert_eq!(marker(&world).await.0, None, "rejection clears the marker");
+    world.set_status(user, "PENDING").await;
+    run_to_end(&world, world.actor, approve_account(user, Utc::now()))
+        .await
+        .expect("the reapproval committed");
+    let (second, payload, retry_at) = marker(&world).await;
+    let second = second.expect("the reapproval froze a marker");
+    assert_ne!(first, second);
+
+    // The old send returns and finalizes against its stale lease.
+    assert_eq!(
+        python_writers::finalize_approval_mail(&mut timer, user, first, lease, true, Utc::now())
+            .await,
+        Finalized::Skipped
+    );
+    let (kept, kept_payload, kept_retry) = marker(&world).await;
+    assert_eq!(
+        kept,
+        Some(second),
+        "the old finalize cleared the newer transition"
+    );
+    assert_eq!(
+        kept_payload, payload,
+        "the old finalize cleared the new payload"
+    );
+    assert_eq!(kept_retry, retry_at, "the old finalize moved the new lease");
+
+    // The newer transition is sent once, by the Rust sender.
+    let sends = Arc::new(AtomicUsize::new(0));
+    let sent = deliver_account_approval_mail(&world.pool, user, second, Utc::now, {
+        let sends = Arc::clone(&sends);
+        move |_payload, key| async move {
+            assert_eq!(key, format!("account-approval/{second}"));
+            sends.fetch_add(1, Ordering::SeqCst);
+            true
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(sent, ApprovalDelivery::Sent);
+    assert_eq!(sends.load(Ordering::SeqCst), 1);
+    assert_eq!(marker(&world).await.0, None);
+    assert!(matches!(
+        python_writers::lock_due_approval_mail(&mut timer, user, second, Utc::now()).await,
+        DueMail::Skipped
+    ));
+
+    // One lease, two senders: whichever commits its lease first sends; the
+    // other finds the marker no longer due and skips. Both orders.
+    for python_first in [true, false] {
+        let user = world.user(Some(organization)).await;
+        world.set_status(user, "PENDING").await;
+        run_to_end(&world, world.actor, approve_account(user, Utc::now()))
+            .await
+            .unwrap();
+        let transition: Uuid = sqlx::query_scalar(
+            "SELECT pending_approval_email_transition_id FROM users WHERE id=$1",
+        )
+        .bind(user)
+        .fetch_one(&world.pool)
+        .await
+        .unwrap();
+        let mut timer = world.runtime_connection().await;
+        let timer_pid = backend_pid(&mut timer).await;
+        let rust_sends = Arc::new(AtomicUsize::new(0));
+        if python_first {
+            assert!(matches!(
+                python_writers::lock_due_approval_mail(&mut timer, user, transition, Utc::now())
+                    .await,
+                DueMail::Locked
+            ));
+            let rust = tokio::spawn({
+                let pool = world.pool.clone();
+                let rust_sends = Arc::clone(&rust_sends);
+                async move {
+                    deliver_account_approval_mail(
+                        &pool,
+                        user,
+                        transition,
+                        Utc::now,
+                        move |_, _| async move {
+                            rust_sends.fetch_add(1, Ordering::SeqCst);
+                            true
+                        },
+                    )
+                    .await
+                    .unwrap()
+                }
+            });
+            wait_blocked(&mut world.watcher, timer_pid, 1).await;
+            let lease = python_writers::commit_lease(&mut timer, user, Utc::now()).await;
+            assert_eq!(rust.await.unwrap(), ApprovalDelivery::Skipped);
+            assert_eq!(
+                rust_sends.load(Ordering::SeqCst),
+                0,
+                "a mail was sent twice"
+            );
+            assert_eq!(
+                python_writers::finalize_approval_mail(
+                    &mut timer,
+                    user,
+                    transition,
+                    lease,
+                    true,
+                    Utc::now()
+                )
+                .await,
+                Finalized::Sent
+            );
+        } else {
+            let mut sender = world.pool.acquire().await.unwrap();
+            let mut claim_tx = sender.begin().await.unwrap();
+            let claim = claim_approval_mail(&mut claim_tx, user, transition, Utc::now())
+                .await
+                .unwrap()
+                .expect("the due transition is claimable");
+            let sender_pid = backend_pid(&mut claim_tx).await;
+            let python = tokio::spawn(async move {
+                let due = python_writers::lock_due_approval_mail(
+                    &mut timer,
+                    user,
+                    transition,
+                    Utc::now(),
+                )
+                .await;
+                (due, timer)
+            });
+            wait_blocked(&mut world.watcher, sender_pid, 1).await;
+            claim_tx.commit().await.unwrap();
+            let (due, _timer) = python.await.unwrap();
+            assert!(
+                matches!(due, DueMail::Skipped),
+                "the lease was claimed twice"
+            );
+            let mut finish_tx = sender.begin().await.unwrap();
+            finalize_approval_mail(&mut finish_tx, &claim, true, Utc::now())
+                .await
+                .unwrap();
+            finish_tx.commit().await.unwrap();
+        }
+        let cleared: Option<Uuid> = sqlx::query_scalar(
+            "SELECT pending_approval_email_transition_id FROM users WHERE id=$1",
+        )
+        .bind(user)
+        .fetch_one(&world.pool)
+        .await
+        .unwrap();
+        assert_eq!(cleared, None, "the delivered marker was not cleared");
+    }
+    world.finish().await;
 }
 
-/// Invitation rotation racing the current token's consumption. Rotation and
-/// consumption both write `users.password_reset_token_hash` under the user
-/// row lock, so the rotation either lands before the acceptance reads the
-/// digest (the old secret is dead, exactly one consumption) or waits behind
-/// it (the rotated secret is the only valid one afterwards). Python keeps
-/// issuing these invitations until its admin routes move, so the digest
-/// column stays a two-writer row.
+// ===========================================================================
+// invitation_rotation_vs_acceptance_is_serialized
+// ===========================================================================
+
+async fn invitee_digest(world: &World, user: Uuid) -> Option<String> {
+    sqlx::query_scalar("SELECT password_reset_token_hash FROM users WHERE id=$1")
+        .bind(user)
+        .fetch_one(&world.pool)
+        .await
+        .unwrap()
+}
+
+/// Reissuing an invitation and accepting it serialize on the invited user's
+/// row. Acceptance first: the secret is spent, the rotation refuses the
+/// verified account and writes no second secret. Rotation first: the old secret
+/// no longer resolves and the new one is spendable exactly once.
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL authority"]
 async fn invitation_rotation_vs_acceptance_is_serialized() {
-    let mut f = Fixture::new().await;
-    let invitee = f.user(None, "BUYER").await;
-    let old_digest = format!("{:064x}", 1u128 << 100);
-    let new_digest = format!("{:064x}", 2u128 << 100);
-    let expires = Utc::now() + chrono::Duration::hours(24);
-    sqlx::query("UPDATE users SET status='APPROVED',email_verified=false,must_change_password=true,password_reset_token_hash=$2,password_reset_expires=$3 WHERE id=$1")
-        .bind(invitee).bind(&old_digest).bind(expires)
-        .execute(&mut f.admin).await.unwrap();
+    let mut world = World::new().await;
+    let organization = world.supplier_organization().await;
+    let create = |email: &str| invite_supplier(email, organization);
 
-    // The acceptance holds the user row while reading the digest; the
-    // rotation must queue behind it on the same row.
-    let mut holder = f.pool.acquire().await.unwrap();
-    let holder_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
-        .fetch_one(&mut *holder).await.unwrap();
-    let mut held = holder.begin().await.unwrap();
-    let resolved: Option<Uuid> =
-        sqlx::query_scalar("SELECT id FROM users WHERE id=$1 AND password_reset_token_hash=$2 FOR UPDATE")
-            .bind(invitee).bind(&old_digest)
-            .fetch_optional(&mut *held).await.unwrap();
-    assert!(resolved.is_some(), "the current token still resolves");
+    // Acceptance first.
+    let created = run_ordered_write(
+        world.pool.clone(),
+        Arc::new(Semaphore::new(1)),
+        access(world.actor),
+        create("accept-first@customer.example"),
+    )
+    .await
+    .expect("the invitation was created");
+    let invitee = created.user_id;
+    let digest = invitee_digest(&world, invitee)
+        .await
+        .expect("a stored digest");
+    let acceptance = lock_for_acceptance(&world.pool, &digest)
+        .await
+        .expect("the current secret resolves");
+    let rotation = spawn_write(
+        &world.pool,
+        world.actor,
+        create("accept-first@customer.example"),
+    );
+    wait_blocked(&mut world.watcher, acceptance.backend, 1).await;
+    acceptance.consume().await;
+    assert_eq!(
+        refusal(&finished(rotation).await),
+        (409, "EMAIL_ALREADY_REGISTERED".into()),
+        "a rotation reissued an invitation that was already spent"
+    );
+    assert_eq!(invitee_digest(&world, invitee).await, None);
+    assert_eq!(
+        world
+            .count_for(
+                "SELECT count(*) FROM refresh_sessions WHERE user_id=$1",
+                invitee
+            )
+            .await,
+        1,
+        "one acceptance issues one session"
+    );
+    assert_eq!(
+        audits_of(&world, "user.invitation_accepted", invitee).await,
+        1
+    );
+    assert_eq!(audits_of(&world, "admin.user_invited", invitee).await, 1);
 
-    let rotation_new = new_digest.clone();
-    let rotation_old = old_digest.clone();
-    let rotation = tokio::spawn({
-        let pool = f.pool.clone();
-        async move {
-            let mut conn = pool.acquire().await.unwrap();
-            let updated = sqlx::query("UPDATE users SET password_reset_token_hash=$1,password_reset_expires=$2 WHERE id=$3 AND password_reset_token_hash=$4")
-                .bind(&rotation_new).bind(expires).bind(invitee).bind(&rotation_old)
-                .execute(&mut *conn).await.unwrap();
-            updated.rows_affected()
-        }
+    // Rotation first.
+    let created = run_ordered_write(
+        world.pool.clone(),
+        Arc::new(Semaphore::new(1)),
+        access(world.actor),
+        create("rotate-first@customer.example"),
+    )
+    .await
+    .expect("the invitation was created");
+    let invitee = created.user_id;
+    let old_digest = invitee_digest(&world, invitee)
+        .await
+        .expect("a stored digest");
+    let gate = Gate::closed();
+    let rotation = spawn_write(
+        &world.pool,
+        world.actor,
+        Gated::new(create("rotate-first@customer.example"), &gate),
+    );
+    let holder = gate.arrived().await;
+    let stale = tokio::spawn({
+        let pool = world.pool.clone();
+        let digest = old_digest.clone();
+        async move { lock_for_acceptance(&pool, &digest).await }
     });
-    let waiter = f.wait_any_blocked_by(holder_pid).await;
-
-    // The held acceptance consumes the token under its lock.
-    sqlx::query("UPDATE users SET password_reset_token_hash=NULL,password_reset_expires=NULL,must_change_password=false,email_verified=true WHERE id=$1")
-        .bind(invitee)
-        .execute(&mut *held).await.unwrap();
-    held.commit().await.unwrap();
-    drop(holder);
-
-    let rotated = rotation.await.unwrap();
-    let final_digest: Option<String> =
-        sqlx::query_scalar("SELECT password_reset_token_hash FROM users WHERE id=$1")
-            .bind(invitee)
-            .fetch_one(&f.pool)
+    wait_blocked(&mut world.watcher, holder, 1).await;
+    gate.open();
+    finished(rotation).await.expect("the rotation committed");
+    assert!(
+        stale.await.unwrap().is_none(),
+        "the rotated-out secret was still accepted"
+    );
+    let new_digest = invitee_digest(&world, invitee)
+        .await
+        .expect("a rotated digest");
+    assert_ne!(new_digest, old_digest);
+    lock_for_acceptance(&world.pool, &new_digest)
+        .await
+        .expect("the new secret resolves")
+        .consume()
+        .await;
+    assert!(
+        lock_for_acceptance(&world.pool, &new_digest)
             .await
-            .unwrap();
-    // Whichever side won the row, exactly one consumption shape remains: no
-    // doubled session material, no old secret still valid.
-    if rotated == 1 {
-        assert_eq!(final_digest.as_deref(), Some(new_digest.as_str()));
-    } else {
-        assert_eq!(final_digest, None, "consumption won; the token is spent");
-    }
-    assert_ne!(final_digest.as_deref(), Some(old_digest.as_str()));
-    assert_eq!(f.count("audit_logs").await, 0, "no admission audit fired");
-    let _ = waiter;
-    f.finish().await;
+            .is_none(),
+        "a spent secret resolved again"
+    );
+    assert_eq!(
+        world
+            .count_for(
+                "SELECT count(*) FROM refresh_sessions WHERE user_id=$1",
+                invitee
+            )
+            .await,
+        1
+    );
+    assert_eq!(
+        audits_of(&world, "user.invitation_accepted", invitee).await,
+        1
+    );
+    world.finish().await;
 }
 
-/// Injected serialization failures (40001 then 40P01) on the organization
-/// write: the shared retry returns success when a later attempt commits, and
-/// the busy refusal after exhaustion leaves every row unchanged — no partial
-/// stock, history, event or session effect either way.
+// ===========================================================================
+// The command matrix: retry, exhaustion and atomic refusal.
+// ===========================================================================
+
+#[derive(Clone, Copy, Debug)]
+enum Subject {
+    ApproveAccount,
+    RejectAccount,
+    RejectAccountAnalytics,
+    ApproveJoin,
+    RejectOrganization,
+    ApproveOrganization,
+    ApproveKyc,
+    RejectKyc,
+    SubmitKyc,
+    BootstrapSubscription,
+}
+
+struct Scene {
+    actor: Uuid,
+    organization: Uuid,
+    user: Uuid,
+    join: Uuid,
+    listing: Option<Listing>,
+}
+
+impl Subject {
+    /// The tables the command writes after its first row change, in the order
+    /// that matters for a failure injected there.
+    fn tables(self) -> &'static [&'static str] {
+        match self {
+            Self::ApproveAccount | Self::RejectAccount | Self::RejectAccountAnalytics => &[
+                "user_status_transitions",
+                "market_event_outbox",
+                "audit_logs",
+            ],
+            Self::ApproveJoin => &["audit_logs"],
+            Self::RejectOrganization | Self::ApproveOrganization => {
+                &["market_event_outbox", "audit_logs"]
+            }
+            Self::ApproveKyc | Self::RejectKyc => &["market_event_outbox", "audit_logs"],
+            Self::SubmitKyc => &["kyc_documents", "audit_logs"],
+            Self::BootstrapSubscription => &["subscriptions"],
+        }
+    }
+
+    /// The table whose insert fails in the retry cases: the last write of the
+    /// command, after every earlier change of the same attempt.
+    fn injection_table(self) -> &'static str {
+        match self {
+            Self::RejectOrganization => "market_event_outbox",
+            Self::BootstrapSubscription => "subscriptions",
+            _ => "audit_logs",
+        }
+    }
+
+    async fn seed(self, world: &mut World) -> Scene {
+        let organization = match self {
+            Self::ApproveOrganization => world.pending_organization().await,
+            _ => world.organization().await,
+        };
+        let user = match self {
+            Self::ApproveJoin => world.user(None).await,
+            _ => world.user(Some(organization)).await,
+        };
+        let join = match self {
+            Self::ApproveJoin => world.join_request(user, organization).await,
+            _ => Uuid::nil(),
+        };
+        let mut listing = None;
+        match self {
+            Self::ApproveAccount => world.set_status(user, "PENDING").await,
+            Self::RejectAccount | Self::RejectAccountAnalytics => {
+                world.live_session(user).await;
+            }
+            Self::RejectOrganization => {
+                world.bind_kyc(user, "APPROVED", Some(organization)).await;
+                listing = Some(world.stocked_listing(organization).await);
+            }
+            Self::ApproveKyc | Self::RejectKyc => {
+                world.bind_kyc(user, "SUBMITTED", Some(organization)).await;
+            }
+            _ => {}
+        }
+        let actor = match self {
+            Self::SubmitKyc | Self::BootstrapSubscription => user,
+            _ => world.actor,
+        };
+        Scene {
+            actor,
+            organization,
+            user,
+            join,
+            listing,
+        }
+    }
+
+    async fn run(self, world: &World, scene: &Scene) -> Verdict {
+        let now = Utc::now();
+        let (actor, organization, user) = (scene.actor, scene.organization, scene.user);
+        match self {
+            Self::ApproveAccount => run_to_end(world, actor, approve_account(user, now)).await,
+            Self::RejectAccount => {
+                run_to_end(
+                    world,
+                    actor,
+                    reject_account(user, RejectionRoute::Auth, now),
+                )
+                .await
+            }
+            Self::RejectAccountAnalytics => {
+                run_to_end(
+                    world,
+                    actor,
+                    reject_account(user, RejectionRoute::Analytics, now),
+                )
+                .await
+            }
+            Self::ApproveJoin => run_to_end(world, actor, review_join(scene.join, true)).await,
+            Self::RejectOrganization => {
+                run_to_end(
+                    world,
+                    actor,
+                    review_organization(world, organization, false),
+                )
+                .await
+            }
+            Self::ApproveOrganization => {
+                run_to_end(world, actor, review_organization(world, organization, true)).await
+            }
+            Self::ApproveKyc => run_to_end(world, actor, review_kyc(user, true)).await,
+            Self::RejectKyc => run_to_end(world, actor, review_kyc(user, false)).await,
+            Self::SubmitKyc => run_to_end(world, actor, submit_kyc(user, organization).await).await,
+            Self::BootstrapSubscription => {
+                run_to_end(world, actor, subscription_bootstrap(user)).await
+            }
+        }
+    }
+
+    /// The effects of exactly one committed run.
+    async fn assert_committed_once(self, world: &World, scene: &Scene) {
+        let (organization, user) = (scene.organization, scene.user);
+        match self {
+            Self::ApproveAccount => {
+                assert_eq!(
+                    status_of(world, "SELECT status FROM users WHERE id=$1", user).await,
+                    "APPROVED"
+                );
+                assert_eq!(
+                    world
+                        .count_for(
+                            "SELECT count(*) FROM user_status_transitions WHERE user_id=$1",
+                            user
+                        )
+                        .await,
+                    1
+                );
+                assert_eq!(
+                    world.count_for("SELECT count(*) FROM users WHERE id=$1 AND pending_approval_email_transition_id IS NOT NULL", user).await,
+                    1,
+                    "the approval froze exactly one mail marker"
+                );
+                assert_eq!(audits_of(world, "admin.user_approved", user).await, 1);
+            }
+            Self::RejectAccount | Self::RejectAccountAnalytics => {
+                assert_eq!(
+                    status_of(world, "SELECT status FROM users WHERE id=$1", user).await,
+                    "REJECTED"
+                );
+                assert_eq!(
+                    world
+                        .count_for(
+                            "SELECT count(*) FROM user_status_transitions WHERE user_id=$1",
+                            user
+                        )
+                        .await,
+                    1
+                );
+                assert_eq!(live_sessions(world, user).await, 0);
+                assert_eq!(audits_of(world, "admin.user_rejected", user).await, 1);
+            }
+            Self::ApproveJoin => {
+                assert_eq!(user_organization(world, user).await, Some(organization));
+                assert_eq!(
+                    audits_of(world, "organization.join_approved", scene.join).await,
+                    1
+                );
+            }
+            Self::RejectOrganization => {
+                let listing = scene.listing.as_ref().expect("a stocked listing");
+                assert_eq!(organization_status(world, organization).await, "REJECTED");
+                assert_eq!(user_organization(world, user).await, None);
+                assert_eq!(order_status(world, listing.order).await, "CANCELLED");
+                assert_eq!(
+                    world.stock(listing.inventory).await,
+                    (Decimal::from(80), Decimal::from(20)),
+                    "the uncommitted reservation is released exactly once"
+                );
+                assert_eq!(
+                    audits_of(world, "admin.organization_rejected", organization).await,
+                    1
+                );
+            }
+            Self::ApproveOrganization => {
+                assert_eq!(organization_status(world, organization).await, "APPROVED");
+                assert_eq!(
+                    audits_of(world, "admin.organization_approved", organization).await,
+                    1
+                );
+            }
+            Self::ApproveKyc => {
+                assert_eq!(
+                    kyc_of(world, user).await,
+                    ("APPROVED".to_string(), Some(organization))
+                );
+                assert_eq!(audits_of(world, "kyc.approved", user).await, 1);
+            }
+            Self::RejectKyc => {
+                assert_eq!(
+                    kyc_of(world, user).await,
+                    ("REJECTED".to_string(), Some(organization))
+                );
+                assert_eq!(audits_of(world, "kyc.rejected", user).await, 1);
+            }
+            Self::SubmitKyc => {
+                assert_eq!(
+                    kyc_of(world, user).await,
+                    ("SUBMITTED".to_string(), Some(organization))
+                );
+                assert_eq!(
+                    world
+                        .count_for("SELECT count(*) FROM kyc_documents WHERE user_id=$1", user)
+                        .await,
+                    2
+                );
+                assert_eq!(audits_of(world, "kyc.submitted", user).await, 1);
+            }
+            Self::BootstrapSubscription => {
+                assert_eq!(
+                    world
+                        .count_for(
+                            "SELECT count(*) FROM subscriptions WHERE org_id=$1",
+                            organization
+                        )
+                        .await,
+                    1
+                );
+            }
+        }
+    }
+}
+
+const ALL_SUBJECTS: [Subject; 10] = [
+    Subject::ApproveAccount,
+    Subject::RejectAccount,
+    Subject::RejectAccountAnalytics,
+    Subject::ApproveJoin,
+    Subject::RejectOrganization,
+    Subject::ApproveOrganization,
+    Subject::ApproveKyc,
+    Subject::RejectKyc,
+    Subject::SubmitKyc,
+    Subject::BootstrapSubscription,
+];
+
+/// Serialization failures and deadlocks raised inside the transaction. Two
+/// failures are absorbed by the bounded retry, which restarts from a fresh
+/// transaction and commits the effects exactly once. A failure that never
+/// clears ends in the busy refusal with every row unchanged.
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL authority"]
 async fn org_write_injected_conflicts_retry_or_refuse_atomically() {
-    for sqlstate in ["40001", "40P01"] {
-        // Success after the injected conflicts clear within the attempt bound.
-        let mut f = Fixture::new().await;
-        let member = f.user(Some(f.organization), "BUYER").await;
-        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
-            "CREATE SEQUENCE race_attempts; \
-             CREATE FUNCTION race_conflict() RETURNS trigger LANGUAGE plpgsql AS $$ \
-             BEGIN IF nextval('race_attempts') < 3 THEN RAISE EXCEPTION 'race fixture' USING ERRCODE='{sqlstate}'; END IF; RETURN NEW; END $$; \
-             CREATE TRIGGER race_conflict BEFORE INSERT ON market_event_outbox FOR EACH ROW EXECUTE FUNCTION race_conflict()"
-        )))
-        .execute(&mut f.admin)
-        .await
-        .unwrap();
-        let recovered = run_ordered_write(
-            f.pool.clone(),
-            Arc::new(Semaphore::new(1)),
-            access(f.actor),
-            rejection(member, RejectionRoute::Auth),
+    let mut world = World::new().await;
+    for subject in ALL_SUBJECTS {
+        let table = subject.injection_table();
+        for sqlstate in ["40001", "40P01"] {
+            // Recovery within the attempt bound.
+            let scene = subject.seed(&mut world).await;
+            let fault = Fault::first(&mut world.admin, table, sqlstate, 2).await;
+            subject.run(&world, &scene).await.unwrap_or_else(|error| {
+                panic!("{subject:?}: retry did not absorb {sqlstate}: {error:?}")
+            });
+            assert_eq!(
+                fault.hits(&mut world.admin).await,
+                3,
+                "{subject:?} {sqlstate}: attempts"
+            );
+            subject.assert_committed_once(&world, &scene).await;
+            fault.remove(&mut world.admin).await;
+
+            // Exhaustion.
+            let scene = subject.seed(&mut world).await;
+            let before = world.snapshot().await;
+            let fault = Fault::always(&mut world.admin, table, sqlstate).await;
+            let verdict = subject.run(&world, &scene).await;
+            let error = verdict.as_ref().expect_err("the failure never clears");
+            assert_eq!(
+                (
+                    error.status.as_u16(),
+                    error.detail["code"].as_str(),
+                    error.retry_after
+                ),
+                (503, Some("TRANSACTION_RETRY_EXHAUSTED"), Some(1)),
+                "{subject:?} {sqlstate}"
+            );
+            assert_eq!(
+                fault.hits(&mut world.admin).await,
+                3,
+                "{subject:?} {sqlstate}: attempts"
+            );
+            assert_eq!(
+                world.snapshot().await,
+                before,
+                "{subject:?} {sqlstate}: a partial write survived the exhausted retry"
+            );
+            fault.remove(&mut world.admin).await;
+        }
+    }
+    world.finish().await;
+}
+
+/// A failure after the writes and before the commit — the audit row, the event
+/// or the status history — rolls the whole command back and is not retried:
+/// no status, membership, session, stock, evidence, event or audit change.
+#[tokio::test]
+#[ignore = "requires explicit disposable PostgreSQL authority"]
+async fn outbox_audit_failure_rolls_back_admission() {
+    let mut world = World::new().await;
+    for subject in ALL_SUBJECTS {
+        if matches!(subject, Subject::BootstrapSubscription) {
+            continue;
+        }
+        for table in subject.tables() {
+            let scene = subject.seed(&mut world).await;
+            let before = world.snapshot().await;
+            let fault = Fault::always(&mut world.admin, table, "23514").await;
+            let verdict = subject.run(&world, &scene).await;
+            assert_eq!(
+                refusal(&verdict),
+                (500, "DATABASE_ERROR".into()),
+                "{subject:?} failing {table}"
+            );
+            assert_eq!(
+                fault.hits(&mut world.admin).await,
+                1,
+                "{subject:?} failing {table}: the failure was retried or never fired"
+            );
+            assert_eq!(
+                world.snapshot().await,
+                before,
+                "{subject:?} failing {table}: a partial write survived"
+            );
+            fault.remove(&mut world.admin).await;
+        }
+    }
+    world.finish().await;
+}
+
+// ===========================================================================
+// org_rejection_bound_refuses_atomically
+// ===========================================================================
+
+/// An organization with more than 100 executable orders, or more than 100
+/// uncancelled trades, is refused whole: the organization, its members, the
+/// stock and the market state stay exactly as they were.
+#[tokio::test]
+#[ignore = "requires explicit disposable PostgreSQL authority"]
+async fn org_rejection_bound_refuses_atomically() {
+    let mut world = World::new().await;
+    for by_trades in [false, true] {
+        let organization = world.organization().await;
+        let member = world.user(Some(organization)).await;
+        world.bind_kyc(member, "APPROVED", Some(organization)).await;
+        world.live_session(member).await;
+        let listing = world.stocked_listing(organization).await;
+        if by_trades {
+            let counterparty_org = world.organization().await;
+            let counterparty = world.user(Some(counterparty_org)).await;
+            for _ in 0..101 {
+                world
+                    .trade(
+                        (counterparty_org, counterparty),
+                        (organization, member),
+                        Some(listing.order),
+                        "PENDING_CONFIRMATION",
+                    )
+                    .await;
+            }
+        } else {
+            for _ in 0..100 {
+                world.open_order(organization).await;
+            }
+        }
+        let before = world.snapshot().await;
+        let verdict = run_to_end(
+            &world,
+            world.actor,
+            review_organization(&world, organization, false),
         )
         .await;
-        match recovered {
-            Ok(_) => {}
-            Err(error) => panic!("retry did not absorb the injected {sqlstate}: {error:?}"),
-        }
-        let status: String = sqlx::query_scalar("SELECT status FROM users WHERE id=$1")
-            .bind(member)
-            .fetch_one(&f.pool)
-            .await
-            .unwrap();
-        assert_eq!(status, "REJECTED");
-        assert_eq!(f.count("market_event_outbox").await, 1);
-        f.finish().await;
-
-        // Exhaustion: the failure never clears, the refusal is busy, and no
-        // partial write survives.
-        let mut f = Fixture::new().await;
-        let member = f.user(Some(f.organization), "BUYER").await;
-        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
-            "CREATE FUNCTION race_conflict_forever() RETURNS trigger LANGUAGE plpgsql AS $$ \
-             BEGIN RAISE EXCEPTION 'race fixture' USING ERRCODE='{sqlstate}'; END $$; \
-             CREATE TRIGGER race_conflict_forever BEFORE INSERT ON market_event_outbox FOR EACH ROW EXECUTE FUNCTION race_conflict_forever()"
-        )))
-        .execute(&mut f.admin)
-        .await
-        .unwrap();
-        let refused = run_ordered_write(
-            f.pool.clone(),
-            Arc::new(Semaphore::new(1)),
-            access(f.actor),
-            rejection(member, RejectionRoute::Auth),
-        )
-        .await
-        .unwrap_err();
-        assert_eq!(refused.status.as_u16(), 503, "{sqlstate}: {refused:?}");
-        let status: String = sqlx::query_scalar("SELECT status FROM users WHERE id=$1")
-            .bind(member)
-            .fetch_one(&f.pool)
-            .await
-            .unwrap();
-        assert_eq!(status, "APPROVED", "a partial rejection persisted");
-        assert_eq!(f.count("user_status_transitions").await, 0);
-        assert_eq!(f.count("market_event_outbox").await, 0);
-        assert_eq!(f.count("audit_logs").await, 0);
-        f.finish().await;
+        assert_eq!(refusal(&verdict), (409, "MARKET_INVALIDATION_LIMIT".into()));
+        assert_eq!(world.snapshot().await, before, "by_trades={by_trades}");
+        assert_eq!(organization_status(&world, organization).await, "APPROVED");
     }
+    world.finish().await;
 }
 
-/// A rejected party (account, organization, KYC and the analytics view of the
-/// same account) cannot start new execution, while a pre-existing trade for
-/// which it is an immutable participant remains deliverable and payable.
-/// Participants and ownership are preserved; current membership being
-/// unlinked changes neither. The four rejection routes each cover the same
-/// invariant.
+// ===========================================================================
+// analytics_status_history_is_atomic
+// ===========================================================================
+
+async fn status_facts(world: &mut World, query: &AnalyticsQuery) -> StatusFacts {
+    load_status_facts(&mut world.admin, query)
+        .await
+        .expect("status facts")
+}
+
+/// The status change and its history row commit together or not at all, and
+/// the analytics facts read only committed history: a failure between the
+/// status write and the history insert leaves the facts as they were, and the
+/// rerun counts the approval once.
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL authority"]
-async fn rejected_party_new_execution_refused_but_existing_deliver_pay_allowed() {
-    let mut f = Fixture::new().await;
-    let member = f.user(Some(f.organization), "BUYER").await;
-    // A pre-existing trade with immutable participants.
-    let trade = Uuid::new_v4();
-    let counterparty = Uuid::new_v4();
-    sqlx::query("INSERT INTO trades(id,buyer_id,seller_id,status,quantity_mt,initiator_org_id) VALUES($1,$2,$3,'CONFIRMED',10,$4)")
-        .bind(trade).bind(member).bind(counterparty).bind(f.organization)
-        .execute(&mut f.admin).await.unwrap();
+async fn analytics_status_history_is_atomic() {
+    let mut world = World::new().await;
+    let organization = world.organization().await;
+    let user = world.user(Some(organization)).await;
+    world.set_status(user, "PENDING").await;
+    let instant = Utc.with_ymd_and_hms(2026, 10, 20, 10, 0, 0).unwrap();
+    let query = AnalyticsQuery {
+        start: Utc.with_ymd_and_hms(2026, 10, 1, 0, 0, 0).unwrap(),
+        end: Utc.with_ymd_and_hms(2026, 11, 1, 0, 0, 0).unwrap(),
+        previous: None,
+        compare: false,
+        audience: AnalyticsAudience::All,
+        activity: AnalyticsActivity::Live,
+        product_id: None,
+        delivery_point_id: None,
+        availability_window: None,
+    };
+    let before = world.snapshot().await;
+    assert_eq!(status_facts(&mut world, &query).await.approved_current, 0);
 
-    // The execution admission the market side applies: a rejected or
-    // membership-unlinked party cannot place a new order (the eligibility
-    // predicate), while the existing trade's lifecycle columns stay
-    // untouched by every rejection route.
-    for (route, applied) in [
-        (RejectionRoute::Auth, true),
-        (RejectionRoute::Analytics, true),
-    ] {
-        if applied {
-            run_ordered_write(
-                f.pool.clone(),
-                Arc::new(Semaphore::new(1)),
-                access(f.actor),
-                rejection(member, route),
+    let fault = Fault::always(&mut world.admin, "user_status_transitions", "23514").await;
+    let verdict = run_to_end(&world, world.actor, approve_account(user, instant)).await;
+    assert_eq!(refusal(&verdict), (500, "DATABASE_ERROR".into()));
+    assert_eq!(
+        world.snapshot().await,
+        before,
+        "the status write persisted alone"
+    );
+    let observed = status_facts(&mut world, &query).await;
+    assert_eq!(observed.approved_current, 0);
+    assert_eq!(
+        observed.coverage_start, None,
+        "uncommitted history was counted"
+    );
+    fault.remove(&mut world.admin).await;
+
+    run_to_end(&world, world.actor, approve_account(user, instant))
+        .await
+        .expect("the rerun committed");
+    let observed = status_facts(&mut world, &query).await;
+    assert_eq!(observed.approved_current, 1);
+    assert_eq!(observed.coverage_start, Some(instant));
+    assert_eq!(
+        world
+            .count_for(
+                "SELECT count(*) FROM user_status_transitions WHERE user_id=$1",
+                user
             )
-            .await
-            .unwrap();
-        }
-        // New execution: the account is rejected and unlinked; the policy
-        // refuses. The trade row is unchanged.
-        let party = KycParty {
-            user_id: member,
-            organization_id: None,
-            kyc_organization_id: Some(f.organization),
-            kyc_status: KycStatus::Rejected,
-        };
-        let decision = eligibility(&KycPolicy::default(), &party, None, Utc::now());
-        assert!(!decision.eligible);
-        assert_eq!(decision.reason, KycReason::Rejected);
-        let row = sqlx::query("SELECT buyer_id,seller_id,status,quantity_mt FROM trades WHERE id=$1")
-            .bind(trade)
-            .fetch_one(&f.pool)
-            .await
-            .unwrap();
-        assert_eq!(row.get::<Uuid, _>("buyer_id"), member, "immutable participant changed");
-        assert_eq!(row.get::<Uuid, _>("seller_id"), counterparty);
-        assert_eq!(row.get::<String, _>("status"), "CONFIRMED", "lifecycle changed by rejection");
-        assert_eq!(row.get::<rust_decimal::Decimal, _>("quantity_mt"), rust_decimal::Decimal::from(10));
-    }
-    f.finish().await;
+            .await,
+        1
+    );
+    world.finish().await;
 }
 
-/// Failure between the status write and its history insert rolls the whole
-/// admission back: neither the status change, the event, the audit nor any
-/// partial effect persists, and a later rerun starts from committed facts.
-#[tokio::test]
-#[ignore = "requires explicit disposable PostgreSQL authority"]
-async fn status_history_failure_rolls_back_admission_atomically() {
-    let mut f = Fixture::new().await;
-    let member = f.user(Some(f.organization), "BUYER").await;
-    // The trusted fixture writer installs the failure; the runtime role has
-    // no DDL authority.
-    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
-        "ALTER TABLE {}.user_status_transitions ADD CONSTRAINT refuse_history CHECK (false) NOT VALID",
-        f.schema
-    )))
-    .execute(&mut f.admin)
-    .await
-    .unwrap();
-    let refused = run_ordered_write(
-        f.pool.clone(),
-        Arc::new(Semaphore::new(1)),
-        access(f.actor),
-        rejection(member, RejectionRoute::Auth),
-    )
-    .await
-    .unwrap_err();
-    assert_ne!(refused.status.as_u16(), 200);
-    let status: String = sqlx::query_scalar("SELECT status FROM users WHERE id=$1")
-        .bind(member)
-        .fetch_one(&f.pool)
-        .await
-        .unwrap();
-    assert_eq!(status, "APPROVED", "the status change persisted alone");
-    assert_eq!(f.count("user_status_transitions").await, 0);
-    assert_eq!(f.count("market_event_outbox").await, 0);
-    assert_eq!(f.count("audit_logs").await, 0);
+// ===========================================================================
+// organization_write_cancellation_does_not_duplicate_commit
+// ===========================================================================
 
-    // Rerun from committed facts: drop the constraint and the same command
-    // succeeds exactly once.
-    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
-        "ALTER TABLE {}.user_status_transitions DROP CONSTRAINT refuse_history",
-        f.schema
-    )))
-    .execute(&mut f.admin)
-    .await
-    .unwrap();
-    run_ordered_write(
-        f.pool.clone(),
-        Arc::new(Semaphore::new(1)),
-        access(f.actor),
-        rejection(member, RejectionRoute::Auth),
-    )
-    .await
-    .unwrap();
-    assert_eq!(f.count("user_status_transitions").await, 1);
-    assert_eq!(f.count("market_event_outbox").await, 1);
-    assert_eq!(f.count("audit_logs").await, 1);
-    f.finish().await;
-}
-
-/// The detached ordered owner commits at most once across caller
-/// cancellation before or after commit and a lost commit acknowledgement:
-/// the ambiguous connection is discarded, the commit is never retried, and
-/// the permit returns only after the commit settles.
+/// The detached ordered owner commits at most once across caller cancellation
+/// before or after the commit and across a lost commit acknowledgement: the
+/// admission commits one status change, one history row, one audit row and one
+/// event; the ambiguous connection is closed and never reused; the command
+/// runs once; and the permit returns only after the commit settles.
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL authority"]
 async fn organization_write_cancellation_does_not_duplicate_commit() {
-    use verdaxis_read::business::transaction::{CompletionControl, CompletionPoint};
-
-    struct Effect;
-    impl BusinessCommand for Effect {
-        type Output = ();
-        fn preview<'a>(
-            &'a self,
-            _conn: &'a mut PgConnection,
-        ) -> CommandFuture<'a, OrganizationWritePlan, AttemptError> {
-            Box::pin(async move {
-                Ok(OrganizationWritePlan::new([], [], [], json!("race")))
-            })
-        }
-        fn execute<'a>(
-            &'a self,
-            conn: &'a mut PgConnection,
-            _actor: &'a CurrentActor,
-        ) -> CommandFuture<'a, Self::Output, AttemptError> {
-            Box::pin(async move {
-                sqlx::query("INSERT INTO effects VALUES($1)")
-                    .bind(Uuid::new_v4())
-                    .execute(&mut *conn)
-                    .await?;
-                Ok(())
-            })
-        }
-    }
-
     for (point, lost_ack, cancel) in [
         (CompletionPoint::BeforeCommit, false, true),
         (CompletionPoint::AfterCommit, false, true),
         (CompletionPoint::AfterCommit, true, false),
     ] {
-        let f = Fixture::new().await;
+        let mut world = World::new().await;
+        let organization = world.organization().await;
+        let user = world.user(Some(organization)).await;
+        world.live_session(user).await;
         let control = CompletionControl::new(point, lost_ack);
-        let gate = control.clone();
+        let observed = Gate::closed();
+        observed.open();
         let permits = Arc::new(Semaphore::new(1));
-        let capacity = permits.clone();
-        let pool = f.pool.clone();
-        let actor_id = f.actor;
-        let caller = tokio::spawn(async move {
-            run_controlled_write(pool, capacity, access(actor_id), Effect, gate).await
+        let caller = tokio::spawn({
+            let (pool, permits, control) =
+                (world.pool.clone(), Arc::clone(&permits), control.clone());
+            let actor = world.actor;
+            let command = Gated::new(
+                reject_account(user, RejectionRoute::Auth, Utc::now()),
+                &observed,
+            );
+            async move { run_controlled_write(pool, permits, access(actor), command, control).await }
         });
-        tokio::time::timeout(std::time::Duration::from_secs(20), control.reached())
+        tokio::time::timeout(std::time::Duration::from_secs(60), control.reached())
             .await
-            .unwrap();
-        assert_eq!(permits.available_permits(), 0);
-        let before: i64 = sqlx::query_scalar("SELECT count(*) FROM effects")
-            .fetch_one(&f.pool)
-            .await
-            .unwrap();
-        assert_eq!(before, if point == CompletionPoint::BeforeCommit { 0 } else { 1 });
+            .expect("the command reached its completion point");
+        assert_eq!(
+            permits.available_permits(),
+            0,
+            "the admission permit is held"
+        );
+        let history_before_commit = world
+            .count_for(
+                "SELECT count(*) FROM user_status_transitions WHERE user_id=$1",
+                user,
+            )
+            .await;
+        assert_eq!(
+            history_before_commit,
+            i64::from(point == CompletionPoint::AfterCommit)
+        );
         if cancel {
             caller.abort();
         }
         control.release();
-        let result = caller.await;
+        let outcome = caller.await;
         if lost_ack {
             assert_eq!(
-                result.unwrap().unwrap_err().detail["code"],
+                outcome.unwrap().unwrap_err().detail["code"],
                 "COMMIT_OUTCOME_UNKNOWN"
             );
         }
-        // The permit returns only after the commit settled.
-        let permit = tokio::time::timeout(std::time::Duration::from_secs(10), permits.acquire())
+        let permit = tokio::time::timeout(std::time::Duration::from_secs(60), permits.acquire())
             .await
-            .unwrap()
+            .expect("the permit returns after the commit settles")
             .unwrap();
         drop(permit);
-        // Exactly one effect: the commit is never retried, so a cancellation
-        // after commit or a lost acknowledgement cannot duplicate it.
-        let after: i64 = sqlx::query_scalar("SELECT count(*) FROM effects")
-            .fetch_one(&f.pool)
-            .await
-            .unwrap();
-        assert_eq!(after, 1, "commit duplicated by retry or revival");
-        assert_eq!(f.count("market_event_outbox").await, 0);
-        f.finish().await;
+
+        assert_eq!(observed.attempts(), 1, "the command ran more than once");
+        assert_eq!(
+            world
+                .count_for(
+                    "SELECT count(*) FROM user_status_transitions WHERE user_id=$1",
+                    user
+                )
+                .await,
+            1
+        );
+        assert_eq!(audits_of(&world, "admin.user_rejected", user).await, 1);
+        assert_eq!(
+            world.events("account_admission_changed").await,
+            1,
+            "the event was written more than once"
+        );
+        assert_eq!(
+            status_of(&world, "SELECT status FROM users WHERE id=$1", user).await,
+            "REJECTED"
+        );
+        assert_eq!(live_sessions(&world, user).await, 0);
+        let backend = observed.backends()[0];
+        wait_backend_gone(&mut world.watcher, backend).await;
+        world.finish().await;
     }
 }
 
-/// The subscription bootstrap race: two users plus the admin create the same
-/// organization subscription concurrently. The unique organization key and
-/// the ordered owner serialize them: exactly one row exists, no request
-/// fails with a server error, and a negotiated tier is never downgraded by
-/// the bootstrap default.
+// ===========================================================================
+// concurrent_subscription_bootstrap_is_one_row
+// ===========================================================================
+
+/// Two members bootstrapping the organization's free subscription and an
+/// administrator negotiating its enterprise tier contend for the organization
+/// row. In every order exactly one row exists, no command fails, and the
+/// negotiated tier and fee are never replaced by the free bootstrap.
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL authority"]
 async fn concurrent_subscription_bootstrap_is_one_row() {
-    let mut f = Fixture::new().await;
-    let other = f.user(None, "BUYER").await;
-    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
-        "CREATE TABLE subscriptions(id uuid PRIMARY KEY,organization_id uuid NOT NULL UNIQUE,tier text NOT NULL DEFAULT 'PILOT',rate numeric,updated_at timestamptz DEFAULT now()); \
-         CREATE TABLE subscription_events(id uuid PRIMARY KEY); \
-         GRANT SELECT,INSERT,UPDATE,DELETE ON {schema}.subscriptions,{schema}.subscription_events TO rust_app",
-        schema = f.schema
-    )))
-    .execute(&mut f.admin)
+    let mut world = World::new().await;
+    for administrator_first in [false, true] {
+        let organization = world.organization().await;
+        let first = world.user(Some(organization)).await;
+        let second = world.user(Some(organization)).await;
+        let gate = Gate::closed();
+        let holder = if administrator_first {
+            spawn_write(
+                &world.pool,
+                world.actor,
+                Gated::new(subscription_negotiation(world.actor, organization), &gate),
+            )
+        } else {
+            spawn_write(
+                &world.pool,
+                first,
+                Gated::new(subscription_bootstrap(first), &gate),
+            )
+        };
+        gate.arrived().await;
+        let mut contenders = vec![spawn_write(
+            &world.pool,
+            second,
+            subscription_bootstrap(second),
+        )];
+        if administrator_first {
+            contenders.push(spawn_write(
+                &world.pool,
+                first,
+                subscription_bootstrap(first),
+            ));
+        } else {
+            contenders.push(spawn_write(
+                &world.pool,
+                world.actor,
+                subscription_negotiation(world.actor, organization),
+            ));
+        }
+        wait_blocked_backends(&mut world.watcher, 2).await;
+        gate.open();
+        finished(holder).await.expect("the first command committed");
+        for contender in contenders {
+            finished(contender).await.expect("a contender failed");
+        }
+        assert_eq!(
+            world
+                .count_for(
+                    "SELECT count(*) FROM subscriptions WHERE org_id=$1",
+                    organization
+                )
+                .await,
+            1,
+            "the bootstrap created more than one row"
+        );
+        let (tier, fee): (String, Option<Decimal>) =
+            sqlx::query_as("SELECT tier,seller_fee_per_mt_usd FROM subscriptions WHERE org_id=$1")
+                .bind(organization)
+                .fetch_one(&world.pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            tier, "enterprise",
+            "a bootstrap downgraded the negotiated tier"
+        );
+        assert_eq!(fee, Some(Decimal::new(75, 2)));
+        assert_eq!(
+            audits_of(&world, "subscription.updated", organization).await,
+            1
+        );
+    }
+    world.finish().await;
+}
+
+// ===========================================================================
+// org_rejection_vs_python_take_preserves_stock
+// ===========================================================================
+
+struct TradeScene {
+    organization: Uuid,
+    member: Uuid,
+    listing: Listing,
+    trade: Uuid,
+    lifecycle: python_writers::TradeLifecycle,
+}
+
+async fn trade_scene(world: &mut World) -> TradeScene {
+    let organization = world.organization().await;
+    let member = world.user(Some(organization)).await;
+    world.bind_kyc(member, "APPROVED", Some(organization)).await;
+    let listing = world.stocked_listing(organization).await;
+    let counterparty_org = world.organization().await;
+    let counterparty = world.user(Some(counterparty_org)).await;
+    let trade = world
+        .trade(
+            (counterparty_org, counterparty),
+            (organization, member),
+            Some(listing.order),
+            "CONFIRMED",
+        )
+        .await;
+    let lifecycle = python_writers::TradeLifecycle {
+        slice_key: market_slice_lock_key(world.product, Some(world.point), "SPOT"),
+        trade,
+        order: listing.order,
+        users: vec![counterparty, member],
+        organizations: vec![counterparty_org, organization],
+    };
+    TradeScene {
+        organization,
+        member,
+        listing,
+        trade,
+        lifecycle,
+    }
+}
+
+/// A Python trade-lifecycle request takes the market slice and rows first, then
+/// the parties' user and organization rows; the Rust organization rejection
+/// takes organizations and users first, then the slice. The orders are
+/// inverted. The suite does not hide that: with the rejection holding its
+/// organization and user locks, the Python request holds the slice and waits
+/// for the user row, and the rejection refuses as busy after its bounded slice
+/// wait, rolls back whole, and succeeds when repeated. The other order — the
+/// rejection inside its market stage, the Python request waiting for the slice —
+/// commits both. In both, stock is conserved and the pre-existing trade keeps
+/// its participants.
+#[tokio::test]
+#[ignore = "requires explicit disposable PostgreSQL authority"]
+async fn org_rejection_vs_python_take_preserves_stock() {
+    // The rejection reaches the slice lock while the Python request holds it.
+    let mut world = World::new().await;
+    let scene = trade_scene(&mut world).await;
+    let before = world.snapshot().await;
+    let gate = Gate::closed();
+    let rejection = spawn_write(
+        &world.pool,
+        world.actor,
+        Gated::new(
+            review_organization(&world, scene.organization, false),
+            &gate,
+        ),
+    );
+    let rust_backend = gate.arrived().await;
+    let python = tokio::spawn(scene.lifecycle.deliver(world.runtime_connection().await));
+    wait_blocked(&mut world.watcher, rust_backend, 1).await;
+    gate.open();
+    assert_eq!(
+        refusal(&finished(rejection).await),
+        (409, "MARKET_BUSY".into()),
+        "the inverted wait must refuse as busy, not hang"
+    );
+    python.await.unwrap().expect("the Python request committed");
+    let mut expected = before.clone();
+    expected["trades"][0]["status"] = Value::String("DELIVERED".into());
+    assert_eq!(
+        world.snapshot().await,
+        expected,
+        "only the Python request's own write may differ after the refusal"
+    );
+    run_to_end(
+        &world,
+        world.actor,
+        review_organization(&world, scene.organization, false),
+    )
+    .await
+    .expect("the repeated rejection committed");
+    assert_eq!(
+        organization_status(&world, scene.organization).await,
+        "REJECTED"
+    );
+    assert_eq!(order_status(&world, scene.listing.order).await, "CANCELLED");
+    let (available, reserved) = world.stock(scene.listing.inventory).await;
+    assert_eq!(
+        available + reserved,
+        Decimal::from(100),
+        "stock is conserved"
+    );
+    assert_eq!(reserved, Decimal::from(20));
+    let trade = row_json(&world, TRADE_ROW, scene.trade).await;
+    assert_eq!(trade["status"], "DELIVERED");
+    assert_eq!(
+        trade["seller_user_id"],
+        Value::String(scene.member.to_string())
+    );
+    world.finish().await;
+
+    // The Python request arrives while the rejection is inside its market stage.
+    let mut world = World::new().await;
+    let scene = trade_scene(&mut world).await;
+    sqlx::raw_sql(include_str!("fixtures/phase4_races_stage_gate.sql"))
+        .execute(&mut world.admin)
+        .await
+        .unwrap();
+    let mut gate_holder = world.runtime_connection().await;
+    let gate_pid = backend_pid(&mut gate_holder).await;
+    sqlx::query("BEGIN")
+        .execute(&mut gate_holder)
+        .await
+        .unwrap();
+    sqlx::query(include_str!(
+        "fixtures/market_invalidation_advisory_lock.sql"
+    ))
+    .bind(7_240_001_i64)
+    .execute(&mut gate_holder)
     .await
     .unwrap();
+    let rejection = spawn_write(
+        &world.pool,
+        world.actor,
+        review_organization(&world, scene.organization, false),
+    );
+    let rust_backend = wait_blocked(&mut world.watcher, gate_pid, 1).await[0];
+    let python = tokio::spawn(scene.lifecycle.deliver(world.runtime_connection().await));
+    wait_blocked(&mut world.watcher, rust_backend, 1).await;
+    sqlx::query("COMMIT")
+        .execute(&mut gate_holder)
+        .await
+        .unwrap();
+    finished(rejection).await.expect("the rejection committed");
+    python.await.unwrap().expect("the Python request committed");
+    assert_eq!(
+        organization_status(&world, scene.organization).await,
+        "REJECTED"
+    );
+    assert_eq!(order_status(&world, scene.listing.order).await, "CANCELLED");
+    let (available, reserved) = world.stock(scene.listing.inventory).await;
+    assert_eq!(
+        (available, reserved),
+        (Decimal::from(80), Decimal::from(20))
+    );
+    let trade = row_json(&world, TRADE_ROW, scene.trade).await;
+    assert_eq!(trade["status"], "DELIVERED");
+    assert_eq!(
+        trade["seller_user_id"],
+        Value::String(scene.member.to_string())
+    );
+    world.finish().await;
+}
 
-    // The bootstrap is an INSERT ... ON CONFLICT DO NOTHING under the
-    // organization row lock; run it from three connections at once.
-    let bootstrap = |pool: sqlx::PgPool, organization: Uuid| async move {
-        let mut conn = pool.acquire().await.unwrap();
-        let mut tx = conn.begin().await.unwrap();
-        sqlx::query("SELECT 1 FROM organizations WHERE id=$1 FOR UPDATE")
-            .bind(organization)
-            .execute(&mut *tx)
-            .await
-            .unwrap();
-        sqlx::query("INSERT INTO subscriptions(id,organization_id) VALUES($1,$2) ON CONFLICT (organization_id) DO NOTHING")
-            .bind(Uuid::new_v4())
-            .bind(organization)
-            .execute(&mut *tx)
-            .await
-            .unwrap();
-        tx.commit().await.unwrap();
-    };
-    let org = f.organization;
-    let a = tokio::spawn(bootstrap(f.pool.clone(), org));
-    let b = tokio::spawn(bootstrap(f.pool.clone(), org));
-    let c = tokio::spawn(bootstrap(f.pool.clone(), org));
-    let (a, b, c) = tokio::join!(a, b, c);
-    for task in [a, b, c] {
-        task.unwrap();
+// ===========================================================================
+// auth_maintenance_vs_ordered_write_lock_order
+// ===========================================================================
+
+async fn recorded_deadlocks(watcher: &mut sqlx::PgConnection) -> i64 {
+    sqlx::query_scalar("SELECT deadlocks FROM pg_stat_database WHERE datname = current_database()")
+        .fetch_one(watcher)
+        .await
+        .unwrap()
+}
+
+/// The statistics collector reports a deadlock after the detecting backend
+/// flushes its counters, so the count is awaited as observed state.
+async fn wait_for_deadlock_count(watcher: &mut sqlx::PgConnection, expected: i64) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    while recorded_deadlocks(watcher).await < expected {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the database never recorded the deadlock this race forms"
+        );
+        tokio::task::yield_now().await;
     }
+}
 
-    let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM subscriptions")
-        .fetch_one(&f.pool)
-        .await
-        .unwrap();
-    assert_eq!(rows, 1, "bootstrap created more than one row");
-    let tier: String = sqlx::query_scalar("SELECT tier FROM subscriptions")
-        .fetch_one(&f.pool)
-        .await
-        .unwrap();
-    assert_eq!(tier, "PILOT");
-
-    // A negotiated tier is never downgraded by a later bootstrap attempt.
-    sqlx::query("UPDATE subscriptions SET tier='ENTERPRISE',rate=0.75")
-        .execute(&mut f.admin)
-        .await
-        .unwrap();
-    bootstrap(f.pool.clone(), org).await;
-    let (tier, rate): (String, Option<rust_decimal::Decimal>) =
-        sqlx::query_as("SELECT tier,rate FROM subscriptions")
-            .fetch_one(&f.pool)
+/// The Python maintenance command clears expired digests user by user in
+/// storage order, without an organization lock; the Rust organization write
+/// locks its users in id order. With two members in opposite orders the
+/// database reports a real deadlock (40P01) after its detection delay. The
+/// victim is whichever backend's detector fires first. Either way the Rust
+/// write commits within its bounded retry, and the maintenance transaction
+/// either committed both rows or neither.
+#[tokio::test]
+#[ignore = "requires explicit disposable PostgreSQL authority"]
+async fn auth_maintenance_vs_ordered_write_lock_order() {
+    let mut world = World::new().await;
+    let organization = world.organization().await;
+    let low = Uuid::from_u128(0x1000);
+    let high = Uuid::from_u128(0x2000);
+    for id in [low, high] {
+        sqlx::query("INSERT INTO users(id,organization_id,role,password_reset_token_hash,password_reset_expires) VALUES($1,$2,'BUYER','stale-digest',now() - interval '1 hour')")
+            .bind(id)
+            .bind(organization)
+            .execute(&mut world.admin)
             .await
             .unwrap();
-    assert_eq!(tier, "ENTERPRISE");
-    assert_eq!(rate, Some(rust_decimal::Decimal::try_from(0.75).unwrap()));
-    let _ = other;
-    f.finish().await;
+    }
+    let deadlocks_before = recorded_deadlocks(&mut world.watcher).await;
+    let mut maintenance = world.runtime_connection().await;
+    let maintenance_pid = backend_pid(&mut maintenance).await;
+    sqlx::query("BEGIN")
+        .execute(&mut maintenance)
+        .await
+        .unwrap();
+    python_writers::clear_reset_hash_of(&mut maintenance, high)
+        .await
+        .unwrap();
+    let rejection = spawn_write(
+        &world.pool,
+        world.actor,
+        review_organization(&world, organization, false),
+    );
+    // The rejection holds the organization and the lower user and waits for the higher.
+    wait_blocked(&mut world.watcher, maintenance_pid, 1).await;
+    let python = tokio::spawn(async move {
+        let cleared_low = python_writers::clear_reset_hash_of(&mut maintenance, low).await;
+        match cleared_low {
+            Ok(_) => sqlx::query("COMMIT")
+                .execute(&mut maintenance)
+                .await
+                .is_ok(),
+            Err(_) => {
+                let _ = sqlx::query("ROLLBACK").execute(&mut maintenance).await;
+                false
+            }
+        }
+    });
+    finished(rejection)
+        .await
+        .expect("the rejection commits within its bounded retry");
+    let committed = python.await.unwrap();
+    wait_for_deadlock_count(&mut world.watcher, deadlocks_before + 1).await;
+    let cleared: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM users WHERE id = ANY($1) AND password_reset_token_hash IS NULL",
+    )
+    .bind(vec![low, high])
+    .fetch_one(&world.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        cleared,
+        if committed { 2 } else { 0 },
+        "the maintenance transaction applied half of its rows"
+    );
+    assert_eq!(organization_status(&world, organization).await, "REJECTED");
+    assert_eq!(members_of(&world, organization).await, 0);
+    world.finish().await;
+}
+
+// ===========================================================================
+// rejected_party_new_execution_refused_but_existing_deliver_pay_allowed
+// ===========================================================================
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Route {
+    /// A08, `PUT /api/auth/reject/{user_id}`.
+    Account,
+    /// N01, `PUT /api/admin/analytics/users/{user_id}/reject`.
+    Analytics,
+    /// A10, `PUT /api/auth/organization/{organization_id}/reject`.
+    Organization,
+    /// K06, `PUT /api/kyc/admin/{user_id}/reject`.
+    Kyc,
+}
+
+async fn eligible_in_sql(world: &World, user: Uuid) -> bool {
+    let mut builder = QueryBuilder::new("SELECT count(*) FROM users u WHERE u.id = ");
+    builder.push_bind(user);
+    builder.push(" AND (");
+    bind_eligibility_sql(
+        &mut builder,
+        &KycPolicy::default(),
+        KycSqlParty::USER,
+        Utc::now(),
+    );
+    builder.push(")");
+    let count: i64 = builder
+        .build_query_scalar()
+        .fetch_one(&world.pool)
+        .await
+        .unwrap();
+    count == 1
+}
+
+async fn kyc_party(world: &World, user: Uuid) -> KycParty {
+    let (organization, kyc_organization, status): (Option<Uuid>, Option<Uuid>, String) =
+        sqlx::query_as(
+            "SELECT organization_id,kyc_organization_id,kyc_status FROM users WHERE id=$1",
+        )
+        .bind(user)
+        .fetch_one(&world.pool)
+        .await
+        .unwrap();
+    KycParty {
+        user_id: user,
+        organization_id: organization,
+        kyc_organization_id: kyc_organization,
+        kyc_status: serde_json::from_value(Value::String(status)).expect("a closed KYC status"),
+    }
+}
+
+/// Each of the four rejection routes leaves every pre-existing trade exactly as
+/// it was — participants, lifecycle state, quantity and fee and term snapshots —
+/// whatever the rejected party's current membership, and the settlement
+/// reservation stays. The authority of an existing party is its immutable
+/// participation in the trade, not its current membership. Meanwhile new
+/// execution is refused: authentication stops for a rejected account, and the
+/// execution policy and its SQL mirror refuse an unlinked or rejected party.
+/// The deliver and pay requests themselves run in Python until the market
+/// phases and are not driven here.
+#[tokio::test]
+#[ignore = "requires explicit disposable PostgreSQL authority"]
+async fn rejected_party_new_execution_refused_but_existing_deliver_pay_allowed() {
+    let mut world = World::new().await;
+    for route in [
+        Route::Account,
+        Route::Analytics,
+        Route::Organization,
+        Route::Kyc,
+    ] {
+        for unlinked in [false, true] {
+            let case = format!("{route:?} unlinked={unlinked}");
+            let organization = world.organization().await;
+            let member = world.user(Some(organization)).await;
+            world.bind_kyc(member, "APPROVED", Some(organization)).await;
+            world.live_session(member).await;
+            let listing = world.stocked_listing(organization).await;
+            let counterparty_org = world.organization().await;
+            let counterparty = world.user(Some(counterparty_org)).await;
+            let mut trades = Vec::new();
+            for status in ["PENDING_CONFIRMATION", "CONFIRMED", "DELIVERED"] {
+                trades.push(
+                    world
+                        .trade(
+                            (counterparty_org, counterparty),
+                            (organization, member),
+                            Some(listing.order),
+                            status,
+                        )
+                        .await,
+                );
+            }
+            if unlinked {
+                sqlx::query("UPDATE users SET organization_id=NULL WHERE id=$1")
+                    .bind(member)
+                    .execute(&mut world.admin)
+                    .await
+                    .unwrap();
+            }
+            let mut trades_before = Vec::new();
+            for trade in &trades {
+                trades_before.push(row_json(&world, TRADE_ROW, *trade).await);
+            }
+            // The rejection's cutoff, set well before "now" so the token cases
+            // below are unambiguous at one-second token resolution.
+            let rejected_at = Utc::now() - Duration::seconds(30);
+
+            let verdict = match route {
+                Route::Account => {
+                    run_to_end(
+                        &world,
+                        world.actor,
+                        reject_account(member, RejectionRoute::Auth, rejected_at),
+                    )
+                    .await
+                }
+                Route::Analytics => {
+                    run_to_end(
+                        &world,
+                        world.actor,
+                        reject_account(member, RejectionRoute::Analytics, rejected_at),
+                    )
+                    .await
+                }
+                Route::Organization => {
+                    run_to_end(
+                        &world,
+                        world.actor,
+                        review_organization(&world, organization, false),
+                    )
+                    .await
+                }
+                Route::Kyc => {
+                    run_to_end(&world, world.actor, review_kyc(member, false)).await
+                }
+            };
+            if route == Route::Kyc && unlinked {
+                // The review is bound to an organization the user no longer belongs to.
+                assert_eq!(
+                    refusal(&verdict),
+                    (409, "KYC_ORGANIZATION_MISMATCH".into()),
+                    "{case}"
+                );
+            } else {
+                verdict.unwrap_or_else(|error| panic!("{case}: {error:?}"));
+            }
+
+            // Existing trades: immutable participants, lifecycle and snapshots.
+            for (trade, before) in trades.iter().zip(&trades_before) {
+                assert_eq!(
+                    &row_json(&world, TRADE_ROW, *trade).await,
+                    before,
+                    "{case}: a trade changed"
+                );
+            }
+            let authorized: i64 = sqlx::query_scalar("SELECT count(*) FROM trades WHERE id = ANY($1) AND $2 IN (buyer_user_id, seller_user_id)")
+                .bind(&trades)
+                .bind(member)
+                .fetch_one(&world.pool)
+                .await
+                .unwrap();
+            assert_eq!(
+                authorized, 3,
+                "{case}: the party's participation no longer identifies it"
+            );
+
+            // The settlement reservation of existing trades is untouched; only
+            // an organization rejection withdraws the uncommitted remainder.
+            let (available, reserved) = world.stock(listing.inventory).await;
+            assert_eq!(
+                available + reserved,
+                Decimal::from(100),
+                "{case}: stock is conserved"
+            );
+            if route == Route::Organization {
+                assert_eq!(
+                    order_status(&world, listing.order).await,
+                    "CANCELLED",
+                    "{case}"
+                );
+                assert_eq!(
+                    (available, reserved),
+                    (Decimal::from(80), Decimal::from(20)),
+                    "{case}"
+                );
+            } else {
+                assert_eq!(order_status(&world, listing.order).await, "OPEN", "{case}");
+                assert_eq!(
+                    (available, reserved),
+                    (Decimal::from(20), Decimal::from(80)),
+                    "{case}"
+                );
+            }
+
+            // New execution is refused.
+            let state = account_state(&world, member).await;
+            match route {
+                Route::Account | Route::Analytics => {
+                    assert_eq!(live_sessions(&world, member).await, 0, "{case}");
+                    assert_eq!(
+                        validate_account(
+                            &access_issued_at(member, rejected_at - Duration::minutes(1)),
+                            &state
+                        ),
+                        Err(AuthError::SessionRevoked),
+                        "{case}: a token issued before the rejection still works"
+                    );
+                    assert_eq!(
+                        validate_account(&access_issued_at(member, Utc::now()), &state),
+                        Err(AuthError::Rejected),
+                        "{case}: a rejected account authenticated"
+                    );
+                }
+                Route::Organization | Route::Kyc => {
+                    let party = kyc_party(&world, member).await;
+                    let decision = eligibility(&KycPolicy::default(), &party, None, Utc::now());
+                    assert!(!decision.eligible, "{case}: {decision:?}");
+                    let expected = if route == Route::Kyc && !unlinked {
+                        KycReason::Rejected
+                    } else {
+                        KycReason::Required
+                    };
+                    assert_eq!(decision.reason, expected, "{case}");
+                    assert!(
+                        !eligible_in_sql(&world, member).await,
+                        "{case}: the SQL mirror admits the party"
+                    );
+                }
+            }
+        }
+    }
+    world.finish().await;
 }
