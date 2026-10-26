@@ -790,7 +790,7 @@ pub fn fame_terms_compatible(bid: &Json, ask: &Json, today: NaiveDate) -> bool {
     }
 }
 
-/// A validated Bio-LNG requirement.
+/// A validated `lng_v1` requirement.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LngBidTerms {
     pub accepted_schemes: Vec<String>,
@@ -827,7 +827,7 @@ impl LngBidTerms {
     }
 }
 
-/// A validated Bio-LNG declaration.
+/// A validated `lng_v1` declaration.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LngAskTerms {
     pub sustainability_scheme: String,
@@ -861,7 +861,7 @@ impl LngAskTerms {
     }
 }
 
-/// The eight Bio-LNG compatibility rules.
+/// The eight `lng_v1` compatibility rules.
 fn lng_pair_compatible(bid: &LngBidTerms, ask: &LngAskTerms) -> bool {
     bid.accepted_schemes.contains(&ask.sustainability_scheme)
         && bid.accepted_custody.contains(&ask.chain_of_custody)
@@ -880,7 +880,7 @@ fn lng_pair_compatible(bid: &LngBidTerms, ask: &LngAskTerms) -> bool {
         && (bid.accept_resellers || ask.seller_is_physical_supplier)
 }
 
-/// All eight Bio-LNG rules. Invalid terms on either side are incompatible.
+/// All eight `lng_v1` rules. Invalid terms on either side are incompatible.
 pub fn lng_terms_compatible(bid: &Json, ask: &Json) -> bool {
     match (LngBidTerms::parse(bid), LngAskTerms::parse(ask)) {
         (Some(bid), Some(ask)) => lng_pair_compatible(&bid, &ask),
