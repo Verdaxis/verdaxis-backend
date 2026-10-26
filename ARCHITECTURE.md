@@ -118,6 +118,18 @@ shared lock evidence records the terminal PIN phase and refuses later economic
 acquisition. Receipt replays bypass fresh effects. The committed-evidence consumer
 and stream transport integration remain separate components.
 
+## Ordered matching component
+
+`order_write/matching.rs` separates an exact-decimal, deterministic fill plan
+from caller-transaction application. Candidate selection previews at most 101
+crossing rows and locks at most 100 by price, acceptance ordinal and UUID under
+the declared slice and complete party prefix. A remaining aggressor beyond the
+cap refuses the entire command. Application inserts confirmed trades and updates
+both orders per fill; its outcome retains before/after orders, trades and both
+changed sides for transaction-level completion. Detailed eligibility, immutable
+fee/term completion, inventory consumption and effect composition remain the
+order-entry integration steps before any serving route can use this component.
+
 ## Rust Phase 2 price-alert component
 
 Task 16 adds `rs/read/src/crud/alerts.rs` for organization-owned alert create,

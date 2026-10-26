@@ -453,6 +453,10 @@ impl OperationLockPlan {
                     .map(ToString::to_string)
                     .collect::<Vec<_>>()
     }
+    pub(super) fn record_matching_resources(&mut self, orders: &[Uuid], inventory: &[Uuid]) {
+        self.orders.extend_from_slice(orders);
+        self.inventory.extend_from_slice(inventory);
+    }
     pub fn order_ids(&self) -> &[Uuid] {
         &self.orders
     }
@@ -470,6 +474,7 @@ impl OperationLockPlan {
             steps: Vec::new(),
             statements: Vec::new(),
             target_phase: std::sync::atomic::AtomicBool::new(false),
+            matching_steps: std::sync::Mutex::new(Vec::new()),
         };
         for statement in [
             "SET LOCAL lock_timeout = '500ms'",
@@ -559,6 +564,7 @@ pub struct Locked {
     steps: Vec<LockStep>,
     statements: Vec<&'static str>,
     target_phase: std::sync::atomic::AtomicBool,
+    matching_steps: std::sync::Mutex<Vec<LockStep>>,
 }
 impl Locked {
     pub(super) fn require_economic_phase(&self) -> Result<(), MarketWriteError> {
@@ -602,10 +608,39 @@ impl Locked {
     pub fn statement_trace(&self) -> &[&'static str] {
         &self.statements
     }
+    #[cfg(feature = "contract-tests")]
+    pub(super) fn matching_trace(&self) -> Vec<(LockClass, Uuid)> {
+        self.matching_steps
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|step| (step.class, Uuid::parse_str(&step.identity).unwrap()))
+            .collect()
+    }
+    pub(super) fn record_matching_resource(
+        &self,
+        class: LockClass,
+        id: Uuid,
+    ) -> Result<(), MarketWriteError> {
+        self.require_economic_phase()?;
+        self.matching_steps
+            .lock()
+            .map_err(|_| invalid_plan())?
+            .push(LockStep {
+                class,
+                identity: id.to_string(),
+            });
+        Ok(())
+    }
     pub(super) fn contains(&self, class: LockClass, id: Uuid) -> bool {
         self.steps
             .iter()
             .any(|step| step.class == class && step.identity == id.to_string())
+            || self.matching_steps.lock().is_ok_and(|steps| {
+                steps
+                    .iter()
+                    .any(|step| step.class == class && step.identity == id.to_string())
+            })
     }
 }
 

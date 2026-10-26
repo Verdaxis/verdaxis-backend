@@ -329,6 +329,7 @@ fn boundary_insert_allowed(root: &Path, path: &Path, table: &str) -> bool {
             "effects.rs",
             &["AUDIT_LOGS", "NOTIFICATIONS", "LIVE_SLICE_BENCHMARKS"],
         ),
+        ("matching.rs", &["TRADES"]),
         ("dismissal.rs", &["MATCH_SUGGESTIONS"]),
     ];
     per_file
@@ -1191,5 +1192,50 @@ fn dismissal_insert_authority_is_scoped_to_the_exact_source_file() {
     }
     for table in WRITE_TABLES {
         assert!(boundary_insert_allowed(&root, &dismissal, table));
+    }
+}
+
+#[test]
+fn matching_insert_authority_is_scoped_to_the_exact_source_file() {
+    let root = repository_root();
+    let boundary = root.join("rs/read/src/order_write");
+    assert!(boundary_insert_allowed(
+        &root,
+        &boundary.join("matching.rs"),
+        "TRADES"
+    ));
+    for file in [
+        "effects.rs",
+        "transaction.rs",
+        "outbox.rs",
+        "command.rs",
+        "nested/matching.rs",
+    ] {
+        assert!(!boundary_insert_allowed(
+            &root,
+            &boundary.join(file),
+            "TRADES"
+        ));
+    }
+    for table in [
+        "USERS",
+        "ORDERBOOK_ORDERS",
+        "INVENTORY_ITEMS",
+        "AUDIT_LOGS",
+        "NOTIFICATIONS",
+        "UNLISTED_TABLE",
+    ] {
+        assert!(!boundary_insert_allowed(
+            &root,
+            &boundary.join("matching.rs"),
+            table
+        ));
+    }
+    for table in WRITE_TABLES {
+        assert!(boundary_insert_allowed(
+            &root,
+            &boundary.join("matching.rs"),
+            table
+        ));
     }
 }

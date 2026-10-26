@@ -143,7 +143,7 @@ market_error_codes! {
         "An economic order field cannot be null";
     OrderIdentityImmutable => "ORDER_IDENTITY_IMMUTABLE", StatusCode::UNPROCESSABLE_ENTITY,
         "An order identity field cannot change";
-    MatchFanoutExceeded => "MATCH_FANOUT_EXCEEDED", StatusCode::UNPROCESSABLE_ENTITY,
+    MatchFanoutExceeded => "MATCH_FANOUT_EXCEEDED", StatusCode::CONFLICT,
         "The match exceeds the crossing-order bound";
     MarketSliceChanged => "MARKET_SLICE_CHANGED", StatusCode::CONFLICT,
         "The market slice changed during the command";

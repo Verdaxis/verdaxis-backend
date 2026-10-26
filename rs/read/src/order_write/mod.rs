@@ -20,6 +20,7 @@ pub mod effects;
 mod error;
 mod expiry;
 pub mod locks;
+pub mod matching;
 pub mod outbox;
 mod transaction;
 
@@ -79,6 +80,7 @@ pub mod test_contract {
             run_paused_market_probe,
         };
     }
+    pub use super::matching::contract as matching;
     pub use super::transaction::stock_contract;
     pub mod effects {
         pub use super::super::effects::MutationKind;

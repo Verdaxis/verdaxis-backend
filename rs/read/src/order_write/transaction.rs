@@ -1738,10 +1738,76 @@ pub struct MarketPreview {
 
 pub struct LockedMarketTransaction<'a> {
     conn: &'a mut PgConnection,
-    plan: &'a super::locks::OperationLockPlan,
+    plan: std::borrow::Cow<'a, super::locks::OperationLockPlan>,
     locked: &'a super::locks::Locked,
 }
 impl LockedMarketTransaction<'_> {
+    #[cfg(feature = "contract-tests")]
+    pub(super) fn matching_trace(&self) -> Vec<(super::locks::LockClass, Uuid)> {
+        self.locked.matching_trace()
+    }
+    pub(super) async fn matching_order(
+        &mut self,
+        id: Uuid,
+    ) -> Result<super::matching::OrderRow, super::MarketWriteError> {
+        self.locked.require_economic_phase()?;
+        super::matching::load_order(self.conn, id).await
+    }
+    pub(super) async fn prepare_match(
+        &mut self,
+        aggressor: &super::matching::OrderRow,
+        bound: super::matching::MatchBound,
+    ) -> Result<super::matching::MatchPlan, super::MarketWriteError> {
+        let plan = super::matching::MatchingPort::new(self.conn, &self.plan, self.locked)?
+            .plan_match(aggressor, bound)
+            .await?;
+        let orders = plan.locked_order_ids();
+        let items = plan.inventory_ids();
+        for id in &orders {
+            self.locked
+                .record_matching_resource(super::locks::LockClass::Order, *id)?;
+        }
+        for id in &items {
+            sqlx::query("SELECT id FROM inventory_items WHERE id=$1 FOR UPDATE")
+                .bind(id)
+                .fetch_optional(&mut *self.conn)
+                .await?
+                .ok_or_else(|| {
+                    super::MarketWriteError::new(super::MarketErrorCode::InventoryInconsistent)
+                })?;
+            self.locked
+                .record_matching_resource(super::locks::LockClass::Inventory, *id)?;
+        }
+        self.plan
+            .to_mut()
+            .record_matching_resources(&orders, &items);
+        Ok(plan)
+    }
+    pub(super) async fn apply_match(
+        &mut self,
+        plan: &super::matching::MatchPlan,
+    ) -> Result<super::matching::MatchOutcome, super::MarketWriteError> {
+        if plan
+            .locked_order_ids()
+            .iter()
+            .any(|id| !self.plan.order_ids().contains(id))
+        {
+            return Err(super::MarketWriteError::new(
+                super::MarketErrorCode::MarketSliceChanged,
+            ));
+        }
+        super::matching::MatchingPort::new(self.conn, &self.plan, self.locked)?
+            .apply_plan(plan)
+            .await
+    }
+    pub(super) async fn match_order(
+        &mut self,
+        aggressor: &super::matching::OrderRow,
+        bound: super::matching::MatchBound,
+    ) -> Result<super::matching::MatchOutcome, super::MarketWriteError> {
+        let plan = self.prepare_match(aggressor, bound).await?;
+        self.apply_match(&plan).await
+    }
     /// Borrow only stock rows in the owner's complete locked sets (A's bridge).
     pub(super) fn stock_ledger(&mut self) -> Result<StockLedger<'_>, super::MarketWriteError> {
         self.locked.require_economic_phase()?;
@@ -1757,7 +1823,11 @@ impl LockedMarketTransaction<'_> {
         plan: &'a super::locks::OperationLockPlan,
         locked: &'a super::locks::Locked,
     ) -> LockedMarketTransaction<'a> {
-        LockedMarketTransaction { conn, plan, locked }
+        LockedMarketTransaction {
+            conn,
+            plan: std::borrow::Cow::Borrowed(plan),
+            locked,
+        }
     }
     /// Borrow the final effect phase of this ordered transaction.
     pub(super) fn effects(
@@ -1977,7 +2047,7 @@ async fn market_attempt<C: MarketCommand>(
         .await?;
         let mut port = LockedMarketTransaction {
             conn: &mut tx,
-            plan: &preview.locks,
+            plan: std::borrow::Cow::Borrowed(&preview.locks),
             locked: &locked,
         };
         if let Some(value) = command.replay(&mut port, &actor).await? {
