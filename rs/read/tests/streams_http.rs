@@ -224,11 +224,19 @@ async fn stream_routes_reject_head_and_post_405_envelope() {
     ] {
         let (status, headers, bytes) = send(&live(), method("POST", path)).await;
         assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED, "POST {path}");
-        assert!(headers.iter().any(|(name, value)| name == "allow" && value == "GET"));
+        assert!(
+            headers
+                .iter()
+                .any(|(name, value)| name == "allow" && value == "GET")
+        );
         assert_eq!(code(&bytes), "STREAM_METHOD_NOT_ALLOWED", "POST {path}");
         let (status, headers, bytes) = send(&live(), method("HEAD", path)).await;
         assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED, "HEAD {path}");
-        assert!(headers.iter().any(|(name, value)| name == "allow" && value == "GET"));
+        assert!(
+            headers
+                .iter()
+                .any(|(name, value)| name == "allow" && value == "GET")
+        );
         assert!(bytes.is_empty(), "HEAD {path} carries no body");
     }
 }
