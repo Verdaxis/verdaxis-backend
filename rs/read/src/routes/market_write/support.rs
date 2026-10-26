@@ -1,23 +1,24 @@
 //! Support component routes. Serving composition is a separate owner.
+//!
+//! Handlers pass the raw body, path and query to the command, which decodes
+//! them only after the caller is an approved administrator.
 use crate::auth::{VerificationSettings, verify_authorization};
 use crate::market_support::{
-    AuditContext, CapabilityGrant, Page, SupportAction, SupportCommand, SupportSettings, reason,
-    run_support,
+    AuditContext, SupportCommand, SupportRequest, SupportSettings, missing_credentials, run_support,
 };
+use crate::runtime::{http::client_ip, logging::request_id};
 use crate::{Config, MarketPolicy};
 use axum::{
     Router,
     body::Bytes,
-    extract::{Path, RawQuery, State},
-    http::{HeaderMap, StatusCode},
+    extract::{ConnectInfo, Path, RawQuery, State},
+    http::{StatusCode, request::Parts},
     response::{IntoResponse, Response},
     routing::{get, post},
 };
 use chrono::Utc;
-use serde_json::{Value, json};
-use std::sync::Arc;
+use std::{net::SocketAddr, sync::Arc};
 use tokio::sync::Semaphore;
-use uuid::Uuid;
 
 #[derive(Clone)]
 pub struct SupportState {
@@ -79,26 +80,44 @@ pub fn router(state: SupportState) -> Router {
         )
         .with_state(state)
 }
-fn invalid() -> Response {
-    (StatusCode::UNPROCESSABLE_ENTITY,axum::Json(json!({"detail":{"code":"VALIDATION_FAILED","message":"The support request is not valid"}}))).into_response()
+
+fn header<'a>(parts: &'a Parts, name: &str) -> Option<&'a str> {
+    parts
+        .headers
+        .get(name)
+        .and_then(|value| value.to_str().ok())
 }
-async fn execute(state: SupportState, headers: HeaderMap, action: SupportAction) -> Response {
-    let access=match verify_authorization(headers.get("authorization").and_then(|v|v.to_str().ok()),&state.verification,Utc::now()) {
-        Ok(access)=>access,
-        Err(error)=>return (StatusCode::from_u16(error.status()).expect("auth status"),axum::Json(json!({"detail":{"code":"AUTH_CREDENTIALS_INVALID","message":"Valid access credentials are required"}}))).into_response(),
+
+/// Python's `request_audit_context`: the client address (the last forwarded
+/// hop only from a loopback peer) and the request's correlation ID. The
+/// serving middleware stores the ID it minted as a request extension; without
+/// it, the same rule sanitizes `X-Request-ID` or generates an ID.
+fn audit_identity(parts: &Parts) -> (String, String) {
+    let peer = parts
+        .extensions
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|info| info.0.ip());
+    let client = client_ip(peer, header(parts, "x-forwarded-for"));
+    let correlation = parts
+        .extensions
+        .get::<String>()
+        .map(String::as_str)
+        .or_else(|| header(parts, "x-request-id"));
+    (client, request_id(correlation))
+}
+
+async fn dispatch(state: SupportState, parts: Parts, request: SupportRequest) -> Response {
+    let authorization = header(&parts, "authorization");
+    let Ok(access) = verify_authorization(authorization, &state.verification, Utc::now()) else {
+        return missing_credentials().into_response();
     };
-    let audit = match AuditContext::new(
-        None,
-        headers
-            .get("x-request-id")
-            .and_then(|v| v.to_str().ok())
-            .map(str::to_owned),
-    ) {
+    let (client, correlation) = audit_identity(&parts);
+    let audit = match AuditContext::new(Some(client), Some(correlation)) {
         Ok(audit) => audit,
         Err(error) => return error.into_response(),
     };
     let command = SupportCommand {
-        action,
+        request,
         settings: state.settings,
         access: Arc::new(access),
         policy: state.policy,
@@ -110,17 +129,12 @@ async fn execute(state: SupportState, headers: HeaderMap, action: SupportAction)
         Err(error) => error.into_response(),
     }
 }
-async fn capabilities(State(state): State<SupportState>, headers: HeaderMap) -> Response {
-    execute(state, headers, SupportAction::Capabilities).await
+
+async fn capabilities(State(state): State<SupportState>, parts: Parts) -> Response {
+    dispatch(state, parts, SupportRequest::Capabilities).await
 }
-async fn grant(State(state): State<SupportState>, headers: HeaderMap, body: Bytes) -> Response {
-    let Ok(value) = serde_json::from_slice(&body) else {
-        return invalid();
-    };
-    let Ok(grant) = CapabilityGrant::parse(value, Utc::now()) else {
-        return invalid();
-    };
-    let mut response = execute(state, headers, SupportAction::Grant(grant)).await;
+async fn grant(State(state): State<SupportState>, parts: Parts, body: Bytes) -> Response {
+    let mut response = dispatch(state, parts, SupportRequest::Grant { body }).await;
     if response.status() == StatusCode::OK {
         *response.status_mut() = StatusCode::CREATED;
     }
@@ -128,77 +142,43 @@ async fn grant(State(state): State<SupportState>, headers: HeaderMap, body: Byte
 }
 async fn revoke(
     State(state): State<SupportState>,
-    headers: HeaderMap,
-    Path(id): Path<Uuid>,
+    Path(assignment): Path<String>,
+    parts: Parts,
     body: Bytes,
 ) -> Response {
-    let Ok(value) = serde_json::from_slice::<Value>(&body) else {
-        return invalid();
-    };
-    let Some(raw) = value["reason"].as_str() else {
-        return invalid();
-    };
-    let Ok(reason) = reason(raw) else {
-        return invalid();
-    };
-    execute(
-        state,
-        headers,
-        SupportAction::Revoke {
-            assignment: id,
-            reason,
-        },
-    )
-    .await
+    dispatch(state, parts, SupportRequest::Revoke { assignment, body }).await
 }
 async fn organizations(
     State(state): State<SupportState>,
-    headers: HeaderMap,
-    RawQuery(raw): RawQuery,
+    RawQuery(query): RawQuery,
+    parts: Parts,
 ) -> Response {
-    let Ok(page) = Page::parse(raw.as_deref()) else {
-        return invalid();
-    };
-    execute(state, headers, SupportAction::Organizations(page)).await
+    dispatch(state, parts, SupportRequest::Organizations { query }).await
 }
 async fn authorizations(
     State(state): State<SupportState>,
-    headers: HeaderMap,
-    Path(id): Path<Uuid>,
-    RawQuery(raw): RawQuery,
+    Path(organization): Path<String>,
+    RawQuery(query): RawQuery,
+    parts: Parts,
 ) -> Response {
-    let Ok(page) = Page::parse(raw.as_deref()) else {
-        return invalid();
+    let request = SupportRequest::Authorizations {
+        organization,
+        query,
     };
-    execute(
-        state,
-        headers,
-        SupportAction::Authorizations {
-            organization: id,
-            page,
-        },
-    )
-    .await
+    dispatch(state, parts, request).await
 }
 async fn listings(
     State(state): State<SupportState>,
-    headers: HeaderMap,
-    Path(id): Path<Uuid>,
-    RawQuery(raw): RawQuery,
+    Path(organization): Path<String>,
+    RawQuery(query): RawQuery,
+    parts: Parts,
 ) -> Response {
-    let Ok(page) = Page::parse(raw.as_deref()) else {
-        return invalid();
+    let request = SupportRequest::Listings {
+        organization,
+        query,
     };
-    execute(
-        state,
-        headers,
-        SupportAction::Listings {
-            organization: id,
-            page,
-        },
-    )
-    .await
+    dispatch(state, parts, request).await
 }
-async fn retired(State(state): State<SupportState>, headers: HeaderMap) -> Response {
-    execute(state, headers, SupportAction::Retired).await
+async fn retired(State(state): State<SupportState>, parts: Parts) -> Response {
+    dispatch(state, parts, SupportRequest::Retired).await
 }
