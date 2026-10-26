@@ -47,7 +47,7 @@ use verdaxis_read::{
         AnalyticsActivity, AnalyticsAudience, AnalyticsQuery, StatusFacts,
         aggregates::load_status_facts,
     },
-    auth::{AccountState, AuthError, validate_account},
+    auth::{AccountState, AuthError, TokenIssuance, cutoff_refusal, validate_account},
     business::{
         admission::RejectionRoute,
         approval_mail::{
@@ -543,6 +543,46 @@ async fn reject_vs_refresh_revokes_successor() {
     world.finish().await;
 }
 
+/// A rotation that already holds the user row when a rejection request starts
+/// can issue its successor access token after the instant the request was made.
+/// The rejection then commits, and the token must still fall under its
+/// revocation cutoff: otherwise a later reapproval of the account would revive a
+/// token issued before the rejection committed.
+#[tokio::test]
+#[ignore = "requires explicit disposable PostgreSQL authority"]
+async fn rejection_cutoff_covers_a_successor_issued_while_it_waited() {
+    let mut world = World::new().await;
+    let organization = world.organization().await;
+    let user = world.user(Some(organization)).await;
+    let session = world.live_session(user).await;
+    let rotation = lock_for_rotation(&world.pool, user, &session).await;
+    let rejection = spawn_write(
+        &world.pool,
+        world.actor,
+        reject_account(user, RejectionRoute::Auth, Utc::now()),
+    );
+    wait_blocked(&mut world.watcher, rotation.backend, 1).await;
+    let successor_issued_at = Utc::now();
+    rotation
+        .finish(successor_issued_at)
+        .await
+        .expect("the rotation ran before the rejection");
+    finished(rejection).await.expect("the rejection committed");
+
+    world.set_status(user, "APPROVED").await;
+    let state = account_state(&world, user).await;
+    let issuance = TokenIssuance {
+        issued_at: Some(successor_issued_at),
+        out_of_range: false,
+    };
+    assert_eq!(
+        cutoff_refusal(issuance, &state),
+        Some(AuthError::SessionRevoked),
+        "a token issued before the rejection committed passes the cutoff after reapproval"
+    );
+    world.finish().await;
+}
+
 /// A Python maintenance delete of an expired session holds that row while the
 /// rejection revokes the user's sessions: the revocation waits for the delete,
 /// and the stale row ends deleted and every live session revoked.
@@ -923,6 +963,58 @@ async fn invitation_rotation_vs_acceptance_is_serialized() {
     assert_eq!(
         audits_of(&world, "user.invitation_accepted", invitee).await,
         1
+    );
+    world.finish().await;
+}
+
+/// The Python maintenance command clears invitation digests whose expiry has
+/// passed. An administrator reissuing an expired invitation races it: the
+/// reissued digest must survive.
+#[tokio::test]
+#[ignore = "requires explicit disposable PostgreSQL authority"]
+async fn auth_maintenance_cannot_clear_a_reissued_invitation_digest() {
+    let mut world = World::new().await;
+    let organization = world.supplier_organization().await;
+    let created = run_ordered_write(
+        world.pool.clone(),
+        Arc::new(Semaphore::new(1)),
+        access(world.actor),
+        invite_supplier("expired@customer.example", organization),
+    )
+    .await
+    .expect("the invitation was created");
+    let invitee = created.user_id;
+    sqlx::query("UPDATE users SET password_reset_expires=now() - interval '1 hour' WHERE id=$1")
+        .bind(invitee)
+        .execute(&mut world.admin)
+        .await
+        .unwrap();
+    let expired = invitee_digest(&world, invitee)
+        .await
+        .expect("a stored digest");
+
+    let gate = Gate::closed();
+    let reissue = spawn_write(
+        &world.pool,
+        world.actor,
+        Gated::new(
+            invite_supplier("expired@customer.example", organization),
+            &gate,
+        ),
+    );
+    let holder = gate.arrived().await;
+    let mut maintenance = world.runtime_connection().await;
+    let maintenance = tokio::spawn(async move {
+        python_writers::clear_expired_reset_hashes(&mut maintenance, Utc::now(), 1000).await
+    });
+    wait_blocked(&mut world.watcher, holder, 1).await;
+    gate.open();
+    finished(reissue).await.expect("the reissue committed");
+    maintenance.await.unwrap();
+    let kept = invitee_digest(&world, invitee).await;
+    assert!(
+        kept.as_deref().is_some_and(|digest| digest != expired),
+        "the maintenance command cleared the digest the administrator just issued"
     );
     world.finish().await;
 }
