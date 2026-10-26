@@ -20,6 +20,11 @@ use crate::commission::{
 };
 use crate::{Config, MarketPolicy};
 
+/// A patch carries a status, an invoice number, two dates and free-text notes.
+/// One mebibyte leaves ample room for notes and bounds what an authenticated
+/// caller can make the server buffer before the administrator check runs.
+const PATCH_BODY_LIMIT_BYTES: usize = 1024 * 1024;
+
 pub struct RouteContext {
     pub pool: sqlx::PgPool,
     pub permits: Arc<Semaphore>,
@@ -93,7 +98,7 @@ async fn handle(State(context): State<Arc<RouteContext>>, request: Request) -> R
             Some(id) => id,
             None => return refusal(422, "VALIDATION_FAILED", "A commission UUID is required"),
         };
-        let bytes = match to_bytes(request.into_body(), 64 * 1024 * 1024).await {
+        let bytes = match to_bytes(request.into_body(), PATCH_BODY_LIMIT_BYTES).await {
             Ok(bytes) => bytes,
             Err(_) => return refusal(413, "BODY_TOO_LARGE", "The body is too large"),
         };
