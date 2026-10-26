@@ -138,9 +138,47 @@ async fn request(
     (status, serde_json::from_slice(&bytes).unwrap())
 }
 
+/// Each request waits at most the market lock timeout for the commission row.
+/// On a loaded host the second request can reach the row after the first one
+/// stopped waiting; such a round shows no overlap and is repeated.
+const SERIALIZATION_ROUNDS: usize = 20;
+const LOCK_WAITERS: &str = "SELECT count(*) FROM pg_stat_activity \
+    WHERE wait_event_type='Lock' AND query LIKE '%commissions%' AND pid<>pg_backend_pid()";
+
+async fn wait_for_lock_waiters(admin: &mut PgConnection, expected: i64) -> bool {
+    for _ in 0..400 {
+        let waiting: i64 = sqlx::query_scalar(LOCK_WAITERS)
+            .fetch_one(&mut *admin)
+            .await
+            .unwrap();
+        if waiting >= expected {
+            return true;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+    false
+}
+
+/// A request that stopped waiting at the market lock timeout reports MARKET_BUSY.
+fn lock_wait_expired(response: &(u16, Value)) -> bool {
+    response.0 == 409 && response.1["detail"]["code"] == "MARKET_BUSY"
+}
+
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn commission_patch_is_serialized_and_audited() {
+    for _ in 0..SERIALIZATION_ROUNDS {
+        if serialized_patch_round().await {
+            return;
+        }
+    }
+    panic!("no round had both administrator connections waiting on the commission row");
+}
+
+/// An independent connection holds the commission row while two administrators
+/// patch it. Returns false when the two requests did not wait on the row
+/// together; every assertion below runs on a round where they did.
+async fn serialized_patch_round() -> bool {
     let mut f = Fixture::new().await;
     f.seed(1).await;
     let id = f.id().await;
@@ -158,43 +196,26 @@ async fn commission_patch_is_serialized_and_audited() {
         tokio::spawn(
             async move { request(app, token, "PUT", &p, json!({"status":"INVOICED"})).await },
         );
-    let mut observed = false;
-    for _ in 0..400 {
-        let waiting:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock' AND query LIKE '%commissions%' AND pid<>pg_backend_pid())").fetch_one(&mut f.admin).await.unwrap();
-        if waiting {
-            observed = true;
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
-    }
-    assert!(
-        observed,
-        "first independent administrator must wait for the row"
-    );
+    let first_waiting = wait_for_lock_waiters(&mut f.admin, 1).await;
     let app = f.app.clone();
     let token = f.token(1);
     let p = path.clone();
     let second =
         tokio::spawn(async move { request(app, token, "PUT", &p, json!({"status":"PAID"})).await });
-    let mut both_waiting = false;
-    for _ in 0..400 {
-        let waiting:i64=sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity WHERE wait_event_type='Lock' AND query LIKE '%commissions%' AND pid<>pg_backend_pid()").fetch_one(&mut f.admin).await.unwrap();
-        if waiting >= 2 {
-            both_waiting = true;
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
-    }
-    assert!(
-        both_waiting,
-        "both administrator connections must reach the commission row"
-    );
+    let both_waiting = first_waiting && wait_for_lock_waiters(&mut f.admin, 2).await;
     blocker.commit().await.unwrap();
     let a = first.await.unwrap();
     let b = second.await.unwrap();
-    assert_eq!(a.0, 200);
+    for response in [&a, &b] {
+        assert!(
+            response.0 == 200 || lock_wait_expired(response),
+            "unexpected patch response {response:?}"
+        );
+    }
+    if !both_waiting || lock_wait_expired(&a) || lock_wait_expired(&b) {
+        return false;
+    }
     assert_eq!(a.1["status"], "INVOICED");
-    assert_eq!(b.0, 200);
     assert_eq!(b.1["status"], "PAID");
     let changes: Vec<Value> =
         sqlx::query_scalar("SELECT changes FROM audit_logs ORDER BY timestamp,id")
@@ -229,6 +250,7 @@ async fn commission_patch_is_serialized_and_audited() {
             "commission".into(),
             id.to_string()
         )));
+    true
 }
 
 #[tokio::test]
