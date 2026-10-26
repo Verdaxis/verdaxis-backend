@@ -1,7 +1,7 @@
 use chrono::{Duration, Utc};
 use serde_json::json;
 use uuid::Uuid;
-use verdaxis_read::market_support::{CapabilityGrant, Page, SupportSettings};
+use verdaxis_read::market_support::{CapabilityGrant, Page, SupportSettings, reason};
 
 #[test]
 fn bootstrap_ids_are_exact_uuid_memberships() {
@@ -42,4 +42,17 @@ fn capability_input_validates_names_reason_and_future_expiry() {
     assert!(CapabilityGrant::parse(body.clone(), now).is_err());
     body["expires_at"] = json!(now + Duration::hours(1));
     assert!(CapabilityGrant::parse(body, now).is_ok());
+}
+
+#[test]
+fn reason_length_is_checked_before_surrounding_whitespace_is_removed() {
+    assert_eq!(reason("   ").unwrap(), "");
+    assert_eq!(reason(" ab ").unwrap(), "ab");
+    assert_eq!(reason("\u{1c}abc\u{1f}").unwrap(), "abc");
+    assert!(reason("ab").is_err());
+    assert!(reason(&format!(" {} ", "x".repeat(499))).is_err());
+    assert_eq!(reason(&"x".repeat(500)).unwrap().chars().count(), 500);
+    let body =
+        json!({"user_id":Uuid::new_v4(),"capability":"MARKET_SUPPORT_LISTINGS","reason":"   "});
+    assert_eq!(CapabilityGrant::parse(body, Utc::now()).unwrap().reason, "");
 }
