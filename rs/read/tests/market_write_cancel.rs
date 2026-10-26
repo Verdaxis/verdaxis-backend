@@ -71,3 +71,38 @@ fn cancel_key_is_normalized_and_bounded() {
         );
     }
 }
+
+/// The status and the client-facing code of a refused cancellation input.
+macro_rules! refusal_of {
+    ($result:expr) => {{
+        let error = $result.unwrap_err();
+        (error.status, error.code.as_str())
+    }};
+}
+
+#[test]
+fn cancel_input_refusals_carry_their_codes() {
+    assert_eq!(
+        refusal_of!(CancelInput::parse(true, None, None, None)),
+        (StatusCode::BAD_REQUEST, "VALIDATION_FAILED")
+    );
+    let short_reason = Some(json!({"reason": "x"}));
+    assert_eq!(
+        refusal_of!(CancelInput::parse(false, short_reason, None, None)),
+        (StatusCode::UNPROCESSABLE_ENTITY, "VALIDATION_FAILED")
+    );
+    assert_eq!(
+        refusal_of!(CancelInput::parse(false, None, Some("*"), None)),
+        (StatusCode::BAD_REQUEST, "IF_MATCH_MALFORMED")
+    );
+    assert_eq!(
+        refusal_of!(CancelInput::parse(false, None, None, Some(" "))),
+        (StatusCode::UNPROCESSABLE_ENTITY, "VALIDATION_FAILED")
+    );
+    let etag = order_etag(Uuid::new_v4(), 3);
+    let stale = CancelInput::parse(false, None, Some(&etag), None).unwrap();
+    assert_eq!(
+        refusal_of!(stale.expected_version(Uuid::new_v4())),
+        (StatusCode::PRECONDITION_FAILED, "ORDER_VERSION_STALE")
+    );
+}
