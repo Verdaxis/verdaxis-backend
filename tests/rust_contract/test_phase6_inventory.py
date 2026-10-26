@@ -144,7 +144,9 @@ def test_accepted_scenarios_bind_distinct_source_tests():
     import ast
     import re
 
-    accepted_tasks = {"1", "2", "3", "4", "5", "10", "15a"}
+    # Task 8 is bound here before its acceptance, so none of its rows can
+    # name a test that does not exist.
+    accepted_tasks = {"1", "2", "3", "4", "5", "8", "10", "15a"}
     identities = set()
     for case in load("required-scenarios.json")["scenarios"]:
         if case["task"] not in accepted_tasks:
