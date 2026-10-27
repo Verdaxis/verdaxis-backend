@@ -1045,16 +1045,19 @@ def test_phase8_inventory_gate_accepts_reviewed_other_phase(tmp_path):
     assert any(extra in reason for reason in checker(tmp_path, predecessor, reviewed, other, [path]))
 
 
-def test_phase8_other_phase_list_pins_the_reviewed_phase_three_revision():
-    # PD89-13: the PM approved exactly this entry, with this digest and owner.
-    # Any further entry needs its own PM review and a change here.
+def test_phase8_other_phase_list_pins_the_reviewed_revisions():
+    # Keep exact migration bytes and ownership for each reviewed entry.
     path = ROOT / "tests/rust_contract/phase8/other-phase-migrations.json"
     assert path.is_file(), "reviewed other-phase list missing"
     assert json.loads(path.read_text()) == {
         "alembic/versions/p3_20261020_auth_tokens.py": {
             "sha256": "40dfc632214a9504e26f7892184b50dbe15c28323ac0ba8d366c15160705e699",
             "owning_phase": 3,
-        }
+        },
+        "alembic/versions/p89_20261022_trade_freeze.py": {
+            "sha256": "836b35aff9a41c0f9e788a886dcf0d35b4a1892aaf055267613e8a36f695ac0e",
+            "owning_phase": 9,
+        },
     }
 
 

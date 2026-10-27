@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "oracle_sha": "573c962de8bbac857b339da49b61f4de6fff4e10",
-  "inventory_sha256": "585ece0a3a74ed6eda3aa19dcdd9fac6f7732cce7a4b0885aa9b52cbf18e454b",
+  "oracle_sha": "e5de1ccde6c8a3667dfb908ed4b60b614c3054cb",
+  "inventory_sha256": "21d022df1debad77cfbe9981137a2308c112625f2239a1ed544ba9ed7b6f4a84",
   "comparator_profile": "phase2-meaning-v1",
   "route_ids": [
     "N01",
