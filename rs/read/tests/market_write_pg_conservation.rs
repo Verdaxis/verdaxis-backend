@@ -1098,11 +1098,7 @@ async fn take_and_cancel_on_one_order_conserve_stock() {
             &mut f.admin,
             holder_pid,
             None,
-            if take_first {
-                "advisory"
-            } else {
-                "transactionid"
-            },
+            "transactionid",
         )
         .await;
         if take_first {
