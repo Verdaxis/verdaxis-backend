@@ -525,7 +525,7 @@ async fn newly_qualified_order_gets_a_new_ordinal_and_cannot_jump_the_queue() {
         "SELECT ask_order_id FROM trades WHERE bid_order_id=$1 ORDER BY created_at",
     )
     .bind(crossing)
-    .fetch_all(&mut f.pool)
+    .fetch_all(&f.pool)
     .await
     .unwrap();
     let _ = earlier_ordinal;

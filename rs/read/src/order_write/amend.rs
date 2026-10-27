@@ -231,7 +231,10 @@ impl AmendBody {
                 json!(crate::routes::ports::pydantic_datetime(parsed)),
             );
         }
-        if let Some(certifications) = fields.get("certifications").cloned()
+        // The update schema carries certifications as declared; the route
+        // normalizes them against the locked row, and the request hash must
+        // cover the declared list exactly as the source model dumps it.
+        if let Some(certifications) = fields.get("certifications")
             && !certifications.is_null()
         {
             let list = certifications.as_array().ok_or_else(|| {
@@ -240,20 +243,14 @@ impl AmendBody {
                     "certifications must be a list",
                 )
             })?;
-            let mut normalized = Vec::new();
             for item in list {
-                let text = item.as_str().ok_or_else(|| {
-                    refusal(
+                if !item.is_string() {
+                    return Err(refusal(
                         StatusCode::UNPROCESSABLE_ENTITY,
                         "certifications must be strings",
-                    )
-                })?;
-                let text = text.trim_matches(crate::market::whitespace::is_python_whitespace);
-                if !text.is_empty() && !normalized.contains(&text.to_owned()) {
-                    normalized.push(text.to_owned());
+                    ));
                 }
             }
-            fields.insert("certifications".into(), json!(normalized));
         }
         if let Some(scheme) = fields.get("certification_scheme").cloned()
             && !scheme.is_null()
