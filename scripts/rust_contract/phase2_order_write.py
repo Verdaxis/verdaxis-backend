@@ -23,7 +23,6 @@ def order_write_scenario():
         def check(before, after, response, mail):
             result = json.loads(response["body"])
             assert result == {"id":identifier,"status":500 if mode == "rollback" else 503 if mode == "lost-response" else 503 if mode=="retry-40P01-bound" else 409 if mode=="timeout" else 200,
-                              "replayed":replayed,"attempts":2 if mode.startswith("retry-") else 1,"lock_observed":mode=="ordered"}, result
                               "replayed":replayed,"attempts":2 if mode.startswith("retry-") else 1,"lock_observed":mode=="ordered"}, (name, result)
             assert not mail
             outbox = [r for r in after["market_event_outbox"]["rows"].values() if r["id"]==identifier]

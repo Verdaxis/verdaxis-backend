@@ -29,6 +29,32 @@ def test_auth_oracle_inventory_and_source_identity():
         assert "not-for-runtime" in value
 
 
+def test_every_legacy_refusal_difference_is_recorded():
+    """AUTH-ENVELOPE/-11 and ACCESS-EXPIRY differences carry an explicit rust block."""
+    path = ROOT / "tests/rust_contract/phase2/auth-vectors.json"
+    document = json.loads(path.read_text())
+    legacy = '{"detail":"Could not validate credentials"}'
+    recorded = 0
+    for vector in document["vectors"]:
+        python_body = vector["python"]["body"]
+        rust = vector.get("rust_expected")
+        if python_body == legacy or vector["id"] == "exp-absent":
+            assert rust is not None, vector["id"]
+            assert rust["status"] == 401 and rust["www_authenticate"] == "Bearer"
+            detail = json.loads(rust["body"])["detail"]
+            assert detail["code"] == "AUTH_CREDENTIALS_INVALID"
+            assert isinstance(detail.get("message", ""), str)
+            approved = vector["approved_difference"]
+            if vector["id"] == "exp-absent":
+                assert approved["decision"] == "ACCESS-EXPIRY"
+                assert vector["python"]["status"] == 200
+            else:
+                assert approved["decisions"] == ["AUTH-ENVELOPE", "AUTH-REFUSAL", "ACCESS-EXPIRY"]
+                assert approved["ruling"] == "AUTH-CONTRACT"
+            recorded += 1
+    assert recorded == 72, recorded
+
+
 def test_verifier_has_no_issuing_or_database_interface():
     # The verifier is separate from the authenticated transaction and session store.
     files = [ROOT / "rs/read/src/auth" / name for name in ("token.rs", "claims.rs")]

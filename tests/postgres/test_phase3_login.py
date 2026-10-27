@@ -9,6 +9,7 @@ from tests.postgres.conftest import analytics_pg_url  # noqa: F401
 
 ROOT = Path(__file__).resolve().parents[2]
 CASES = (
+    "login_composed_refusal_matrix_charges_once",
     "login_success_returns_access_only_and_sets_both_cookies",
     "login_credential_refusal_vectors",
     "login_account_admission_vectors",

@@ -1309,32 +1309,27 @@ async def test_automatic_org_classification_downgrade_restores_prior_guard(migra
 
 @pytest.mark.asyncio
 async def test_cache_checkpoint_follows_production_revision(migration_database):
-    """The first same-meaning release upgrades from production's revision.
+    """The cache checkpoints retain a linear path from production's revision.
 
-    ``prc_20261018_cache`` must remain in the single head ancestry, directly after the
-    revision production runs (``p0_20261016_union``), and be named by the
-    release allowlist, so the upgrade below is the deploy path.
+    ``prc_20261026_changes`` must hang directly off ``prc_20261018_cache``,
+    which hangs directly off the revision production runs
+    (``p0_20261016_union``), and be named by the release allowlist, so the
+    literal upgrade below is the deployed cache path. Later revisions chain
+    after it; the single-head rule is pinned by the newest revision's own test.
     """
     database_url, _database_name = migration_database
 
     script = ScriptDirectory.from_config(Config(str(_BACKEND_ROOT / "alembic.ini")))
-    assert "prc_20261018_cache" in {
-        revision.revision for revision in script.walk_revisions()
-    }
-    assert script.get_current_head() == "sse_20261021_replay_floor"
-    assert (
-        script.get_revision("sse_20261021_replay_floor").down_revision
-        == "p3_20261020_auth_tokens"
-    )
-    assert (
-        script.get_revision("p3_20261020_auth_tokens").down_revision
-        == "prc_20261018_cache"
-    )
+    assert script.get_revision("prc_20261026_changes").down_revision == "prc_20261018_cache"
     assert script.get_revision("prc_20261018_cache").down_revision == "p0_20261016_union"
     allowlist = json.loads(
         (_BACKEND_ROOT / "deploy/rust/allowed-revisions.json").read_text()
     )
-    assert allowlist == ["kycg_20261014_staging", "p0_20261016_union", "prc_20261018_cache"]
+    assert allowlist == ["kycg_20261014_staging", "p0_20261016_union", "prc_20261018_cache", "prc_20261026_changes"]
+    policy = (_BACKEND_ROOT / "deploy/migration-checkpoints.tsv").read_text()
+    assert "prc_20261018_cache\tprc_20261026_changes" in policy
+    assert "p0_20261016_union\tprc_20261026_changes" in policy
+    assert "prc_20261026_changes\tprc_20261026_changes" in policy
 
     production = await asyncio.to_thread(
         _alembic, database_url, "upgrade", "p0_20261016_union"
@@ -1345,12 +1340,14 @@ async def test_cache_checkpoint_follows_production_revision(migration_database):
     )
     assert current.scalar_one() == "p0_20261016_union"
 
-    upgraded = await asyncio.to_thread(_alembic, database_url, "upgrade", "prc_20261018_cache")
+    upgraded = await asyncio.to_thread(
+        _alembic, database_url, "upgrade", "prc_20261026_changes"
+    )
     assert upgraded.returncode == 0, upgraded.stderr
     current = await _database_execute(
         database_url, "SELECT version_num FROM alembic_version"
     )
-    assert current.scalar_one() == "prc_20261018_cache"
+    assert current.scalar_one() == "prc_20261026_changes"
     cache_tables = await _database_execute(
         database_url,
         "SELECT count(*) FROM pg_tables WHERE schemaname = 'public' "

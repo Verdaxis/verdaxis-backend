@@ -315,6 +315,7 @@ fn cors_app(environment: &str) -> Router {
     let config = verdaxis_read::Config {
         kyc_execution_gate_enabled: true,
         db_session_time_zone: "UTC".into(),
+        phase2: Default::default(),
         environment: "test".into(),
         release_sha: verdaxis_read::compiled_sha().into(),
         migration_revision: "kycg_20261014_staging".into(),
@@ -571,14 +572,14 @@ fn preauth_and_endpoint_limits_share_one_counter() {
         for index in 0..limit {
             let path = paths[index % paths.len()];
             assert_eq!(
-                limits.preauth_check("client", path, 0),
+                limits.preauth_check("192.0.2.10", path, 0),
                 Ok(()),
                 "{path} #{index}"
             );
         }
         for path in paths {
             assert_eq!(
-                limits.preauth_check("client", path, 0),
+                limits.preauth_check("192.0.2.10", path, 0),
                 Err(Refusal {
                     retry_after_seconds: 60
                 }),
@@ -586,18 +587,18 @@ fn preauth_and_endpoint_limits_share_one_counter() {
             );
         }
         assert_eq!(
-            limits.preauth_check("client", paths[0], 45),
+            limits.preauth_check("192.0.2.10", paths[0], 45),
             Err(Refusal {
                 retry_after_seconds: 15
             })
         );
         assert_eq!(
-            limits.preauth_check("other-client", paths[0], 45),
+            limits.preauth_check("192.0.2.11", paths[0], 45),
             Ok(()),
             "each client has its own counter"
         );
         assert_eq!(
-            limits.preauth_check("client", paths[0], 60),
+            limits.preauth_check("192.0.2.10", paths[0], 60),
             Ok(()),
             "{} resets after one minute",
             paths[0]
@@ -617,7 +618,11 @@ fn preauth_and_endpoint_limits_share_one_counter() {
         "/api/auth/resend-verification-email",
     ] {
         for _ in 0..100 {
-            assert_eq!(limits.preauth_check("client", path, 0), Ok(()), "{path}");
+            assert_eq!(
+                limits.preauth_check("192.0.2.10", path, 0),
+                Ok(()),
+                "{path}"
+            );
         }
     }
 
@@ -784,16 +789,19 @@ async fn auth_body_limit_is_enforced() {
     assert_eq!(interrupted.code(), AuthCode::RequestInvalid);
 
     // Through the HTTP stack, an oversized body is the 413 auth envelope.
-    let app = middleware(Router::new().route(
-        "/api/auth/login",
-        post(|request: Request<Body>| async move {
-            let (parts, body) = request.into_parts();
-            match read_auth_body(&parts.headers, body).await {
-                Ok(body) => body.len().to_string().into_response(),
-                Err(failure) => failure.into_response(),
-            }
-        }),
-    ));
+    let app = middleware(
+        Router::new().route(
+            "/api/auth/login",
+            post(|request: Request<Body>| async move {
+                let (parts, body) = request.into_parts();
+                match read_auth_body(&parts.headers, body).await {
+                    Ok(body) => body.len().to_string().into_response(),
+                    Err(failure) => failure.into_response(),
+                }
+            }),
+        ),
+        "staging",
+    );
     let oversized = || Body::from(vec![b'a'; AUTH_BODY_LIMIT_BYTES + 1]);
     for declare in [true, false] {
         let mut request = Request::post("/api/auth/login")
@@ -843,6 +851,7 @@ async fn forwarded_client_address_uses_last_loopback_hop() {
     let app = middleware_with_limits(
         Router::new().route("/api/auth/forgot-password", post(|| async { "ok" })),
         SharedLimits::default(),
+        "staging",
     );
 
     // A direct client cannot choose its address: a forwarded header from a
@@ -898,4 +907,45 @@ async fn forwarded_client_address_uses_last_loopback_hop() {
         StatusCode::OK,
         "an IPv6 loopback peer also uses the last hop"
     );
+}
+
+#[tokio::test]
+async fn state_free_cors_uses_explicit_environment() {
+    use axum::{Router, body::Body, http::Request, routing::get};
+    use tower::ServiceExt;
+    for environment in ["production", "unknown"] {
+        for limited in [false, true] {
+            let routes = Router::new().route("/probe", get(|| async { "ok" }));
+            let app = if limited {
+                verdaxis_read::runtime::http::middleware_with_limits(
+                    routes,
+                    Default::default(),
+                    environment,
+                )
+            } else {
+                verdaxis_read::runtime::http::middleware(routes, environment)
+            };
+            for origin in [
+                "https://app.verdaxis.exchange",
+                "https://staging.verdaxis.exchange",
+            ] {
+                let response = app
+                    .clone()
+                    .oneshot(
+                        Request::get("/probe")
+                            .header("origin", origin)
+                            .body(Body::empty())
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    response
+                        .headers()
+                        .contains_key("access-control-allow-origin"),
+                    environment == "production" && origin == "https://app.verdaxis.exchange"
+                );
+            }
+        }
+    }
 }

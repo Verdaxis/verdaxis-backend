@@ -84,7 +84,10 @@ mod disposable {
                 }
             });
         let app = app.layer(axum::middleware::from_fn(response_loss));
-        let app = verdaxis_read::runtime::http::middleware(app);
+        let app = verdaxis_read::runtime::http::middleware(
+            app,
+            &std::env::var("ENVIRONMENT").unwrap_or_default(),
+        );
         axum::serve(
             tokio::net::TcpListener::bind(bind).await?,
             app.into_make_service_with_connect_info::<std::net::SocketAddr>(),

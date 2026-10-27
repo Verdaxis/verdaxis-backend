@@ -8,6 +8,7 @@ They need a real Caddy 2.11 binary on the path and fail without one, so a gate
 run can never pass by skipping them.
 """
 from __future__ import annotations
+from pathlib import Path
 
 import contextlib
 import http.server
@@ -296,7 +297,7 @@ def test_real_rust_authority_stops_mixed_caddy_at_301(tmp_path):
     port = unused_port()
     log = (tmp_path / "rust-authority.log").open("w")
     process = subprocess.Popen(
-        [str(ROOT / "rs/target/debug/examples/preauth_server")], cwd=ROOT,
+        [str(Path(environment.get("CARGO_TARGET_DIR", ROOT / "rs/target")) / "debug/examples/preauth_server")], cwd=ROOT,
         env={**environment, "ENVIRONMENT": "test", "PHASE2_BIND": f"127.0.0.1:{port}"},
         stdout=log, stderr=log)
     try:

@@ -9,7 +9,7 @@ use tower::ServiceExt;
 #[tokio::test]
 async fn known_get_and_support_refusals_are_wrapped_in_cors() {
     let routes = Router::new().route("/api/watchlists/me", post(|| async { "unexpected" }));
-    let app = verdaxis_read::runtime::http::middleware(routes);
+    let app = verdaxis_read::runtime::http::middleware(routes, "staging");
     let response = app
         .oneshot(
             Request::builder()
@@ -44,6 +44,7 @@ async fn split_upstreams_share_one_pre_auth_authority() {
     let app = verdaxis_read::runtime::http::middleware_with_limits(
         python_owned.merge(rust_owned),
         authority.clone(),
+        "staging",
     );
     for index in 0..300 {
         let path = if index % 2 == 0 {
@@ -91,6 +92,7 @@ async fn admin_authority_charges_once_and_marks_the_admitted_request() {
     let app = verdaxis_read::runtime::http::middleware_with_limits(
         Router::new().route("/api/admin/feedback", get(|| async { "rust-owned" })),
         authority,
+        "staging",
     );
     for _ in 0..300 {
         let response = app
@@ -158,6 +160,7 @@ async fn only_the_get_authority_and_the_exact_mark_change_admission() {
     let app = verdaxis_read::runtime::http::middleware_with_limits(
         Router::new().route("/api/admin/feedback", get(|| async { "rust-owned" })),
         authority,
+        "staging",
     );
     // A POST to the authority path is not the authority: it is not counted,
     // not marked, and finds no route.
@@ -370,7 +373,7 @@ async fn admission_order_is_observed_through_http_and_early_cors() {
             }
         }),
     );
-    let app = verdaxis_read::runtime::http::middleware(routes);
+    let app = verdaxis_read::runtime::http::middleware(routes, "staging");
     for (body, token, expected) in [
         ("{", "bad", 422),
         ("{}", "bad", 401),

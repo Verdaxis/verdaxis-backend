@@ -90,8 +90,11 @@ mod adapter {
                             Clock::Contract { instant, id },
                         )
                         .with_state(state);
-                        let app =
-                            verdaxis_read::runtime::http::middleware_with_limits(router, limits);
+                        let app = verdaxis_read::runtime::http::middleware_with_limits(
+                            router,
+                            limits,
+                            &std::env::var("ENVIRONMENT").unwrap_or_default(),
+                        );
                         let response = app.oneshot(request).await.unwrap();
                         if lost && response.status().is_success() {
                             (

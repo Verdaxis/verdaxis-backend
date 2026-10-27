@@ -65,7 +65,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let routes = router(state, settings).merge(identity);
     axum::serve(
         tokio::net::TcpListener::bind(bind).await?,
-        verdaxis_read::runtime::http::middleware(routes),
+        verdaxis_read::runtime::http::middleware(
+            routes,
+            &std::env::var("ENVIRONMENT").unwrap_or_default(),
+        ),
     )
     .await?;
     Ok(())

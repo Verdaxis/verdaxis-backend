@@ -30,7 +30,7 @@ fn actor(organization_id: Option<Uuid>) -> auth::CurrentActor {
 fn stream_token_claims_and_ttl() {
     let actor = actor(Some(Uuid::new_v4()));
     let now = Utc.timestamp_opt(1_792_800_000, 123_456_000).unwrap();
-    let response = issuer().issue(&actor, "client", now).unwrap();
+    let response = issuer().issue(&actor, "192.0.2.10", now).unwrap();
     let body = serde_json::to_value(&response).unwrap();
     assert_eq!(body.as_object().unwrap().len(), 1);
     let token = body["stream_token"].as_str().unwrap();
@@ -61,7 +61,7 @@ fn stream_token_claims_and_ttl() {
 #[test]
 fn stream_token_requires_organization() {
     let error = issuer()
-        .issue(&actor(None), "client", Utc::now())
+        .issue(&actor(None), "192.0.2.10", Utc::now())
         .err()
         .unwrap();
     assert_eq!(error.status.as_u16(), 403);
@@ -74,15 +74,15 @@ fn stream_token_limit_is_30_per_minute() {
     let actor = actor(Some(Uuid::new_v4()));
     let now = Utc.timestamp_opt(1_792_800_000, 0).unwrap();
     for _ in 0..30 {
-        issuer.issue(&actor, "client", now).unwrap();
+        issuer.issue(&actor, "192.0.2.10", now).unwrap();
     }
-    let error = issuer.issue(&actor, "client", now).err().unwrap();
+    let error = issuer.issue(&actor, "192.0.2.10", now).err().unwrap();
     assert_eq!(error.status.as_u16(), 429);
     assert_eq!(error.detail["code"], "RATE_LIMITED");
     assert_eq!(error.retry_after, Some(60));
-    issuer.issue(&actor, "other-client", now).unwrap();
+    issuer.issue(&actor, "192.0.2.11", now).unwrap();
     issuer
-        .issue(&actor, "client", now + chrono::Duration::seconds(60))
+        .issue(&actor, "192.0.2.10", now + chrono::Duration::seconds(60))
         .unwrap();
 }
 
@@ -97,6 +97,7 @@ async fn stream_token_uses_current_bearer_actor() {
         .unwrap();
     let config = Config {
         kyc_execution_gate_enabled: true,
+        phase2: Default::default(),
         environment: "test".into(),
         release_sha: verdaxis_read::compiled_sha().into(),
         migration_revision: "kycg_20261014_staging".into(),
@@ -156,7 +157,7 @@ async fn stream_token_uses_current_bearer_actor() {
             &state,
             access,
             auth::AuthenticatedRequest::new("GET", "/api/auth/stream-token", false),
-            move |tx| Box::pin(async move { tokens.issue(tx.actor(), "client", now) }),
+            move |tx| Box::pin(async move { tokens.issue(tx.actor(), "192.0.2.10", now) }),
         )
         .await;
         if expected.is_some() {

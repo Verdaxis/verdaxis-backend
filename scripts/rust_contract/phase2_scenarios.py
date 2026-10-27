@@ -12,7 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from scripts.rust_contract.compare import compare_responses
+from scripts.rust_contract.compare import _is_json, compare_responses, strip_headers
 from scripts.rust_contract.phase2_seed import digest
 from scripts.rust_contract.phase2_state import compare_state, unexpected_user_changes
 
@@ -24,7 +24,53 @@ class ScenarioError(RuntimeError):
     pass
 
 
-APPROVED_DIFFERENCES = frozenset({"PD1", "PD2", "PD3", "PD4-G", "PD6", "PD7", "json-syntax-wording-v1"})
+APPROVED_DIFFERENCES = frozenset({"PD1", "PD2", "PD3", "PD4-G", "PD6", "PD7", "AUTH-REFUSAL",
+                                  "json-syntax-wording-v1"})
+
+
+def invalid_bearer_pair():
+    """Pin both stacks' invalid-bearer refusal (PM decisions AUTH-ENVELOPE and AUTH-REFUSAL).
+
+    Python still answers an invalid bearer with its legacy `detail` string; Rust
+    returns the reviewed `{"code", "message"}` envelope, because decision 113
+    leaves Python unchanged. The code is the contract and is pinned exactly;
+    message wording is free by the founder's rules, so only a non-empty string
+    is required. Status and the Bearer challenge are pinned on both sides.
+    """
+
+    def check(responses):
+        if len(responses) != 2:
+            raise ScenarioError("invalid-bearer pair requires Python and Rust responses")
+        bodies = []
+        kept = []
+        for response in responses:
+            if response["status"] != 401:
+                raise ScenarioError("invalid bearer must be refused with 401")
+            headers = strip_headers(response["headers"])
+            if headers.get("www-authenticate") != "Bearer":
+                raise ScenarioError("invalid bearer must challenge for a Bearer credential")
+            if not _is_json(headers.get("content-type", "")):
+                raise ScenarioError("invalid-bearer refusal must be JSON on both stacks")
+            kept.append(headers)
+            try:
+                bodies.append(json.loads(response["body"]))
+            except (UnicodeDecodeError, ValueError) as error:
+                raise ScenarioError("invalid-bearer refusal is not JSON") from error
+        # Only the body differs by the reviewed rule; every other header stays exact.
+        if kept[0] != kept[1]:
+            raise ScenarioError("invalid-bearer headers differ beyond the reviewed body")
+        python, rust = bodies
+        if python != {"detail": "Could not validate credentials"}:
+            raise ScenarioError(f"Python invalid-bearer body differs from the reviewed pair: {python!r}")
+        detail = rust.get("detail") if isinstance(rust, dict) else None
+        if not isinstance(detail, dict) or set(detail) != {"code", "message"}:
+            raise ScenarioError(f"Rust invalid-bearer envelope is not the reviewed object: {rust!r}")
+        if detail["code"] != "AUTH_CREDENTIALS_INVALID":
+            raise ScenarioError(f"Rust invalid-bearer code differs: {detail['code']!r}")
+        if not isinstance(detail["message"], str) or not detail["message"]:
+            raise ScenarioError("Rust invalid-bearer message is not a non-empty string")
+
+    return check
 
 
 @dataclass(frozen=True)
@@ -87,6 +133,9 @@ class Scenario:
     dispatch: Callable | None = None
     assert_mixed: Callable | None = None
     route_qualification: bool = True
+    # Adds the rows that follow --phase2-size after the fixed fixture, so the
+    # same route schedule proves page and history behaviour at both sizes.
+    volume: Callable | None = None
 
 
 REGISTRY: dict[str, Scenario] = {}
@@ -120,12 +169,16 @@ def _users(state):
     return {row.get("id", key): row for key, row in rows.items()}
 
 
-def _check_result(action, response, error):
+def _check_result(action, response, error, runtime="?"):
     if error:
         if not action.allow_transport_error:
-            raise ScenarioError(f"{action.name}: unexpected transport failure {error}")
+            raise ScenarioError(f"{action.name} ({runtime}): unexpected transport failure {error}")
     elif response["status"] not in (action.accepted_statuses or (action.expected_status,)):
-        raise ScenarioError(f"{action.name}: unexpected HTTP status {response['status']}")
+        detail = response.get("body", b"")
+        if isinstance(detail, bytes):
+            detail = detail[:400].decode("utf-8", "replace")
+        raise ScenarioError(
+            f"{action.name} ({runtime}): unexpected HTTP status {response['status']} {detail}")
 
 
 def _request(cell, action):
@@ -187,9 +240,9 @@ def _leaderboard_pair(responses):
 def _compare_http(action, responses, errors):
     if errors[0] != errors[1]:
         raise ScenarioError(f"{action.name}: transport outcomes differ")
-    for response, error in zip(responses, errors):
+    for runtime, response, error in zip(("python", "rust"), responses, errors):
         if error:
-            _check_result(action, response, error)
+            _check_result(action, response, error, runtime)
     if not any(errors):
         if action.approved_difference:
             # One response may carry several named rules, written as "PD2+PD3".
@@ -200,8 +253,8 @@ def _compare_http(action, responses, errors):
             # response need not be JSON.
             action.assert_http_difference(list(responses))
             return
-        for response, error in zip(responses, errors):
-            _check_result(action, response, error)
+        for runtime, response, error in zip(("python", "rust"), responses, errors):
+            _check_result(action, response, error, runtime)
         compared = responses
         if (action.route_id == "R03" and action.method == "GET"
                 and action.path == "/api/referrals/leaderboard"
@@ -404,6 +457,12 @@ from scripts.rust_contract.phase2_watchlist_targets import (
 register(watchlist_targets_scenario())
 register(watchlist_targets_gate_off_scenario())
 register(watchlist_targets_hidden_scenario())
+# Phase 2 Task 24: W07/W08/W09/W10 activity schedules.
+from scripts.rust_contract.phase2_watchlist_activity import (
+    scenario as watchlist_activity_scenario,
+)
+
+register(watchlist_activity_scenario())
 # Phase 2 Task 10: feedback route scenario.
 from scripts.rust_contract.feedback_scenario import feedback_scenario
 

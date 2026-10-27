@@ -193,6 +193,7 @@ impl Harness {
         verdaxis_read::runtime::http::middleware_with_limits(
             router.with_state((*self.state).clone()),
             self.limits.clone(),
+            "staging",
         )
     }
 }

@@ -148,6 +148,64 @@ def test_approved_difference_does_not_parse_a_non_json_response():
     assert seen==[[left,right]]
 
 
+def test_invalid_bearer_actions_pin_the_reviewed_credential_envelope():
+    """AUTH-ENVELOPE/-11: Rust answers an invalid bearer with the coded detail;
+    Python keeps its legacy string (decisions 47 and 113). Every bad-bearer
+    action must name the rule and pin both wires exactly, so the twins cannot
+    silently drift while the envelopes differ."""
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    module = runner_module()
+    root = Path(__file__).resolve().parents[2]
+    context = SimpleNamespace(environment={"JWT_SECRET": "test-secret-key-for-testing-minimum-32-chars"},
+                              root=root, python_bin="python")
+    expected = {
+        "watchlist-http-reads": ["bad-bearer-before-uuid"],
+        "watchlist-http-reads-gate-off": ["bad-bearer-before-uuid"],
+        "watchlist-containers": ["create-bad-bearer", "create-bad-bearer-before-validation"],
+        "watchlist-targets": ["bad-bearer-before-validation", "delete-bad-bearer"],
+        "watchlist-targets-gate-off": ["bad-bearer-before-validation", "delete-bad-bearer"],
+    }
+    for name, bad_bearers in expected.items():
+        scenario = module.REGISTRY[name]
+        marked = {action.name: action for action in scenario.actions(context) if action.name in bad_bearers}
+        assert set(marked) == set(bad_bearers), name
+        for action_name, item in marked.items():
+            assert item.approved_difference == "AUTH-REFUSAL", (name, action_name)
+            assert item.assert_http_difference is not None, (name, action_name)
+
+
+def test_invalid_bearer_pair_pins_both_reviewed_envelopes():
+    module = runner_module()
+    check = module.invalid_bearer_pair()
+    python = {"status": 401, "headers": {"www-authenticate": "Bearer", "content-type": "application/json",
+                                         "content-length": "42"},
+              "body": b'{"detail":"Could not validate credentials"}'}
+    rust = {"status": 401, "headers": {"www-authenticate": "Bearer", "content-type": "application/json"},
+            "body": b'{"detail":{"code":"AUTH_CREDENTIALS_INVALID","message":"Incorrect email or password"}}'}
+    check([python, rust])
+    # Wording is free; a changed message must not fail the reviewed pair.
+    check([python, {**rust, "body": b'{"detail":{"code":"AUTH_CREDENTIALS_INVALID","message":"Sign in"}}'}])
+    with pytest.raises(module.ScenarioError, match="headers differ"):
+        check([python, {**rust, "headers": {**rust["headers"], "cache-control": "no-store"}}])
+    with pytest.raises(module.ScenarioError, match="must be JSON"):
+        check([python, {**rust, "headers": {"www-authenticate": "Bearer", "content-type": "text/plain"}}])
+    with pytest.raises(module.ScenarioError, match="code differs"):
+        check([python, {**rust, "body": b'{"detail":{"code":"AUTH_INVALID","message":"x"}}'}])
+    with pytest.raises(module.ScenarioError, match="Python invalid-bearer body"):
+        check([{**python, "body": b'{"detail":"Not authenticated"}'}, rust])
+    with pytest.raises(module.ScenarioError, match="must be refused with 401"):
+        check([python, {**rust, "status": 403}])
+    with pytest.raises(module.ScenarioError, match="challenge"):
+        check([python, {**rust, "headers": {}}])
+    with pytest.raises(module.ScenarioError, match="reviewed object"):
+        check([python, {**rust, "body": b'{"detail":{"code":"AUTH_CREDENTIALS_INVALID"}}'}])
+    with pytest.raises(module.ScenarioError, match="non-empty string"):
+        check([python, {**rust, "body": b'{"detail":{"code":"AUTH_CREDENTIALS_INVALID","message":""}}'}])
+    assert "AUTH-REFUSAL" in module.APPROVED_DIFFERENCES
+
+
 def test_state_difference_needs_a_named_rule_and_is_not_silent():
     module=runner_module()
 
@@ -360,3 +418,72 @@ def test_loopback_mail_records_failures_and_closes():
             assert response.status == 201
         assert len(stub.ledger("python")) == 2
     assert not stub.thread.is_alive()
+
+
+def test_group_wide_race_run_skips_scenarios_without_schedules():
+    """The plan runs every group with races; only scheduled scenarios race."""
+    from types import SimpleNamespace
+
+    from scripts.rust_contract import phase2_routes
+
+    racing = SimpleNamespace(name="racing", races=lambda _context: [])
+    plain = SimpleNamespace(name="plain", races=None)
+    selected, skipped = phase2_routes.race_selection([racing, plain], True)
+    assert selected == [racing]
+    assert skipped == ["plain"]
+    assert phase2_routes.race_selection([racing, plain], False) == ([], [])
+    with pytest.raises(phase2_routes.ScenarioError, match="no race schedules"):
+        phase2_routes.race_selection([plain], True)
+
+
+def test_race_selection_is_decided_before_the_database_starts(monkeypatch):
+    from types import SimpleNamespace
+
+    from scripts.rust_contract import phase2_routes, run_disposable
+
+    def refuse(_selected, _enabled):
+        raise phase2_routes.ScenarioError("selected scenarios register no race schedules")
+
+    monkeypatch.setattr(phase2_routes, "race_selection", refuse)
+    runner = SimpleNamespace(start_database=lambda: pytest.fail("database started before race selection"))
+    scenario = SimpleNamespace(name="plain", races=None)
+    with pytest.raises(phase2_routes.ScenarioError, match="no race schedules"):
+        phase2_routes.run_registered(runner, SimpleNamespace(phase2_races=True), [scenario])
+
+
+def test_watchlist_event_fixture_payloads_use_only_schema_enum_values(monkeypatch):
+    """A stored payload the real writer cannot produce would not be a contract.
+
+    The W07 read projects every stored payload through the schema enums, and
+    Python rejects an unknown value where Rust coerces to the default, so a
+    fixture spelling outside the enum would fake a stack difference.
+    """
+    from types import SimpleNamespace
+
+    from app.schemas.market_activity import (
+        MarketDemoStatus,
+        MarketScope,
+        MarketSourceKind,
+    )
+    from scripts.rust_contract import phase2_watchlist_activity
+    from scripts.rust_contract.phase2_sizes import profile as size_profile
+
+    source_kinds = {member.value for member in MarketSourceKind}
+    scopes = {member.value for member in MarketScope}
+    demo_statuses = {member.value for member in MarketDemoStatus}
+
+    # Collect every event payload the activity schedule's setup and volume
+    # hooks insert, by standing in for the shared `insert_event` helper.
+    payloads = []
+    monkeypatch.setattr(
+        phase2_watchlist_activity, "insert_event",
+        lambda _connection, _event_id, _container, _target, _type, payload, *_rest: payloads.append(payload))
+    connection = SimpleNamespace(execute=lambda *_args, **_kwargs: None)
+    scenario = phase2_watchlist_activity.scenario()
+    scenario.setup(connection)
+    scenario.volume(connection, size_profile("large"))
+    assert payloads, "no watchlist event payload collected"
+    for payload in payloads:
+        assert payload.get("source_kind") in source_kinds, payload
+        assert payload.get("scope") in scopes, payload
+        assert payload.get("demo_status") in demo_statuses, payload

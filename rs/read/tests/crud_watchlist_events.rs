@@ -37,9 +37,12 @@ fn snapshot(order_ids: &[Uuid]) -> VisibleSnapshot {
 fn cursors_round_trip_and_accept_python_spellings() {
     let cursor = EventCursor::new(instant(1_792_407_780), uuid(7));
     let encoded = encode_cursor(cursor);
+    // The client contract keeps Python's `isoformat` spelling: the fraction is
+    // omitted when microseconds are zero, six digits otherwise. Clients pass a
+    // cursor between stacks, so the wire spelling must stay identical.
     assert_eq!(
         encoded,
-        "2026-10-19T11:03:00.000000+00:00|00000000-0000-0000-0000-000000000007"
+        "2026-10-19T11:03:00+00:00|00000000-0000-0000-0000-000000000007"
     );
     assert_eq!(decode_cursor(&encoded).unwrap(), cursor);
 
@@ -57,13 +60,18 @@ fn cursors_round_trip_and_accept_python_spellings() {
         assert_eq!(decoded, cursor, "{text}");
     }
 
-    // Fractional seconds survive the round trip at microsecond precision.
+    // Fractional seconds survive the round trip at microsecond precision and
+    // keep Python's six-digit spelling; a whole second keeps no fraction.
     let fractional =
         decode_cursor("2026-10-19T11:03:00.250000+00:00|00000000-0000-0000-0000-000000000007")
             .unwrap();
     assert_eq!(
         fractional.created_at,
         instant(1_792_407_780) + chrono::Duration::milliseconds(250)
+    );
+    assert_eq!(
+        encode_cursor(fractional),
+        "2026-10-19T11:03:00.250000+00:00|00000000-0000-0000-0000-000000000007"
     );
     assert_eq!(
         decode_cursor(&encode_cursor(fractional)).unwrap(),

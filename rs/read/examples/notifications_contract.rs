@@ -87,7 +87,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             get(move || async move { axum::Json(json!({"disposable":true,"token":token})) }),
         )
         .layer(middleware::from_fn(response_loss));
-    let router: Router = verdaxis_read::runtime::http::middleware_with_limits(routes, limits);
+    let router: Router = verdaxis_read::runtime::http::middleware_with_limits(
+        routes,
+        limits,
+        &std::env::var("ENVIRONMENT").unwrap_or_default(),
+    );
     let listener = tokio::net::TcpListener::bind(bind).await?;
     axum::serve(
         listener,

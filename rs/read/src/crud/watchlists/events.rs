@@ -81,16 +81,21 @@ pub struct EventQuery {
     pub cursor: Option<EventCursor>,
 }
 
-/// The cursor spelling both stacks accept: RFC 3339 in UTC with microsecond
-/// precision, then the row identifier. Postgres timestamps are microsecond
+/// The cursor spelling both stacks accept: RFC 3339 in UTC, then the row
+/// identifier. Python's `datetime.isoformat()` omits the fraction for whole
+/// seconds and writes six digits otherwise, so the wire spelling of a cursor
+/// never depends on which stack issued it. Postgres timestamps are microsecond
 /// exact, so no precision is lost or invented.
 pub fn encode_cursor(cursor: EventCursor) -> String {
+    let created_at = cursor.created_at.with_timezone(&Utc);
+    let precision = if created_at.timestamp_subsec_micros() == 0 {
+        SecondsFormat::Secs
+    } else {
+        SecondsFormat::Micros
+    };
     format!(
         "{}|{}",
-        cursor
-            .created_at
-            .with_timezone(&Utc)
-            .to_rfc3339_opts(SecondsFormat::Micros, false),
+        created_at.to_rfc3339_opts(precision, false),
         cursor.id
     )
 }

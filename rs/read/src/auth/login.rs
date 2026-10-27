@@ -146,7 +146,7 @@ async fn handle(
     };
     state
         .limits
-        .check_endpoint_by_address(&client, "/api/auth/login", now)?;
+        .check_address_endpoint(&client, "/api/auth/login", now)?;
     let (parts, body) = request.into_parts();
     let body = read_auth_body(&parts.headers, body)
         .await

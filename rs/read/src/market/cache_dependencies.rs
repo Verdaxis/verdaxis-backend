@@ -713,6 +713,7 @@ mod tests {
             pool_max: 17,
             python_budget: 52,
             configured_max_connections: 100,
+            phase2: Default::default(),
         };
         let policy = crate::MarketPolicy {
             source_sha: crate::compiled_sha().into(),
