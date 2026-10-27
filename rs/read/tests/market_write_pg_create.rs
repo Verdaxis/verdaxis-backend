@@ -1466,6 +1466,12 @@ async fn create_refuses_a_delivery_point_the_operator_deactivated() {
         .await
         .unwrap();
     let reply = send(&f.router, Some(buyer()), &[], f.body("BID")).await;
+    // The catalog row is shared suite-wide; reactivate it for later tests.
+    sqlx::query("UPDATE delivery_points SET is_active=true WHERE id=$1")
+        .bind(f.point)
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
     assert_eq!(reply.0, StatusCode::BAD_REQUEST, "{reply:?}");
     assert_eq!(f.count("orders").await, 0);
 }
