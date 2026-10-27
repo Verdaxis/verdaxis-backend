@@ -600,7 +600,7 @@ async fn typed_trade_snapshots_keep_side_mapping_and_private_declarations() {
     let fame_bid = json!({"schema_version":1,"side":"BID","neat_fame":true,"standard":"EN_14214","standard_edition":"2012+A2:2019","sustainability_scheme":"ISCC_EU"});
     let fame_ask = json!({"schema_version":1,"side":"ASK","neat_fame":true,"uco_mass_pct":100,"standard":"EN_14214","standard_edition":"2012+A2:2019","sustainability_scheme":"ISCC_EU","certificate_reference":"private-certificate","certificate_holder":"private-supplier","evidence_status":"PENDING","document_references":[],"certificate_valid_until":"2027-01-01","evidence_due":"BEFORE_LOADING","cfpp_c":-5});
     let lng_bid = json!({"schema_version":1,"side":"BID","accepted_schemes":["ISCC_EU"],"accepted_delivery_methods":["SHIP_TO_SHIP"]});
-    let lng_ask = json!({"schema_version":1,"side":"ASK","sustainability_scheme":"ISCC_EU","scheme_certificate_number":"PRIVATE-123","chain_of_custody":"MASS_BALANCE","union_database_registered":true,"bio_share_pct":"100","feedstock":"MANURE","production_country":"NL","wtt_ghg_gco2e_mj":"-20.25","specification_standard":"ISO 23306:2020","min_methane_number":"80","delivery_method":"SHIP_TO_SHIP","seller_is_physical_supplier":false,"physical_supplier_name":"Private supplier","pos_timing":"WITH_DELIVERY"});
+    let lng_ask = json!({"side":"ASK","sustainability_scheme":"ISCC_EU","scheme_certificate_number":"PRIVATE-123","chain_of_custody":"MASS_BALANCE","union_database_registered":true,"bio_share_pct":"100","feedstock":"MANURE","production_country":"NL","wtt_ghg_gco2e_mj":"-20.25","specification_standard":"ISO 23306:2020","min_methane_number":"80","delivery_method":"SHIP_TO_SHIP","seller_is_physical_supplier":false,"physical_supplier_name":"Private supplier","pos_timing":"WITH_DELIVERY"});
     for (profile, bid, ask) in [("fame", fame_bid, fame_ask), ("lng", lng_bid, lng_ask)] {
         for ask_aggressor in [false, true] {
             let mut f = Fixture::new(1, "1").await;
@@ -616,9 +616,12 @@ async fn typed_trade_snapshots_keep_side_mapping_and_private_declarations() {
             } else {
                 f.aggressor
             };
-            run_completed_match(&f.pool, trigger, now(), CompletionOptions::default())
+            let compatible=if profile=="fame" {verdaxis_read::market_matching::fame_terms_compatible(&bid,&ask,now().date_naive())}else{verdaxis_read::market_matching::lng_terms_compatible(&bid,&ask)};
+            assert!(compatible,"typed pair must qualify: {profile}");
+            let result=run_completed_match(&f.pool, trigger, now(), CompletionOptions::default())
                 .await
                 .unwrap();
+            assert_eq!(result.trade_ids.len(),1,"profile={profile} ask_aggressor={ask_aggressor}");
             let row: (Option<Value>, Option<Value>) = sqlx::query_as(
                 "SELECT fame_terms_snapshot::jsonb,lng_terms_snapshot::jsonb FROM trades",
             )
@@ -632,7 +635,7 @@ async fn typed_trade_snapshots_keep_side_mapping_and_private_declarations() {
                 assert!(row.0.is_none());
                 row.1.unwrap()
             };
-            assert_eq!(snapshot, json!({"schema_version":1,"bid":bid,"ask":ask}));
+            assert_eq!(snapshot, if profile=="fame" {json!({"schema_version":1,"bid":bid,"ask":ask})}else{json!({"bid":bid,"ask":ask})});
             sqlx::query("SELECT completion_fixture_amend_source()")
                 .execute(&mut f.admin)
                 .await
