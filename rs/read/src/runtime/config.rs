@@ -384,7 +384,7 @@ pub fn validate_config(config: &Config) -> Result<(), String> {
     if config.environment == "production" {
         if !matches!(
             config.migration_revision.as_str(),
-            "p0_20261016_union" | "prc_20261026_changes"
+            "p0_20261016_union" | "prc_20261026_changes" | "sse_20261021_replay_floor"
         ) {
             return Err("production requires its reviewed union checkpoint".into());
         }
