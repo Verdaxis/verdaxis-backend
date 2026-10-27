@@ -107,8 +107,8 @@ impl Drop for StreamRuntime {
     }
 }
 
-/// A failed component start never fails REST startup. No handle is exposed until
-/// the floor and scan baseline have been read and the dedicated slot attested.
+/// Publish a stable, unavailable holder before any database I/O. Initial and
+/// later initialization share the same cancellable lifetime restart budget.
 pub async fn start_streams(
     state: &mut AppState,
     capacity: CapacityConfig,
@@ -116,17 +116,58 @@ pub async fn start_streams(
     if !enabled(&state.config) {
         return None;
     }
-    match start(state, capacity).await {
-        Ok(runtime) => Some(runtime),
-        Err(()) => {
-            tracing::warn!(reason = "stream_unavailable", "stream startup unavailable");
-            None
-        }
+    let config = &state.config;
+    let policy = capacity.policy().ok()?;
+    let options = &config.phase2;
+    let verification = crate::auth::VerificationSettings::new(
+        options
+            .jwt_secret
+            .clone()
+            .filter(|secret| secret.len() >= 32)?,
+        options.jwt_secret_previous.clone(),
+        options
+            .jwt_issuer
+            .clone()
+            .filter(|value| !value.is_empty())?,
+        options
+            .jwt_audience
+            .clone()
+            .filter(|value| !value.is_empty())?,
+    );
+    let hub = StreamHub::new(policy);
+    hub.set_available(false, Terminal::Unavailable);
+    state.streams = Some(Arc::new(Streams {
+        hub: hub.clone(),
+        verification,
+    }));
+    let (stop, shutdown) = watch::channel(false);
+    let task_hub = hub.clone();
+    let config = state.config.clone();
+    let read = state.pools.read.clone();
+    let initial = initialize(&config, &read, &hub).await;
+    if initial.is_ok() {
+        hub.set_available(true, Terminal::Unavailable);
     }
+    let task = tokio::spawn(async move {
+        supervise(config, read, task_hub, shutdown, initial).await;
+    });
+    Some(StreamRuntime {
+        stop,
+        task: Some(task),
+        hub,
+    })
 }
 
-async fn start(state: &mut AppState, capacity: CapacityConfig) -> Result<StreamRuntime, ()> {
-    let config = &state.config;
+type Initialized = Result<
+    (
+        SessionSettings,
+        Dispatch<StreamHub>,
+        super::election::ElectionSession,
+    ),
+    (),
+>;
+
+async fn initialize(config: &crate::Config, read: &sqlx::PgPool, hub: &StreamHub) -> Initialized {
     if config.migration_revision != STREAM_REVISION {
         return Err(());
     }
@@ -135,54 +176,15 @@ async fn start(state: &mut AppState, capacity: CapacityConfig) -> Result<StreamR
         config.prepared_budget.as_deref().ok_or(())?,
     )
     .map_err(|_| ())?;
-    let policy = capacity.policy().map_err(|_| ())?;
-    let options = &config.phase2;
-    let verification = crate::auth::VerificationSettings::new(
-        options
-            .jwt_secret
-            .clone()
-            .filter(|secret| secret.len() >= 32)
-            .ok_or(())?,
-        options.jwt_secret_previous.clone(),
-        options
-            .jwt_issuer
-            .clone()
-            .filter(|value| !value.is_empty())
-            .ok_or(())?,
-        options
-            .jwt_audience
-            .clone()
-            .filter(|value| !value.is_empty())
-            .ok_or(())?,
-    );
     let settings = SessionSettings::from_config(config).map_err(|_| ())?;
-    let hub = StreamHub::new(policy);
-    hub.set_available(false, Terminal::Unavailable);
-    let mut store = PgDispatchStore::new(state.pools.read.clone());
+    let mut store = PgDispatchStore::new(read.clone());
     let dispatch = Dispatch::initialize(&mut store, hub.clone())
         .await
         .map_err(|_| ())?;
-    // Verify the dedicated connection before making the hub available. The actor
-    // owns this same session from its first iteration, without an extra slot.
     let session = super::election::ElectionSession::open(&settings)
         .await
         .map_err(|_| ())?;
-    let (stop, shutdown) = watch::channel(false);
-    hub.set_available(true, Terminal::Unavailable);
-    state.streams = Some(Arc::new(Streams {
-        hub: hub.clone(),
-        verification,
-    }));
-    let task_hub = hub.clone();
-    let read = state.pools.read.clone();
-    let task = tokio::spawn(async move {
-        supervise(settings, read, dispatch, session, task_hub, shutdown).await;
-    });
-    Ok(StreamRuntime {
-        stop,
-        task: Some(task),
-        hub,
-    })
+    Ok((settings, dispatch, session))
 }
 
 async fn stopping(stop: &mut watch::Receiver<bool>) {
@@ -198,23 +200,55 @@ impl Drop for AvailabilityGuard {
 }
 
 async fn supervise(
-    settings: SessionSettings,
+    config: Arc<crate::Config>,
     read: sqlx::PgPool,
-    mut dispatch: Dispatch<StreamHub>,
-    session: super::election::ElectionSession,
     hub: StreamHub,
     mut shutdown: watch::Receiver<bool>,
+    initial: Initialized,
 ) {
+    let mut initial = Some(initial);
     let _availability = AvailabilityGuard(hub.clone());
-    let mut initial = Some(session);
     let mut budget = RestartBudget::default();
+    let mut delay = None;
     loop {
+        if let Some(wait) = delay {
+            tokio::select! {
+                biased;
+                () = stopping(&mut shutdown) => return,
+                () = tokio::time::sleep(wait) => {},
+            }
+        }
+        let initialized = if let Some(initial) = initial.take() {
+            initial
+        } else {
+            tokio::select! {
+                biased;
+                () = stopping(&mut shutdown) => return,
+                result = initialize(&config, &read, &hub) => result,
+            }
+        };
+        let (settings, mut dispatch, session) = match initialized {
+            Ok(parts) => parts,
+            Err(()) => {
+                hub.set_available(false, Terminal::Unavailable);
+                tracing::warn!(
+                    reason = "stream_unavailable",
+                    "stream initialization unavailable"
+                );
+                let Some(next) = budget.next_delay() else {
+                    return;
+                };
+                delay = Some(next);
+                continue;
+            }
+        };
+        hub.set_available(true, Terminal::Unavailable);
         let (cycle_stop, cycle_shutdown) = watch::channel(false);
         let wake = Arc::new(Notify::new());
         let (sender, mut receiver) = mpsc::channel(1);
         let mut election = tokio::spawn(super::election::run_election_with_session(
             settings.clone(),
-            initial.take(),
+            Some(session),
             wake.clone(),
             cycle_shutdown.clone(),
         ));
@@ -263,39 +297,9 @@ async fn supervise(
         if stopped {
             return;
         }
-        loop {
-            let Some(delay) = budget.next_delay() else {
-                return;
-            };
-            tokio::select! {
-                biased;
-                () = stopping(&mut shutdown) => return,
-                () = tokio::time::sleep(delay) => {},
-            }
-            let mut store = PgDispatchStore::new(read.clone());
-            let attempt = async {
-                let next = Dispatch::initialize(&mut store, hub.clone())
-                    .await
-                    .map_err(|_| ())?;
-                let session = super::election::ElectionSession::open(&settings)
-                    .await
-                    .map_err(|_| ())?;
-                Ok::<_, ()>((next, session))
-            };
-            let restarted = tokio::select! {
-                biased;
-                () = stopping(&mut shutdown) => return,
-                result = attempt => result,
-            };
-            match restarted {
-                Ok((next, session)) => {
-                    dispatch = next;
-                    initial = Some(session);
-                    break;
-                }
-                Err(_) => continue,
-            }
-        }
-        hub.set_available(true, Terminal::Unavailable);
+        let Some(next) = budget.next_delay() else {
+            return;
+        };
+        delay = Some(next);
     }
 }

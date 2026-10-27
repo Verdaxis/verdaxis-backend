@@ -272,6 +272,93 @@ pub async fn dispatch_page(pool: &PgPool, after: i64) -> Result<ReplayPage, Stor
     read_page(pool, None, after, None, PageLimits::default()).await
 }
 
+/// Global dispatch preserves invalid sequence metadata without fetching its
+/// oversized payload. Private replay continues to refuse the same retained row.
+pub async fn dispatch_scan(
+    pool: &PgPool,
+    after: i64,
+) -> Result<super::dispatch::ScanPage, StoreError> {
+    use super::dispatch::{Boundary, ScanPage, ScanRow};
+    let limits = PageLimits::default();
+    let mut transaction = begin_snapshot(pool).await?;
+    let floor = read_floor(&mut transaction).await?;
+    let high: i64 = sqlx::query_scalar(HIGH_WATER_SQL)
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(|_| StoreError::Unavailable)?;
+    let high = high.max(floor);
+    let metadata_rows = sqlx::query(METADATA_SQL)
+        .bind(after)
+        .bind(high)
+        .bind(Option::<String>::None)
+        .bind((limits.rows + 1) as i64)
+        .bind(limits.participants as i64 * PARTICIPANT_JSON_BYTES + 2)
+        .fetch_all(&mut *transaction)
+        .await
+        .map_err(|_| StoreError::Unavailable)?;
+    let metadata = metadata_rows
+        .iter()
+        .map(read_metadata)
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut sequences = Vec::new();
+    let mut invalid = Vec::new();
+    let mut bytes = 0usize;
+    let mut visited = 0usize;
+    for row in metadata.iter().take(limits.rows) {
+        let valid = row.payload_bytes >= 0
+            && row.payload_bytes as usize <= limits.payload_bytes_per_event
+            && row.participants > 0
+            && row.participants as usize <= limits.participants;
+        if valid && bytes.saturating_add(row.payload_bytes as usize) > limits.payload_bytes {
+            break;
+        }
+        visited += 1;
+        if valid {
+            bytes += row.payload_bytes as usize;
+            sequences.push(row.seq);
+        } else {
+            invalid.push(row.seq);
+        }
+    }
+    let mut rows = Vec::new();
+    if !sequences.is_empty() {
+        let fetched = sqlx::query(PAGE_SQL)
+            .bind(&sequences)
+            .fetch_all(&mut *transaction)
+            .await
+            .map_err(|_| StoreError::Unavailable)?;
+        if fetched.len() != sequences.len() {
+            return Err(StoreError::Unavailable);
+        }
+        for (row, seq) in fetched.iter().zip(sequences.iter()) {
+            match read_event(row, limits.participants) {
+                Ok(event) => {
+                    if event.seq() != *seq {
+                        return Err(StoreError::Unavailable);
+                    }
+                    let bytes = event.payload_bytes();
+                    rows.push(
+                        ScanRow::event(std::sync::Arc::new(event), bytes)
+                            .map_err(|_| StoreError::Unavailable)?,
+                    );
+                }
+                Err(StoreError::InvalidEvent(_)) => invalid.push(*seq),
+                Err(error) => return Err(error),
+            }
+        }
+    }
+    for seq in invalid {
+        rows.push(ScanRow::invalid(seq).map_err(|_| StoreError::Unavailable)?);
+    }
+    rows.sort_by_key(ScanRow::sequence);
+    transaction
+        .commit()
+        .await
+        .map_err(|_| StoreError::Unavailable)?;
+    let boundary = Boundary::new(floor, high).map_err(|_| StoreError::Unavailable)?;
+    ScanPage::new(boundary, rows, visited < metadata.len()).map_err(|_| StoreError::Unavailable)
+}
+
 async fn read_page(
     pool: &PgPool,
     organization: Option<Uuid>,

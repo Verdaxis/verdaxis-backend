@@ -64,6 +64,10 @@ impl ScanRow {
         })
     }
 
+    pub(crate) fn sequence(&self) -> i64 {
+        self.seq
+    }
+
     pub fn invalid(seq: i64) -> Result<Self, DispatchError> {
         if seq <= 0 {
             return Err(DispatchError::InvalidPage);
@@ -309,15 +313,8 @@ impl DispatchStore for PgDispatchStore {
     }
 
     async fn scan(&mut self, after: i64) -> Result<ScanPage, DispatchError> {
-        let page = super::store::dispatch_page(&self.pool, after)
+        super::store::dispatch_scan(&self.pool, after)
             .await
-            .map_err(|_| DispatchError::Store)?;
-        let boundary = Boundary::new(page.boundary.discarded_through, page.boundary.high_water)?;
-        let mut rows = Vec::with_capacity(page.events.len());
-        for event in page.events {
-            let bytes = event.payload_bytes();
-            rows.push(ScanRow::event(Arc::new(event), bytes)?);
-        }
-        ScanPage::new(boundary, rows, page.more)
+            .map_err(|_| DispatchError::Store)
     }
 }
