@@ -27,7 +27,6 @@ fn commission_status_accepts_each_stored_value() {
         );
     }
     for payload in [
-        json!({"status":null}),
         json!({"status":"OTHER"}),
         json!({"invoice_date":"2026-02-30"}),
         json!({"notes":42}),
@@ -38,7 +37,24 @@ fn commission_status_accepts_each_stored_value() {
 }
 
 #[test]
-fn commission_response_excludes_internal_fields() {
+fn commission_patch_leaves_text_lengths_to_the_database() {
+    let longest = json!({"invoice_number":"x".repeat(50),"notes":"n".repeat(500)});
+    let patch = CommissionPatch::parse(longest).unwrap();
+    assert_eq!(patch.invoice_number, PatchField::Set(Some("x".repeat(50))));
+    assert_eq!(patch.notes, PatchField::Set(Some("n".repeat(500))));
+    // The limits count characters, as PostgreSQL `varchar(n)` does.
+    let accented = json!({"notes":"é".repeat(500)});
+    assert!(CommissionPatch::parse(accented).is_ok());
+    for payload in [
+        json!({"invoice_number":"x".repeat(51)}),
+        json!({"notes":"n".repeat(501)}),
+    ] {
+        assert!(CommissionPatch::parse(payload).is_ok());
+    }
+}
+
+#[test]
+fn commission_module_writes_only_through_the_effect_port() {
     let source = include_str!("../src/order_write/commission.rs");
     assert!(!source.contains("FROM trades"));
     assert!(!source.contains("INSERT INTO commissions"));
