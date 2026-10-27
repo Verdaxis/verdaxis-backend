@@ -6,18 +6,18 @@ use crate::auth::{VerificationSettings, verify_authorization};
 use crate::market_support::{
     AuditContext, SupportCommand, SupportRequest, SupportSettings, missing_credentials, run_support,
 };
-use crate::runtime::{http::client_ip, logging::request_id};
+use crate::runtime::http::audit_identity;
 use crate::{Config, MarketPolicy};
 use axum::{
     Router,
     body::Bytes,
-    extract::{ConnectInfo, Path, RawQuery, State},
+    extract::{Path, RawQuery, State},
     http::{StatusCode, request::Parts},
     response::{IntoResponse, Response},
     routing::{get, post},
 };
 use chrono::Utc;
-use std::{net::SocketAddr, sync::Arc};
+use std::sync::Arc;
 use tokio::sync::Semaphore;
 
 #[derive(Clone)]
@@ -88,23 +88,6 @@ fn header<'a>(parts: &'a Parts, name: &str) -> Option<&'a str> {
         .and_then(|value| value.to_str().ok())
 }
 
-/// Python's `request_audit_context`: the client address (the last forwarded
-/// hop only from a loopback peer) and the request's correlation ID. The
-/// serving middleware stores the ID it minted as a request extension; without
-/// it, the same rule sanitizes `X-Request-ID` or generates an ID.
-fn audit_identity(parts: &Parts) -> (String, String) {
-    let peer = parts
-        .extensions
-        .get::<ConnectInfo<SocketAddr>>()
-        .map(|info| info.0.ip());
-    let client = client_ip(peer, header(parts, "x-forwarded-for"));
-    let correlation = parts
-        .extensions
-        .get::<String>()
-        .map(String::as_str)
-        .or_else(|| header(parts, "x-request-id"));
-    (client, request_id(correlation))
-}
 
 async fn dispatch(state: SupportState, parts: Parts, request: SupportRequest) -> Response {
     let authorization = header(&parts, "authorization");

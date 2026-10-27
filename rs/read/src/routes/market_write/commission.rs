@@ -3,7 +3,7 @@
 use axum::{
     Router,
     body::Body,
-    extract::{ConnectInfo, Request, State},
+    extract::{Request, State},
     http::{Method, StatusCode, request::Parts},
     response::{IntoResponse, Response},
     routing::{get, put},
@@ -11,7 +11,7 @@ use axum::{
 use chrono::Utc;
 use futures_util::StreamExt;
 use serde_json::{Value, json};
-use std::{net::SocketAddr, sync::Arc};
+use std::sync::Arc;
 use tokio::sync::Semaphore;
 use uuid::Uuid;
 
@@ -19,7 +19,7 @@ use crate::auth::{VerificationSettings, limits::SharedLimits, verify_authorizati
 use crate::commission::{
     AuditContext, CommissionCommand, CommissionOperation, CommissionPatch, run_commission_command,
 };
-use crate::runtime::{http::client_ip, logging::request_id};
+use crate::runtime::http::audit_identity;
 use crate::{Config, MarketPolicy};
 
 /// Match the production edge's request-body ceiling, including ignored JSON keys.
@@ -48,21 +48,6 @@ fn header<'a>(parts: &'a Parts, name: &str) -> Option<&'a str> {
         .and_then(|value| value.to_str().ok())
 }
 
-/// Use the ingress correlation ID when present; component routers use the same
-/// sanitizer and client-address policy as serving middleware.
-fn audit_identity(parts: &Parts) -> (String, String) {
-    let peer = parts
-        .extensions
-        .get::<ConnectInfo<SocketAddr>>()
-        .map(|info| info.0.ip());
-    let client = client_ip(peer, header(parts, "x-forwarded-for"));
-    let correlation = parts
-        .extensions
-        .get::<String>()
-        .map(String::as_str)
-        .or_else(|| header(parts, "x-request-id"));
-    (client, request_id(correlation))
-}
 
 async fn handle(State(context): State<Arc<RouteContext>>, request: Request) -> Response {
     let now = Utc::now();

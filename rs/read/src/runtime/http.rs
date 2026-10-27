@@ -38,6 +38,21 @@ struct HttpState {
     phase2_limits: crate::auth::limits::SharedLimits,
 }
 
+/// Audit identity uses the ingress correlation ID and trusted client-address policy.
+pub(crate) fn audit_identity(parts: &axum::http::request::Parts) -> (String, String) {
+    let peer = parts
+        .extensions
+        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+        .map(|info| info.0.ip());
+    let client = client_ip(peer, parts.headers.get("x-forwarded-for").and_then(|value| value.to_str().ok()));
+    let correlation = parts
+        .extensions
+        .get::<String>()
+        .map(String::as_str)
+        .or_else(|| parts.headers.get("x-request-id").and_then(|value| value.to_str().ok()));
+    (client, super::logging::request_id(correlation))
+}
+
 pub fn middleware(routes: Router) -> Router {
     compose(routes, None, crate::auth::limits::SharedLimits::default())
 }
