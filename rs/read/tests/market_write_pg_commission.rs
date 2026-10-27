@@ -697,7 +697,8 @@ async fn response_before_commit_round() -> bool {
     let mut f = Fixture::new().await;
     f.seed(1).await;
     let id = f.id().await;
-    let mut blocker = f.pool.begin().await.unwrap();
+    let mut barrier = PgConnection::connect(&f.admin_url).await.unwrap();
+    let mut blocker = barrier.begin().await.unwrap();
     sqlx::query("LOCK TABLE audit_logs IN ACCESS EXCLUSIVE MODE")
         .execute(&mut *blocker)
         .await
