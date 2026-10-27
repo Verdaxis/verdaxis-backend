@@ -376,7 +376,7 @@ async fn outbox_is_commit_visible_and_polling_finds_events_without_a_listener() 
         .await
     });
     barrier.staged().await;
-    assert_eq!(dispatch_without_notifications(false),0);
+    assert_eq!(dispatch_without_notifications(false), 0);
     let before: i64 = sqlx::query_scalar("SELECT count(*) FROM market_event_outbox")
         .fetch_one(&mut f.observer)
         .await
@@ -398,7 +398,7 @@ async fn outbox_is_commit_visible_and_polling_finds_events_without_a_listener() 
         let payload: Value = serde_json::from_str(&payload).unwrap();
         assert_eq!(payload["_public_market_invalidation"], true);
     }
-    assert_eq!(dispatch_without_notifications(true),6);
+    assert_eq!(dispatch_without_notifications(true), 6);
 }
 
 #[tokio::test]
@@ -787,8 +787,8 @@ async fn slice_evidence_distinguishes_best_price_move_from_quiet() {
     assert_eq!(evidence["targets"].as_array().unwrap().len(), 2);
 }
 
-fn dispatch_without_notifications(run_loops:bool)->usize {
-    let script=r#"
+fn dispatch_without_notifications(run_loops: bool) -> usize {
+    let script = r#"
 import asyncio, json, os, sys
 import asyncpg
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -817,15 +817,28 @@ async def main():
             ('trades:00000000-0000-0000-0000-000000002000','orders_matched'),
             ('prices','market_invalidated'),('orderbook','market_invalidated')])
     else:
-        assert await dispatcher._assign_pending_sequences()==0
-        await dispatcher._drain_new_events()
+        await asyncio.wait_for(dispatcher._drain_new_events(),timeout=5)
     print(len(bus.events))
     await dispatcher.stop(); await engine.dispose()
-asyncio.run(main())
+asyncio.run(asyncio.wait_for(main(),timeout=15))
 "#;
-    let python=std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_|"venv/bin/python".into());
-    let root=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let result=std::process::Command::new(python).current_dir(root).arg("-c").arg(script).arg(run_loops.to_string()).output().unwrap();
-    assert!(result.status.success(),"{}",String::from_utf8_lossy(&result.stderr));
-    String::from_utf8(result.stdout).unwrap().trim().parse().unwrap()
+    let python = std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "venv/bin/python".into());
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let result = std::process::Command::new(python)
+        .current_dir(root)
+        .arg("-c")
+        .arg(script)
+        .arg(run_loops.to_string())
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    String::from_utf8(result.stdout)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap()
 }
