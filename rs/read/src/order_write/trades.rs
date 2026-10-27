@@ -87,14 +87,16 @@ impl TradeCreate {
                 .unwrap_or(Ok(false))
         };
         let terms = |key| object.get(key).filter(|v| !v.is_null()).cloned();
-        let fame_terms = terms("fame_terms");
-        let lng_terms = terms("lng_terms");
-        for (profile, terms) in [("fame_v1", &fame_terms), ("lng_v1", &lng_terms)] {
-            if let Some(terms) = terms {
-                crate::market::terms::owner_response_terms(profile, terms)
-                    .map_err(|_| invalid())?;
-            }
-        }
+        let normalize = |profile, terms: Option<Value>| {
+            terms
+                .map(|value| {
+                    crate::market::terms::owner_response_terms(profile, &value)
+                        .map_err(|_| invalid())
+                })
+                .transpose()
+        };
+        let fame_terms = normalize("fame_v1", terms("fame_terms"))?;
+        let lng_terms = normalize("lng_v1", terms("lng_terms"))?;
         Ok(Self {
             order_id,
             quantity_mt,
@@ -214,53 +216,72 @@ pub fn project_trade(
     if row["commission_rate_pct"].is_null() {
         row["commission_rate_pct"] = json!("0.5");
     }
-    for (field, reveal, keys) in [
+    for (field, profile, reveal) in [
         (
             "lng_terms_snapshot",
+            "lng_v1",
             (is_buyer || is_seller) && handoff,
-            &["physical_supplier_name", "certificate_number"][..],
         ),
         (
             "fame_terms_snapshot",
+            "fame_v1",
             is_seller || (is_buyer && (!anonymous || handoff)),
-            &[
-                "producer_name",
-                "production_site",
-                "certificate_number",
-                "batch_reference",
-                "consignment_reference",
-                "document_reference",
-            ][..],
         ),
     ] {
-        if !reveal {
-            if let Some(ask) = row
+        if !reveal
+            && let Some(ask) = row
                 .get_mut(field)
-                .and_then(|s| s.get_mut("ask"))
-                .and_then(Value::as_object_mut)
-            {
-                for key in keys {
-                    ask.remove(*key);
-                }
-            }
+                .and_then(|snapshot| snapshot.get_mut("ask"))
+        {
+            *ask =
+                crate::market::terms::public_response_terms(profile, ask).map_err(|_| fault())?;
         }
     }
-    for key in [
-        "buyer_user_id",
-        "seller_user_id",
-        "initiator_org_id",
-        "buyer_provenance",
-        "seller_provenance",
-        "idempotency_key",
-        "idempotency_operation",
-        "idempotency_request_hash",
-        "market_snapshot_version",
-        "viewer_org",
-        "action_required",
-        "awaiting",
-    ] {
-        row.as_object_mut().ok_or_else(fault)?.remove(key);
-    }
+    // The response is an allowlisted DTO, never an open-ended database row.
+    const FIELDS: &[&str] = &[
+        "id",
+        "bid_order_id",
+        "ask_order_id",
+        "buyer_id",
+        "seller_id",
+        "buyer_name",
+        "seller_name",
+        "initiated_by",
+        "is_anonymous",
+        "quantity_mt",
+        "price_per_mt_usd",
+        "status",
+        "final_quantity_mt",
+        "final_price_per_mt",
+        "final_total_usd",
+        "commission_rate_pct",
+        "commission_fee_per_mt_usd",
+        "commission_plan",
+        "commission_payer",
+        "commission_amount_usd",
+        "confirmed_at",
+        "delivered_at",
+        "paid_at",
+        "created_at",
+        "product_id",
+        "product_name",
+        "market_product",
+        "fuel_type",
+        "fuel_grade",
+        "delivery_point_id",
+        "delivery_point_name",
+        "region",
+        "availability_window",
+        "source_kind",
+        "scope",
+        "demo_status",
+        "unknown_count",
+        "lng_terms_snapshot",
+        "fame_terms_snapshot",
+    ];
+    row.as_object_mut()
+        .ok_or_else(fault)?
+        .retain(|key, _| FIELDS.contains(&key.as_str()));
     Ok(row)
 }
 
@@ -319,6 +340,14 @@ impl TradeCommand {
             };
             facts["replay"] = json!(replay);
             if replay.is_none() {
+                let exists: bool =
+                    sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM orderbook_orders WHERE id=$1)")
+                        .bind(input.order_id)
+                        .fetch_one(&mut *conn)
+                        .await?;
+                if !exists {
+                    return Err(MarketWriteError::new(MarketErrorCode::OrderNotFound).into());
+                }
                 let row = matching::load_order(conn, input.order_id).await?;
                 organizations.push(row.organization_id);
                 users.extend(row.owner_user_id);
@@ -347,8 +376,10 @@ impl TradeCommand {
         for row in &orders {
             locks.slices([row.slice()])?;
         }
-        locks.orders(orders.iter().map(|r| r.id))?;
-        locks.inventory(items)?;
+        if self.request.create.is_some() {
+            locks.orders(orders.iter().map(|r| r.id))?;
+            locks.inventory(items)?;
+        }
         Ok(MarketPreview { parties, locks })
     }
 }
@@ -423,7 +454,7 @@ impl MarketCommand for TradeCommand {
                         self.request.now,
                     )
                     .await?;
-                let body = result.clone();
+                let body = result;
                 tx.effects()?
                     .trade_created(
                         before,
@@ -530,14 +561,31 @@ impl<'a> TradePort<'a> {
     }
     async fn load(&mut self, id: Uuid) -> Result<Value, MarketWriteError> {
         let mut value:Value=sqlx::query_scalar("SELECT to_jsonb(t)||jsonb_build_object('quantity_mt',t.quantity_mt::text,'price_per_mt_usd',t.price_per_mt_usd::text,'commission_rate_pct',t.commission_rate_pct::text,'commission_fee_per_mt_usd',t.commission_fee_per_mt_usd::text,'commission_amount_usd',t.commission_amount_usd::text,'final_quantity_mt',t.final_quantity_mt::text,'final_price_per_mt',t.final_price_per_mt::text,'final_total_usd',t.final_total_usd::text,'buyer_name',COALESCE(b.name,''),'seller_name',COALESCE(s.name,''),'region',COALESCE(t.delivery_point_region,'')) FROM trades t LEFT JOIN organizations b ON b.id=t.buyer_id LEFT JOIN organizations s ON s.id=t.seller_id WHERE t.id=$1").bind(id).fetch_one(&mut *self.conn).await?;
-        value["source_kind"] = json!("CONFIRMED_TRADE");
+        let buyer = value["buyer_provenance"].as_str().unwrap_or("UNKNOWN");
+        let seller = value["seller_provenance"].as_str().unwrap_or("UNKNOWN");
+        let real = buyer == "REAL" && seller == "REAL";
+        let demo = buyer == "DEMO" && seller == "DEMO";
+        let unknown = buyer == "UNKNOWN" || seller == "UNKNOWN";
+        value["source_kind"] = json!(if real {
+            "CONFIRMED_TRADE"
+        } else if demo {
+            "DEMO_SEED"
+        } else {
+            "UNKNOWN"
+        });
         value["scope"] = json!(if value["delivery_point_id"].is_null() {
             "UNKNOWN"
         } else {
             "DELIVERY_POINT"
         });
-        value["demo_status"] = json!("REAL_ONLY");
-        value["unknown_count"] = json!(0);
+        value["demo_status"] = json!(if real {
+            "REAL_ONLY"
+        } else if demo {
+            "DEMO_ONLY"
+        } else {
+            "UNKNOWN"
+        });
+        value["unknown_count"] = json!(u32::from(unknown));
         Ok(value)
     }
     async fn replay(
@@ -701,7 +749,7 @@ impl<'a> TradePort<'a> {
             })?;
         let id = Uuid::new_v4();
         sqlx::query("INSERT INTO trades(id,bid_order_id,ask_order_id,buyer_id,seller_id,buyer_user_id,seller_user_id,initiator_org_id,buyer_provenance,seller_provenance,initiated_by,quantity_mt,price_per_mt_usd,status,is_anonymous,idempotency_key,idempotency_operation,idempotency_request_hash,product_id,product_name,fuel_type,fuel_grade,market_product,delivery_point_id,delivery_point_name,delivery_point_region,availability_window,market_snapshot_version,commission_rate_pct,commission_fee_per_mt_usd,commission_plan,fame_terms_snapshot,lng_terms_snapshot,created_at) SELECT $1,$2,$3,$4,$5,$6,$7,$8,'REAL','REAL',$9,$10,o.price_per_mt_usd,'PENDING_CONFIRMATION',true,$11,CASE WHEN $11::text IS NULL THEN NULL ELSE 'trade.create' END,$12,o.product_id,p.name,p.fuel_type,p.fuel_grade,$13,o.delivery_point_id,d.name,d.region,o.availability_window,1,0,$14,$15,$16,$17,$18 FROM orderbook_orders o JOIN products p ON p.id=o.product_id JOIN delivery_points d ON d.id=o.delivery_point_id WHERE o.id=$19")
-   .bind(id).bind((order.side==Side::Bid).then_some(order.id)).bind((order.side==Side::Ask).then_some(order.id)).bind(buyer).bind(seller).bind(buyer_user).bind(seller_user).bind(org).bind(initiated).bind(input.quantity_mt).bind(key).bind(hash).bind(&catalog.code).bind(fee.seller_fee_per_mt_usd).bind(fee.plan.as_str()).bind(fame).bind(lng).bind(now).bind(order.id).execute(&mut *self.conn).await?;
+   .bind(id).bind((order.side==Side::Bid).then_some(order.id)).bind((order.side==Side::Ask).then_some(order.id)).bind(buyer).bind(seller).bind(buyer_user).bind(seller_user).bind(org).bind(initiated).bind(input.quantity_mt).bind(key).bind(if key.is_some(){hash}else{None}).bind(&catalog.code).bind(fee.seller_fee_per_mt_usd).bind(fee.plan.as_str()).bind(fame).bind(lng).bind(now).bind(order.id).execute(&mut *self.conn).await?;
         sqlx::query("UPDATE orderbook_orders SET remaining_quantity_mt=remaining_quantity_mt-$2,status=CASE WHEN remaining_quantity_mt=$2 THEN 'FILLED' WHEN status='OPEN' THEN 'PARTIALLY_FILLED' ELSE status END,version=version+1,updated_at=$3 WHERE id=$1").bind(order.id).bind(input.quantity_mt).bind(now).execute(&mut *self.conn).await?;
         self.load(id).await
     }

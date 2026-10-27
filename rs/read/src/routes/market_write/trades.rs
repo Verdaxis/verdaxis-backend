@@ -9,10 +9,9 @@ use crate::{
         sender::{AnalyticsSender, RequestMetadata},
     },
     auth::VerificationSettings,
-    order_write::{
-        MarketErrorCode, MarketWriteError,
-        effects::AuditContext,
-        trades::{self, TradeCreate, TradePage, TradeRequest},
+    market_trades::{
+        self as trades, AuditContext, MarketErrorCode, MarketWriteError, TradeCreate, TradePage,
+        TradeRequest,
     },
 };
 use axum::{
@@ -136,49 +135,51 @@ async fn handle(state: RouteState, request: Request, create: bool, summary: bool
             state.fees,
         )
         .await?;
-        if create && !result.replayed && result.response_status == 200 {
-            if let Some(sender) = &state.analytics {
-                let event = RegisteredEvent::Server(AllowedServerEvent::TradeCreated);
-                let catalog = DomainCatalog::from_policy(&state.app.policy, Vec::<String>::new());
-                let side = if result.response_body["initiated_by"] == "BUYER" {
-                    "BID"
-                } else {
-                    "ASK"
-                };
-                let role = if side == "BID" { "BUYER" } else { "SUPPLIER" };
-                let mut properties = Vec::new();
-                for (key, value) in [
-                    (AllowedProperty::Role, Some(role)),
-                    (AllowedProperty::Side, Some(side)),
-                    (
-                        AllowedProperty::CanonicalProduct,
-                        result.response_body["market_product"].as_str(),
-                    ),
-                    (
-                        AllowedProperty::DeliveryPoint,
-                        result.response_body["delivery_point_name"].as_str(),
-                    ),
-                    (
-                        AllowedProperty::AvailabilityWindow,
-                        result.response_body["availability_window"].as_str(),
-                    ),
-                ] {
-                    if let Some(value) =
-                        value.and_then(|v| AllowedPropertyValue::parse(event, key, v, &catalog))
-                    {
-                        properties.push((key, value));
-                    }
+        if create
+            && !result.replayed
+            && result.response_status == 200
+            && let Some(sender) = &state.analytics
+        {
+            let event = RegisteredEvent::Server(AllowedServerEvent::TradeCreated);
+            let catalog = DomainCatalog::from_policy(&state.app.policy, Vec::<String>::new());
+            let side = if result.response_body["initiated_by"] == "BUYER" {
+                "BID"
+            } else {
+                "ASK"
+            };
+            let role = if side == "BID" { "BUYER" } else { "SUPPLIER" };
+            let mut properties = Vec::new();
+            for (key, value) in [
+                (AllowedProperty::Role, Some(role)),
+                (AllowedProperty::Side, Some(side)),
+                (
+                    AllowedProperty::CanonicalProduct,
+                    result.response_body["market_product"].as_str(),
+                ),
+                (
+                    AllowedProperty::DeliveryPoint,
+                    result.response_body["delivery_point_name"].as_str(),
+                ),
+                (
+                    AllowedProperty::AvailabilityWindow,
+                    result.response_body["availability_window"].as_str(),
+                ),
+            ] {
+                if let Some(value) =
+                    value.and_then(|v| AllowedPropertyValue::parse(event, key, v, &catalog))
+                {
+                    properties.push((key, value));
                 }
-                if let Ok(event) = ServerEvent::new(AllowedServerEvent::TradeCreated, properties) {
-                    sender.schedule(
-                        event,
-                        RequestMetadata::new(
-                            header("user-agent"),
-                            parts.uri.host().or_else(|| header("host")),
-                        ),
-                        header("x-monitor-token"),
-                    );
-                }
+            }
+            if let Ok(event) = ServerEvent::new(AllowedServerEvent::TradeCreated, properties) {
+                sender.schedule(
+                    event,
+                    RequestMetadata::new(
+                        header("user-agent"),
+                        parts.uri.host().or_else(|| header("host")),
+                    ),
+                    header("x-monitor-token"),
+                );
             }
         }
         let status = StatusCode::from_u16(result.response_status)
