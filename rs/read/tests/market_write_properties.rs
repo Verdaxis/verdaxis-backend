@@ -37,7 +37,8 @@ fn generated_sequence(seed: u64) -> Vec<(u8, u16)> {
         failure_persistence: None,
         ..Config::default()
     };
-    let mut runner = TestRunner::new_with_rng(config, TestRng::from_seed(RngAlgorithm::ChaCha, &bytes));
+    let mut runner =
+        TestRunner::new_with_rng(config, TestRng::from_seed(RngAlgorithm::ChaCha, &bytes));
     vec((0_u8..12, 1_u16..1000), 40)
         .new_tree(&mut runner)
         .expect("bounded sequence")
@@ -47,7 +48,11 @@ fn generated_sequence(seed: u64) -> Vec<(u8, u16)> {
 #[test]
 fn generated_sequences_replay_from_their_seed() {
     for seed in [1, 17, 43, 1024, 65537, u64::MAX] {
-        assert_eq!(generated_sequence(seed), generated_sequence(seed), "seed={seed}");
+        assert_eq!(
+            generated_sequence(seed),
+            generated_sequence(seed),
+            "seed={seed}"
+        );
     }
     assert_ne!(generated_sequence(1), generated_sequence(17));
 }
@@ -60,7 +65,10 @@ fn conservation_suite_uses_phase_eight_interfaces() {
         concat!("market_contract::", "matching"),
         concat!("routes::", "trades"),
     ] {
-        assert!(!source.contains(forbidden), "unexpected interface: {forbidden}");
+        assert!(
+            !source.contains(forbidden),
+            "unexpected interface: {forbidden}"
+        );
     }
 }
 
@@ -77,8 +85,15 @@ fn decimal_roundtrip_property() {
                 let text = input.to_string();
                 let parsed = <$domain>::parse_exact(&text).expect(&text).value();
                 assert_eq!(parsed, input, "{}: {text}", stringify!($domain));
-                assert_eq!(<$domain>::parse_exact(&parsed.to_string()).unwrap().value(), input);
-                assert!(<$domain>::parse_exact(&format!("{text}0")).is_err(), "{}: {text}", stringify!($domain));
+                assert_eq!(
+                    <$domain>::parse_exact(&parsed.to_string()).unwrap().value(),
+                    input
+                );
+                assert!(
+                    <$domain>::parse_exact(&format!("{text}0")).is_err(),
+                    "{}: {text}",
+                    stringify!($domain)
+                );
             }
         }};
     }
