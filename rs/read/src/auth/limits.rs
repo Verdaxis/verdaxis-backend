@@ -3,6 +3,22 @@
 use std::collections::{BTreeSet, HashMap};
 use std::net::{IpAddr, Ipv6Addr};
 
+use super::error::{AuthCode, AuthFailure};
+
+/// A refused request and the seconds until its window resets (at least 1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Refusal {
+    pub retry_after_seconds: u64,
+}
+
+impl Refusal {
+    /// The auth envelope: 429 `RATE_LIMITED` with `Retry-After`.
+    pub fn auth_failure(self) -> AuthFailure {
+        let seconds = u32::try_from(self.retry_after_seconds).unwrap_or(u32::MAX);
+        AuthFailure::new(AuthCode::RateLimited).with_retry_after(seconds)
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct SharedLimits(std::sync::Arc<std::sync::Mutex<Phase2Limits>>);
 
@@ -27,6 +43,10 @@ impl SharedLimits {
         }
     }
 
+    pub fn preauth_check(&self, client: &str, path: &str, now: u64) -> Result<(), Refusal> {
+        self.lock_recovering().preauth_check(client, path, now)
+    }
+
     pub fn preauth(&self, client: &str, path: &str, now: u64) -> bool {
         self.lock_recovering().preauth(client, path, now)
     }
@@ -36,16 +56,35 @@ impl SharedLimits {
         self.lock_recovering().preauth(client, "/api/admin/", now)
     }
 
+    /// Address-owned auth endpoints use normalized, evicting accounting.
+    /// Verified-user endpoint counters are never allocated through this API.
+    pub fn check_address_endpoint(
+        &self,
+        client: &str,
+        path: &str,
+        now: u64,
+    ) -> Result<(), crate::ApiError> {
+        self.lock_recovering()
+            .address_endpoint_check(client, path, now)
+            .map_err(|refusal| refusal.auth_failure().into())
+    }
+
     /// Route adapters call this after bearer/current-account admission and
     /// typed validation. Invalid authentication never consumes endpoint quota.
+    ///
+    /// An auth route's refusal is the auth envelope with `Retry-After`; the
+    /// Phase 2 routes keep their existing refusal body.
     pub fn check_endpoint(
         &self,
         client: &str,
         path: &str,
         now: u64,
     ) -> Result<(), crate::ApiError> {
-        if self.lock_recovering().endpoint(client, path, now) {
+        let Err(refusal) = self.lock_recovering().endpoint_check(client, path, now) else {
             return Ok(());
+        };
+        if auth_endpoint_policy(path).is_some() {
+            return Err(refusal.auth_failure().into());
         }
         let (_, limit, window) = endpoint_policy(path).expect("limited endpoint");
         let unit = if window == 3600 { "hour" } else { "minute" };
@@ -121,9 +160,8 @@ impl QuotaStore {
                 if !evict {
                     return false;
                 }
-                // Only the pre-auth store evicts (PM decision PD2-SEC-1). Every
-                // entry shares one window length, so the soonest-expiring entry
-                // is the oldest accounting. Refusing the new client instead
+                // Untrusted address stores evict their soonest-expiring entry.
+                // Verified-user stores refuse new identities at capacity. Refusing the new client instead
                 // would let a flood of fresh addresses lock out every
                 // legitimate client, administrators included. The trade is
                 // deliberate: under sustained churn a client can be evicted and
@@ -157,6 +195,7 @@ impl QuotaStore {
 #[derive(Default)]
 pub struct Phase2Limits {
     preauth_store: QuotaStore,
+    address_endpoint_store: QuotaStore,
     user_store: QuotaStore,
 }
 
@@ -176,30 +215,143 @@ fn network_identity(client: &str) -> String {
 
 impl Phase2Limits {
     pub fn preauth(&mut self, client: &str, path: &str, now: u64) -> bool {
-        !path.starts_with("/api/admin/")
-            || self.preauth_store.accept(
-                &network_identity(client),
-                "/api/admin/",
-                300,
-                60,
-                now,
-                true,
-            )
+        self.preauth_check(client, path, now).is_ok()
     }
+    pub fn preauth_check(&mut self, client: &str, path: &str, now: u64) -> Result<(), Refusal> {
+        let Some((key, limit, window)) = preauth_policy(path) else {
+            return Ok(());
+        };
+        let owner = network_identity(client);
+        if self
+            .preauth_store
+            .accept(&owner, key, limit, window, now, true)
+        {
+            return Ok(());
+        }
+        let remaining = self
+            .preauth_store
+            .buckets
+            .get(&(owner, key.into()))
+            .map_or(window, |bucket| {
+                bucket.expires_at.saturating_sub(now).max(1)
+            });
+        Err(Refusal {
+            retry_after_seconds: remaining,
+        })
+    }
+    pub fn address_endpoint_check(
+        &mut self,
+        client: &str,
+        path: &str,
+        now: u64,
+    ) -> Result<(), Refusal> {
+        let Some((key, limit, window)) = auth_endpoint_policy(path) else {
+            return Ok(());
+        };
+        let owner = network_identity(client);
+        if self
+            .address_endpoint_store
+            .accept(&owner, key, limit, window, now, true)
+        {
+            return Ok(());
+        }
+        let remaining = self
+            .address_endpoint_store
+            .buckets
+            .get(&(owner, key.into()))
+            .map_or(window, |bucket| {
+                bucket.expires_at.saturating_sub(now).max(1)
+            });
+        Err(Refusal {
+            retry_after_seconds: remaining,
+        })
+    }
+
     /// Pre-auth evictions since start. A plain number: it names no client.
     pub fn preauth_evictions(&self) -> u64 {
         self.preauth_store.evictions
     }
     /// The owner is the current verified user ID, never a transport address.
     pub fn endpoint(&mut self, user: &str, path: &str, now: u64) -> bool {
+        self.endpoint_check(user, path, now).is_ok()
+    }
+    pub fn endpoint_check(&mut self, user: &str, path: &str, now: u64) -> Result<(), Refusal> {
+        if auth_endpoint_policy(path).is_some() {
+            return self.address_endpoint_check(user, path, now);
+        }
         let Some((key, limit, window)) = endpoint_policy(path) else {
-            return true;
+            return Ok(());
         };
-        self.user_store.accept(user, key, limit, window, now, false)
+        if self.user_store.accept(user, key, limit, window, now, false) {
+            return Ok(());
+        }
+        let remaining = self
+            .user_store
+            .buckets
+            .get(&(user.into(), key.into()))
+            .map_or(window, |bucket| {
+                bucket.expires_at.saturating_sub(now).max(1)
+            });
+        Err(Refusal {
+            retry_after_seconds: remaining,
+        })
     }
 }
 
+/// Pre-auth prefixes: (prefix, requests per window, window seconds). The first
+/// matching prefix is the bucket and its key. `/api/auth/register` also covers
+/// `/api/auth/register-with-org`, so both registration routes share one
+/// pre-auth bucket.
+const PREAUTH_POLICIES: &[(&str, u32, u64)] = &[
+    ("/api/admin/", 300, 60),
+    ("/api/auth/login", 30, 60),
+    ("/api/auth/forgot-password", 15, 60),
+    ("/api/auth/register", 30, 60),
+];
+
+pub fn preauth_policy(path: &str) -> Option<(&'static str, u32, u64)> {
+    PREAUTH_POLICIES
+        .iter()
+        .find(|(prefix, _, _)| path.starts_with(prefix))
+        .copied()
+}
+
+/// Per-client endpoint limits of the Phase 3 auth routes: (route path, bucket
+/// key, requests per minute). The keys differ from every pre-auth prefix, so a
+/// request counts once in each layer. Logout has no endpoint limit.
+const AUTH_ENDPOINT_POLICIES: &[(&str, &str, u32)] = &[
+    ("/api/auth/login", "auth-login", 5),
+    ("/api/auth/refresh", "auth-refresh", 10),
+    ("/api/auth/stream-token", "auth-stream-token", 30),
+    ("/api/auth/me/password", "auth-password-change", 3),
+    ("/api/auth/invitations/accept", "auth-invitation-accept", 5),
+    ("/api/auth/forgot-password", "auth-forgot-password", 3),
+    ("/api/auth/reset-password", "auth-reset-password", 5),
+    ("/api/auth/verify-email", "auth-verify-email", 10),
+    (
+        "/api/auth/resend-verification-email",
+        "auth-resend-verification",
+        3,
+    ),
+    ("/api/auth/register", "auth-register", 5),
+    ("/api/auth/register-with-org", "auth-register-with-org", 5),
+];
+
+/// The auth endpoint window: one minute.
+const AUTH_ENDPOINT_WINDOW_SECONDS: u64 = 60;
+
+fn auth_endpoint_policy(path: &str) -> Option<(&'static str, u32, u64)> {
+    let route = path.strip_suffix('/').unwrap_or(path);
+    AUTH_ENDPOINT_POLICIES
+        .iter()
+        .find(|(candidate, _, _)| *candidate == route)
+        .map(|(_, key, limit)| (*key, *limit, AUTH_ENDPOINT_WINDOW_SECONDS))
+}
+
 pub fn endpoint_policy(path: &str) -> Option<(&'static str, u32, u64)> {
+    if let Some(policy) = auth_endpoint_policy(path) {
+        return Some(policy);
+    }
     if path.starts_with("/api/users/me/preferences/") {
         return Some(("preferences", 30, 60));
     }

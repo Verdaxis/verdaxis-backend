@@ -1,3 +1,4 @@
+use crate::auth::{limits::Refusal, origin::trusted_origins};
 use crate::{ApiError, request_id};
 use axum::{
     Router,
@@ -13,18 +14,9 @@ use std::{
     time::Instant,
 };
 
-/// Mirror the deployed Python credentialed-origin boundary, without sharing
-/// production browser authority with staging. Test harnesses retain their oracle.
+/// Use the same closed environment policy as the cookie origin guard.
 pub fn allowed_browser_origin(environment: &str, origin: &str) -> bool {
-    match environment {
-        "production" => matches!(
-            origin,
-            "https://app.verdaxis.exchange"
-                | "https://verdaxis.exchange"
-                | "https://canary.verdaxis.exchange"
-        ),
-        _ => origin == "https://staging.verdaxis.exchange",
-    }
+    trusted_origins(environment).contains(&origin)
 }
 
 pub fn client_ip(peer: Option<IpAddr>, forwarded: Option<&str>) -> String {
@@ -52,8 +44,13 @@ struct HttpState {
     phase2_limits: crate::auth::limits::SharedLimits,
 }
 
-pub fn middleware(routes: Router) -> Router {
-    compose(routes, None, crate::auth::limits::SharedLimits::default())
+pub fn middleware(routes: Router, environment: &str) -> Router {
+    compose(
+        routes,
+        None,
+        crate::auth::limits::SharedLimits::default(),
+        environment,
+    )
 }
 
 pub fn middleware_with_state(routes: Router, app_state: crate::AppState) -> Router {
@@ -61,19 +58,25 @@ pub fn middleware_with_state(routes: Router, app_state: crate::AppState) -> Rout
         routes,
         Some(app_state),
         crate::auth::limits::SharedLimits::default(),
+        "",
     )
 }
 
-/// Compose with one externally owned quota authority, so a contract server and
-/// the serving binary draw from the same counters.
-pub fn middleware_with_limits(routes: Router, limits: crate::auth::limits::SharedLimits) -> Router {
-    compose(routes, None, limits)
+/// Compose one pre-auth authority around a route split. Task 22 must attach
+/// both real upstream owners here before admin-feedback cutover is permitted.
+pub fn middleware_with_limits(
+    routes: Router,
+    limits: crate::auth::limits::SharedLimits,
+    environment: &str,
+) -> Router {
+    compose(routes, None, limits, environment)
 }
 
 fn compose(
     routes: Router,
     app_state: Option<crate::AppState>,
     limits: crate::auth::limits::SharedLimits,
+    environment: &str,
 ) -> Router {
     let state = HttpState {
         started: Instant::now(),
@@ -83,7 +86,7 @@ fn compose(
     let environment = app_state
         .as_ref()
         .map(|state| state.config.environment.clone())
-        .unwrap_or_else(|| "staging".into());
+        .unwrap_or_else(|| environment.to_owned());
     let routes = routes.layer(middleware::from_fn_with_state(state, dispatch_boundary));
     let routes = if let Some(app_state) = app_state {
         routes.layer(middleware::from_fn_with_state(
@@ -283,6 +286,15 @@ fn public_get_path(path: &str) -> bool {
             .is_some_and(|id| !id.is_empty() && !id.contains('/'))
 }
 
+/// The pre-auth 429. An auth route gets the auth envelope and the seconds until
+/// its window resets; the Phase 2 admin prefix keeps its existing response.
+fn preauth_refusal(path: &str, refusal: Refusal) -> Response {
+    if path.starts_with("/api/auth/") {
+        return refusal.auth_failure().into_response();
+    }
+    rate_limit_response()
+}
+
 fn rate_limit_response() -> Response {
     (
         StatusCode::TOO_MANY_REQUESTS,
@@ -300,7 +312,7 @@ fn rate_limit_response() -> Response {
 /// limits. Admission and CORS are separate outer layers.
 async fn dispatch_boundary(
     State(state): State<HttpState>,
-    request: Request,
+    mut request: Request,
     next: Next,
 ) -> Response {
     let path = request.uri().path();
@@ -315,13 +327,15 @@ async fn dispatch_boundary(
             .get("x-forwarded-for")
             .and_then(|value| value.to_str().ok()),
     );
-    let now = state.started.elapsed().as_secs();
     // One shared pre-auth authority: Caddy calls this path before it decides
     // whether Python or Rust owns the admin request, so both owners draw from
     // one counter in one process. A refused request never reaches an upstream;
     // the admitted request carries the mark below.
     if request.method() == axum::http::Method::GET && path == PREAUTH_PATH {
-        if state.phase2_limits.admit_admin(&client, now) {
+        if state
+            .phase2_limits
+            .admit_admin(&client, chrono::Utc::now().timestamp().max(0) as u64)
+        {
             return (StatusCode::NO_CONTENT, [(PREAUTH_COUNTED_HEADER, "1")]).into_response();
         }
         return rate_limit_response();
@@ -333,9 +347,14 @@ async fn dispatch_boundary(
         .headers()
         .get(PREAUTH_COUNTED_HEADER)
         .is_some_and(|value| value == "1");
-    if !counted && !state.phase2_limits.preauth(&client, path, now) {
-        return rate_limit_response();
+    let quota_now = chrono::Utc::now().timestamp().max(0) as u64;
+    if !counted && let Err(refusal) = state.phase2_limits.preauth_check(&client, path, quota_now) {
+        return preauth_refusal(path, refusal);
     }
+    request
+        .extensions_mut()
+        .insert(crate::auth::login::PreauthCharged(quota_now));
+    let path = request.uri().path();
     if let Some(response) = crate::auth::scope::known_get_refusal(request.method().as_str(), path) {
         return response;
     }
@@ -528,10 +547,15 @@ pub fn router_with(extra: Router<crate::AppState>, state: crate::AppState) -> Ro
         Some(phase2) => routes.merge(phase2),
         None => routes,
     };
+    let routes = match super::phase3::routes(&state, limits.clone()) {
+        Some(auth) => routes.merge(auth),
+        None => routes,
+    };
     let routes = routes
         .fallback(fallback)
         .method_not_allowed_fallback(method_not_allowed);
-    compose(routes, Some(state), limits)
+    let environment = state.config.environment.clone();
+    compose(routes, Some(state), limits, &environment)
 }
 
 async fn method_not_allowed() -> Response {

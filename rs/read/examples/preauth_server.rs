@@ -17,6 +17,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = verdaxis_read::runtime::http::middleware_with_limits(
         routes,
         verdaxis_read::auth::limits::SharedLimits::default(),
+        &std::env::var("ENVIRONMENT")?,
     );
     axum::serve(
         tokio::net::TcpListener::bind(bind).await?,

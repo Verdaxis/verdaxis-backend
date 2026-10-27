@@ -148,6 +148,64 @@ def test_approved_difference_does_not_parse_a_non_json_response():
     assert seen==[[left,right]]
 
 
+def test_invalid_bearer_actions_pin_the_reviewed_credential_envelope():
+    """AUTH-ENVELOPE/-11: Rust answers an invalid bearer with the coded detail;
+    Python keeps its legacy string (decisions 47 and 113). Every bad-bearer
+    action must name the rule and pin both wires exactly, so the twins cannot
+    silently drift while the envelopes differ."""
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    module = runner_module()
+    root = Path(__file__).resolve().parents[2]
+    context = SimpleNamespace(environment={"JWT_SECRET": "test-secret-key-for-testing-minimum-32-chars"},
+                              root=root, python_bin="python")
+    expected = {
+        "watchlist-http-reads": ["bad-bearer-before-uuid"],
+        "watchlist-http-reads-gate-off": ["bad-bearer-before-uuid"],
+        "watchlist-containers": ["create-bad-bearer", "create-bad-bearer-before-validation"],
+        "watchlist-targets": ["bad-bearer-before-validation", "delete-bad-bearer"],
+        "watchlist-targets-gate-off": ["bad-bearer-before-validation", "delete-bad-bearer"],
+    }
+    for name, bad_bearers in expected.items():
+        scenario = module.REGISTRY[name]
+        marked = {action.name: action for action in scenario.actions(context) if action.name in bad_bearers}
+        assert set(marked) == set(bad_bearers), name
+        for action_name, item in marked.items():
+            assert item.approved_difference == "AUTH-REFUSAL", (name, action_name)
+            assert item.assert_http_difference is not None, (name, action_name)
+
+
+def test_invalid_bearer_pair_pins_both_reviewed_envelopes():
+    module = runner_module()
+    check = module.invalid_bearer_pair()
+    python = {"status": 401, "headers": {"www-authenticate": "Bearer", "content-type": "application/json",
+                                         "content-length": "42"},
+              "body": b'{"detail":"Could not validate credentials"}'}
+    rust = {"status": 401, "headers": {"www-authenticate": "Bearer", "content-type": "application/json"},
+            "body": b'{"detail":{"code":"AUTH_CREDENTIALS_INVALID","message":"Incorrect email or password"}}'}
+    check([python, rust])
+    # Wording is free; a changed message must not fail the reviewed pair.
+    check([python, {**rust, "body": b'{"detail":{"code":"AUTH_CREDENTIALS_INVALID","message":"Sign in"}}'}])
+    with pytest.raises(module.ScenarioError, match="headers differ"):
+        check([python, {**rust, "headers": {**rust["headers"], "cache-control": "no-store"}}])
+    with pytest.raises(module.ScenarioError, match="must be JSON"):
+        check([python, {**rust, "headers": {"www-authenticate": "Bearer", "content-type": "text/plain"}}])
+    with pytest.raises(module.ScenarioError, match="code differs"):
+        check([python, {**rust, "body": b'{"detail":{"code":"AUTH_INVALID","message":"x"}}'}])
+    with pytest.raises(module.ScenarioError, match="Python invalid-bearer body"):
+        check([{**python, "body": b'{"detail":"Not authenticated"}'}, rust])
+    with pytest.raises(module.ScenarioError, match="must be refused with 401"):
+        check([python, {**rust, "status": 403}])
+    with pytest.raises(module.ScenarioError, match="challenge"):
+        check([python, {**rust, "headers": {}}])
+    with pytest.raises(module.ScenarioError, match="reviewed object"):
+        check([python, {**rust, "body": b'{"detail":{"code":"AUTH_CREDENTIALS_INVALID"}}'}])
+    with pytest.raises(module.ScenarioError, match="non-empty string"):
+        check([python, {**rust, "body": b'{"detail":{"code":"AUTH_CREDENTIALS_INVALID","message":""}}'}])
+    assert "AUTH-REFUSAL" in module.APPROVED_DIFFERENCES
+
+
 def test_state_difference_needs_a_named_rule_and_is_not_silent():
     module=runner_module()
 

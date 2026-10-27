@@ -24,6 +24,7 @@ pub const ALLOWED_REVISIONS: &[&str] = &[
     "p0_20261016_union",
     "prc_20261018_cache",
     "prc_20261026_changes",
+    "p3_20261020_auth_tokens",
 ];
 
 /// The reviewed allowlist file, read by the drift test against `ALLOWED_REVISIONS`.
@@ -129,7 +130,8 @@ mod tests {
                 "kycg_20261014_staging",
                 "p0_20261016_union",
                 "prc_20261018_cache",
-                "prc_20261026_changes"
+                "prc_20261026_changes",
+                "p3_20261020_auth_tokens"
             ])
         );
     }

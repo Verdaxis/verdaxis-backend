@@ -12,7 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from scripts.rust_contract.compare import compare_responses
+from scripts.rust_contract.compare import _is_json, compare_responses, strip_headers
 from scripts.rust_contract.phase2_seed import digest
 from scripts.rust_contract.phase2_state import compare_state, unexpected_user_changes
 
@@ -24,7 +24,53 @@ class ScenarioError(RuntimeError):
     pass
 
 
-APPROVED_DIFFERENCES = frozenset({"PD1", "PD2", "PD3", "PD4-G", "PD6", "PD7", "json-syntax-wording-v1"})
+APPROVED_DIFFERENCES = frozenset({"PD1", "PD2", "PD3", "PD4-G", "PD6", "PD7", "AUTH-REFUSAL",
+                                  "json-syntax-wording-v1"})
+
+
+def invalid_bearer_pair():
+    """Pin both stacks' invalid-bearer refusal (PM decisions AUTH-ENVELOPE and AUTH-REFUSAL).
+
+    Python still answers an invalid bearer with its legacy `detail` string; Rust
+    returns the reviewed `{"code", "message"}` envelope, because decision 113
+    leaves Python unchanged. The code is the contract and is pinned exactly;
+    message wording is free by the founder's rules, so only a non-empty string
+    is required. Status and the Bearer challenge are pinned on both sides.
+    """
+
+    def check(responses):
+        if len(responses) != 2:
+            raise ScenarioError("invalid-bearer pair requires Python and Rust responses")
+        bodies = []
+        kept = []
+        for response in responses:
+            if response["status"] != 401:
+                raise ScenarioError("invalid bearer must be refused with 401")
+            headers = strip_headers(response["headers"])
+            if headers.get("www-authenticate") != "Bearer":
+                raise ScenarioError("invalid bearer must challenge for a Bearer credential")
+            if not _is_json(headers.get("content-type", "")):
+                raise ScenarioError("invalid-bearer refusal must be JSON on both stacks")
+            kept.append(headers)
+            try:
+                bodies.append(json.loads(response["body"]))
+            except (UnicodeDecodeError, ValueError) as error:
+                raise ScenarioError("invalid-bearer refusal is not JSON") from error
+        # Only the body differs by the reviewed rule; every other header stays exact.
+        if kept[0] != kept[1]:
+            raise ScenarioError("invalid-bearer headers differ beyond the reviewed body")
+        python, rust = bodies
+        if python != {"detail": "Could not validate credentials"}:
+            raise ScenarioError(f"Python invalid-bearer body differs from the reviewed pair: {python!r}")
+        detail = rust.get("detail") if isinstance(rust, dict) else None
+        if not isinstance(detail, dict) or set(detail) != {"code", "message"}:
+            raise ScenarioError(f"Rust invalid-bearer envelope is not the reviewed object: {rust!r}")
+        if detail["code"] != "AUTH_CREDENTIALS_INVALID":
+            raise ScenarioError(f"Rust invalid-bearer code differs: {detail['code']!r}")
+        if not isinstance(detail["message"], str) or not detail["message"]:
+            raise ScenarioError("Rust invalid-bearer message is not a non-empty string")
+
+    return check
 
 
 @dataclass(frozen=True)

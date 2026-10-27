@@ -79,7 +79,7 @@ pub fn verify_access(
                 .map(|data| data.claims)
         })
         .ok_or(AuthError::Credentials)?;
-    validate_claims(&claims, settings, now)?;
+    let expires_at = validate_claims(&claims, settings, now)?;
     let subject = claims
         .get("sub")
         .and_then(Value::as_str)
@@ -88,6 +88,7 @@ pub fn verify_access(
     let issuance = issued_at(&claims);
     Ok(VerifiedAccess {
         subject,
+        expires_at,
         issued_at: issuance.as_ref().ok().copied().flatten(),
         issuance_out_of_range: issuance.is_err(),
     })
@@ -97,16 +98,27 @@ fn validate_claims(
     claims: &Value,
     settings: &VerificationSettings,
     now: DateTime<Utc>,
-) -> Result<(), AuthError> {
+) -> Result<DateTime<Utc>, AuthError> {
     if !claims.is_object() {
         return Err(AuthError::Credentials);
     }
     let seconds =
         now.timestamp() as f64 + f64::from(now.timestamp_subsec_nanos()) / 1_000_000_000.0;
-    for name in ["iat", "nbf", "exp"] {
+    let expiry_seconds = claims
+        .get("exp")
+        .and_then(python_integer)
+        .filter(|seconds| seconds.is_finite())
+        .ok_or(AuthError::Credentials)?;
+    let expires_at = DateTime::from_timestamp(expiry_seconds as i64, 0)
+        .filter(|instant| (1..=9999).contains(&chrono::Datelike::year(instant)))
+        .ok_or(AuthError::Credentials)?;
+    if expires_at <= now {
+        return Err(AuthError::Credentials);
+    }
+    for name in ["iat", "nbf"] {
         if let Some(value) = claims.get(name) {
             let number = python_integer(value).ok_or(AuthError::Credentials)?;
-            if (name == "exp" && number <= seconds) || (name != "exp" && number > seconds) {
+            if number > seconds {
                 return Err(AuthError::Credentials);
             }
         }
@@ -130,7 +142,7 @@ fn validate_claims(
     {
         return Err(AuthError::Credentials);
     }
-    Ok(())
+    Ok(expires_at)
 }
 
 /// Python int(value) accepts booleans, truncates finite floats, and accepts

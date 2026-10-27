@@ -9,7 +9,7 @@
 //!    tables, and only the marked registration line in `lib.rs` may name this
 //!    module. The scan is over source, so it holds for code no test exercises.
 //! 2. A behaviour parity: the lock keys, slice order, idempotency scopes and
-//!    request hashes must equal the vectors the reviewed Python exported into
+//!    request hashes must equal the vectors the specified Python exported into
 //!    `tests/rust_contract/phase2/market-write-spec.json`.
 //!
 //! The transaction shell is driven through the `WriteSession` port with a
@@ -38,7 +38,7 @@ use verdaxis_read::order_write::{
 const SPEC: &str = include_str!("../../../tests/rust_contract/phase2/market-write-spec.json");
 
 fn spec() -> Value {
-    serde_json::from_str(SPEC).expect("the reviewed spec must parse")
+    serde_json::from_str(SPEC).expect("the specified spec must parse")
 }
 
 fn spec_string(value: &Value, path: &[&str]) -> String {
@@ -113,7 +113,7 @@ fn gated_ranges(text: &str) -> Vec<(usize, usize)> {
 /// Byte ranges of every Rust string literal, including raw strings.
 ///
 /// Comments and character literals are skipped, so a keyword in prose or in a
-/// `'a'` never counts. Escape sequences are left in place: none of the reviewed
+/// `'a'` never counts. Escape sequences are left in place: none of the specified
 /// patterns is written with an escape.
 fn literal_ranges(text: &str) -> Vec<(usize, usize)> {
     let characters: Vec<(usize, char)> = text.char_indices().collect();
@@ -346,7 +346,7 @@ fn reviewed_order_book_test_writes() -> Vec<(String, usize)> {
     .to_vec()
 }
 
-/// Every source-boundary violation in the repository, as `path: rule` text.
+/// Every source-boundary violation in the repository.
 fn scan_repository() -> Vec<String> {
     let root = repository_root();
     let boundary = root.join("rs/read/src/order_write");
@@ -363,6 +363,14 @@ fn scan_repository() -> Vec<String> {
     // It does not touch order-book rows, so the boundary rule names it exactly.
     let price_alert_cap = [root.join("rs/read/src/crud/alerts.rs")];
     let order_book_test_writer = root.join(ORDER_BOOK_TEST_WRITER);
+    // The browser-device session lock is shared with Python's login, refresh and
+    // logout, so both stacks wait on one key. The key comes from the device
+    // cookie digest and never names an order-book row. The session store and its
+    // test probe that proves the shared key are named exactly.
+    let device_session_lock = [
+        root.join("rs/read/src/auth/store.rs"),
+        root.join("rs/read/tests/auth_store_postgres.rs"),
+    ];
     let mut violations = Vec::new();
 
     let mut rust_files = Vec::new();
@@ -403,7 +411,11 @@ fn scan_repository() -> Vec<String> {
             let test_only = gated
                 .iter()
                 .any(|(open, close)| start >= *open && start <= *close);
-            if takes_advisory_lock && !test_only && !price_alert_cap.contains(path) {
+            if takes_advisory_lock
+                && !test_only
+                && !price_alert_cap.contains(path)
+                && !device_session_lock.contains(path)
+            {
                 violations.push(format!(
                     "{}: advisory lock outside order_write",
                     path.display()
@@ -493,6 +505,39 @@ fn order_book_writes_stay_in_the_one_boundary() {
 }
 
 #[test]
+fn the_cache_test_exemption_is_exactly_its_reviewed_writes() {
+    // Test-only: no release source, example or other test may be exempt.
+    assert!(ORDER_BOOK_TEST_WRITER.starts_with("rs/read/tests/"));
+    let reviewed = reviewed_order_book_test_writes();
+    assert_eq!(reviewed.len(), 2);
+    for (statement, _) in &reviewed {
+        assert_eq!(orderbook_dml(statement), Some("order-book DML"));
+    }
+    // The exempted file carries exactly the specified statements. A new
+    // order-book INSERT, DELETE, TRUNCATE or different UPDATE fails here
+    // before the scan can silently accept it.
+    let root = repository_root();
+    let text = std::fs::read_to_string(root.join(ORDER_BOOK_TEST_WRITER))
+        .expect("the exempted integration test must exist");
+    let found: Vec<String> = literal_ranges(&text)
+        .into_iter()
+        .map(|(start, end)| normalized(&text[start..end]))
+        .filter(|literal| orderbook_dml(literal).is_some())
+        .collect();
+    assert_eq!(
+        found.len(),
+        reviewed.iter().map(|(_, uses)| uses).sum::<usize>(),
+        "unreviewed order-book DML in the exempted file: {found:?}"
+    );
+    for literal in &found {
+        assert!(
+            reviewed.iter().any(|(statement, _)| statement == literal),
+            "unreviewed statement: {literal}"
+        );
+    }
+}
+
+#[test]
 fn the_scan_refuses_each_rule_it_claims() {
     // Each sample is assembled at run time so this file never carries the
     // forbidden text it is teaching the scanner to reject.
@@ -559,7 +604,7 @@ fn literal_sources() -> Vec<PathBuf> {
 }
 
 // ---------------------------------------------------------------------------
-// Behaviour parity with the reviewed Python.
+// Behaviour parity with the specified Python.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -764,7 +809,7 @@ fn write_tables_are_the_two_reviewed_tables() {
 fn slice_lock_keys_and_windows_match_python() {
     let spec = spec();
     let rows = spec["slice_lock_keys"].as_array().unwrap();
-    assert!(rows.len() >= 6, "the reviewed case table must be present");
+    assert!(rows.len() >= 6, "the specified case table must be present");
     for row in rows {
         let label = row["label"].as_str().unwrap();
         let window = row["availability_window"].as_str().unwrap();
@@ -810,7 +855,7 @@ fn side_independent_slice_identity_shares_one_lock() {
             assert_eq!(existing, key, "one slice must hash to one key");
         }
     }
-    // Two of the reviewed cases differ only by side or by input padding.
+    // Two of the specified cases differ only by side or by input padding.
     let labels: Vec<&str> = rows
         .iter()
         .map(|row| row["label"].as_str().unwrap())
@@ -845,7 +890,7 @@ fn ordered_slice_locks_match_python() {
         assert_eq!(
             ordered_slice_lock_keys(&slices).unwrap(),
             expected,
-            "{label}: the reviewed acquisition order"
+            "{label}: the specified acquisition order"
         );
         // The order is stable under input order.
         let mut reversed = slices.clone();

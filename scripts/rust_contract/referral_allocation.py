@@ -48,6 +48,17 @@ def servers(context):
                  for server in base_servers(context))
 
 
+def assert_cache_change(expected, after, count):
+    for key, row in expected['public_read_cache_generations']['rows'].items():
+        assert after['public_read_cache_generations']['rows'][key] == {**row, 'generation': row['generation'] + count}
+    old = expected['public_read_cache_events']['rows']
+    new = after['public_read_cache_events']['rows']
+    assert all(new.get(key) == row for key, row in old.items())
+    assert len(new) == len(old) + count
+    for table in ('public_read_cache_generations', 'public_read_cache_events'):
+        expected[table] = copy.deepcopy(after[table])
+
+
 def only_code(before, after, response, mail):
     expected = copy.deepcopy(before)
     changed = 0
