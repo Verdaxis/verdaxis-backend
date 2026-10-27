@@ -178,6 +178,7 @@ async fn send(
         serde_json::from_slice(&bytes).unwrap_or(Value::Null),
     )
 }
+
 #[tokio::test]
 #[ignore = "requires an attested disposable PostgreSQL"]
 async fn take_inserts_pending_without_consuming_stock() {
@@ -902,6 +903,54 @@ async fn typed_direct_takes_freeze_normalized_terms_and_keep_pending_identity_pr
 
 #[tokio::test]
 #[ignore = "requires an attested disposable PostgreSQL"]
+async fn wrong_side_counterparty_terms_are_refused_before_compatibility() {
+    let fame_bid = json!({"schema_version":1,"side":"BID","neat_fame":true,"standard":"EN_14214","standard_edition":"2012+A2:2019","sustainability_scheme":"ISCC_EU"});
+    let fame_ask = json!({"schema_version":1,"side":"ASK","neat_fame":true,"uco_mass_pct":100,"standard":"EN_14214","standard_edition":"2012+A2:2019","sustainability_scheme":"ISCC_EU","certificate_reference":"private-certificate","certificate_holder":"private-supplier","evidence_status":"PENDING","document_references":[],"certificate_valid_until":"2027-01-01","evidence_due":"BEFORE_LOADING"});
+    let lng_bid = json!({"side":"BID","accepted_schemes":["ISCC_EU"],"accepted_delivery_methods":["SHIP_TO_SHIP"]});
+    let lng_ask = json!({"side":"ASK","sustainability_scheme":"ISCC_EU","scheme_certificate_number":"private-certificate","chain_of_custody":"MASS_BALANCE","union_database_registered":true,"bio_share_pct":"100","feedstock":"MANURE","production_country":"NL","wtt_ghg_gco2_mj":"-20.25","specification_standard":"ISO 23306:2020","min_methane_number":"80","delivery_method":"SHIP_TO_SHIP","seller_is_physical_supplier":false,"physical_supplier_name":"private-supplier","pos_timing":"WITH_DELIVERY"});
+    let policy: Value =
+        serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap();
+    for (profile, own_side_terms, other_side_terms, field) in [
+        ("fame_v1", fame_bid, fame_ask, "fame_terms"),
+        ("lng_v1", lng_bid, lng_ask, "lng_terms"),
+    ] {
+        let mut f = Fixture::new().await;
+        let p = policy["products"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["qualification_profile"] == profile)
+            .unwrap();
+        sqlx::query("SELECT trades_fixture_typed($1,$2,$3,$4)")
+            .bind(p["id"].as_str().unwrap().parse::<Uuid>().unwrap())
+            .bind(p["lanes"][0].as_str().unwrap().parse::<Uuid>().unwrap())
+            .bind(profile)
+            .bind(&other_side_terms)
+            .execute(&mut f.admin)
+            .await
+            .unwrap();
+        let digest = f.digest().await;
+        // The resting ASK carries the opposite side's terms; the taker of an
+        // ASK must supply BID terms. A legal declaration of the ASK side is
+        // wrong here and must be refused as invalid input, not as an
+        // incompatibility, before any side normalization.
+        let mut body =
+            json!({"order_id":id(ORDER),"quantity_mt":"1","expected_terms_digest":digest});
+        body[field] = other_side_terms;
+        let (s, b) = send(&f.router, "POST", "/api/trades/", Some(BUYER), &[], Some(body)).await;
+        assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "{profile}: {b}");
+        assert_eq!(f.state().await["trades"], 0);
+        let mut body =
+            json!({"order_id":id(ORDER),"quantity_mt":"1","expected_terms_digest":digest});
+        body[field] = own_side_terms;
+        let (s, b) = send(&f.router, "POST", "/api/trades/", Some(BUYER), &[], Some(body)).await;
+        assert_eq!(s, StatusCode::OK, "{profile}: {b}");
+        assert_eq!(f.state().await["trades"], 1);
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires an attested disposable PostgreSQL"]
 async fn take_fee_fallback_and_configuration_matrix() {
     for (plan, active, expired, rate, expected) in [
         ("standard", true, false, None, Some("1.5")),
@@ -967,6 +1016,54 @@ async fn take_key_and_authentication_validation_precede_replay() {
         assert_eq!(s, StatusCode::BAD_REQUEST);
     }
     assert_eq!(f.state().await, before);
+}
+
+#[tokio::test]
+#[ignore = "requires an attested disposable PostgreSQL"]
+async fn a_take_ignores_the_query_string_and_reads_ignores_the_key_header() {
+    let mut f = Fixture::new().await;
+    let digest = f.digest().await;
+    // A POST never reads the page query; an invalid page is not a take error.
+    let (s, b) = send(
+        &f.router,
+        "POST",
+        "/api/trades/?skip=abc",
+        Some(BUYER),
+        &[],
+        Some(json!({"order_id":id(ORDER),"quantity_mt":"1","expected_terms_digest":digest})),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "{b}");
+    // Reads never acquire the trade.create idempotency advisory lock: holding
+    // that create key for the reader's own organization must not stall the
+    // read. The take's lock timeout makes the wrong outcome a 503, not a hang.
+    let lock_key = verdaxis_read::order_write::idempotency_lock_key(
+        id(0x1000),
+        "trade.create",
+        "held",
+    );
+    let mut holder = f.admin.begin().await.unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(lock_key)
+        .execute(&mut *holder)
+        .await
+        .unwrap();
+    let read = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        send(
+            &f.router,
+            "GET",
+            "/api/trades/my",
+            Some(BUYER),
+            &[("idempotency-key", "held")],
+            None,
+        ),
+    )
+    .await;
+    holder.rollback().await.unwrap();
+    let (s, b) = read.expect("the read must not wait on the create lock");
+    assert_eq!(s, StatusCode::OK, "{b}");
+    assert_eq!(b["total"], 1);
 }
 
 #[tokio::test]
