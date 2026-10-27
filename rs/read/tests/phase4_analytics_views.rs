@@ -703,7 +703,7 @@ fn p4_t19_c09() {
     let mut reference = query();
     reference.activity = Activity::Reference;
     assert!(marketplace::refuse_reference(&reference).is_err());
-    for route in [AnalyticsRoute::Acquisition, AnalyticsRoute::Reliability] {
+    for route in [AnalyticsRoute::Acquisition, AnalyticsRoute::Marketplace, AnalyticsRoute::Reliability] {
         assert!(!route.accepts_reference());
     }
     // The refusal is the structured query code.
@@ -1515,19 +1515,22 @@ mod postgres {
                     reference: Arc::new(StubReference { quote: None }),
                 },
             );
-            let response = router
-                .oneshot(
-                    axum::http::Request::builder()
-                        .uri(format!(
-                            "{}?start=2026-06-01T00:00:00Z&end=2026-07-01T00:00:00Z&compare=false",
-                            route.template()
-                        ))
-                        .header("authorization", format!("Bearer {token}"))
-                        .body(axum::body::Body::empty())
-                        .unwrap(),
-                )
-                .await
-                .unwrap();
+            let mut request=axum::http::Request::builder()
+                .uri(format!("{}?start=2026-06-01T00:00:00Z&end=2026-07-01T00:00:00Z&compare=false",route.template()))
+                .header("authorization",format!("Bearer {token}"))
+                .body(axum::body::Body::empty()).unwrap();
+            let response = if route==AnalyticsRoute::Marketplace {
+                let gate=marketplace::ProviderPhaseGate::default();
+                request.extensions_mut().insert(gate.clone());
+                let pending=tokio::spawn(async move {router.oneshot(request).await.unwrap()});
+                gate.arrived.notified().await;
+                sqlx::query("UPDATE users SET authentication_revoked_at=now()+interval '1 second' WHERE id=$1").bind(fixture.admin_user).execute(&pool).await.unwrap();
+                gate.resume.notify_one();
+                let response=pending.await.unwrap();
+                assert_eq!(response.status(),axum::http::StatusCode::UNAUTHORIZED);
+                pool.close().await;fixture.finish().await;
+                continue;
+            } else { router.oneshot(request).await.unwrap() };
             assert_eq!(response.status(), axum::http::StatusCode::FORBIDDEN);
             pool.close().await;
             fixture.finish().await;
