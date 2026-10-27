@@ -1441,6 +1441,58 @@ mod postgres {
          CREATE TABLE audit_logs(id uuid PRIMARY KEY,user_id uuid,action varchar(100),resource_type varchar(50),resource_id varchar(100),changes jsonb,ip_address varchar(45),request_id varchar(36),timestamp timestamptz NOT NULL);"
     }
 
+    #[tokio::test]
+    #[ignore = "requires explicit disposable PostgreSQL authority"]
+    async fn mounted_fact_tabs_request_breakdowns_and_refuse_reference() {
+        use tower::ServiceExt;
+        use std::sync::atomic::{AtomicUsize,Ordering};
+        use axum::{extract::Request,Json,Router,routing::any};
+        let calls=Arc::new(AtomicUsize::new(0));
+        let calls_in=calls.clone();
+        let stub=Router::new().fallback(any(move|request:Request|{let calls=calls_in.clone();async move {
+            calls.fetch_add(1,Ordering::SeqCst);
+            let path=request.uri().path();
+            let query:std::collections::HashMap<_,_>=url::form_urlencoded::parse(request.uri().query().unwrap_or("").as_bytes()).into_owned().collect();
+            let value=if path.ends_with("/login") {json!({"token":"synthetic"})}
+            else if path.ends_with("/stats") {json!({"visitors":12,"visits":12,"pageviews":30,"totaltime":120})}
+            else if path.ends_with("/pageviews") {json!({"pageviews":[],"sessions":[]})}
+            else if path.ends_with("/event-data/events") {
+                match query.get("event").map(String::as_str) {
+                    Some("platform_navigation")=>json!([{"eventName":"platform_navigation","propertyName":"destination","propertyValue":"map","dataType":1,"total":1},{"eventName":"platform_navigation","propertyName":"destination","propertyValue":"marketplace","dataType":1,"total":7}]),
+                    Some("tutorial_step_completed")=>json!([{"eventName":"tutorial_step_completed","propertyName":"step","propertyValue":"step_1","dataType":1,"total":5}]),
+                    Some("tutorial_step_skipped")=>json!([{"eventName":"tutorial_step_skipped","propertyName":"step","propertyValue":"step_1","dataType":1,"total":2}]),
+                    _=>panic!("unexpected property event"),
+                }
+            } else {json!([])};
+            Json(value)
+        }}));
+        let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();let address=listener.local_addr().unwrap();
+        let server=tokio::spawn(async move {axum::serve(listener,stub).await.unwrap()});
+        let fixture=Fixture::new().await;
+        let schema=fixture.schema.clone();
+        let pool=sqlx::postgres::PgPoolOptions::new().max_connections(2).after_connect(move|conn,_|{let sql=format!("SET search_path TO {schema}");Box::pin(async move {sqlx::raw_sql(sqlx::AssertSqlSafe(sql)).execute(conn).await?;Ok(())})}).connect(&fixture.migrator_url).await.unwrap();
+        sqlx::query("CREATE TABLE user_login_days(activity_date date,user_id uuid,role text,organization_id uuid)").execute(&pool).await.unwrap();
+        let config:verdaxis_read::Config=serde_json::from_value(json!({"environment":"test","release_sha":verdaxis_read::compiled_sha(),"migration_revision":"kycg_20261014_staging","database_url":fixture.app_url,"db_session_time_zone":"UTC","bind":"127.0.0.1:0","read_admission_slots":2,"pool_max":3,"python_budget":52,"configured_max_connections":100,"phase2":{"jwt_secret":KEY,"jwt_issuer":"test","jwt_audience":"test","frontend_url":"https://app.example.test","email_from":"team@example.test","resend_api_key":"synthetic","auth_domain_datasets":"null"}})).unwrap();
+        let health=sqlx::postgres::PgPoolOptions::new().max_connections(1).connect_lazy(&fixture.app_url).unwrap();
+        let app=AppState::new(config,runtime::db::Pools {read:pool.clone(),health},policy()).unwrap();
+        let provider=verdaxis_read::runtime::phase4_analytics::Provider(verdaxis_read::providers::umami::UmamiClient::new(verdaxis_read::providers::umami::UmamiConfig {enabled:true,base_url:Some(format!("http://{address}")),website_id:Some(Uuid::new_v4().to_string()),api_username:Some("synthetic".into()),api_password:Some("synthetic".to_owned().into()),policy:Default::default(),catalog:Arc::new(verdaxis_read::analytics::events::DomainCatalog::from_policy(&policy(),Vec::<String>::new()))}).unwrap());
+        let router=verdaxis_read::runtime::phase4_analytics::routes_with_provider(&app,Default::default(),provider);
+        let now=Utc::now().timestamp();let token=jsonwebtoken::encode(&jsonwebtoken::Header::default(),&json!({"sub":fixture.admin_user,"type":"access","iat":now,"exp":now+600,"iss":"test","aud":"test"}),&jsonwebtoken::EncodingKey::from_secret(KEY.as_bytes())).unwrap();
+        for tab in ["overview","activation","engagement","retention"] {
+            let response=router.clone().oneshot(axum::http::Request::builder().uri(format!("/api/admin/analytics/product-analytics/{tab}?activity=REFERENCE")).header("authorization",format!("Bearer {token}")).body(axum::body::Body::empty()).unwrap()).await.unwrap();
+            assert_eq!(response.status(),422);
+        }
+        assert_eq!(calls.load(Ordering::SeqCst),0,"refused filters must not contact provider");
+        let response=router.oneshot(axum::http::Request::builder().uri("/api/admin/analytics/product-analytics/engagement?start=2026-06-01T00:00:00Z&end=2026-07-01T00:00:00Z&compare=false").header("authorization",format!("Bearer {token}")).body(axum::body::Body::empty()).unwrap()).await.unwrap();
+        assert_eq!(response.status(),200);
+        let body:serde_json::Value=serde_json::from_slice(&axum::body::to_bytes(response.into_body(),1_000_000).await.unwrap()).unwrap();
+        assert!(body["navigation_destinations"].as_array().unwrap().iter().any(|row|row["total"]["count"]==7));
+        assert!(body["navigation_destinations"].as_array().unwrap().iter().any(|row|row["total"]["suppressed"]==true));
+        assert!(!body["tutorial_steps"].as_array().unwrap().is_empty(),"{body}");
+        assert!(calls.load(Ordering::SeqCst)>0);
+        server.abort();pool.close().await;fixture.finish().await;
+    }
+
     struct RevokingProvider {
         pool: sqlx::PgPool,
         user: Uuid,
