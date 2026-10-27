@@ -16,6 +16,19 @@ comes from each environment's `/health/ready` response, not a dated SHA in
 source documentation. The shared-host marker is
 `/home/verdaxis-prod/verdaxis/PRODUCTION_HOST.md`.
 
+## Rust business serving composition
+
+`runtime/phase4.rs` assembles the 42 business, KYC, operator, vessel,
+subscription and analytics operations when the prepared credential authority is
+present. It shares the ingress quota handle with authentication and the earlier
+CRUD groups. `phase4_adapters.rs` supplies transaction-borrowing history/mail and
+market-event adapters; no timer or dispatcher is started. `phase4_analytics.rs`
+connects the bounded aggregate provider and canonical persisted benchmark reads.
+KYC loads the optional systemd credential once at composition; missing or invalid
+keys disable evidence storage/download without changing readiness. The exact
+method/path selector is `deploy/caddy/rust-phase4.caddy`; AI chat stays on Python.
+The following component sections describe their local exports, not activation.
+
 ## Rust business transaction foundation
 
 `rs/read/src/business/` supplies caller-owned audit/status appenders and an
