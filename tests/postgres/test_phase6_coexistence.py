@@ -66,6 +66,10 @@ async def test_four_python_workers_and_rust_sequence_committed_rows(analytics_pg
         assert {row[0] for row in rows} == set(pending_ids)
         assert all(row[2] == 1 for row in rows)
         high_water = max(row[1] for row in rows)
+        actor.send(f"replay {org}")
+        assert (await actor.receive())["sequences"] == [row[1] for row in rows]
+        actor.send(f"replay {uuid4()}")
+        assert (await actor.receive())["sequences"] == []
         await request(leader, {"op":"release"})
         pending_ids.extend((await request(workers[0][1], {"op":"flush"}))["pending"])
         await request(workers[0][1], {"op":"commit"})
@@ -76,7 +80,17 @@ async def test_four_python_workers_and_rust_sequence_committed_rows(analytics_pg
         assert {row[0] for row in rows} == set(pending_ids)
         assert rows[-1][0] == pending_ids[-1] and rows[-1][1] > high_water
         assert len({row[1] for row in rows}) == 4
+        actor.send(f"replay {org}")
+        assert (await actor.receive())["sequences"] == [row[1] for row in rows]
         assert all(row[2] == 1 for row in rows)
+        # A Python leader's actual session ends; Rust can then acquire the same key.
+        assert (await request(leader, {"op":"elect"}))["leader"]
+        admin = create_async_engine(os.environ["POSTGRES_ADMIN_TEST_DATABASE_URL"])
+        async with admin.begin() as connection:
+            assert (await connection.execute(text("SELECT pg_terminate_backend(:pid)"), {"pid":workers[1][2]["pid"]})).scalar_one()
+        await admin.dispose()
+        actor.send("assign")
+        assert (await actor.receive())["outcome"] == "Ok(NothingPending)"
         print({"worker_processes":[worker[2]["ready"] for worker in workers],
                "committed_rows":[tuple(row) for row in rows], "leaders":["python","rust"]})
     finally:

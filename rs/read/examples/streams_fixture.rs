@@ -60,6 +60,26 @@ async fn main() {
                 let result = session.assign_one_batch().await;
                 emit(serde_json::json!({"stage":"result","outcome":format!("{result:?}")}));
             }
+            command if command.starts_with("replay ") => {
+                let org: uuid::Uuid = command.strip_prefix("replay ").unwrap().parse().unwrap();
+                let pool = sqlx::PgPool::connect(&config.database_url).await.unwrap();
+                let boundary = verdaxis_read::streams::store::replay_boundary(&pool)
+                    .await
+                    .unwrap();
+                let page = verdaxis_read::streams::store::replay_page(
+                    &pool,
+                    org,
+                    0,
+                    boundary.high_water,
+                    Default::default(),
+                )
+                .await
+                .unwrap();
+                emit(
+                    serde_json::json!({"stage":"replay","sequences":page.events.iter().map(|event| event.seq()).collect::<Vec<_>>()}),
+                );
+                pool.close().await;
+            }
             "stop" => break,
             _ => panic!("unknown fixture operation"),
         }

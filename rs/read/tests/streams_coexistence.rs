@@ -28,6 +28,17 @@ async fn three_supervisor_cycles_preserve_nonzero_baseline_and_release_sessions(
     let event = uuid::Uuid::new_v4();
     sqlx::query("INSERT INTO market_event_outbox(id,event_type,aggregate_type,aggregate_id,participant_org_ids,payload,stream_seq) VALUES ($1,'trade_created','trade',$2,json_build_array($2),'{}',$3)")
         .bind(event).bind(event.to_string()).bind(baseline).execute(&admin).await.unwrap();
+    let mut observed = config.clone();
+    observed.read_admission_slots = 47;
+    observed.pool_max = 48;
+    observed.configured_max_connections = 200;
+    let mut artifact: serde_json::Value =
+        serde_json::from_str(observed.prepared_budget.as_ref().unwrap()).unwrap();
+    artifact["rust_pool"] = 48.into();
+    artifact["total"] = 101.into();
+    artifact["configured_max_connections"] = 200.into();
+    observed.prepared_budget = Some(artifact.to_string());
+    assert!(verdaxis_read::connect(&observed).await.is_err());
     let pools = verdaxis_read::connect(&config).await.unwrap();
     let policy =
         serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap();
