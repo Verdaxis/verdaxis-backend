@@ -1746,12 +1746,12 @@ pub(super) async fn apply_plan_with_fees(
         let (fame, lng) = match &fill.terms {
             CompatibleTerms::Scalar => (None, None),
             CompatibleTerms::Fame { bid, ask } => (
-                Some(serde_json::json!({"bid":bid.declaration,"ask":ask.declaration})),
+                Some(serde_json::json!({"schema_version":1,"bid":bid.declaration,"ask":ask.declaration})),
                 None,
             ),
             CompatibleTerms::Lng { bid, ask } => (
                 None,
-                Some(serde_json::json!({"bid":bid.declaration,"ask":ask.declaration})),
+                Some(serde_json::json!({"schema_version":1,"bid":bid.declaration,"ask":ask.declaration})),
             ),
         };
         let inserted = sqlx::query("INSERT INTO trades (id,bid_order_id,ask_order_id,buyer_id,seller_id,buyer_user_id,seller_user_id,initiator_org_id,buyer_provenance,seller_provenance,initiated_by,quantity_mt,price_per_mt_usd,status,confirmed_at,product_id,product_name,fuel_type,fuel_grade,market_product,delivery_point_id,delivery_point_name,delivery_point_region,availability_window,market_snapshot_version,commission_rate_pct,is_anonymous,commission_plan,commission_fee_per_mt_usd,fame_terms_snapshot,lng_terms_snapshot) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'CONFIRMED',$14,o.product_id,p.name,p.fuel_type,p.fuel_grade,catalog.code,o.delivery_point_id,dp.name,dp.region,o.availability_window,1,0,true,$17,$18,$19,$20 FROM orderbook_orders o JOIN products p ON p.id=o.product_id JOIN jsonb_to_recordset($16::jsonb) AS catalog(id uuid,code text) ON catalog.id=p.id JOIN delivery_points dp ON dp.id=o.delivery_point_id WHERE o.id=$15")
