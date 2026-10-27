@@ -628,3 +628,16 @@ async fn take_key_and_authentication_validation_precede_replay() {
  for key in [" ".to_string(),"a".repeat(256)] {let digest=f.digest().await;let(s,_)=send(&f.router,"POST","/api/trades/",Some(BUYER),&[("idempotency-key",&key)],Some(json!({"order_id":id(ORDER),"quantity_mt":"1","expected_terms_digest":digest}))).await;assert_eq!(s,StatusCode::BAD_REQUEST);}
  assert_eq!(f.state().await,before);
 }
+
+#[tokio::test]
+#[ignore = "requires an attested disposable PostgreSQL"]
+async fn locked_party_changes_are_revalidated_after_read_only_preview() {
+ let mut f=Fixture::new().await;let digest=f.digest().await;
+ let mut blocker=f.admin.begin().await.unwrap();
+ sqlx::query("SELECT id FROM organizations WHERE id=$1 FOR UPDATE").bind(id(0x2000)).execute(&mut *blocker).await.unwrap();
+ let router=f.router.clone();let take=tokio::spawn(async move{send(&router,"POST","/api/trades/",Some(BUYER),&[],Some(json!({"order_id":id(ORDER),"quantity_mt":"1","expected_terms_digest":digest}))).await});
+ let admin_url=std::env::var("RUST_TRADES_ADMIN_DATABASE_URL").unwrap();let mut observer=PgConnection::connect(&admin_url).await.unwrap();
+ let observed=tokio::time::timeout(std::time::Duration::from_secs(4),async{loop{let count:i64=sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND usename='rust_app'").fetch_one(&mut observer).await.unwrap();if count>0{break;}tokio::time::sleep(std::time::Duration::from_millis(5)).await;}}).await;
+ sqlx::query("SELECT trades_fixture_change($1,'rejected')").bind(id(SELLER)).execute(&mut *blocker).await.unwrap();
+ blocker.commit().await.unwrap();assert!(observed.is_ok());let(s,b)=take.await.unwrap();assert_eq!(s,StatusCode::BAD_REQUEST,"{b}");assert_eq!(f.state().await["trades"],0);
+}
