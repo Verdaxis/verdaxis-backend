@@ -24,7 +24,7 @@ FIELDS = {
 }
 
 
-def derive_budget(settings, rust_pool, cache_listener=0):
+def derive_budget(settings, rust_pool, cache_listener=0, stream_listener=0):
     """Derive the configured upper bound, including each Python dispatcher.
 
     `cache_listener` is the one dedicated connection of the public cache change
@@ -34,15 +34,19 @@ def derive_budget(settings, rust_pool, cache_listener=0):
     values = {key: getattr(settings, field) for key, field in FIELDS.items()}
     if (type(rust_pool) is not int or not 2 <= rust_pool <= 0xFFFFFFFF
             or type(cache_listener) is not int or cache_listener not in (0, 1)
+            or type(stream_listener) is not int or stream_listener not in (0, 1)
+            or (stream_listener == 1 and values["workers"] < 4)
             or any(type(value) is not int or not 0 <= value <= 0xFFFFFFFF for value in values.values())):
         raise ValueError("invalid budget inputs")
     python_budget = values["services"] * values["workers"] * (values["pool"] + values["overflow"] + 1) + values["reserve"]
-    total = python_budget + rust_pool + cache_listener
+    total = python_budget + rust_pool + cache_listener + stream_listener
     if total > min(0xFFFFFFFF, values["configured_max_connections"]):
         raise ValueError("connection budget exceeds configured maximum")
     budget = {**values, "rust_pool": rust_pool, "python_budget": python_budget, "total": total}
     if cache_listener:
         budget["cache_listener"] = cache_listener
+    if stream_listener:
+        budget["stream_listener"] = stream_listener
     return budget
 
 
@@ -76,7 +80,7 @@ def effective_settings(raw):
     return SimpleNamespace(**json.loads(result.stdout))
 
 
-def artifact_for(environment_file, release_sha, cache_listener=0):
+def artifact_for(environment_file, release_sha, cache_listener=0, stream_listener=0):
     if not re.fullmatch(r"[0-9a-f]{40}", release_sha) or release_sha == "0" * 40:
         raise ValueError("full release SHA required")
     raw = read_regular(environment_file)
@@ -87,11 +91,11 @@ def artifact_for(environment_file, release_sha, cache_listener=0):
     slots = int(raw_slots)
     return {"version": 1, "release_sha": release_sha,
             "environment_digest": hashlib.sha256(raw).hexdigest(),
-            **derive_budget(effective_settings(raw), slots + 1, cache_listener)}
+            **derive_budget(effective_settings(raw), slots + 1, cache_listener, stream_listener)}
 
 
-def prepare(environment_file, release_sha, output, cache_listener=0):
-    artifact = artifact_for(environment_file, release_sha, cache_listener)
+def prepare(environment_file, release_sha, output, cache_listener=0, stream_listener=0):
+    artifact = artifact_for(environment_file, release_sha, cache_listener, stream_listener)
     # The deploy lock serializes writers. Open the directory without following
     # a symlink, write a private sibling, then publish by atomic rename.
     directory = os.open(output.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
@@ -128,7 +132,8 @@ def verify(environment_file, release_sha, artifact):
         raise ValueError("runtime budget artifact is not an object")
     # The listener choice was made when the artifact was prepared under the
     # deployment lock; verification recomputes everything else from the inputs.
-    expected = artifact_for(environment_file, release_sha, recorded.get("cache_listener", 0))
+    expected = artifact_for(environment_file, release_sha, recorded.get("cache_listener", 0),
+                            recorded.get("stream_listener", 0))
     if recorded != expected:
         raise ValueError("runtime budget or environment digest changed; prepare again under the deployment lock")
 
@@ -141,12 +146,15 @@ def main():
     parser.add_argument("--verify", action="store_true")
     parser.add_argument("--cache-listener", type=int, choices=(0, 1), default=0,
                         help="budget the dedicated cache listener connection (prepare only)")
+    parser.add_argument("--stream-listener", type=int, choices=(0, 1), default=0,
+                        help="budget the dedicated stream election connection (prepare only)")
     args = parser.parse_args()
     try:
         if args.verify:
             verify(args.environment_file, args.release_sha, args.output)
         else:
-            prepare(args.environment_file, args.release_sha, args.output, args.cache_listener)
+            prepare(args.environment_file, args.release_sha, args.output, args.cache_listener,
+                    args.stream_listener)
     except (OSError, ValueError, subprocess.SubprocessError):
         print("Rust runtime budget refused", file=sys.stderr)
         return 1

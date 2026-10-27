@@ -1469,3 +1469,17 @@ def test_retry_after_rust_failure_then_second_release(release_fixture):
     second = release_fixture.push_new_release()
     release_fixture.build_artifact(second)
     assert release_fixture.deploy(second).returncode == 0
+
+
+def test_canonical_stream_release_prepares_enabled_budget(tmp_path, monkeypatch):
+    monkeypatch.setattr(__import__(__name__, fromlist=["MIGRATION_TARGET"]), "MIGRATION_TARGET", "sse_20261021_replay_floor")
+    release_fixture = RustReleaseFixture(tmp_path)
+    new_sha = release_fixture.push_rust_release(enabled=True)
+    release_fixture.build_artifact(new_sha)
+    result = release_fixture.deploy(new_sha)
+    assert result.returncode == 0, result.stderr
+    deployed = json.loads((release_fixture.checkout / ".runtime-rust/budget.json").read_text())
+    assert deployed["stream_listener"] == 1
+    assert deployed["workers"] == 4
+    assert deployed["total"] == deployed["python_budget"] + deployed["rust_pool"] + 1
+    assert "--stream-listener 1" in _budget_line(release_fixture.ledger)

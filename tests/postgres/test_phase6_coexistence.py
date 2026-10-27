@@ -1,0 +1,140 @@
+"""Four Python producers share one disposable outbox with a Rust sequencer."""
+from __future__ import annotations
+
+import asyncio
+import multiprocessing
+import os
+import subprocess
+from pathlib import Path
+from uuid import uuid4
+
+import pytest
+import pytest_asyncio
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
+
+from tests.postgres.retention_test_support import clear_retention
+from tests.postgres.test_phase6_http import _require_app_role
+from tests.rust_contract.phase6.coexistence import RustActor, request, worker_main
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def isolated_outbox_history(analytics_pg_url):
+    # Other suites leave committed and unsequenced outbox rows on the shared
+    # disposable database; this proof counts exactly its own workers' rows.
+    engine = create_async_engine(analytics_pg_url)
+    try:
+        async with engine.begin() as connection:
+            await clear_retention(connection)
+        yield
+    finally:
+        await engine.dispose()
+
+
+@pytest.fixture(scope="module")
+def stream_fixture_binary():
+    release_sha = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+    ).strip()
+    result = subprocess.run(["cargo", "build", "--manifest-path", "rs/Cargo.toml", "--locked",
+        "-p", "verdaxis-read", "--features", "contract-tests", "--example", "streams_fixture"],
+        cwd=ROOT, env={**os.environ, "RELEASE_SHA": release_sha},
+        capture_output=True, text=True, timeout=1800, check=False)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.asyncio
+async def test_four_python_workers_and_rust_sequence_committed_rows(analytics_pg_url, stream_fixture_binary):
+    await _require_app_role(os.environ["DATABASE_URL"])
+    admin = create_async_engine(os.environ["POSTGRES_ADMIN_TEST_DATABASE_URL"])
+    async with admin.begin() as connection:
+        await connection.execute(text("SELECT setval('market_event_stream_seq', GREATEST((SELECT COALESCE(MAX(stream_seq),1) FROM market_event_outbox), (SELECT last_value FROM market_event_stream_seq)), true)"))
+    await admin.dispose()
+    context = multiprocessing.get_context("spawn")
+    workers = []
+    actor = RustActor()
+    owner = create_async_engine(analytics_pg_url)
+    try:
+        ready = await actor.receive()
+        assert ready["stage"] == "ready"
+        for _ in range(4):
+            parent, child = context.Pipe()
+            process = context.Process(target=worker_main, args=(child,))
+            process.start()
+            assert await asyncio.to_thread(parent.poll, 15)
+            worker = parent.recv()
+            workers.append((process, parent, worker))
+        assert len({worker[2]["ready"] for worker in workers}) == 4
+        assert len({worker[2]["pid"] for worker in workers}) == 4
+        org = str(uuid4())
+        pending_ids = []
+        for _, pipe, _ in workers:
+            assert (await request(pipe, {"op":"produce", "org":org, "aggregate":str(uuid4())}))["prepared"]
+        # Cache generation updates serialize inserts. Keep the slow producer
+        # before its first flush rather than holding that shared metadata lock.
+        for _, pipe, _ in workers[1:]:
+            pending_ids.extend((await request(pipe, {"op":"flush"}))["pending"])
+            await request(pipe, {"op":"commit"})
+        leader = workers[1][1]
+        assert (await request(leader, {"op":"elect"}))["leader"]
+        for _, pipe, _ in workers[2:]:
+            assert not (await request(pipe, {"op":"elect"}))["leader"]
+        actor.send("assign")
+        assert (await actor.receive())["outcome"] == "Ok(NotElected)"
+        assert (await request(leader, {"op":"assign"}))["assigned"] == 3
+        async with owner.connect() as connection:
+            rows = (await connection.execute(text("SELECT id::text,stream_seq,delivery_attempts FROM market_event_outbox WHERE participant_org_ids::jsonb ? :org ORDER BY stream_seq"), {"org":org})).all()
+        assert {row[0] for row in rows} == set(pending_ids)
+        assert all(row[2] == 1 for row in rows)
+        high_water = max(row[1] for row in rows)
+        actor.send(f"replay {org}")
+        assert (await actor.receive())["sequences"] == [row[1] for row in rows]
+        actor.send(f"replay {uuid4()}")
+        assert (await actor.receive())["sequences"] == []
+        await request(leader, {"op":"release"})
+        pending_ids.extend((await request(workers[0][1], {"op":"flush"}))["pending"])
+        await request(workers[0][1], {"op":"commit"})
+        actor.send("assign")
+        assert "Committed { assigned: 1 }" in (await actor.receive())["outcome"]
+        async with owner.connect() as connection:
+            rows = (await connection.execute(text("SELECT id::text,stream_seq,delivery_attempts FROM market_event_outbox WHERE participant_org_ids::jsonb ? :org ORDER BY stream_seq"), {"org":org})).all()
+        assert {row[0] for row in rows} == set(pending_ids)
+        assert rows[-1][0] == pending_ids[-1] and rows[-1][1] > high_water
+        assert len({row[1] for row in rows}) == 4
+        actor.send(f"replay {org}")
+        assert (await actor.receive())["sequences"] == [row[1] for row in rows]
+        assert all(row[2] == 1 for row in rows)
+        # Keep a committed pending row behind the Python-held lock so takeover
+        # must reach election and assignment rather than the empty-work path.
+        assert (await request(leader, {"op":"elect"}))["leader"]
+        await request(workers[0][1], {"op":"produce", "org":org, "aggregate":str(uuid4())})
+        takeover_id = (await request(workers[0][1], {"op":"flush"}))["pending"][0]
+        await request(workers[0][1], {"op":"commit"})
+        actor.send("assign")
+        assert (await actor.receive())["outcome"] == "Ok(NotElected)"
+        admin = create_async_engine(os.environ["POSTGRES_ADMIN_TEST_DATABASE_URL"])
+        async with admin.begin() as connection:
+            assert (await connection.execute(text("SELECT pg_terminate_backend(:pid)"), {"pid":workers[1][2]["pid"]})).scalar_one()
+        await admin.dispose()
+        actor.send("assign")
+        assert "Committed { assigned: 1 }" in (await actor.receive())["outcome"]
+        async with owner.connect() as connection:
+            takeover = (await connection.execute(text("SELECT id::text,stream_seq,delivery_attempts FROM market_event_outbox WHERE id=CAST(:id AS uuid)"), {"id":takeover_id})).one()
+        assert takeover[0] == takeover_id and takeover[1] > rows[-1][1] and takeover[2] == 1
+        actor.send(f"replay {org}")
+        assert (await actor.receive())["sequences"] == [row[1] for row in rows] + [takeover[1]]
+        print({"leader_death_assignment":tuple(takeover)})
+        print({"worker_processes":[worker[2]["ready"] for worker in workers],
+               "committed_rows":[tuple(row) for row in rows], "leaders":["python","rust"]})
+    finally:
+        for process, pipe, _ in workers:
+            if process.is_alive():
+                pipe.send({"op":"stop"})
+            await asyncio.to_thread(process.join, 15)
+            assert not process.is_alive(), "Python worker did not stop"
+            assert process.exitcode == 0
+            pipe.close()
+        await actor.close()
+        await owner.dispose()

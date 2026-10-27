@@ -4,6 +4,7 @@ pub mod market;
 pub mod mcp;
 pub mod routes;
 pub mod runtime;
+pub mod streams;
 
 // ---------------------------------------------------------------------------
 // Phase 2 Task 20 registration block.
@@ -45,7 +46,14 @@ pub use runtime::config::{check_revision, connection_budget, validate_budget, va
 pub use runtime::db::connect;
 pub use runtime::error::{busy, database_error};
 pub use runtime::health::{live, ready};
-pub use runtime::http::router;
+pub fn router(state: AppState) -> axum::Router {
+    let routes = runtime::http::public_routes();
+    let streams = streams::http::routes().with_state(streams::http::StreamsState {
+        state: std::sync::Arc::new(state.clone()),
+    });
+    let streams = runtime::http::middleware_with_state(streams, state.clone());
+    runtime::http::router_with(routes, state).merge(streams)
+}
 pub use runtime::logging::request_id;
 
 impl ApiError {
@@ -81,6 +89,10 @@ pub struct AppState {
     /// Verified Phase 2 settings; `None` means this composition does not mount
     /// the Phase 2 groups and Caddy keeps them on Python.
     pub(crate) phase2: Option<runtime::phase2::Phase2Settings>,
+    /// The live stream subsystem: the shared hub and the verification
+    /// settings stream admission uses. `None` until the runtime starts it;
+    /// stream routes then answer the terminal 503 while REST stays available.
+    pub streams: Option<std::sync::Arc<streams::http::Streams>>,
     pub(crate) phase3: runtime::phase3::Phase3Settings,
     /// Every route family's trading cache, so an authority or listener change
     /// can clear them together.
@@ -133,6 +145,7 @@ impl AppState {
             reads,
             reference_cache,
             phase2,
+            streams: None,
             phase3,
             trading_caches,
             trading_cache,

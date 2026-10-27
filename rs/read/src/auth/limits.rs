@@ -22,7 +22,18 @@ impl Refusal {
 #[derive(Clone, Default)]
 pub struct SharedLimits(std::sync::Arc<std::sync::Mutex<Phase2Limits>>);
 
+pub type QuotaStores = Phase2Limits;
+
 impl SharedLimits {
+    pub fn check_endpoint_by_address(
+        &self,
+        client: &str,
+        path: &str,
+        now: u64,
+    ) -> Result<(), crate::ApiError> {
+        self.check_address_endpoint(client, path, now)
+    }
+
     /// One lock acquisition that recovers from poisoning instead of
     /// panicking: a caller that panicked under the lock must not take the
     /// quota authority down with it. The counters are kept as they were —

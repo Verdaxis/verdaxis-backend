@@ -45,7 +45,6 @@ kycg_20261014_staging	kycd_20261015_staging
 kycd_20261015_staging	kycd_20261015_staging
 kycd_20261015_staging	p0_20261016_union
 p0_20261016_union	p0_20261016_union
-
 p0_20261016_union	prc_20261018_cache
 prc_20261018_cache	prc_20261018_cache
 prc_20261018_cache	prc_20261026_changes
@@ -53,3 +52,5 @@ p0_20261016_union	prc_20261026_changes
 prc_20261026_changes	prc_20261026_changes
 prc_20261026_changes	p3_20261020_auth_tokens
 p3_20261020_auth_tokens	p3_20261020_auth_tokens
+p3_20261020_auth_tokens	sse_20261021_replay_floor
+sse_20261021_replay_floor	sse_20261021_replay_floor

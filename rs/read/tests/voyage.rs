@@ -4,12 +4,13 @@ fn assert_meaning(actual: &serde_json::Value, expected: &serde_json::Value) {
     use std::io::Write;
     use std::process::{Command, Stdio};
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let mut child = Command::new(root.join("venv/bin/python"))
-        .current_dir(&root)
-        .args(["-m", "scripts.rust_contract.compare_values"])
-        .stdin(Stdio::piped())
-        .spawn()
-        .unwrap();
+    let mut child =
+        Command::new(std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "python3".into()))
+            .current_dir(&root)
+            .args(["-m", "scripts.rust_contract.compare_values"])
+            .stdin(Stdio::piped())
+            .spawn()
+            .unwrap();
     let pair = serde_json::json!({"expected": expected, "actual": actual, "route_id": "P1-tool-plan_voyage_fuel"});
     child
         .stdin

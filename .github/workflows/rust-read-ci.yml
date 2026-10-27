@@ -86,6 +86,8 @@ jobs:
       - name: Install the Python test environment
         run: |
           python -m venv venv
+          # Rust tests that start Python use this interpreter (RUST_TEST_PYTHON).
+          echo "RUST_TEST_PYTHON=$PWD/venv/bin/python" >> "$GITHUB_ENV"
           venv/bin/python -m pip install --upgrade pip
           venv/bin/pip install -r requirements.txt -c constraints.txt
 
@@ -216,6 +218,8 @@ jobs:
       - name: Install the Python environment the runner expects
         run: |
           python -m venv venv
+          # Rust tests that start Python use this interpreter (RUST_TEST_PYTHON).
+          echo "RUST_TEST_PYTHON=$PWD/venv/bin/python" >> "$GITHUB_ENV"
           venv/bin/python -m pip install --upgrade pip
           venv/bin/pip install -r requirements.txt -c constraints.txt
 

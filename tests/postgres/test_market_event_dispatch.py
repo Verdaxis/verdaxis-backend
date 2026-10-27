@@ -41,6 +41,7 @@ from app.services.market_events import (
     enqueue_market_events,
     participant_market_event,
 )
+from tests.postgres.retention_test_support import reset_outbox
 from tests.postgres.test_market_routes import _seed_route_market
 
 _BACKEND_ROOT = Path(__file__).resolve().parents[2]
@@ -81,9 +82,10 @@ async def sse_server(market_pg_url):
     from sqlalchemy import text
 
     async with engine.begin() as connection:
+        await reset_outbox(connection)
         await connection.execute(
             text(
-                "TRUNCATE TABLE market_event_outbox, trades, orderbook_orders, "
+                "TRUNCATE TABLE trades, orderbook_orders, "
                 "inventory_items, users, organizations, products, delivery_points, "
                 "ports RESTART IDENTITY CASCADE"
             )
