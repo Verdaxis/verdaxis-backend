@@ -161,7 +161,8 @@ async fn execute_rejection<E: AdmissionEvents>(
     let before = events.visible(conn, user_id).await?;
     sqlx::query("UPDATE users SET status='REJECTED',pending_approval_email_transition_id=NULL,pending_approval_email_payload=NULL,pending_approval_email_retry_at=NULL WHERE id=$1")
         .bind(user_id).execute(&mut *conn).await?;
-    let cutoff = revoke_user_authentication(conn, user_id, now)
+    // The ordered command holds the user row; sample the cutoff after any lock wait.
+    let cutoff = revoke_user_authentication(conn, user_id, Utc::now())
         .await
         .map_err(revocation_failure)?;
     append_status_transition(
