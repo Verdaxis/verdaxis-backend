@@ -4,7 +4,7 @@
 fn mcp_matches_python_and_saved_lane_evidence() {
     verdaxis_contract::compare_group("mcp").unwrap();
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let status = std::process::Command::new(root.join("venv/bin/python"))
+    let status = std::process::Command::new(std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "python3".into()))
         .current_dir(&root)
         .args(["-m", "scripts.rust_contract.mcp_acceptance"])
         .status()
@@ -20,7 +20,7 @@ fn mcp_matches_python_and_saved_lane_evidence() {
         } else {
             "disabled"
         };
-        let status = std::process::Command::new(root.join("venv/bin/python"))
+        let status = std::process::Command::new(std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "python3".into()))
             .current_dir(&root)
             .args([
                 "-m",
