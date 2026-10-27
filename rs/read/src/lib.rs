@@ -229,6 +229,8 @@ pub(crate) mod market_orders {
 /// Narrow trade component types; transaction and connection ownership stay sealed.
 pub mod market_trades {
     pub(crate) use crate::order_write::effects::AuditContext;
+    #[cfg(feature = "contract-tests")]
+    pub(crate) use crate::order_write::idempotency_lock_key as contract_key;
     pub use crate::order_write::trades::{TradeCreate, TradePage, project_trade};
     pub(crate) use crate::order_write::trades::{TradeRequest, dispatch};
     pub use crate::order_write::{MarketErrorCode, MarketWriteError};

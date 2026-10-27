@@ -20,6 +20,7 @@ use tower::ServiceExt;
 use uuid::Uuid;
 use verdaxis_read::analytics::sender::AnalyticsSender;
 use verdaxis_read::providers::umami::{UmamiConfig, UmamiPolicy};
+use verdaxis_read::order_write::market_slice_lock_key;
 use verdaxis_read::routes::market_write::order_create::{
     CreateSettings, contract_router, contract_router_with_sender,
 };
@@ -209,7 +210,9 @@ async fn collector_sender(label: &str) -> (AnalyticsSender, Collector) {
         },
         Some("create-monitor".into()),
         "https://app.example.test",
-        2,
+        // The create case schedules one order event plus one trade event per
+        // inline match; every scheduled event must fit the delivery bound.
+        8,
     )
     .unwrap();
     (sender, collector)
@@ -744,7 +747,7 @@ async fn authorization_collision_is_not_an_order_replay() {
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn create_order_allocates_acceptance_after_the_slice_lock() {
     let mut f = Fixture::new(0).await;
-    let key = verdaxis_read::order_write::market_slice_lock_key(f.product, Some(f.point), "SPOT");
+    let key = market_slice_lock_key(f.product, Some(f.point), "SPOT");
     let mut blocker = f.pool.begin().await.unwrap();
     verdaxis_read::routes::market_write::order_create::contract_hold_key(&mut blocker, key).await;
     let before: i64 = sqlx::query_scalar("SELECT create_fixture_last_ordinal()")
@@ -1132,7 +1135,7 @@ async fn create_captured_clock_keeps_a_live_order_after_a_lock_wait() {
     };
     let router = contract_router(f.pool.clone(), KEY, settings);
     let mut blocker = f.pool.begin().await.unwrap();
-    let key = verdaxis_read::order_write::market_slice_lock_key(f.product, Some(f.point), "SPOT");
+    let key = market_slice_lock_key(f.product, Some(f.point), "SPOT");
     verdaxis_read::routes::market_write::order_create::contract_hold_key(&mut blocker, key).await;
     let mut body = f.body("BID");
     body["expires_at"] = json!((Utc::now() + chrono::Duration::milliseconds(180)).to_rfc3339());
@@ -1528,7 +1531,7 @@ async fn capability_revoked_during_the_command_returns_the_context_conflict() {
     // which answers with the support-context conflict.
     let mut f = Fixture::new(0).await;
     let mut blocker = f.pool.begin().await.unwrap();
-    let key = verdaxis_read::order_write::market_slice_lock_key(f.product, Some(f.point), "SPOT");
+    let key = market_slice_lock_key(f.product, Some(f.point), "SPOT");
     verdaxis_read::routes::market_write::order_create::contract_hold_key(&mut blocker, key).await;
     let router = f.router.clone();
     let product = f.product;

@@ -16,7 +16,7 @@ use tower::ServiceExt;
 use uuid::Uuid;
 use verdaxis_read::analytics::sender::AnalyticsSender;
 use verdaxis_read::providers::umami::{UmamiConfig, UmamiPolicy};
-use verdaxis_read::routes::market_write::trades::{contract_router, contract_router_with_sender};
+use verdaxis_read::routes::market_write::trades::{contract_key, contract_router, contract_router_with_sender};
 const KEY: &str = "synthetic-trades-signing-key-at-least-32";
 fn id(n: u128) -> Uuid {
     Uuid::from_u128(n)
@@ -190,6 +190,19 @@ async fn send(
         status,
         serde_json::from_slice(&bytes).unwrap_or(Value::Null),
     )
+}
+
+/// Holds the create advisory key through the contract-only probe so the
+/// boundary scan keeps every advisory lock inside the sealed owner.
+#[cfg(feature = "contract-tests")]
+mod lock_probe {
+    pub async fn hold(conn: &mut sqlx::PgConnection, key: i64) {
+        sqlx::query("SELECT pg_advisory_xact_lock($1)")
+            .bind(key)
+            .execute(conn)
+            .await
+            .unwrap();
+    }
 }
 
 /// A local conversion collector: it records every delivery and signals the
@@ -1139,14 +1152,9 @@ async fn a_take_ignores_the_query_string_and_reads_ignores_the_key_header() {
     // Reads never acquire the trade.create idempotency advisory lock: holding
     // that create key for the reader's own organization must not stall the
     // read. The take's lock timeout makes the wrong outcome a 503, not a hang.
-    let lock_key =
-        verdaxis_read::order_write::idempotency_lock_key(id(0x1000), "trade.create", "held");
+    let lock_key = contract_key(id(0x1000), "trade.create", "held");
     let mut holder = f.admin.begin().await.unwrap();
-    sqlx::query("SELECT pg_advisory_xact_lock($1)")
-        .bind(lock_key)
-        .execute(&mut *holder)
-        .await
-        .unwrap();
+    lock_probe::hold(&mut holder, lock_key).await;
     let read = tokio::time::timeout(
         std::time::Duration::from_secs(5),
         send(

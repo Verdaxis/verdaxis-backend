@@ -200,6 +200,11 @@ async fn handle(state: RouteState, request: Request, create: bool, summary: bool
     result.unwrap_or_else(|e: MarketWriteError| e.into_response())
 }
 #[cfg(feature = "contract-tests")]
+pub fn contract_key(organization: uuid::Uuid, operation: &str, key: &str) -> i64 {
+    crate::market_trades::contract_key(organization, operation, key)
+}
+
+#[cfg(feature = "contract-tests")]
 pub fn contract_router(pool: sqlx::PgPool, key: &str, support_enabled: bool) -> Router {
     contract_router_with_sender(pool, key, support_enabled, None)
 }

@@ -307,7 +307,7 @@ impl MarketCommand for CreateCommand {
             let party = self.party(conn, &authenticated).await?;
             let mut preview_input = self.input.clone();
             // Discovery sees the stored presentation: FAME fields derive for
-            // both sides, Bio-LNG fields only for ASK.
+            // both sides, gas-fuel fields only for ASK.
             for field in ["fame_terms", "lng_terms"] {
                 if !preview_input.fields[field].is_null()
                     && (field == "fame_terms" || preview_input.fields["side"] == "ASK")
@@ -707,7 +707,7 @@ impl<'a> CreatePort<'a> {
                 }
             }
         }
-        // The source derives FAME display fields for both sides but Bio-LNG
+        // The source derives FAME display fields for both sides but gas-fuel
         // display fields only for ASK, each after its typed admission checks.
         for field in ["fame_terms", "lng_terms"] {
             if !f[field].is_null() && (field == "fame_terms" || f["side"] == "ASK") {
@@ -908,7 +908,7 @@ impl<'a> CreatePort<'a> {
             None
         };
         // The stored row carries the construction-time presentation: FAME
-        // display fields for both sides, Bio-LNG display fields for both
+        // display fields for both sides, gas-fuel display fields for both
         // sides as well, regardless of what validation derived.
         let mut stored = input.clone();
         for field in ["fame_terms", "lng_terms"] {
