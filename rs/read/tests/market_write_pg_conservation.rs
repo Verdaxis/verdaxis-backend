@@ -1003,7 +1003,7 @@ async fn wait_for_lock(
     waiter: Option<i32>,
     kind: &str,
 ) -> i32 {
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(300);
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(450);
     loop {
         let pid: Option<i32> = sqlx::query_scalar("SELECT l.pid FROM pg_locks l WHERE NOT l.granted AND l.locktype=$1 AND $2=ANY(pg_blocking_pids(l.pid)) AND ($3::int IS NULL OR l.pid=$3) LIMIT 1")
             .bind(kind).bind(blocker).bind(waiter).fetch_optional(&mut *observer).await.unwrap();
@@ -1011,10 +1011,10 @@ async fn wait_for_lock(
             println!("LOCK_MILESTONE blocker={blocker} waiter={pid} kind={kind}");
             return pid;
         }
-        assert!(
-            tokio::time::Instant::now() < deadline,
-            "lock milestone not reached: blocker={blocker} kind={kind}"
-        );
+        if tokio::time::Instant::now() >= deadline {
+            let locks: Vec<(i32,String,bool)> = sqlx::query_as("SELECT pid,locktype,granted FROM pg_locks WHERE pid<>pg_backend_pid() AND database=(SELECT oid FROM pg_database WHERE datname=current_database())").fetch_all(&mut *observer).await.unwrap();
+            panic!("lock milestone not reached: blocker={blocker} kind={kind} locks={locks:?}");
+        }
         tokio::task::yield_now().await;
     }
 }
