@@ -703,11 +703,7 @@ fn p4_t19_c09() {
     let mut reference = query();
     reference.activity = Activity::Reference;
     assert!(marketplace::refuse_reference(&reference).is_err());
-    for route in [
-        AnalyticsRoute::Acquisition,
-        AnalyticsRoute::Marketplace,
-        AnalyticsRoute::Reliability,
-    ] {
+    for route in [AnalyticsRoute::Acquisition, AnalyticsRoute::Reliability] {
         assert!(!route.accepts_reference());
     }
     // The refusal is the structured query code.
@@ -1463,8 +1459,8 @@ mod postgres {
             else if path.ends_with("/event-data/events") {
                 match query.get("event").map(String::as_str) {
                     Some("platform_navigation")=>json!([{"eventName":"platform_navigation","propertyName":"destination","propertyValue":"map","dataType":1,"total":1},{"eventName":"platform_navigation","propertyName":"destination","propertyValue":"marketplace","dataType":1,"total":7}]),
-                    Some("tutorial_step_completed")=>json!([{"eventName":"tutorial_step_completed","propertyName":"step","propertyValue":"step_1","dataType":1,"total":5}]),
-                    Some("tutorial_step_skipped")=>json!([{"eventName":"tutorial_step_skipped","propertyName":"step","propertyValue":"step_1","dataType":1,"total":2}]),
+                    Some("tutorial_step_completed")=>json!([{"eventName":"tutorial_step_completed","propertyName":"step","propertyValue":"buyer_1","dataType":1,"total":5}]),
+                    Some("tutorial_step_skipped")=>json!([{"eventName":"tutorial_step_skipped","propertyName":"step","propertyValue":"buyer_1","dataType":1,"total":2}]),
                     _=>panic!("unexpected property event"),
                 }
             } else {json!([])};
@@ -1612,7 +1608,11 @@ mod postgres {
     #[ignore = "requires explicit disposable PostgreSQL authority"]
     async fn provider_completion_rechecks_administrator_authority() {
         use tower::ServiceExt;
-        for route in [AnalyticsRoute::Acquisition, AnalyticsRoute::Reliability] {
+        for route in [
+            AnalyticsRoute::Acquisition,
+            AnalyticsRoute::Marketplace,
+            AnalyticsRoute::Reliability,
+        ] {
             let fixture = Fixture::new().await;
             let schema = fixture.schema.clone();
             let pool = sqlx::postgres::PgPoolOptions::new()
