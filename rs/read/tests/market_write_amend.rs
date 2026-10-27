@@ -61,16 +61,16 @@ fn amend_schema_checks_each_supplied_boundary() {
 fn amend_hash_tracks_the_normalized_update_payload() {
     let base = AmendInput::parse(json!({"price_per_mt_usd": "120"}), now()).unwrap();
     let same = AmendInput::parse(json!({"price_per_mt_usd": "120.00"}), now()).unwrap();
-    assert_eq!(base.request_hash(), same.request_hash());
+    assert_eq!(base.payload_hash(), same.payload_hash());
     let changed = AmendInput::parse(json!({"price_per_mt_usd": "121"}), now()).unwrap();
-    assert_ne!(base.request_hash(), changed.request_hash());
+    assert_ne!(base.payload_hash(), changed.payload_hash());
     let omitted = AmendInput::parse(json!({}), now()).unwrap();
-    assert_ne!(base.request_hash(), omitted.request_hash());
+    assert_ne!(base.payload_hash(), omitted.payload_hash());
     // An explicit null participates in the hash: clearing is a different
     // command from omitting.
     let cleared = AmendInput::parse(json!({"off_spec_notes": null}), now()).unwrap();
     let not_cleared = AmendInput::parse(json!({}), now()).unwrap();
-    assert_ne!(cleared.request_hash(), not_cleared.request_hash());
+    assert_ne!(cleared.payload_hash(), not_cleared.payload_hash());
 }
 
 #[test]

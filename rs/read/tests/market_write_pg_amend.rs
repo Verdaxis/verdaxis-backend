@@ -522,7 +522,7 @@ async fn newly_qualified_order_gets_a_new_ordinal_and_cannot_jump_the_queue() {
         .execute(&mut f.admin)
         .await
         .unwrap();
-    sqlx::query("UPDATE orderbook_orders SET side='BID',organization_id=(SELECT organization_id FROM orderbook_orders WHERE id=$2),owner_user_id=$3,price_per_mt_usd=100 WHERE id=$1")
+    sqlx::query("SELECT amend_fixture_crossing($1,$2,$3)")
         .bind(crossing)
         .bind(f.bid)
         .bind(buyer())
