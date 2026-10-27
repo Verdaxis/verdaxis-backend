@@ -219,4 +219,7 @@ def test_no_trusted_producer_activation():
     streams = ROOT / "rs/read/src/streams/mod.rs"
     assert streams.is_file(), "stream module declaration is required"
     assert "pub mod streams;" in (ROOT / "rs/read/src/lib.rs").read_text()
-    assert "start_streams(" not in (ROOT / "rs/read/src/main.rs").read_text()
+    # Transport startup is separate from the later watchlist producer.
+    for source in (ROOT / "rs/read/src/streams").glob("*.rs"):
+        assert "INSERT INTO watchlist_events" not in source.read_text()
+        assert "start_watchlist_producer" not in source.read_text()

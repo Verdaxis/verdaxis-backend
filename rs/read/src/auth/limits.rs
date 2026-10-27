@@ -25,7 +25,12 @@ pub struct SharedLimits(std::sync::Arc<std::sync::Mutex<Phase2Limits>>);
 pub type QuotaStores = Phase2Limits;
 
 impl SharedLimits {
-    pub fn check_endpoint_by_address(&self, client: &str, path: &str, now: u64) -> Result<(), crate::ApiError> {
+    pub fn check_endpoint_by_address(
+        &self,
+        client: &str,
+        path: &str,
+        now: u64,
+    ) -> Result<(), crate::ApiError> {
         self.check_address_endpoint(client, path, now)
     }
 
