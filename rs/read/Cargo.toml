@@ -29,6 +29,11 @@ name = "phase4_races"
 path = "tests/phase4_races.rs"
 required-features = ["contract-tests"]
 
+[[test]]
+name = "phase4_db_authority"
+path = "tests/phase4_db_authority.rs"
+required-features = ["contract-tests"]
+
 [[example]]
 name = "contract_server"
 required-features = ["contract-tests"]

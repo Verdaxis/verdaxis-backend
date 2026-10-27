@@ -4363,8 +4363,9 @@
       "evidence": [
         {
           "kind": "rust_test",
-          "case": "p4_t20_c01",
-          "status": "required_not_implemented"
+          "case": "runtime_documents_and_history_are_append_only",
+          "status": "implemented_pending_acceptance",
+          "target": "phase4_db_authority"
         }
       ]
     },
@@ -4374,8 +4375,9 @@
       "evidence": [
         {
           "kind": "rust_test",
-          "case": "p4_t20_c02",
-          "status": "required_not_implemented"
+          "case": "runtime_cannot_write_provenance_or_grace",
+          "status": "implemented_pending_acceptance",
+          "target": "phase4_db_authority"
         }
       ]
     },
@@ -4385,8 +4387,9 @@
       "evidence": [
         {
           "kind": "rust_test",
-          "case": "p4_t20_c03",
-          "status": "required_not_implemented"
+          "case": "organization_approval_trigger_reads_back_real_and_vd001",
+          "status": "implemented_pending_acceptance",
+          "target": "phase4_db_authority"
         }
       ]
     },
@@ -4396,8 +4399,9 @@
       "evidence": [
         {
           "kind": "rust_test",
-          "case": "p4_t20_c04",
-          "status": "required_not_implemented"
+          "case": "retained_documents_block_user_and_org_delete",
+          "status": "implemented_pending_acceptance",
+          "target": "phase4_db_authority"
         }
       ]
     },
@@ -4407,8 +4411,9 @@
       "evidence": [
         {
           "kind": "rust_test",
-          "case": "p4_t20_c07",
-          "status": "required_not_implemented"
+          "case": "rust_service_credential_absence_does_not_fail_readiness",
+          "status": "implemented_pending_acceptance",
+          "target": "phase4_db_authority"
         }
       ]
     },
