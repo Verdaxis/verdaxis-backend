@@ -1009,7 +1009,10 @@ async fn typed_create_uses_catalog_profiles_and_refuses_reseller_admission() {
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn create_captured_clock_keeps_a_live_order_after_a_lock_wait() {
     let mut f = Fixture::new(0).await;
-    let settings = CreateSettings {auto_matching_enabled:false,..Default::default()};
+    let settings = CreateSettings {
+        auto_matching_enabled: false,
+        ..Default::default()
+    };
     let router = contract_router(f.pool.clone(), KEY, settings);
     let mut blocker = f.pool.begin().await.unwrap();
     let key = verdaxis_read::order_write::market_slice_lock_key(f.product, Some(f.point), "SPOT");
@@ -1171,20 +1174,14 @@ async fn create_commit_ack_loss_does_not_repeat_the_order() {
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn uncommitted_create_effects_are_invisible_to_independent_readers() {
     let mut f=Fixture::new(1).await;
-    let mut blocker=f.pool.begin().await.unwrap();
-    verdaxis_read::routes::market_write::order_create::contract_block_outbox(&mut blocker).await;
-    let router=f.router.clone();let body=f.body("BID");
+    let barrier=std::sync::Arc::new(verdaxis_read::routes::market_write::order_create::CreateBarrier::default());
+    let settings=CreateSettings {barrier:Some(barrier.clone()),..Default::default()};
+    let router=contract_router(f.pool.clone(),KEY,settings);let body=f.body("BID");
     let request=tokio::spawn(async move {send(&router,Some(buyer()),&[],body).await});
-    let mut observed=false;
-    for _ in 0..150 {
-        observed=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%market_event_outbox%')").fetch_one(&mut f.admin).await.unwrap();
-        if observed {break;}
-        tokio::time::sleep(std::time::Duration::from_millis(2)).await;
-    }
-    assert!(observed,"writer must reach its staged outbox insert");
+    tokio::time::timeout(std::time::Duration::from_secs(10),barrier.reached.notified()).await.unwrap();
     assert_eq!(f.count("orders").await,1);
     for table in ["trades","events","audit","notifications"] {assert_eq!(f.count(table).await,0);}
-    blocker.rollback().await.unwrap();
+    barrier.resume.notify_one();
     assert_eq!(request.await.unwrap().0,StatusCode::CREATED);
     assert_eq!(f.count("orders").await,2);
     assert_eq!(f.count("trades").await,1);
@@ -1194,14 +1191,58 @@ async fn uncommitted_create_effects_are_invisible_to_independent_readers() {
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn support_headers_confirmation_and_legacy_replay_keep_distinct_authority() {
-    let mut f=Fixture::new(0).await;
-    let missing=send(&f.router,Some(staff()),&[("X-Verdaxis-Market-Support-Context",CONTEXT),("Idempotency-Key","missing")],f.body("BID")).await;
-    assert_eq!(missing.0,StatusCode::BAD_REQUEST);
-    assert_eq!(send(&f.router,Some(buyer()),&[],f.assisted("BID")).await.0,StatusCode::BAD_REQUEST);
-    assert_eq!(send(&f.router,Some(staff()),&[("X-Verdaxis-Market-Support-Context","malformed")],f.body("BID")).await.0,StatusCode::BAD_REQUEST);
-    let body=f.body("BID");
-    let first=send(&f.router,Some(buyer()),&[("Idempotency-Key","legacy")],body.clone()).await;
-    assert_eq!(first.0,StatusCode::CREATED);
-    sqlx::query("SELECT create_fixture_nullable_owner($1)").bind(first.1["id"].as_str().unwrap().parse::<Uuid>().unwrap()).execute(&mut f.admin).await.unwrap();
-    assert_eq!(send(&f.router,Some(buyer()),&[("Idempotency-Key","legacy")],body).await.0,StatusCode::CREATED);
+    let mut f = Fixture::new(0).await;
+    let missing = send(
+        &f.router,
+        Some(staff()),
+        &[
+            ("X-Verdaxis-Market-Support-Context", CONTEXT),
+            ("Idempotency-Key", "missing"),
+        ],
+        f.body("BID"),
+    )
+    .await;
+    assert_eq!(missing.0, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        send(&f.router, Some(buyer()), &[], f.assisted("BID"))
+            .await
+            .0,
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        send(
+            &f.router,
+            Some(staff()),
+            &[("X-Verdaxis-Market-Support-Context", "malformed")],
+            f.body("BID")
+        )
+        .await
+        .0,
+        StatusCode::BAD_REQUEST
+    );
+    let body = f.body("BID");
+    let first = send(
+        &f.router,
+        Some(buyer()),
+        &[("Idempotency-Key", "legacy")],
+        body.clone(),
+    )
+    .await;
+    assert_eq!(first.0, StatusCode::CREATED);
+    sqlx::query("SELECT create_fixture_nullable_owner($1)")
+        .bind(first.1["id"].as_str().unwrap().parse::<Uuid>().unwrap())
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
+    assert_eq!(
+        send(
+            &f.router,
+            Some(buyer()),
+            &[("Idempotency-Key", "legacy")],
+            body
+        )
+        .await
+        .0,
+        StatusCode::CREATED
+    );
 }
