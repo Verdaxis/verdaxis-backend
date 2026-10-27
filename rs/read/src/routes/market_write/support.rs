@@ -78,6 +78,12 @@ pub fn router(state: SupportState) -> Router {
             "/api/admin/market-support/organizations/{id}/authorizations/{authorization}/revoke",
             post(retired),
         )
+        .route("/api/admin/market-support/organizations/{id}/entry", get(entry))
+        .route("/api/admin/market-support/contexts", post(context_start))
+        .route("/api/admin/market-support/contexts/active", get(context_active))
+        .route("/api/admin/market-support/contexts/{id}", get(context_get))
+        .route("/api/admin/market-support/contexts/{id}/exit", post(context_exit))
+        .route("/api/admin/market-support/organizations/{id}/context", get(composite))
         .with_state(state)
 }
 
@@ -181,4 +187,25 @@ async fn listings(
 }
 async fn retired(State(state): State<SupportState>, parts: Parts) -> Response {
     dispatch(state, parts, SupportRequest::Retired).await
+}
+
+async fn entry(State(state): State<SupportState>, Path(organization): Path<String>, parts: Parts) -> Response {
+    dispatch(state, parts, SupportRequest::Entry { organization }).await
+}
+async fn context_start(State(state): State<SupportState>, parts: Parts, body: Bytes) -> Response {
+    let mut response = dispatch(state, parts, SupportRequest::ContextStart { body }).await;
+    if response.status() == StatusCode::OK { *response.status_mut() = StatusCode::CREATED; }
+    response
+}
+async fn context_active(State(state): State<SupportState>, parts: Parts) -> Response {
+    dispatch(state, parts, SupportRequest::ContextActive).await
+}
+async fn context_get(State(state): State<SupportState>, Path(context): Path<String>, parts: Parts) -> Response {
+    dispatch(state, parts, SupportRequest::ContextGet { context }).await
+}
+async fn context_exit(State(state): State<SupportState>, Path(context): Path<String>, parts: Parts) -> Response {
+    dispatch(state, parts, SupportRequest::ContextExit { context }).await
+}
+async fn composite(State(state): State<SupportState>, Path(organization): Path<String>, parts: Parts) -> Response {
+    dispatch(state, parts, SupportRequest::Composite { organization }).await
 }
