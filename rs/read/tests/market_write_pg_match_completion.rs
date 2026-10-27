@@ -597,24 +597,67 @@ async fn match_captures_conditional_pin_and_both_slice_transitions() {
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn typed_trade_snapshots_keep_side_mapping_and_private_declarations() {
-    let fame_bid=json!({"side":"BID","neat_fame":true,"standard":"EN_14214","standard_edition":"2012+A2:2019","sustainability_scheme":"ISCC_EU"});
-    let fame_ask=json!({"side":"ASK","neat_fame":true,"uco_mass_pct":100,"standard":"EN_14214","standard_edition":"2012+A2:2019","sustainability_scheme":"ISCC_EU","certificate_reference":"private-certificate","certificate_holder":"private-supplier","evidence_status":"PENDING","document_references":[],"certificate_valid_until":"2027-01-01","evidence_due":"BEFORE_LOADING","cfpp_c":-5});
-    let lng_bid=json!({"side":"BID","accepted_schemes":["ISCC_EU"],"accepted_delivery_methods":["SHIP_TO_SHIP"]});
-    let lng_ask=json!({"side":"ASK","sustainability_scheme":"ISCC_EU","scheme_certificate_number":"PRIVATE-123","chain_of_custody":"MASS_BALANCE","union_database_registered":true,"bio_share_pct":"100","feedstock":"MANURE","production_country":"NL","wtt_ghg_gco2e_mj":"-20.25","specification_standard":"ISO 23306:2020","min_methane_number":"80","delivery_method":"SHIP_TO_SHIP","seller_is_physical_supplier":false,"physical_supplier_name":"Private supplier","pos_timing":"WITH_DELIVERY"});
-    for (profile,bid,ask) in [("fame",fame_bid,fame_ask),("lng",lng_bid,lng_ask)] {
-        for ask_aggressor in [false,true] {
-            let mut f=Fixture::new(1,"1").await;
-            sqlx::query("SELECT completion_fixture_terms($1,$2,$3)").bind(profile).bind(&bid).bind(&ask).execute(&mut f.admin).await.unwrap();
-            let trigger=if ask_aggressor {f.resting[0]}else{f.aggressor};
-            run_completed_match(&f.pool,trigger,now(),CompletionOptions::default()).await.unwrap();
-            let row:(Option<Value>,Option<Value>)=sqlx::query_as("SELECT fame_terms_snapshot::jsonb,lng_terms_snapshot::jsonb FROM trades").fetch_one(&mut f.observer).await.unwrap();
-            let snapshot=if profile=="fame" {assert!(row.1.is_none());row.0.unwrap()} else {assert!(row.0.is_none());row.1.unwrap()};
-            assert_eq!(snapshot,json!({"bid":bid,"ask":ask}));
-            sqlx::query("SELECT completion_fixture_amend_source()").execute(&mut f.admin).await.unwrap();
-            let after:Value=sqlx::query_scalar(if profile=="fame" {"SELECT fame_terms_snapshot::jsonb FROM trades"}else{"SELECT lng_terms_snapshot::jsonb FROM trades"}).fetch_one(&mut f.observer).await.unwrap();
-            assert_eq!(snapshot,after);
-            let payloads:Vec<String>=sqlx::query_scalar("SELECT payload::text FROM market_event_outbox").fetch_all(&mut f.observer).await.unwrap();
-            assert!(payloads.iter().all(|payload|!payload.contains("private-certificate")&&!payload.contains("PRIVATE-123")&&!payload.contains("Private supplier")));
+    let fame_bid = json!({"side":"BID","neat_fame":true,"standard":"EN_14214","standard_edition":"2012+A2:2019","sustainability_scheme":"ISCC_EU"});
+    let fame_ask = json!({"side":"ASK","neat_fame":true,"uco_mass_pct":100,"standard":"EN_14214","standard_edition":"2012+A2:2019","sustainability_scheme":"ISCC_EU","certificate_reference":"private-certificate","certificate_holder":"private-supplier","evidence_status":"PENDING","document_references":[],"certificate_valid_until":"2027-01-01","evidence_due":"BEFORE_LOADING","cfpp_c":-5});
+    let lng_bid = json!({"side":"BID","accepted_schemes":["ISCC_EU"],"accepted_delivery_methods":["SHIP_TO_SHIP"]});
+    let lng_ask = json!({"side":"ASK","sustainability_scheme":"ISCC_EU","scheme_certificate_number":"PRIVATE-123","chain_of_custody":"MASS_BALANCE","union_database_registered":true,"bio_share_pct":"100","feedstock":"MANURE","production_country":"NL","wtt_ghg_gco2e_mj":"-20.25","specification_standard":"ISO 23306:2020","min_methane_number":"80","delivery_method":"SHIP_TO_SHIP","seller_is_physical_supplier":false,"physical_supplier_name":"Private supplier","pos_timing":"WITH_DELIVERY"});
+    for (profile, bid, ask) in [("fame", fame_bid, fame_ask), ("lng", lng_bid, lng_ask)] {
+        for ask_aggressor in [false, true] {
+            let mut f = Fixture::new(1, "1").await;
+            sqlx::query("SELECT completion_fixture_terms($1,$2,$3)")
+                .bind(profile)
+                .bind(&bid)
+                .bind(&ask)
+                .execute(&mut f.admin)
+                .await
+                .unwrap();
+            let trigger = if ask_aggressor {
+                f.resting[0]
+            } else {
+                f.aggressor
+            };
+            run_completed_match(&f.pool, trigger, now(), CompletionOptions::default())
+                .await
+                .unwrap();
+            let row: (Option<Value>, Option<Value>) = sqlx::query_as(
+                "SELECT fame_terms_snapshot::jsonb,lng_terms_snapshot::jsonb FROM trades",
+            )
+            .fetch_one(&mut f.observer)
+            .await
+            .unwrap();
+            let snapshot = if profile == "fame" {
+                assert!(row.1.is_none());
+                row.0.unwrap()
+            } else {
+                assert!(row.0.is_none());
+                row.1.unwrap()
+            };
+            assert_eq!(snapshot, json!({"bid":bid,"ask":ask}));
+            sqlx::query("SELECT completion_fixture_amend_source()")
+                .execute(&mut f.admin)
+                .await
+                .unwrap();
+            let after: Value = sqlx::query_scalar(if profile == "fame" {
+                "SELECT fame_terms_snapshot::jsonb FROM trades"
+            } else {
+                "SELECT lng_terms_snapshot::jsonb FROM trades"
+            })
+            .fetch_one(&mut f.observer)
+            .await
+            .unwrap();
+            assert_eq!(snapshot, after);
+            let payloads: Vec<String> =
+                sqlx::query_scalar("SELECT payload::text FROM market_event_outbox")
+                    .fetch_all(&mut f.observer)
+                    .await
+                    .unwrap();
+            assert!(
+                payloads
+                    .iter()
+                    .all(|payload| !payload.contains("private-certificate")
+                        && !payload.contains("PRIVATE-123")
+                        && !payload.contains("Private supplier"))
+            );
         }
     }
 }
@@ -622,11 +665,57 @@ async fn typed_trade_snapshots_keep_side_mapping_and_private_declarations() {
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn notifications_fan_out_to_every_current_organization_user() {
-    let mut f=Fixture::new(2,"1.25").await;
-    sqlx::query("SELECT completion_fixture_extra_member()").execute(&mut f.admin).await.unwrap();
+    let mut f = Fixture::new(2, "1.25").await;
+    sqlx::query("SELECT completion_fixture_extra_member()")
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
     f.execute().await;
-    let count:i64=sqlx::query_scalar("SELECT count(*) FROM notifications WHERE type='TRADE_CONFIRMED'").fetch_one(&mut f.observer).await.unwrap();
-    assert_eq!(count,6);
-    let data:Vec<Value>=sqlx::query_scalar("SELECT data::jsonb FROM notifications").fetch_all(&mut f.observer).await.unwrap();
-    assert!(data.iter().all(|v|v["auto_matched"]==true&&v["trade_id"].is_string()));
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM notifications WHERE type='TRADE_CONFIRMED'")
+            .fetch_one(&mut f.observer)
+            .await
+            .unwrap();
+    assert_eq!(count, 6);
+    let data: Vec<Value> = sqlx::query_scalar("SELECT data::jsonb FROM notifications")
+        .fetch_all(&mut f.observer)
+        .await
+        .unwrap();
+    assert!(
+        data.iter()
+            .all(|v| v["auto_matched"] == true && v["trade_id"].is_string())
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn linked_fill_counts_both_sides_and_all_items_in_uuid_order() {
+    for shared in [false,true] {
+        let mut f=Fixture::new(2,"1.25").await;
+        let first=Uuid::from_u128(990); let second=Uuid::from_u128(980);
+        sqlx::query("SELECT completion_fixture_back_inventory($1,$2)").bind(f.resting[0]).bind(first).execute(&mut f.admin).await.unwrap();
+        if shared {
+            sqlx::query("SELECT completion_fixture_link($1,$2)").bind(f.resting[1]).bind(first).execute(&mut f.admin).await.unwrap();
+            sqlx::query("SELECT completion_fixture_link($1,$2)").bind(f.aggressor).bind(first).execute(&mut f.admin).await.unwrap();
+        } else {
+            sqlx::query("SELECT completion_fixture_back_inventory($1,$2)").bind(f.resting[1]).bind(second).execute(&mut f.admin).await.unwrap();
+        }
+        f.execute().await;
+        let valid:bool=sqlx::query_scalar("SELECT bool_and(i.reserved_stock_mt=COALESCE((SELECT sum(o.remaining_quantity_mt) FROM orderbook_orders o WHERE o.inventory_item_id=i.id AND o.status IN ('OPEN','PARTIALLY_FILLED')),0)) FROM inventory_items i").fetch_one(&mut f.observer).await.unwrap();
+        assert!(valid);
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn slice_evidence_distinguishes_best_price_move_from_quiet() {
+    let mut f=Fixture::new(2,"1").await;
+    sqlx::query("SELECT completion_fixture_price($1,105)").bind(f.resting[1]).execute(&mut f.admin).await.unwrap();
+    sqlx::query("SELECT completion_fixture_watch($1)").bind(f.resting[0]).execute(&mut f.admin).await.unwrap();
+    f.execute().await;
+    let raw:String=sqlx::query_scalar("SELECT producer_evidence::text FROM market_event_outbox WHERE event_type='orders_matched'").fetch_one(&mut f.observer).await.unwrap();
+    let evidence:Value=serde_json::from_str(&raw).unwrap();
+    let best=|name:&str| evidence[name].as_array().unwrap().iter().find(|v|v["side"]=="ASK").unwrap()["best_price_per_mt_usd"].clone();
+    assert_eq!(best("aggregates_before"),"100"); assert_eq!(best("aggregates_after"),"105");
+    assert_eq!(evidence["targets"].as_array().unwrap().len(),2);
 }

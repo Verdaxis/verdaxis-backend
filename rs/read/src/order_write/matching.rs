@@ -2174,7 +2174,9 @@ pub mod contract {
                             support_context_id: None,
                             operation: super::super::Operation::OrderAmend,
                             idempotency_key: key.clone(),
-                            request_hash: "d314f4a480f7ebd361f4ef1d49c528b044797eedba17810a435a48b272817e55".into(),
+                            request_hash:
+                                "d314f4a480f7ebd361f4ef1d49c528b044797eedba17810a435a48b272817e55"
+                                    .into(),
                             resource_id: order.id,
                             response_status: 200,
                             response_body: serde_json::json!(trade_ids),
