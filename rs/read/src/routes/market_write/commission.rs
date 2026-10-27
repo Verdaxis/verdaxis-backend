@@ -2,13 +2,14 @@
 
 use axum::{
     Router,
-    body::to_bytes,
+    body::Body,
     extract::{ConnectInfo, Request, State},
-    http::{StatusCode, header::AUTHORIZATION},
+    http::{Method, StatusCode, request::Parts},
     response::{IntoResponse, Response},
     routing::{get, put},
 };
 use chrono::Utc;
+use futures_util::StreamExt;
 use serde_json::{Value, json};
 use std::{net::SocketAddr, sync::Arc};
 use tokio::sync::Semaphore;
@@ -16,14 +17,13 @@ use uuid::Uuid;
 
 use crate::auth::{VerificationSettings, limits::SharedLimits, verify_authorization};
 use crate::commission::{
-    AuditContext, CommissionCommand, CommissionOperation, run_commission_command,
+    AuditContext, CommissionCommand, CommissionOperation, CommissionPatch, run_commission_command,
 };
+use crate::runtime::{http::client_ip, logging::request_id};
 use crate::{Config, MarketPolicy};
 
-/// A patch carries a status, an invoice number, two dates and free-text notes.
-/// One mebibyte leaves ample room for notes and bounds what an authenticated
-/// caller can make the server buffer before the administrator check runs.
-const PATCH_BODY_LIMIT_BYTES: usize = 1024 * 1024;
+/// Match the production edge's request-body ceiling, including ignored JSON keys.
+const PATCH_BODY_LIMIT_BYTES: usize = 32_000_000;
 
 pub struct RouteContext {
     pub pool: sqlx::PgPool,
@@ -40,14 +40,36 @@ pub fn routes(context: Arc<RouteContext>) -> Router {
         .route("/api/orders/admin/commissions/{commission_id}", put(handle))
         .with_state(context)
 }
+
+fn header<'a>(parts: &'a Parts, name: &str) -> Option<&'a str> {
+    parts
+        .headers
+        .get(name)
+        .and_then(|value| value.to_str().ok())
+}
+
+/// Use the ingress correlation ID when present; component routers use the same
+/// sanitizer and client-address policy as serving middleware.
+fn audit_identity(parts: &Parts) -> (String, String) {
+    let peer = parts
+        .extensions
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|info| info.0.ip());
+    let client = client_ip(peer, header(parts, "x-forwarded-for"));
+    let correlation = parts
+        .extensions
+        .get::<String>()
+        .map(String::as_str)
+        .or_else(|| header(parts, "x-request-id"));
+    (client, request_id(correlation))
+}
+
 async fn handle(State(context): State<Arc<RouteContext>>, request: Request) -> Response {
     let now = Utc::now();
-    let authorization = request
-        .headers()
-        .get(AUTHORIZATION)
-        .and_then(|h| h.to_str().ok());
-    let access = match verify_authorization(authorization, &context.settings, now) {
-        Ok(a) => a,
+    let (parts, body) = request.into_parts();
+    let access = match verify_authorization(header(&parts, "authorization"), &context.settings, now)
+    {
+        Ok(access) => access,
         Err(error) => {
             return (
                 StatusCode::from_u16(error.status()).unwrap_or(StatusCode::UNAUTHORIZED),
@@ -56,34 +78,10 @@ async fn handle(State(context): State<Arc<RouteContext>>, request: Request) -> R
                 .into_response();
         }
     };
-    if crate::auth::scope::support_present(request.headers()) {
-        return refusal(
-            403,
-            "SUPPORT_CONTEXT_NOT_ALLOWED",
-            "A support context is not accepted here",
-        );
-    }
-    let client = crate::runtime::http::client_ip(
-        request
-            .extensions()
-            .get::<ConnectInfo<SocketAddr>>()
-            .map(|p| p.0.ip()),
-        request
-            .headers()
-            .get("x-forwarded-for")
-            .and_then(|h| h.to_str().ok()),
-    );
-    let request_id = request
-        .headers()
-        .get("x-request-id")
-        .and_then(|h| h.to_str().ok())
-        .map(str::to_owned);
-    let audit = match AuditContext::new(Some(client.to_string()), request_id) {
-        Ok(a) => a,
-        Err(e) => return e.into_response(),
-    };
-    let path = request.uri().path();
-    let operation = if request.method() == axum::http::Method::GET {
+    let (client, correlation) = audit_identity(&parts);
+    let mut audit = AuditContext::default();
+    let path = parts.uri.path();
+    let operation = if parts.method == Method::GET {
         if path.ends_with("/summary") {
             CommissionOperation::Summary
         } else {
@@ -98,13 +96,24 @@ async fn handle(State(context): State<Arc<RouteContext>>, request: Request) -> R
             Some(id) => id,
             None => return refusal(422, "VALIDATION_FAILED", "A commission UUID is required"),
         };
-        let bytes = match to_bytes(request.into_body(), PATCH_BODY_LIMIT_BYTES).await {
+        let bytes = match read_patch_body(body).await {
             Ok(bytes) => bytes,
-            Err(_) => return refusal(413, "BODY_TOO_LARGE", "The body is too large"),
+            Err(response) => return response,
         };
         let body: Value = match serde_json::from_slice(&bytes) {
             Ok(body) => body,
             Err(_) => return refusal(422, "VALIDATION_FAILED", "A JSON object is required"),
+        };
+        if CommissionPatch::parse(body.clone()).is_err() {
+            return refusal(
+                422,
+                "VALIDATION_FAILED",
+                "The commission patch is not valid",
+            );
+        }
+        audit = match AuditContext::new(Some(client.clone()), Some(correlation)) {
+            Ok(audit) => audit,
+            Err(error) => return error.into_response(),
         };
         CommissionOperation::Patch { id, body }
     };
@@ -113,7 +122,7 @@ async fn handle(State(context): State<Arc<RouteContext>>, request: Request) -> R
         policy: context.policy.clone(),
         config: context.config.clone(),
         limits: context.limits.clone(),
-        client: client.to_string(),
+        client,
         at: now,
         audit_context: audit,
     };
@@ -133,6 +142,20 @@ async fn handle(State(context): State<Arc<RouteContext>>, request: Request) -> R
         Err(error) => error.into_response(),
     }
 }
+async fn read_patch_body(body: Body) -> Result<Vec<u8>, Response> {
+    let mut stream = body.into_data_stream();
+    let mut bytes = Vec::new();
+    while let Some(chunk) = stream.next().await {
+        let chunk =
+            chunk.map_err(|_| refusal(400, "BODY_READ_FAILED", "The body could not be read"))?;
+        if chunk.len() > PATCH_BODY_LIMIT_BYTES - bytes.len() {
+            return Err(refusal(413, "BODY_TOO_LARGE", "The body is too large"));
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(bytes)
+}
+
 fn refusal(status: u16, code: &str, message: &str) -> Response {
     (
         StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),

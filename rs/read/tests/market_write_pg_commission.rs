@@ -202,7 +202,11 @@ impl Fixture {
         .fetch_one(&mut self.admin)
         .await
         .unwrap();
-        (row.get("audits"), row.get("notifications"), row.get("events"))
+        (
+            row.get("audits"),
+            row.get("notifications"),
+            row.get("events"),
+        )
     }
 }
 
@@ -385,11 +389,19 @@ async fn commission_patch_locks_the_row_in_the_declared_plan() {
             patch(id, &json!({"status":"OTHER"})),
             vec![(LockClass::User, admin)],
         ),
-        (admin, CommissionOperation::List, vec![(LockClass::User, admin)]),
+        (
+            admin,
+            CommissionOperation::List,
+            vec![(LockClass::User, admin)],
+        ),
     ];
     let mut conn = f.pool.acquire().await.unwrap();
     for (actor, operation, expected) in cases {
-        let preview = f.command(operation).preview(&mut conn, actor).await.unwrap();
+        let preview = f
+            .command(operation)
+            .preview(&mut conn, actor)
+            .await
+            .unwrap();
         let expected: Vec<(LockClass, String)> = expected
             .into_iter()
             .map(|(class, id)| (class, id.to_string()))
@@ -483,7 +495,10 @@ async fn commission_audit_records_the_client_and_request_context() {
             .await
             .unwrap();
     assert_eq!(rows.len(), supplied.len());
-    assert!(rows.iter().all(|(ip, _)| ip.as_deref() == Some("192.0.2.7")));
+    assert!(
+        rows.iter()
+            .all(|(ip, _)| ip.as_deref() == Some("192.0.2.7"))
+    );
     for (_, generated) in &rows[..3] {
         let generated = generated.as_deref().unwrap_or_default();
         assert!(Uuid::parse_str(generated).is_ok(), "{generated:?}");
@@ -535,7 +550,10 @@ async fn commission_support_context_is_refused_only_for_changes() {
     let served = verdaxis_read::runtime::http::middleware(f.app());
     let (status, _, body) = send(served, request).await;
     assert_eq!(status, 403);
-    assert_eq!(body["detail"]["code"], "MARKET_SUPPORT_MUTATION_NOT_ALLOWED");
+    assert_eq!(
+        body["detail"]["code"],
+        "MARKET_SUPPORT_MUTATION_NOT_ALLOWED"
+    );
     assert_eq!(f.counts().await, (0, 0, 0));
 }
 
@@ -543,7 +561,10 @@ async fn commission_support_context_is_refused_only_for_changes() {
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn commission_list_is_unbounded_and_preserves_the_array_shape() {
     let mut f = Fixture::new().await;
-    assert_eq!(f.request(0, "GET", LIST, Value::Null).await, (200, json!([])));
+    assert_eq!(
+        f.request(0, "GET", LIST, Value::Null).await,
+        (200, json!([]))
+    );
     f.seed(1007).await;
     let (status, body) = f
         .request(0, "GET", &format!("{LIST}?limit=1&skip=1000"), Value::Null)
@@ -596,7 +617,10 @@ async fn commission_views_do_not_derive_from_trades() {
         .execute(&mut f.admin)
         .await
         .unwrap();
-    assert_eq!(f.request(0, "GET", LIST, Value::Null).await, (200, json!([])));
+    assert_eq!(
+        f.request(0, "GET", LIST, Value::Null).await,
+        (200, json!([]))
+    );
     let (_, body) = f.request(0, "GET", SUMMARY, Value::Null).await;
     assert_eq!(body["paid_count"], 0);
     assert_eq!(
@@ -695,7 +719,8 @@ async fn response_before_commit_round() -> bool {
         "SELECT count(*) FROM pg_stat_activity WHERE wait_event_type='Lock' \
          AND query LIKE '%INSERT INTO audit_logs%' AND pid<>pg_backend_pid()",
         1,
-    ).await;
+    )
+    .await;
     let mut writer = PgConnection::connect(&f.admin_url).await.unwrap();
     let later_writer = tokio::spawn(async move {
         sqlx::query("SELECT commission_fixture_mark_after_lock()")
@@ -774,7 +799,10 @@ async fn commission_patch_without_a_change_keeps_updated_at() {
         assert_eq!(f.request(0, "PUT", &path, unchanged).await.0, 200);
         assert_eq!(f.updated_at(id).await, seeded);
     }
-    assert_eq!(f.request(0, "PUT", &path, json!({"status":"PAID"})).await.0, 200);
+    assert_eq!(
+        f.request(0, "PUT", &path, json!({"status":"PAID"})).await.0,
+        200
+    );
     let audited: DateTime<Utc> = sqlx::query_scalar(
         "SELECT timestamp FROM audit_logs ORDER BY timestamp DESC, id DESC LIMIT 1",
     )
@@ -822,7 +850,10 @@ async fn commission_patch_body_is_validated_before_the_administrator_check() {
     ] {
         assert_eq!(f.request(0, "PUT", &path, invalid).await.0, 500);
     }
-    assert_eq!(f.request(2, "PUT", &path, json!({"status":null})).await.0, 403);
+    assert_eq!(
+        f.request(2, "PUT", &path, json!({"status":null})).await.0,
+        403
+    );
     assert_eq!(f.stored_status(id).await, "PENDING");
     assert_eq!(f.counts().await, (0, 0, 0));
     let longest = json!({"invoice_number":"x".repeat(50),"notes":"n".repeat(500)});
@@ -839,7 +870,10 @@ async fn commission_requires_an_approved_administrator_session() {
         f.actors[0],
         b"a-different-signing-key-of-at-least-32-characters",
     );
-    assert_eq!(request(f.app(), forged, "GET", LIST, Value::Null).await.0, 401);
+    assert_eq!(
+        request(f.app(), forged, "GET", LIST, Value::Null).await.0,
+        401
+    );
     for (status, must_change_password) in [("PENDING", false), ("APPROVED", true)] {
         f.account(0, status, must_change_password).await;
         assert_eq!(f.request(0, "GET", LIST, Value::Null).await.0, 403);
@@ -848,7 +882,10 @@ async fn commission_requires_an_approved_administrator_session() {
     }
     assert_eq!(f.counts().await, (0, 0, 0));
     f.account(0, "APPROVED", false).await;
-    assert_eq!(f.request(0, "PUT", &path, json!({"status":"PAID"})).await.0, 200);
+    assert_eq!(
+        f.request(0, "PUT", &path, json!({"status":"PAID"})).await.0,
+        200
+    );
     assert_eq!(f.counts().await, (1, 0, 0));
 }
 
@@ -888,13 +925,19 @@ async fn commission_update_and_audit_rollback_together() {
         .execute(&mut f.admin)
         .await
         .unwrap();
-    assert_eq!(f.request(0, "PUT", &path, json!({"status":"PAID"})).await.0, 500);
+    assert_eq!(
+        f.request(0, "PUT", &path, json!({"status":"PAID"})).await.0,
+        500
+    );
     assert_eq!(f.stored_status(id).await, "PENDING");
     assert_eq!(f.counts().await, (0, 0, 0));
     sqlx::query("SELECT commission_fixture_refuse_audit(false)")
         .execute(&mut f.admin)
         .await
         .unwrap();
-    assert_eq!(f.request(0, "PUT", &path, json!({"status":"PAID"})).await.0, 200);
+    assert_eq!(
+        f.request(0, "PUT", &path, json!({"status":"PAID"})).await.0,
+        200
+    );
     assert_eq!(f.counts().await, (1, 0, 0));
 }

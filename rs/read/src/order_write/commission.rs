@@ -57,41 +57,51 @@ pub struct CommissionPatch {
 impl CommissionPatch {
     pub fn parse(value: Value) -> Result<Self, MarketWriteError> {
         let object = value.as_object().ok_or_else(validation)?;
-        fn text(
-            object: &serde_json::Map<String, Value>,
-            name: &str,
-        ) -> Result<PatchField<String>, MarketWriteError> {
-            match object.get(name) {
-                None => Ok(PatchField::Keep),
-                Some(Value::Null) => Ok(PatchField::Set(None)),
-                Some(Value::String(s)) => Ok(PatchField::Set(Some(s.clone()))),
-                _ => Err(validation()),
-            }
-        }
-        fn date(
-            object: &serde_json::Map<String, Value>,
-            name: &str,
-        ) -> Result<PatchField<NaiveDate>, MarketWriteError> {
-            match text(object, name)? {
-                PatchField::Keep => Ok(PatchField::Keep),
-                PatchField::Set(None) => Ok(PatchField::Set(None)),
-                PatchField::Set(Some(s)) => Ok(PatchField::Set(Some(
-                    NaiveDate::parse_from_str(&s, "%Y-%m-%d").map_err(|_| validation())?,
-                ))),
-            }
-        }
         Ok(Self {
             status: object
                 .get("status")
+                .filter(|s| !s.is_null())
                 .map(|s| CommissionStatus::parse(s.as_str().ok_or_else(validation)?))
                 .transpose()?,
-            invoice_number: text(object, "invoice_number")?,
-            invoice_date: date(object, "invoice_date")?,
-            payment_date: date(object, "payment_date")?,
-            notes: text(object, "notes")?,
+            invoice_number: patch_text(object, "invoice_number")?,
+            invoice_date: patch_date(object, "invoice_date")?,
+            payment_date: patch_date(object, "payment_date")?,
+            notes: patch_text(object, "notes")?,
         })
     }
 }
+fn patch_text(
+    object: &serde_json::Map<String, Value>,
+    name: &str,
+) -> Result<PatchField<String>, MarketWriteError> {
+    match object.get(name) {
+        None => Ok(PatchField::Keep),
+        Some(Value::Null) => Ok(PatchField::Set(None)),
+        Some(Value::String(value)) => Ok(PatchField::Set(Some(value.clone()))),
+        _ => Err(validation()),
+    }
+}
+
+fn patch_date(
+    object: &serde_json::Map<String, Value>,
+    name: &str,
+) -> Result<PatchField<NaiveDate>, MarketWriteError> {
+    match patch_text(object, name)? {
+        PatchField::Keep => Ok(PatchField::Keep),
+        PatchField::Set(None) => Ok(PatchField::Set(None)),
+        PatchField::Set(Some(value)) => Ok(PatchField::Set(Some(
+            NaiveDate::parse_from_str(&value, "%Y-%m-%d").map_err(|_| validation())?,
+        ))),
+    }
+}
+
+fn apply<T: Clone>(field: &PatchField<T>, previous: Option<T>) -> Option<T> {
+    match field {
+        PatchField::Keep => previous,
+        PatchField::Set(value) => value.clone(),
+    }
+}
+
 fn validation() -> MarketWriteError {
     MarketWriteError::new(MarketErrorCode::ValidationFailed)
 }
@@ -135,13 +145,38 @@ impl MarketCommand for CommissionCommand {
     }
     fn preview<'a>(
         &'a self,
-        _conn: &'a mut PgConnection,
+        conn: &'a mut PgConnection,
         actor: Uuid,
     ) -> BoxFuture<'a, Result<MarketPreview, MarketAttemptError>> {
         Box::pin(async move {
+            let operation = match self.operation {
+                CommissionOperation::Patch { .. } => MarketOperation::Commission,
+                _ => MarketOperation::CommissionRead,
+            };
             let parties = PartyLockPreview::new([], [], actor, json!({"actor":actor}));
-            let mut locks = OperationLockPlan::new(MarketOperation::Commission);
+            let mut locks = OperationLockPlan::new(operation);
             locks.parties(&parties)?;
+            if let CommissionOperation::Patch { id, body } = &self.operation {
+                // Discover resources only for an eligible administrator and a valid
+                // patch. Locked admission rechecks the account before execution.
+                let allowed: bool = sqlx::query_scalar(
+                    "SELECT EXISTS(SELECT 1 FROM users WHERE id=$1 AND role='ADMIN' \
+                     AND status='APPROVED' AND NOT must_change_password)",
+                )
+                .bind(actor)
+                .fetch_one(&mut *conn)
+                .await?;
+                if allowed && CommissionPatch::parse(body.clone()).is_ok() {
+                    let exists: bool =
+                        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM commissions WHERE id=$1)")
+                            .bind(id)
+                            .fetch_one(&mut *conn)
+                            .await?;
+                    if exists {
+                        locks.resources(LockClass::Commission, [*id])?;
+                    }
+                }
+            }
             Ok(MarketPreview { parties, locks })
         })
     }
@@ -196,14 +231,20 @@ impl MarketCommand for CommissionCommand {
                 CommissionOperation::Summary => Ok(CommissionResult::ok(
                     tx.commissions(actor)?.summary().await?,
                 )),
-                CommissionOperation::Patch { id, .. } => {
+                CommissionOperation::Patch { id, body } => {
+                    if body.get("status").is_some_and(Value::is_null) {
+                        return Err(MarketWriteError::new(MarketErrorCode::DatabaseError).into());
+                    }
+                    // Resource locks are held before capture and before this
+                    // timestamp, so serialized transitions retain their order.
+                    let at = Utc::now();
                     let before = tx
                         .effects()?
-                        .capture_before(&self.policy, &self.config, &[], self.at)
+                        .capture_before(&self.policy, &self.config, &[], at)
                         .await?;
                     let Some((response, changes)) = tx
                         .commissions(actor)?
-                        .patch(*id, patch.as_ref().expect("validated patch"))
+                        .patch(*id, patch.as_ref().expect("validated patch"), at)
                         .await?
                     else {
                         return Ok(CommissionResult::refusal(
@@ -224,7 +265,7 @@ impl MarketCommand for CommissionCommand {
                         resource_id: *id,
                         changes,
                         event: None,
-                        at: self.at,
+                        at,
                         audit_context: self.audit_context.clone(),
                     })?;
                     tx.effects()?
@@ -239,11 +280,12 @@ impl MarketCommand for CommissionCommand {
 
 pub(super) struct CommissionPort<'a> {
     conn: &'a mut PgConnection,
+    locked: &'a Locked,
 }
 impl<'a> CommissionPort<'a> {
     pub(super) fn new(
         conn: &'a mut PgConnection,
-        locked: &Locked,
+        locked: &'a Locked,
         actor: &AuthenticatedActor,
     ) -> Result<Self, MarketWriteError> {
         locked.require_economic_phase()?;
@@ -254,17 +296,35 @@ impl<'a> CommissionPort<'a> {
                 MarketErrorCode::ExecutionNotAvailable,
             ));
         }
-        Ok(Self { conn })
+        Ok(Self { conn, locked })
     }
     async fn list(&mut self) -> Result<Value, MarketAttemptError> {
-        let rows=sqlx::query("SELECT id,match_id,amount_usd::text AS amount_usd,status,invoice_number,invoice_date,payment_date,created_at FROM commissions ORDER BY created_at DESC,id DESC").fetch_all(&mut *self.conn).await?;
+        let rows = sqlx::query(
+            "SELECT id, match_id, amount_usd::text AS amount_usd, status, \
+                    invoice_number, invoice_date, payment_date, created_at \
+             FROM commissions ORDER BY created_at DESC, id DESC",
+        )
+        .fetch_all(&mut *self.conn)
+        .await?;
         Ok(Value::Array(
             rows.iter().map(project).collect::<Result<_, _>>()?,
         ))
     }
     async fn summary(&mut self) -> Result<Value, MarketAttemptError> {
-        let rows=sqlx::query("SELECT status,count(*) AS count,coalesce(sum(amount_usd),0)::text AS total FROM commissions GROUP BY status").fetch_all(&mut *self.conn).await?;
-        let mut body = json!({"pending_count":0,"invoiced_count":0,"paid_count":0,"total_pending_usd":"0","total_invoiced_usd":"0","total_paid_usd":"0"});
+        let rows = sqlx::query(
+            "SELECT status, count(*) AS count, coalesce(sum(amount_usd),0)::text AS total \
+             FROM commissions GROUP BY status",
+        )
+        .fetch_all(&mut *self.conn)
+        .await?;
+        let mut body = json!({
+            "pending_count": 0,
+            "invoiced_count": 0,
+            "paid_count": 0,
+            "total_pending_usd": "0",
+            "total_invoiced_usd": "0",
+            "total_paid_usd": "0",
+        });
         for row in rows {
             let status = CommissionStatus::parse(row.try_get::<&str, _>("status")?)?;
             let name = status.text().to_ascii_lowercase();
@@ -280,25 +340,49 @@ impl<'a> CommissionPort<'a> {
         &mut self,
         id: Uuid,
         patch: &CommissionPatch,
+        at: DateTime<Utc>,
     ) -> Result<Option<(Value, Value)>, MarketAttemptError> {
-        let row=sqlx::query("SELECT id,match_id,amount_usd::text AS amount_usd,status,invoice_number,invoice_date,payment_date,created_at,notes FROM commissions WHERE id=$1 FOR UPDATE").bind(id).fetch_optional(&mut *self.conn).await?;
+        if !self.locked.contains(LockClass::Commission, id) {
+            return Ok(None);
+        }
+        let row = sqlx::query(
+            "SELECT id, match_id, amount_usd::text AS amount_usd, status, \
+                    invoice_number, invoice_date, payment_date, created_at, notes \
+             FROM commissions WHERE id=$1",
+        )
+        .bind(id)
+        .fetch_optional(&mut *self.conn)
+        .await?;
         let Some(row) = row else { return Ok(None) };
         let previous: String = row.try_get("status")?;
         let status = patch
             .status
             .map(CommissionStatus::text)
             .unwrap_or(&previous);
-        fn apply<T: Clone>(field: &PatchField<T>, previous: Option<T>) -> Option<T> {
-            match field {
-                PatchField::Keep => previous,
-                PatchField::Set(value) => value.clone(),
-            }
-        }
         let invoice = apply(&patch.invoice_number, row.try_get("invoice_number")?);
         let invoice_date = apply(&patch.invoice_date, row.try_get("invoice_date")?);
         let payment_date = apply(&patch.payment_date, row.try_get("payment_date")?);
         let notes = apply(&patch.notes, row.try_get("notes")?);
-        sqlx::query("UPDATE commissions SET status=$2,invoice_number=$3,invoice_date=$4,payment_date=$5,notes=$6,updated_at=$7 WHERE id=$1").bind(id).bind(status).bind(&invoice).bind(invoice_date).bind(payment_date).bind(notes).bind(Utc::now()).execute(&mut *self.conn).await?;
+        let changed = status != previous
+            || invoice != row.try_get::<Option<String>, _>("invoice_number")?
+            || invoice_date != row.try_get::<Option<NaiveDate>, _>("invoice_date")?
+            || payment_date != row.try_get::<Option<NaiveDate>, _>("payment_date")?
+            || notes != row.try_get::<Option<String>, _>("notes")?;
+        if changed {
+            sqlx::query(
+                "UPDATE commissions SET status=$2, invoice_number=$3, invoice_date=$4, \
+                        payment_date=$5, notes=$6, updated_at=$7 WHERE id=$1",
+            )
+            .bind(id)
+            .bind(status)
+            .bind(&invoice)
+            .bind(invoice_date)
+            .bind(payment_date)
+            .bind(notes)
+            .bind(at)
+            .execute(&mut *self.conn)
+            .await?;
+        }
         let mut response = project(&row)?;
         response["status"] = json!(status);
         response["invoice_number"] = json!(invoice);
@@ -313,9 +397,16 @@ impl<'a> CommissionPort<'a> {
     }
 }
 fn project(row: &sqlx::postgres::PgRow) -> Result<Value, sqlx::Error> {
-    Ok(
-        json!({"id":row.try_get::<Uuid,_>("id")?,"match_id":row.try_get::<Uuid,_>("match_id")?,"amount_usd":row.try_get::<String,_>("amount_usd")?,"status":row.try_get::<String,_>("status")?,"invoice_number":row.try_get::<Option<String>,_>("invoice_number")?,"invoice_date":row.try_get::<Option<NaiveDate>,_>("invoice_date")?,"payment_date":row.try_get::<Option<NaiveDate>,_>("payment_date")?,"created_at":row.try_get::<DateTime<Utc>,_>("created_at")?}),
-    )
+    Ok(json!({
+        "id": row.try_get::<Uuid, _>("id")?,
+        "match_id": row.try_get::<Uuid, _>("match_id")?,
+        "amount_usd": row.try_get::<String, _>("amount_usd")?,
+        "status": row.try_get::<String, _>("status")?,
+        "invoice_number": row.try_get::<Option<String>, _>("invoice_number")?,
+        "invoice_date": row.try_get::<Option<NaiveDate>, _>("invoice_date")?,
+        "payment_date": row.try_get::<Option<NaiveDate>, _>("payment_date")?,
+        "created_at": row.try_get::<DateTime<Utc>, _>("created_at")?,
+    }))
 }
 
 pub use super::effects::AuditContext;
@@ -333,4 +424,11 @@ pub async fn run_commission_command(
         super::AdmissionClass::Execution,
     )
     .await
+    .map_err(|error| {
+        if error.code == MarketErrorCode::MarketBusy {
+            MarketWriteError::new(MarketErrorCode::DatabaseError)
+        } else {
+            error
+        }
+    })
 }
