@@ -55,6 +55,10 @@ REVIEWED_EXCLUSIONS = {
     "user_login_days": "login-day upsert inside the login transaction; never cached",
     "user_status_transitions": "status history appended inside registration transactions; never cached",
     "alembic_version": "revision attestation at startup, not a response dependency",
+    "market_event_replay_state": (
+        "migration-owned stream replay barrier; read by the stream runtime, "
+        "never a cached read dependency"
+    ),
     **{table: "cache infrastructure itself" for table in CACHE_TABLES},
 }
 
@@ -212,8 +216,15 @@ async def test_empty_statements_leave_generation_and_events_unchanged(engine, ta
             await transaction.rollback()
         transaction = await connection.begin()
         before = await _generation(connection)
-        await connection.execute(text(f'TRUNCATE public."{table}" CASCADE'))
-        assert await _generation(connection) > before, table
+        if table == "market_event_outbox":
+            # The stream replay floor refuses any outbox truncation outright
+            # (SQLSTATE 42501, proven by its own retention suite). The refusal,
+            # not a generation bump, is the reviewed outcome here.
+            with pytest.raises(Exception, match="truncate is refused"):
+                await connection.execute(text(f'TRUNCATE public."{table}" CASCADE'))
+        else:
+            await connection.execute(text(f'TRUNCATE public."{table}" CASCADE'))
+            assert await _generation(connection) > before, table
         await transaction.rollback()
 
 
