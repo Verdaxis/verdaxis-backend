@@ -317,7 +317,13 @@ fn p4_t1_c02() {
         for evidence in rows(invariant, "evidence") {
             match string(evidence, "kind") {
                 "rust_test" => {
-                    assert!(string(evidence, "case").starts_with("p4_t"));
+                    let case = string(evidence, "case");
+                    assert!(
+                        case.starts_with("p4_t")
+                            || (evidence["target"] == "phase4_db_authority"
+                                && include_str!("phase4_db_authority.rs")
+                                    .contains(&format!("async fn {case}()")))
+                    );
                 }
                 "preserved_invariant" => {
                     assert!(!string(evidence, "owner").is_empty());

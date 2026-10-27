@@ -809,11 +809,12 @@ mod postgres {
                 assert!(reply.body["detail"]["message"].is_string());
                 assert_eq!(reply.headers.get("www-authenticate").unwrap(), "Bearer");
             }
+            // Profile access remains available while a password change is required.
+            assert_eq!(read(10, "/api/auth/me").await.status, StatusCode::OK);
             // Current-account state, not the token, decides admission.
             for (index, code, status) in [
                 (8usize, "ACCOUNT_PENDING", StatusCode::FORBIDDEN),
                 (9, "ACCOUNT_REJECTED", StatusCode::FORBIDDEN),
-                (10, "PASSWORD_CHANGE_REQUIRED", StatusCode::FORBIDDEN),
                 (11, "INVALID_CREDENTIALS", StatusCode::UNAUTHORIZED),
                 (12, "AUTH_PASSWORD_CHANGED", StatusCode::UNAUTHORIZED),
                 (13, "AUTH_SESSION_REVOKED", StatusCode::UNAUTHORIZED),

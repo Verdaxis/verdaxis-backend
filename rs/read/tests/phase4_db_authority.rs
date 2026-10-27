@@ -222,7 +222,13 @@ async fn organization_approval_trigger_reads_back_real_and_vd001() {
     for status in ["OPEN", "FILLED"] {
         let order = Uuid::new_v4();
         sqlx::query(include_str!("fixtures/phase4_authority_order_insert.sql"))
-            .bind(order).bind(blocked).bind(product).bind(status).execute(&mut db.migrator).await.unwrap();
+            .bind(order)
+            .bind(blocked)
+            .bind(product)
+            .bind(status)
+            .execute(&mut db.migrator)
+            .await
+            .unwrap();
         let error =
             sqlx::query("UPDATE organizations SET verification_status='APPROVED' WHERE id=$1")
                 .bind(blocked)
