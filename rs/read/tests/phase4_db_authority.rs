@@ -1,10 +1,10 @@
 //! Acceptance against the migrated disposable schema and committed ACL bundle.
+use axum::{body::Body, http::Request};
 use serde_json::{Value, json};
 use sqlx::{Connection, PgConnection};
+use tower::ServiceExt;
 use uuid::Uuid;
 use verdaxis_read::{Config, compiled_sha, connect, kyc::keyring::KeyRing};
-use axum::{body::Body, http::Request};
-use tower::ServiceExt;
 
 const REVISION: &str = "p3_20261020_auth_tokens";
 const APP_ROLE: &str = "verdaxis_app_staging";
@@ -313,14 +313,29 @@ async fn rust_service_credential_absence_does_not_fail_readiness() {
         phase2: Default::default(),
     };
     let pools = connect(&config).await.unwrap();
-    let policy = serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap();
+    let policy =
+        serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap();
     let state = verdaxis_read::AppState::new(config, pools.clone(), policy).unwrap();
     let response = verdaxis_read::router(state)
-        .oneshot(Request::builder().uri("/health/ready").body(Body::empty()).unwrap())
-        .await.unwrap();
+        .oneshot(
+            Request::builder()
+                .uri("/health/ready")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
     assert_eq!(response.status(), 200);
-    let body: Value = serde_json::from_slice(&axum::body::to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
-    assert_eq!(body, json!({"status":"ok","db":"ok","environment":"test","release_sha":compiled_sha()}));
+    let body: Value = serde_json::from_slice(
+        &axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        body,
+        json!({"status":"ok","db":"ok","environment":"test","release_sha":compiled_sha()})
+    );
     pools.read.close().await;
     pools.health.close().await;
 }
