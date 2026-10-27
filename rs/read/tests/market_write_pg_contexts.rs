@@ -1035,13 +1035,17 @@ async fn exit_and_expiry_on_read_end_a_context_once() {
         .fetch_one(&mut *held)
         .await
         .unwrap();
-    let exit_request = f.builder(Some(f.target), "POST", &exit)
-        .body(Body::empty()).unwrap();
+    let exit_request = f
+        .builder(Some(f.target), "POST", &exit)
+        .body(Body::empty())
+        .unwrap();
     let first = tokio::spawn(race_response(app.clone(), exit_request));
     // Exit holds the actor and capabilities before waiting for the context.
     let first_pid = wait_for_blocked_transaction(&mut f.admin, barrier_pid).await;
-    let read_request = f.builder(Some(f.target), "GET", &read)
-        .body(Body::empty()).unwrap();
+    let read_request = f
+        .builder(Some(f.target), "GET", &read)
+        .body(Body::empty())
+        .unwrap();
     let second = tokio::spawn(race_response(app.clone(), read_request));
     let second_pid = wait_for_blocked_transaction(&mut f.admin, first_pid).await;
     assert_ne!(first_pid, second_pid);
