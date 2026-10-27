@@ -5,9 +5,26 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
+import pytest_asyncio
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
+
+from tests.postgres.retention_test_support import clear_retention
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def isolated_replay_history(analytics_pg_url):
+    # Other suites leave committed outbox rows on the shared disposable
+    # database; the replay proof needs an empty retained history.
+    engine = create_async_engine(analytics_pg_url)
+    try:
+        async with engine.begin() as connection:
+            await clear_retention(connection)
+        yield
+    finally:
+        await engine.dispose()
 
 
 @pytest.mark.asyncio

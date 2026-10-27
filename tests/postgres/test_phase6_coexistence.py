@@ -9,13 +9,28 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
+import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from tests.postgres.retention_test_support import clear_retention
 from tests.postgres.test_phase6_http import _require_app_role
 from tests.rust_contract.phase6.coexistence import RustActor, request, worker_main
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def isolated_outbox_history(analytics_pg_url):
+    # Other suites leave committed and unsequenced outbox rows on the shared
+    # disposable database; this proof counts exactly its own workers' rows.
+    engine = create_async_engine(analytics_pg_url)
+    try:
+        async with engine.begin() as connection:
+            await clear_retention(connection)
+        yield
+    finally:
+        await engine.dispose()
 
 
 @pytest.fixture(scope="module")

@@ -21,6 +21,17 @@ async fn three_supervisor_cycles_preserve_nonzero_baseline_and_release_sessions(
     let admin = sqlx::PgPool::connect(&std::env::var("STREAM_RUNTIME_ADMIN_URL").unwrap())
         .await
         .unwrap();
+    // Earlier suites on the shared disposable database may have committed rows
+    // with explicit sequences above an untouched sequence; draw new values
+    // only from above every committed row, as the Python drivers reconcile.
+    sqlx::query_scalar::<_, i64>(
+        "SELECT setval('market_event_stream_seq', \
+         GREATEST((SELECT COALESCE(MAX(stream_seq), 1) FROM market_event_outbox), \
+                  (SELECT last_value FROM market_event_stream_seq)), true)",
+    )
+    .fetch_one(&admin)
+    .await
+    .unwrap();
     let baseline: i64 = sqlx::query_scalar("SELECT nextval('market_event_stream_seq')")
         .fetch_one(&admin)
         .await

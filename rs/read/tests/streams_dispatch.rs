@@ -760,7 +760,13 @@ mod postgres {
         .await;
         if !accepted {
             assert!(matches!(replay, Err(store::StoreError::InvalidEvent(_))));
-            assert!(adapter.scan(baseline).await.is_err());
+            // Global dispatch preserves the invalid row's sequence metadata
+            // and surfaces it as a page without an event, so the hub terminates
+            // subscribers instead of the store failing the whole scan.
+            while drain.cursor() < *sequences.last().unwrap() {
+                drain.turn(&mut adapter).await.unwrap();
+            }
+            assert_eq!(subscription.wait_terminal().await, Terminal::InvalidEvent);
         } else {
             let replay = replay.expect("legacy replay must accept persisted byte budget");
             assert!(
