@@ -1045,3 +1045,18 @@ async fn p4_t8_c13() {
     drop(app);
     f.finish().await;
 }
+
+#[tokio::test]
+#[ignore = "requires explicit disposable PostgreSQL authority"]
+async fn organization_rejection_preserves_reason_and_request_context() {
+    let mut f=Fixture::new().await;
+    let mut command=f.organization(false);
+    command.reason=Some("Administrator decision evidence".into());
+    command.audit=verdaxis_read::business::admission::AuditContext { ip_address:Some("192.0.2.4".into()),request_id:Some("organization-review".into()) };
+    f.run(command).await.unwrap();
+    let row=sqlx::query("SELECT changes,ip_address,request_id FROM audit_logs WHERE action='admin.organization_rejected'").fetch_one(&mut f.admin).await.unwrap();
+    assert_eq!(row.get::<serde_json::Value,_>("changes")["reason"],"Administrator decision evidence");
+    assert_eq!(row.get::<String,_>("ip_address"),"192.0.2.4");
+    assert_eq!(row.get::<String,_>("request_id"),"organization-review");
+    f.finish().await;
+}
