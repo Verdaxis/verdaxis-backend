@@ -48,7 +48,6 @@ fn header<'a>(parts: &'a Parts, name: &str) -> Option<&'a str> {
         .and_then(|value| value.to_str().ok())
 }
 
-
 async fn handle(State(context): State<Arc<RouteContext>>, request: Request) -> Response {
     let now = Utc::now();
     let (parts, body) = request.into_parts();

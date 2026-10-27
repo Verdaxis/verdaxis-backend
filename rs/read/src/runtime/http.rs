@@ -44,12 +44,23 @@ pub(crate) fn audit_identity(parts: &axum::http::request::Parts) -> (String, Str
         .extensions
         .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
         .map(|info| info.0.ip());
-    let client = client_ip(peer, parts.headers.get("x-forwarded-for").and_then(|value| value.to_str().ok()));
+    let client = client_ip(
+        peer,
+        parts
+            .headers
+            .get("x-forwarded-for")
+            .and_then(|value| value.to_str().ok()),
+    );
     let correlation = parts
         .extensions
         .get::<String>()
         .map(String::as_str)
-        .or_else(|| parts.headers.get("x-request-id").and_then(|value| value.to_str().ok()));
+        .or_else(|| {
+            parts
+                .headers
+                .get("x-request-id")
+                .and_then(|value| value.to_str().ok())
+        });
     (client, super::logging::request_id(correlation))
 }
 

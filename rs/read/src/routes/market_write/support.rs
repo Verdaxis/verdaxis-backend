@@ -88,7 +88,6 @@ fn header<'a>(parts: &'a Parts, name: &str) -> Option<&'a str> {
         .and_then(|value| value.to_str().ok())
 }
 
-
 async fn dispatch(state: SupportState, parts: Parts, request: SupportRequest) -> Response {
     let authorization = header(&parts, "authorization");
     let Ok(access) = verify_authorization(authorization, &state.verification, Utc::now()) else {
