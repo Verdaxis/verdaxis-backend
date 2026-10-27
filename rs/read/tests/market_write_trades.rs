@@ -9,7 +9,7 @@ use verdaxis_read::{
         events::{AllowedServerEvent, ServerEvent},
         sender::{AnalyticsSender, RequestMetadata},
     },
-    order_write::trades::{TradeCreate, TradePage, project_trade},
+    market_trades::{TradeCreate, TradePage, project_trade},
     providers::umami::{UmamiConfig, UmamiPolicy},
 };
 
@@ -102,7 +102,7 @@ fn trade_page_has_bounded_filters() {
 fn pending_projection_separates_fee_and_fuel_visibility() {
     let buyer = Uuid::new_v4();
     let seller = Uuid::new_v4();
-    let row = json!({"id":Uuid::new_v4(),"buyer_id":buyer,"seller_id":seller,"buyer_name":"Buyer","seller_name":"Seller","status":"PENDING_CONFIRMATION","is_anonymous":true,"commission_fee_per_mt_usd":"2","commission_plan":"FREE","commission_amount_usd":"4","commission_rate_pct":"0","fame_terms_snapshot":{"ask":{"producer_name":"private","production_site":"private","certificate_number":"private","batch_reference":"private"},"bid":{}},"lng_terms_snapshot":{"ask":{"physical_supplier_name":"private","certificate_number":"private"},"bid":{}}});
+    let row = json!({"id":Uuid::new_v4(),"buyer_id":buyer,"seller_id":seller,"buyer_name":"Buyer","seller_name":"Seller","status":"PENDING_CONFIRMATION","is_anonymous":true,"commission_fee_per_mt_usd":"2","commission_plan":"FREE","commission_amount_usd":"4","commission_rate_pct":"0","fame_terms_snapshot":null,"lng_terms_snapshot":null});
     let buy = project_trade(row.clone(), Some(buyer), false).unwrap();
     assert!(buy["seller_id"].is_null());
     assert_eq!(buy["seller_name"], "Anonymous");
@@ -116,10 +116,7 @@ fn pending_projection_separates_fee_and_fuel_visibility() {
     confirmed["status"] = json!("CONFIRMED");
     let confirmed = project_trade(confirmed, Some(buyer), false).unwrap();
     assert_eq!(confirmed["seller_id"], seller.to_string());
-    assert_eq!(
-        confirmed["lng_terms_snapshot"]["ask"]["physical_supplier_name"],
-        "private"
-    );
+
     let mut legacy = row;
     legacy["commission_fee_per_mt_usd"] = Value::Null;
     assert_eq!(

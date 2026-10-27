@@ -14,8 +14,8 @@ BEGIN
  ('00000000-0000-0000-0000-000000004001','take-admin@example.test','unused','ADMIN','APPROVED',NULL,true,false,'REJECTED',NULL);
  INSERT INTO inventory_items(id,supplier_id,owner_user_id,fuel_type,current_stock_mt,reserved_stock_mt,incoming_stock_mt)
  VALUES('00000000-0000-0000-0000-000000005000',seller,'00000000-0000-0000-0000-000000002001','Biofuel',0,10,0);
- INSERT INTO orderbook_orders(id,organization_id,owner_user_id,created_by_actor_user_id,creation_method,provenance,side,product_id,delivery_point_id,quantity_mt,remaining_quantity_mt,price_per_mt_usd,availability_window,status,inventory_item_id,certification_declared,msds_available)
- VALUES('00000000-0000-0000-0000-000000000001',seller,'00000000-0000-0000-0000-000000002001','00000000-0000-0000-0000-000000002001','SELF_SERVICE','REAL','ASK',product,point,10,10,100,'SPOT','OPEN','00000000-0000-0000-0000-000000005000',true,true);
+ INSERT INTO orderbook_orders(id,organization_id,owner_user_id,created_by_actor_user_id,creation_method,provenance,side,product_id,delivery_point_id,quantity_mt,remaining_quantity_mt,price_per_mt_usd,availability_window,status,inventory_item_id,certification_declared,msds_available,certification_scheme)
+ VALUES('00000000-0000-0000-0000-000000000001',seller,'00000000-0000-0000-0000-000000002001','00000000-0000-0000-0000-000000002001','SELF_SERVICE','REAL','ASK',product,point,10,10,100,'SPOT','OPEN','00000000-0000-0000-0000-000000005000',true,true,'ISCC EU');
 END $$;
 
 CREATE OR REPLACE FUNCTION trades_fixture_state() RETURNS jsonb LANGUAGE sql AS $$
