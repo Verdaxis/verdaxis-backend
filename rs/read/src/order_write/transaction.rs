@@ -1833,6 +1833,54 @@ impl LockedMarketTransaction<'_> {
             .apply_plan(plan)
             .await
     }
+    /// Complete a prepared match on the same declared resource graph.
+    pub(super) async fn complete_match(
+        &mut self,
+        plan: &super::matching::MatchPlan,
+        fees: &crate::subscriptions::FeeConfig,
+        is_anonymous: bool,
+    ) -> Result<super::matching::MatchOutcome, super::MarketWriteError> {
+        self.locked.require_economic_phase()?;
+        if plan
+            .locked_order_ids()
+            .iter()
+            .any(|id| !self.plan.order_ids().contains(id))
+            || plan
+                .inventory_ids()
+                .iter()
+                .any(|id| !self.plan.inventory_ids().contains(id))
+        {
+            return Err(super::MarketWriteError::new(
+                super::MarketErrorCode::MarketSliceChanged,
+            ));
+        }
+        let outcome =
+            super::matching::apply_plan_with_fees(self.conn, plan, Some(fees), is_anonymous)
+                .await?;
+        for (item, quantity) in plan.reserved_consumption()? {
+            StockLedger::new(self.conn, &[item], &[])
+                .consume_reserved(item, super::StockQuantity::checked(quantity)?)
+                .await?;
+        }
+        Ok(outcome)
+    }
+    #[cfg(feature = "contract-tests")]
+    pub(super) async fn match_receipt_context(
+        &mut self,
+        actor: &super::AuthenticatedActor,
+        organization: Uuid,
+        at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<super::WriteContext, super::MarketWriteError> {
+        super::authority::admission::order_context(
+            self.conn,
+            self.locked,
+            actor,
+            organization,
+            None,
+            at,
+        )
+        .await
+    }
     pub(super) async fn match_order(
         &mut self,
         aggressor: &super::matching::OrderRow,

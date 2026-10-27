@@ -173,9 +173,13 @@ crossing rows and locks at most 100 by price, acceptance ordinal and UUID under
 the declared slice and complete party prefix. A remaining aggressor beyond the
 cap refuses the entire command. Application inserts confirmed trades and updates
 both orders per fill; its outcome retains before/after orders, trades and both
-changed sides for transaction-level completion. Immutable fee/term completion,
-inventory consumption and effect composition remain the order-entry integration
-steps before any serving route can use this component.
+changed sides for transaction-level completion. Completion freezes validated typed
+terms and seller fee configuration, consumes declared reserved inventory, and calls
+`confirmed_effect.rs` for current-member referral activation. Its staged effect set
+adds per-trade audits and organization notifications, explicit participant payloads,
+and one final both-side benchmark/PIN pass. Receipt-owner replay skips completion.
+Order-entry and manual-confirmation callers still require route integration before
+any serving route can use these components.
 
 Execution eligibility is part of the plan. Stored provenance is coerced fail
 closed: REAL crosses only REAL, and DEMO crosses DEMO only between the two demo

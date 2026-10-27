@@ -14,6 +14,7 @@ mod authority;
 mod benchmarks;
 pub mod command;
 pub mod commission;
+mod confirmed_effect;
 pub mod decimal;
 pub mod effects;
 mod error;

@@ -49,9 +49,47 @@ impl OrderActivity {
     }
 }
 
+/// Provenance fields common to the two matching activity projections.
+#[derive(Clone, Debug)]
+pub struct MatchActivity {
+    pub source_kind: String,
+    pub scope: String,
+    pub demo_status: String,
+    pub unknown_count: u32,
+    pub market_product: Option<String>,
+    pub delivery_point_id: Option<Uuid>,
+    pub availability_window: String,
+    pub observed_at: DateTime<Utc>,
+}
+impl MatchActivity {
+    fn payload(&self) -> Value {
+        json!({"source_kind":self.source_kind,"scope":self.scope,"demo_status":self.demo_status,
+            "unknown_count":self.unknown_count,"market_product":self.market_product,
+            "delivery_point_id":self.delivery_point_id,"availability_window":self.availability_window,
+            "observed_at":self.observed_at})
+    }
+}
+
 /// Explicit transport projection. Subscription identities cannot enter this type.
 #[derive(Clone, Debug)]
 pub enum ParticipantFields {
+    TradeAutoMatched {
+        activity: MatchActivity,
+        trade_id: Uuid,
+        product_id: Uuid,
+        product_name: String,
+        fuel_type: String,
+        quantity: String,
+        price: String,
+        is_anonymous: bool,
+    },
+    OrdersMatched {
+        activity: MatchActivity,
+        order_id: Uuid,
+        matches: usize,
+        is_demo_listing: bool,
+        delivery_point: Option<String>,
+    },
     OrderCancelled(OrderActivity),
     OrderCreated {
         activity: OrderActivity,
@@ -69,6 +107,40 @@ pub enum ParticipantFields {
 impl ParticipantEvent {
     pub(super) fn payload(&self) -> Value {
         let mut value = match &self.fields {
+            ParticipantFields::TradeAutoMatched {
+                activity,
+                trade_id,
+                product_id,
+                product_name,
+                fuel_type,
+                quantity,
+                price,
+                is_anonymous,
+            } => {
+                let mut value = activity.payload();
+                value["trade_id"] = json!(trade_id);
+                value["product_id"] = json!(product_id);
+                value["product_name"] = json!(product_name);
+                value["fuel_type"] = json!(fuel_type);
+                value["quantity"] = json!(quantity);
+                value["price"] = json!(price);
+                value["is_anonymous"] = json!(is_anonymous);
+                value
+            }
+            ParticipantFields::OrdersMatched {
+                activity,
+                order_id,
+                matches,
+                is_demo_listing,
+                delivery_point,
+            } => {
+                let mut value = activity.payload();
+                value["order_id"] = json!(order_id);
+                value["matches"] = json!(matches);
+                value["is_demo_listing"] = json!(is_demo_listing);
+                value["delivery_point"] = json!(delivery_point);
+                value
+            }
             ParticipantFields::OrderCancelled(activity) => activity.payload(),
             ParticipantFields::OrderCreated {
                 activity,
