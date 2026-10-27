@@ -373,6 +373,19 @@ async fn invalid_persisted_row_resets_then_dispatches_without_restart() {
     let admin = sqlx::PgPool::connect(&std::env::var("STREAM_RUNTIME_ADMIN_URL").unwrap())
         .await
         .unwrap();
+    // Earlier suites in the same disposable database can commit fixture rows
+    // with explicit stream sequences above an untouched sequence. Draw new
+    // sequence values only from above every committed row, the same
+    // reconciliation the coexistence driver applies, so the unique
+    // constraint never sees a replayed value.
+    sqlx::query_scalar::<_, i64>(
+        "SELECT setval('market_event_stream_seq', \
+         GREATEST((SELECT COALESCE(MAX(stream_seq), 1) FROM market_event_outbox), \
+                  (SELECT last_value FROM market_event_stream_seq)), true)",
+    )
+    .fetch_one(&admin)
+    .await
+    .unwrap();
     let hub = verdaxis_read::streams::bus::StreamHub::default();
     let mut source = PgDispatchStore::new(pools.read.clone());
     let mut dispatch = Dispatch::initialize(&mut source, hub.clone())

@@ -16,6 +16,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
+
 _BACKEND_ROOT = Path(__file__).resolve().parents[2]
 _PARENT = "miq_20260720_market_quarantine"
 # Later product migrations extend the linearized market chain. The mi-specific
