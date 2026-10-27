@@ -114,7 +114,7 @@ fn bumps_version(order: &OrderIdentity, policy: &MarketPolicy) -> bool {
         || policy
             .products
             .iter()
-            .any(|p| p.id == order.product && p.code == "UCOME_B100")
+            .any(|p| p.id == order.product && p.qualification_profile == "fame_v1")
 }
 fn api_error(error: MarketWriteError) -> crate::ApiError {
     crate::ApiError {
