@@ -559,6 +559,23 @@ pub fn router_with(extra: Router<crate::AppState>, state: crate::AppState) -> Ro
         Some(phase2) => routes.merge(phase2),
         None => routes,
     };
+    let routes = if let Some(settings) = state.phase2.as_ref() {
+        let scores = crate::routes::compliance_scores::routes_with_context(Arc::new(
+            crate::routes::compliance_scores::RouteContext {
+                settings: Arc::new(settings.verification.clone()),
+                limits: limits.clone(),
+                clock: crate::routes::compliance_scores::Clock::Wall,
+            },
+        ));
+        let overlay = crate::routes::compliance_overlay::routes(
+            crate::routes::compliance_overlay::OverlayAuthority::new(
+                settings.verification.clone(), limits.clone(),
+            ),
+        );
+        routes.merge(scores.with_state(state.clone())).merge(overlay.with_state(state.clone()))
+    } else {
+        routes
+    };
     let routes = match super::phase3::routes(&state, limits.clone()) {
         Some(auth) => routes.merge(auth),
         None => routes,
