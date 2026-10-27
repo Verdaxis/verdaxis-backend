@@ -78,3 +78,29 @@ END $$;
 CREATE OR REPLACE FUNCTION completion_fixture_price(ord uuid,price numeric) RETURNS void LANGUAGE plpgsql AS $$ BEGIN
     UPDATE orderbook_orders SET price_per_mt_usd=price WHERE id=ord;
 END $$;
+
+-- Statement triggers count even a rebuild whose DELETE finds no row.
+CREATE TABLE IF NOT EXISTS completion_benchmark_calls(operation text NOT NULL);
+CREATE TABLE IF NOT EXISTS completion_benchmark_deleted(side text NOT NULL);
+CREATE OR REPLACE FUNCTION completion_benchmark_call() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$ BEGIN
+    INSERT INTO completion_benchmark_calls VALUES(TG_OP);
+    RETURN NULL;
+END $$;
+CREATE OR REPLACE FUNCTION completion_benchmark_delete() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$ BEGIN
+    INSERT INTO completion_benchmark_deleted VALUES(OLD.side);
+    RETURN OLD;
+END $$;
+CREATE OR REPLACE FUNCTION completion_fixture_benchmark_probe() RETURNS void LANGUAGE plpgsql AS $$ BEGIN
+    DROP TRIGGER IF EXISTS completion_benchmark_statement ON live_slice_benchmarks;
+    DROP TRIGGER IF EXISTS completion_benchmark_row ON live_slice_benchmarks;
+    TRUNCATE completion_benchmark_calls,completion_benchmark_deleted;
+    INSERT INTO live_slice_benchmarks(id,side,market_product,delivery_point_id,availability_window,benchmark_price_per_mt_usd,total_remaining_quantity_mt,order_count,source,created_at,updated_at)
+    SELECT gen_random_uuid(),s.side,'BIOFUEL_B30',o.delivery_point_id,o.availability_window,999,999,99,'live_slice_vwap',now(),now()
+    FROM (SELECT * FROM orderbook_orders LIMIT 1) o CROSS JOIN (VALUES('BID'),('ASK')) s(side);
+    CREATE TRIGGER completion_benchmark_statement AFTER INSERT OR DELETE ON live_slice_benchmarks FOR EACH STATEMENT EXECUTE FUNCTION completion_benchmark_call();
+    CREATE TRIGGER completion_benchmark_row AFTER DELETE ON live_slice_benchmarks FOR EACH ROW EXECUTE FUNCTION completion_benchmark_delete();
+END $$;
+CREATE OR REPLACE FUNCTION completion_fixture_benchmark_probe_remove() RETURNS void LANGUAGE plpgsql AS $$ BEGIN
+    DROP TRIGGER IF EXISTS completion_benchmark_statement ON live_slice_benchmarks;
+    DROP TRIGGER IF EXISTS completion_benchmark_row ON live_slice_benchmarks;
+END $$;
