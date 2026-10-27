@@ -34,9 +34,8 @@ fn budget(config: &Config, cache: u32, streams: u32) -> String {
     }).to_string()
 }
 
-fn state(mut config: Config) -> AppState {
+fn state(config: Config) -> AppState {
     // Offline tests never open a socket, even when the runtime tries admission.
-    config.phase2 = Default::default();
     let read = PgPoolOptions::new()
         .max_connections(2)
         .connect_lazy(
@@ -151,6 +150,16 @@ async fn stream_failure_readiness_is_not_ok() {
     config.prepared_budget = Some(budget(&config, 0, 1));
     let state = state(config);
     assert!(!verdaxis_read::streams::runtime::ready(&state));
+    let response = verdaxis_read::router(state)
+        .oneshot(
+            Request::builder()
+                .uri("/health/ready")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 503);
 }
 
 #[test]
@@ -170,7 +179,8 @@ async fn stream_runtime_database_lifecycle() {
     config.database_url = std::env::var("STREAM_RUNTIME_APP_URL").unwrap();
     config.prepared_budget = Some(budget(&config, 0, 1));
     let mut observed_limit = config.clone();
-    observed_limit.python_budget = 97;
+    observed_limit.read_admission_slots = 47;
+    observed_limit.pool_max = 48;
     observed_limit.configured_max_connections = 200;
     observed_limit.prepared_budget = Some(budget(&observed_limit, 0, 1));
     assert!(verdaxis_read::connect(&observed_limit).await.is_err());
@@ -178,12 +188,31 @@ async fn stream_runtime_database_lifecycle() {
     let policy =
         serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap();
     let mut state = AppState::new(config, pools.clone(), policy).unwrap();
-    let admin = sqlx::PgPool::connect(&std::env::var("STREAM_RUNTIME_ADMIN_URL").unwrap()).await.unwrap();
-    let floor: i64 = sqlx::query_scalar("SELECT discarded_through_seq FROM market_event_replay_state").fetch_one(&admin).await.unwrap();
-    sqlx::query("DELETE FROM market_event_replay_state").execute(&admin).await.unwrap();
-    assert!(start_streams(&mut state, CapacityConfig::default()).await.is_none());
+    let admin = sqlx::PgPool::connect(&std::env::var("STREAM_RUNTIME_ADMIN_URL").unwrap())
+        .await
+        .unwrap();
+    let floor: i64 =
+        sqlx::query_scalar("SELECT discarded_through_seq FROM market_event_replay_state")
+            .fetch_one(&admin)
+            .await
+            .unwrap();
+    sqlx::query("DELETE FROM market_event_replay_state")
+        .execute(&admin)
+        .await
+        .unwrap();
+    assert!(
+        start_streams(&mut state, CapacityConfig::default())
+            .await
+            .is_none()
+    );
     assert!(!verdaxis_read::streams::runtime::ready(&state));
-    sqlx::query("INSERT INTO market_event_replay_state(singleton,discarded_through_seq) VALUES (true,$1)").bind(floor).execute(&admin).await.unwrap();
+    sqlx::query(
+        "INSERT INTO market_event_replay_state(singleton,discarded_through_seq) VALUES (true,$1)",
+    )
+    .bind(floor)
+    .execute(&admin)
+    .await
+    .unwrap();
     admin.close().await;
     let runtime = start_streams(&mut state, CapacityConfig::default())
         .await
@@ -225,8 +254,30 @@ async fn stream_runtime_database_lifecycle() {
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
     }).await.unwrap();
+    // Removing the durable boundary stops dispatch and closes existing bodies.
+    let admin = sqlx::PgPool::connect(&std::env::var("STREAM_RUNTIME_ADMIN_URL").unwrap())
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM market_event_replay_state")
+        .execute(&admin)
+        .await
+        .unwrap();
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(5), subscription.wait_terminal())
+            .await
+            .unwrap(),
+        Terminal::Unavailable
+    );
+    assert!(!verdaxis_read::streams::runtime::ready(&state));
+    sqlx::query(
+        "INSERT INTO market_event_replay_state(singleton,discarded_through_seq) VALUES (true,$1)",
+    )
+    .bind(floor)
+    .execute(&admin)
+    .await
+    .unwrap();
     runtime.shutdown().await;
-    assert_eq!(subscription.wait_terminal().await, Terminal::Shutdown);
+    admin.close().await;
     assert!(!verdaxis_read::streams::runtime::ready(&state));
     assert!(hub.subscribe_public(PublicChannel::Prices).is_err());
     let count: i64 = sqlx::query_scalar(

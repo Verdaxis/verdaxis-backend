@@ -219,7 +219,9 @@ async fn supervise(
             cycle_shutdown.clone(),
         ));
         let mut store = PgDispatchStore::new(read.clone());
+        let drain_hub = hub.clone();
         let mut drain = tokio::spawn(async move {
+            let _availability = AvailabilityGuard(drain_hub);
             dispatch
                 .run(&mut store, &mut receiver, &mut cycle_shutdown.clone())
                 .await
