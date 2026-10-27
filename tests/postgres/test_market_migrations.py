@@ -1321,7 +1321,10 @@ async def test_cache_checkpoint_follows_production_revision(migration_database):
     allowlist = json.loads(
         (_BACKEND_ROOT / "deploy/rust/allowed-revisions.json").read_text()
     )
-    assert {"kycg_20261014_staging", "p0_20261016_union", "prc_20261018_cache", "prc_20261026_changes"} <= set(allowlist)
+    assert {
+        "kycg_20261014_staging", "p0_20261016_union", "prc_20261018_cache",
+        "prc_20261026_changes", "p3_20261020_auth_tokens",
+    } <= set(allowlist)
     policy = (_BACKEND_ROOT / "deploy/migration-checkpoints.tsv").read_text()
     assert "prc_20261018_cache\tprc_20261026_changes" in policy
     assert "p0_20261016_union\tprc_20261026_changes" in policy

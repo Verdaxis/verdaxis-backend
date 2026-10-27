@@ -167,6 +167,7 @@ def test_mixed_run_seeds_identities_before_the_suite(monkeypatch, tmp_path):
         return _Result()
 
     runner, _ = _runner(monkeypatch, seed=False)
+    runner.token = "-disposable-token-with-leading-hyphen-000000000"
     monkeypatch.setenv("CADDY_BIN", sys.executable)
     monkeypatch.setattr(run_disposable, "ephemeral_port", lambda: 41000)
     monkeypatch.setattr(run_disposable, "wait_for_port", lambda port: None)
@@ -181,6 +182,8 @@ def test_mixed_run_seeds_identities_before_the_suite(monkeypatch, tmp_path):
         runner.python_bin, "-m", "scripts.rust_contract.seed_integration"]]
     assert len(seed) == 1
     pytest_call = next(c for c in commands if c[1:3] == ["-m", "pytest"])
+    assert f"--disposable-target-token={runner.token}" in pytest_call
+    assert "--disposable-target-token" not in pytest_call
     # Seed first, then the suite; both use the one shared password.
     assert commands.index(seed[0]) < commands.index(pytest_call)
     for call in calls:

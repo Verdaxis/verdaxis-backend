@@ -734,7 +734,7 @@ CREATE EXTENSION IF NOT EXISTS postgis;
         subprocess.run(
             [self.python_bin, "-m", "pytest", "tests/integration", "-q",
              "--run-disposable-integration", "--disposable-target-url", url,
-             "--disposable-target-token", self.token],
+             f"--disposable-target-token={self.token}"],
             cwd=ROOT,
             env={**env, "DISPOSABLE_ITEST_PASSWORD": ITEST_PASSWORD},
             check=True,
