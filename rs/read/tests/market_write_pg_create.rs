@@ -341,7 +341,7 @@ async fn assisted_create_is_post_only() {
         }
     }
     let mut f = Fixture::new(1).await;
-    sqlx::query("UPDATE orderbook_orders SET off_spec=true")
+    sqlx::query("SELECT create_fixture_off_spec()")
         .execute(&mut f.admin)
         .await
         .unwrap();
@@ -564,7 +564,7 @@ async fn create_with_match_commits_order_and_trades_together() {
             ("trade_auto_matched".into(), 2)
         ]
     );
-    let private:i64=sqlx::query_scalar("SELECT count(*) FROM market_event_outbox WHERE payload ? 'producer_evidence' OR payload ? 'owner_user_id'").fetch_one(&mut f.observer).await.unwrap();
+    let private:i64=sqlx::query_scalar("SELECT count(*) FROM market_event_outbox WHERE payload::jsonb ? 'producer_evidence' OR payload::jsonb ? 'owner_user_id'").fetch_one(&mut f.observer).await.unwrap();
     assert_eq!(private, 0);
     assert_eq!(
         sqlx::query_scalar::<_, i64>(
@@ -629,8 +629,8 @@ async fn create_order_allocates_acceptance_after_the_slice_lock() {
     let mut f = Fixture::new(0).await;
     let key = verdaxis_read::order_write::market_slice_lock_key(f.product, Some(f.point), "SPOT");
     let mut blocker = f.pool.begin().await.unwrap();
-    verdaxis_read::market_contract::transaction::protocol_hold_key(&mut blocker, key).await;
-    let before: i64 = sqlx::query_scalar("SELECT last_value FROM orderbook_acceptance_ordinal_seq")
+    verdaxis_read::routes::market_write::order_create::contract_hold_key(&mut blocker, key).await;
+    let before: i64 = sqlx::query_scalar("SELECT create_fixture_last_ordinal()")
         .fetch_one(&mut f.admin)
         .await
         .unwrap();
@@ -645,7 +645,7 @@ async fn create_order_allocates_acceptance_after_the_slice_lock() {
         tokio::time::sleep(std::time::Duration::from_millis(2)).await;
     }
     assert_eq!(
-        sqlx::query_scalar::<_, i64>("SELECT last_value FROM orderbook_acceptance_ordinal_seq")
+        sqlx::query_scalar::<_, i64>("SELECT create_fixture_last_ordinal()")
             .fetch_one(&mut f.admin)
             .await
             .unwrap(),
@@ -667,12 +667,12 @@ async fn create_order_allocates_acceptance_after_the_slice_lock() {
 async fn same_key_creates_serialize_and_commit_one_effect_set() {
     let mut f = Fixture::new(0).await;
     let mut blocker = f.pool.begin().await.unwrap();
-    let key = verdaxis_read::order_write::idempotency_lock_key(
+    let key = verdaxis_read::routes::market_write::order_create::contract_key(
         Uuid::from_u128(0x1000),
         "order.create",
         "parallel",
     );
-    verdaxis_read::market_contract::transaction::protocol_hold_key(&mut blocker, key).await;
+    verdaxis_read::routes::market_write::order_create::contract_hold_key(&mut blocker, key).await;
     let router = f.router.clone();
     let body = f.body("BID");
     let first = tokio::spawn(async move {
@@ -707,8 +707,12 @@ async fn same_key_creates_serialize_and_commit_one_effect_set() {
     assert_eq!(f.count("orders").await, 0);
     blocker.commit().await.unwrap();
     let a = first.await.unwrap();
-    let b = second.await.unwrap();
+    let mut b = second.await.unwrap();
     assert_eq!(a.0, StatusCode::CREATED, "{a:?}");
+    if b.0 == StatusCode::CONFLICT {
+        assert_eq!(b.1["detail"]["code"], "MARKET_BUSY");
+        b = send(&f.router,Some(buyer()),&[("Idempotency-Key","parallel")],f.body("BID")).await;
+    }
     assert_eq!(b.0, StatusCode::CREATED, "{b:?}");
     assert_eq!(a.1["id"], b.1["id"]);
     assert_eq!(f.count("orders").await, 1);

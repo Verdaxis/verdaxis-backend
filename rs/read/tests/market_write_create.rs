@@ -143,6 +143,23 @@ fn confirmation_uses_raw_reference_length_and_optional_trimmed_evidence() {
 }
 
 #[test]
+fn persisted_hashes_match_the_source_schema_payload() {
+    use std::{io::Write, process::{Command, Stdio}};
+    let mut value=body();
+    value["support_confirmation"]=json!({"external_instruction_reference":" x ","instruction_at":"2026-10-27T11:00:00Z","evidence_excerpt":"  ","acknowledge_exact_terms":true,"acknowledge_executable_standing_order":true});
+    let input=CreateInput::parse(value.clone(),now()).unwrap();
+    let script="import json,sys; from app.schemas.orderbook import OrderCreate; from app.services.market_support import economic_order_idempotency_payload, authorization_terms_digest; from app.services.idempotency import idempotency_request_hash; o=OrderCreate.model_validate(json.load(sys.stdin)); p=economic_order_idempotency_payload(o); print(json.dumps([idempotency_request_hash(p),idempotency_request_hash({'order':p,'support_confirmation':o.support_confirmation.model_dump(mode='json')}),authorization_terms_digest(o)]))";
+    let mut child=Command::new(std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_|"python3".into())).current_dir(concat!(env!("CARGO_MANIFEST_DIR"),"/../..")).env("ENVIRONMENT","test").env("RELEASE_SHA","test").env("JWT_SECRET","test-secret-key-for-testing-minimum-32-chars").env("DATABASE_URL","sqlite+aiosqlite:///:memory:").args(["-c",script]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+    child.stdin.take().unwrap().write_all(value.to_string().as_bytes()).unwrap();
+    let output=child.wait_with_output().unwrap();
+    assert!(output.status.success(),"{}",String::from_utf8_lossy(&output.stderr));
+    let expected:Vec<String>=serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(input.request_hash(false).unwrap(),expected[0]);
+    assert_eq!(input.request_hash(true).unwrap(),expected[1]);
+    assert_eq!(input.authorization_digest().unwrap(),expected[2]);
+}
+
+#[test]
 fn create_hash_tracks_normalized_economics_and_confirmation() {
     let mut left = body();
     left["certifications"] = json!([" A ", "A", ""]);

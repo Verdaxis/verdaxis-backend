@@ -21,3 +21,6 @@ CREATE OR REPLACE FUNCTION create_fixture_authorization_collision(k text) RETURN
     FROM market_support_contexts c CROSS JOIN products p CROSS JOIN delivery_points d
     WHERE c.id='00000000-0000-0000-0000-000000003201' AND p.id='c4cecebc-3d2d-5840-8021-57a9a11bc673' AND d.name='Rotterdam';
 END $$;
+
+CREATE OR REPLACE FUNCTION create_fixture_last_ordinal() RETURNS bigint LANGUAGE sql AS $$ SELECT last_value FROM orderbook_acceptance_ordinal_seq $$;
+CREATE OR REPLACE FUNCTION create_fixture_off_spec() RETURNS void LANGUAGE sql AS $$ UPDATE orderbook_orders SET off_spec=true $$;
