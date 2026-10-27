@@ -73,6 +73,17 @@ impl MatchActivity {
 /// Explicit transport projection. Subscription identities cannot enter this type.
 #[derive(Clone, Debug)]
 pub enum ParticipantFields {
+    TradeCreated {
+        activity: MatchActivity,
+        product_id: Option<Uuid>,
+        id: Uuid,
+        status: String,
+        quantity: String,
+        price: String,
+        product_name: String,
+        fuel_type: String,
+        region: String,
+    },
     TradeAutoMatched {
         activity: MatchActivity,
         trade_id: Uuid,
@@ -107,6 +118,28 @@ pub enum ParticipantFields {
 impl ParticipantEvent {
     pub(super) fn payload(&self) -> Value {
         let mut value = match &self.fields {
+            ParticipantFields::TradeCreated {
+                activity,
+                product_id,
+                id,
+                status,
+                quantity,
+                price,
+                product_name,
+                fuel_type,
+                region,
+            } => {
+                let mut value = activity.payload();
+                value["product_id"] = json!(product_id);
+                value["id"] = json!(id);
+                value["status"] = json!(status);
+                value["quantity"] = json!(quantity);
+                value["price"] = json!(price);
+                value["product_name"] = json!(product_name);
+                value["fuel_type"] = json!(fuel_type);
+                value["region"] = json!(region);
+                value
+            }
             ParticipantFields::TradeAutoMatched {
                 activity,
                 trade_id,

@@ -330,6 +330,7 @@ fn boundary_insert_allowed(root: &Path, path: &Path, table: &str) -> bool {
             &["AUDIT_LOGS", "NOTIFICATIONS", "LIVE_SLICE_BENCHMARKS"],
         ),
         ("matching.rs", &["TRADES"]),
+        ("trades.rs", &["TRADES"]),
         ("dismissal.rs", &["MATCH_SUGGESTIONS"]),
         ("benchmarks.rs", &["LIVE_SLICE_BENCHMARKS"]),
         ("events.rs", &["WATCHLIST_EVENTS"]),
@@ -1473,5 +1474,42 @@ fn context_insert_authority_is_scoped_to_the_exact_source_file() {
         "UNLISTED_TABLE",
     ] {
         assert!(!boundary_insert_allowed(&root, &context, table));
+    }
+}
+
+#[test]
+fn direct_take_insert_authority_is_scoped_to_its_source() {
+    let root = repository_root();
+    let boundary = root.join("rs/read/src/order_write");
+    assert!(boundary_insert_allowed(
+        &root,
+        &boundary.join("trades.rs"),
+        "TRADES"
+    ));
+    for file in [
+        "transaction.rs",
+        "outbox.rs",
+        "command.rs",
+        "nested/trades.rs",
+    ] {
+        assert!(!boundary_insert_allowed(
+            &root,
+            &boundary.join(file),
+            "TRADES"
+        ));
+    }
+    for table in [
+        "USERS",
+        "ORDERBOOK_ORDERS",
+        "INVENTORY_ITEMS",
+        "NOTIFICATIONS",
+        "AUDIT_LOGS",
+        "UNLISTED_TABLE",
+    ] {
+        assert!(!boundary_insert_allowed(
+            &root,
+            &boundary.join("trades.rs"),
+            table
+        ));
     }
 }

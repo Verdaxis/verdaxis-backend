@@ -225,3 +225,11 @@ pub(crate) mod market_orders {
     pub(crate) use crate::order_write::orders::{OrderRequest, dispatch, refusal};
     pub(crate) use crate::order_write::{MarketErrorCode, MarketWriteError};
 }
+
+/// Narrow trade component types; transaction and connection ownership stay sealed.
+pub mod market_trades {
+    pub(crate) use crate::order_write::effects::AuditContext;
+    pub use crate::order_write::trades::{TradeCreate, TradePage, project_trade};
+    pub(crate) use crate::order_write::trades::{TradeRequest, dispatch};
+    pub use crate::order_write::{MarketErrorCode, MarketWriteError};
+}

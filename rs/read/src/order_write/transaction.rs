@@ -1610,7 +1610,13 @@ fn validate_plan_receipt(receipt: &Receipt, plan: &WritePlan) -> Result<(), ApiE
 fn is_command_receipt_collision(error: &sqlx::Error) -> bool {
     error.as_database_error().is_some_and(|failure| {
         failure.code().as_deref() == Some("23505")
-            && failure.constraint() == Some("uq_market_command_results_actor_operation_key")
+            && matches!(
+                failure.constraint(),
+                Some(
+                    "uq_market_command_results_actor_operation_key"
+                        | "uq_trades_initiator_operation_idempotency"
+                )
+            )
     })
 }
 
@@ -1761,6 +1767,24 @@ pub struct LockedMarketTransaction<'a> {
     locked: &'a super::locks::Locked,
 }
 impl LockedMarketTransaction<'_> {
+    pub(super) fn trades(
+        &mut self,
+    ) -> Result<super::trades::TradePort<'_>, super::MarketWriteError> {
+        super::trades::TradePort::new(self.conn, self.locked)
+    }
+    pub(super) async fn resolve_trade_context(
+        &mut self,
+        actor: &super::AuthenticatedActor,
+        id: Uuid,
+        enabled: bool,
+        now: chrono::DateTime<chrono::Utc>,
+        policy: &crate::MarketPolicy,
+        config: &crate::Config,
+    ) -> Result<Option<Uuid>, super::MarketWriteError> {
+        self.support()?
+            .resolve_trade_read(actor, id, enabled, now, policy, config)
+            .await
+    }
     pub(super) fn support(
         &mut self,
     ) -> Result<super::support::SupportPort<'_>, super::MarketWriteError> {

@@ -2,3 +2,4 @@
 pub mod inventory;
 pub mod matchmaking;
 pub mod orders;
+pub mod trades;

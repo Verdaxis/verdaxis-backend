@@ -205,6 +205,19 @@ fixture publication, bids, takes, fills, amendments and trade transitions.
 The SQL fixture models stock substeps in a disposable migrated database with
 a one-tonne catalog minimum and checks the fixed party and scalar-term domain.
 
+## Direct take and private trade components
+
+`order_write/trades.rs` inserts anonymous pending direct takes through the sealed
+organization-first owner. The trade freezes normalized typed terms, resting price
+and the seller fee, while only order remainder changes; inventory stays reserved
+until confirmation. Exact initiating-user/key replay returns the current trade
+projection before fresh execution admission. Trade reads use cleanup authentication,
+a distinct authorized relation and a per-row recorded viewer, with stable descending
+created-time/UUID pages. Support-context reads reuse the locked context expiry
+transition and cannot grant settlement authority. `analytics/sender.rs` schedules
+bounded, failure-isolated Umami conversion delivery after a known commit; replay
+and rollback do not schedule it. The component routes remain unmounted for serving.
+
 ## Supplier inventory component
 
 `order_write/inventory.rs` implements supplier inventory records through the ordered

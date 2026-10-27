@@ -36,6 +36,7 @@ pub enum MutationKind {
     SupportCapabilityGranted,
     SupportCapabilityRevoked,
     CommissionChanged,
+    TradeCreated,
     TradeAutoMatched,
     OrdersMatched,
 }
@@ -56,6 +57,7 @@ impl MutationKind {
             Self::SupportCapabilityGranted => "market_support.capability_granted",
             Self::SupportCapabilityRevoked => "market_support.capability_revoked",
             Self::CommissionChanged => "commission.updated",
+            Self::TradeCreated => "trade.created",
             Self::TradeAutoMatched => "trade.auto_matched",
             Self::OrdersMatched => return None,
         })
@@ -66,6 +68,7 @@ impl MutationKind {
             Self::OrderCancelled
                 | Self::OrderExpired
                 | Self::InventoryPublished
+                | Self::TradeCreated
                 | Self::TradeAutoMatched
         )
     }
@@ -366,6 +369,48 @@ impl<'a> EffectPort<'a> {
             targets,
             at,
         })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn trade_created(
+        &mut self,
+        before: BeforeEffects,
+        actor: Uuid,
+        organization: Uuid,
+        trade: &Value,
+        input: &super::trades::TradeCreate,
+        audit: &AuditContext,
+        policy: &MarketPolicy,
+        config: &Config,
+        at: DateTime<Utc>,
+    ) -> Result<Uuid, MarketWriteError> {
+        let parse = |key| {
+            trade[key]
+                .as_str()
+                .and_then(|v| v.parse::<Uuid>().ok())
+                .ok_or_else(internal)
+        };
+        let id = parse("id")?;
+        let buyer = parse("buyer_id")?;
+        let seller = parse("seller_id")?;
+        let counterparty = if organization == buyer { seller } else { buyer };
+        let recipients: Vec<Uuid> =
+            sqlx::query_scalar("SELECT id FROM users WHERE organization_id=$1 ORDER BY id")
+                .bind(counterparty)
+                .fetch_all(&mut *self.conn)
+                .await?;
+        for recipient in recipients {
+            sqlx::query("INSERT INTO notifications(id,recipient_id,type,title,message,data,is_read,created_at) VALUES($1,$2,'ORDER_UPDATE','New Trade Request',$3,$4,false,$5)").bind(Uuid::new_v4()).bind(recipient).bind(format!("A new trade request for {} MT at ${}/MT has been placed.",input.quantity_mt,trade["price_per_mt_usd"].as_str().unwrap_or_default())).bind(json!({"trade_id":id})).bind(at).execute(&mut *self.conn).await?;
+        }
+        let public_before = before.orders.iter().any(|o| o.public.is_some());
+        let after = load_orders(self.conn, policy, config, &[input.order_id], at).await?;
+        let public = public_before || after.iter().any(|o| o.public.is_some());
+        let mut set = before.stage();
+        set.push(MutationEffect{kind:MutationKind::TradeCreated,actor_id:actor,organization_id:organization,resource_type:"trade".into(),resource_id:id,
+            changes:json!({"order_id":input.order_id,"quantity_mt":input.quantity_mt.to_string(),"price_per_mt_usd":trade["price_per_mt_usd"],"fame_terms_snapshot":trade["fame_terms_snapshot"],"certification_declared":input.certification_declared,"msds_available":input.msds_available}),
+            event:Some(ParticipantEvent{event_type:"trade_created".into(),aggregate_type:"trade".into(),aggregate_id:id.to_string(),participant_org_ids:vec![buyer,seller],public_invalidated:public,
+              fields:super::outbox::ParticipantFields::TradeCreated{product_id:trade["product_id"].as_str().and_then(|v|v.parse().ok()),activity:super::outbox::MatchActivity{source_kind:"CONFIRMED_TRADE".into(),scope:if trade["delivery_point_id"].is_null(){"UNKNOWN"}else{"DELIVERY_POINT"}.into(),demo_status:"REAL_ONLY".into(),unknown_count:0,market_product:trade["market_product"].as_str().map(str::to_owned),delivery_point_id:trade["delivery_point_id"].as_str().and_then(|v|v.parse().ok()),availability_window:trade["availability_window"].as_str().unwrap_or_default().into(),observed_at:at},id,status:"PENDING_CONFIRMATION".into(),quantity:input.quantity_mt.to_string(),price:trade["price_per_mt_usd"].as_str().unwrap_or_default().into(),product_name:trade["product_name"].as_str().unwrap_or_default().into(),fuel_type:trade["fuel_type"].as_str().unwrap_or_default().into(),region:trade["region"].as_str().unwrap_or_default().into()}}),at,audit_context:audit.clone()})?;
+        self.finish(policy, config, set).await
     }
 
     /// Stage match effects alongside route effects; the caller finalizes once.

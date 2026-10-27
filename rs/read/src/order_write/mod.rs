@@ -30,6 +30,7 @@ pub mod outbox;
 mod post_only;
 mod reservations;
 pub mod support;
+pub mod trades;
 mod transaction;
 
 pub use authority::admission::{

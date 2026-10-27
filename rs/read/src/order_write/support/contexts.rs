@@ -439,3 +439,73 @@ impl SupportPort<'_> {
         ))
     }
 }
+
+/// The same declared context graph and expiry transition used by context routes.
+pub(in crate::order_write) async fn preview_for_read(
+    conn: &mut PgConnection,
+    actor: Uuid,
+    id: Uuid,
+) -> Result<MarketPreview, MarketWriteError> {
+    preview(conn, actor, &SupportAction::ContextGet(id)).await
+}
+impl SupportPort<'_> {
+    pub(in crate::order_write) async fn resolve_trade_read(
+        &mut self,
+        actor: &AuthenticatedActor,
+        id: Uuid,
+        enabled: bool,
+        now: DateTime<Utc>,
+        policy: &MarketPolicy,
+        config: &Config,
+    ) -> Result<Option<Uuid>, MarketWriteError> {
+        let error = |status| {
+            let mut e = MarketWriteError::new(MarketErrorCode::MarketSupportContextInvalid);
+            e.status = status;
+            e
+        };
+        if !enabled
+            || actor.account().role != super::super::authority::ActorRole::Admin
+            || actor.account().status != super::super::authority::AccountState::Approved
+        {
+            return Err(error(axum::http::StatusCode::NOT_FOUND));
+        }
+        let capabilities = current_capabilities(self.conn, actor.user_id(), now).await?;
+        if !capabilities.contains(&Capability::Listings)
+            || !capabilities.contains(&Capability::Authorizations)
+        {
+            return Err(error(axum::http::StatusCode::NOT_FOUND));
+        }
+        let mut row = self.owned_context(id, actor.user_id()).await.map_err(|e| {
+            if e.code == MarketErrorCode::NotFound {
+                error(axum::http::StatusCode::NOT_FOUND)
+            } else {
+                e
+            }
+        })?;
+        if row.status != ContextStatus::Active {
+            return Err(error(axum::http::StatusCode::CONFLICT));
+        }
+        if row.expires_at <= now {
+            let settings = SupportSettings::new(enabled, "");
+            let audit = AuditContext::default();
+            let context = ActionContext {
+                actor: actor.user_id(),
+                now,
+                audit: &audit,
+                policy,
+                config,
+                settings: &settings,
+            };
+            self.end_context(&mut row, ContextStatus::Expired, &context)
+                .await?;
+            return Ok(None);
+        }
+        if row.scope != "ASSISTED_ORDER_ENTRY" {
+            return Err(error(axum::http::StatusCode::CONFLICT));
+        }
+        self.require_real_organization(row.organization_id)
+            .await
+            .map_err(|_| error(axum::http::StatusCode::CONFLICT))?;
+        Ok(Some(row.organization_id))
+    }
+}

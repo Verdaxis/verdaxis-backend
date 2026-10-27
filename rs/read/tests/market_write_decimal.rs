@@ -522,6 +522,8 @@ fn sqlstate_mapping_table_is_total() {
         "ORDER_VERSION_STALE",
         "MARKET_SUPPORT_CONTEXT_INVALID",
         "NOT_FOUND",
+        "ORDER_TERMS_REVIEW_REQUIRED",
+        "LNG_TERMS_INCOMPATIBLE",
         "ORDER_UNAVAILABLE",
         "QUANTITY_EXCEEDS_REMAINING",
         "QUANTITY_OUT_OF_RANGE",

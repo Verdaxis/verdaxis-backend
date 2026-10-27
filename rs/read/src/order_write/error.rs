@@ -63,6 +63,8 @@ macro_rules! market_error_codes {
 }
 
 market_error_codes! {
+    OrderTermsReviewRequired => "ORDER_TERMS_REVIEW_REQUIRED", StatusCode::CONFLICT, "Refresh and review the order terms before trading";
+    LngTermsIncompatible => "LNG_TERMS_INCOMPATIBLE", StatusCode::CONFLICT, "The LNG terms are not compatible";
     OrderNotFound => "ORDER_NOT_FOUND", StatusCode::NOT_FOUND, "Order not found";
     OrderOwnerForbidden => "ORDER_OWNER_FORBIDDEN", StatusCode::FORBIDDEN,
         "The order is not owned by this actor";
