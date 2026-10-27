@@ -719,3 +719,128 @@ async fn same_key_creates_serialize_and_commit_one_effect_set() {
     assert_eq!(f.count("audit").await, 1);
     assert_eq!(f.count("events").await, 1);
 }
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn assisted_authority_and_customer_admission_are_independent() {
+    for (change,status) in [("capability_revoked",404),("capability_expired",404),("context_exited",409),("context_foreign",404),("organization_pending",409),("organization_unknown",409),("member_absent",403),("member_rejected",403),("member_pending",403)] {
+        let mut f=Fixture::new(0).await;
+        sqlx::query("SELECT create_fixture_support_change($1)").bind(change).execute(&mut f.admin).await.unwrap();
+        let reply=send(&f.router,Some(staff()),&[("X-Verdaxis-Market-Support-Context",CONTEXT),("Idempotency-Key","authority")],f.assisted("BID")).await;
+        assert_eq!(reply.0.as_u16(),status,"{change}: {reply:?}");
+        for table in ["orders","authorizations","trades","events","audit"] {assert_eq!(f.count(table).await,0,"{change}: {table}");}
+    }
+    let mut f=Fixture::new(0).await;
+    let reply=send(&f.router,Some(staff()),&[("X-Verdaxis-Market-Support-Context",CONTEXT),("Idempotency-Key","ask")],f.assisted("ASK")).await;
+    assert_eq!(reply.0,StatusCode::CREATED,"{reply:?}");
+    assert_eq!(f.count("trades").await,0);
+    assert_eq!(f.count("authorizations").await,1);
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn minimum_lot_and_catalog_failures_keep_their_statuses() {
+    for (change,status) in [("minimum_zero",409),("minimum_negative",409),("product_inactive",400)] {
+        let mut f=Fixture::new(0).await;
+        sqlx::query("SELECT create_fixture_catalog_change($1)").bind(change).execute(&mut f.admin).await.unwrap();
+        let reply=send(&f.router,Some(buyer()),&[],f.body("BID")).await;
+        assert_eq!(reply.0.as_u16(),status,"{change}: {reply:?}");
+        assert_eq!(f.count("orders").await,0);
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn strict_grace_allows_pending_but_never_rejection() {
+    let mut f=Fixture::new(0).await;
+    sqlx::query("SELECT create_fixture_grace(false)").execute(&mut f.admin).await.unwrap();
+    assert_eq!(send(&f.router,Some(buyer()),&[],f.body("BID")).await.0,StatusCode::CREATED);
+    sqlx::query("SELECT create_fixture_grace(true)").execute(&mut f.admin).await.unwrap();
+    let reply=send(&f.router,Some(buyer()),&[],f.body("BID")).await;
+    assert_eq!(reply.0,StatusCode::FORBIDDEN);
+    assert_eq!(reply.1["detail"]["kyc_status"],"REJECTED");
+    assert!(reply.1["detail"]["grace_expires_at"].is_string());
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn satisfied_hundred_fills_keep_preview_overflow_without_refusal() {
+    let mut f=Fixture::new(101).await;
+    sqlx::query("SELECT create_fixture_minimum_one()").execute(&mut f.admin).await.unwrap();
+    let mut body=f.body("BID");body["quantity_mt"]=json!("100");
+    let reply=send(&f.router,Some(buyer()),&[],body).await;
+    assert_eq!(reply.0,StatusCode::CREATED,"{reply:?}");
+    assert_eq!(reply.1["status"],"FILLED");
+    assert_eq!(f.count("trades").await,100);
+    assert_eq!(f.count("events").await,102);
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn create_consumes_resting_inventory_and_rolls_back_a_later_failure() {
+    for fail in [false,true] {
+        let mut f=Fixture::new(2).await;
+        let item=Uuid::new_v4();
+        sqlx::query("SELECT matching_fixture_back_inventory($1,$2)").bind(Uuid::from_u128(2)).bind(item).execute(&mut f.admin).await.unwrap();
+        if fail {sqlx::query("SELECT matching_fixture_reject_trade($1)").bind(Uuid::from_u128(3)).execute(&mut f.admin).await.unwrap();}
+        let reply=send(&f.router,Some(buyer()),&[("Idempotency-Key","stock")],f.body("BID")).await;
+        assert_eq!(reply.0,if fail {StatusCode::UNPROCESSABLE_ENTITY}else{StatusCode::CREATED},"{reply:?}");
+        let stock:Decimal=sqlx::query_scalar("SELECT reserved_stock_mt FROM inventory_items WHERE id=$1").bind(item).fetch_one(&mut f.observer).await.unwrap();
+        assert_eq!(stock,if fail {Decimal::ONE}else{Decimal::ZERO});
+        if fail {for table in ["trades","events","audit","notifications"] {assert_eq!(f.count(table).await,0);}}
+        assert_eq!(sqlx::query_scalar::<_,i64>("SELECT count(*) FROM orderbook_orders WHERE inventory_item_id IS NOT NULL").fetch_one(&mut f.observer).await.unwrap(),1);
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn create_rebuilds_both_benchmark_sides_once() {
+    let mut f=Fixture::new(2).await;
+    sqlx::raw_sql(include_str!("fixtures/market_write_match_completion.sql")).execute(&mut f.admin).await.unwrap();
+    sqlx::query("SELECT completion_fixture_benchmark_probe()").execute(&mut f.admin).await.unwrap();
+    let reply=send(&f.router,Some(buyer()),&[],f.body("BID")).await;
+    assert_eq!(reply.0,StatusCode::CREATED,"{reply:?}");
+    let sides:Vec<String>=sqlx::query_scalar("SELECT side::text FROM live_slice_benchmarks ORDER BY side").fetch_all(&mut f.observer).await.unwrap();
+    assert_eq!(sides,vec!["BID"]);
+    let calls:Vec<(String,i64)>=sqlx::query_as("SELECT operation,count(*) FROM completion_benchmark_calls GROUP BY operation ORDER BY operation").fetch_all(&mut f.admin).await.unwrap();
+    assert_eq!(calls,vec![("DELETE".into(),2),("INSERT".into(),1)]);
+    sqlx::query("SELECT completion_fixture_benchmark_probe_remove()").execute(&mut f.admin).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn create_retries_only_server_transaction_aborts() {
+    for state in ["40001","40P01"] {
+        let mut f=Fixture::new(0).await;
+        sqlx::query("SELECT create_fixture_abort_once($1)").bind(state).execute(&mut f.admin).await.unwrap();
+        let reply=send(&f.router,Some(buyer()),&[("Idempotency-Key","retry")],f.body("BID")).await;
+        sqlx::query("SELECT create_fixture_abort_remove()").execute(&mut f.admin).await.unwrap();
+        assert_eq!(reply.0,StatusCode::CREATED,"{state}: {reply:?}");
+        assert_eq!(f.count("orders").await,1);
+        assert_eq!(f.count("events").await,1);
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn typed_create_uses_catalog_profiles_and_refuses_reseller_admission() {
+    let mut f=Fixture::new(0).await;
+    let policy:Value=serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap();
+    for profile in ["fame_v1","lng_v1"] {
+        let p=policy["products"].as_array().unwrap().iter().find(|p|p["qualification_profile"]==profile).unwrap();
+        let mut body=f.body("BID");body["product_id"]=p["id"].clone();body["delivery_point_id"]=p["lanes"][0].clone();body["quantity_mt"]=json!("1");
+        let field=if profile=="fame_v1" {"fame_terms"}else{"lng_terms"};
+        assert_eq!(send(&f.router,Some(buyer()),&[],body.clone()).await.0,StatusCode::UNPROCESSABLE_ENTITY);
+        body[field]=if profile=="fame_v1" {json!({"side":"BID","neat_fame":true,"standard":"EN_14214","standard_edition":"2012+A2:2019","sustainability_scheme":"ISCC_EU"})}else{json!({"side":"BID","accepted_schemes":["ISCC_EU"],"accepted_delivery_methods":["SHIP_TO_SHIP"]})};
+        let reply=send(&f.router,Some(buyer()),&[],body.clone()).await;
+        assert_eq!(reply.0,StatusCode::CREATED,"{profile}: {reply:?}");
+        body["quantity_mt"]=json!("0.99");
+        assert_eq!(send(&f.router,Some(buyer()),&[],body).await.0,StatusCode::UNPROCESSABLE_ENTITY);
+    }
+    let p=policy["products"].as_array().unwrap().iter().find(|p|p["qualification_profile"]=="lng_v1").unwrap();
+    let mut body=f.body("ASK");body["product_id"]=p["id"].clone();body["delivery_point_id"]=p["lanes"][0].clone();body["quantity_mt"]=json!("1");
+    body["lng_terms"]=json!({"side":"ASK","sustainability_scheme":"ISCC_EU","scheme_certificate_number":"synthetic-certificate","chain_of_custody":"MASS_BALANCE","union_database_registered":true,"bio_share_pct":"100","feedstock":"MANURE","production_country":"NL","wtt_ghg_gco2e_mj":"-20.25","specification_standard":"ISO 23306:2020","min_methane_number":"80","delivery_method":"SHIP_TO_SHIP","seller_is_physical_supplier":false,"physical_supplier_name":"Synthetic supplier","pos_timing":"WITH_DELIVERY"});
+    let reply=send(&f.router,Some(seller()),&[],body).await;
+    assert_eq!(reply.0,StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(reply.1["detail"]["code"],"RESELLER_ALLOCATION_REQUIRED");
+}

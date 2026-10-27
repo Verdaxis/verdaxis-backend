@@ -24,3 +24,35 @@ END $$;
 
 CREATE OR REPLACE FUNCTION create_fixture_last_ordinal() RETURNS bigint LANGUAGE sql AS $$ SELECT last_value FROM orderbook_acceptance_ordinal_seq $$;
 CREATE OR REPLACE FUNCTION create_fixture_off_spec() RETURNS void LANGUAGE sql AS $$ UPDATE orderbook_orders SET off_spec=true $$;
+
+CREATE OR REPLACE FUNCTION create_fixture_support_change(change text) RETURNS void LANGUAGE plpgsql AS $$ BEGIN
+ CASE change
+ WHEN 'capability_revoked' THEN UPDATE staff_capability_assignments SET revoked_at=now() WHERE capability='MARKET_SUPPORT_LISTINGS';
+ WHEN 'capability_expired' THEN UPDATE staff_capability_assignments SET expires_at=now()-interval '1 second' WHERE capability='MARKET_SUPPORT_AUTHORIZATIONS';
+ WHEN 'context_exited' THEN UPDATE market_support_contexts SET status='EXITED',ended_at=now();
+ WHEN 'context_foreign' THEN UPDATE market_support_contexts SET actor_user_id='00000000-0000-0000-0000-000000002001';
+ WHEN 'organization_pending' THEN UPDATE organizations SET verification_status='PENDING' WHERE id='00000000-0000-0000-0000-000000001000';
+ WHEN 'organization_unknown' THEN UPDATE organizations SET provenance='UNKNOWN' WHERE id='00000000-0000-0000-0000-000000001000';
+ WHEN 'member_absent' THEN UPDATE users SET organization_id=NULL WHERE id='00000000-0000-0000-0000-000000001001';
+ WHEN 'member_rejected' THEN UPDATE users SET kyc_status='REJECTED' WHERE id='00000000-0000-0000-0000-000000001001';
+ WHEN 'member_pending' THEN UPDATE users SET status='PENDING' WHERE id='00000000-0000-0000-0000-000000001001';
+ END CASE;
+END $$;
+CREATE OR REPLACE FUNCTION create_fixture_catalog_change(change text) RETURNS void LANGUAGE plpgsql AS $$ BEGIN
+ CASE change WHEN 'minimum_zero' THEN UPDATE products SET min_lot_size=0 WHERE id='c4cecebc-3d2d-5840-8021-57a9a11bc673';
+ WHEN 'minimum_negative' THEN UPDATE products SET min_lot_size=-1 WHERE id='c4cecebc-3d2d-5840-8021-57a9a11bc673';
+ WHEN 'product_inactive' THEN UPDATE products SET is_active=false WHERE id='c4cecebc-3d2d-5840-8021-57a9a11bc673'; END CASE;
+END $$;
+CREATE OR REPLACE FUNCTION create_fixture_minimum_one() RETURNS void LANGUAGE sql AS $$ UPDATE products SET min_lot_size=1 WHERE id='c4cecebc-3d2d-5840-8021-57a9a11bc673' $$;
+CREATE OR REPLACE FUNCTION create_fixture_grace(rejected boolean) RETURNS void LANGUAGE plpgsql AS $$ BEGIN
+ UPDATE users SET kyc_status=CASE WHEN rejected THEN 'REJECTED' ELSE 'PENDING' END,kyc_organization_id=NULL WHERE id='00000000-0000-0000-0000-000000001001';
+ INSERT INTO kyc_execution_grace(id,user_id,organization_id,kyc_status_at_enrollment,enrolled_at,expires_at,created_by) VALUES(gen_random_uuid(),'00000000-0000-0000-0000-000000001001','00000000-0000-0000-0000-000000001000','PENDING',now(),now()+interval '1 hour','fixture') ON CONFLICT DO NOTHING;
+END $$;
+CREATE SEQUENCE IF NOT EXISTS create_fixture_attempts;
+CREATE OR REPLACE FUNCTION create_fixture_abort_once(state text) RETURNS void LANGUAGE plpgsql AS $$ BEGIN
+ PERFORM setval('create_fixture_attempts',1,false);
+ EXECUTE 'CREATE OR REPLACE FUNCTION create_fixture_abort() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $body$ BEGIN IF nextval(''create_fixture_attempts'')=1 THEN RAISE EXCEPTION ''transaction attempt'' USING ERRCODE=' || quote_literal(state) || '; END IF; RETURN NEW; END $body$';
+ DROP TRIGGER IF EXISTS create_fixture_abort ON orderbook_orders;
+ CREATE TRIGGER create_fixture_abort BEFORE INSERT ON orderbook_orders FOR EACH ROW EXECUTE FUNCTION create_fixture_abort();
+END $$;
+CREATE OR REPLACE FUNCTION create_fixture_abort_remove() RETURNS void LANGUAGE plpgsql AS $$ BEGIN DROP TRIGGER IF EXISTS create_fixture_abort ON orderbook_orders; END $$;
