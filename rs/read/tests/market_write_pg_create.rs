@@ -1246,3 +1246,19 @@ async fn support_headers_confirmation_and_legacy_replay_keep_distinct_authority(
         StatusCode::CREATED
     );
 }
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn unknown_organization_provenance_is_not_a_demo_listing() {
+    let mut f=Fixture::new(0).await;
+    sqlx::query("SELECT create_fixture_unknown_member()").execute(&mut f.admin).await.unwrap();
+    let reply=send(&f.router,Some(Uuid::from_u128(0x9001)),&[],f.body("BID")).await;
+    assert_eq!(reply.0,StatusCode::CREATED,"{reply:?}");
+    assert_eq!(reply.1["is_demo_listing"],false);
+    assert_eq!(reply.1["source_kind"],"UNKNOWN");
+    assert_eq!(reply.1["demo_status"],"UNKNOWN");
+    assert_eq!(reply.1["unknown_count"],1);
+    let event:Value=sqlx::query_scalar("SELECT payload::jsonb FROM market_event_outbox").fetch_one(&mut f.observer).await.unwrap();
+    assert_eq!(event["is_demo_listing"],false);
+    assert_eq!(event["unknown_count"],1);
+}

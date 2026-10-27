@@ -65,3 +65,8 @@ CREATE OR REPLACE FUNCTION create_fixture_always_refuse() RETURNS void LANGUAGE 
 END $$;
 
 CREATE OR REPLACE FUNCTION create_fixture_nullable_owner(ord uuid) RETURNS void LANGUAGE sql AS $$ UPDATE orderbook_orders SET owner_user_id=NULL,created_by_actor_user_id=NULL WHERE id=ord $$;
+
+CREATE OR REPLACE FUNCTION create_fixture_unknown_member() RETURNS void LANGUAGE plpgsql AS $$ BEGIN
+ INSERT INTO organizations(id,name,type,verification_status,provenance) VALUES('00000000-0000-0000-0000-000000009000','Unknown member fixture','SHIPOWNER','APPROVED','UNKNOWN');
+ PERFORM matching_fixture_member('00000000-0000-0000-0000-000000009000','00000000-0000-0000-0000-000000009001','BUYER');
+END $$;
