@@ -19,6 +19,11 @@ ROOT = pathlib.Path(__file__).resolve().parents[3]
 def main():
     class Owner(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
+            if self.path == "/internal/admin-preauth":
+                assert self.headers.get("X-Verdaxis-Preauth-Counted") is None
+                self.send_response(429)
+                self.end_headers()
+                return
             self.send_response(200)
             self.send_header("X-Owner", "rust")
             self.end_headers()
@@ -63,6 +68,22 @@ def main():
                 with urllib.request.urlopen(request, timeout=5) as response:
                     assert response.headers.get("X-Owner") == expected, (method, path, expected)
             print(f"CADDY_OWNERSHIP=ok OPERATIONS={len(routes)} CASES={len(corpus)}")
+            process.terminate(); process.wait(timeout=10)
+            config.write_text("{\n admin off\n auto_https off\n}\n" + (ROOT / "deploy/caddy/rust-crud.caddy").read_text() + (ROOT / "deploy/caddy/rust-phase4.caddy").read_text() + f"\nhttp://127.0.0.1:{port} {{\n route {{\n request_header -X-Verdaxis-Preauth-Counted\n import verdaxis_rust_crud 127.0.0.1:{upstream.server_port} 127.0.0.1:{upstream.server_port} 127.0.0.1:{upstream.server_port} 127.0.0.1:{upstream.server_port} 127.0.0.1:{upstream.server_port} 127.0.0.1:{upstream.server_port} 127.0.0.1:{upstream.server_port} 127.0.0.1:1\n import verdaxis_rust_phase4 127.0.0.1:{upstream.server_port}\n handle {{ respond 200 }}\n }}\n}}\n")
+            subprocess.run(["caddy","validate","--config",str(config),"--adapter","caddyfile"],check=True)
+            process=subprocess.Popen(["caddy","run","--config",str(config),"--adapter","caddyfile"],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+            for _ in range(100):
+                try:
+                    with socket.create_connection(("127.0.0.1",port),timeout=.1):break
+                except OSError:time.sleep(.05)
+            request=urllib.request.Request(f"http://127.0.0.1:{port}/api/admin/analytics/overview",headers={"X-Verdaxis-Preauth-Counted":"1"})
+            try:
+                urllib.request.urlopen(request,timeout=5)
+                raise AssertionError("forged preauth mark bypassed shared gate")
+            except urllib.error.HTTPError as error:
+                assert error.code==429
+            print("CADDY_FORGED_MARK=refused")
+
         finally:
             process.terminate()
             process.wait(timeout=10)
