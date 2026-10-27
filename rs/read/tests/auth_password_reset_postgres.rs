@@ -433,13 +433,13 @@ async def main():
 asyncio.run(main())
 "#;
     let status = std::process::Command::new(
-        std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "venv/bin/python".into()),
+        std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "python3".into()),
     )
     .args(["-c", script])
     .current_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
     .env("E2_TOKEN", &token)
     .status()
-    .unwrap();
+    .expect("Python interpreter unavailable: set RUST_TEST_PYTHON or put python3 on PATH");
     assert!(status.success());
     sqlx::query("DELETE FROM users WHERE id=$1")
         .bind(id)
