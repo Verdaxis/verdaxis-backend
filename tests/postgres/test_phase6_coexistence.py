@@ -48,10 +48,11 @@ async def test_four_python_workers_and_rust_sequence_committed_rows(analytics_pg
         org = str(uuid4())
         pending_ids = []
         for _, pipe, _ in workers:
-            response = await request(pipe, {"op":"produce", "org":org, "aggregate":str(uuid4())})
-            pending_ids.extend(response["pending"])
-        # Three fast commits are visible; the fourth producer is still at its barrier.
+            assert (await request(pipe, {"op":"produce", "org":org, "aggregate":str(uuid4())}))["prepared"]
+        # Cache generation updates serialize inserts. Keep the slow producer
+        # before its first flush rather than holding that shared metadata lock.
         for _, pipe, _ in workers[1:]:
+            pending_ids.extend((await request(pipe, {"op":"flush"}))["pending"])
             await request(pipe, {"op":"commit"})
         leader = workers[1][1]
         assert (await request(leader, {"op":"elect"}))["leader"]
@@ -62,17 +63,18 @@ async def test_four_python_workers_and_rust_sequence_committed_rows(analytics_pg
         assert (await request(leader, {"op":"assign"}))["assigned"] == 3
         async with owner.connect() as connection:
             rows = (await connection.execute(text("SELECT id::text,stream_seq,delivery_attempts FROM market_event_outbox WHERE participant_org_ids::jsonb ? :org ORDER BY stream_seq"), {"org":org})).all()
-        assert {row[0] for row in rows} == set(pending_ids[1:])
+        assert {row[0] for row in rows} == set(pending_ids)
         assert all(row[2] == 1 for row in rows)
         high_water = max(row[1] for row in rows)
         await request(leader, {"op":"release"})
+        pending_ids.extend((await request(workers[0][1], {"op":"flush"}))["pending"])
         await request(workers[0][1], {"op":"commit"})
         actor.send("assign")
         assert "Committed { assigned: 1 }" in (await actor.receive())["outcome"]
         async with owner.connect() as connection:
             rows = (await connection.execute(text("SELECT id::text,stream_seq,delivery_attempts FROM market_event_outbox WHERE participant_org_ids::jsonb ? :org ORDER BY stream_seq"), {"org":org})).all()
         assert {row[0] for row in rows} == set(pending_ids)
-        assert rows[-1][0] == pending_ids[0] and rows[-1][1] > high_water
+        assert rows[-1][0] == pending_ids[-1] and rows[-1][1] > high_water
         assert len({row[1] for row in rows}) == 4
         assert all(row[2] == 1 for row in rows)
         print({"worker_processes":[worker[2]["ready"] for worker in workers],

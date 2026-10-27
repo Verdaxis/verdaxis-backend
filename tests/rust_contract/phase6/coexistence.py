@@ -74,6 +74,8 @@ async def python_worker(connection):
                 event = participant_market_event(event_type="trade_created", aggregate_type="trade",
                     aggregate_id=command["aggregate"], participant_org_ids=[UUID(command["org"])],
                     payload={"trade_id": command["aggregate"], "quantity_mt":"10"})
+                connection.send({"prepared": True})
+            elif operation == "flush":
                 ids = await enqueue_market_events(pending, [event])
                 connection.send({"pending": [str(value) for value in ids]})
             elif operation == "commit":

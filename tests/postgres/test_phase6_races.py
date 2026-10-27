@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import os
+import subprocess
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -12,8 +14,8 @@ from tests.rust_contract.phase6.coexistence import RustActor
 
 
 @pytest.mark.asyncio
-async def test_rust_assignment_connection_loss_is_atomic(analytics_pg_url, stream_fixture_binary):
-    del stream_fixture_binary
+async def test_rust_assignment_connection_loss_is_atomic(analytics_pg_url):
+    coexistence_fixture.stream_fixture_binary.__wrapped__()
     owner = create_async_engine(analytics_pg_url)
     admin = create_async_engine(os.environ["POSTGRES_ADMIN_TEST_DATABASE_URL"])
     org, event = str(uuid4()), uuid4()
