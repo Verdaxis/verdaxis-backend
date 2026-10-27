@@ -83,6 +83,17 @@ fn business_quota_capacity_refuses_without_spending_existing_quota() {
             .as_u16(),
         429
     );
+    limits
+        .check_business(
+            "PUT",
+            "/api/auth/me",
+            BusinessLimitKeys {
+                user: Some("fresh"),
+                ..keys
+            },
+            160,
+        )
+        .expect("expired accounting must release capacity for a fresh identity");
 }
 
 #[test]
