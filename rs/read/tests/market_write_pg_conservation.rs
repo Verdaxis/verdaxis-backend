@@ -244,7 +244,8 @@ impl Fixture {
         }
         if result.0.is_success() {
             let item: Uuid = result.1["id"].as_str().unwrap().parse().unwrap();
-            self.inventory_effect(&before, item, "inventory_created").await;
+            self.inventory_effect(&before, item, "inventory_created")
+                .await;
         } else {
             assert_eq!(self.snapshot().await, before);
         }
@@ -256,9 +257,14 @@ impl Fixture {
         assert_eq!(after["notifications"], before["notifications"]);
         let old_events = before["events"].as_array().unwrap();
         let events = after["events"].as_array().unwrap();
-        assert_eq!(events.len(), old_events.len()+1);
-        for old in old_events { assert!(events.contains(old)); }
-        let added: Vec<_> = events.iter().filter(|event| !old_events.contains(event)).collect();
+        assert_eq!(events.len(), old_events.len() + 1);
+        for old in old_events {
+            assert!(events.contains(old));
+        }
+        let added: Vec<_> = events
+            .iter()
+            .filter(|event| !old_events.contains(event))
+            .collect();
         assert_eq!(added.len(), 1);
         assert_eq!(added[0]["event_type"], event_type);
         assert_eq!(added[0]["aggregate_id"], item.to_string());
@@ -291,25 +297,57 @@ impl Fixture {
     async fn validate_domain(&mut self) {
         let row=sqlx::query("SELECT p.name,p.fuel_type,p.fuel_grade,p.is_active,p.min_lot_size,d.is_active AS point_active,d.name AS point_name,pt.name AS port_name FROM products p CROSS JOIN delivery_points d JOIN ports pt ON pt.id=$3 WHERE p.id=$1 AND d.id=$2")
             .bind(self.product_id).bind(self.point).bind(&self.port).fetch_one(&mut self.admin).await.unwrap();
-        assert!(row.get::<bool,_>("is_active") && row.get::<bool,_>("point_active"));
-        assert_eq!(row.get::<String,_>("name"),self.product["name"].as_str().unwrap());
-        assert_eq!(row.get::<String,_>("fuel_type"),self.product["fuel_type"].as_str().unwrap());
-        assert_eq!(row.get::<String,_>("fuel_grade"),self.product["fuel_grade"].as_str().unwrap());
-        assert_eq!(row.get::<String,_>("point_name"),row.get::<String,_>("port_name"));
-        assert!(row.get::<Decimal,_>("min_lot_size")<=Decimal::from(10));
-        let policy: MarketPolicy=serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap();
-        assert_eq!(self.product["qualification_profile"],"scalar");
-        assert_eq!(self.product["execution_mode"],"ORDERBOOK");
-        assert!(self.product["lanes"].as_array().unwrap().contains(&json!(self.point)));
-        for side in ["ASK","BID"] {
-            let point=self.point.to_string();
-            let input=verdaxis_read::market::terms::QualificationInput {
-                product_id:Some(self.product_id),market_product:self.product["code"].as_str(),side,
-                delivery_point_id:Some(&point),availability_window:"SPOT",off_spec:false,msds_available:true,
-                certification_scheme:Some("ISCC EU"),certification_declared:true,fame_terms:None,lng_terms:None,
-                specification_standard:None,carbon_intensity_method:Some("LIFECYCLE"),carbon_intensity_gco2_mj:Some("10"),feedstock:Some("residue"),origin:Some("NL"),
+        assert!(row.get::<bool, _>("is_active") && row.get::<bool, _>("point_active"));
+        assert_eq!(
+            row.get::<String, _>("name"),
+            self.product["name"].as_str().unwrap()
+        );
+        assert_eq!(
+            row.get::<String, _>("fuel_type"),
+            self.product["fuel_type"].as_str().unwrap()
+        );
+        assert_eq!(
+            row.get::<String, _>("fuel_grade"),
+            self.product["fuel_grade"].as_str().unwrap()
+        );
+        assert_eq!(
+            row.get::<String, _>("point_name"),
+            row.get::<String, _>("port_name")
+        );
+        assert!(row.get::<Decimal, _>("min_lot_size") <= Decimal::from(10));
+        let policy: MarketPolicy =
+            serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap();
+        assert_eq!(self.product["qualification_profile"], "scalar");
+        assert_eq!(self.product["execution_mode"], "ORDERBOOK");
+        assert!(
+            self.product["lanes"]
+                .as_array()
+                .unwrap()
+                .contains(&json!(self.point))
+        );
+        for side in ["ASK", "BID"] {
+            let point = self.point.to_string();
+            let input = verdaxis_read::market::terms::QualificationInput {
+                product_id: Some(self.product_id),
+                market_product: self.product["code"].as_str(),
+                side,
+                delivery_point_id: Some(&point),
+                availability_window: "SPOT",
+                off_spec: false,
+                msds_available: true,
+                certification_scheme: Some("ISCC EU"),
+                certification_declared: true,
+                fame_terms: None,
+                lng_terms: None,
+                specification_standard: None,
+                carbon_intensity_method: Some("LIFECYCLE"),
+                carbon_intensity_gco2_mj: Some("10"),
+                feedstock: Some("residue"),
+                origin: Some("NL"),
             };
-            assert!(verdaxis_read::market::terms::order_is_execution_qualified(&policy,&input));
+            assert!(verdaxis_read::market::terms::order_is_execution_qualified(
+                &policy, &input
+            ));
         }
     }
     async fn cancel_effects(&mut self, order: Uuid, receipt_count: i64) {
@@ -418,20 +456,36 @@ fn sequence(seed: u64) -> Vec<(u8, u16)> {
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn inventory_successes_append_one_participant_event() {
-    let mut f=Fixture::new().await;
-    let (status,value)=f.create("10.00").await;
-    assert_eq!(status,StatusCode::OK,"{value}");
-    let item: Uuid=value["id"].as_str().unwrap().parse().unwrap();
-    for current in ["10.00","12.34"] {
-        let before=f.snapshot().await;
-        let (status,body)=request(f.inventory.clone(),f.supplier,"PATCH",&format!("/api/inventory/{item}"),Some(json!({"current_stock_mt":current})),None).await;
-        assert_eq!(status,StatusCode::OK,"{body}");
-        f.inventory_effect(&before,item,"inventory_updated").await;
+    let mut f = Fixture::new().await;
+    let (status, value) = f.create("10.00").await;
+    assert_eq!(status, StatusCode::OK, "{value}");
+    let item: Uuid = value["id"].as_str().unwrap().parse().unwrap();
+    for current in ["10.00", "12.34"] {
+        let before = f.snapshot().await;
+        let (status, body) = request(
+            f.inventory.clone(),
+            f.supplier,
+            "PATCH",
+            &format!("/api/inventory/{item}"),
+            Some(json!({"current_stock_mt":current})),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        f.inventory_effect(&before, item, "inventory_updated").await;
     }
-    let before=f.snapshot().await;
-    let (status,body)=request(f.inventory.clone(),f.supplier,"DELETE",&format!("/api/inventory/{item}"),None,None).await;
-    assert_eq!(status,StatusCode::NO_CONTENT,"{body}");
-    f.inventory_effect(&before,item,"inventory_deleted").await;
+    let before = f.snapshot().await;
+    let (status, body) = request(
+        f.inventory.clone(),
+        f.supplier,
+        "DELETE",
+        &format!("/api/inventory/{item}"),
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    f.inventory_effect(&before, item, "inventory_deleted").await;
 }
 
 #[tokio::test]
@@ -943,7 +997,12 @@ async fn expiry_preserves_pending_and_allows_republication() {
     f.check(0, 4, Writer::Decline, "expired pending").await;
 }
 
-async fn wait_for_lock(observer: &mut PgConnection, blocker: i32, waiter: Option<i32>, kind: &str) -> i32 {
+async fn wait_for_lock(
+    observer: &mut PgConnection,
+    blocker: i32,
+    waiter: Option<i32>,
+    kind: &str,
+) -> i32 {
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(300);
     loop {
         let pid: Option<i32> = sqlx::query_scalar("SELECT l.pid FROM pg_locks l WHERE NOT l.granted AND l.locktype=$1 AND $2=ANY(pg_blocking_pids(l.pid)) AND ($3::int IS NULL OR l.pid=$3) LIMIT 1")
@@ -952,7 +1011,10 @@ async fn wait_for_lock(observer: &mut PgConnection, blocker: i32, waiter: Option
             println!("LOCK_MILESTONE blocker={blocker} waiter={pid} kind={kind}");
             return pid;
         }
-        assert!(tokio::time::Instant::now()<deadline,"lock milestone not reached: blocker={blocker} kind={kind}");
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "lock milestone not reached: blocker={blocker} kind={kind}"
+        );
         tokio::task::yield_now().await;
     }
 }
@@ -961,57 +1023,136 @@ async fn wait_for_lock(observer: &mut PgConnection, blocker: i32, waiter: Option
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn take_and_cancel_on_one_order_conserve_stock() {
     for take_first in [true, false] {
-        let mut f=Fixture::new().await;
-        let (_,value)=f.create("10.00").await;
-        let item: Uuid=value["id"].as_str().unwrap().parse().unwrap();
-        let order: Uuid=f.stock_step(Writer::Publish.label(),item,None,None,Decimal::ZERO).await["order"].as_str().unwrap().parse().unwrap();
-        let key=verdaxis_read::market_contract::locks::market_slice_lock_key(f.product_id,Some(f.point),"SPOT");
-        let mut holder=PgConnection::connect(&f.admin_url).await.unwrap();
-        let holder_pid: i32=sqlx::query_scalar("SELECT pg_backend_pid()").fetch_one(&mut holder).await.unwrap();
-        let mut hold=holder.begin().await.unwrap();
+        let mut f = Fixture::new().await;
+        let (_, value) = f.create("10.00").await;
+        let item: Uuid = value["id"].as_str().unwrap().parse().unwrap();
+        let order: Uuid = f
+            .stock_step(Writer::Publish.label(), item, None, None, Decimal::ZERO)
+            .await["order"]
+            .as_str()
+            .unwrap()
+            .parse()
+            .unwrap();
+        let key = verdaxis_read::market_contract::locks::market_slice_lock_key(
+            f.product_id,
+            Some(f.point),
+            "SPOT",
+        );
+        let mut holder = PgConnection::connect(&f.admin_url).await.unwrap();
+        let holder_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(&mut holder)
+            .await
+            .unwrap();
+        let mut hold = holder.begin().await.unwrap();
         if take_first {
-            sqlx::query("SELECT conservation_hold($1,$2,$3)").bind("slice").bind(item).bind(key).execute(&mut *hold).await.unwrap();
-            let outcome: Value=sqlx::query_scalar("SELECT conservation_step($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)")
-                .bind("fixture:take").bind(item).bind(order).bind(Option::<Uuid>::None).bind(Decimal::from(4))
-                .bind(f.product_id).bind(f.point).bind(f.buyer_org).bind(f.buyer).bind(f.product["code"].as_str().unwrap()).fetch_one(&mut *hold).await.unwrap();
+            sqlx::query("SELECT conservation_hold($1,$2,$3)")
+                .bind("slice")
+                .bind(item)
+                .bind(key)
+                .execute(&mut *hold)
+                .await
+                .unwrap();
+            let outcome: Value =
+                sqlx::query_scalar("SELECT conservation_step($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)")
+                    .bind("fixture:take")
+                    .bind(item)
+                    .bind(order)
+                    .bind(Option::<Uuid>::None)
+                    .bind(Decimal::from(4))
+                    .bind(f.product_id)
+                    .bind(f.point)
+                    .bind(f.buyer_org)
+                    .bind(f.buyer)
+                    .bind(f.product["code"].as_str().unwrap())
+                    .fetch_one(&mut *hold)
+                    .await
+                    .unwrap();
             assert!(outcome["trade"].is_string());
         } else {
-            sqlx::query("SELECT conservation_hold($1,$2,$3)").bind("inventory").bind(item).bind(key).execute(&mut *hold).await.unwrap();
+            sqlx::query("SELECT conservation_hold($1,$2,$3)")
+                .bind("inventory")
+                .bind(item)
+                .bind(key)
+                .execute(&mut *hold)
+                .await
+                .unwrap();
         }
-        let barrier=Arc::new(Barrier::new(2));
-        let waiter=barrier.clone(); let router=f.orders.clone(); let actor=f.supplier;
-        let cancel=tokio::spawn(async move { waiter.wait().await; request(router,actor,"DELETE",&format!("/api/orderbook/{order}"),None,None).await });
+        let barrier = Arc::new(Barrier::new(2));
+        let waiter = barrier.clone();
+        let router = f.orders.clone();
+        let actor = f.supplier;
+        let cancel = tokio::spawn(async move {
+            waiter.wait().await;
+            request(
+                router,
+                actor,
+                "DELETE",
+                &format!("/api/orderbook/{order}"),
+                None,
+                None,
+            )
+            .await
+        });
         barrier.wait().await;
-        let cancel_pid=wait_for_lock(&mut f.admin,holder_pid,None,if take_first {"advisory"} else {"transactionid"}).await;
+        let cancel_pid = wait_for_lock(
+            &mut f.admin,
+            holder_pid,
+            None,
+            if take_first {
+                "advisory"
+            } else {
+                "transactionid"
+            },
+        )
+        .await;
         if take_first {
             hold.commit().await.unwrap();
             println!("COMMIT_MILESTONE fixture:take before rust:order.cancel");
-            let (status,body)=cancel.await.unwrap();
-            assert_eq!(status,StatusCode::NO_CONTENT,"{body}");
+            let (status, body) = cancel.await.unwrap();
+            assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
         } else {
-            let mut taker=PgConnection::connect(&f.admin_url).await.unwrap();
-            let take_pid: i32=sqlx::query_scalar("SELECT pg_backend_pid()").fetch_one(&mut taker).await.unwrap();
-            let product=f.product_id; let point=f.point; let buyer_org=f.buyer_org; let buyer=f.buyer;
-            let code=f.product["code"].as_str().unwrap().to_owned();
-            let barrier=Arc::new(Barrier::new(2)); let waiter=barrier.clone();
-            let take=tokio::spawn(async move {
-                let mut tx=taker.begin().await.unwrap();
+            let mut taker = PgConnection::connect(&f.admin_url).await.unwrap();
+            let take_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+                .fetch_one(&mut taker)
+                .await
+                .unwrap();
+            let product = f.product_id;
+            let point = f.point;
+            let buyer_org = f.buyer_org;
+            let buyer = f.buyer;
+            let code = f.product["code"].as_str().unwrap().to_owned();
+            let barrier = Arc::new(Barrier::new(2));
+            let waiter = barrier.clone();
+            let take = tokio::spawn(async move {
+                let mut tx = taker.begin().await.unwrap();
                 waiter.wait().await;
-                let result: Value=sqlx::query_scalar("SELECT conservation_race_take($1,$2,$3,$4,$5,$6,$7)")
-                    .bind(item).bind(order).bind(product).bind(point).bind(buyer_org).bind(buyer).bind(code).fetch_one(&mut *tx).await.unwrap();
-                tx.commit().await.unwrap(); result
+                let result: Value =
+                    sqlx::query_scalar("SELECT conservation_race_take($1,$2,$3,$4,$5,$6,$7)")
+                        .bind(item)
+                        .bind(order)
+                        .bind(product)
+                        .bind(point)
+                        .bind(buyer_org)
+                        .bind(buyer)
+                        .bind(code)
+                        .fetch_one(&mut *tx)
+                        .await
+                        .unwrap();
+                tx.commit().await.unwrap();
+                result
             });
             barrier.wait().await;
-            wait_for_lock(&mut f.admin,cancel_pid,Some(take_pid),"advisory").await;
+            wait_for_lock(&mut f.admin, cancel_pid, Some(take_pid), "advisory").await;
             hold.commit().await.unwrap();
-            let (status,body)=cancel.await.unwrap();
-            assert_eq!(status,StatusCode::NO_CONTENT,"{body}");
-            let result=take.await.unwrap();
-            assert_eq!(result["refused"],true);
+            let (status, body) = cancel.await.unwrap();
+            assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+            let result = take.await.unwrap();
+            assert_eq!(result["refused"], true);
             println!("COMMIT_MILESTONE rust:order.cancel before fixture:take refusal");
         }
-        f.check(0,0,Writer::Cancel,"take/cancel milestone schedule").await;
-        f.cancel_effects(order,0).await;
+        f.check(0, 0, Writer::Cancel, "take/cancel milestone schedule")
+            .await;
+        f.cancel_effects(order, 0).await;
     }
 }
 
