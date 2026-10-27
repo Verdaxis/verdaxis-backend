@@ -416,7 +416,8 @@ pub fn check_quota(
     authorization: Option<&str>,
     now: u64,
 ) -> Result<(), ApiError> {
-    let identity = token_identity(authorization);
+    let _ = authorization;
+    let identity = format!("usr:{}", actor.id);
     let user = actor.id.to_string();
     limits.check_business(
         "GET",

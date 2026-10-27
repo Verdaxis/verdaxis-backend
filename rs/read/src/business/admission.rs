@@ -710,7 +710,7 @@ async fn dispatch<M: ApprovalMail, E: AdmissionEvents, T: ApprovalTemplate>(
     let query = request.uri().query().unwrap_or("").to_owned();
     // Account and administrator authority precede quota and all target reads.
     let limits = state.limits.clone();
-    let token = authorization.clone().unwrap_or_default();
+    let token = format!("usr:{}", access.subject);
     let quota_client = client.clone();
     let admission = crate::auth::run_authenticated(
         &state.app,

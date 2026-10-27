@@ -170,13 +170,12 @@ async fn fact_tab(State(a): State<Authority>, request: Request) -> Result<Respon
         "engagement" => "/api/admin/analytics/product-analytics/engagement",
         _ => "/api/admin/analytics/product-analytics/retention",
     };
-    let pairs: Vec<_> = url::form_urlencoded::parse(request.uri().query().unwrap_or("").as_bytes())
-        .into_owned()
-        .collect();
-    let query = analytics::query::validate_query(QueryInput::from_pairs(
-        pairs.iter().map(|(k, v)| (k.as_str(), v.as_str())),
-    ))?;
-    let token = analytics::usage::token_identity(authorization);
+    let query = fact_query(
+        request.uri().query().unwrap_or(""),
+        template.rsplit('/').next().unwrap_or(""),
+    )?;
+    let properties = requested_properties(template.rsplit('/').next().unwrap_or(""));
+    let token = format!("usr:{}", access.subject);
     let limits = a.limits.clone();
     crate::auth::run_authenticated(
         &a.app,
@@ -202,26 +201,14 @@ async fn fact_tab(State(a): State<Authority>, request: Request) -> Result<Respon
     .await
     .map_err(map_auth)?;
     let permit = crate::runtime::admission::try_read(&a.app)?;
-    let window = a
-        .provider
-        .0
-        .window(
-            &query,
-            AllowedPropertySet::new([]).expect("empty properties"),
-        )
-        .await;
+    let window = a.provider.0.window(&query, properties.clone()).await;
     let previous = if let Some((start, end)) = query.previous {
         let mut q = query.clone();
         q.start = start;
         q.end = end;
         q.compare = false;
         q.previous = None;
-        Some(
-            a.provider
-                .0
-                .window(&q, AllowedPropertySet::new([]).expect("empty properties"))
-                .await,
-        )
+        Some(a.provider.0.window(&q, properties.clone()).await)
     } else {
         None
     };
@@ -286,5 +273,40 @@ fn map_auth(error: crate::auth::AuthenticatedError) -> ApiError {
         }
         crate::auth::AuthenticatedError::Database(e) => e,
         _ => ApiError::database(),
+    }
+}
+
+pub fn fact_query(raw: &str, _tab: &str) -> Result<AnalyticsQuery, ApiError> {
+    let pairs: Vec<_> = url::form_urlencoded::parse(raw.as_bytes())
+        .into_owned()
+        .collect();
+    let query = analytics::query::validate_query(QueryInput::from_pairs(
+        pairs.iter().map(|(k, v)| (k.as_str(), v.as_str())),
+    ))?;
+    analytics::marketplace::refuse_reference(&query)?;
+    Ok(query)
+}
+pub fn requested_properties(tab: &str) -> AllowedPropertySet {
+    use analytics::policy::{
+        AllowedFrontendEvent as Event, AllowedProperty as Property, RegisteredEvent,
+    };
+    if tab == "engagement" {
+        AllowedPropertySet::new([
+            (
+                RegisteredEvent::Frontend(Event::PlatformNavigation),
+                Property::Destination,
+            ),
+            (
+                RegisteredEvent::Frontend(Event::TutorialStepCompleted),
+                Property::Step,
+            ),
+            (
+                RegisteredEvent::Frontend(Event::TutorialStepSkipped),
+                Property::Step,
+            ),
+        ])
+        .expect("registered engagement properties")
+    } else {
+        AllowedPropertySet::new([]).expect("empty properties")
     }
 }
