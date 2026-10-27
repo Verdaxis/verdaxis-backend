@@ -267,7 +267,7 @@ async fn wait_for_waiters(admin: &mut PgConnection, query: &'static str, expecte
     false
 }
 
-/// A request that stopped waiting at the market lock timeout reports MARKET_BUSY.
+/// The orders routes report database lock timeouts as server errors.
 fn lock_wait_expired(response: &(u16, Value)) -> bool {
     response.0 == 500 && response.1["detail"]["code"] == "DATABASE_ERROR"
 }
@@ -663,7 +663,8 @@ async fn commission_patch_has_no_query_after_commit() {
     panic!("no round queued the later writer while the patch held the commission row");
 }
 
-/// The patch waits on an independent row lock. A later writer then queues for
+/// The patch holds its row while its audit waits on an independent table lock.
+/// A later writer then queues for
 /// an exclusive table lock and changes the row as soon as the patch commits.
 /// A response read after the commit would wait for that writer and show its
 /// value; the response must show the row of the patch's own transaction.
@@ -673,9 +674,8 @@ async fn response_before_commit_round() -> bool {
     f.seed(1).await;
     let id = f.id().await;
     let mut blocker = f.pool.begin().await.unwrap();
-    sqlx::query("SELECT id FROM commissions WHERE id = $1 FOR UPDATE")
-        .bind(id)
-        .fetch_one(&mut *blocker)
+    sqlx::query("LOCK TABLE audit_logs IN ACCESS EXCLUSIVE MODE")
+        .execute(&mut *blocker)
         .await
         .unwrap();
     let body = json!({
@@ -690,7 +690,12 @@ async fn response_before_commit_round() -> bool {
     let token = f.token(0);
     let path = format!("{LIST}/{id}");
     let patch = tokio::spawn(async move { request(app, token, "PUT", &path, body).await });
-    let patch_waiting = wait_for_waiters(&mut f.admin, LOCK_WAITERS, 1).await;
+    let patch_waiting = wait_for_waiters(
+        &mut f.admin,
+        "SELECT count(*) FROM pg_stat_activity WHERE wait_event_type='Lock' \
+         AND query LIKE '%INSERT INTO audit_logs%' AND pid<>pg_backend_pid()",
+        1,
+    ).await;
     let mut writer = PgConnection::connect(&f.admin_url).await.unwrap();
     let later_writer = tokio::spawn(async move {
         sqlx::query("SELECT commission_fixture_mark_after_lock()")
