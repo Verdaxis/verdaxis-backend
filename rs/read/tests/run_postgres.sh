@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Run the whole Rust workspace against a disposable PostgreSQL container.
+# Run the whole Rust workspace against a disposable PostgreSQL container, then
+# the migrated market-write component targets on a second migrated database.
 #
 # Docker runs locally through Colima. The container binds a Docker-assigned
 # loopback port and is removed on exit. Never point this at staging or prod.
@@ -41,6 +42,7 @@ CREATE ROLE rust_member LOGIN NOINHERIT PASSWORD 'disposable_member_pw';
 CREATE ROLE rust_group NOLOGIN;
 GRANT rust_group TO rust_member;
 CREATE ROLE rust_migrator LOGIN NOINHERIT PASSWORD 'disposable_migrator_pw';
+CREATE ROLE rust_backup NOLOGIN;
 CREATE DATABASE verdaxis_rust_test OWNER rust_migrator;
 \connect verdaxis_rust_test
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
@@ -53,6 +55,43 @@ export RUST_TEST_DATABASE_URL="postgres://rust_app:disposable_app_pw@127.0.0.1:$
 export RUST_TEST_MEMBER_DATABASE_URL="postgres://rust_member:disposable_member_pw@127.0.0.1:$port/verdaxis_rust_test"
 export RUST_TEST_MIGRATOR_DATABASE_URL="postgres://rust_migrator:disposable_migrator_pw@127.0.0.1:$port/verdaxis_rust_test"
 export RELEASE_SHA=$(git rev-parse HEAD)
+# Settings import requirements for the alembic migration below.
+export ENVIRONMENT="${ENVIRONMENT:-test}"
+export JWT_SECRET="${JWT_SECRET:-test-secret-key-for-testing-minimum-32-chars}"
+
+# The market-write component suites need the fully migrated schema and the
+# converged runtime grants, not the minimal workspace fixture above. Two
+# databases share one container; each target receives its own runtime and
+# admin URLs on the same numeric-loopback endpoint.
+market_image_role_setup() {
+  local database=$1
+  docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 <<SQL
+CREATE DATABASE $database OWNER rust_migrator;
+\connect $database
+CREATE EXTENSION IF NOT EXISTS postgis;
+ALTER SCHEMA public OWNER TO rust_migrator;
+GRANT USAGE ON SCHEMA public TO rust_app;
+SQL
+}
+for database in verdaxis_trades_test verdaxis_create_test; do
+  market_image_role_setup "$database"
+done
+export RUST_TRADES_ADMIN_DATABASE_URL="postgres://postgres:disposable_admin_pw@127.0.0.1:$port/verdaxis_trades_test"
+export RUST_TRADES_DATABASE_URL="postgres://rust_app:disposable_app_pw@127.0.0.1:$port/verdaxis_trades_test"
+export RUST_CREATE_ADMIN_DATABASE_URL="postgres://postgres:disposable_admin_pw@127.0.0.1:$port/verdaxis_create_test"
+export RUST_CREATE_DATABASE_URL="postgres://rust_app:disposable_app_pw@127.0.0.1:$port/verdaxis_create_test"
+for database in verdaxis_trades_test verdaxis_create_test; do
+  export PGHOST=127.0.0.1 PGPORT="$port" PGUSER=rust_migrator \
+    PGPASSWORD=disposable_migrator_pw PGDATABASE="$database"
+  export DATABASE_URL="postgresql+asyncpg://rust_migrator:disposable_migrator_pw@127.0.0.1:$port/$database" \
+    MIGRATOR_DATABASE_URL="postgresql+asyncpg://rust_migrator:disposable_migrator_pw@127.0.0.1:$port/$database"
+  "$RUST_TEST_PYTHON" -m alembic upgrade p89_20261022_trade_freeze
+  psql -X --single-transaction -v ON_ERROR_STOP=1 \
+    -v database_name="$database" -v app_role=rust_app \
+    -v migrator_role=rust_migrator -v backup_role=rust_backup \
+    -f deploy/postgres/converge_runtime_object_acls.sql
+done
+unset DATABASE_URL MIGRATOR_DATABASE_URL PGHOST PGPORT PGUSER PGPASSWORD PGDATABASE
 
 log=$(mktemp "${TMPDIR:-/tmp}/rust-postgres-tests.XXXXXX")
 set +e
@@ -76,5 +115,22 @@ fi
 # A green cargo run that executed no test is a false pass; refuse it.
 if ! grep -Eq '^test result: ok\. [1-9][0-9]* passed' "$log"; then
   echo "no Rust test ran: refusing a green result" >&2
+  exit 1
+fi
+
+# The market-write component suites mark their database cases explicitly;
+# execute each named target on its own migrated disposable database.
+market_log=$(mktemp "${TMPDIR:-/tmp}/rust-postgres-market.XXXXXX")
+set +e
+cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read --features contract-tests \
+  --test market_write_pg_trades --test market_write_pg_create \
+  -- --include-ignored --test-threads=1 2>&1 | tee "$market_log"
+market_status=${PIPESTATUS[0]}
+set -e
+if (( market_status != 0 )); then
+  exit "$market_status"
+fi
+if ! grep -Eq '^test result: ok\. [1-9][0-9]* passed' "$market_log"; then
+  echo "no market-write test ran: refusing a green result" >&2
   exit 1
 fi
