@@ -24,16 +24,12 @@ fn p4_t2_c50() {
             .check_business("GET", "/api/auth/me", keys, 100)
             .unwrap();
     }
-    assert!(
-        limits
-            .check_business("GET", "/api/auth/me", keys, 100)
-            .is_err()
-    );
-    assert!(
-        limits
-            .check_business("PUT", "/api/auth/me", keys, 160)
-            .is_ok()
-    );
+    assert!(limits
+        .check_business("GET", "/api/auth/me", keys, 100)
+        .is_err());
+    assert!(limits
+        .check_business("PUT", "/api/auth/me", keys, 160)
+        .is_ok());
 }
 
 #[test]
@@ -55,7 +51,7 @@ fn business_quota_capacity_refuses_without_spending_existing_quota() {
                 "PUT",
                 "/api/auth/me",
                 BusinessLimitKeys {
-                    user: Some(&user),
+                    client: &user,
                     ..keys
                 },
                 100,
@@ -67,7 +63,7 @@ fn business_quota_capacity_refuses_without_spending_existing_quota() {
             "PUT",
             "/api/auth/me",
             BusinessLimitKeys {
-                user: Some("new"),
+                client: "new",
                 ..keys
             },
             100,
@@ -92,7 +88,7 @@ fn business_quota_capacity_refuses_without_spending_existing_quota() {
             "PUT",
             "/api/auth/me",
             BusinessLimitKeys {
-                user: Some("fresh"),
+                client: "fresh",
                 ..keys
             },
             160,
@@ -114,19 +110,13 @@ fn p4_t2_c51() {
             .check_business("POST", "/api/ai/chat", keys, 100)
             .unwrap();
     }
-    assert!(
-        limits
-            .check_business("POST", "/api/ai/chat", keys, 100)
-            .is_err()
-    );
-    assert!(
-        limits
-            .check_business("DELETE", "/api/ai/chat", keys, 100)
-            .is_err()
-    );
-    assert!(
-        limits
-            .check_business("POST", "/api/ai/chat/extra", keys, 100)
-            .is_err()
-    );
+    assert!(limits
+        .check_business("POST", "/api/ai/chat", keys, 100)
+        .is_err());
+    assert!(limits
+        .check_business("DELETE", "/api/ai/chat", keys, 100)
+        .is_err());
+    assert!(limits
+        .check_business("POST", "/api/ai/chat/extra", keys, 100)
+        .is_err());
 }
