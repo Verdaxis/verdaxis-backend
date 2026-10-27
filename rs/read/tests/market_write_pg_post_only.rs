@@ -237,3 +237,24 @@ async fn post_only_reads_the_customer_organization_under_its_lock() {
     assert!(assessed.order_lock_order.is_empty());
     f.unchanged().await;
 }
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn sealed_post_only_closes_later_candidate_acquisition() {
+    use verdaxis_read::MarketErrorCode;
+    use verdaxis_read::market_contract::post_only::run_sealed_post_only_followed_by;
+
+    let mut f = Fixture::new(3).await;
+    for match_next in [false, true] {
+        let result = run_sealed_post_only_followed_by(
+            &f.pool, f.candidate("110"), CUSTOMER, ADMIN, now(), match_next,
+        ).await.unwrap();
+        assert_eq!(result.assessment, PostOnlyAssessment::crosses(d("100")));
+        assert_eq!(result.follow_up_error, Some(MarketErrorCode::MarketSliceChanged));
+        let mut expected = f.resting.clone();
+        expected.sort();
+        assert_eq!(result.order_lock_order, expected,
+            "a refused follow-up acquires no additional candidate rows");
+        f.unchanged().await;
+    }
+}
