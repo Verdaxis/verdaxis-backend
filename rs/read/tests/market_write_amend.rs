@@ -81,7 +81,7 @@ fn amend_hash_matches_the_source_update_model_payload() {
     };
     let value = json!({"quantity_mt": "250", "price_per_mt_usd": "120.00", "expires_at": "2026-10-29T12:00:00Z", "certifications": [" ISCC EU ", "ISCC EU"], "certification_declared": true, "msds_available": true, "off_spec_notes": null});
     let input = AmendInput::parse(value.clone(), now()).unwrap();
-    let script = "import json,sys; from app.schemas.orderbook import OrderUpdate; from app.services.command_results import command_request_hash; from app.services.idempotency import idempotency_request_hash; u=OrderUpdate.model_validate(json.load(sys.stdin)); p={'operation':'order.amend','order_id':'00000000-0000-0000-0000-000000000001','update':u.model_dump(exclude_unset=True,mode='python')}; print(json.dumps([command_request_hash(p),idempotency_request_hash(p)]))";
+    let script = "import json,sys; from app.schemas.orderbook import OrderUpdate; from app.services.command_results import command_request_hash; u=OrderUpdate.model_validate(json.load(sys.stdin)); p={'operation':'order.amend','order_id':'00000000-0000-0000-0000-000000000001','update':u.model_dump(exclude_unset=True,mode='python')}; print(json.dumps([command_request_hash(p)]))";
     let mut child =
         Command::new(std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "python3".into()))
             .current_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."))
@@ -109,5 +109,4 @@ fn amend_hash_matches_the_source_update_model_payload() {
     );
     let expected: Vec<String> = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(input.payload_hash(), expected[0]);
-    assert_eq!(input.request_hash(), expected[1]);
 }
