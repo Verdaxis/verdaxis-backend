@@ -84,13 +84,48 @@ impl Fixture {
             .and_then(|v| verdaxis_read::digest_terms(&v))
             .unwrap()
     }
-    async fn take(&mut self, actor:u128,key:Option<&str>,quantity:&str)->(StatusCode,Value){
-        let digest=if let Some(key)=key {
-            let stored:Option<String>=sqlx::query_scalar("SELECT value FROM trades_fixture_requests WHERE key=$1").bind(key).fetch_optional(&mut self.admin).await.unwrap();
-            if let Some(value)=stored {value}else{let digest=self.digest().await;sqlx::query("INSERT INTO trades_fixture_requests(key,value) VALUES($1,$2)").bind(key).bind(&digest).execute(&mut self.admin).await.unwrap();digest}
-        }else{self.digest().await};
-        let headers:Vec<_>=key.map(|k|vec![("idempotency-key",k)]).unwrap_or_default();
-        send(&self.router,"POST","/api/trades/",Some(actor),&headers,Some(json!({"order_id":id(ORDER),"quantity_mt":quantity,"expected_terms_digest":digest}))).await
+    async fn take(
+        &mut self,
+        actor: u128,
+        key: Option<&str>,
+        quantity: &str,
+    ) -> (StatusCode, Value) {
+        let digest = if let Some(key) = key {
+            let stored: Option<String> =
+                sqlx::query_scalar("SELECT value FROM trades_fixture_requests WHERE key=$1")
+                    .bind(key)
+                    .fetch_optional(&mut self.admin)
+                    .await
+                    .unwrap();
+            if let Some(value) = stored {
+                value
+            } else {
+                let digest = self.digest().await;
+                sqlx::query("INSERT INTO trades_fixture_requests(key,value) VALUES($1,$2)")
+                    .bind(key)
+                    .bind(&digest)
+                    .execute(&mut self.admin)
+                    .await
+                    .unwrap();
+                digest
+            }
+        } else {
+            self.digest().await
+        };
+        let headers: Vec<_> = key
+            .map(|k| vec![("idempotency-key", k)])
+            .unwrap_or_default();
+        send(
+            &self.router,
+            "POST",
+            "/api/trades/",
+            Some(actor),
+            &headers,
+            Some(
+                json!({"order_id":id(ORDER),"quantity_mt":quantity,"expected_terms_digest":digest}),
+            ),
+        )
+        .await
     }
     async fn state(&mut self) -> Value {
         sqlx::query_scalar("SELECT trades_fixture_state()")
@@ -152,9 +187,30 @@ async fn take_inserts_pending_without_consuming_stock() {
     assert_eq!(b["status"], "PENDING_CONFIRMATION");
     assert!(b["seller_id"].is_null());
     let state = f.state().await;
-    assert_eq!(state["remaining"].as_str().unwrap().parse::<rust_decimal::Decimal>().unwrap(),rust_decimal::Decimal::from(7u32));
-    assert_eq!(state["reserved"].as_str().unwrap().parse::<rust_decimal::Decimal>().unwrap(),rust_decimal::Decimal::from(10u32));
-    assert_eq!(state["current"].as_str().unwrap().parse::<rust_decimal::Decimal>().unwrap(),rust_decimal::Decimal::from(0u32));
+    assert_eq!(
+        state["remaining"]
+            .as_str()
+            .unwrap()
+            .parse::<rust_decimal::Decimal>()
+            .unwrap(),
+        rust_decimal::Decimal::from(7u32)
+    );
+    assert_eq!(
+        state["reserved"]
+            .as_str()
+            .unwrap()
+            .parse::<rust_decimal::Decimal>()
+            .unwrap(),
+        rust_decimal::Decimal::from(10u32)
+    );
+    assert_eq!(
+        state["current"]
+            .as_str()
+            .unwrap()
+            .parse::<rust_decimal::Decimal>()
+            .unwrap(),
+        rust_decimal::Decimal::from(0u32)
+    );
     assert_eq!(state["trades"], 1);
     assert_eq!(state["audit"], 1);
     assert_eq!(state["notifications"], 1);
@@ -252,9 +308,19 @@ async fn take_freezes_the_fee_basis() {
     let (s, b) = f.take(BUYER, None, "2").await;
     assert_eq!(s, StatusCode::OK, "{b}");
     let row=sqlx::query("SELECT commission_fee_per_mt_usd::text AS fee,commission_plan,commission_rate_pct::text AS legacy FROM trades").fetch_one(&mut f.admin).await.unwrap();
-    assert_eq!(row.get::<String, _>("fee").parse::<rust_decimal::Decimal>().unwrap(),rust_decimal::Decimal::from(2));
+    assert_eq!(
+        row.get::<String, _>("fee")
+            .parse::<rust_decimal::Decimal>()
+            .unwrap(),
+        rust_decimal::Decimal::from(2)
+    );
     assert_eq!(row.get::<String, _>("commission_plan"), "free");
-    assert_eq!(row.get::<String, _>("legacy").parse::<rust_decimal::Decimal>().unwrap(),rust_decimal::Decimal::ZERO);
+    assert_eq!(
+        row.get::<String, _>("legacy")
+            .parse::<rust_decimal::Decimal>()
+            .unwrap(),
+        rust_decimal::Decimal::ZERO
+    );
     assert!(b["commission_fee_per_mt_usd"].is_null());
 }
 #[tokio::test]
@@ -464,8 +530,22 @@ async fn concurrent_takes_preserve_the_pending_reservation() {
     let successes = [a.0, b.0].iter().filter(|s| **s == StatusCode::OK).count();
     assert_eq!(successes, 1, "{a:?} {b:?}");
     let state = f.state().await;
-    assert_eq!(state["remaining"].as_str().unwrap().parse::<rust_decimal::Decimal>().unwrap(),rust_decimal::Decimal::from(3u32));
-    assert_eq!(state["reserved"].as_str().unwrap().parse::<rust_decimal::Decimal>().unwrap(),rust_decimal::Decimal::from(10u32));
+    assert_eq!(
+        state["remaining"]
+            .as_str()
+            .unwrap()
+            .parse::<rust_decimal::Decimal>()
+            .unwrap(),
+        rust_decimal::Decimal::from(3u32)
+    );
+    assert_eq!(
+        state["reserved"]
+            .as_str()
+            .unwrap()
+            .parse::<rust_decimal::Decimal>()
+            .unwrap(),
+        rust_decimal::Decimal::from(10u32)
+    );
     assert_eq!(state["trades"], 1);
     f.pool.acquire().await.unwrap();
 }
@@ -473,171 +553,456 @@ async fn concurrent_takes_preserve_the_pending_reservation() {
 #[tokio::test]
 #[ignore = "requires an attested disposable PostgreSQL"]
 async fn take_and_cancel_release_only_the_uncommitted_remainder() {
-    let mut f=Fixture::new().await;
-    assert_eq!(f.take(BUYER,None,"3").await.0,StatusCode::OK);
-    let cancel=verdaxis_read::routes::market_write::orders::contract_router(f.pool.clone(),KEY);
+    let mut f = Fixture::new().await;
+    assert_eq!(f.take(BUYER, None, "3").await.0, StatusCode::OK);
+    let cancel = verdaxis_read::routes::market_write::orders::contract_router(f.pool.clone(), KEY);
     // Cancellation's component uses its own token audience.
-    let now=chrono::Utc::now().timestamp();
+    let now = chrono::Utc::now().timestamp();
     let token=encode(&Header::default(),&json!({"sub":id(SELLER),"type":"access","iat":now,"exp":now+600,"iss":"cancel-tests","aud":"cancel-tests"}),&EncodingKey::from_secret(KEY.as_bytes())).unwrap();
-    let response=cancel.oneshot(Request::builder().method("DELETE").uri(format!("/api/orderbook/{}",id(ORDER))).header("authorization",format!("Bearer {token}")).body(Body::empty()).unwrap()).await.unwrap();
-    assert_eq!(response.status(),StatusCode::NO_CONTENT);
-    let state=f.state().await;
-    assert_eq!(state["reserved"].as_str().unwrap().parse::<rust_decimal::Decimal>().unwrap(),rust_decimal::Decimal::from(3));
-    assert_eq!(state["current"].as_str().unwrap().parse::<rust_decimal::Decimal>().unwrap(),rust_decimal::Decimal::from(7));
-    assert_eq!(state["trades"],1);
-    let before=state;
-    assert_eq!(f.take(STRANGER,None,"1").await.0,StatusCode::BAD_REQUEST);
-    assert_eq!(f.state().await,before);
+    let response = cancel
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/api/orderbook/{}", id(ORDER)))
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    let state = f.state().await;
+    assert_eq!(
+        state["reserved"]
+            .as_str()
+            .unwrap()
+            .parse::<rust_decimal::Decimal>()
+            .unwrap(),
+        rust_decimal::Decimal::from(3)
+    );
+    assert_eq!(
+        state["current"]
+            .as_str()
+            .unwrap()
+            .parse::<rust_decimal::Decimal>()
+            .unwrap(),
+        rust_decimal::Decimal::from(7)
+    );
+    assert_eq!(state["trades"], 1);
+    let before = state;
+    assert_eq!(f.take(STRANGER, None, "1").await.0, StatusCode::BAD_REQUEST);
+    assert_eq!(f.state().await, before);
 }
 
 #[tokio::test]
 #[ignore = "requires an attested disposable PostgreSQL"]
 async fn summary_and_list_deduplicate_current_and_recorded_membership() {
-    let mut f=Fixture::new().await;
-    assert_eq!(f.take(BUYER,None,"1").await.0,StatusCode::OK);
-    let(_,list)=send(&f.router,"GET","/api/trades/my",Some(BUYER),&[],None).await;
-    let(_,summary)=send(&f.router,"GET","/api/trades/summary",Some(BUYER),&[],None).await;
-    assert_eq!(list["total"],1);assert_eq!(list["items"].as_array().unwrap().len(),1);assert_eq!(summary["total_count"],1);assert_eq!(summary["awaiting_counterparty_count"],1);
+    let mut f = Fixture::new().await;
+    assert_eq!(f.take(BUYER, None, "1").await.0, StatusCode::OK);
+    let (_, list) = send(&f.router, "GET", "/api/trades/my", Some(BUYER), &[], None).await;
+    let (_, summary) = send(
+        &f.router,
+        "GET",
+        "/api/trades/summary",
+        Some(BUYER),
+        &[],
+        None,
+    )
+    .await;
+    assert_eq!(list["total"], 1);
+    assert_eq!(list["items"].as_array().unwrap().len(), 1);
+    assert_eq!(summary["total_count"], 1);
+    assert_eq!(summary["awaiting_counterparty_count"], 1);
 }
 
 #[tokio::test]
 #[ignore = "requires an attested disposable PostgreSQL"]
 async fn version_is_hashed_without_a_fresh_version_mismatch_refusal() {
-    let mut f=Fixture::new().await;let digest=f.digest().await;
+    let mut f = Fixture::new().await;
+    let digest = f.digest().await;
     let(s,b)=send(&f.router,"POST","/api/trades/",Some(BUYER),&[],Some(json!({"order_id":id(ORDER),"quantity_mt":"1","expected_terms_digest":digest,"expected_order_version":999}))).await;
-    assert_eq!(s,StatusCode::OK,"{b}");
+    assert_eq!(s, StatusCode::OK, "{b}");
 }
 
 #[tokio::test]
 #[ignore = "requires an attested disposable PostgreSQL"]
 async fn exact_key_replay_precedes_current_kyc_and_uses_current_trade_projection() {
-    let mut f=Fixture::new().await;let(s,trade)=f.take(BUYER,Some("current"),"1").await;assert_eq!(s,StatusCode::OK);
-    let trade_id=trade["id"].as_str().unwrap().parse::<Uuid>().unwrap();
-    sqlx::query("SELECT trades_fixture_confirm($1)").bind(trade_id).execute(&mut f.admin).await.unwrap();
-    f.change(BUYER,"kyc").await;let before=f.state().await;
-    let(s,replay)=f.take(BUYER,Some("current"),"1").await;assert_eq!(s,StatusCode::OK,"{replay}");assert_eq!(replay["status"],"CONFIRMED");assert_eq!(replay["seller_id"],id(0x2000).to_string());assert_eq!(f.state().await,before);
+    let mut f = Fixture::new().await;
+    let (s, trade) = f.take(BUYER, Some("current"), "1").await;
+    assert_eq!(s, StatusCode::OK);
+    let trade_id = trade["id"].as_str().unwrap().parse::<Uuid>().unwrap();
+    sqlx::query("SELECT trades_fixture_confirm($1)")
+        .bind(trade_id)
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
+    f.change(BUYER, "kyc").await;
+    let before = f.state().await;
+    let (s, replay) = f.take(BUYER, Some("current"), "1").await;
+    assert_eq!(s, StatusCode::OK, "{replay}");
+    assert_eq!(replay["status"], "CONFIRMED");
+    assert_eq!(replay["seller_id"], id(0x2000).to_string());
+    assert_eq!(f.state().await, before);
 }
 
 #[tokio::test]
 #[ignore = "requires an attested disposable PostgreSQL"]
 async fn failed_effect_append_rolls_back_the_trade_and_remainder() {
-    let mut f=Fixture::new().await;let before=f.state().await;
-    sqlx::query("SELECT trades_fixture_reject_audit()").execute(&mut f.admin).await.unwrap();
-    assert!(!f.take(BUYER,None,"1").await.0.is_success());
-    assert_eq!(f.state().await,before);
-    sqlx::query("SELECT trades_fixture_allow_audit()").execute(&mut f.admin).await.unwrap();
+    let mut f = Fixture::new().await;
+    let before = f.state().await;
+    sqlx::query("SELECT trades_fixture_reject_audit()")
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
+    assert!(!f.take(BUYER, None, "1").await.0.is_success());
+    assert_eq!(f.state().await, before);
+    sqlx::query("SELECT trades_fixture_allow_audit()")
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
 #[ignore = "requires an attested disposable PostgreSQL"]
 async fn independent_take_and_cancel_serialize_on_the_held_party_prefix() {
-    let mut f=Fixture::new().await;
-    let digest=f.digest().await;
-    let mut blocker=f.admin.begin().await.unwrap();
-    sqlx::query("SELECT id FROM organizations WHERE id=$1 FOR UPDATE").bind(id(0x2000)).execute(&mut *blocker).await.unwrap();
-    let take_router=f.router.clone();let cancel_router=verdaxis_read::routes::market_write::orders::contract_router(f.pool.clone(),KEY);
-    let take=tokio::spawn(async move{send(&take_router,"POST","/api/trades/",Some(BUYER),&[],Some(json!({"order_id":id(ORDER),"quantity_mt":"3","expected_terms_digest":digest}))).await});
-    let cancel=tokio::spawn(async move{
-        let now=chrono::Utc::now().timestamp();let token=encode(&Header::default(),&json!({"sub":id(SELLER),"type":"access","iat":now,"exp":now+600,"iss":"cancel-tests","aud":"cancel-tests"}),&EncodingKey::from_secret(KEY.as_bytes())).unwrap();
-        cancel_router.oneshot(Request::builder().method("DELETE").uri(format!("/api/orderbook/{}",id(ORDER))).header("authorization",format!("Bearer {token}")).body(Body::empty()).unwrap()).await.unwrap().status()
+    let mut f = Fixture::new().await;
+    let digest = f.digest().await;
+    let mut blocker = f.admin.begin().await.unwrap();
+    sqlx::query("SELECT id FROM organizations WHERE id=$1 FOR UPDATE")
+        .bind(id(0x2000))
+        .execute(&mut *blocker)
+        .await
+        .unwrap();
+    let take_router = f.router.clone();
+    let cancel_router =
+        verdaxis_read::routes::market_write::orders::contract_router(f.pool.clone(), KEY);
+    let take = tokio::spawn(async move {
+        send(
+            &take_router,
+            "POST",
+            "/api/trades/",
+            Some(BUYER),
+            &[],
+            Some(json!({"order_id":id(ORDER),"quantity_mt":"3","expected_terms_digest":digest})),
+        )
+        .await
     });
-    let admin_url=std::env::var("RUST_TRADES_ADMIN_DATABASE_URL").unwrap();let mut observer=PgConnection::connect(&admin_url).await.unwrap();
+    let cancel = tokio::spawn(async move {
+        let now = chrono::Utc::now().timestamp();
+        let token=encode(&Header::default(),&json!({"sub":id(SELLER),"type":"access","iat":now,"exp":now+600,"iss":"cancel-tests","aud":"cancel-tests"}),&EncodingKey::from_secret(KEY.as_bytes())).unwrap();
+        cancel_router
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(format!("/api/orderbook/{}", id(ORDER)))
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap()
+            .status()
+    });
+    let admin_url = std::env::var("RUST_TRADES_ADMIN_DATABASE_URL").unwrap();
+    let mut observer = PgConnection::connect(&admin_url).await.unwrap();
     let observed=tokio::time::timeout(std::time::Duration::from_secs(4),async{
         loop {let n:i64=sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND usename='rust_app'").fetch_one(&mut observer).await.unwrap();if n>=2 {break n;}tokio::time::sleep(std::time::Duration::from_millis(5)).await;}
     }).await;
-    blocker.commit().await.unwrap();assert!(observed.is_ok(),"both independent owners must reach the held prefix");
-    let take=take.await.unwrap();let cancel=cancel.await.unwrap();
-    assert!(matches!(take.0.as_u16(),200|400|409|503),"{take:?}");assert!(matches!(cancel.as_u16(),204|409|503));
-    let state=f.state().await;let pending=state["trades"].as_i64().unwrap();assert!(pending<=1);
-    let reserved=state["reserved"].as_str().unwrap().parse::<rust_decimal::Decimal>().unwrap();
-    if cancel==StatusCode::NO_CONTENT {assert_eq!(reserved,rust_decimal::Decimal::from(3*pending));}else{assert_eq!(reserved,rust_decimal::Decimal::from(10));}
+    blocker.commit().await.unwrap();
+    assert!(
+        observed.is_ok(),
+        "both independent owners must reach the held prefix"
+    );
+    let take = take.await.unwrap();
+    let cancel = cancel.await.unwrap();
+    assert!(matches!(take.0.as_u16(), 200 | 400 | 409 | 503), "{take:?}");
+    assert!(matches!(cancel.as_u16(), 204 | 409 | 503));
+    let state = f.state().await;
+    let pending = state["trades"].as_i64().unwrap();
+    assert!(pending <= 1);
+    let reserved = state["reserved"]
+        .as_str()
+        .unwrap()
+        .parse::<rust_decimal::Decimal>()
+        .unwrap();
+    if cancel == StatusCode::NO_CONTENT {
+        assert_eq!(reserved, rust_decimal::Decimal::from(3 * pending));
+    } else {
+        assert_eq!(reserved, rust_decimal::Decimal::from(10));
+    }
 }
 
 #[tokio::test]
 #[ignore = "requires an attested disposable PostgreSQL"]
 async fn assisted_discovery_requires_linked_customer_membership_not_staff_identity() {
-    let mut f=Fixture::new().await;
-    sqlx::query("SELECT trades_fixture_assisted()").execute(&mut f.admin).await.unwrap();
-    let(s,b)=f.take(BUYER,None,"1").await;assert_eq!(s,StatusCode::OK,"{b}");
-    let(_,customer)=send(&f.router,"GET","/api/trades/summary",Some(SELLER),&[],None).await;assert_eq!(customer["total_count"],1);assert_eq!(customer["action_required_count"],1);
-    let(_,staff)=send(&f.router,"GET","/api/trades/my",Some(ADMIN),&[],None).await;assert_eq!(staff["total"],0);
-    f.change(SELLER,"detached").await;
-    let(_,detached)=send(&f.router,"GET","/api/trades/my",Some(SELLER),&[],None).await;assert_eq!(detached["total"],0);
+    let mut f = Fixture::new().await;
+    sqlx::query("SELECT trades_fixture_assisted()")
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
+    let (s, b) = f.take(BUYER, None, "1").await;
+    assert_eq!(s, StatusCode::OK, "{b}");
+    let (_, customer) = send(
+        &f.router,
+        "GET",
+        "/api/trades/summary",
+        Some(SELLER),
+        &[],
+        None,
+    )
+    .await;
+    assert_eq!(customer["total_count"], 1);
+    assert_eq!(customer["action_required_count"], 1);
+    let (_, staff) = send(&f.router, "GET", "/api/trades/my", Some(ADMIN), &[], None).await;
+    assert_eq!(staff["total"], 0);
+    f.change(SELLER, "detached").await;
+    let (_, detached) = send(&f.router, "GET", "/api/trades/my", Some(SELLER), &[], None).await;
+    assert_eq!(detached["total"], 0);
 }
 
 #[tokio::test]
 #[ignore = "requires an attested disposable PostgreSQL"]
 async fn equal_time_pages_use_uuid_descending_and_match_summary() {
-    let mut f=Fixture::new().await;let(_,a)=f.take(BUYER,None,"1").await;let(_,b)=f.take(BUYER,None,"1").await;
-    sqlx::query("SELECT trades_fixture_tie_times()").execute(&mut f.admin).await.unwrap();
-    let(_,page)=send(&f.router,"GET","/api/trades/my?limit=1",Some(BUYER),&[],None).await;
-    let mut ids=[a["id"].as_str().unwrap(),b["id"].as_str().unwrap()];ids.sort_unstable();
-    assert_eq!(page["items"][0]["id"],ids[1]);
-    let(_,next)=send(&f.router,"GET","/api/trades/my?limit=1&skip=1",Some(BUYER),&[],None).await;assert_eq!(next["items"][0]["id"],ids[0]);
-    let(_,completed)=send(&f.router,"GET","/api/trades/my?status_group=completed",Some(BUYER),&[],None).await;assert_eq!(completed["total"],0);
+    let mut f = Fixture::new().await;
+    let (_, a) = f.take(BUYER, None, "1").await;
+    let (_, b) = f.take(BUYER, None, "1").await;
+    sqlx::query("SELECT trades_fixture_tie_times()")
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
+    let (_, page) = send(
+        &f.router,
+        "GET",
+        "/api/trades/my?limit=1",
+        Some(BUYER),
+        &[],
+        None,
+    )
+    .await;
+    let mut ids = [a["id"].as_str().unwrap(), b["id"].as_str().unwrap()];
+    ids.sort_unstable();
+    assert_eq!(page["items"][0]["id"], ids[1]);
+    let (_, next) = send(
+        &f.router,
+        "GET",
+        "/api/trades/my?limit=1&skip=1",
+        Some(BUYER),
+        &[],
+        None,
+    )
+    .await;
+    assert_eq!(next["items"][0]["id"], ids[0]);
+    let (_, completed) = send(
+        &f.router,
+        "GET",
+        "/api/trades/my?status_group=completed",
+        Some(BUYER),
+        &[],
+        None,
+    )
+    .await;
+    assert_eq!(completed["total"], 0);
 }
 
 #[tokio::test]
 #[ignore = "requires an attested disposable PostgreSQL"]
 async fn pending_effects_have_exact_participant_scope_and_source_fields() {
-    let mut f=Fixture::new().await;let(s,trade)=f.take(BUYER,None,"2").await;assert_eq!(s,StatusCode::OK);
-    let row=sqlx::query("SELECT event_type,participant_org_ids,payload,producer_evidence FROM market_event_outbox").fetch_one(&mut f.admin).await.unwrap();
-    assert_eq!(row.get::<String,_>("event_type"),"trade_created");let mut parties:Vec<Uuid>=serde_json::from_value(row.get::<Value,_>("participant_org_ids")).unwrap();parties.sort_unstable();assert_eq!(parties,vec![id(0x1000),id(0x2000)]);
-    let payload:Value=row.get("payload");assert_eq!(payload["id"],trade["id"]);assert_eq!(payload["status"],"PENDING_CONFIRMATION");assert_eq!(payload["_public_market_invalidation"],true);assert_eq!(payload["schema_version"],1);assert!(payload.get("commission_fee_per_mt_usd").is_none());assert!(payload.get("producer_evidence").is_none());
-    let audit=sqlx::query("SELECT action,resource_type,changes FROM audit_logs").fetch_one(&mut f.admin).await.unwrap();assert_eq!(audit.get::<String,_>("action"),"trade.created");assert_eq!(audit.get::<String,_>("resource_type"),"trade");let changes:Value=audit.get("changes");assert_eq!(changes["order_id"],id(ORDER).to_string());assert!(changes.get("lng_terms_snapshot").is_none());
+    let mut f = Fixture::new().await;
+    let (s, trade) = f.take(BUYER, None, "2").await;
+    assert_eq!(s, StatusCode::OK);
+    let row = sqlx::query(
+        "SELECT event_type,participant_org_ids,payload,producer_evidence FROM market_event_outbox",
+    )
+    .fetch_one(&mut f.admin)
+    .await
+    .unwrap();
+    assert_eq!(row.get::<String, _>("event_type"), "trade_created");
+    let mut parties: Vec<Uuid> =
+        serde_json::from_value(row.get::<Value, _>("participant_org_ids")).unwrap();
+    parties.sort_unstable();
+    assert_eq!(parties, vec![id(0x1000), id(0x2000)]);
+    let payload: Value = row.get("payload");
+    assert_eq!(payload["id"], trade["id"]);
+    assert_eq!(payload["status"], "PENDING_CONFIRMATION");
+    assert_eq!(payload["_public_market_invalidation"], true);
+    assert_eq!(payload["schema_version"], 1);
+    assert!(payload.get("commission_fee_per_mt_usd").is_none());
+    assert!(payload.get("producer_evidence").is_none());
+    let audit = sqlx::query("SELECT action,resource_type,changes FROM audit_logs")
+        .fetch_one(&mut f.admin)
+        .await
+        .unwrap();
+    assert_eq!(audit.get::<String, _>("action"), "trade.created");
+    assert_eq!(audit.get::<String, _>("resource_type"), "trade");
+    let changes: Value = audit.get("changes");
+    assert_eq!(changes["order_id"], id(ORDER).to_string());
+    assert!(changes.get("lng_terms_snapshot").is_none());
 }
 
 #[tokio::test]
 #[ignore = "requires an attested disposable PostgreSQL"]
 async fn typed_direct_takes_freeze_normalized_terms_and_keep_pending_identity_private() {
-    let fame_bid=json!({"schema_version":1,"side":"BID","neat_fame":true,"standard":"EN_14214","standard_edition":"2012+A2:2019","sustainability_scheme":"ISCC_EU"});
-    let fame_ask=json!({"schema_version":1,"side":"ASK","neat_fame":true,"uco_mass_pct":100,"standard":"EN_14214","standard_edition":"2012+A2:2019","sustainability_scheme":"ISCC_EU","certificate_reference":"private-certificate","certificate_holder":"private-supplier","evidence_status":"PENDING","document_references":[],"certificate_valid_until":"2027-01-01","evidence_due":"BEFORE_LOADING"});
-    let lng_bid=json!({"side":"BID","accepted_schemes":["ISCC_EU"],"accepted_delivery_methods":["SHIP_TO_SHIP"]});
-    let lng_ask=json!({"side":"ASK","sustainability_scheme":"ISCC_EU","scheme_certificate_number":"private-certificate","chain_of_custody":"MASS_BALANCE","union_database_registered":true,"bio_share_pct":"100","feedstock":"MANURE","production_country":"NL","wtt_ghg_gco2e_mj":"-20.25","specification_standard":"ISO 23306:2020","min_methane_number":"80","delivery_method":"SHIP_TO_SHIP","seller_is_physical_supplier":false,"physical_supplier_name":"private-supplier","pos_timing":"WITH_DELIVERY"});
-    let policy:Value=serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap();
-    for(profile,bid,ask,field) in [("fame_v1",fame_bid,fame_ask,"fame_terms"),("lng_v1",lng_bid,lng_ask,"lng_terms")] {
-        let mut f=Fixture::new().await;
-        let p=policy["products"].as_array().unwrap().iter().find(|p|p["qualification_profile"]==profile).unwrap();
-        sqlx::query("SELECT trades_fixture_typed($1,$2,$3,$4)").bind(p["id"].as_str().unwrap().parse::<Uuid>().unwrap()).bind(p["lanes"][0].as_str().unwrap().parse::<Uuid>().unwrap()).bind(profile).bind(&ask).execute(&mut f.admin).await.unwrap();
-        let digest=f.digest().await;let mut body=json!({"order_id":id(ORDER),"quantity_mt":"1","expected_terms_digest":digest});body[field]=bid;
-        let(s,response)=send(&f.router,"POST","/api/trades/",Some(BUYER),&[],Some(body)).await;assert_eq!(s,StatusCode::OK,"{profile}: {response}");
-        let text=response.to_string();assert!(!text.contains("private-certificate"));assert!(!text.contains("private-supplier"));
-        let stored:Value=sqlx::query_scalar("SELECT COALESCE(fame_terms_snapshot::jsonb,lng_terms_snapshot::jsonb) FROM trades").fetch_one(&mut f.admin).await.unwrap();
+    let fame_bid = json!({"schema_version":1,"side":"BID","neat_fame":true,"standard":"EN_14214","standard_edition":"2012+A2:2019","sustainability_scheme":"ISCC_EU"});
+    let fame_ask = json!({"schema_version":1,"side":"ASK","neat_fame":true,"uco_mass_pct":100,"standard":"EN_14214","standard_edition":"2012+A2:2019","sustainability_scheme":"ISCC_EU","certificate_reference":"private-certificate","certificate_holder":"private-supplier","evidence_status":"PENDING","document_references":[],"certificate_valid_until":"2027-01-01","evidence_due":"BEFORE_LOADING"});
+    let lng_bid = json!({"side":"BID","accepted_schemes":["ISCC_EU"],"accepted_delivery_methods":["SHIP_TO_SHIP"]});
+    let lng_ask = json!({"side":"ASK","sustainability_scheme":"ISCC_EU","scheme_certificate_number":"private-certificate","chain_of_custody":"MASS_BALANCE","union_database_registered":true,"bio_share_pct":"100","feedstock":"MANURE","production_country":"NL","wtt_ghg_gco2e_mj":"-20.25","specification_standard":"ISO 23306:2020","min_methane_number":"80","delivery_method":"SHIP_TO_SHIP","seller_is_physical_supplier":false,"physical_supplier_name":"private-supplier","pos_timing":"WITH_DELIVERY"});
+    let policy: Value =
+        serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap();
+    for (profile, bid, ask, field) in [
+        ("fame_v1", fame_bid, fame_ask, "fame_terms"),
+        ("lng_v1", lng_bid, lng_ask, "lng_terms"),
+    ] {
+        let mut f = Fixture::new().await;
+        let p = policy["products"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["qualification_profile"] == profile)
+            .unwrap();
+        sqlx::query("SELECT trades_fixture_typed($1,$2,$3,$4)")
+            .bind(p["id"].as_str().unwrap().parse::<Uuid>().unwrap())
+            .bind(p["lanes"][0].as_str().unwrap().parse::<Uuid>().unwrap())
+            .bind(profile)
+            .bind(&ask)
+            .execute(&mut f.admin)
+            .await
+            .unwrap();
+        let digest = f.digest().await;
+        let mut body =
+            json!({"order_id":id(ORDER),"quantity_mt":"1","expected_terms_digest":digest});
+        body[field] = bid;
+        let (s, response) = send(
+            &f.router,
+            "POST",
+            "/api/trades/",
+            Some(BUYER),
+            &[],
+            Some(body),
+        )
+        .await;
+        assert_eq!(s, StatusCode::OK, "{profile}: {response}");
+        let text = response.to_string();
+        assert!(!text.contains("private-certificate"));
+        assert!(!text.contains("private-supplier"));
+        let stored: Value = sqlx::query_scalar(
+            "SELECT COALESCE(fame_terms_snapshot::jsonb,lng_terms_snapshot::jsonb) FROM trades",
+        )
+        .fetch_one(&mut f.admin)
+        .await
+        .unwrap();
         assert!(stored.to_string().contains("private-certificate"));
-        let normalized=verdaxis_read::market::terms::owner_response_terms(profile,&ask).unwrap();assert_eq!(stored["ask"],normalized);
-        if profile=="lng_v1" {assert_eq!(stored["bid"]["accept_resellers"],true);assert!(stored["bid"].get("schema_version").is_none());}
+        let normalized = verdaxis_read::market::terms::owner_response_terms(profile, &ask).unwrap();
+        assert_eq!(stored["ask"], normalized);
+        if profile == "lng_v1" {
+            assert_eq!(stored["bid"]["accept_resellers"], true);
+            assert!(stored["bid"].get("schema_version").is_none());
+        }
     }
 }
 
 #[tokio::test]
 #[ignore = "requires an attested disposable PostgreSQL"]
 async fn take_fee_fallback_and_configuration_matrix() {
- for(plan,active,expired,rate,expected) in [("standard",true,false,None,Some("1.5")),("standard",false,false,None,Some("2")),("standard",true,true,None,Some("2")),("enterprise",true,false,Some("0.75"),Some("0.75")),("enterprise",true,false,None,None)] {
-  let mut f=Fixture::new().await;let expiry=chrono::Utc::now()+chrono::Duration::hours(if expired{-1}else{1});
-  sqlx::query("SELECT trades_fixture_subscription($1,$2,$3,$4)").bind(plan).bind(active).bind(expiry).bind(rate.map(|v|v.parse::<rust_decimal::Decimal>().unwrap())).execute(&mut f.admin).await.unwrap();
-  let before=f.state().await;let(s,b)=f.take(BUYER,None,"1").await;
-  if let Some(expected)=expected {assert_eq!(s,StatusCode::OK,"{b}");let fee:rust_decimal::Decimal=sqlx::query_scalar("SELECT commission_fee_per_mt_usd FROM trades").fetch_one(&mut f.admin).await.unwrap();assert_eq!(fee,expected.parse::<rust_decimal::Decimal>().unwrap());}else{assert_eq!(s,StatusCode::CONFLICT);assert_eq!(f.state().await,before);}
- }
+    for (plan, active, expired, rate, expected) in [
+        ("standard", true, false, None, Some("1.5")),
+        ("standard", false, false, None, Some("2")),
+        ("standard", true, true, None, Some("2")),
+        ("enterprise", true, false, Some("0.75"), Some("0.75")),
+        ("enterprise", true, false, None, None),
+    ] {
+        let mut f = Fixture::new().await;
+        let expiry = chrono::Utc::now() + chrono::Duration::hours(if expired { -1 } else { 1 });
+        sqlx::query("SELECT trades_fixture_subscription($1,$2,$3,$4)")
+            .bind(plan)
+            .bind(active)
+            .bind(expiry)
+            .bind(rate.map(|v| v.parse::<rust_decimal::Decimal>().unwrap()))
+            .execute(&mut f.admin)
+            .await
+            .unwrap();
+        let before = f.state().await;
+        let (s, b) = f.take(BUYER, None, "1").await;
+        if let Some(expected) = expected {
+            assert_eq!(s, StatusCode::OK, "{b}");
+            let fee: rust_decimal::Decimal =
+                sqlx::query_scalar("SELECT commission_fee_per_mt_usd FROM trades")
+                    .fetch_one(&mut f.admin)
+                    .await
+                    .unwrap();
+            assert_eq!(fee, expected.parse::<rust_decimal::Decimal>().unwrap());
+        } else {
+            assert_eq!(s, StatusCode::CONFLICT);
+            assert_eq!(f.state().await, before);
+        }
+    }
 }
 
 #[tokio::test]
 #[ignore = "requires an attested disposable PostgreSQL"]
 async fn take_key_and_authentication_validation_precede_replay() {
- let mut f=Fixture::new().await;assert_eq!(f.take(BUYER,Some("key"),"1").await.0,StatusCode::OK);let before=f.state().await;
- let(s,_)=send(&f.router,"POST","/api/trades/",None,&[("idempotency-key","key")],Some(json!({}))).await;assert_eq!(s,StatusCode::UNAUTHORIZED);
- for key in [" ".to_string(),"a".repeat(256)] {let digest=f.digest().await;let(s,_)=send(&f.router,"POST","/api/trades/",Some(BUYER),&[("idempotency-key",&key)],Some(json!({"order_id":id(ORDER),"quantity_mt":"1","expected_terms_digest":digest}))).await;assert_eq!(s,StatusCode::BAD_REQUEST);}
- assert_eq!(f.state().await,before);
+    let mut f = Fixture::new().await;
+    assert_eq!(f.take(BUYER, Some("key"), "1").await.0, StatusCode::OK);
+    let before = f.state().await;
+    let (s, _) = send(
+        &f.router,
+        "POST",
+        "/api/trades/",
+        None,
+        &[("idempotency-key", "key")],
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(s, StatusCode::UNAUTHORIZED);
+    for key in [" ".to_string(), "a".repeat(256)] {
+        let digest = f.digest().await;
+        let (s, _) = send(
+            &f.router,
+            "POST",
+            "/api/trades/",
+            Some(BUYER),
+            &[("idempotency-key", &key)],
+            Some(json!({"order_id":id(ORDER),"quantity_mt":"1","expected_terms_digest":digest})),
+        )
+        .await;
+        assert_eq!(s, StatusCode::BAD_REQUEST);
+    }
+    assert_eq!(f.state().await, before);
 }
 
 #[tokio::test]
 #[ignore = "requires an attested disposable PostgreSQL"]
 async fn locked_party_changes_are_revalidated_after_read_only_preview() {
- let mut f=Fixture::new().await;let digest=f.digest().await;
- let mut blocker=f.admin.begin().await.unwrap();
- sqlx::query("SELECT id FROM organizations WHERE id=$1 FOR UPDATE").bind(id(0x2000)).execute(&mut *blocker).await.unwrap();
- let router=f.router.clone();let take=tokio::spawn(async move{send(&router,"POST","/api/trades/",Some(BUYER),&[],Some(json!({"order_id":id(ORDER),"quantity_mt":"1","expected_terms_digest":digest}))).await});
- let admin_url=std::env::var("RUST_TRADES_ADMIN_DATABASE_URL").unwrap();let mut observer=PgConnection::connect(&admin_url).await.unwrap();
- let observed=tokio::time::timeout(std::time::Duration::from_secs(4),async{loop{let count:i64=sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND usename='rust_app'").fetch_one(&mut observer).await.unwrap();if count>0{break;}tokio::time::sleep(std::time::Duration::from_millis(5)).await;}}).await;
- sqlx::query("SELECT trades_fixture_change($1,'rejected')").bind(id(SELLER)).execute(&mut *blocker).await.unwrap();
- blocker.commit().await.unwrap();assert!(observed.is_ok());let(s,b)=take.await.unwrap();assert_eq!(s,StatusCode::BAD_REQUEST,"{b}");assert_eq!(f.state().await["trades"],0);
+    let mut f = Fixture::new().await;
+    let digest = f.digest().await;
+    let mut blocker = f.admin.begin().await.unwrap();
+    sqlx::query("SELECT id FROM organizations WHERE id=$1 FOR UPDATE")
+        .bind(id(0x2000))
+        .execute(&mut *blocker)
+        .await
+        .unwrap();
+    let router = f.router.clone();
+    let take = tokio::spawn(async move {
+        send(
+            &router,
+            "POST",
+            "/api/trades/",
+            Some(BUYER),
+            &[],
+            Some(json!({"order_id":id(ORDER),"quantity_mt":"1","expected_terms_digest":digest})),
+        )
+        .await
+    });
+    let admin_url = std::env::var("RUST_TRADES_ADMIN_DATABASE_URL").unwrap();
+    let mut observer = PgConnection::connect(&admin_url).await.unwrap();
+    let observed=tokio::time::timeout(std::time::Duration::from_secs(4),async{loop{let count:i64=sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND usename='rust_app'").fetch_one(&mut observer).await.unwrap();if count>0{break;}tokio::time::sleep(std::time::Duration::from_millis(5)).await;}}).await;
+    sqlx::query("SELECT trades_fixture_change($1,'rejected')")
+        .bind(id(SELLER))
+        .execute(&mut *blocker)
+        .await
+        .unwrap();
+    blocker.commit().await.unwrap();
+    assert!(observed.is_ok());
+    let (s, b) = take.await.unwrap();
+    assert_eq!(s, StatusCode::BAD_REQUEST, "{b}");
+    assert_eq!(f.state().await["trades"], 0);
 }

@@ -282,8 +282,19 @@ fn trade_projection_excludes_unlisted_columns() {
 
 #[test]
 fn analytics_configuration_rejects_unbounded_or_credentialed_delivery() {
- let mut config=UmamiConfig{enabled:true,base_url:Some("https://collector.example.test".into()),website_id:Some("site".into()),api_username:None,api_password:None,policy:UmamiPolicy::default(),catalog:Arc::new(Default::default())};
- assert!(AnalyticsSender::new(&config,None,"https://app.example.test",0).is_err());
- config.policy.timeout=Duration::from_secs(11);assert!(AnalyticsSender::new(&config,None,"https://app.example.test",1).is_err());
- config.policy.timeout=Duration::from_secs(1);config.base_url=Some("https://synthetic:unused@collector.example.test".into());assert!(AnalyticsSender::new(&config,None,"https://app.example.test",1).is_err());
+    let mut config = UmamiConfig {
+        enabled: true,
+        base_url: Some("https://collector.example.test".into()),
+        website_id: Some("site".into()),
+        api_username: None,
+        api_password: None,
+        policy: UmamiPolicy::default(),
+        catalog: Arc::new(Default::default()),
+    };
+    assert!(AnalyticsSender::new(&config, None, "https://app.example.test", 0).is_err());
+    config.policy.timeout = Duration::from_secs(11);
+    assert!(AnalyticsSender::new(&config, None, "https://app.example.test", 1).is_err());
+    config.policy.timeout = Duration::from_secs(1);
+    config.base_url = Some("https://synthetic:unused@collector.example.test".into());
+    assert!(AnalyticsSender::new(&config, None, "https://app.example.test", 1).is_err());
 }
