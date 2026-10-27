@@ -741,24 +741,61 @@ async fn served_support_mode_classification_matches_python() {
     // Python classifies any non-empty header value; validity is checked later.
     for (method, path, header, refused) in [
         ("POST", format!("/api/orderbook/{upper}/cancel"), ctx, false),
-        ("POST", format!("/api/orderbook/{order}/cancel/"), ctx, false),
-        ("POST", format!("/api/admin/market-support/contexts/{context}/exit"), ctx, false),
-        ("POST", format!("/api/admin/market-support/contexts/{context}/exit/"), ctx, false),
+        (
+            "POST",
+            format!("/api/orderbook/{order}/cancel/"),
+            ctx,
+            false,
+        ),
+        (
+            "POST",
+            format!("/api/admin/market-support/contexts/{context}/exit"),
+            ctx,
+            false,
+        ),
+        (
+            "POST",
+            format!("/api/admin/market-support/contexts/{context}/exit/"),
+            ctx,
+            false,
+        ),
         ("POST", "/api/orderbook".to_owned(), ctx, false),
         ("POST", "/api/orderbook/".to_owned(), ctx, false),
         ("POST", "/orderbook".to_owned(), ctx, false),
         ("GET", "/api/orderbook/my".to_owned(), ctx, false),
         ("DELETE", format!("/api/orderbook/{order}"), ctx, true),
-        ("DELETE", format!("/api/orderbook/{order}"), "not-a-context", true),
+        (
+            "DELETE",
+            format!("/api/orderbook/{order}"),
+            "not-a-context",
+            true,
+        ),
         ("PUT", format!("/api/orderbook/{order}"), ctx, true),
-        ("POST", format!("/api/orderbook/{order}/cancel/extra"), ctx, true),
+        (
+            "POST",
+            format!("/api/orderbook/{order}/cancel/extra"),
+            ctx,
+            true,
+        ),
         ("POST", "/api/trades/".to_owned(), ctx, true),
         ("PATCH", "/api/notifications/read-all".to_owned(), ctx, true),
     ] {
-        let reply = send(&f.router, method, &path, Some(f.actor), &[(CONTEXT_HEADER, header)], None).await;
+        let reply = send(
+            &f.router,
+            method,
+            &path,
+            Some(f.actor),
+            &[(CONTEXT_HEADER, header)],
+            None,
+        )
+        .await;
         let classified_refusal = reply.status == StatusCode::FORBIDDEN
             && reply.code() == "MARKET_SUPPORT_MUTATION_NOT_ALLOWED";
-        assert_eq!(classified_refusal, refused, "{method} {path}: {:?}", reply.body);
+        assert_eq!(
+            classified_refusal, refused,
+            "{method} {path}: {:?}",
+            reply.body
+        );
     }
     assert_eq!(f.state().await, before);
 }
@@ -771,7 +808,10 @@ async fn served_assisted_cancel_reaches_the_handler() {
     let before = f.state().await;
     let context = f.context.to_string();
     let etag = order_etag(f.order, 1);
-    let headers = [(CONTEXT_HEADER, context.as_str()), ("If-Match", etag.as_str())];
+    let headers = [
+        (CONTEXT_HEADER, context.as_str()),
+        ("If-Match", etag.as_str()),
+    ];
     let reason = json!({"reason": "Customer request"});
     let deleted = send(
         &f.router,
@@ -892,16 +932,40 @@ async fn cancel_refusals_follow_python_status_and_order() {
     assert_eq!(cut_off.status, StatusCode::UNAUTHORIZED);
     // The order lookup comes before the POST reason rule.
     let f = Fixture::new().await;
-    let reasonless = send(&f.router, "POST", &format!("{missing}/cancel"), Some(f.actor), &[], None).await;
+    let reasonless = send(
+        &f.router,
+        "POST",
+        &format!("{missing}/cancel"),
+        Some(f.actor),
+        &[],
+        None,
+    )
+    .await;
     assert_eq!(reasonless.status, StatusCode::NOT_FOUND);
     assert_eq!(reasonless.code(), "ORDER_NOT_FOUND");
     // A malformed path identifier is a 422 validation error, as FastAPI's.
-    let malformed = send(&f.router, "DELETE", "/api/orderbook/not-a-uuid", Some(f.actor), &[], None).await;
+    let malformed = send(
+        &f.router,
+        "DELETE",
+        "/api/orderbook/not-a-uuid",
+        Some(f.actor),
+        &[],
+        None,
+    )
+    .await;
     assert_eq!(malformed.status, StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(malformed.code(), "VALIDATION_FAILED");
     // An invalid Idempotency-Key is a 400.
     let order = format!("/api/orderbook/{}", f.order);
-    let key = send(&f.router, "DELETE", &order, Some(f.actor), &[("Idempotency-Key", " ")], None).await;
+    let key = send(
+        &f.router,
+        "DELETE",
+        &order,
+        Some(f.actor),
+        &[("Idempotency-Key", " ")],
+        None,
+    )
+    .await;
     assert_eq!(key.status, StatusCode::BAD_REQUEST);
     // A blank context header is no context: the owner cancels self-service.
     let mut f = Fixture::new().await;
@@ -922,7 +986,10 @@ async fn cancel_refusals_follow_python_status_and_order() {
     let before = f.state().await;
     let admin = f.cancel(f.actor, None).await;
     assert_eq!(admin.0, StatusCode::GONE);
-    assert_eq!(admin.1["detail"]["code"], "MARKET_SUPPORT_LEGACY_MUTATION_RETIRED");
+    assert_eq!(
+        admin.1["detail"]["code"],
+        "MARKET_SUPPORT_LEGACY_MUTATION_RETIRED"
+    );
     assert_eq!(f.state().await, before);
     // Assisted orders: the reason rule precedes ownership, and the context
     // header must name a context.
@@ -938,7 +1005,10 @@ async fn cancel_refusals_follow_python_status_and_order() {
         "POST",
         &cancel_path,
         Some(f.actor),
-        &[(CONTEXT_HEADER, "not-a-context"), ("If-Match", etag.as_str())],
+        &[
+            (CONTEXT_HEADER, "not-a-context"),
+            ("If-Match", etag.as_str()),
+        ],
         Some(json!({"reason": "Customer request"})),
     )
     .await;
@@ -959,7 +1029,10 @@ async fn cancel_refusals_follow_python_status_and_order() {
         "POST",
         &cancel_path,
         Some(f.actor),
-        &[(CONTEXT_HEADER, context.as_str()), ("If-Match", etag.as_str())],
+        &[
+            (CONTEXT_HEADER, context.as_str()),
+            ("If-Match", etag.as_str()),
+        ],
         Some(json!({"reason": "Customer request"})),
     )
     .await;
@@ -973,7 +1046,15 @@ async fn cancel_refusals_follow_python_status_and_order() {
 async fn owner_reads_validate_like_python() {
     let f = Fixture::new().await;
     for query in ["skip=abc", "limit=0", "limit=101", "skip=-1"] {
-        let reply = send(&f.router, "GET", &format!("/api/orderbook/my?{query}"), Some(f.actor), &[], None).await;
+        let reply = send(
+            &f.router,
+            "GET",
+            &format!("/api/orderbook/my?{query}"),
+            Some(f.actor),
+            &[],
+            None,
+        )
+        .await;
         assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY, "{query}");
         assert_eq!(reply.code(), "VALIDATION_FAILED", "{query}");
     }
@@ -983,7 +1064,15 @@ async fn owner_reads_validate_like_python() {
         let reply = send(&f.router, "GET", path, Some(f.actor), &headers, None).await;
         assert_eq!(reply.status, StatusCode::OK, "{path}: {:?}", reply.body);
     }
-    let unauthenticated = send(&f.router, "GET", "/api/orderbook/my?skip=abc", None, &[], None).await;
+    let unauthenticated = send(
+        &f.router,
+        "GET",
+        "/api/orderbook/my?skip=abc",
+        None,
+        &[],
+        None,
+    )
+    .await;
     assert_eq!(unauthenticated.status, StatusCode::UNAUTHORIZED);
 }
 
@@ -994,11 +1083,12 @@ async fn owner_rows_use_the_python_response_schema() {
     f.change("owner_rows").await;
     f.change("legacy_window").await;
     f.change("typed_owner").await;
-    let stored: Value = sqlx::query_scalar("SELECT fame_terms::jsonb FROM orderbook_orders WHERE id=$1")
-        .bind(f.order)
-        .fetch_one(&mut f.admin)
-        .await
-        .unwrap();
+    let stored: Value =
+        sqlx::query_scalar("SELECT fame_terms::jsonb FROM orderbook_orders WHERE id=$1")
+            .bind(f.order)
+            .fetch_one(&mut f.admin)
+            .await
+            .unwrap();
     let expected_terms = python_order_terms("FameOrderTerms", &stored);
     let response = f
         .request("GET", "/api/orderbook/my", f.actor, None, None, None, None)
@@ -1033,10 +1123,20 @@ async fn owner_rows_use_the_python_response_schema() {
         .fetch_one(&mut f.admin)
         .await
         .unwrap();
-    let digest = verdaxis_read::digest_terms(&verdaxis_read::canonical_terms_from_row(&input).unwrap()).unwrap();
+    let digest =
+        verdaxis_read::digest_terms(&verdaxis_read::canonical_terms_from_row(&input).unwrap())
+            .unwrap();
     assert_eq!(owned["terms_digest"], digest);
     let template = f
-        .request("GET", "/api/orderbook/my/latest-ask-template", f.actor, None, None, None, None)
+        .request(
+            "GET",
+            "/api/orderbook/my/latest-ask-template",
+            f.actor,
+            None,
+            None,
+            None,
+            None,
+        )
         .await;
     assert_eq!(template.0, StatusCode::OK, "{:?}", template.1);
     assert_eq!(template.1["fame_terms"], expected_terms);

@@ -4,7 +4,10 @@ use std::sync::Arc;
 use axum::{
     Router,
     body::Bytes,
-    extract::{ConnectInfo, Path, Query, State},
+    extract::{
+        ConnectInfo, Path, Query, State,
+        rejection::{PathRejection, QueryRejection},
+    },
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{delete, get, post},
@@ -28,6 +31,7 @@ pub struct CancelInput {
     pub reason: Option<String>,
     pub if_match: Option<String>,
     pub key: Option<String>,
+    pub post: bool,
 }
 impl CancelInput {
     pub fn parse(
@@ -36,7 +40,7 @@ impl CancelInput {
         etag: Option<&str>,
         key: Option<&str>,
     ) -> Result<Self, MarketWriteError> {
-        let reason = if let Some(body) = body {
+        let reason = if let Some(body) = body.filter(|body| !body.is_null()) {
             let reason = body.get("reason").and_then(Value::as_str).ok_or_else(|| {
                 invalid_request(
                     StatusCode::UNPROCESSABLE_ENTITY,
@@ -53,21 +57,12 @@ impl CancelInput {
         } else {
             None
         };
-        if post && reason.is_none() {
-            return Err(invalid_request(
-                StatusCode::BAD_REQUEST,
-                "A cancellation reason is required",
-            ));
-        }
-        if let Some(etag) = etag {
-            parse_etag(etag)?;
-        }
         let key = key
             .map(|key| {
                 let key = key.trim();
                 if key.is_empty() || key.chars().count() > 255 {
                     Err(invalid_request(
-                        StatusCode::UNPROCESSABLE_ENTITY,
+                        StatusCode::BAD_REQUEST,
                         "Idempotency-Key must have 1-255 characters",
                     ))
                 } else {
@@ -79,38 +74,26 @@ impl CancelInput {
             reason,
             if_match: etag.map(str::to_owned),
             key,
+            post,
         })
     }
-    pub fn expected_version(&self, id: Uuid) -> Result<Option<i32>, MarketWriteError> {
-        self.if_match
+    pub fn check_etag(&self, id: Uuid, version: i32) -> Result<(), MarketWriteError> {
+        let raw = self
+            .if_match
             .as_deref()
-            .map(|raw| {
-                let (expected, version) = parse_etag(raw)?;
-                if expected != id {
-                    return Err(MarketWriteError::new(MarketErrorCode::OrderVersionStale));
-                }
-                Ok(version)
-            })
-            .transpose()
+            .ok_or_else(|| MarketWriteError::new(MarketErrorCode::IfMatchRequired))?
+            .trim();
+        if raw.is_empty() || !raw.starts_with("W/\"") || !raw.ends_with('"') {
+            return Err(MarketWriteError::new(MarketErrorCode::IfMatchMalformed));
+        }
+        if raw != order_etag(id, version) {
+            return Err(MarketWriteError::new(MarketErrorCode::OrderVersionStale));
+        }
+        Ok(())
     }
 }
 pub fn order_etag(id: Uuid, version: i32) -> String {
     format!("W/\"order-{id}-v{version}\"")
-}
-fn parse_etag(raw: &str) -> Result<(Uuid, i32), MarketWriteError> {
-    let invalid = || MarketWriteError::new(MarketErrorCode::IfMatchMalformed);
-    let text = raw
-        .trim()
-        .strip_prefix("W/\"order-")
-        .and_then(|s| s.strip_suffix('"'))
-        .ok_or_else(invalid)?;
-    let (id, version) = text.rsplit_once("-v").ok_or_else(invalid)?;
-    let id = id.parse().map_err(|_| invalid())?;
-    let version: i32 = version.parse().map_err(|_| invalid())?;
-    if version < 1 {
-        return Err(invalid());
-    }
-    Ok((id, version))
 }
 #[derive(Clone)]
 struct RouteState {
@@ -154,10 +137,17 @@ fn default_limit() -> i64 {
 async fn delete_order(
     State(state): State<RouteState>,
     headers: HeaderMap,
-    Path(id): Path<Uuid>,
+    path: Result<Path<Uuid>, PathRejection>,
     peer: Option<axum::Extension<ConnectInfo<std::net::SocketAddr>>>,
     body: Bytes,
 ) -> Response {
+    let id = match path {
+        Ok(Path(id)) => id,
+        Err(_) => {
+            return invalid_request(StatusCode::UNPROCESSABLE_ENTITY, "Order ID must be a UUID")
+                .into_response();
+        }
+    };
     handle(
         state,
         headers,
@@ -173,10 +163,17 @@ async fn delete_order(
 async fn post_cancel(
     State(state): State<RouteState>,
     headers: HeaderMap,
-    Path(id): Path<Uuid>,
+    path: Result<Path<Uuid>, PathRejection>,
     peer: Option<axum::Extension<ConnectInfo<std::net::SocketAddr>>>,
     body: Bytes,
 ) -> Response {
+    let id = match path {
+        Ok(Path(id)) => id,
+        Err(_) => {
+            return invalid_request(StatusCode::UNPROCESSABLE_ENTITY, "Order ID must be a UUID")
+                .into_response();
+        }
+    };
     handle(
         state,
         headers,
@@ -192,9 +189,13 @@ async fn post_cancel(
 async fn owner_orders(
     State(state): State<RouteState>,
     headers: HeaderMap,
-    Query(page): Query<Page>,
+    page: Result<Query<Page>, QueryRejection>,
     peer: Option<axum::Extension<ConnectInfo<std::net::SocketAddr>>>,
 ) -> Response {
+    // Authentication precedes query validation in the handler.
+    let page = page
+        .map(|Query(page)| page)
+        .unwrap_or(Page { skip: -1, limit: 0 });
     handle(
         state,
         headers,
@@ -279,28 +280,36 @@ async fn handle(
                 })
                 .transpose()
         };
+        let context_error = |status| {
+            refusal(
+                MarketErrorCode::MarketSupportContextInvalid,
+                status,
+                "The support context is not valid",
+            )
+        };
         let context = header("X-Verdaxis-Market-Support-Context")?
-            .filter(|s| !s.trim().is_empty())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
             .map(|s| {
-                s.parse().map_err(|_| {
-                    invalid_request(StatusCode::BAD_REQUEST, "The support context is not valid")
-                })
+                s.parse()
+                    .map_err(|_| context_error(StatusCode::BAD_REQUEST))
             })
             .transpose()?;
         if context.is_some() && !state.support_enabled {
-            return Err(invalid_request(
-                StatusCode::NOT_FOUND,
-                "Support context not found",
-            ));
+            return Err(context_error(StatusCode::NOT_FOUND));
         }
         if context.is_some() && id.is_some() && !post {
-            return Err(invalid_request(
+            return Err(refusal(
+                MarketErrorCode::ValidationFailed,
                 StatusCode::FORBIDDEN,
-                "Use the assisted cancellation route",
+                "This operation is not available in Market Support mode",
             ));
         }
-        let input =
-            CancelInput::parse(post, body, header("If-Match")?, header("Idempotency-Key")?)?;
+        let input = if id.is_some() {
+            CancelInput::parse(post, body, header("If-Match")?, header("Idempotency-Key")?)?
+        } else {
+            CancelInput::default()
+        };
         let ip = crate::runtime::http::client_ip(peer, header("x-forwarded-for")?);
         let audit = AuditContext::new(
             Some(ip),
@@ -317,6 +326,7 @@ async fn handle(
                 limit: page.limit,
                 template,
                 audit,
+                support_enabled: state.support_enabled,
             },
         )
         .await?;
@@ -332,7 +342,21 @@ async fn handle(
         }
     }
     .await;
-    result.unwrap_or_else(IntoResponse::into_response)
+    result.unwrap_or_else(|error: MarketWriteError| {
+        let context_invalid = error.code == MarketErrorCode::MarketSupportContextInvalid;
+        let mut response = error.into_response();
+        if context_invalid {
+            response.headers_mut().insert(
+                "x-verdaxis-market-support-context-invalid",
+                "true".parse().unwrap(),
+            );
+            response.headers_mut().insert(
+                "x-verdaxis-market-support-context-code",
+                "MARKET_SUPPORT_CONTEXT_INVALID".parse().unwrap(),
+            );
+        }
+        response
+    })
 }
 
 #[cfg(feature = "contract-tests")]

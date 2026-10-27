@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sqlx::{PgConnection, Row};
 use uuid::Uuid;
@@ -48,12 +49,14 @@ pub(crate) struct OrderRequest {
     pub limit: i64,
     pub template: bool,
     pub audit: AuditContext,
+    pub support_enabled: bool,
 }
 struct OrderCommand {
     request: OrderRequest,
     policy: Arc<MarketPolicy>,
     config: Arc<crate::Config>,
     hash: String,
+    access: Arc<crate::auth::VerifiedAccess>,
 }
 
 pub(crate) async fn dispatch(
@@ -61,6 +64,14 @@ pub(crate) async fn dispatch(
     access: crate::auth::VerifiedAccess,
     request: OrderRequest,
 ) -> Result<CommittedCommand, MarketWriteError> {
+    if request.id.is_none() {
+        return dispatch_read(app, access, request).await;
+    }
+    let command_access = Arc::new(crate::auth::VerifiedAccess {
+        subject: access.subject,
+        issued_at: access.issued_at,
+        issuance_out_of_range: access.issuance_out_of_range,
+    });
     let payload = json!({"operation":"order.cancel","order_id":request.id,"reason":request.input.reason,"if_match":request.input.if_match});
     let canonical = Canonical::from_json(&payload).map_err(|_| internal())?;
     let hash = super::command_request_hash(&canonical);
@@ -78,10 +89,153 @@ pub(crate) async fn dispatch(
             policy: app.policy,
             config: app.config,
             hash,
+            access: command_access,
         },
         class,
     )
     .await
+}
+
+fn check_reason(
+    order: &OrderIdentity,
+    input: &crate::routes::market_write::orders::CancelInput,
+) -> Result<(), MarketWriteError> {
+    if (input.post || order.method == "MARKET_SUPPORT") && input.reason.is_none() {
+        return Err(refusal(
+            MarketErrorCode::ValidationFailed,
+            axum::http::StatusCode::BAD_REQUEST,
+            "A cancellation reason is required",
+        ));
+    }
+    Ok(())
+}
+fn bumps_version(order: &OrderIdentity, policy: &MarketPolicy) -> bool {
+    order.method == "MARKET_SUPPORT"
+        || policy
+            .products
+            .iter()
+            .any(|p| p.id == order.product && p.code == "UCOME_B100")
+}
+fn api_error(error: MarketWriteError) -> crate::ApiError {
+    crate::ApiError {
+        status: error.status,
+        detail: json!({"code":error.code.as_str(),"message":error.message}),
+        retry_after: None,
+        kind: crate::ApiErrorKind::Expected,
+    }
+}
+async fn dispatch_read(
+    app: AppState,
+    access: crate::auth::VerifiedAccess,
+    request: OrderRequest,
+) -> Result<CommittedCommand, MarketWriteError> {
+    let policy = app.policy.clone();
+    let config = app.config.clone();
+    let path = if request.template {
+        "/api/orderbook/my/latest-ask-template"
+    } else {
+        "/api/orderbook/my"
+    };
+    let auth_request =
+        crate::auth::AuthenticatedRequest::new("GET", path, request.context.is_some());
+    let result = crate::auth::run_authenticated(&app, access, auth_request, move |tx| {
+        Box::pin(async move {
+            let actor = tx.actor().clone();
+            let now = Utc::now();
+            let context_org = resolve_support(tx.connection(), actor.id, request.context, now)
+                .await
+                .map_err(api_error)?;
+            let organization = context_org.or(actor.organization_id).ok_or_else(|| {
+                api_error(refusal(
+                    MarketErrorCode::ValidationFailed,
+                    axum::http::StatusCode::BAD_REQUEST,
+                    "User must belong to an organization",
+                ))
+            })?;
+            owner_read(
+                tx.connection(),
+                organization,
+                &request,
+                now,
+                &policy,
+                &config,
+            )
+            .await
+            .map_err(api_error)
+        })
+    })
+    .await;
+    match result {
+        Ok(body) => Ok(CommittedCommand {
+            response_status: 200,
+            response_body: body,
+            replayed: false,
+        }),
+        Err(crate::auth::AuthenticatedError::Authentication(error)) => Err(refusal(
+            match error {
+                crate::auth::AuthError::PasswordChanged => MarketErrorCode::AuthPasswordChanged,
+                crate::auth::AuthError::SessionRevoked => MarketErrorCode::AuthSessionRevoked,
+                _ => MarketErrorCode::AuthCredentialsInvalid,
+            },
+            axum::http::StatusCode::from_u16(error.status()).unwrap(),
+            "Account is not available",
+        )),
+        Err(crate::auth::AuthenticatedError::Database(error)) => {
+            let code = if error.detail["code"] == "MARKET_SUPPORT_CONTEXT_INVALID" {
+                MarketErrorCode::MarketSupportContextInvalid
+            } else {
+                MarketErrorCode::ValidationFailed
+            };
+            Err(refusal(
+                code,
+                error.status,
+                "The owner read is not available",
+            ))
+        }
+        Err(_) => Err(internal()),
+    }
+}
+
+/// Resolve support authority before resource lookup. The ordered write path
+/// rechecks these facts under its capability and context locks.
+async fn resolve_support(
+    conn: &mut PgConnection,
+    actor: Uuid,
+    context: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> Result<Option<Uuid>, MarketWriteError> {
+    let Some(context) = context else {
+        return Ok(None);
+    };
+    let missing = || {
+        refusal(
+            MarketErrorCode::MarketSupportContextInvalid,
+            axum::http::StatusCode::NOT_FOUND,
+            "Support context not found",
+        )
+    };
+    let invalid = || MarketWriteError::new(MarketErrorCode::MarketSupportContextInvalid);
+    let allowed: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE id=$1 AND role::text='ADMIN' AND status::text='APPROVED')")
+        .bind(actor).fetch_one(&mut *conn).await?;
+    if !allowed {
+        return Err(missing());
+    }
+    let capabilities: i64 = sqlx::query_scalar("SELECT count(DISTINCT capability) FROM staff_capability_assignments WHERE user_id=$1 AND capability::text IN ('MARKET_SUPPORT_AUTHORIZATIONS','MARKET_SUPPORT_LISTINGS') AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>$2)")
+        .bind(actor).bind(now).fetch_one(&mut *conn).await?;
+    if capabilities != 2 {
+        return Err(missing());
+    }
+    let row = sqlx::query("SELECT c.organization_id,c.status::text AS status,c.scope::text AS scope,c.expires_at,o.verification_status::text AS organization_status,o.provenance::text AS provenance FROM market_support_contexts c JOIN organizations o ON o.id=c.organization_id WHERE c.id=$1 AND c.actor_user_id=$2")
+        .bind(context).bind(actor).fetch_optional(&mut *conn).await?.ok_or_else(missing)?;
+    if row.get::<String, _>("status") != "ACTIVE"
+        || row.get::<String, _>("scope") != "ASSISTED_ORDER_ENTRY"
+        || row.get::<DateTime<Utc>, _>("expires_at") <= now
+        || row.get::<String, _>("organization_status") != "APPROVED"
+        || row.get::<String, _>("provenance") != "REAL"
+    {
+        return Err(invalid());
+    }
+    Ok(Some(row.get("organization_id")))
 }
 
 #[derive(Clone)]
@@ -124,6 +278,24 @@ impl MarketCommand for OrderCommand {
         actor: Uuid,
     ) -> BoxFuture<'a, Result<MarketPreview, MarketAttemptError>> {
         Box::pin(async move {
+            let checked = super::authority::admission::authenticate_preview(
+                conn,
+                self.access.clone(),
+                AdmissionClass::Cleanup,
+            )
+            .await?;
+            if self.request.context.is_none()
+                && self.request.support_enabled
+                && checked.account().role == super::authority::ActorRole::Admin
+            {
+                return Err(MarketWriteError::new(
+                    MarketErrorCode::MarketSupportLegacyMutationRetired,
+                )
+                .into());
+            }
+            if self.request.context.is_some() {
+                resolve_support(conn, actor, self.request.context, Utc::now()).await?;
+            }
             let actor_org: Option<Uuid> =
                 sqlx::query_scalar("SELECT organization_id FROM users WHERE id=$1")
                     .bind(actor)
@@ -134,6 +306,9 @@ impl MarketCommand for OrderCommand {
                 Some(id) => Some(identity(conn, id).await?),
                 None => None,
             };
+            if let Some(order) = &order {
+                check_reason(order, &self.request.input)?;
+            }
             let context_org = if let Some(id) = self.request.context {
                 sqlx::query_scalar::<_,Uuid>("SELECT organization_id FROM market_support_contexts WHERE id=$1 AND actor_user_id=$2").bind(id).bind(actor).fetch_optional(&mut *conn).await?
             } else {
@@ -183,6 +358,8 @@ impl MarketCommand for OrderCommand {
             let Some(id) = self.request.id else {
                 return Ok(None);
             };
+            let order = tx.order_port()?.load(id).await?;
+            check_reason(&order, &self.request.input)?;
             let context = tx
                 .order_port()?
                 .authorize(actor, id, self.request.context, Utc::now())
@@ -202,38 +379,15 @@ impl MarketCommand for OrderCommand {
     ) -> BoxFuture<'a, Result<Self::Output, MarketAttemptError>> {
         Box::pin(async move {
             let now = Utc::now();
-            let Some(id) = self.request.id else {
-                let body = tx
-                    .order_port()?
-                    .owner_read(actor, &self.request, now, &self.policy, &self.config)
-                    .await?;
-                return Ok(CommittedCommand {
-                    response_status: 200,
-                    response_body: body,
-                    replayed: false,
-                });
-            };
+            let id = self.request.id.ok_or_else(internal)?;
+            let order = tx.order_port()?.load(id).await?;
+            check_reason(&order, &self.request.input)?;
             let context = tx
                 .order_port()?
                 .authorize(actor, id, self.request.context, now)
                 .await?;
-            let order = tx.order_port()?.load(id).await?;
             if order.method == "MARKET_SUPPORT" {
-                if self.request.input.reason.is_none() {
-                    return Err(refusal(
-                        MarketErrorCode::ValidationFailed,
-                        axum::http::StatusCode::BAD_REQUEST,
-                        "Assisted cancellation requires a reason",
-                    )
-                    .into());
-                }
-                let expected = self.request.input.expected_version(id)?;
-                if expected.is_none() {
-                    return Err(MarketWriteError::new(MarketErrorCode::IfMatchRequired).into());
-                }
-                if expected != Some(order.version) {
-                    return Err(MarketWriteError::new(MarketErrorCode::OrderVersionStale).into());
-                }
+                self.request.input.check_etag(id, order.version)?;
             }
             if !matches!(order.status.as_str(), "OPEN" | "PARTIALLY_FILLED") {
                 // Cancellation keeps its 400 refusal for an order that is no longer live.
@@ -259,7 +413,7 @@ impl MarketCommand for OrderCommand {
                     &self.config,
                 )
                 .await?;
-            tx.order_port()?.withdraw(id).await?;
+            tx.order_port()?.withdraw(id, &self.policy, now).await?;
             if let Some(key) = &self.request.input.key {
                 tx.record_receipt(
                     &context,
@@ -327,6 +481,12 @@ impl<'a> OrderPort<'a> {
         now: DateTime<Utc>,
     ) -> Result<WriteContext, MarketWriteError> {
         let order = self.load(id).await?;
+        if let Some(context) = support
+            && resolve_support(self.conn, actor.user_id(), Some(context), now).await?
+                != Some(order.organization)
+        {
+            return Err(forbidden());
+        }
         if support.is_none() && actor.account().role == super::authority::ActorRole::Admin {
             return Err(forbidden());
         }
@@ -353,16 +513,24 @@ impl<'a> OrderPort<'a> {
             order.organization,
             support,
             now,
-            false,
         )
         .await
     }
-    async fn withdraw(&mut self, id: Uuid) -> Result<(), MarketWriteError> {
+    async fn withdraw(
+        &mut self,
+        id: Uuid,
+        policy: &MarketPolicy,
+        at: DateTime<Utc>,
+    ) -> Result<(), MarketWriteError> {
+        let identity = identity(self.conn, id).await?;
         let mut ledger = super::transaction::StockLedger::new(self.conn, self.items, self.orders);
         let order = ledger.order(id).await?;
-        ledger.withdraw_order(&order, "CANCELLED").await?;
-        sqlx::query("UPDATE orderbook_orders SET updated_at=now() WHERE id=$1")
+        ledger
+            .withdraw_order(&order, "CANCELLED", bumps_version(&identity, policy))
+            .await?;
+        sqlx::query("UPDATE orderbook_orders SET updated_at=$2 WHERE id=$1")
             .bind(id)
+            .bind(at)
             .execute(&mut *self.conn)
             .await?;
         Ok(())
@@ -388,7 +556,7 @@ impl<'a> OrderPort<'a> {
         } else {
             None
         };
-        let changes = json!({"status":"CANCELLED","reason":request.input.reason,"actor_user_id":ctx.actor().user_id(),"effective_organization_id":ctx.effective_organization_id(),"original_principal_user_id":order.owner,"cancellation_principal_user_id":ctx.actor().user_id(),"support_context_id":ctx.support_context_id(),"original_support_context_id":original_context,"version":order.version.checked_add(1).ok_or_else(internal)?});
+        let changes = json!({"status":"CANCELLED","reason":request.input.reason,"actor_user_id":ctx.actor().user_id(),"effective_organization_id":ctx.effective_organization_id(),"original_principal_user_id":order.owner,"cancellation_principal_user_id":ctx.actor().user_id(),"support_context_id":ctx.support_context_id(),"original_support_context_id":original_context,"version":if bumps_version(order, policy) { order.version.checked_add(1).ok_or_else(internal)? } else { order.version }});
         let provenance: String = row.try_get("provenance")?;
         let activity_row = sqlx::query("SELECT o.side::text AS side,p.id AS product_id,d.name AS point_name FROM orderbook_orders o JOIN products p ON p.id=o.product_id LEFT JOIN delivery_points d ON d.id=o.delivery_point_id WHERE o.id=$1").bind(order.id).fetch_one(&mut *self.conn).await?;
         let activity = OrderActivity {
@@ -427,15 +595,11 @@ impl<'a> OrderPort<'a> {
                 .products
                 .iter()
                 .find(|p| p.id == order.product)
-                .ok_or_else(internal)?
-                .code
-                .clone(),
-            delivery_point_id: order.point.ok_or_else(internal)?,
+                .map(|p| p.code.clone()),
+            delivery_point_id: order.point,
             availability_window: order.window.clone(),
-            observed_at: None,
-            delivery_point: activity_row
-                .try_get::<Option<String>, _>("point_name")?
-                .unwrap_or_default(),
+            observed_at: Some(at),
+            delivery_point: activity_row.try_get("point_name")?,
         };
         let query = crate::market::visibility::order_query_sql(
             "SELECT id FROM eligible_orders WHERE id=$14",
@@ -472,68 +636,48 @@ impl<'a> OrderPort<'a> {
             audit_context: request.audit.clone(),
         })
     }
-    async fn owner_read(
-        &mut self,
-        actor: &AuthenticatedActor,
-        request: &OrderRequest,
-        now: DateTime<Utc>,
-        policy: &MarketPolicy,
-        config: &crate::Config,
-    ) -> Result<Value, MarketWriteError> {
-        let organization = if let Some(context) = request.context {
-            sqlx::query_scalar("SELECT organization_id FROM market_support_contexts WHERE id=$1 AND actor_user_id=$2").bind(context).bind(actor.user_id()).fetch_optional(&mut *self.conn).await?.ok_or_else(forbidden)?
-        } else {
-            actor.account().current_organization_id.ok_or_else(|| {
-                refusal(
-                    MarketErrorCode::ValidationFailed,
-                    axum::http::StatusCode::BAD_REQUEST,
-                    "User must belong to an organization",
-                )
-            })?
-        };
-        let _context = super::authority::admission::order_context(
-            self.conn,
-            self.locked,
-            actor,
-            organization,
-            request.context,
-            now,
-            true,
-        )
-        .await?;
-        let rows=sqlx::query("SELECT to_jsonb(o) || jsonb_build_object('quantity_mt',o.quantity_mt::text,'remaining_quantity_mt',o.remaining_quantity_mt::text,'price_per_mt_usd',o.price_per_mt_usd::text,'carbon_intensity_gco2_mj',o.carbon_intensity_gco2_mj::text,'energy_density_mj_kg',o.energy_density_mj_kg::text) AS data,p.name AS product_name,(SELECT value->>'code' FROM jsonb_array_elements($6::jsonb->'products') WHERE value->>'id'=p.id::text) AS market_product,p.fuel_type AS fuel_type,p.fuel_grade AS fuel_grade,d.name AS point_name,d.region AS region,(SELECT count(*) FROM trades t WHERE (o.side::text='ASK' AND t.ask_order_id=o.id) OR (o.side::text='BID' AND t.bid_order_id=o.id)) AS trade_count FROM orderbook_orders o JOIN products p ON p.id=o.product_id LEFT JOIN delivery_points d ON d.id=o.delivery_point_id WHERE o.organization_id=$1 AND (NOT $2 OR (o.side::text='ASK' AND (o.expires_at IS NULL OR o.expires_at>$3))) ORDER BY o.created_at DESC,o.id DESC OFFSET $4 LIMIT $5")
-            .bind(organization).bind(request.template).bind(now).bind(if request.template{0}else{request.skip}).bind(if request.template{1}else{request.limit}).bind(serde_json::to_value(policy).map_err(|_|internal())?).fetch_all(&mut *self.conn).await?;
-        if request.template {
-            return rows
-                .first()
-                .map(template)
-                .transpose()
-                .map(|v| v.unwrap_or(Value::Null));
-        }
-        let keys:Vec<_>=rows.iter().filter_map(|row|{
+}
+
+async fn owner_read(
+    conn: &mut PgConnection,
+    organization: Uuid,
+    request: &OrderRequest,
+    now: DateTime<Utc>,
+    policy: &MarketPolicy,
+    config: &crate::Config,
+) -> Result<Value, MarketWriteError> {
+    let rows=sqlx::query("SELECT to_jsonb(o) || jsonb_build_object('quantity_mt',o.quantity_mt::text,'remaining_quantity_mt',o.remaining_quantity_mt::text,'price_per_mt_usd',o.price_per_mt_usd::text,'carbon_intensity_gco2_mj',o.carbon_intensity_gco2_mj::text,'energy_density_mj_kg',o.energy_density_mj_kg::text) AS data,p.name AS product_name,(SELECT value->>'code' FROM jsonb_array_elements($6::jsonb->'products') WHERE value->>'id'=p.id::text) AS market_product,p.fuel_type AS fuel_type,p.fuel_grade AS fuel_grade,d.name AS point_name,d.region AS region,COALESCE(org.supplier_tier::text,'INDEPENDENT') AS tier_label,(SELECT count(*) FROM trades t WHERE (o.side::text='ASK' AND t.ask_order_id=o.id) OR (o.side::text='BID' AND t.bid_order_id=o.id)) AS trade_count FROM orderbook_orders o JOIN products p ON p.id=o.product_id LEFT JOIN organizations org ON org.id=o.organization_id LEFT JOIN delivery_points d ON d.id=o.delivery_point_id WHERE o.organization_id=$1 AND (NOT $2 OR (o.side::text='ASK' AND (o.expires_at IS NULL OR o.expires_at>$3))) ORDER BY o.created_at DESC,o.id DESC OFFSET $4 LIMIT $5")
+            .bind(organization).bind(request.template).bind(now).bind(if request.template{0}else{request.skip}).bind(if request.template{1}else{request.limit}).bind(serde_json::to_value(policy).map_err(|_|internal())?).fetch_all(&mut *conn).await?;
+    if request.template {
+        return rows
+            .first()
+            .map(template)
+            .transpose()
+            .map(|v| v.unwrap_or(Value::Null));
+    }
+    let keys:Vec<_>=rows.iter().filter_map(|row|{
             let data:Value=row.try_get("data").ok()?;
             Some(json!({"side":data["side"],"product":row.try_get::<String,_>("market_product").ok()?,"point":data["delivery_point_id"],"window":data["availability_window"]}))
         }).collect();
-        let benchmarks = owner_benchmarks(self.conn, policy, config, &keys, now).await?;
-        let mut out = Vec::with_capacity(rows.len());
-        for row in rows {
-            let mut value = owner_projection(&row)?;
-            let key = json!({"side":value["side"],"product":value["market_product"],"point":value["delivery_point_id"],"window":value["availability_window"]});
-            if let Some(price) = benchmarks.get(&key.to_string()) {
-                let price_text = value["price_per_mt_usd"].as_str().ok_or_else(internal)?;
-                let price_value = Decimal::from_str_exact(price_text).map_err(|_| internal())?;
-                let premium = price_value.checked_sub(*price).ok_or_else(internal)?;
-                value["benchmark_price_per_mt_usd"] = json!(price.to_string());
-                value["premium_discount_per_mt_usd"] = json!(premium.to_string());
-                value["benchmark_source"] = json!(format!(
-                    "live_slice_{}_vwap",
-                    value["side"].as_str().ok_or_else(internal)?.to_lowercase()
-                ));
-            }
-            out.push(value);
+    let benchmarks = owner_benchmarks(conn, policy, config, &keys, now).await?;
+    let mut out = Vec::with_capacity(rows.len());
+    for row in rows {
+        let mut value = owner_projection(&row)?;
+        let key = json!({"side":value["side"],"product":value["market_product"],"point":value["delivery_point_id"],"window":value["availability_window"]});
+        if let Some(price) = benchmarks.get(&key.to_string()) {
+            let price_text = value["price_per_mt_usd"].as_str().ok_or_else(internal)?;
+            let price_value = Decimal::from_str_exact(price_text).map_err(|_| internal())?;
+            let premium = price_value.checked_sub(*price).ok_or_else(internal)?;
+            value["benchmark_price_per_mt_usd"] = json!(price.to_string());
+            value["premium_discount_per_mt_usd"] = json!(premium.to_string());
+            value["benchmark_source"] = json!(format!(
+                "live_slice_{}_vwap",
+                value["side"].as_str().ok_or_else(internal)?.to_lowercase()
+            ));
         }
-        Ok(Value::Array(out))
+        out.push(value);
     }
+    Ok(Value::Array(out))
 }
 fn template(row: &sqlx::postgres::PgRow) -> Result<Value, MarketWriteError> {
     let data: Value = row.try_get("data")?;
@@ -568,7 +712,61 @@ fn template(row: &sqlx::postgres::PgRow) -> Result<Value, MarketWriteError> {
     );
     out.insert("off_spec".into(), json!(false));
     out.insert("off_spec_notes".into(), Value::Null);
+    normalize_owner_fields(&mut out)?;
     Ok(Value::Object(out))
+}
+#[derive(Deserialize, Serialize)]
+struct OwnerOrderResponse {
+    id: Uuid,
+    side: String,
+    product_id: Uuid,
+    delivery_point_id: Option<Uuid>,
+    port_id: Option<String>,
+    quantity_mt: String,
+    remaining_quantity_mt: String,
+    price_per_mt_usd: String,
+    availability_window: String,
+    certifications: Vec<String>,
+    certification_declared: bool,
+    certification_scheme: Option<String>,
+    specification_standard: Option<String>,
+    msds_available: bool,
+    carbon_intensity_gco2_mj: Option<String>,
+    carbon_intensity_method: Option<String>,
+    feedstock: Option<String>,
+    origin: Option<String>,
+    off_spec: bool,
+    off_spec_notes: Option<String>,
+    fame_terms: Value,
+    lng_terms: Value,
+    is_verdaxis_verified: bool,
+    tier_label: String,
+    status: String,
+    expires_at: Option<DateTime<Utc>>,
+    created_at: DateTime<Utc>,
+    organization_id: Uuid,
+    vessel_id: Option<Uuid>,
+    updated_at: DateTime<Utc>,
+    creation_method: String,
+    version: i32,
+    product_name: String,
+    market_product: Option<String>,
+    fuel_type: String,
+    fuel_grade: String,
+    delivery_point_name: Option<String>,
+    region: String,
+    terms_digest: String,
+    etag: String,
+    trade_count: i64,
+    benchmark_price_per_mt_usd: Option<String>,
+    premium_discount_per_mt_usd: Option<String>,
+    benchmark_source: Option<String>,
+    is_crossed: bool,
+    is_demo_listing: bool,
+    source_kind: String,
+    scope: String,
+    demo_status: String,
+    unknown_count: u32,
 }
 fn owner_projection(row: &sqlx::postgres::PgRow) -> Result<Value, MarketWriteError> {
     let data: Value = row.try_get("data")?;
@@ -671,7 +869,35 @@ fn owner_projection(row: &sqlx::postgres::PgRow) -> Result<Value, MarketWriteErr
     ] {
         out.insert(key.into(), value);
     }
-    Ok(Value::Object(out))
+    out.insert(
+        "tier_label".into(),
+        json!(row.try_get::<String, _>("tier_label")?),
+    );
+    normalize_owner_fields(&mut out)?;
+    let response: OwnerOrderResponse =
+        serde_json::from_value(Value::Object(out)).map_err(|_| internal())?;
+    serde_json::to_value(response).map_err(|_| internal())
+}
+
+fn normalize_owner_fields(
+    out: &mut serde_json::Map<String, Value>,
+) -> Result<(), MarketWriteError> {
+    if let Some(window) = out.get_mut("availability_window") {
+        *window = json!(
+            crate::market::windows::normalize_window(
+                window.as_str().ok_or_else(internal)?,
+                Utc::now().date_naive()
+            )
+            .map_err(|_| internal())?
+        );
+    }
+    for (key, profile) in [("fame_terms", "fame_v1"), ("lng_terms", "lng_v1")] {
+        if let Some(terms) = out.get_mut(key) {
+            *terms = crate::market::terms::owner_response_terms(profile, terms)
+                .map_err(|_| internal())?;
+        }
+    }
+    Ok(())
 }
 
 async fn owner_benchmarks(
