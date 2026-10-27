@@ -1143,8 +1143,22 @@ impl std::io::Write for Capture {
 #[test]
 fn query_token_not_logged() {
     std::thread::scope(|scope| {
-        let first = scope.spawn(|| capture_query_token_logs("stream-capture-first"));
-        let second = scope.spawn(|| capture_query_token_logs("stream-capture-second"));
+        let first_bytes = Arc::new(Mutex::new(Vec::new()));
+        let second_bytes = Arc::new(Mutex::new(Vec::new()));
+        // Register both dispatchers before either request can register a shared
+        // callsite. Each worker then uses only its own subscriber and writer.
+        let first_dispatch = query_log_dispatch(first_bytes.clone());
+        let second_dispatch = query_log_dispatch(second_bytes.clone());
+        let first = scope.spawn(move || {
+            tracing::dispatcher::with_default(&first_dispatch, || {
+                capture_query_token_logs("stream-capture-first", first_bytes)
+            })
+        });
+        let second = scope.spawn(move || {
+            tracing::dispatcher::with_default(&second_dispatch, || {
+                capture_query_token_logs("stream-capture-second", second_bytes)
+            })
+        });
         let first = first.join().unwrap();
         let second = second.join().unwrap();
         assert!(first.contains("stream-capture-first"));
@@ -1154,18 +1168,19 @@ fn query_token_not_logged() {
     });
 }
 
-fn capture_query_token_logs(request_id: &str) -> String {
-    let bytes = Arc::new(Mutex::new(Vec::new()));
-    let writer = Capture(bytes.clone());
+fn query_log_dispatch(bytes: Arc<Mutex<Vec<u8>>>) -> tracing::Dispatch {
+    let writer = Capture(bytes);
     let subscriber = tracing_subscriber::fmt()
         .json()
         .without_time()
         .with_max_level(tracing::Level::TRACE)
         .with_writer(move || writer.clone())
         .finish();
-    let _guard = tracing::subscriber::set_default(subscriber);
-    // A current-thread runtime keeps every future on this thread, where the
-    // subscriber is installed.
+    tracing::Dispatch::new(subscriber)
+}
+
+fn capture_query_token_logs(request_id: &str, bytes: Arc<Mutex<Vec<u8>>>) -> String {
+    // Poll the requests on the worker thread under its scoped dispatcher.
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -1195,8 +1210,11 @@ fn capture_query_token_logs(request_id: &str) -> String {
             ),
         ];
         for (path, status) in cases {
-            let (actual, headers, body) =
-                send(&router, request("GET", &path, &[("x-request-id", request_id)])).await;
+            let (actual, headers, body) = send(
+                &router,
+                request("GET", &path, &[("x-request-id", request_id)]),
+            )
+            .await;
             assert_eq!(actual, status, "{path}");
             let body = String::from_utf8_lossy(&body);
             let headers = format!("{headers:?}");
