@@ -44,3 +44,10 @@ def test_auth_checkpoint_is_projected_for_the_exact_release(tmp_path, environmen
     assert "AUTH_DOMAIN_DATASETS" in projected
     allowed = json.loads((ROOT / "deploy/rust/allowed-revisions.json").read_text())
     assert "p3_20261020_auth_tokens" in allowed
+    result = runtime.prepare(source, sha, tmp_path / "prepared", ROOT,
+                             "p3_20261020_auth_tokens", environment)
+    body = result["runtime_env"].read_text()
+    assert "AUTH_DOMAIN_DATASETS_FILE=" in body
+    domain_file = tmp_path / "prepared/auth-domains.json"
+    assert json.loads(domain_file.read_text())["public"]
+    assert domain_file.stat().st_mode & 0o777 == 0o600

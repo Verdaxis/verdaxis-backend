@@ -165,7 +165,7 @@ fn admit(
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: &HeaderMap,
     path: &str,
-    charged: Option<Extension<super::login::PreauthCharged>>,
+    charged: Option<Extension<crate::auth::login::PreauthCharged>>,
 ) -> Result<(), ApiError> {
     let client = client_address(peer, headers);
     let now = Utc::now().timestamp() as u64;
@@ -187,7 +187,7 @@ pub fn router(settings: RegistrationSettings) -> Router {
 }
 async fn register_route(
     State(settings): State<RegistrationSettings>,
-    charged: Option<Extension<super::login::PreauthCharged>>,
+    charged: Option<Extension<crate::auth::login::PreauthCharged>>,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: HeaderMap,
     body: axum::body::Body,
@@ -358,7 +358,7 @@ struct Pending {
 }
 async fn with_org_route(
     State(settings): State<RegistrationSettings>,
-    charged: Option<Extension<super::login::PreauthCharged>>,
+    charged: Option<Extension<crate::auth::login::PreauthCharged>>,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: HeaderMap,
     body: axum::body::Body,

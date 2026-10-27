@@ -146,7 +146,7 @@ pub fn router(settings: EmailSettings) -> Router {
 }
 async fn forgot_route(
     State(settings): State<EmailSettings>,
-    charged: Option<Extension<super::login::PreauthCharged>>,
+    charged: Option<Extension<crate::auth::login::PreauthCharged>>,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: HeaderMap,
     body: axum::body::Body,
