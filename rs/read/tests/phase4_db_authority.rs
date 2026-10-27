@@ -1,6 +1,5 @@
 //! Acceptance against the migrated disposable schema and committed ACL bundle.
 use axum::{body::Body, http::Request};
-use http_body_util::BodyExt;
 use serde_json::{Value, json};
 use sqlx::{Connection, PgConnection};
 use tower::ServiceExt;
@@ -105,7 +104,7 @@ fn sqlstate(error: sqlx::Error, expected: &str) {
     );
 }
 
-async fn denied(conn: &mut PgConnection, statement: &str, id: Uuid) {
+async fn denied(conn: &mut PgConnection, statement: &'static str, id: Uuid) {
     let error = sqlx::query(statement)
         .bind(id)
         .execute(conn)
@@ -125,30 +124,38 @@ async fn runtime_documents_and_history_are_append_only() {
         .bind(transition).bind(user).bind(organization).execute(&mut db.app).await.unwrap();
     sqlx::query("INSERT INTO audit_logs(id,user_id,action,resource_type,resource_id,timestamp) VALUES($1,$2,'admin.user_approved','user',$3,now())")
         .bind(audit).bind(user).bind(user.to_string()).execute(&mut db.app).await.unwrap();
-    for (table, id) in [
-        ("kyc_documents", document),
-        ("user_status_transitions", transition),
-        ("audit_logs", audit),
+    for (id, select, update, delete) in [
+        (
+            document,
+            "SELECT to_jsonb(t) FROM kyc_documents t WHERE id=$1",
+            "UPDATE kyc_documents SET id=id WHERE id=$1",
+            "DELETE FROM kyc_documents WHERE id=$1",
+        ),
+        (
+            transition,
+            "SELECT to_jsonb(t) FROM user_status_transitions t WHERE id=$1",
+            "UPDATE user_status_transitions SET id=id WHERE id=$1",
+            "DELETE FROM user_status_transitions WHERE id=$1",
+        ),
+        (
+            audit,
+            "SELECT to_jsonb(t) FROM audit_logs t WHERE id=$1",
+            "UPDATE audit_logs SET id=id WHERE id=$1",
+            "DELETE FROM audit_logs WHERE id=$1",
+        ),
     ] {
-        let before: Value =
-            sqlx::query_scalar(&format!("SELECT to_jsonb(t) FROM {table} t WHERE id=$1"))
-                .bind(id)
-                .fetch_one(&mut db.app)
-                .await
-                .unwrap();
-        denied(
-            &mut db.app,
-            &format!("UPDATE {table} SET id=id WHERE id=$1"),
-            id,
-        )
-        .await;
-        denied(&mut db.app, &format!("DELETE FROM {table} WHERE id=$1"), id).await;
-        let after: Value =
-            sqlx::query_scalar(&format!("SELECT to_jsonb(t) FROM {table} t WHERE id=$1"))
-                .bind(id)
-                .fetch_one(&mut db.app)
-                .await
-                .unwrap();
+        let before: Value = sqlx::query_scalar(select)
+            .bind(id)
+            .fetch_one(&mut db.app)
+            .await
+            .unwrap();
+        denied(&mut db.app, update, id).await;
+        denied(&mut db.app, delete, id).await;
+        let after: Value = sqlx::query_scalar(select)
+            .bind(id)
+            .fetch_one(&mut db.app)
+            .await
+            .unwrap();
         assert_eq!(before, after);
     }
 }
@@ -257,8 +264,11 @@ async fn retained_documents_block_user_and_org_delete() {
         .execute(&mut db.migrator)
         .await
         .unwrap();
-    for (table, id) in [("users", user), ("organizations", organization)] {
-        let error = sqlx::query(&format!("DELETE FROM {table} WHERE id=$1"))
+    for (statement, id) in [
+        ("DELETE FROM users WHERE id=$1", user),
+        ("DELETE FROM organizations WHERE id=$1", organization),
+    ] {
+        let error = sqlx::query(statement)
             .bind(id)
             .execute(&mut db.migrator)
             .await
@@ -315,8 +325,12 @@ async fn rust_service_credential_absence_does_not_fail_readiness() {
         .await
         .unwrap();
     assert_eq!(response.status(), 200);
-    let body: Value =
-        serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    let body: Value = serde_json::from_slice(
+        &axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
     assert_eq!(
         body,
         json!({"status":"ok","db":"ok","environment":"test","release_sha":compiled_sha()})
