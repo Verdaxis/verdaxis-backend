@@ -19,6 +19,7 @@ pub mod subscriptions;
 // mounts no route. The integration owner merges this block into
 // `feat/rust-phase-2`; nothing else in this file belongs to Task 20.
 pub mod order_write;
+pub use order_write::{InventoryAction, InventoryInput, execute_inventory};
 // ----------------------- end Task 20 registration block --------------------
 
 pub use market::decimal::decimal_text;

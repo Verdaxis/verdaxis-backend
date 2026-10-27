@@ -333,6 +333,7 @@ fn boundary_insert_allowed(root: &Path, path: &Path, table: &str) -> bool {
         ("dismissal.rs", &["MATCH_SUGGESTIONS"]),
         ("benchmarks.rs", &["LIVE_SLICE_BENCHMARKS"]),
         ("events.rs", &["WATCHLIST_EVENTS"]),
+        ("inventory.rs", &["INVENTORY_ITEMS"]),
     ];
     per_file
         .iter()
@@ -1371,5 +1372,42 @@ fn watchlist_event_insert_authority_is_scoped_to_the_exact_source_file() {
     }
     for table in WRITE_TABLES {
         assert!(boundary_insert_allowed(&root, &events, table));
+    }
+}
+
+#[test]
+fn inventory_inserts_have_one_named_source() {
+    let root = repository_root();
+    let boundary = root.join("rs/read/src/order_write");
+    assert!(boundary_insert_allowed(
+        &root,
+        &boundary.join("inventory.rs"),
+        "INVENTORY_ITEMS"
+    ));
+    for file in [
+        "effects.rs",
+        "transaction.rs",
+        "outbox.rs",
+        "command.rs",
+        "nested/inventory.rs",
+    ] {
+        assert!(!boundary_insert_allowed(
+            &root,
+            &boundary.join(file),
+            "INVENTORY_ITEMS"
+        ));
+    }
+    for table in [
+        "AUDIT_LOGS",
+        "NOTIFICATIONS",
+        "LIVE_SLICE_BENCHMARKS",
+        "USERS",
+        "UNLISTED_TABLE",
+    ] {
+        assert!(!boundary_insert_allowed(
+            &root,
+            &boundary.join("inventory.rs"),
+            table
+        ));
     }
 }

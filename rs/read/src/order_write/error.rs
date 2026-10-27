@@ -121,6 +121,10 @@ market_error_codes! {
         "The inventory item is in use";
     InventoryReferenced => "INVENTORY_REFERENCED", StatusCode::CONFLICT,
         "The inventory item is referenced";
+    InventoryNotFound => "INVENTORY_NOT_FOUND", StatusCode::NOT_FOUND,
+        "The inventory item was not found";
+    PortNotFound => "PORT_NOT_FOUND", StatusCode::NOT_FOUND,
+        "The port was not found";
     TradeNotPending => "TRADE_NOT_PENDING", StatusCode::CONFLICT,
         "The trade is not pending confirmation";
     TradeNotDelivered => "TRADE_NOT_DELIVERED", StatusCode::CONFLICT,

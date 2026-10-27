@@ -19,6 +19,8 @@ mod error;
 mod events;
 mod expiry;
 mod invalidation;
+mod inventory;
+pub use inventory::{InventoryAction, InventoryInput, execute_inventory};
 pub mod locks;
 pub mod matching;
 pub mod outbox;

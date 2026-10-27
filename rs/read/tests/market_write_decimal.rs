@@ -527,6 +527,8 @@ fn sqlstate_mapping_table_is_total() {
         "INVENTORY_RESERVED",
         "INVENTORY_IN_USE",
         "INVENTORY_REFERENCED",
+        "INVENTORY_NOT_FOUND",
+        "PORT_NOT_FOUND",
         "TRADE_NOT_PENDING",
         "TRADE_NOT_DELIVERED",
         "TRADE_FROZEN",
@@ -587,6 +589,16 @@ fn sqlstate_mapping_table_is_total() {
     assert_eq!(
         MarketErrorCode::PostOnlyWouldCross.status(),
         StatusCode::CONFLICT
+    );
+    // A missing inventory record and a missing port are each a 404 with its
+    // own code.
+    assert_eq!(
+        MarketErrorCode::InventoryNotFound.status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        MarketErrorCode::PortNotFound.status(),
+        StatusCode::NOT_FOUND
     );
 }
 

@@ -177,6 +177,16 @@ changed sides for transaction-level completion. Detailed eligibility, immutable
 fee/term completion, inventory consumption and effect composition remain the
 order-entry integration steps before any serving route can use this component.
 
+## Supplier inventory component
+
+`order_write/inventory.rs` implements supplier inventory records through the ordered
+market transaction. The owner's inventory list and compatibility listings run in an
+authenticated read transaction that locks only the user row. Inventory mutations recheck
+indicative admission under organization/user locks and reference history under the
+inventory lock. Responses and participant-only effects are prepared before commit. The
+inventory route component remains unmounted for serving; publication is a separate
+matching command.
+
 ## Rust Phase 2 price-alert component
 
 Task 16 adds `rs/read/src/crud/alerts.rs` for organization-owned alert create,

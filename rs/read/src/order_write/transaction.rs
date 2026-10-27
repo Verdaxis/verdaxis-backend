@@ -1706,6 +1706,13 @@ pub(super) async fn inventory_replay_probe(
 /// Typed market commands run only inside the sealed, organization-first owner.
 pub trait MarketCommand: Send + Sync + 'static {
     type Output: Send + 'static;
+    /// Whether a planned row that is gone when the owner locks it means the
+    /// preview is out of date. If so, the attempt ends as preview drift and
+    /// the next attempt, within the same attempt bound, plans again; otherwise
+    /// the changed plan is refused.
+    fn replans_missing_lock_rows(&self) -> bool {
+        false
+    }
     fn prepare_response(&self, _value: &Self::Output) -> Result<(), MarketAttemptError> {
         Ok(())
     }
@@ -1742,6 +1749,12 @@ pub struct LockedMarketTransaction<'a> {
     locked: &'a super::locks::Locked,
 }
 impl LockedMarketTransaction<'_> {
+    pub(super) fn inventory(
+        &mut self,
+    ) -> Result<super::inventory::InventoryPort<'_>, super::MarketWriteError> {
+        self.locked.require_economic_phase()?;
+        Ok(super::inventory::InventoryPort::new(self.conn, self.locked))
+    }
     #[cfg(feature = "contract-tests")]
     pub(super) fn matching_trace(&self) -> Vec<(super::locks::LockClass, Uuid)> {
         self.locked.matching_trace()
@@ -2031,7 +2044,15 @@ async fn market_attempt<C: MarketCommand>(
         .begin_with("BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE")
         .await?;
     let result = async {
-        let locked = preview.locks.acquire(&mut tx).await?;
+        let locked = match preview.locks.acquire(&mut tx).await {
+            Err(error)
+                if error.code == super::MarketErrorCode::MarketSliceChanged
+                    && command.replans_missing_lock_rows() =>
+            {
+                return Err(MarketAttemptError::PreviewChanged);
+            }
+            acquired => acquired?,
+        };
         // Discovery includes all resource identities, party membership and slice sets.
         // A new set never adds a lock here: it aborts the complete attempt.
         let current = command.preview(&mut tx, access.subject).await?;
