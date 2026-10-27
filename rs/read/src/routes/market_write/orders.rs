@@ -336,7 +336,7 @@ async fn handle(
 }
 
 #[cfg(feature = "contract-tests")]
-pub fn contract_router(pool: sqlx::PgPool, key: &str) -> Router {
+fn contract_parts(pool: sqlx::PgPool, key: &str) -> (AppState, VerificationSettings) {
     let config:crate::Config=serde_json::from_value(serde_json::json!({"environment":"test","release_sha":"test","migration_revision":"p89_20261022_watchlist_producer","database_url":"","db_session_time_zone":"UTC","bind":"127.0.0.1:0","read_admission_slots":6,"pool_max":7,"python_budget":0,"configured_max_connections":100})).unwrap();
     let app = AppState {
         config: Arc::new(config),
@@ -353,14 +353,27 @@ pub fn contract_router(pool: sqlx::PgPool, key: &str) -> Router {
         reads: Arc::new(tokio::sync::Semaphore::new(6)),
         reference_cache: Arc::new(crate::runtime::cache::ReferenceCache::default()),
     };
-    router_with_support(
-        app,
-        VerificationSettings::new(
-            key.into(),
-            None,
-            "cancel-tests".into(),
-            "cancel-tests".into(),
-        ),
-        true,
-    )
+    let verification = VerificationSettings::new(
+        key.into(),
+        None,
+        "cancel-tests".into(),
+        "cancel-tests".into(),
+    );
+    (app, verification)
+}
+
+#[cfg(feature = "contract-tests")]
+pub fn contract_router(pool: sqlx::PgPool, key: &str) -> Router {
+    let (app, verification) = contract_parts(pool, key);
+    router_with_support(app, verification, true)
+}
+
+/// The component routes inside the complete serving composition: health
+/// routes, fallbacks and every serving layer, including the support-context
+/// boundary. Nothing is mounted for serving; tests use this router.
+#[cfg(feature = "contract-tests")]
+pub fn served_contract_router(pool: sqlx::PgPool, key: &str, support_enabled: bool) -> Router {
+    let (app, verification) = contract_parts(pool, key);
+    let routes = router_with_support(app.clone(), verification, support_enabled);
+    crate::runtime::http::router_with(routes.with_state(()), app)
 }
