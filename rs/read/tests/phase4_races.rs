@@ -2074,9 +2074,7 @@ async fn rejected_party_new_execution_refused_but_existing_deliver_pay_allowed()
                     )
                     .await
                 }
-                Route::Kyc => {
-                    run_to_end(&world, world.actor, review_kyc(member, false)).await
-                }
+                Route::Kyc => run_to_end(&world, world.actor, review_kyc(member, false)).await,
             };
             if route == Route::Kyc && unlinked {
                 // The review is bound to an organization the user no longer belongs to.
