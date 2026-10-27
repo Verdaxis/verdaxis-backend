@@ -13,7 +13,7 @@ from app.models.port import Vessel
 from app.models.producer import ProducerProject
 
 ROOT = Path(__file__).resolve().parents[2]
-PARENT = "prc_20261018_cache"
+PARENT = "p3_20261020_auth_tokens"
 REVISION = "p5_20261020_read_indexes"
 MIGRATION = ROOT / "alembic/versions/p5_20261020_read_indexes.py"
 EXPECTED = {

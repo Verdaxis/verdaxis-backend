@@ -13,7 +13,9 @@ from alembic.script import ScriptDirectory
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE_SHA = "a" * 40
 PRODUCTION = "p0_20261016_union"
-PARENT = "prc_20261018_cache"
+CACHE = "prc_20261018_cache"
+CHANGES = "prc_20261026_changes"
+PARENT = "p3_20261020_auth_tokens"
 REVISION = "p5_20261020_read_indexes"
 
 
@@ -42,19 +44,20 @@ def test_phase5_checkpoint_cases():
     rows = text.splitlines()
     assert f"{PARENT}\t{REVISION}" in rows
     assert f"{REVISION}\t{REVISION}" in rows
-    # The cache checkpoint stays a reviewed pause for a one-change rollback.
-    assert f"{PRODUCTION}\t{PARENT}" in rows
-    assert f"{PARENT}\t{PARENT}" in rows
+    for current, target in ((PRODUCTION, CACHE), (CACHE, CHANGES), (CHANGES, PARENT)):
+        assert f"{current}\t{target}" in rows
+        assert f"{target}\t{target}" in rows
 
     module = _checkpoint_module()
     policy = module.parse_checkpoint_policy(text)
     _validate(module, policy, PARENT, REVISION)
     _validate(module, policy, REVISION, REVISION)
-    # One reviewed step at a time: production does not jump past the cache checkpoint.
-    with pytest.raises(module.MigrationCheckpointError):
-        _validate(module, policy, PRODUCTION, REVISION)
+    # Every predecessor stops at the authentication checkpoint before Phase 5.
+    for current in (PRODUCTION, CACHE, CHANGES):
+        with pytest.raises(module.MigrationCheckpointError):
+            _validate(module, policy, current, REVISION)
 
 
 def test_phase5_runtime_accepts_both_read_checkpoints():
     allowlist = json.loads((ROOT / "deploy/rust/allowed-revisions.json").read_text())
-    assert allowlist == ["kycg_20261014_staging", PRODUCTION, PARENT, REVISION]
+    assert allowlist == ["kycg_20261014_staging", PRODUCTION, CACHE, CHANGES, PARENT, REVISION]
