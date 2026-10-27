@@ -40,11 +40,17 @@ impl admission::AdmissionEvents for Events {
             .fetch_one(&mut *conn)
             .await?;
             let orders: bool = row.get(0);
-            if orders { return Ok(true); }
+            if orders {
+                return Ok(true);
+            }
             // Inventory admission changes also invalidate public availability.
             // The organization/user ownership remains checked by the shared command.
-            let inventory: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM inventory_items WHERE owner_user_id=$1)")
-                .bind(user).fetch_one(conn).await?;
+            let inventory: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM inventory_items WHERE owner_user_id=$1)",
+            )
+            .bind(user)
+            .fetch_one(conn)
+            .await?;
             Ok(inventory)
         })
     }

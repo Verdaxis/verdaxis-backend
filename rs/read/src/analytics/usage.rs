@@ -506,7 +506,20 @@ async fn product_usage(
             ),
         })?;
     let observed = match authority.source.clone() {
-        Some(source) => source.window(window).await,
+        Some(source) => {
+            let _permit = crate::runtime::admission::try_read(&state)?;
+            match tokio::time::timeout(std::time::Duration::from_secs(10), source.window(window))
+                .await
+            {
+                Ok(reading) => reading,
+                Err(_) => BehavioralWindow::unavailable(
+                    window.start,
+                    window.end,
+                    Utc::now(),
+                    AnalyticsDiagnostic::Timeout,
+                ),
+            }
+        }
         // No provider is configured: the tab stays authoritative.
         None => BehavioralWindow::unavailable(
             window.start,

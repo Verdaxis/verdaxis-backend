@@ -244,8 +244,7 @@ fn p4_t1_c01() {
         42
     );
     assert_eq!(manifest["source_sha"].as_str().unwrap().len(), 40);
-    let groups: BTreeMap<_, _> =
-        [("B", 22), ("O", 2), ("V", 2), ("S", 5), ("P", 11)].into();
+    let groups: BTreeMap<_, _> = [("B", 22), ("O", 2), ("V", 2), ("S", 5), ("P", 11)].into();
     for group in ["B", "O", "V", "S", "P"] {
         assert_eq!(
             routes.iter().filter(|r| r["group"] == *group).count(),
