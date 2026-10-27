@@ -405,7 +405,7 @@ impl SupportPort<'_> {
             .organization_identity(id)
             .await?
             .ok_or_else(|| refusal(MarketErrorCode::SupportOrganizationNotFound))?;
-        let eligibility = crate::market::visibility::eligibility_sets_sql("$3");
+        let eligibility = crate::market::visibility::eligibility_sets_sql("$3", "$2");
         let sql = format!(
             "WITH support_organization AS (SELECT $1::uuid AS id) {eligibility} SELECT u.id,u.email,u.first_name,u.last_name FROM users u JOIN eligible_owners e ON e.user_id=u.id AND e.organization_id=u.organization_id WHERE u.organization_id=$1 AND u.role='SUPPLIER' ORDER BY u.email"
         );
