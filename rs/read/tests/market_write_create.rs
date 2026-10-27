@@ -72,6 +72,25 @@ async fn error_details_are_specific_and_generic_responses_are_unchanged() {
 }
 
 #[test]
+fn kyc_refusal_reports_the_grace_deadline_in_the_source_text_format() {
+    use axum::response::IntoResponse;
+    use verdaxis_read::MarketWriteError;
+    let grace: DateTime<Utc> = "2026-10-27T13:00:00.500Z".parse().unwrap();
+    let error = MarketWriteError::kyc_required("PENDING".into(), Some(grace));
+    let response = error.into_response();
+    let bytes = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    let body: Value = serde_json::from_slice(&bytes).unwrap();
+    // The source refusal serialises the deadline with `isoformat()`, which
+    // keeps the `+00:00` offset rather than the compact `Z` suffix.
+    assert_eq!(
+        body["detail"]["grace_expires_at"],
+        "2026-10-27T13:00:00.500000+00:00"
+    );
+}
+
+#[test]
 fn create_schema_preserves_defaults_and_normalizes_certifications() {
     let mut value = body();
     value["certifications"] = json!([" A ", "", "A", "B", " B "]);

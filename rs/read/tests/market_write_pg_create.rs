@@ -1281,3 +1281,191 @@ async fn unknown_organization_provenance_is_not_a_demo_listing() {
     assert_eq!(event["is_demo_listing"], false);
     assert_eq!(event["unknown_count"], 1);
 }
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn body_validation_precedes_assisted_customer_admission() {
+    // The source validates the request body before the assisted customer
+    // organization's execution admission, so an assisted order with both
+    // problems answers with the body's 400, not the admission's 403.
+    let mut f = Fixture::new(0).await;
+    sqlx::query("SELECT create_fixture_support_change($1)")
+        .bind("member_pending")
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
+    let mut body = f.assisted("BID");
+    body["availability_window"] = json!("2000-01");
+    let reply = send(
+        &f.router,
+        Some(staff()),
+        &[
+            ("X-Verdaxis-Market-Support-Context", CONTEXT),
+            ("Idempotency-Key", "precedence"),
+        ],
+        body,
+    )
+    .await;
+    assert_eq!(reply.0, StatusCode::BAD_REQUEST, "{reply:?}");
+    // With a valid body the same ineligible customer organization keeps the
+    // admission refusal (403).
+    let reply = send(
+        &f.router,
+        Some(staff()),
+        &[
+            ("X-Verdaxis-Market-Support-Context", CONTEXT),
+            ("Idempotency-Key", "precedence-valid"),
+        ],
+        f.assisted("BID"),
+    )
+    .await;
+    assert_eq!(reply.0, StatusCode::FORBIDDEN, "{reply:?}");
+    // A closed window also precedes the post-lock minimum-lot and expiry
+    // refusals the source evaluates after admission.
+    let mut late = f.assisted("BID");
+    late["availability_window"] = json!("2000-01");
+    late["expires_at"] = json!("2000-01-01T00:00:00Z");
+    assert_eq!(
+        send(
+            &f.router,
+            Some(staff()),
+            &[
+                ("X-Verdaxis-Market-Support-Context", CONTEXT),
+                ("Idempotency-Key", "precedence-late"),
+            ],
+            late
+        )
+        .await
+        .0,
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(f.count("orders").await, 0);
+    assert_eq!(f.count("authorizations").await, 0);
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn lng_bid_keeps_its_declared_certifications_and_hash_inputs() {
+    // The source derives Bio-LNG metadata onto the stored order for both
+    // sides, but a BID keeps its request-passed execution qualifier and
+    // certifications in every request-scoped contract: the idempotency hash,
+    // the assisted authorization and its terms digest.
+    let policy: Value =
+        serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap();
+    let p = policy["products"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["qualification_profile"] == "lng_v1")
+        .unwrap();
+    let mut f = Fixture::new(0).await;
+    let mut body = f.body("BID");
+    body["product_id"] = p["id"].clone();
+    body["delivery_point_id"] = p["lanes"][0].clone();
+    body["quantity_mt"] = json!("1");
+    body["certification_scheme"] = json!("Custom scheme");
+    body["certifications"] = json!(["Declared A", "Declared B"]);
+    body["lng_terms"] = json!({"side":"BID","accepted_schemes":["ISCC_EU","REDCERT_EU"],"accepted_delivery_methods":["SHIP_TO_SHIP"]});
+    let reply = send(
+        &f.router,
+        Some(buyer()),
+        &[("Idempotency-Key", "lng-bid")],
+        body.clone(),
+    )
+    .await;
+    assert_eq!(reply.0, StatusCode::CREATED, "{reply:?}");
+    let row = sqlx::query("SELECT certification_scheme,certifications,certification_declared,carbon_intensity_gco2_mj,carbon_intensity_method FROM orderbook_orders WHERE id=$1")
+        .bind(reply.1["id"].as_str().unwrap())
+        .fetch_one(&mut f.observer)
+        .await
+        .unwrap();
+    // The stored row carries the derived BID presentation, as the source does.
+    assert_eq!(row.get::<Option<String>, _>(0), None);
+    assert_eq!(
+        row.get::<Vec<String>, _>(1),
+        vec!["ISCC EU".to_string(), "REDcert-EU".to_string()]
+    );
+    assert_eq!(row.get::<Option<rust_decimal::Decimal>, _>(3), None);
+    // A changed declared scheme is a changed economic request: replay must
+    // conflict rather than treat the derivation as the stored contract.
+    let mut changed = body.clone();
+    changed["certification_scheme"] = json!("Another scheme");
+    assert_eq!(
+        send(
+            &f.router,
+            Some(buyer()),
+            &[("Idempotency-Key", "lng-bid")],
+            changed
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT
+    );
+    assert_eq!(f.count("orders").await, 1);
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn capability_revoked_during_the_command_returns_the_context_conflict() {
+    // The dispatch-time resolution keeps the plain 404; revocation discovered
+    // once the command holds its locks is the source's locked revalidation,
+    // which answers with the support-context conflict.
+    let mut f = Fixture::new(0).await;
+    let mut blocker = f.pool.begin().await.unwrap();
+    let key = verdaxis_read::order_write::market_slice_lock_key(f.product, Some(f.point), "SPOT");
+    verdaxis_read::routes::market_write::order_create::contract_hold_key(&mut blocker, key).await;
+    let router = f.router.clone();
+    let product = f.product;
+    let point = f.point;
+    let request = tokio::spawn(async move {
+        let mut body = json!({"side":"BID","product_id":product,"delivery_point_id":point,"quantity_mt":"200","price_per_mt_usd":"110"});
+        body["support_confirmation"] = json!({"external_instruction_reference":" x ","instruction_at":(Utc::now()-chrono::Duration::minutes(5)).to_rfc3339(),"evidence_excerpt":" approved ","acknowledge_exact_terms":true,"acknowledge_executable_standing_order":true});
+        send(
+            &router,
+            Some(staff()),
+            &[
+                ("X-Verdaxis-Market-Support-Context", CONTEXT),
+                ("Idempotency-Key", "drift"),
+            ],
+            body,
+        )
+        .await
+    });
+    let mut observed = false;
+    for _ in 0..100 {
+        observed=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event='advisory' AND datname=current_database())").fetch_one(&mut f.admin).await.unwrap();
+        if observed {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+    }
+    assert!(observed, "the command must reach the slice lock");
+    sqlx::query("SELECT create_fixture_support_change($1)")
+        .bind("capability_revoked")
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
+    blocker.commit().await.unwrap();
+    let reply = request.await.unwrap();
+    assert_eq!(reply.0, StatusCode::CONFLICT, "{reply:?}");
+    assert_eq!(reply.1["detail"]["code"], "MARKET_SUPPORT_CONTEXT_INVALID");
+    for table in ["orders", "authorizations", "trades", "events", "audit"] {
+        assert_eq!(f.count(table).await, 0, "{table}");
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn create_refuses_a_delivery_point_the_operator_deactivated() {
+    // The catalog identity check also requires the live row to be active, so
+    // an operator deactivating a delivery point stops new orders there.
+    let mut f = Fixture::new(0).await;
+    sqlx::query("UPDATE delivery_points SET is_active=false WHERE id=$1")
+        .bind(f.point)
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
+    let reply = send(&f.router, Some(buyer()), &[], f.body("BID")).await;
+    assert_eq!(reply.0, StatusCode::BAD_REQUEST, "{reply:?}");
+    assert_eq!(f.count("orders").await, 0);
+}
