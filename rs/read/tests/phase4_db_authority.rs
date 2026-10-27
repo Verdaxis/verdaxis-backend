@@ -2,7 +2,9 @@
 use serde_json::{Value, json};
 use sqlx::{Connection, PgConnection};
 use uuid::Uuid;
-use verdaxis_read::{compiled_sha, kyc::keyring::KeyRing, runtime::health::probe};
+use verdaxis_read::{Config, compiled_sha, connect, kyc::keyring::KeyRing};
+use axum::{body::Body, http::Request};
+use tower::ServiceExt;
 
 const REVISION: &str = "p3_20261020_auth_tokens";
 const APP_ROLE: &str = "verdaxis_app_staging";
@@ -295,16 +297,30 @@ async fn rust_service_credential_absence_does_not_fail_readiness() {
     for environment in ["test", "staging", "production"] {
         assert!(KeyRing::load_runtime(None, None, environment).is_err());
     }
-    let pool = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(1)
-        .connect(&db.app_url)
-        .await
-        .unwrap();
-    let (status, body) = probe(&pool, "test", compiled_sha()).await;
-    assert_eq!(status, 200);
-    assert_eq!(
-        body,
-        json!({"status":"ok","db":"ok","environment":"test","release_sha":compiled_sha()})
-    );
-    pool.close().await;
+    let config = Config {
+        kyc_execution_gate_enabled: true,
+        db_session_time_zone: "UTC".into(),
+        environment: "test".into(),
+        release_sha: compiled_sha().into(),
+        migration_revision: REVISION.into(),
+        database_url: db.app_url,
+        bind: "127.0.0.1:0".parse().unwrap(),
+        read_admission_slots: 2,
+        pool_max: 3,
+        python_budget: 52,
+        configured_max_connections: 100,
+        prepared_budget: None,
+        phase2: Default::default(),
+    };
+    let pools = connect(&config).await.unwrap();
+    let policy = serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap();
+    let state = verdaxis_read::AppState::new(config, pools.clone(), policy).unwrap();
+    let response = verdaxis_read::router(state)
+        .oneshot(Request::builder().uri("/health/ready").body(Body::empty()).unwrap())
+        .await.unwrap();
+    assert_eq!(response.status(), 200);
+    let body: Value = serde_json::from_slice(&axum::body::to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+    assert_eq!(body, json!({"status":"ok","db":"ok","environment":"test","release_sha":compiled_sha()}));
+    pools.read.close().await;
+    pools.health.close().await;
 }
