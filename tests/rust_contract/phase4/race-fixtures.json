@@ -32,8 +32,9 @@
       "orders": ["acceptance_first", "rotation_first"],
       "session_writer": "stand-in for the Phase 3 invitation acceptance route over the shared store primitives"
     },
-    "auth_maintenance_cannot_clear_a_reissued_invitation_digest": {
-      "python_writers_continue": ["auth maintenance: expired invitation digest cleanup"]
+    "auth_maintenance_and_reissue_preserve_invitation_safety": {
+      "python_writers_continue": ["auth maintenance: expired invitation digest cleanup"],
+      "invariant": "digest and expiry stay paired, older invitations are refused, and another reissue succeeds"
     },
     "org_write_injected_conflicts_retry_or_refuse_atomically": {
       "commands": ["approve_account", "reject_account", "reject_account_analytics", "approve_join", "reject_organization", "approve_organization", "approve_kyc", "reject_kyc", "submit_kyc", "bootstrap_subscription"],
