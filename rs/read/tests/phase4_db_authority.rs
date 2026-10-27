@@ -221,7 +221,7 @@ async fn organization_approval_trigger_reads_back_real_and_vd001() {
         .bind(product).execute(&mut db.migrator).await.unwrap();
     for status in ["OPEN", "FILLED"] {
         let order = Uuid::new_v4();
-        sqlx::query("INSERT INTO orderbook_orders(id,organization_id,product_id,provenance,side,quantity_mt,remaining_quantity_mt,price_per_mt_usd,availability_window,status) VALUES($1,$2,$3,'UNKNOWN','BID',10,CASE WHEN $4='OPEN' THEN 10 ELSE 0 END,500,'SPOT',$4)")
+        sqlx::query(include_str!("fixtures/phase4_authority_order_insert.sql"))
             .bind(order).bind(blocked).bind(product).bind(status).execute(&mut db.migrator).await.unwrap();
         let error =
             sqlx::query("UPDATE organizations SET verification_status='APPROVED' WHERE id=$1")
@@ -237,7 +237,7 @@ async fn organization_approval_trigger_reads_back_real_and_vd001() {
                 .await
                 .unwrap();
         assert_eq!(state, ("PENDING".into(), "UNKNOWN".into()));
-        sqlx::query("UPDATE orderbook_orders SET status='CANCELLED' WHERE id=$1")
+        sqlx::query(include_str!("fixtures/phase4_authority_order_cancel.sql"))
             .bind(order)
             .execute(&mut db.migrator)
             .await
