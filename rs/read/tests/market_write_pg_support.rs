@@ -50,6 +50,10 @@ impl Fixture {
             .execute(&mut admin)
             .await
             .unwrap();
+        sqlx::raw_sql(include_str!("fixtures/phase8_contexts.sql"))
+            .execute(&mut admin)
+            .await
+            .unwrap();
         let actor = Uuid::new_v4();
         let target = Uuid::new_v4();
         let organization = Uuid::new_v4();
@@ -991,6 +995,8 @@ async fn organization_page_lists_only_approved_real_organizations() {
     f.grant_target(&app, "MARKET_SUPPORT_LISTINGS").await;
     f.organization("Approved unknown customer", "APPROVED", "UNKNOWN")
         .await;
+    f.organization("Pending real customer", "PENDING", "REAL")
+        .await;
     let second = f.organization("Second customer", "APPROVED", "REAL").await;
     let (status, page) = f
         .request(
@@ -1123,6 +1129,24 @@ async fn authorization_items_carry_typed_terms() {
     for field in ["support_confirmation", "port_id", "vessel_id"] {
         assert_eq!(order.get(field), Some(&Value::Null), "{field}");
     }
+    let fame = json!({"schema_version":1,"side":"ASK","neat_fame":true,"uco_mass_pct":"100","standard":"EN_14214","standard_edition":"2012+A2:2019","sustainability_scheme":"ISCC_EU","certificate_reference":"fixture-certificate","certificate_holder":"Fixture Supplier","certificate_valid_until":"2027-12-31","evidence_status":"PENDING","document_references":[],"evidence_due":"BEFORE_DELIVERY"});
+    sqlx::query("SELECT context_fixture_fame_authorization($1,$2,$3)")
+        .bind(f.target)
+        .bind(f.organization)
+        .bind(fame.to_string())
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
+    let (status, page) = f.request(&app, f.target, "GET", &path, None).await;
+    assert_eq!(status, StatusCode::OK);
+    let fame_item = page["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| !item["fame_terms"].is_null())
+        .unwrap();
+    assert_eq!(fame_item["fame_terms"], fame);
+    assert_eq!(fame_item["order"]["fame_terms"], fame);
     // A stored declaration that the typed terms refuse is a server fault.
     sqlx::query("SELECT support_fixture_lng_authorization($1,$2,$3)")
         .bind(f.target)

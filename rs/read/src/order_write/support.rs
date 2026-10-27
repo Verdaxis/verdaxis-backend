@@ -5,6 +5,8 @@
 //! (`require_market_support_admin`), request validation, then the bootstrap
 //! allowlist and the capability the action needs. Only then is a resource
 //! read or written.
+pub mod contexts;
+
 use std::{collections::BTreeSet, sync::Arc};
 
 use axum::body::Bytes;
@@ -53,16 +55,28 @@ pub async fn run_support(
 pub struct SupportSettings {
     pub enabled: bool,
     bootstrap: BTreeSet<Uuid>,
+    context_ttl_minutes: i64,
 }
 impl SupportSettings {
     pub fn new(enabled: bool, ids: &str) -> Self {
         Self {
             enabled,
+            context_ttl_minutes: 60,
             bootstrap: ids
                 .split(',')
                 .filter_map(|s| s.trim().parse().ok())
                 .collect(),
         }
+    }
+    pub fn with_context_ttl_minutes(mut self, minutes: i64) -> Result<Self, MarketWriteError> {
+        if !(1..=1440).contains(&minutes) {
+            return Err(validation());
+        }
+        self.context_ttl_minutes = minutes;
+        Ok(self)
+    }
+    pub fn context_ttl_minutes(&self) -> i64 {
+        self.context_ttl_minutes
     }
     pub fn is_bootstrap(&self, actor: Uuid) -> bool {
         self.bootstrap.contains(&actor)
@@ -192,6 +206,22 @@ pub enum SupportRequest {
         organization: String,
         query: Option<String>,
     },
+    Entry {
+        organization: String,
+    },
+    ContextStart {
+        body: Bytes,
+    },
+    ContextActive,
+    ContextGet {
+        context: String,
+    },
+    ContextExit {
+        context: String,
+    },
+    Composite {
+        organization: String,
+    },
     /// A legacy workspace mutation. Its body is never read.
     Retired,
 }
@@ -226,6 +256,14 @@ impl SupportRequest {
                 organization: identifier(organization)?,
                 page: Page::parse(query.as_deref())?,
             },
+            Self::Entry { organization } => SupportAction::Entry(identifier(organization)?),
+            Self::ContextStart { body } => {
+                SupportAction::ContextStart(contexts::ContextCreate::parse(decode_json(body)?)?)
+            }
+            Self::ContextActive => SupportAction::ContextActive,
+            Self::ContextGet { context } => SupportAction::ContextGet(identifier(context)?),
+            Self::ContextExit { context } => SupportAction::ContextExit(identifier(context)?),
+            Self::Composite { organization } => SupportAction::Composite(identifier(organization)?),
             Self::Retired => {
                 return Err(refusal(MarketErrorCode::MarketSupportLegacyMutationRetired));
             }
@@ -244,6 +282,12 @@ enum SupportAction {
     Capabilities,
     Grant(CapabilityGrant),
     Revoke { assignment: Uuid, reason: String },
+    Entry(Uuid),
+    ContextStart(contexts::ContextCreate),
+    ContextActive,
+    ContextGet(Uuid),
+    ContextExit(Uuid),
+    Composite(Uuid),
     Organizations(Page),
     Authorizations { organization: Uuid, page: Page },
     Listings { organization: Uuid, page: Page },
@@ -256,6 +300,15 @@ impl SupportAction {
     /// `_require_any_capability` for the organization list.
     fn permitted_by(&self, capabilities: &[Capability]) -> bool {
         match self {
+            Self::Entry(_)
+            | Self::ContextStart(_)
+            | Self::ContextActive
+            | Self::ContextGet(_)
+            | Self::ContextExit(_)
+            | Self::Composite(_) => {
+                capabilities.contains(&Capability::Authorizations)
+                    && capabilities.contains(&Capability::Listings)
+            }
             Self::Authorizations { .. } => capabilities.contains(&Capability::Authorizations),
             Self::Listings { .. } => capabilities.contains(&Capability::Listings),
             Self::Organizations(_) => !capabilities.is_empty(),
@@ -466,6 +519,14 @@ impl MarketCommand for SupportCommand {
                 SupportAction::Revoke { assignment, .. } => {
                     revoke_preview(conn, actor, *assignment).await?
                 }
+                SupportAction::Entry(_)
+                | SupportAction::ContextStart(_)
+                | SupportAction::ContextActive
+                | SupportAction::ContextGet(_)
+                | SupportAction::ContextExit(_)
+                | SupportAction::Composite(_) => {
+                    contexts::preview(conn, actor, &authorized.action).await?
+                }
                 _ => read_preview(actor)?,
             };
             Ok(preview)
@@ -488,6 +549,7 @@ impl MarketCommand for SupportCommand {
                     audit: &self.audit,
                     policy: &self.policy,
                     config: &self.config,
+                    settings: &self.settings,
                 };
                 port.run(authorized, &context).await?
             };
@@ -514,6 +576,7 @@ struct ActionContext<'a> {
     audit: &'a AuditContext,
     policy: &'a MarketPolicy,
     config: &'a Config,
+    settings: &'a SupportSettings,
 }
 
 /// The response and the audit descriptors staged for one commit.
@@ -661,6 +724,12 @@ impl<'a> SupportPort<'a> {
         context: &ActionContext<'_>,
     ) -> Result<Outcome, MarketWriteError> {
         match authorized.action {
+            SupportAction::Entry(organization) => self.entry(organization).await,
+            SupportAction::ContextStart(body) => self.start_context(&body, context).await,
+            SupportAction::ContextActive => self.active_context(context).await,
+            SupportAction::ContextGet(id) => self.get_context(id, context).await,
+            SupportAction::ContextExit(id) => self.exit_context(id, context).await,
+            SupportAction::Composite(organization) => self.composite(organization, context).await,
             SupportAction::Capabilities => Ok(Outcome::read(json!(authorized.capabilities))),
             SupportAction::Grant(grant) => self.grant(&grant, context).await,
             SupportAction::Revoke { assignment, reason } => {
@@ -943,8 +1012,12 @@ fn authorization_item(row: &PgRow, now: DateTime<Utc>) -> Result<Value, MarketWr
     let stored: Value = row.try_get("stored")?;
     let quantity = json!(row.try_get::<String, _>("quantity")?);
     let price = json!(row.try_get::<String, _>("price")?);
-    let fame_terms = typed_terms(TermsKind::Fame, &stored["fame_terms"])?;
-    let lng_terms = typed_terms(TermsKind::Lng, &stored["lng_terms"])?;
+    let fame_terms = typed_terms(
+        TermsKind::Fame,
+        &stored["order_side"],
+        &stored["fame_terms"],
+    )?;
+    let lng_terms = typed_terms(TermsKind::Lng, &stored["order_side"], &stored["lng_terms"])?;
     let mut item = Map::new();
     for field in AUTHORIZATION_FIELDS {
         item.insert(field.into(), stored[field].clone());
@@ -994,11 +1067,11 @@ enum TermsKind {
 /// Stored declarations pass the typed schema (`FameOrderTerms` or
 /// `LngOrderTerms`) before they are returned. Python stores each declaration
 /// as that schema's JSON dump, so a valid value is returned as stored.
-fn typed_terms(kind: TermsKind, stored: &Value) -> Result<Value, MarketWriteError> {
+fn typed_terms(kind: TermsKind, side: &Value, stored: &Value) -> Result<Value, MarketWriteError> {
     if stored.is_null() {
         return Ok(Value::Null);
     }
-    let side = stored["side"].as_str().unwrap_or_default();
+    let side = side.as_str().unwrap_or_default();
     let checked = match kind {
         TermsKind::Fame => validate_fame_schema(side, Some(stored)),
         TermsKind::Lng => validate_lng_terms(side, Some(stored)),
