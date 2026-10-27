@@ -1129,7 +1129,7 @@ async fn authorization_items_carry_typed_terms() {
     for field in ["support_confirmation", "port_id", "vessel_id"] {
         assert_eq!(order.get(field), Some(&Value::Null), "{field}");
     }
-    let fame = json!({"side":"ASK","neat_fame":true,"uco_mass_pct":"100","standard":"EN_14214","standard_edition":"2012+A2:2019","sustainability_scheme":"ISCC_EU","certificate_reference":"fixture-certificate","certificate_holder":"Fixture Supplier","certificate_valid_until":"2027-12-31","evidence_status":"PENDING","document_references":[],"evidence_due":"BEFORE_DELIVERY"});
+    let fame = json!({"schema_version":1,"side":"ASK","neat_fame":true,"uco_mass_pct":"100","standard":"EN_14214","standard_edition":"2012+A2:2019","sustainability_scheme":"ISCC_EU","certificate_reference":"fixture-certificate","certificate_holder":"Fixture Supplier","certificate_valid_until":"2027-12-31","evidence_status":"PENDING","document_references":[],"evidence_due":"BEFORE_DELIVERY"});
     sqlx::query("SELECT context_fixture_fame_authorization($1,$2,$3)")
         .bind(f.target)
         .bind(f.organization)
