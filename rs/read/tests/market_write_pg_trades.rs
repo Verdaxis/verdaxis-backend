@@ -1,15 +1,22 @@
 #![cfg(feature = "contract-tests")]
+use std::{sync::Arc, time::Duration};
+
 use axum::{
-    Router,
+    Json, Router,
     body::Body,
+    extract::State,
     http::{Request, StatusCode},
+    routing::post,
 };
 use jsonwebtoken::{EncodingKey, Header, encode};
 use serde_json::{Value, json};
 use sqlx::{Connection, PgConnection, PgPool, Row, postgres::PgPoolOptions};
+use tokio::sync::{Mutex, Notify};
 use tower::ServiceExt;
 use uuid::Uuid;
-use verdaxis_read::routes::market_write::trades::contract_router;
+use verdaxis_read::analytics::sender::AnalyticsSender;
+use verdaxis_read::providers::umami::{UmamiConfig, UmamiPolicy};
+use verdaxis_read::routes::market_write::trades::{contract_router, contract_router_with_sender};
 const KEY: &str = "synthetic-trades-signing-key-at-least-32";
 fn id(n: u128) -> Uuid {
     Uuid::from_u128(n)
@@ -72,6 +79,12 @@ impl Fixture {
             pool,
             router,
         }
+    }
+    /// The same fixture with a router that schedules post-commit analytics.
+    async fn with_analytics(sender: AnalyticsSender) -> Self {
+        let mut fixture = Self::new().await;
+        fixture.router = contract_router_with_sender(fixture.pool.clone(), KEY, true, sender);
+        fixture
     }
     async fn digest(&mut self) -> String {
         let value: Value =
@@ -179,6 +192,48 @@ async fn send(
     )
 }
 
+/// A local conversion collector: it records every delivery and signals the
+/// first arrival, so route cases can observe scheduled post-commit work.
+#[derive(Clone, Default)]
+struct Collector {
+    rows: Arc<Mutex<Vec<Value>>>,
+    arrived: Arc<Notify>,
+}
+async fn receive(State(state): State<Collector>, Json(value): Json<Value>) -> (StatusCode, Json<Value>) {
+    state.rows.lock().await.push(value);
+    state.arrived.notify_one();
+    (StatusCode::OK, Json(json!({"ok": true})))
+}
+/// One sender bound to a local receiver on a loopback port.
+async fn collector_sender(label: &str) -> (AnalyticsSender, Collector) {
+    let collector = Collector::default();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let router = axum::Router::new()
+        .route("/api/send", post(receive))
+        .with_state(collector.clone());
+    tokio::spawn(async move {
+        axum::serve(listener, router).await.unwrap();
+    });
+    let sender = AnalyticsSender::new(
+        &UmamiConfig {
+            enabled: true,
+            base_url: Some(format!("http://{address}")),
+            website_id: Some(label.into()),
+            api_username: None,
+            api_password: None,
+            policy: UmamiPolicy {
+                timeout: Duration::from_millis(500),
+            },
+            catalog: Arc::new(Default::default()),
+        },
+        Some("route-monitor".into()),
+        "https://app.example.test",
+        2,
+    )
+    .unwrap();
+    (sender, collector)
+}
 #[tokio::test]
 #[ignore = "requires an attested disposable PostgreSQL"]
 async fn take_inserts_pending_without_consuming_stock() {
@@ -984,6 +1039,34 @@ async fn take_fee_fallback_and_configuration_matrix() {
             assert_eq!(f.state().await, before);
         }
     }
+}
+
+#[tokio::test]
+#[ignore = "requires an attested disposable PostgreSQL"]
+async fn route_analytics_fires_once_per_commit_and_never_on_replay_or_refusal() {
+    let (sender, collector) = collector_sender("route-site").await;
+    let mut f = Fixture::with_analytics(sender).await;
+    // A refused take commits nothing, so it must not reach the collector.
+    let (s, _) = f.take(BUYER, None, "11").await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    // One committed take schedules exactly one conversion event.
+    let (s, b) = f.take(BUYER, Some("once"), "1").await;
+    assert_eq!(s, StatusCode::OK, "{b}");
+    tokio::time::timeout(Duration::from_secs(5), collector.arrived.notified())
+        .await
+        .expect("the committed take must schedule one event");
+    // A replay of the same key returns the stored projection and schedules
+    // nothing, and neither does a read.
+    let (s, replay) = f.take(BUYER, Some("once"), "1").await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(replay["id"], b["id"]);
+    let (s, _) = send(&f.router, "GET", "/api/trades/my", Some(BUYER), &[], None).await;
+    assert_eq!(s, StatusCode::OK);
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let rows = collector.rows.lock().await;
+    assert_eq!(rows.len(), 1, "exactly one delivery across all cases");
+    assert_eq!(rows[0]["payload"]["name"], "trade_created");
+    assert_eq!(rows[0]["payload"]["website"], "route-site");
 }
 
 #[tokio::test]
