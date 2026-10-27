@@ -35,7 +35,7 @@ impl Fixture {
         let owner = PgPool::connect(&std::env::var("AUTH_EMAIL_TEST_OWNER_URL").unwrap())
             .await
             .unwrap();
-        let pool = PgPool::connect(&std::env::var("AUTH_EMAIL_TEST_DATABASE_URL").unwrap())
+        let pool = sqlx::postgres::PgPoolOptions::new().connect_with(std::env::var("AUTH_EMAIL_TEST_DATABASE_URL").unwrap().parse::<sqlx::postgres::PgConnectOptions>().unwrap().options([("default_transaction_read_only", "on")]))
             .await
             .unwrap();
         let mail = Arc::new(Mutex::new(Vec::new()));
