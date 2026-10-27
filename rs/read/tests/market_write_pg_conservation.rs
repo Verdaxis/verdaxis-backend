@@ -1094,13 +1094,7 @@ async fn take_and_cancel_on_one_order_conserve_stock() {
             .await
         });
         barrier.wait().await;
-        let cancel_pid = wait_for_lock(
-            &mut f.admin,
-            holder_pid,
-            None,
-            "transactionid",
-        )
-        .await;
+        let cancel_pid = wait_for_lock(&mut f.admin, holder_pid, None, "transactionid").await;
         if take_first {
             hold.commit().await.unwrap();
             println!("COMMIT_MILESTONE fixture:take before rust:order.cancel");
