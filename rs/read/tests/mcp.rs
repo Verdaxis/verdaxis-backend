@@ -4,12 +4,13 @@ fn shared_meaning(pair: serde_json::Value) -> bool {
     use std::io::Write;
     use std::process::{Command, Stdio};
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let mut child = Command::new(std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "python3".into()))
-        .current_dir(root)
-        .args(["-m", "scripts.rust_contract.compare_values"])
-        .stdin(Stdio::piped())
-        .spawn()
-        .unwrap();
+    let mut child =
+        Command::new(std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "python3".into()))
+            .current_dir(root)
+            .args(["-m", "scripts.rust_contract.compare_values"])
+            .stdin(Stdio::piped())
+            .spawn()
+            .unwrap();
     child
         .stdin
         .take()

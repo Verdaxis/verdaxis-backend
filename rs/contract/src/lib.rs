@@ -25,11 +25,13 @@ pub use gate::{
 /// mismatch is an error.
 pub fn compare_group(group: &str) -> Result<(), String> {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let status = std::process::Command::new(std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "python3".into()))
-        .current_dir(&root)
-        .args(["-m", "scripts.rust_contract.compare", "--group", group])
-        .status()
-        .map_err(|_| "comparator could not start".to_owned())?;
+    let status = std::process::Command::new(
+        std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "python3".into()),
+    )
+    .current_dir(&root)
+    .args(["-m", "scripts.rust_contract.compare", "--group", group])
+    .status()
+    .map_err(|_| "comparator could not start".to_owned())?;
     if status.success() {
         Ok(())
     } else {

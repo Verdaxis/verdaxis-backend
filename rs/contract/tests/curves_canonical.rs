@@ -3,7 +3,9 @@
 #[test]
 fn all_curve_shapes_match_python() {
     verdaxis_contract::compare_group("curves_canonical").unwrap();
-    let status = std::process::Command::new(std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "python3".into()))
+    let status = std::process::Command::new(
+        std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "python3".into()),
+    )
     .arg(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../read/tests/curves_canonical_oracle.py"
