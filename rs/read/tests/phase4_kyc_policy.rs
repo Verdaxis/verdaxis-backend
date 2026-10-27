@@ -462,6 +462,7 @@ mod postgres {
                 python_budget: 52,
                 configured_max_connections: 100,
                 prepared_budget: None,
+                phase2: Default::default(),
             };
             let pools = verdaxis_read::runtime::db::Pools {
                 read: sqlx::postgres::PgPoolOptions::new()

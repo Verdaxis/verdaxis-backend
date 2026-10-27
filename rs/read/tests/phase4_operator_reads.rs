@@ -65,6 +65,7 @@ fn config(url: String) -> Config {
         database_url: url,
         db_session_time_zone: "UTC".into(),
         prepared_budget: None,
+        phase2: Default::default(),
         bind: "127.0.0.1:0".parse().unwrap(),
         read_admission_slots: 4,
         pool_max: 5,

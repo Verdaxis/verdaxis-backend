@@ -339,6 +339,7 @@ mod postgres {
                 database_url: std::env::var("RUST_TEST_DATABASE_URL").expect("runtime URL"),
                 db_session_time_zone: "UTC".into(),
                 prepared_budget: None,
+                phase2: Default::default(),
                 bind: "127.0.0.1:0".parse().expect("bind"),
                 read_admission_slots: 3,
                 pool_max: 4,
