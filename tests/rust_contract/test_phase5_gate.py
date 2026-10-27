@@ -1,7 +1,6 @@
 """Neutral manifest gate for the Phase 5 release package.
 
-The manifest is public: it carries no private finding IDs, no source-weakness
-wording, no host paths or tokens. `refusals` is the gate: it returns every
+The manifest is public: it carries no internal reference IDs, local paths or credentials. `refusals` is the gate: it returns every
 reason to refuse a manifest, and the committed manifest must return none.
 The tests below prove the gate fails closed: a missing scenario, a skipped
 required test, a source-identity mismatch, a schema violation, a measurement
@@ -46,7 +45,8 @@ RELEASE_PACKAGE = {
 }
 ROUTE_IDS = ["C01", "C02", "C03", "C04", "C05", "M01", "M02", "M03", "M04", "M05"]
 FORBIDDEN = re.compile(
-    r"(PD5?-\w+|correction|defect|weakness|/Users/|/home/|token=|password)", re.IGNORECASE
+    r"(\b[A-Z]{2,3}[0-9]?-[A-Z0-9_]+\b|correction|defect|weakness|/Users/|/home/|token=|password)",
+    re.IGNORECASE,
 )
 MEASUREMENT = re.compile(r"(measure|latency|throughput|capacity|speed)", re.IGNORECASE)
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
@@ -195,7 +195,7 @@ def test_phase5_gate_rejects_measurement_artifact():
 
 def test_phase5_gate_rejects_private_text():
     document = load()
-    for text in ("PD5-X1 note", "a correction", "/home/runner/x", "token=abc"):
+    for text in ("ABC-1 note", "a correction", "/home/runner/x", "token=abc"):
         mutated = copy.deepcopy(document)
         mutated["schema_revision"] = text
         assert "private or sensitive text" in refusals(mutated), text
