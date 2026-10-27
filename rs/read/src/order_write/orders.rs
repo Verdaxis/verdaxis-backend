@@ -941,3 +941,47 @@ async fn owner_benchmarks(
         .filter_map(|(key, rows)| qualified_vwap(&rows).map(|price| (key, price)))
         .collect())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cancellation_version_rule_uses_catalog_qualification() {
+        let mut policy: MarketPolicy = serde_json::from_str(include_str!(
+            "../../../../deploy/rust/market-policy.json"
+        ))
+        .unwrap();
+        let product = policy
+            .products
+            .iter_mut()
+            .find(|product| product.qualification_profile == "fame_v1")
+            .unwrap();
+        product.code = "RENAMED_CATALOG_ENTRY".into();
+        let mut order = OrderIdentity {
+            id: Uuid::new_v4(),
+            organization: Uuid::new_v4(),
+            owner: None,
+            product: product.id,
+            point: None,
+            window: "SPOT".into(),
+            item: None,
+            method: "SELF_SERVICE".into(),
+            authorization: None,
+            version: 1,
+            status: "OPEN".into(),
+        };
+        assert!(bumps_version(&order, &policy));
+        for product in &policy.products {
+            order.product = product.id;
+            assert_eq!(
+                bumps_version(&order, &policy),
+                product.qualification_profile == "fame_v1"
+            );
+        }
+        order.product = Uuid::new_v4();
+        assert!(!bumps_version(&order, &policy));
+        order.method = "MARKET_SUPPORT".into();
+        assert!(bumps_version(&order, &policy));
+    }
+}
