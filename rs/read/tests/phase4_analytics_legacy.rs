@@ -616,6 +616,12 @@ async fn p4_t17b_c03() {
             .is_some_and(|seconds| (1..=60).contains(&seconds)),
         "{retry_after:?}"
     );
+    for spelling in [format!("bearer {admin}"),format!("BEARER   {admin}")] {
+        let mut request=send("/api/admin/analytics/users?limit=1",None,FORWARDED);
+        request.headers_mut().insert("authorization",spelling.parse().unwrap());
+        let response=f.app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(),StatusCode::TOO_MANY_REQUESTS);
+    }
     // Another token has its own bucket.
     let second = token(USER_ADMIN_TWO);
     let (status, body, _) = get(

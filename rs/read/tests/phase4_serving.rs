@@ -56,3 +56,13 @@ async fn production_composition_owns_every_business_operation() {
     }
     assert_eq!(count, 42);
 }
+
+#[test]
+fn fact_tabs_select_their_closed_provider_properties() {
+    use verdaxis_read::runtime::phase4_analytics::{fact_query,requested_properties};
+    for tab in ["overview","activation","engagement","retention"] {
+        assert_eq!(fact_query("activity=REFERENCE",tab).unwrap_err().status.as_u16(),422);
+    }
+    let properties=requested_properties("engagement");
+    assert_eq!(properties.len(),3);
+}
