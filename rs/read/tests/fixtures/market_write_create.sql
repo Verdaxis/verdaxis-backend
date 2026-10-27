@@ -1,6 +1,7 @@
 -- Installed only by the disposable component suite's migrator.
 CREATE OR REPLACE FUNCTION create_fixture_seed(n integer) RETURNS void LANGUAGE plpgsql AS $$
 BEGIN
+    UPDATE products SET is_active=true,min_lot_size=200 WHERE id='c4cecebc-3d2d-5840-8021-57a9a11bc673';
     PERFORM matching_fixture_seed('00000000-0000-0000-0000-000000000001',n,200);
     DELETE FROM orderbook_orders WHERE id='00000000-0000-0000-0000-000000000001';
     PERFORM matching_fixture_admin('00000000-0000-0000-0000-000000003001');
@@ -32,7 +33,7 @@ CREATE OR REPLACE FUNCTION create_fixture_support_change(change text) RETURNS vo
  WHEN 'context_exited' THEN UPDATE market_support_contexts SET status='EXITED',ended_at=now();
  WHEN 'context_foreign' THEN UPDATE market_support_contexts SET actor_user_id='00000000-0000-0000-0000-000000002001';
  WHEN 'organization_pending' THEN UPDATE organizations SET verification_status='PENDING' WHERE id='00000000-0000-0000-0000-000000001000';
- WHEN 'organization_unknown' THEN UPDATE organizations SET provenance='UNKNOWN' WHERE id='00000000-0000-0000-0000-000000001000';
+ WHEN 'organization_unknown' THEN INSERT INTO organizations(id,name,type,verification_status,provenance) VALUES('00000000-0000-0000-0000-000000009000','Unknown fixture','SHIPOWNER','APPROVED','UNKNOWN'); UPDATE market_support_contexts SET organization_id='00000000-0000-0000-0000-000000009000';
  WHEN 'member_absent' THEN UPDATE users SET organization_id=NULL WHERE id='00000000-0000-0000-0000-000000001001';
  WHEN 'member_rejected' THEN UPDATE users SET kyc_status='REJECTED' WHERE id='00000000-0000-0000-0000-000000001001';
  WHEN 'member_pending' THEN UPDATE users SET status='PENDING' WHERE id='00000000-0000-0000-0000-000000001001';
@@ -56,3 +57,9 @@ CREATE OR REPLACE FUNCTION create_fixture_abort_once(state text) RETURNS void LA
  CREATE TRIGGER create_fixture_abort BEFORE INSERT ON orderbook_orders FOR EACH ROW EXECUTE FUNCTION create_fixture_abort();
 END $$;
 CREATE OR REPLACE FUNCTION create_fixture_abort_remove() RETURNS void LANGUAGE plpgsql AS $$ BEGIN DROP TRIGGER IF EXISTS create_fixture_abort ON orderbook_orders; END $$;
+
+CREATE OR REPLACE FUNCTION create_fixture_always_refuse() RETURNS void LANGUAGE plpgsql AS $$ BEGIN
+ EXECUTE 'CREATE OR REPLACE FUNCTION create_fixture_abort() RETURNS trigger LANGUAGE plpgsql AS $body$ BEGIN RAISE EXCEPTION ''insert constraint'' USING ERRCODE=''23503''; END $body$';
+ DROP TRIGGER IF EXISTS create_fixture_abort ON orderbook_orders;
+ CREATE TRIGGER create_fixture_abort BEFORE INSERT ON orderbook_orders FOR EACH ROW EXECUTE FUNCTION create_fixture_abort();
+END $$;

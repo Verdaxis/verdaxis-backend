@@ -711,7 +711,13 @@ async fn same_key_creates_serialize_and_commit_one_effect_set() {
     assert_eq!(a.0, StatusCode::CREATED, "{a:?}");
     if b.0 == StatusCode::CONFLICT {
         assert_eq!(b.1["detail"]["code"], "MARKET_BUSY");
-        b = send(&f.router,Some(buyer()),&[("Idempotency-Key","parallel")],f.body("BID")).await;
+        b = send(
+            &f.router,
+            Some(buyer()),
+            &[("Idempotency-Key", "parallel")],
+            f.body("BID"),
+        )
+        .await;
     }
     assert_eq!(b.0, StatusCode::CREATED, "{b:?}");
     assert_eq!(a.1["id"], b.1["id"]);
@@ -723,124 +729,365 @@ async fn same_key_creates_serialize_and_commit_one_effect_set() {
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn assisted_authority_and_customer_admission_are_independent() {
-    for (change,status) in [("capability_revoked",404),("capability_expired",404),("context_exited",409),("context_foreign",404),("organization_pending",409),("organization_unknown",409),("member_absent",403),("member_rejected",403),("member_pending",403)] {
-        let mut f=Fixture::new(0).await;
-        sqlx::query("SELECT create_fixture_support_change($1)").bind(change).execute(&mut f.admin).await.unwrap();
-        let reply=send(&f.router,Some(staff()),&[("X-Verdaxis-Market-Support-Context",CONTEXT),("Idempotency-Key","authority")],f.assisted("BID")).await;
-        assert_eq!(reply.0.as_u16(),status,"{change}: {reply:?}");
-        for table in ["orders","authorizations","trades","events","audit"] {assert_eq!(f.count(table).await,0,"{change}: {table}");}
+    for (change, status) in [
+        ("capability_revoked", 404),
+        ("capability_expired", 404),
+        ("context_exited", 409),
+        ("context_foreign", 404),
+        ("organization_pending", 409),
+        ("organization_unknown", 409),
+        ("member_absent", 403),
+        ("member_rejected", 403),
+        ("member_pending", 403),
+    ] {
+        let mut f = Fixture::new(0).await;
+        sqlx::query("SELECT create_fixture_support_change($1)")
+            .bind(change)
+            .execute(&mut f.admin)
+            .await
+            .unwrap();
+        let reply = send(
+            &f.router,
+            Some(staff()),
+            &[
+                ("X-Verdaxis-Market-Support-Context", CONTEXT),
+                ("Idempotency-Key", "authority"),
+            ],
+            f.assisted("BID"),
+        )
+        .await;
+        assert_eq!(reply.0.as_u16(), status, "{change}: {reply:?}");
+        for table in ["orders", "authorizations", "trades", "events", "audit"] {
+            assert_eq!(f.count(table).await, 0, "{change}: {table}");
+        }
     }
-    let mut f=Fixture::new(0).await;
-    let reply=send(&f.router,Some(staff()),&[("X-Verdaxis-Market-Support-Context",CONTEXT),("Idempotency-Key","ask")],f.assisted("ASK")).await;
-    assert_eq!(reply.0,StatusCode::CREATED,"{reply:?}");
-    assert_eq!(f.count("trades").await,0);
-    assert_eq!(f.count("authorizations").await,1);
+    let mut f = Fixture::new(0).await;
+    let reply = send(
+        &f.router,
+        Some(staff()),
+        &[
+            ("X-Verdaxis-Market-Support-Context", CONTEXT),
+            ("Idempotency-Key", "ask"),
+        ],
+        f.assisted("ASK"),
+    )
+    .await;
+    assert_eq!(reply.0, StatusCode::CREATED, "{reply:?}");
+    assert_eq!(f.count("trades").await, 0);
+    assert_eq!(f.count("authorizations").await, 1);
 }
 
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn minimum_lot_and_catalog_failures_keep_their_statuses() {
-    for (change,status) in [("minimum_zero",409),("minimum_negative",409),("product_inactive",400)] {
-        let mut f=Fixture::new(0).await;
-        sqlx::query("SELECT create_fixture_catalog_change($1)").bind(change).execute(&mut f.admin).await.unwrap();
-        let reply=send(&f.router,Some(buyer()),&[],f.body("BID")).await;
-        assert_eq!(reply.0.as_u16(),status,"{change}: {reply:?}");
-        assert_eq!(f.count("orders").await,0);
+    for (change, status) in [
+        ("minimum_zero", 409),
+        ("minimum_negative", 409),
+        ("product_inactive", 400),
+    ] {
+        let mut f = Fixture::new(0).await;
+        sqlx::query("SELECT create_fixture_catalog_change($1)")
+            .bind(change)
+            .execute(&mut f.admin)
+            .await
+            .unwrap();
+        let reply = send(&f.router, Some(buyer()), &[], f.body("BID")).await;
+        assert_eq!(reply.0.as_u16(), status, "{change}: {reply:?}");
+        assert_eq!(f.count("orders").await, 0);
     }
 }
 
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn strict_grace_allows_pending_but_never_rejection() {
-    let mut f=Fixture::new(0).await;
-    sqlx::query("SELECT create_fixture_grace(false)").execute(&mut f.admin).await.unwrap();
-    assert_eq!(send(&f.router,Some(buyer()),&[],f.body("BID")).await.0,StatusCode::CREATED);
-    sqlx::query("SELECT create_fixture_grace(true)").execute(&mut f.admin).await.unwrap();
-    let reply=send(&f.router,Some(buyer()),&[],f.body("BID")).await;
-    assert_eq!(reply.0,StatusCode::FORBIDDEN);
-    assert_eq!(reply.1["detail"]["kyc_status"],"REJECTED");
+    let mut f = Fixture::new(0).await;
+    sqlx::query("SELECT create_fixture_grace(false)")
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
+    assert_eq!(
+        send(&f.router, Some(buyer()), &[], f.body("BID")).await.0,
+        StatusCode::CREATED
+    );
+    sqlx::query("SELECT create_fixture_grace(true)")
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
+    let reply = send(&f.router, Some(buyer()), &[], f.body("BID")).await;
+    assert_eq!(reply.0, StatusCode::FORBIDDEN);
+    assert_eq!(reply.1["detail"]["kyc_status"], "REJECTED");
     assert!(reply.1["detail"]["grace_expires_at"].is_string());
 }
 
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn satisfied_hundred_fills_keep_preview_overflow_without_refusal() {
-    let mut f=Fixture::new(101).await;
-    sqlx::query("SELECT create_fixture_minimum_one()").execute(&mut f.admin).await.unwrap();
-    let mut body=f.body("BID");body["quantity_mt"]=json!("100");
-    let reply=send(&f.router,Some(buyer()),&[],body).await;
-    assert_eq!(reply.0,StatusCode::CREATED,"{reply:?}");
-    assert_eq!(reply.1["status"],"FILLED");
-    assert_eq!(f.count("trades").await,100);
-    assert_eq!(f.count("events").await,102);
+    let mut f = Fixture::new(101).await;
+    sqlx::query("SELECT create_fixture_minimum_one()")
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
+    let mut body = f.body("BID");
+    body["quantity_mt"] = json!("100");
+    let reply = send(&f.router, Some(buyer()), &[], body).await;
+    assert_eq!(reply.0, StatusCode::CREATED, "{reply:?}");
+    assert_eq!(reply.1["status"], "FILLED");
+    assert_eq!(f.count("trades").await, 100);
+    assert_eq!(f.count("events").await, 102);
 }
 
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn create_consumes_resting_inventory_and_rolls_back_a_later_failure() {
-    for fail in [false,true] {
-        let mut f=Fixture::new(2).await;
-        let item=Uuid::new_v4();
-        sqlx::query("SELECT matching_fixture_back_inventory($1,$2)").bind(Uuid::from_u128(2)).bind(item).execute(&mut f.admin).await.unwrap();
-        if fail {sqlx::query("SELECT matching_fixture_reject_trade($1)").bind(Uuid::from_u128(3)).execute(&mut f.admin).await.unwrap();}
-        let reply=send(&f.router,Some(buyer()),&[("Idempotency-Key","stock")],f.body("BID")).await;
-        assert_eq!(reply.0,if fail {StatusCode::UNPROCESSABLE_ENTITY}else{StatusCode::CREATED},"{reply:?}");
-        let stock:Decimal=sqlx::query_scalar("SELECT reserved_stock_mt FROM inventory_items WHERE id=$1").bind(item).fetch_one(&mut f.observer).await.unwrap();
-        assert_eq!(stock,if fail {Decimal::ONE}else{Decimal::ZERO});
-        if fail {for table in ["trades","events","audit","notifications"] {assert_eq!(f.count(table).await,0);}}
-        assert_eq!(sqlx::query_scalar::<_,i64>("SELECT count(*) FROM orderbook_orders WHERE inventory_item_id IS NOT NULL").fetch_one(&mut f.observer).await.unwrap(),1);
+    for fail in [false, true] {
+        let mut f = Fixture::new(2).await;
+        let item = Uuid::new_v4();
+        sqlx::query("SELECT matching_fixture_back_inventory($1,$2)")
+            .bind(Uuid::from_u128(2))
+            .bind(item)
+            .execute(&mut f.admin)
+            .await
+            .unwrap();
+        if fail {
+            sqlx::query("SELECT matching_fixture_reject_trade($1)")
+                .bind(Uuid::from_u128(3))
+                .execute(&mut f.admin)
+                .await
+                .unwrap();
+        }
+        let reply = send(
+            &f.router,
+            Some(buyer()),
+            &[("Idempotency-Key", "stock")],
+            f.body("BID"),
+        )
+        .await;
+        assert_eq!(
+            reply.0,
+            if fail {
+                StatusCode::UNPROCESSABLE_ENTITY
+            } else {
+                StatusCode::CREATED
+            },
+            "{reply:?}"
+        );
+        let stock: Decimal =
+            sqlx::query_scalar("SELECT reserved_stock_mt FROM inventory_items WHERE id=$1")
+                .bind(item)
+                .fetch_one(&mut f.observer)
+                .await
+                .unwrap();
+        assert_eq!(stock, if fail { Decimal::ONE } else { Decimal::ZERO });
+        if fail {
+            for table in ["trades", "events", "audit", "notifications"] {
+                assert_eq!(f.count(table).await, 0);
+            }
+        }
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT count(*) FROM orderbook_orders WHERE inventory_item_id IS NOT NULL"
+            )
+            .fetch_one(&mut f.observer)
+            .await
+            .unwrap(),
+            1
+        );
     }
 }
 
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn create_rebuilds_both_benchmark_sides_once() {
-    let mut f=Fixture::new(2).await;
-    sqlx::raw_sql(include_str!("fixtures/market_write_match_completion.sql")).execute(&mut f.admin).await.unwrap();
-    sqlx::query("SELECT completion_fixture_benchmark_probe()").execute(&mut f.admin).await.unwrap();
-    let reply=send(&f.router,Some(buyer()),&[],f.body("BID")).await;
-    assert_eq!(reply.0,StatusCode::CREATED,"{reply:?}");
-    let sides:Vec<String>=sqlx::query_scalar("SELECT side::text FROM live_slice_benchmarks ORDER BY side").fetch_all(&mut f.observer).await.unwrap();
-    assert_eq!(sides,vec!["BID"]);
+    let mut f = Fixture::new(2).await;
+    sqlx::raw_sql(include_str!("fixtures/market_write_match_completion.sql"))
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
+    sqlx::query("SELECT completion_fixture_benchmark_probe()")
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
+    let reply = send(&f.router, Some(buyer()), &[], f.body("BID")).await;
+    assert_eq!(reply.0, StatusCode::CREATED, "{reply:?}");
+    let sides: Vec<String> =
+        sqlx::query_scalar("SELECT side::text FROM live_slice_benchmarks ORDER BY side")
+            .fetch_all(&mut f.observer)
+            .await
+            .unwrap();
+    assert_eq!(sides, vec!["BID"]);
     let calls:Vec<(String,i64)>=sqlx::query_as("SELECT operation,count(*) FROM completion_benchmark_calls GROUP BY operation ORDER BY operation").fetch_all(&mut f.admin).await.unwrap();
-    assert_eq!(calls,vec![("DELETE".into(),2),("INSERT".into(),1)]);
-    sqlx::query("SELECT completion_fixture_benchmark_probe_remove()").execute(&mut f.admin).await.unwrap();
+    assert_eq!(calls, vec![("DELETE".into(), 2), ("INSERT".into(), 1)]);
+    sqlx::query("SELECT completion_fixture_benchmark_probe_remove()")
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn create_retries_only_server_transaction_aborts() {
-    for state in ["40001","40P01"] {
-        let mut f=Fixture::new(0).await;
-        sqlx::query("SELECT create_fixture_abort_once($1)").bind(state).execute(&mut f.admin).await.unwrap();
-        let reply=send(&f.router,Some(buyer()),&[("Idempotency-Key","retry")],f.body("BID")).await;
-        sqlx::query("SELECT create_fixture_abort_remove()").execute(&mut f.admin).await.unwrap();
-        assert_eq!(reply.0,StatusCode::CREATED,"{state}: {reply:?}");
-        assert_eq!(f.count("orders").await,1);
-        assert_eq!(f.count("events").await,1);
+    for state in ["40001", "40P01"] {
+        let mut f = Fixture::new(0).await;
+        sqlx::query("SELECT create_fixture_abort_once($1)")
+            .bind(state)
+            .execute(&mut f.admin)
+            .await
+            .unwrap();
+        let reply = send(
+            &f.router,
+            Some(buyer()),
+            &[("Idempotency-Key", "retry")],
+            f.body("BID"),
+        )
+        .await;
+        sqlx::query("SELECT create_fixture_abort_remove()")
+            .execute(&mut f.admin)
+            .await
+            .unwrap();
+        assert_eq!(reply.0, StatusCode::CREATED, "{state}: {reply:?}");
+        assert_eq!(f.count("orders").await, 1);
+        assert_eq!(f.count("events").await, 1);
     }
 }
 
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn typed_create_uses_catalog_profiles_and_refuses_reseller_admission() {
-    let mut f=Fixture::new(0).await;
-    let policy:Value=serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap();
-    for profile in ["fame_v1","lng_v1"] {
-        let p=policy["products"].as_array().unwrap().iter().find(|p|p["qualification_profile"]==profile).unwrap();
-        let mut body=f.body("BID");body["product_id"]=p["id"].clone();body["delivery_point_id"]=p["lanes"][0].clone();body["quantity_mt"]=json!("1");
-        let field=if profile=="fame_v1" {"fame_terms"}else{"lng_terms"};
-        assert_eq!(send(&f.router,Some(buyer()),&[],body.clone()).await.0,StatusCode::UNPROCESSABLE_ENTITY);
-        body[field]=if profile=="fame_v1" {json!({"side":"BID","neat_fame":true,"standard":"EN_14214","standard_edition":"2012+A2:2019","sustainability_scheme":"ISCC_EU"})}else{json!({"side":"BID","accepted_schemes":["ISCC_EU"],"accepted_delivery_methods":["SHIP_TO_SHIP"]})};
-        let reply=send(&f.router,Some(buyer()),&[],body.clone()).await;
-        assert_eq!(reply.0,StatusCode::CREATED,"{profile}: {reply:?}");
-        body["quantity_mt"]=json!("0.99");
-        assert_eq!(send(&f.router,Some(buyer()),&[],body).await.0,StatusCode::UNPROCESSABLE_ENTITY);
+    let f = Fixture::new(0).await;
+    let policy: Value =
+        serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap();
+    for profile in ["fame_v1", "lng_v1"] {
+        let p = policy["products"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["qualification_profile"] == profile)
+            .unwrap();
+        let mut body = f.body("BID");
+        body["product_id"] = p["id"].clone();
+        body["delivery_point_id"] = p["lanes"][0].clone();
+        body["quantity_mt"] = json!("1");
+        let field = if profile == "fame_v1" {
+            "fame_terms"
+        } else {
+            "lng_terms"
+        };
+        assert_eq!(
+            send(&f.router, Some(buyer()), &[], body.clone()).await.0,
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
+        body[field] = if profile == "fame_v1" {
+            json!({"side":"BID","neat_fame":true,"standard":"EN_14214","standard_edition":"2012+A2:2019","sustainability_scheme":"ISCC_EU"})
+        } else {
+            json!({"side":"BID","accepted_schemes":["ISCC_EU"],"accepted_delivery_methods":["SHIP_TO_SHIP"]})
+        };
+        let reply = send(&f.router, Some(buyer()), &[], body.clone()).await;
+        assert_eq!(reply.0, StatusCode::CREATED, "{profile}: {reply:?}");
+        body["quantity_mt"] = json!("0.99");
+        assert_eq!(
+            send(&f.router, Some(buyer()), &[], body).await.0,
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
     }
-    let p=policy["products"].as_array().unwrap().iter().find(|p|p["qualification_profile"]=="lng_v1").unwrap();
-    let mut body=f.body("ASK");body["product_id"]=p["id"].clone();body["delivery_point_id"]=p["lanes"][0].clone();body["quantity_mt"]=json!("1");
-    body["lng_terms"]=json!({"side":"ASK","sustainability_scheme":"ISCC_EU","scheme_certificate_number":"synthetic-certificate","chain_of_custody":"MASS_BALANCE","union_database_registered":true,"bio_share_pct":"100","feedstock":"MANURE","production_country":"NL","wtt_ghg_gco2e_mj":"-20.25","specification_standard":"ISO 23306:2020","min_methane_number":"80","delivery_method":"SHIP_TO_SHIP","seller_is_physical_supplier":false,"physical_supplier_name":"Synthetic supplier","pos_timing":"WITH_DELIVERY"});
-    let reply=send(&f.router,Some(seller()),&[],body).await;
-    assert_eq!(reply.0,StatusCode::UNPROCESSABLE_ENTITY);
-    assert_eq!(reply.1["detail"]["code"],"RESELLER_ALLOCATION_REQUIRED");
+    let p = policy["products"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["qualification_profile"] == "lng_v1")
+        .unwrap();
+    let mut body = f.body("ASK");
+    body["product_id"] = p["id"].clone();
+    body["delivery_point_id"] = p["lanes"][0].clone();
+    body["quantity_mt"] = json!("1");
+    body["lng_terms"] = json!({"side":"ASK","sustainability_scheme":"ISCC_EU","scheme_certificate_number":"synthetic-certificate","chain_of_custody":"MASS_BALANCE","union_database_registered":true,"bio_share_pct":"100","feedstock":"MANURE","production_country":"NL","wtt_ghg_gco2e_mj":"-20.25","specification_standard":"ISO 23306:2020","min_methane_number":"80","delivery_method":"SHIP_TO_SHIP","seller_is_physical_supplier":false,"physical_supplier_name":"Synthetic supplier","pos_timing":"WITH_DELIVERY"});
+    let reply = send(&f.router, Some(seller()), &[], body).await;
+    assert_eq!(reply.0, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(reply.1["detail"]["code"], "RESELLER_ALLOCATION_REQUIRED");
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn create_captured_clock_keeps_a_live_order_after_a_lock_wait() {
+    let mut f=Fixture::new(0).await;
+    let mut settings=CreateSettings::default();
+    settings.auto_matching_enabled=false;
+    let router=contract_router(f.pool.clone(),KEY,settings);
+    let mut blocker=f.pool.begin().await.unwrap();
+    let key=verdaxis_read::order_write::market_slice_lock_key(f.product,Some(f.point),"SPOT");
+    verdaxis_read::routes::market_write::order_create::contract_hold_key(&mut blocker,key).await;
+    let mut body=f.body("BID");
+    body["expires_at"]=json!((Utc::now()+chrono::Duration::milliseconds(180)).to_rfc3339());
+    let request=tokio::spawn(async move {send(&router,Some(buyer()),&[],body).await});
+    let mut observed=false;
+    for _ in 0..100 {
+        observed=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event='advisory' AND datname=current_database())").fetch_one(&mut f.admin).await.unwrap();
+        if observed {break;}
+        tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+    }
+    assert!(observed);
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    blocker.commit().await.unwrap();
+    let reply=request.await.unwrap();
+    assert_eq!(reply.0,StatusCode::CREATED,"{reply:?}");
+    assert_eq!(reply.1["status"],"OPEN");
+    assert_eq!(reply.1["version"],1);
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn create_non_replay_integrity_failure_returns_no_projection() {
+    let mut f=Fixture::new(0).await;
+    sqlx::query("SELECT create_fixture_always_refuse()").execute(&mut f.admin).await.unwrap();
+    let reply=send(&f.router,Some(buyer()),&[("Idempotency-Key","integrity")],f.body("BID")).await;
+    sqlx::query("SELECT create_fixture_abort_remove()").execute(&mut f.admin).await.unwrap();
+    assert_eq!(reply.0,StatusCode::INTERNAL_SERVER_ERROR,"{reply:?}");
+    assert!(reply.1.get("id").is_none());
+    for table in ["orders","trades","audit","events"] {assert_eq!(f.count(table).await,0);}
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn create_commit_ack_loss_does_not_repeat_the_order() {
+    use std::sync::{Arc,atomic::{AtomicUsize,Ordering}};
+    use tokio::io::{AsyncReadExt,AsyncWriteExt};
+    let mut f=Fixture::new(0).await;
+    let mut target=url::Url::parse(&std::env::var("RUST_CREATE_DATABASE_URL").unwrap()).unwrap();
+    target.query_pairs_mut().append_pair("sslmode","disable");
+    let upstream=target.port().unwrap();
+    let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    target.set_port(Some(listener.local_addr().unwrap().port())).unwrap();
+    let commits=Arc::new(AtomicUsize::new(0));let count=commits.clone();
+    let proxy=tokio::spawn(async move {
+        let (mut client,_)=listener.accept().await.unwrap();
+        let mut server=tokio::net::TcpStream::connect(("127.0.0.1",upstream)).await.unwrap();
+        let len=client.read_u32().await.unwrap();let mut startup=vec![0;len as usize-4];client.read_exact(&mut startup).await.unwrap();
+        server.write_u32(len).await.unwrap();server.write_all(&startup).await.unwrap();
+        let (mut cr,mut cw)=client.into_split();let (mut sr,mut sw)=server.into_split();
+        let armed=Arc::new(std::sync::atomic::AtomicBool::new(false));let arm=armed.clone();
+        let sender=tokio::spawn(async move {
+            loop {
+                let kind=cr.read_u8().await?;let len=cr.read_u32().await?;let mut bytes=vec![0;len as usize-4];cr.read_exact(&mut bytes).await?;
+                if kind==b'Q' && bytes.strip_suffix(&[0]).is_some_and(|s|s.eq_ignore_ascii_case(b"COMMIT")) {arm.store(true,Ordering::SeqCst);count.fetch_add(1,Ordering::SeqCst);}
+                sw.write_u8(kind).await?;sw.write_u32(len).await?;sw.write_all(&bytes).await?;
+            }
+            #[allow(unreachable_code)] Ok::<(),std::io::Error>(())
+        });
+        while let Ok(kind)=sr.read_u8().await {
+            let len=sr.read_u32().await.unwrap();let mut bytes=vec![0;len as usize-4];sr.read_exact(&mut bytes).await.unwrap();
+            if armed.load(Ordering::SeqCst) {if kind==b'Z' {cw.shutdown().await.unwrap();break;}}
+            else {cw.write_u8(kind).await.unwrap();cw.write_u32(len).await.unwrap();cw.write_all(&bytes).await.unwrap();}
+        }
+        sender.abort();let _=sender.await;
+    });
+    let pool=sqlx::postgres::PgPoolOptions::new().min_connections(0).max_connections(1).connect_lazy(target.as_str()).unwrap();
+    let router=contract_router(pool,KEY,CreateSettings::default());
+    let reply=tokio::time::timeout(std::time::Duration::from_secs(20),send(&router,Some(buyer()),&[("Idempotency-Key","commit")],f.body("BID"))).await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5),proxy).await.unwrap().unwrap();
+    assert_eq!(reply.0,StatusCode::SERVICE_UNAVAILABLE,"{reply:?}");
+    assert_eq!(reply.1["detail"]["code"],"COMMIT_OUTCOME_UNKNOWN");
+    assert_eq!(commits.load(Ordering::SeqCst),1);
+    assert_eq!(f.count("orders").await,1);
+    let replay=send(&f.router,Some(buyer()),&[("Idempotency-Key","commit")],f.body("BID")).await;
+    assert_eq!(replay.0,StatusCode::CREATED,"{replay:?}");
+    assert_eq!(f.count("events").await,1);
 }
