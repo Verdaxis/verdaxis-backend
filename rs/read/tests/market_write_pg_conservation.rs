@@ -142,7 +142,7 @@ fn sequence(seed: u64) -> Vec<(u8,u16)> {
     let mut bytes = [0_u8;32]; bytes[..8].copy_from_slice(&seed.to_le_bytes());
     let config = GeneratorConfig { failure_persistence: None, ..GeneratorConfig::default() };
     let mut runner = TestRunner::new_with_rng(config, TestRng::from_seed(RngAlgorithm::ChaCha, &bytes));
-    vec((0_u8..8,1_u16..100), 40).new_tree(&mut runner).unwrap().current()
+    vec((0_u8..12,1_u16..100), 40).new_tree(&mut runner).unwrap().current()
 }
 
 #[tokio::test]
@@ -153,11 +153,18 @@ async fn stock_invariant_after_random_sequence() {
     for seed in seeds {
         let steps = sequence(seed);
         let mut f = Fixture::new().await;
-        let (_, value) = f.create("100.00").await;
+        let (status, value) = f.create("100.00").await;
+        assert_eq!(status, StatusCode::OK, "{value}");
         let item: Uuid = value["id"].as_str().unwrap().parse().unwrap();
         f.check(seed, 0, Writer::Create, "100.00").await;
+        let order: Uuid = f.stock_step(Writer::Publish.label(), item, None, None, Decimal::ZERO).await["order"].as_str().unwrap().parse().unwrap();
+        f.check(seed, 1, Writer::Publish, "initial listing").await;
+        let trade: Uuid = f.stock_step(Writer::Take.label(), item, Some(order), None, Decimal::from(2)).await["trade"].as_str().unwrap().parse().unwrap();
+        f.check(seed, 2, Writer::Take, "2").await;
+        f.stock_step(Writer::Confirm.label(), item, Some(order), Some(trade), Decimal::ZERO).await;
+        f.check(seed, 3, Writer::Confirm, "2").await;
         for (index, (kind, amount)) in steps.into_iter().enumerate() {
-            let writer = match kind { 0 => Writer::Publish, 1 => Writer::Take, 2 => Writer::Confirm, 3 => Writer::Decline, 4 => Writer::Amend, 5 => Writer::Edit, 6 => Writer::Delete, _ => Writer::Cancel };
+            let writer = match kind { 0 => Writer::Publish, 1 => Writer::Take, 2 => Writer::Confirm, 3 => Writer::Decline, 4 => Writer::Amend, 5 => Writer::Edit, 6 => Writer::Delete, 7 => Writer::Cancel, 8 => Writer::Bid, 9 => Writer::Fill, 10 => Writer::Elapse, _ => Writer::Expire };
             let context = format!("kind={kind} amount={amount}");
             let live_order: Option<Uuid> = sqlx::query_scalar("SELECT id FROM orderbook_orders WHERE inventory_item_id=$1 AND status IN ('OPEN','PARTIALLY_FILLED') ORDER BY created_at DESC LIMIT 1").bind(item).fetch_optional(&mut f.admin).await.unwrap();
             let pending: Option<(Uuid, Uuid)> = sqlx::query_as("SELECT t.id,o.id FROM trades t JOIN orderbook_orders o ON o.id=t.ask_order_id WHERE o.inventory_item_id=$1 AND t.status='PENDING_CONFIRMATION' ORDER BY t.created_at LIMIT 1").bind(item).fetch_optional(&mut f.admin).await.unwrap();
@@ -174,9 +181,11 @@ async fn stock_invariant_after_random_sequence() {
                     else { *f.supplied.get_mut(&item).unwrap() += Decimal::from(100) - old_current; }
                 },
                 Writer::Cancel => if let Some(order) = order { let before=f.snapshot().await; let (status,body)=request(f.orders.clone(),f.supplier,"DELETE",&format!("/api/orderbook/{order}"),None,None).await; if status.is_client_error() { assert_eq!(f.snapshot().await,before,"{body}"); } },
+                Writer::Expire => { verdaxis_read::market_contract::stock_contract::expire(&mut f.admin,f.product_id,Some(f.point),"SPOT","ASK",chrono::Utc::now()).await.unwrap(); },
+                Writer::Fill => { let bid: Option<Uuid>=sqlx::query_scalar("SELECT id FROM orderbook_orders WHERE organization_id=$1 AND side='BID' AND status IN ('OPEN','PARTIALLY_FILLED') ORDER BY created_at LIMIT 1").bind(f.buyer_org).fetch_optional(&mut f.admin).await.unwrap(); let before=f.snapshot().await; let outcome=f.stock_step(writer.label(),item,order,bid,Decimal::ZERO).await; if outcome["refused"]==true {assert_eq!(f.snapshot().await,before,"{context}");} },
                 _ => { let before=f.snapshot().await; let outcome = f.stock_step(writer.label(),item,order,trade,Decimal::new(i64::from(amount),2)).await; if outcome["refused"] == true { assert_eq!(f.snapshot().await,before,"seed={seed} {context}: {outcome}"); } }
             }
-            f.check(seed,index+1,writer,&context).await;
+            f.check(seed,index+4,writer,&context).await;
         }
     }
 }
