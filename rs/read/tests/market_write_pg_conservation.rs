@@ -166,10 +166,12 @@ async fn stock_invariant_after_random_sequence() {
             match writer {
                 Writer::Edit | Writer::Delete => {
                     let before = f.snapshot().await;
+                    let old_current: Decimal = sqlx::query_scalar("SELECT current_stock_mt FROM inventory_items WHERE id=$1").bind(item).fetch_one(&mut f.admin).await.unwrap();
                     let path = format!("/api/inventory/{item}");
                     let (status, body) = if matches!(writer,Writer::Edit) { request(f.inventory.clone(),f.supplier,"PATCH",&path,Some(json!({"current_stock_mt":"100.00"})),None).await } else { request(f.inventory.clone(),f.supplier,"DELETE",&path,None,None).await };
                     if status.is_client_error() { assert_eq!(f.snapshot().await,before,"seed={seed} {context} {body}"); }
                     else if matches!(writer,Writer::Delete) { f.supplied.remove(&item); break; }
+                    else { *f.supplied.get_mut(&item).unwrap() += Decimal::from(100) - old_current; }
                 },
                 Writer::Cancel => if let Some(order) = order { let before=f.snapshot().await; let (status,body)=request(f.orders.clone(),f.supplier,"DELETE",&format!("/api/orderbook/{order}"),None,None).await; if status.is_client_error() { assert_eq!(f.snapshot().await,before,"{body}"); } },
                 _ => { let before=f.snapshot().await; let outcome = f.stock_step(writer.label(),item,order,trade,Decimal::new(i64::from(amount),2)).await; if outcome["refused"] == true { assert_eq!(f.snapshot().await,before,"seed={seed} {context}: {outcome}"); } }
