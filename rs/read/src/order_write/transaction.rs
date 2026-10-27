@@ -1839,6 +1839,12 @@ impl LockedMarketTransaction<'_> {
         let plan = self.prepare_match(aggressor, bound).await?;
         self.apply_match(&plan).await
     }
+    pub(super) fn commissions(
+        &mut self,
+        actor: &super::AuthenticatedActor,
+    ) -> Result<super::commission::CommissionPort<'_>, super::MarketWriteError> {
+        super::commission::CommissionPort::new(self.conn, self.locked, actor)
+    }
     /// Borrow only stock rows in the owner's complete locked sets (A's bridge).
     pub(super) fn stock_ledger(&mut self) -> Result<StockLedger<'_>, super::MarketWriteError> {
         self.locked.require_economic_phase()?;

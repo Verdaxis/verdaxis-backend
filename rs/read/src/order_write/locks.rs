@@ -197,6 +197,7 @@ pub enum MarketOperation {
     ContextStart,
     ContextExit,
     Commission,
+    CommissionRead,
     Freeze,
 }
 
@@ -242,6 +243,7 @@ impl MarketOperation {
             Self::CapabilityRevoke => vec![User, Capability, Context],
             Self::ContextStart | Self::ContextExit => vec![Organization, User, Capability, Context],
             Self::Commission => vec![User, Commission],
+            Self::CommissionRead => vec![User],
             Self::Freeze => vec![User, Trade, FreezeRow],
         }
     }
@@ -476,10 +478,13 @@ impl OperationLockPlan {
             target_phase: std::sync::atomic::AtomicBool::new(false),
             matching_steps: std::sync::Mutex::new(Vec::new()),
         };
-        for statement in [
-            "SET LOCAL lock_timeout = '500ms'",
-            "SET LOCAL statement_timeout = '5s'",
-        ] {
+        let lock_timeout = match self.operation {
+            MarketOperation::Commission | MarketOperation::CommissionRead => {
+                "SET LOCAL lock_timeout = '3s'"
+            }
+            _ => "SET LOCAL lock_timeout = '500ms'",
+        };
+        for statement in [lock_timeout, "SET LOCAL statement_timeout = '5s'"] {
             sqlx::raw_sql(statement)
                 .execute(&mut *conn)
                 .await
@@ -510,6 +515,9 @@ impl OperationLockPlan {
                     let sql = match class {
                         LockClass::Organization => {
                             "SELECT id FROM organizations WHERE id=$1 FOR UPDATE"
+                        }
+                        LockClass::User if self.operation == MarketOperation::CommissionRead => {
+                            "SELECT id FROM users WHERE id=$1 FOR SHARE"
                         }
                         LockClass::User => "SELECT id FROM users WHERE id=$1 FOR UPDATE",
                         LockClass::Trade => "SELECT id FROM trades WHERE id=$1 FOR UPDATE",
