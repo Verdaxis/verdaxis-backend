@@ -6,7 +6,7 @@ use sqlx::{Connection, PgConnection, Row, postgres::PgPoolOptions};
 use tokio::sync::Semaphore;
 use uuid::Uuid;
 
-pub use verdaxis_read::business::{audit, error, transaction};
+pub use verdaxis_read::business::{admission, audit, error, transaction};
 pub use verdaxis_read::{ApiError, AppState, Config, MarketPolicy, auth, runtime};
 #[path = "../src/business/joins.rs"]
 pub mod joins;

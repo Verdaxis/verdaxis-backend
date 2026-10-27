@@ -895,16 +895,15 @@ async fn dispatch_admitted<M: ApprovalMail, E: AdmissionEvents, T: ApprovalTempl
             },
         )
         .await?;
-        if let Some(transition) = committed.transition_id {
-            if state
+        if let Some(transition) = committed.transition_id
+            && state
                 .service
                 .mail
                 .deliver_after_commit(&state.app.pools.read, user, transition)
                 .await
                 .is_err()
-            {
-                tracing::warn!("account approval mail attempt deferred");
-            }
+        {
+            tracing::warn!("account approval mail attempt deferred");
         }
         return user_response(&state.app, user, false).await;
     }
