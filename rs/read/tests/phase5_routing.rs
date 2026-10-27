@@ -297,9 +297,20 @@ async fn phase5_authenticated_routes_are_mounted_by_the_serving_router() {
     let router = verdaxis_read::runtime::http::router(state);
     for route in inventory().into_iter().filter(|route| !route.public) {
         assert_eq!(
-            router.clone().oneshot(Request::builder().method(route.method.as_str()).uri(&route.path)
-                .header(header::HOST, "localhost").header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from("{}")).unwrap()).await.unwrap().status(),
+            router
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method(route.method.as_str())
+                        .uri(&route.path)
+                        .header(header::HOST, "localhost")
+                        .header(header::CONTENT_TYPE, "application/json")
+                        .body(Body::from("{}"))
+                        .unwrap()
+                )
+                .await
+                .unwrap()
+                .status(),
             StatusCode::UNAUTHORIZED,
             "{} {}",
             route.method,
