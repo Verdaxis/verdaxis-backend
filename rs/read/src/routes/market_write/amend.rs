@@ -53,6 +53,11 @@ impl AmendInput {
     pub fn payload_hash(&self) -> &str {
         self.0.payload_hash()
     }
+    /// Bind the parsed body to one order so the request hash covers the
+    /// resource identity.
+    pub fn with_order(&self, order: Uuid) -> Self {
+        Self(self.0.with_order(order))
+    }
 }
 
 #[derive(Clone, Debug)]

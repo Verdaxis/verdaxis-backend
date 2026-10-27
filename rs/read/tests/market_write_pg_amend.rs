@@ -125,14 +125,6 @@ impl Fixture {
         .await
         .unwrap()
     }
-    async fn scalar(&mut self, sql: &str, id: Uuid) -> Value {
-        let text = sql.replace("$1", &format!("'{id}'"));
-        let row: (Value,) = sqlx::query_as(&text)
-            .fetch_one(&mut self.observer)
-            .await
-            .unwrap();
-        row.0
-    }
 }
 
 async fn send(
