@@ -1382,10 +1382,8 @@ async fn lng_bid_keeps_its_declared_certifications_and_hash_inputs() {
         .unwrap();
     // The stored row carries the derived BID presentation, as the source does.
     assert_eq!(row.get::<Option<String>, _>(0), None);
-    assert_eq!(
-        row.get::<Vec<String>, _>(1),
-        vec!["ISCC EU".to_string(), "REDcert-EU".to_string()]
-    );
+    let certifications: Value = row.get(1);
+    assert_eq!(certifications, json!(["ISCC EU", "REDcert-EU"]));
     assert_eq!(row.get::<Option<rust_decimal::Decimal>, _>(3), None);
     // A changed declared scheme is a changed economic request: replay must
     // conflict rather than treat the derivation as the stored contract.
