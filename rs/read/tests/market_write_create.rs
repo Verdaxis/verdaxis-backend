@@ -1,0 +1,104 @@
+#![cfg(feature = "contract-tests")]
+
+use chrono::{DateTime, Utc};
+use serde_json::{json, Value};
+use verdaxis_read::routes::market_write::order_create::CreateInput;
+
+fn now() -> DateTime<Utc> {
+    "2026-10-27T12:00:00Z".parse().unwrap()
+}
+fn body() -> Value {
+    json!({"side":"BID","product_id":"00000000-0000-0000-0000-000000000001","delivery_point_id":"00000000-0000-0000-0000-000000000002","quantity_mt":"200.00","price_per_mt_usd":"100.00"})
+}
+
+#[test]
+fn create_schema_preserves_defaults_and_normalizes_certifications() {
+    let mut value = body();
+    value["certifications"] = json!([" A ", "", "A", "B", " B "]);
+    let input = CreateInput::parse(value, now()).unwrap();
+    let payload = input.economic_payload().unwrap();
+    assert_eq!(payload["certifications"], json!(["A", "B"]));
+    assert_eq!(payload["availability_window"], "SPOT");
+    assert_eq!(payload["is_anonymous"], true);
+    assert!(payload.get("support_confirmation").is_none());
+    assert!(payload.get("fame_terms").is_none());
+    assert!(payload.get("lng_terms").is_none());
+    assert_eq!(payload["port_id"], Value::Null);
+}
+
+#[test]
+fn create_schema_checks_each_economic_and_time_boundary() {
+    for (field, invalid) in [
+        ("quantity_mt", json!("0")),
+        ("quantity_mt", json!("100000.01")),
+        ("quantity_mt", json!("1.001")),
+        ("quantity_mt", json!("NaN")),
+        ("quantity_mt", Value::Null),
+        ("price_per_mt_usd", json!("0")),
+        ("price_per_mt_usd", json!("1000000.01")),
+        ("price_per_mt_usd", json!("1.001")),
+        ("expires_at", json!("2026-10-28T12:00:00")),
+        ("is_anonymous", json!(false)),
+        ("certifications", Value::Null),
+    ] {
+        let mut value = body();
+        value[field] = invalid;
+        assert_eq!(
+            CreateInput::parse(value, now())
+                .unwrap_err()
+                .status
+                .as_u16(),
+            422,
+            "{field}"
+        );
+    }
+    let mut value = body();
+    value["quantity_mt"] = json!("100000");
+    value["price_per_mt_usd"] = json!("1000000");
+    value["expires_at"] = json!("2026-10-28T12:00:00+08:00");
+    assert!(CreateInput::parse(value, now()).is_ok());
+}
+
+#[test]
+fn confirmation_uses_raw_reference_length_and_optional_trimmed_evidence() {
+    let mut value = body();
+    value["support_confirmation"] = json!({"external_instruction_reference":" x ","instruction_at":"2026-10-27T11:00:00Z","evidence_excerpt":"  ","acknowledge_exact_terms":true,"acknowledge_executable_standing_order":true});
+    let input = CreateInput::parse(value.clone(), now()).unwrap();
+    let confirmation = input.confirmation_payload().unwrap();
+    assert_eq!(confirmation["external_instruction_reference"], "x");
+    assert_eq!(confirmation["evidence_excerpt"], Value::Null);
+    for (field, invalid) in [
+        ("external_instruction_reference", json!("x")),
+        ("external_instruction_reference", json!("   ")),
+        ("instruction_at", json!("2026-10-27T12:00:01Z")),
+        ("instruction_at", json!("2026-10-27T11:00:00")),
+        ("acknowledge_exact_terms", json!(false)),
+        ("acknowledge_executable_standing_order", json!(false)),
+        ("evidence_excerpt", json!("a".repeat(4001))),
+    ] {
+        let mut invalid_value = value.clone();
+        invalid_value["support_confirmation"][field] = invalid;
+        assert!(CreateInput::parse(invalid_value, now()).is_err(), "{field}");
+    }
+}
+
+#[test]
+fn create_hash_tracks_normalized_economics_and_confirmation() {
+    let mut left = body();
+    left["certifications"] = json!([" A ", "A", ""]);
+    let mut right = body();
+    right["certifications"] = json!(["A"]);
+    let left = CreateInput::parse(left, now()).unwrap();
+    let right = CreateInput::parse(right, now()).unwrap();
+    assert_eq!(
+        left.request_hash(false).unwrap(),
+        right.request_hash(false).unwrap()
+    );
+    let mut changed = body();
+    changed["quantity_mt"] = json!("201.00");
+    let changed = CreateInput::parse(changed, now()).unwrap();
+    assert_ne!(
+        left.request_hash(false).unwrap(),
+        changed.request_hash(false).unwrap()
+    );
+}
