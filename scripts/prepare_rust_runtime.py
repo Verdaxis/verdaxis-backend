@@ -251,7 +251,7 @@ def project_runtime_environment(
         from decimal import Decimal, InvalidOperation
         try:
             rate = Decimal(values.get(key) or default)
-            if not rate.is_finite() or rate < 0:
+            if not rate.is_finite() or rate < 0 or rate > 100000 or rate.as_tuple().exponent < -2:
                 raise ValueError("invalid seller fee")
         except (InvalidOperation, ValueError) as exc:
             raise RustRuntimeError("seller fee must be finite and nonnegative") from exc

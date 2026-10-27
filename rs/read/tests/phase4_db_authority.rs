@@ -316,7 +316,7 @@ async fn rust_service_credential_absence_does_not_fail_readiness() {
         python_budget: 52,
         configured_max_connections: 100,
         prepared_budget: None,
-        phase2: Default::default(),
+        phase2: serde_json::from_value(json!({"jwt_secret":"synthetic-authority-key-at-least-32-characters","jwt_issuer":"test","jwt_audience":"test","frontend_url":"https://app.example.test","email_from":"team@example.test","resend_api_key":"synthetic","auth_domain_datasets":"null"})).unwrap(),
     };
     let pools = connect(&config).await.unwrap();
     let policy =
