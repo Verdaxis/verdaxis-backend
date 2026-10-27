@@ -235,6 +235,25 @@ pub struct ApprovalMailMarker {
 /// A borrowed producer adapter. Implementations call the CF4_01 producer and
 /// retain raw SQL errors for the outer transaction's retry classifier.
 pub trait ApprovalMail: Send + Sync + 'static {
+    fn deliver_after_commit<'a>(
+        &'a self,
+        pool: &'a sqlx::PgPool,
+        user: Uuid,
+        transition: Uuid,
+    ) -> CommandFuture<'a, (), ()> {
+        Box::pin(async move {
+            super::approval_mail::deliver_account_approval_mail(
+                pool,
+                user,
+                transition,
+                Utc::now,
+                |_, _| async { false },
+            )
+            .await
+            .map(|_| ())
+            .map_err(|_| ())
+        })
+    }
     fn freeze_approval_mail<'a>(
         &'a self,
         conn: &'a mut PgConnection,
@@ -544,6 +563,14 @@ impl<M, E, T> Clone for AdmissionService<M, E, T> {
     }
 }
 impl<M: ApprovalMail> ApprovalMail for std::sync::Arc<M> {
+    fn deliver_after_commit<'a>(
+        &'a self,
+        pool: &'a sqlx::PgPool,
+        user: Uuid,
+        transition: Uuid,
+    ) -> CommandFuture<'a, (), ()> {
+        self.as_ref().deliver_after_commit(pool, user, transition)
+    }
     fn freeze_approval_mail<'a>(
         &'a self,
         conn: &'a mut PgConnection,
@@ -855,7 +882,7 @@ async fn dispatch_admitted<M: ApprovalMail, E: AdmissionEvents, T: ApprovalTempl
             .template
             .payload(row.get("email"), row.get::<Option<&str>, _>("first_name"));
         drop(conn);
-        super::transaction::run_organization_write(
+        let committed = super::transaction::run_organization_write(
             &state.app,
             access,
             ApproveAccount {
@@ -868,6 +895,17 @@ async fn dispatch_admitted<M: ApprovalMail, E: AdmissionEvents, T: ApprovalTempl
             },
         )
         .await?;
+        if let Some(transition) = committed.transition_id {
+            if state
+                .service
+                .mail
+                .deliver_after_commit(&state.app.pools.read, user, transition)
+                .await
+                .is_err()
+            {
+                tracing::warn!("account approval mail attempt deferred");
+            }
+        }
         return user_response(&state.app, user, false).await;
     }
     let reason = if matches!(route, AdmissionRoute::AnalyticsReject) {

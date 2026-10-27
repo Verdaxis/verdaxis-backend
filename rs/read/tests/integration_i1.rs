@@ -234,6 +234,7 @@ async fn i1_t8_rejection_with_real_t7_and_t9() {
         organization_id: fixture.org,
         approve: false,
         reason: None,
+        audit: Default::default(),
         now: now(),
         policy: Arc::new(MarketPolicy {
             source_sha: "integration-i1-policy".into(),

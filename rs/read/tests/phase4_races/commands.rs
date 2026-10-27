@@ -165,6 +165,7 @@ pub fn review_organization(world: &World, organization: Uuid, approve: bool) -> 
         organization_id: organization,
         approve,
         reason: (!approve).then(|| "review".into()),
+        audit: Default::default(),
         now: Utc::now(),
         policy: Arc::clone(&world.policy),
         config: Arc::clone(&world.config),

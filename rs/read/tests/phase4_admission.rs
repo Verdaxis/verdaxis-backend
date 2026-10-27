@@ -1019,15 +1019,32 @@ fn p4_t6_c17() {
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL authority"]
 async fn approval_route_attempts_frozen_mail_after_commit() {
-    let f=Fixture::new().await;
-    let app=build(&f,Default::default());
-    let bearer=token(f.actor);
-    let (status,_)=call(&app,Call {route:admission::AdmissionRoute::Approve,user:f.user,token:Some(&bearer),headers:&[],body:"",peer:true}).await;
-    assert_eq!(status,200);
+    let f = Fixture::new().await;
+    let app = build(&f, Default::default());
+    let bearer = token(f.actor);
+    let (status, _) = call(
+        &app,
+        Call {
+            route: admission::AdmissionRoute::Approve,
+            user: f.user,
+            token: Some(&bearer),
+            headers: &[],
+            body: "",
+            peer: true,
+        },
+    )
+    .await;
+    assert_eq!(status, 200);
     let row=sqlx::query("SELECT status,pending_approval_email_transition_id,pending_approval_email_retry_at FROM users WHERE id=$1").bind(f.user).fetch_one(&f.pool).await.unwrap();
-    assert_eq!(row.get::<String,_>("status"),"APPROVED");
-    assert!(row.get::<Option<Uuid>,_>("pending_approval_email_transition_id").is_some());
-    let retry:chrono::DateTime<Utc>=row.get("pending_approval_email_retry_at");
-    assert!(retry>Utc::now()+chrono::Duration::minutes(30),"a failed immediate send must defer the frozen marker");
+    assert_eq!(row.get::<String, _>("status"), "APPROVED");
+    assert!(
+        row.get::<Option<Uuid>, _>("pending_approval_email_transition_id")
+            .is_some()
+    );
+    let retry: chrono::DateTime<Utc> = row.get("pending_approval_email_retry_at");
+    assert!(
+        retry > Utc::now() + chrono::Duration::minutes(30),
+        "a failed immediate send must defer the frozen marker"
+    );
     f.finish().await;
 }

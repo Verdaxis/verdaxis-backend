@@ -111,7 +111,7 @@ pub fn routes(app: &AppState, limits: auth::limits::SharedLimits) -> Option<Rout
                 settings.verification.clone(),
                 limits.clone(),
                 business::admission::AdmissionService {
-                    mail: Arc::new(FrozenMail),
+                    mail: Arc::new(FrozenMail(settings.mail.clone())),
                     events: events.clone(),
                     template: Arc::new(Template {
                         sender: settings.email_from.clone(),
@@ -261,6 +261,21 @@ async fn review_organization(
     let access = access(&a, &request)?;
     let client = client(&request);
     let id = identifier(&id)?;
+    let audit = business::admission::AuditContext {
+        ip_address: Some(client.clone()),
+        request_id: request.extensions().get::<String>().cloned().or_else(|| {
+            request
+                .headers()
+                .get("x-request-id")
+                .and_then(|v| v.to_str().ok())
+                .map(str::to_owned)
+        }),
+    };
+    let reason = if approve {
+        None
+    } else {
+        parse_organization_decision(request.into_body()).await?
+    };
     let result = business::organizations::review(
         &a.app,
         access,
@@ -269,7 +284,8 @@ async fn review_organization(
         business::organizations::ReviewOrganization {
             organization_id: id,
             approve,
-            reason: None,
+            reason,
+            audit,
             now: Utc::now(),
             policy: a.app.policy.clone(),
             config: a.app.config.clone(),
@@ -385,4 +401,57 @@ async fn reject_join(
     request: Request,
 ) -> Result<Json<Value>, ApiError> {
     review_join(a, id, request, false).await
+}
+
+async fn parse_organization_decision(body: axum::body::Body) -> Result<Option<String>, ApiError> {
+    let bytes = axum::body::to_bytes(body, 131_072).await.map_err(|_| {
+        business::error::refusal(
+            axum::http::StatusCode::PAYLOAD_TOO_LARGE,
+            "BODY_TOO_LARGE",
+            "The decision body is too large.",
+        )
+    })?;
+    #[derive(serde::Deserialize)]
+    struct Decision {
+        reason: Option<String>,
+    }
+    let decision: Decision = serde_json::from_slice(&bytes).map_err(|_| {
+        business::error::refusal(
+            axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+            "VALIDATION_FAILED",
+            "A decision object is required.",
+        )
+    })?;
+    Ok(decision.reason)
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[tokio::test]
+    async fn organization_decision_body_is_required_and_typed() {
+        for invalid in ["", "null", "[]", "{", r#"{"reason":42}"#] {
+            assert_eq!(
+                parse_organization_decision(axum::body::Body::from(invalid))
+                    .await
+                    .unwrap_err()
+                    .status
+                    .as_u16(),
+                422
+            );
+        }
+        assert_eq!(
+            parse_organization_decision(axum::body::Body::from(
+                r#"{"reason":"decision evidence"}"#
+            ))
+            .await
+            .unwrap(),
+            Some("decision evidence".into())
+        );
+        assert_eq!(
+            parse_organization_decision(axum::body::Body::from("{}"))
+                .await
+                .unwrap(),
+            None
+        );
+    }
 }

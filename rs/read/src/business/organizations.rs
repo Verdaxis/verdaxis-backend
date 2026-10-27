@@ -22,6 +22,7 @@ pub struct ReviewOrganization {
     pub organization_id: Uuid,
     pub approve: bool,
     pub reason: Option<String>,
+    pub audit: super::admission::AuditContext,
     pub now: DateTime<Utc>,
     pub policy: Arc<crate::MarketPolicy>,
     pub config: Arc<crate::Config>,
@@ -181,8 +182,8 @@ impl BusinessCommand for ReviewOrganization {
                     resource_type: "organization".into(),
                     resource_id: Some(self.organization_id.to_string()),
                     changes: Some(changes),
-                    ip_address: None,
-                    request_id: None,
+                    ip_address: self.audit.ip_address.clone(),
+                    request_id: self.audit.request_id.clone(),
                     at: self.now,
                 },
             )

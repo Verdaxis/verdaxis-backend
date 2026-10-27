@@ -143,8 +143,32 @@ impl profile::KycProfilePolicy for ProfilePolicy {
     }
 }
 
-pub struct FrozenMail;
+pub struct FrozenMail(pub crate::crud::referrals::invite::MailClient);
 impl admission::ApprovalMail for FrozenMail {
+    fn deliver_after_commit<'a>(
+        &'a self,
+        pool: &'a sqlx::PgPool,
+        user: Uuid,
+        transition: Uuid,
+    ) -> CommandFuture<'a, (), ()> {
+        Box::pin(async move {
+            approval_mail::deliver_account_approval_mail(
+                pool,
+                user,
+                transition,
+                Utc::now,
+                |payload, key| async move {
+                    let Ok(value) = serde_json::to_value(payload) else {
+                        return false;
+                    };
+                    self.0.send_with_idempotency(&value, Some(&key)).await
+                },
+            )
+            .await
+            .map(|_| ())
+            .map_err(|_| ())
+        })
+    }
     fn freeze_approval_mail<'a>(
         &'a self,
         conn: &'a mut PgConnection,
