@@ -58,7 +58,7 @@ CREATE OR REPLACE FUNCTION amend_fixture_set_price(target uuid, price numeric) R
     UPDATE orderbook_orders SET price_per_mt_usd=price WHERE id=target
 $$;
 
-CREATE OR REPLACE FUNCTION amend_fixture_crossing(ord uuid, source uuid, actor uuid) RETURNS void LANGUAGE sql AS $$
+CREATE OR REPLACE FUNCTION amend_fixture_crossing(ord uuid, source uuid, actor uuid) RETURNS void LANGUAGE plpgsql AS $$
 BEGIN
     UPDATE orderbook_orders SET side='BID',price_per_mt_usd=100,
         organization_id=(SELECT organization_id FROM orderbook_orders WHERE id=source),
