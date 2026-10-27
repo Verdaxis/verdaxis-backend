@@ -608,3 +608,23 @@ async fn typed_direct_takes_freeze_normalized_terms_and_keep_pending_identity_pr
         if profile=="lng_v1" {assert_eq!(stored["bid"]["accept_resellers"],true);assert!(stored["bid"].get("schema_version").is_none());}
     }
 }
+
+#[tokio::test]
+#[ignore = "requires an attested disposable PostgreSQL"]
+async fn take_fee_fallback_and_configuration_matrix() {
+ for(plan,active,expired,rate,expected) in [("professional",true,false,None,Some("1.5")),("professional",false,false,None,Some("2")),("professional",true,true,None,Some("2")),("enterprise",true,false,Some("0.75"),Some("0.75")),("enterprise",true,false,None,None)] {
+  let mut f=Fixture::new().await;let expiry=chrono::Utc::now()+chrono::Duration::hours(if expired{-1}else{1});
+  sqlx::query("SELECT trades_fixture_subscription($1,$2,$3,$4)").bind(plan).bind(active).bind(expiry).bind(rate.map(|v|v.parse::<rust_decimal::Decimal>().unwrap())).execute(&mut f.admin).await.unwrap();
+  let before=f.state().await;let(s,b)=f.take(BUYER,None,"1").await;
+  if let Some(expected)=expected {assert_eq!(s,StatusCode::OK,"{b}");let fee:rust_decimal::Decimal=sqlx::query_scalar("SELECT commission_fee_per_mt_usd FROM trades").fetch_one(&mut f.admin).await.unwrap();assert_eq!(fee,expected.parse::<rust_decimal::Decimal>().unwrap());}else{assert_eq!(s,StatusCode::CONFLICT);assert_eq!(f.state().await,before);}
+ }
+}
+
+#[tokio::test]
+#[ignore = "requires an attested disposable PostgreSQL"]
+async fn take_key_and_authentication_validation_precede_replay() {
+ let mut f=Fixture::new().await;assert_eq!(f.take(BUYER,Some("key"),"1").await.0,StatusCode::OK);let before=f.state().await;
+ let(s,_)=send(&f.router,"POST","/api/trades/",None,&[("idempotency-key","key")],Some(json!({}))).await;assert_eq!(s,StatusCode::UNAUTHORIZED);
+ for key in [" ".to_string(),"a".repeat(256)] {let digest=f.digest().await;let(s,_)=send(&f.router,"POST","/api/trades/",Some(BUYER),&[("idempotency-key",&key)],Some(json!({"order_id":id(ORDER),"quantity_mt":"1","expected_terms_digest":digest}))).await;assert_eq!(s,StatusCode::BAD_REQUEST);}
+ assert_eq!(f.state().await,before);
+}

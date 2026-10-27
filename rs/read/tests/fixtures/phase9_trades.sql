@@ -77,3 +77,8 @@ DECLARE source orderbook_orders%ROWTYPE;BEGIN
  INSERT INTO orderbook_orders(id,organization_id,owner_user_id,created_by_actor_user_id,creation_method,provenance,side,product_id,delivery_point_id,quantity_mt,remaining_quantity_mt,price_per_mt_usd,availability_window,status,inventory_item_id,certification_declared,msds_available,certification_scheme,fame_terms,lng_terms)
  VALUES(source.id,source.organization_id,source.owner_user_id,source.created_by_actor_user_id,source.creation_method,source.provenance,source.side,product,point,source.quantity_mt,source.remaining_quantity_mt,source.price_per_mt_usd,source.availability_window,source.status,source.inventory_item_id,true,true,'ISCC EU',CASE WHEN profile='fame_v1' THEN terms ELSE NULL END,CASE WHEN profile='lng_v1' THEN terms ELSE NULL END);
 END $$;
+
+CREATE OR REPLACE FUNCTION trades_fixture_subscription(plan text,active boolean,expires timestamptz,rate numeric) RETURNS void LANGUAGE plpgsql AS $$ BEGIN
+ DELETE FROM subscriptions WHERE org_id='00000000-0000-0000-0000-000000002000';
+ INSERT INTO subscriptions(id,org_id,tier,is_active,expires_at,seller_fee_per_mt_usd) VALUES(gen_random_uuid(),'00000000-0000-0000-0000-000000002000',plan,active,expires,rate);
+END $$;
