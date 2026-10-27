@@ -118,7 +118,7 @@ async fn postgres_authentication_ownership_and_revocation() {
         .await
         .unwrap();
     let python_blocked = tokio::process::Command::new(
-        std::env::var("RUST_TEST_PYTHON").unwrap_or("venv/bin/python".into()),
+        std::env::var("RUST_TEST_PYTHON").unwrap_or("python3".into()),
     )
     .args(["-m", "tests.rust_contract.phase2.auth_writer"])
     .current_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
@@ -154,7 +154,7 @@ async fn postgres_authentication_ownership_and_revocation() {
     // Python takes the other lock order. Its explicit stdin barrier holds the
     // revocation transaction while Rust waits, then Rust reads current state.
     let mut python = tokio::process::Command::new(
-        std::env::var("RUST_TEST_PYTHON").unwrap_or("venv/bin/python".into()),
+        std::env::var("RUST_TEST_PYTHON").unwrap_or("python3".into()),
     )
     .args(["-m", "tests.rust_contract.phase2.auth_writer"])
     .current_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))

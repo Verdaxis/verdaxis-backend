@@ -3,10 +3,7 @@
 #[test]
 fn prices_and_tape_match_python() {
     let parity = verdaxis_contract::compare_group("prices");
-    let status = std::process::Command::new(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../venv/bin/python"
-    ))
+    let status = std::process::Command::new(std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "python3".into()))
     .arg(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../read/tests/prices_oracle.py"

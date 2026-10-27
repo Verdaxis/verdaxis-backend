@@ -16,10 +16,7 @@ for whitespace in [' ', '\t\n', ' ', ' ', '　', '\x1c', '\x1d', '\x1e', '\x1
     vectors.append([terms, public_fame_terms(terms)])
 print(json.dumps(vectors))
 "#;
-    let output = std::process::Command::new(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../venv/bin/python"
-    ))
+    let output = std::process::Command::new(std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "python3".into()))
     .current_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."))
     .env("ENVIRONMENT", "test")
     .env("RELEASE_SHA", "test")
@@ -55,7 +52,7 @@ fn map_decimal_matches_python_context_and_exact_comparison() {
         ("1E+40", "9E+39"),
         ("0.00000001", "0.000000001"),
     ];
-    let output = std::process::Command::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../venv/bin/python"))
+    let output = std::process::Command::new(std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "python3".into()))
         .args(["-c", "import json,sys; from decimal import Decimal; print(json.dumps([[str(Decimal(a)+Decimal(b)), (Decimal(a)>Decimal(b))-(Decimal(a)<Decimal(b))] for a,b in json.loads(sys.argv[1])]))"])
         .arg(serde_json::to_string(&vectors).unwrap()).output().unwrap();
     assert!(output.status.success());
