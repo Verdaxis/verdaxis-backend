@@ -2,7 +2,9 @@
 #[cfg(feature = "contract-http")]
 #[test]
 fn map_and_compatibility_match_python() {
-    let latency = std::process::Command::new(std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "python3".into()))
+    let latency = std::process::Command::new(
+        std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "python3".into()),
+    )
     .arg(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../read/tests/public_read_latency.py"
@@ -13,7 +15,9 @@ fn map_and_compatibility_match_python() {
     .expect("run map latency regression");
     assert!(latency.success(), "map reads exceeded integration deadline");
     verdaxis_contract::compare_group("orderbook_map").unwrap();
-    let status = std::process::Command::new(std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "python3".into()))
+    let status = std::process::Command::new(
+        std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "python3".into()),
+    )
     .arg(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../read/tests/orderbook_map_oracle.py"
