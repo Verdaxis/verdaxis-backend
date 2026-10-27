@@ -1,17 +1,18 @@
 //! Paginated public orders and the two legacy list shapes.
 use super::{
     ports::query_error,
-    prices::{captured_now, fields, integer, uuid},
+    prices::{fields, integer, uuid},
 };
 use crate::market::{
     live_benchmarks::LiveBenchmarkCache,
     order_projection::PublicOrder,
     visibility::{
-        OrderSurface, PublicOrderFilters, VisibilityClock, bind_order_query, order_query_sql,
+        OrderSurface, PublicOrderFilters, VisibilityClock, bind_order_query,
+        opposing_order_query_sql, order_query_sql,
     },
     windows::normalize_window,
 };
-use crate::{ApiError, ApiResult, AppState, Json, run_admitted};
+use crate::{ApiError, ApiResult, AppState, Json};
 use axum::{
     Router,
     extract::{RawQuery, State},
@@ -92,6 +93,7 @@ impl Surface {
         matches!(self, Self::Bids | Self::Asks)
     }
 }
+#[derive(Clone)]
 struct ListQuery {
     product: Option<Uuid>,
     point: Option<Uuid>,
@@ -274,13 +276,25 @@ async fn with_ci(State(s): State<AppState>, RawQuery(q): RawQuery) -> ApiResult 
 }
 
 async fn serve(state: AppState, raw: Option<String>, surface: Surface) -> ApiResult {
-    let now = captured_now(&state)?;
-    let query = parse(raw.as_deref().unwrap_or_default(), surface, now)?;
+    let clock = crate::runtime::trading_routes::capture(&state)?;
+    let now = clock.wall.into();
+    let raw = raw.unwrap_or_default();
+    let query = parse(&raw, surface, now)?;
     let policy = state.policy.clone();
     let config = state.config.clone();
-    let body = run_admitted(&state, move |connection| {
-        Box::pin(async move { load_list(connection, &policy, &config, query, surface, now).await })
-    })
+    let body = crate::runtime::trading_routes::read(
+        &state,
+        surface.path(),
+        raw,
+        "orderbook",
+        clock,
+        None,
+        move |connection| {
+            Box::pin(
+                async move { load_list(connection, &policy, &config, query, surface, now).await },
+            )
+        },
+    )
     .await?;
     Ok(axum::Json(body).into_response())
 }
@@ -369,7 +383,7 @@ async fn load_list(
     // toggle. Restrict to the page's exact slices and provenance in one batch.
     let opposing = if surface.paginated() && !orders.is_empty() {
         let keys: Vec<_> = orders.iter().map(crossing_key).collect();
-        let sql = order_query_sql(include_str!("../../sql/orderbook/opposing.sql"));
+        let sql = opposing_order_query_sql();
         let filters = PublicOrderFilters {
             surface: OrderSurface::Orderbook,
             side: Some(if surface == Surface::Bids {

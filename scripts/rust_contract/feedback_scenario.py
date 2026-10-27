@@ -1,8 +1,8 @@
 """Real feedback route qualification with full-state assertions after each call."""
 import json
-from datetime import datetime
 import time
 import uuid
+from datetime import datetime
 
 import jwt
 
@@ -23,6 +23,16 @@ def setup(connection):
                            (str(uuid.UUID(int=900 + index)), ADMIN, f"seed-{index}", datetime.fromisoformat(INSTANT)))
     # This fixture-only constraint fails after admission and INSERT, proving rollback.
     connection.execute("ALTER TABLE feedback_entries ADD CONSTRAINT feedback_contract_failure CHECK (message <> 'force-database-error')")
+
+
+def volume(connection, profile):
+    """A longer admin page, strictly older than the pinned action instant."""
+    from datetime import timedelta
+    base = datetime.fromisoformat(INSTANT)
+    for index in range(profile.feedback_history):
+        connection.execute(
+            "INSERT INTO feedback_entries (id,user_id,message,page,created_at) VALUES (%s,%s,%s,NULL,%s)",
+            (str(uuid.UUID(int=10_000 + index)), BUYER, f"history-{index}", base - timedelta(minutes=index + 1)))
 
 
 def servers(context):
@@ -96,16 +106,29 @@ def actions(context):
     yield action("retained-commit", 500, {"message": "retained once"}, outcome="ambiguous",
                  extra={"x-feedback-response-loss": "1"}, check=("retained once", None))
     yield action("admin-denied", 403, method="GET", path="/api/admin/feedback")
-    for query in ("", "?limit=200", "?offset=999", "?limit=0", "?limit=201", "?offset=-1"):
+    def page(limit, offset):
         def listing(before, after, response, mail):
             unchanged(before, after, response, mail)
             body = json.loads(response["body"])
-            if response["status"] == 200:
-                assert body["total"] == len(rows(after))
-        yield action("admin-" + str(serial), 422 if query in ("?limit=0", "?limit=201", "?offset=-1") else 200,
-                     subject=ADMIN, method="GET", path="/api/admin/feedback" + query, check=listing)
+            assert body["total"] == len(rows(after))
+            total = len(rows(after))
+            assert len(body["items"]) == min(limit, max(0, total - offset))
+        return listing
+
+    # (query, status, effective limit). The un-queried listing uses the route's
+    # default limit of 50, not the maximum of 200.
+    for query, expected, limit in (("", 200, 50), ("?limit=200", 200, 200), ("?offset=999", 200, 50),
+                                   ("?limit=0", 422, 0), ("?limit=201", 422, 0), ("?offset=-1", 422, 0),
+                                   ("?limit=200&offset=0", 200, 200), ("?limit=200&offset=200", 200, 200)):
+        from urllib.parse import parse_qs
+        parsed = parse_qs(query.lstrip("?"))
+        offset = int(parsed.get("offset", ["0"])[0]) if parsed else 0
+        yield action("admin-" + str(serial), expected,
+                     subject=ADMIN, method="GET", path="/api/admin/feedback" + query,
+                     check=unchanged if expected == 422 else page(limit, offset))
 
 
 def feedback_scenario():
     return Scenario("feedback-routes", "feedback", setup, servers, actions,
-                    build=("cargo", "build", "--manifest-path", "rs/Cargo.toml", "--locked", "-p", "verdaxis-read", "--features", "contract-tests", "--example", "feedback_contract"))
+                    build=("cargo", "build", "--manifest-path", "rs/Cargo.toml", "--locked", "-p", "verdaxis-read", "--features", "contract-tests", "--example", "feedback_contract"),
+                    volume=volume)

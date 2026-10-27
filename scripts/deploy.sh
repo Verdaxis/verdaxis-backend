@@ -954,8 +954,30 @@ fi
 # The effective Task 2 connection budget is prepared whenever a Rust unit is
 # selected, before any schema change; a refused budget leaves the blocked state
 # in place. The artifact is private (mode 0600) and never carries credentials.
+# The deployed .env decides whether the one dedicated cache listener connection
+# is budgeted: an absent key or 0 stays byte-identical to a listener-less
+# budget, and any other value refuses the deploy before any schema change.
 if [[ "$RUST_SELECTED" == "1" ]]; then
+    RUST_CACHE_LISTENER="0"
+    while IFS= read -r env_line || [[ -n "$env_line" ]]; do
+        # Only a dotenv definition of this key counts (the same forms the
+        # Python helper's dotenv reader parses: optional leading whitespace
+        # and `export`); a value or comment that merely contains the text is
+        # another key's business.
+        [[ "$env_line" =~ ^([[:space:]]*)(export[[:space:]]+)?RUST_CACHE_LISTENER= ]] || continue
+        listener_value="${env_line#*RUST_CACHE_LISTENER=}"
+        # One layer of matching quotes, as the dotenv readers unquote it.
+        if [[ "$listener_value" == \"*\" || "$listener_value" == \'*\' ]]; then
+            listener_value="${listener_value:1:${#listener_value}-2}"
+        fi
+        if [[ "$listener_value" != "0" && "$listener_value" != "1" ]]; then
+            echo "RUST_CACHE_LISTENER in .env must be exactly 0 or 1; refusing the deploy." >&2
+            exit 1
+        fi
+        RUST_CACHE_LISTENER="$listener_value"
+    done < "$BACKEND_DIR/.env"
     if ! "${PYTHON_ENV[@]}" ./venv/bin/python scripts/prepare_rust_budget.py \
+        --cache-listener "$RUST_CACHE_LISTENER" \
         --environment-file "$BACKEND_DIR/.env" \
         --release-sha "$CURRENT_SHA" \
         --output "$RUST_RUNTIME_DIR/budget.json"; then
@@ -994,9 +1016,9 @@ fi
 assert_clean_tree "Deploy steps"
 
 # The minimal Rust runtime environment is prepared after the exact migration
-# helper and ACL convergence, before the restart window. It receives only app
-# database settings and runtime identity, never mail, JWT, provider or
-# migrator credentials.
+# helper and ACL convergence, before the restart window. It receives the app
+# database settings, runtime identity and the Phase 2 verification/invite
+# settings (Task 23), never the migrator URL.
 if [[ "$RUST_SELECTED" == "1" ]]; then
     if ! "${PYTHON_ENV[@]}" ./venv/bin/python \
         "$RUST_RUNTIME_PREPARER_PATH" \

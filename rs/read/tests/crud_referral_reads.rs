@@ -527,6 +527,7 @@ async fn postgres_referral_reads_and_public_resolution() {
         pool_max: 17,
         python_budget: 52,
         configured_max_connections: 100,
+        phase2: Default::default(),
     };
     let pools = verdaxis_read::connect(&config).await.unwrap();
     let state = verdaxis_read::AppState::new(
@@ -680,7 +681,7 @@ async fn postgres_referral_reads_and_public_resolution() {
         assert_eq!(body["detail"], "Not authenticated");
         let (status, body) = send(&app, "GET", path, Some("not-a-jwt"), false).await;
         assert_eq!(status, 401, "{body}");
-        assert_eq!(body["detail"], "Could not validate credentials");
+        assert_eq!(body["detail"]["code"], "AUTH_CREDENTIALS_INVALID");
     }
     // A token whose subject does not exist is refused the same way.
     let (status, body) = send(
@@ -861,6 +862,68 @@ async fn postgres_referral_reads_and_public_resolution() {
     }
     assert_eq!(attempts.lock().unwrap().len(), 2);
     assert_eq!(all_users().await, after);
+
+    // Insert ties in reverse identifier order. The stable order must apply
+    // before the tenth-place cut, not just to the returned rows.
+    sqlx::query("TRUNCATE referrals")
+        .execute(&admin)
+        .await
+        .unwrap();
+    let mut referral_number = 0_u128;
+    for number in (1_u128..=12).rev() {
+        let referrer = Uuid::from_u128(0x6000 + number);
+        let name = format!("Referrer {number:02}");
+        insert_user(
+            &admin,
+            referrer,
+            "BUYER",
+            None,
+            true,
+            None,
+            Some(&name),
+            None,
+        )
+        .await;
+        let count = match number {
+            1 => 4,
+            2 | 3 => 3,
+            _ => 2,
+        };
+        for _ in 0..count {
+            referral_number += 1;
+            let referred = Uuid::from_u128(0x7000 + referral_number);
+            insert_user(&admin, referred, "BUYER", None, true, None, None, None).await;
+            insert_referral(
+                &admin,
+                Uuid::from_u128(0x8000 + referral_number),
+                referrer,
+                referred,
+                "SIGNED_UP",
+                "2026-01-01T00:00:00+00:00",
+            )
+            .await;
+        }
+    }
+    let (status, leaderboard) = send(
+        &app,
+        "GET",
+        "/api/referrals/leaderboard",
+        Some(&token),
+        false,
+    )
+    .await;
+    assert_eq!(status, 200, "{leaderboard}");
+    let expected: Vec<Value> = (1..=10)
+        .map(|number| {
+            json!({
+                "rank": number,
+                "user_name": format!("Referrer {number:02}"),
+                "organization_name": null,
+                "referral_count": if number == 1 { 4 } else if number <= 3 { 3 } else { 2 },
+            })
+        })
+        .collect();
+    assert_eq!(leaderboard, json!(expected));
     server.abort();
     let _ = server.await;
 }

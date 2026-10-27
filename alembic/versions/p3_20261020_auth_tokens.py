@@ -10,7 +10,7 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 revision = "p3_20261020_auth_tokens"
-down_revision = "prc_20261018_cache"
+down_revision = "prc_20261026_changes"
 branch_labels = None
 depends_on = None
 

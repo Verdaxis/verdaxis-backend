@@ -93,7 +93,10 @@ async fn typed_validation_precedes_rate_limit_but_filter_validation_does_not() {
     use axum::{Router, body::Body, http::Request, routing::get};
     use tower::ServiceExt;
     use verdaxis_read::runtime::http::middleware;
-    let app = middleware(Router::new().route("/api/prices", get(|| async { "ok" })));
+    let app = middleware(
+        Router::new().route("/api/prices", get(|| async { "ok" })),
+        "staging",
+    );
     for _ in 0..65 {
         let response = app
             .clone()
@@ -151,6 +154,7 @@ async fn unhandled_errors_bypass_response_headers_but_handled_errors_do_not() {
                 "/handled",
                 get(|| async { verdaxis_read::ApiError::internal() }),
             ),
+        "staging",
     );
     for path in ["/unhandled", "/handled"] {
         let response = app

@@ -15,7 +15,8 @@ import json
 from dataclasses import replace
 
 from scripts.rust_contract.phase2_scenarios import Action, Scenario
-from scripts.rust_contract.referral_allocation import assert_cache_change, auth
+from scripts.rust_contract.phase2_state import expect_cache_invalidations
+from scripts.rust_contract.referral_allocation import auth
 from scripts.rust_contract.referral_allocation import servers as allocation_servers
 
 SENDER = '20000000-0000-4000-8000-000000000501'
@@ -43,13 +44,12 @@ def rejected(before, after, response, mail):
 
 def code_only(before, after):
     expected = copy.deepcopy(before)
-    allocated = 0
+    allocated = False
     for row in expected['users']['rows'].values():
         if row['id'] == SENDER and not row['referral_code']:
             row['referral_code'] = CODE
-            allocated = 1
-    # Only a new code is written: one users statement, one cache generation.
-    assert_cache_change(expected, after, allocated)
+            allocated = True
+    expect_cache_invalidations(expected, int(allocated))
     assert expected == after, 'an invite changed more than the sender code'
 
 

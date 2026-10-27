@@ -12,6 +12,7 @@ async fn only_unhandled_responses_skip_the_complete_header_matrix() {
                 get(|| async { verdaxis_read::ApiError::internal() }),
             )
             .route("/busy", get(|| async { verdaxis_read::busy() })),
+        "staging",
     );
     for origin in [
         None,

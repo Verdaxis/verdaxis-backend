@@ -17,6 +17,7 @@ fn staging() -> Config {
         pool_max: 17,
         python_budget: 52,
         configured_max_connections: 100,
+        phase2: Default::default(),
         prepared_budget: None,
     }
 }
@@ -95,6 +96,7 @@ fn cache_checkpoint_is_accepted_and_earlier_checkpoints_stay_accepted() {
         "kycg_20261014_staging",
         "p0_20261016_union",
         "prc_20261018_cache",
+        "prc_20261026_changes",
     ] {
         config.migration_revision = revision.into();
         assert!(validate_config(&config).is_ok(), "{revision}");
@@ -123,6 +125,8 @@ fn production_requires_its_exact_database_and_union_checkpoint() {
         config.database_url = config.database_url.replace(from, to);
         assert!(validate_config(&config).is_err());
     }
+    base.migration_revision = "prc_20261026_changes".into();
+    assert!(validate_config(&base).is_ok());
     base.migration_revision = "kycg_20261014_staging".into();
     assert!(validate_config(&base).is_err());
 }
@@ -388,10 +392,68 @@ fn deployed_environment() -> std::collections::HashMap<String, String> {
         ),
         ("DB_SESSION_TIME_ZONE", "UTC"),
         ("KYC_EXECUTION_GATE_ENABLED", "false"),
+        // Task 23: the deploy transaction projects this private set into the
+        // Rust runtime file only.
+        ("JWT_SECRET", "phase2-deployed-secret-key-minimum-40"),
+        ("JWT_ISSUER", "verdaxis-staging-api"),
+        ("JWT_AUDIENCE", "verdaxis-staging-web"),
+        ("FRONTEND_URL", "https://staging.verdaxis.exchange"),
+        ("EMAIL_FROM", "Verdaxis <noreply@verdaxis.exchange>"),
+        ("RESEND_API_KEY", "re_deployed_key"),
     ]
     .into_iter()
     .map(|(key, value)| (key.to_owned(), value.to_owned()))
     .collect()
+}
+
+#[test]
+fn deployed_environment_refuses_a_missing_phase2_key() {
+    use verdaxis_read::runtime::config::config_from_deployed_environment;
+    let bind: std::net::SocketAddr = "127.0.0.1:8011".parse().unwrap();
+    let mut environment = deployed_environment();
+    environment.remove("JWT_AUDIENCE");
+    let error =
+        config_from_deployed_environment(&environment, bind, &budget_document(compiled_sha()))
+            .err()
+            .expect("a missing Phase 2 key must be refused");
+    assert!(error.contains("JWT_AUDIENCE"), "{error}");
+    // A blank previous key is the ordinary "no rotation" state, not a value.
+    environment.insert("JWT_AUDIENCE".into(), "verdaxis-staging-web".into());
+    environment.insert("JWT_SECRET_PREVIOUS".into(), "  ".into());
+    let config =
+        config_from_deployed_environment(&environment, bind, &budget_document(compiled_sha()))
+            .unwrap();
+    assert!(config.phase2.jwt_secret_previous.is_none());
+}
+
+#[test]
+fn deployed_start_refuses_an_unreadable_watchlist_activation() {
+    use verdaxis_read::runtime::config::config_from_deployed_environment;
+    use verdaxis_read::runtime::phase2::Phase2Settings;
+    let bind: std::net::SocketAddr = "127.0.0.1:8011".parse().unwrap();
+    // The release metadata records an explicit instant with its offset. Any
+    // other spelling stops the start instead of becoming some other instant.
+    for recorded in [
+        "",
+        "  ",
+        "now",
+        "2026-11-01",
+        "2026-11-01T00:00:00",
+        "1793491200",
+    ] {
+        let mut environment = deployed_environment();
+        environment.insert("WATCHLIST_PRODUCER_ACTIVATED_AT".into(), recorded.into());
+        let refused =
+            config_from_deployed_environment(&environment, bind, &budget_document(compiled_sha()))
+                .and_then(|config| Phase2Settings::from_options(&config.phase2).map(|_| ()));
+        let error = refused
+            .err()
+            .unwrap_or_else(|| panic!("accepted the recorded activation {recorded:?}"));
+        assert!(
+            error.contains("WATCHLIST_PRODUCER_ACTIVATED_AT"),
+            "{recorded:?}: {error}"
+        );
+    }
 }
 
 #[test]

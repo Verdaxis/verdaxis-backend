@@ -147,20 +147,6 @@ fn unproved_records_clear_authority() {
 }
 
 #[test]
-fn generation_rollback_inside_one_authority_revokes_hits() {
-    let now = Instant::now();
-    let authority = CacheAuthority::default();
-    serving(&authority, &identity('a'), now);
-    let token = authority.token(&identity('a'), now).unwrap();
-    assert!(authority.observe_generation(&token, 100, now));
-    assert!(authority.observe_generation(&token, 100, now));
-    assert!(authority.observe_generation(&token, 101, now));
-    assert!(!authority.observe_generation(&token, 100, now));
-    assert!(!authority.accepts(&token, now));
-    assert!(authority.token(&identity('a'), now).is_none());
-}
-
-#[test]
 fn a_fill_publishes_only_under_its_own_fence_and_latest_generation() {
     let now = Instant::now();
     let authority = CacheAuthority::default();

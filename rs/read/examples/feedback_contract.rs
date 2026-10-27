@@ -29,6 +29,7 @@ mod adapter {
             python_budget: 52,
             configured_max_connections: 100,
             kyc_execution_gate_enabled: true,
+            phase2: Default::default(),
         };
         // Runner cell names do not end in _test. This test-only adapter connects
         // to the runner-assigned app role; production configuration is unchanged.
@@ -50,7 +51,6 @@ mod adapter {
             "verdaxis".into(),
             "verdaxis-api".into(),
         ));
-        let limits = SharedLimits::default();
         let app =
             Router::new()
                 .route(
@@ -65,8 +65,13 @@ mod adapter {
                 .fallback(move |request: Request| {
                     let state = state.clone();
                     let settings = settings.clone();
-                    let limits = limits.clone();
                     async move {
+                        // Deployment keys these quotas by verified user, and the
+                        // scenario replays many requests as one user. Giving each
+                        // request its own store keeps the scenario a route oracle;
+                        // quota itself is covered by the quota contract and the
+                        // PostgreSQL route tests.
+                        let limits = SharedLimits::default();
                         let instant: DateTime<Utc> = request.headers()["x-feedback-clock"]
                             .to_str()
                             .unwrap()
@@ -85,8 +90,11 @@ mod adapter {
                             Clock::Contract { instant, id },
                         )
                         .with_state(state);
-                        let app =
-                            verdaxis_read::runtime::http::middleware_with_limits(router, limits);
+                        let app = verdaxis_read::runtime::http::middleware_with_limits(
+                            router,
+                            limits,
+                            &std::env::var("ENVIRONMENT").unwrap_or_default(),
+                        );
                         let response = app.oneshot(request).await.unwrap();
                         if lost && response.status().is_success() {
                             (

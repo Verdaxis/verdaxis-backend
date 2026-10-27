@@ -17,7 +17,7 @@ use uuid::Uuid;
 
 use super::{
     ports::{pydantic_datetime, query_error},
-    prices::{captured_now, fields, integer, uuid},
+    prices::{fields, integer, uuid},
 };
 use crate::market::{
     visibility::{
@@ -26,7 +26,7 @@ use crate::market::{
     },
     windows::{normalize_window, window_sort_key},
 };
-use crate::{ApiError, ApiResult, AppState, Json, run_admitted};
+use crate::{ApiError, ApiResult, AppState, Json};
 
 pub fn routes() -> Router<AppState> {
     Router::new()
@@ -49,7 +49,7 @@ pub fn product_counts(codes: &[String], rows: &[(String, u64)]) -> BTreeMap<Stri
     counts
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct Filters {
     product: Option<Uuid>,
     point: Option<Uuid>,
@@ -295,70 +295,90 @@ async fn recent(
         .collect()
 }
 async fn aggregate(State(state): State<AppState>, RawQuery(raw): RawQuery) -> ApiResult {
-    let now = captured_now(&state)?;
-    let filters = Filters::parse(raw.as_deref().unwrap_or_default(), now, false)?;
+    let clock = crate::runtime::trading_routes::capture(&state)?;
+    let now = clock.wall.into();
+    let raw = raw.unwrap_or_default();
+    let filters = Filters::parse(&raw, now, false)?;
     let owned = state.clone();
-    let result = run_admitted(&state, move |connection| {
-        Box::pin(async move {
-            let path = "/api/orderbook/aggregated";
-            let mut tx = map_transaction(connection, path).await?;
-            let result = aggregates(&mut tx, &owned, now, &filters, path).await?;
-            tx.commit().await.map_err(|e| query_error(path, &e))?;
-            Ok(result)
-        })
-    })
+    let result = crate::runtime::trading_routes::read(
+        &state,
+        "/api/orderbook/aggregated",
+        raw,
+        "orderbook",
+        clock,
+        None,
+        move |connection| {
+            Box::pin(async move {
+                let path = "/api/orderbook/aggregated";
+                let mut tx = map_transaction(connection, path).await?;
+                let result = aggregates(&mut tx, &owned, now, &filters, path).await?;
+                tx.commit().await.map_err(|e| query_error(path, &e))?;
+                Ok(result)
+            })
+        },
+    )
     .await?;
     Ok(axum::Json(result).into_response())
 }
 async fn counts(State(state): State<AppState>, RawQuery(raw): RawQuery) -> ApiResult {
-    let now = captured_now(&state)?;
-    let filters = Filters::parse(raw.as_deref().unwrap_or_default(), now, true)?;
+    let clock = crate::runtime::trading_routes::capture(&state)?;
+    let now = clock.wall.into();
+    let raw = raw.unwrap_or_default();
+    let filters = Filters::parse(&raw, now, true)?;
     let owned = state.clone();
-    let result = run_admitted(&state, move |connection| {
-        Box::pin(async move {
-            let path = "/api/orderbook/product-counts";
-            let mut tx = map_transaction(connection, path).await?;
-            let sql = order_query_sql_projected(
-                include_str!("../../sql/orderbook/counts.sql"),
-                COUNT_PROJECTION,
-            );
-            let rows = bind_order_query(
-                &sql,
-                &owned.policy,
-                &VisibilityClock::at(now),
-                &owned.config,
-                &filters.shared(),
-            )
-            .map_err(|error| query_error(path, &error))?
-            .fetch_all(&mut *tx)
-            .await
-            .map_err(|error| query_error(path, &error))?;
-            tx.commit().await.map_err(|e| query_error(path, &e))?;
-            let values: Vec<_> = rows
-                .iter()
-                .map(|row| {
-                    Ok((
-                        text(row, "market_product")?,
-                        number(row, "order_count")? as u64,
-                    ))
-                })
-                .collect::<Result<_, ApiError>>()?;
-            let codes: Vec<_> = owned
-                .policy
-                .products
-                .iter()
-                .filter(|product| product.execution_mode == "ORDERBOOK")
-                .map(|product| product.code.clone())
-                .collect();
-            let counts = product_counts(&codes, &values);
-            // Python initializes the dict in canonical catalog order, not lexical order.
-            let ordered: serde_json::Map<_, _> = codes
-                .iter()
-                .map(|code| (code.clone(), json!(counts[code])))
-                .collect();
-            Ok(json!({"counts":ordered,"total":counts.values().sum::<u64>()}))
-        })
-    })
+    let result = crate::runtime::trading_routes::read(
+        &state,
+        "/api/orderbook/product-counts",
+        raw,
+        "orderbook",
+        clock,
+        None,
+        move |connection| {
+            Box::pin(async move {
+                let path = "/api/orderbook/product-counts";
+                let mut tx = map_transaction(connection, path).await?;
+                let sql = order_query_sql_projected(
+                    include_str!("../../sql/orderbook/counts.sql"),
+                    COUNT_PROJECTION,
+                );
+                let rows = bind_order_query(
+                    &sql,
+                    &owned.policy,
+                    &VisibilityClock::at(now),
+                    &owned.config,
+                    &filters.shared(),
+                )
+                .map_err(|error| query_error(path, &error))?
+                .fetch_all(&mut *tx)
+                .await
+                .map_err(|error| query_error(path, &error))?;
+                tx.commit().await.map_err(|e| query_error(path, &e))?;
+                let values: Vec<_> = rows
+                    .iter()
+                    .map(|row| {
+                        Ok((
+                            text(row, "market_product")?,
+                            number(row, "order_count")? as u64,
+                        ))
+                    })
+                    .collect::<Result<_, ApiError>>()?;
+                let codes: Vec<_> = owned
+                    .policy
+                    .products
+                    .iter()
+                    .filter(|product| product.execution_mode == "ORDERBOOK")
+                    .map(|product| product.code.clone())
+                    .collect();
+                let counts = product_counts(&codes, &values);
+                // Python initializes the dict in canonical catalog order, not lexical order.
+                let ordered: serde_json::Map<_, _> = codes
+                    .iter()
+                    .map(|code| (code.clone(), json!(counts[code])))
+                    .collect();
+                Ok(json!({"counts":ordered,"total":counts.values().sum::<u64>()}))
+            })
+        },
+    )
     .await?;
     Ok(axum::Json(result).into_response())
 }
@@ -369,33 +389,44 @@ async fn compact(State(state): State<AppState>) -> ApiResult {
     map_response(state, true).await
 }
 async fn map_response(state: AppState, compact: bool) -> ApiResult {
-    let now = captured_now(&state)?;
+    let clock = crate::runtime::trading_routes::capture(&state)?;
+    let now = clock.wall.into();
     let owned = state.clone();
-    let result = run_admitted(&state, move |connection| {
-        Box::pin(async move {
-            let path = "/api/orderbook/map-summary";
-            let mut tx = map_transaction(connection, path).await?;
-            let groups = aggregates(&mut tx, &owned, now, &Filters::default(), path).await?;
-            let (markets, demo_groups) = if compact {
-                match compact_groups(&groups, now.date_naive()) {
-                    Ok(groups) => groups,
-                    Err(_) => return Ok(crate::runtime::http::unhandled_server_error()),
-                }
-            } else {
-                (Vec::new(), Vec::new())
-            };
-            let asks = recent(&mut tx, &owned, now, path).await?;
-            tx.commit().await.map_err(|e| query_error(path, &e))?;
-            Ok(axum::Json(if compact {
-                json!({"markets":markets,"demo_groups":demo_groups,"recent_asks":asks})
-            } else {
-                json!({"groups":groups,"recent_asks":asks})
+    let result = crate::runtime::trading_routes::read(
+        &state,
+        "/api/orderbook/map-summary",
+        compact.to_string(),
+        "orderbook",
+        clock,
+        None,
+        move |connection| {
+            Box::pin(async move {
+                let path = "/api/orderbook/map-summary";
+                let mut tx = map_transaction(connection, path).await?;
+                let groups = aggregates(&mut tx, &owned, now, &Filters::default(), path).await?;
+                let (markets, demo_groups) = if compact {
+                    match compact_groups(&groups, now.date_naive()) {
+                        Ok(groups) => groups,
+                        Err(_) => return Ok(None),
+                    }
+                } else {
+                    (Vec::new(), Vec::new())
+                };
+                let asks = recent(&mut tx, &owned, now, path).await?;
+                tx.commit().await.map_err(|e| query_error(path, &e))?;
+                Ok(Some(if compact {
+                    json!({"markets":markets,"demo_groups":demo_groups,"recent_asks":asks})
+                } else {
+                    json!({"groups":groups,"recent_asks":asks})
+                }))
             })
-            .into_response())
-        })
-    })
+        },
+    )
     .await?;
-    Ok(result)
+    Ok(match result {
+        Some(value) => axum::Json(value).into_response(),
+        None => crate::runtime::http::unhandled_server_error(),
+    })
 }
 
 fn compare_amount(left: &Json, right: &Json) -> Result<std::cmp::Ordering, ApiError> {
@@ -551,39 +582,49 @@ async fn fuel_types(State(state): State<AppState>) -> ApiResult {
     distinct(state, "fuel-types").await
 }
 async fn distinct(state: AppState, field: &'static str) -> ApiResult {
-    let now = captured_now(&state)?;
+    let clock = crate::runtime::trading_routes::capture(&state)?;
+    let now = clock.wall.into();
     let owned = state.clone();
-    let result = run_admitted(&state, move |connection| {
-        Box::pin(async move {
-            let sql = order_query_sql_projected(
-                include_str!("../../sql/orderbook/distinct.sql"),
-                DISTINCT_PROJECTION,
-            );
-            let path = format!("/api/orderbook/{field}");
-            let mut tx = map_transaction(connection, &path).await?;
-            let rows = bind_order_query(
-                &sql,
-                &owned.policy,
-                &VisibilityClock::at(now),
-                &owned.config,
-                &PublicOrderFilters::default(),
-            )
-            .map_err(|error| query_error(&path, &error))?
-            .bind(field)
-            .fetch_all(&mut *tx)
-            .await
-            .map_err(|error| query_error(&path, &error))?;
-            tx.commit().await.map_err(|e| query_error(&path, &e))?;
-            let mut values: Vec<String> = rows
-                .iter()
-                .map(|row| text(row, "value"))
-                .collect::<Result<_, _>>()?;
-            if field == "fuel-types" {
-                values.sort();
-            }
-            Ok(values)
-        })
-    })
+    let result = crate::runtime::trading_routes::read(
+        &state,
+        field,
+        String::new(),
+        "orderbook",
+        clock,
+        None,
+        move |connection| {
+            Box::pin(async move {
+                let tail = match field {
+                    "products" => include_str!("../../sql/orderbook/distinct_products.sql"),
+                    "fuel-types" => include_str!("../../sql/orderbook/distinct_fuel_types.sql"),
+                    _ => include_str!("../../sql/orderbook/distinct.sql"),
+                };
+                let sql = order_query_sql_projected(tail, DISTINCT_PROJECTION);
+                let path = format!("/api/orderbook/{field}");
+                let mut tx = map_transaction(connection, &path).await?;
+                let rows = bind_order_query(
+                    &sql,
+                    &owned.policy,
+                    &VisibilityClock::at(now),
+                    &owned.config,
+                    &PublicOrderFilters::default(),
+                )
+                .map_err(|error| query_error(&path, &error))?
+                .fetch_all(&mut *tx)
+                .await
+                .map_err(|error| query_error(&path, &error))?;
+                tx.commit().await.map_err(|e| query_error(&path, &e))?;
+                let mut values: Vec<String> = rows
+                    .iter()
+                    .map(|row| text(row, "value"))
+                    .collect::<Result<_, _>>()?;
+                if field == "fuel-types" {
+                    values.sort();
+                }
+                Ok(values)
+            })
+        },
+    )
     .await?;
     Ok(axum::Json(result).into_response())
 }

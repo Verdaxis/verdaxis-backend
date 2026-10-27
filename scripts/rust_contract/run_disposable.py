@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import secrets
@@ -63,6 +64,10 @@ IDENTITY_PATH = "/.well-known/verdaxis-disposable-test"
 
 class RunnerError(RuntimeError):
     """A disposable-run step failed."""
+
+
+class OracleStartupUnavailable(RunnerError):
+    """No Python listener after the bounded startup attempts."""
 
 
 def ephemeral_range() -> tuple[int, int]:
@@ -130,6 +135,7 @@ class Runner:
         require_complete_ledger: bool = False,
         report: Path | None = None,
         release: bool = False,
+        server_binary: Path | None = None,
     ) -> None:
         self.mixed_caddy = mixed_caddy
         self.record_all = record_all
@@ -142,6 +148,7 @@ class Runner:
         # overflow and so catches more defects). Latency measurements must use
         # the release profile, or they time unoptimized code. PM decision.
         self.release = release
+        self.server_binary = server_binary
         # Which Rust contract targets to run. A single group defaults to its own
         # target; `--group all` alone runs none (integration only), while
         # `--rust-target all` runs every target once in this shared database.
@@ -150,6 +157,16 @@ class Runner:
         self.report = report
         self.container = ""
         self.children: list[subprocess.Popen] = []
+        self.oracle_retries: list[dict] = []
+        self.oracle_unavailable_groups: list[str] = []
+        self.target_results: dict[str, bool] = {}
+        # Per attempt; bounded to one initial start and at most two restarts.
+        try:
+            self.oracle_startup_timeout = float(os.environ.get("ORACLE_STARTUP_TIMEOUT_SECONDS", "180"))
+        except ValueError as error:
+            raise RunnerError("ORACLE_STARTUP_TIMEOUT_SECONDS must be positive and finite") from error
+        if not math.isfinite(self.oracle_startup_timeout) or self.oracle_startup_timeout <= 0:
+            raise RunnerError("ORACLE_STARTUP_TIMEOUT_SECONDS must be positive and finite")
         self.sha = subprocess.run(
             ["git", "rev-parse", "HEAD"],
             cwd=ROOT,
@@ -304,10 +321,25 @@ CREATE EXTENSION IF NOT EXISTS postgis;
 
     def server_path(self) -> Path:
         """The contract-server binary this run's build produced."""
+        if self.server_binary is not None:
+            return self.server_binary
         flavour = "release" if self.release else "debug"
-        return ROOT / "rs" / "target" / flavour / "examples" / "contract_server"
+        target = Path(os.environ.get("CARGO_TARGET_DIR", ROOT / "rs" / "target"))
+        if not target.is_absolute():
+            target = ROOT / target
+        return target / flavour / "examples" / "contract_server"
 
     def run(self) -> None:
+        try:
+            self._run()
+        except OracleStartupUnavailable:
+            if self.report is not None:
+                passed = [group for group, ok in self.target_results.items() if ok]
+                failed = [group for group, ok in self.target_results.items() if not ok]
+                self.write_report(self.target_results, passed, failed, None)
+            raise
+
+    def _run(self) -> None:
         subprocess.run(
             self.build_command(),
             cwd=ROOT,
@@ -330,7 +362,7 @@ CREATE EXTENSION IF NOT EXISTS postgis;
                     )
                 finally:
                     self.stop_environment()
-            results: dict[str, bool] = {}
+            results = self.target_results
             for group in self.target_groups():
                 env = self.start_environment(group)
                 try:
@@ -385,18 +417,8 @@ CREATE EXTENSION IF NOT EXISTS postgis;
 
         python_port = ephemeral_port()
         rust_port = ephemeral_port()
-        self.spawn(
-            [
-                self.python_bin,
-                "-m",
-                "tests.rust_contract.server",
-                "--port",
-                str(python_port),
-            ],
-            {**base_env, "PYTHONPATH": str(ROOT)},
-        )
+        self.start_oracle(group, python_port, base_env)
         if self.record_all:
-            wait_for_port(python_port)
             return {
                 "base_env": base_env,
                 "python_port": python_port,
@@ -422,7 +444,6 @@ CREATE EXTENSION IF NOT EXISTS postgis;
             [str(self.server_path())],
             {**base_env, "RUST_CONFIG": rust_config, "CONTRACT_GROUP": group},
         )
-        wait_for_port(python_port)
         wait_for_port(rust_port)
         python_url = f"http://127.0.0.1:{python_port}"
         rust_url = f"http://127.0.0.1:{rust_port}"
@@ -435,6 +456,33 @@ CREATE EXTENSION IF NOT EXISTS postgis;
             "rust_port": rust_port,
             "rust_url": rust_url,
         }
+
+    def start_oracle(self, group: str, port: int, env: dict[str, str]) -> None:
+        for attempt in range(3):
+            self.spawn(
+                [self.python_bin, "-m", "tests.rust_contract.server", "--port", str(port)],
+                {**env, "PYTHONPATH": str(ROOT)},
+            )
+            child = self.children[-1]
+            try:
+                wait_for_port(port, timeout=self.oracle_startup_timeout)
+                return
+            except RunnerError as error:
+                child.terminate()
+                try:
+                    child.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    child.kill()
+                    child.wait()
+                self.children.remove(child)
+                if attempt == 2:
+                    self.oracle_unavailable_groups.append(group)
+                    raise OracleStartupUnavailable(f"ORACLE_UNAVAILABLE: {group}/startup: {error}") from error
+                event = {"group": group, "request": "startup", "leg": "python-startup",
+                         "reason": "startup timeout", "attempt": attempt + 1,
+                         "timeout_seconds": self.oracle_startup_timeout}
+                self.oracle_retries.append(event)
+                print("ORACLE_RETRY " + json.dumps(event), flush=True)
 
     def stop_environment(self) -> None:
         """Stop the servers and remove this runner's disposable container."""
@@ -477,10 +525,16 @@ CREATE EXTENSION IF NOT EXISTS postgis;
         results: dict[str, bool] = {}
         for group in groups if groups is not None else self.target_groups():
             target = GROUPS[group]
+            retry_log = ROOT / "work" / "rust-phase1" / f"oracle-retries-{secrets.token_hex(8)}.jsonl"
+            retry_log.parent.mkdir(parents=True, exist_ok=True)
             full_env = {
                 **env,
                 "PYTHON_CONTRACT_URL": python_url,
                 "RUST_CONTRACT_URL": rust_url,
+                "RUST_CONTRACT_SERVER_BINARY": str(self.server_path()),
+                "ORACLE_CAPTURE_URL": python_url,
+                "ORACLE_CAPTURE_GROUP": group,
+                "ORACLE_RETRY_LOG": str(retry_log),
             }
             if not (ROOT / "rs/contract/tests" / f"{target}.rs").exists():
                 command = [
@@ -507,6 +561,11 @@ CREATE EXTENSION IF NOT EXISTS postgis;
             completed = subprocess.run(
                 command, cwd=ROOT, env=full_env, check=False, capture_output=True, text=True
             )
+            if retry_log.exists():
+                self.oracle_retries.extend(json.loads(line) for line in retry_log.read_text().splitlines())
+                retry_log.unlink()
+            if "ORACLE_UNAVAILABLE" in completed.stdout + completed.stderr:
+                self.oracle_unavailable_groups.append(group)
             if completed.stdout:
                 print(completed.stdout, end="", flush=True)
             if completed.stderr:
@@ -597,6 +656,9 @@ CREATE EXTENSION IF NOT EXISTS postgis;
         """Write the machine-readable contract-gate report and echo it."""
         report = {
             "source_sha": self.sha,
+            "oracle_retries": self.oracle_retries,
+            "oracle_unavailable_groups": sorted(set(self.oracle_unavailable_groups)),
+            "outcome": "ORACLE_UNAVAILABLE" if self.oracle_unavailable_groups else ("failed" if failed or ledger_error else "passed"),
             "profile": os.environ.get("RUST_CONTRACT_PROFILE", "byte"),
             "rules_sha256": os.environ.get("MEANING_RULES_SHA256"),
             "kyc_execution_gate_enabled": self.gate,
@@ -646,10 +708,18 @@ CREATE EXTENSION IF NOT EXISTS postgis;
         caddy_env = {
             **env,
             "ROUTE_SNIPPET": str(ROOT / "deploy/caddy/rust-public-staging.caddy"),
+            "CRUD_SNIPPET": str(ROOT / "deploy/caddy/rust-crud.caddy"),
             "CADDY_PORT": str(port),
             "PYTHON_UPSTREAM": f"127.0.0.1:{python_port}",
+            # The Phase 1 harness Rust does not serve the Phase 2 groups, so
+            # every CRUD group keeps Python. The pre-auth authority is still the
+            # Rust service, because the mixed run proves the shared counter.
+            **{f"{group}_UPSTREAM": f"127.0.0.1:{python_port}"
+               for group in ("NOTIFICATIONS", "PREFERENCES", "FEEDBACK",
+                             "WATCHLISTS", "ALERTS", "REFERRALS")},
             **{f"{group}_UPSTREAM": f"127.0.0.1:{rust_port}"
                for group in ("SIMPLE", "ORDERBOOK", "PRICES", "CURVES", "MCP")},
+            "PREAUTH_UPSTREAM": f"127.0.0.1:{rust_port}",
         }
         # One shared config owns forwarding options for both route groups and
         # Python fallback; do not synthesize a plain-proxy variant here.
@@ -714,19 +784,12 @@ CREATE EXTENSION IF NOT EXISTS postgis;
                 signal.alarm(0)
                 signal.signal(signal.SIGALRM, previous)
             if os.environ.get("RUST_CONTRACT_PROFILE") == "phase1-meaning-v1":
-                import asyncio
-
                 from scripts.rust_contract.meaning_runner import (
-                    canonical_response,
-                    raw_response,
-                    route_id,
+                    canonicalise_tape_recordings,
                 )
+
                 for entries in (first, second):
-                    for entry in entries:
-                        if route_id(entry["request"]) == "P1-R06" and entry["exchange"]["status"] == 200:
-                            response, proof = asyncio.run(canonical_response(entry["request"], raw_response(entry)))
-                            entry["raw_body"] = response["body"]
-                            entry["canonical_tape_proof"] = proof
+                    canonicalise_tape_recordings(entries)
             problems = differences(first, second)
             unstable.extend(problems)
             print(
@@ -792,6 +855,11 @@ CREATE EXTENSION IF NOT EXISTS postgis;
 
     def run_phase2(self, args) -> None:
         """Use this lifecycle owner for isolated write cells; never a live target."""
+        if getattr(args, "phase2_journeys", False):
+            from scripts.rust_contract.phase2_journeys import run as run_journeys
+
+            run_journeys(self, args)
+            return
         from scripts.rust_contract.phase2_seed import (
             APP_ROLE as role,
         )
@@ -1114,9 +1182,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--phase2-scenario", action="append")
     parser.add_argument("--phase2-size", choices=("small", "large"), default="small")
     parser.add_argument("--phase2-races", action="store_true")
+    parser.add_argument("--phase2-journeys", action="store_true",
+                        help="run the six frontend client journeys against the Rust candidate")
     parser.add_argument("--phase2-measure", action="store_true")
     parser.add_argument("--phase2-order-write-benchmark", action="store_true")
     parser.add_argument("--release-binary", type=Path)
+    parser.add_argument("--server-binary", type=Path, help="Built contract_server path, including a shared Cargo target directory")
     parser.add_argument("--profile", choices=("phase1-meaning-v1",))
     parser.add_argument("--rules-sha256")
     args = parser.parse_args(argv)
@@ -1128,6 +1199,10 @@ def main(argv: list[str] | None = None) -> int:
         os.environ["MEANING_RULES_SHA256"] = args.rules_sha256
     elif args.rules_sha256:
         parser.error("rules digest requires an explicit profile")
+    if args.phase2_journeys and not args.phase2:
+        parser.error("--phase2-journeys requires --phase2")
+    if args.phase2_journeys and (args.phase2_races or args.phase2_measure or args.phase2_order_write_benchmark):
+        parser.error("--phase2-journeys runs alone")
     if args.phase2:
         scenarios = json.loads((ROOT / "tests/rust_contract/phase2/scenarios.json").read_text())["scenarios"]
         from scripts.rust_contract.phase2_scenarios import REGISTRY
@@ -1161,6 +1236,7 @@ def main(argv: list[str] | None = None) -> int:
         require_complete_ledger=args.require_complete_ledger,
         report=args.report,
         release=args.release,
+        server_binary=args.server_binary,
     )
     try:
         if args.phase2:

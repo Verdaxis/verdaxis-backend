@@ -21,6 +21,9 @@ pub mod subscriptions;
 pub mod order_write;
 // ----------------------- end Task 20 registration block --------------------
 
+pub use market::cache_dependencies::{
+    Boundary, Deadline, RollingWindows, TemporalFact, TemporalFacts, TradingClock,
+};
 pub use market::decimal::decimal_text;
 pub use market::provenance::MarketEvidenceScope;
 pub use market::terms::{
@@ -35,10 +38,15 @@ pub use market::visibility::{
 pub use market::windows::{
     normalize_window, window_display_label, window_sort_key, window_start_date,
 };
-pub use runtime::admission::{DEFAULT_READ_ADMISSION_SLOTS, run_admitted, selected_read, try_read};
+pub use runtime::admission::{
+    DEFAULT_READ_ADMISSION_SLOTS, TradingFill, run_admitted, run_trading_read, selected_read,
+    try_read,
+};
 pub use runtime::artifact::{
     ARTIFACT_VERSION, LIBC_MIN, verify_artifact_identity, verify_compiled_identity, version_json,
 };
+pub use runtime::cache::{TradingCache, TradingCaches, TradingEntry};
+pub use runtime::cache_events::TradingCacheRuntime;
 pub use runtime::config::{check_revision, connection_budget, validate_budget, validate_config};
 pub use runtime::db::connect;
 pub use runtime::error::{busy, database_error};
@@ -76,6 +84,20 @@ pub struct AppState {
     pub reads: std::sync::Arc<tokio::sync::Semaphore>,
     pub reference_cache:
         std::sync::Arc<runtime::cache::ReferenceCache<runtime::cache::ReferenceKey>>,
+    /// Verified Phase 2 settings; `None` means this composition does not mount
+    /// the Phase 2 groups and Caddy keeps them on Python.
+    pub(crate) phase2: Option<runtime::phase2::Phase2Settings>,
+    /// Every route family's trading cache, so an authority or listener change
+    /// can clear them together.
+    pub trading_caches: std::sync::Arc<runtime::cache::TradingCaches>,
+    /// `None` when the reviewed switch is off. Request paths then send exactly
+    /// the uncached service's SQL and return exactly its response.
+    pub trading_cache: Option<std::sync::Arc<runtime::cache_events::TradingCacheRuntime>>,
+    pub public_trading_cache:
+        std::sync::Arc<runtime::cache::TradingCache<runtime::trading_routes::PublicTradingKey>>,
+    pub trading_read_observer: std::sync::Arc<dyn runtime::admission::TradingReadObserver>,
+    /// Stable identity of this process's environment, release and policy.
+    pub policy_identity: String,
 }
 
 impl AppState {
@@ -93,14 +115,69 @@ impl AppState {
         let reads = std::sync::Arc::new(tokio::sync::Semaphore::new(
             config.read_admission_slots as usize,
         ));
+        let phase2 = runtime::phase2::Phase2Settings::from_options(&config.phase2)?;
+        let policy_identity = market::cache_dependencies::policy_identity(&config, &policy);
+        let reference_cache = std::sync::Arc::new(runtime::cache::ReferenceCache::default());
+        let trading_caches = std::sync::Arc::new(runtime::cache::TradingCaches::default());
+        let trading_cache = if trading_cache_enabled(&config) {
+            Some(std::sync::Arc::new(
+                runtime::cache_events::TradingCacheRuntime::from_config(
+                    &config,
+                    trading_caches.clone(),
+                    reference_cache.clone(),
+                )?,
+            ))
+        } else {
+            None
+        };
         Ok(Self {
             config: std::sync::Arc::new(config),
             pools,
             policy: std::sync::Arc::new(policy),
             reads,
-            reference_cache: std::sync::Arc::new(runtime::cache::ReferenceCache::default()),
+            reference_cache,
+            phase2,
+            trading_caches,
+            trading_cache,
+            public_trading_cache: std::sync::Arc::new(runtime::cache::TradingCache::default()),
+            trading_read_observer: std::sync::Arc::new(runtime::admission::RealtimeTradingRead),
+            policy_identity,
         })
     }
+
+    /// Start the authority refresh and invalidation loop. Only an explicitly
+    /// enabled cache has a runtime; a disabled process starts no task and opens
+    /// no extra connection.
+    pub fn start_trading_cache(&self) {
+        let Some(runtime) = self.trading_cache.clone() else {
+            return;
+        };
+        tokio::spawn(async move {
+            let mut interval =
+                tokio::time::interval(runtime::cache_events::TradingCacheRuntime::interval());
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                interval.tick().await;
+                runtime.tick(std::time::Instant::now()).await;
+            }
+        });
+    }
+}
+
+/// The reviewed switch: one budgeted listener slot in the signed prepared
+/// artifact. An absent, zero or unreadable artifact means off.
+#[derive(serde::Deserialize)]
+struct CacheListenerSwitch {
+    #[serde(default)]
+    cache_listener: u32,
+}
+
+pub fn trading_cache_enabled(config: &Config) -> bool {
+    config
+        .prepared_budget
+        .as_deref()
+        .and_then(|text| serde_json::from_str::<CacheListenerSwitch>(text).ok())
+        .is_some_and(|budget| budget.cache_listener == 1)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -142,6 +219,27 @@ pub struct Config {
     pub pool_max: u32,
     pub python_budget: u32,
     pub configured_max_connections: u32,
+    /// Phase 2 private runtime settings. The deploy transaction projects them
+    /// into the Rust runtime file only. Absent in the contract harness, where
+    /// the Phase 2 groups are not mounted and Caddy keeps them on Python.
+    #[serde(default)]
+    pub phase2: Phase2Options,
+}
+
+/// The minimal Phase 2 verification, invite and public-link settings.
+#[derive(Clone, Default, serde::Deserialize)]
+#[serde(default)]
+pub struct Phase2Options {
+    pub jwt_secret: Option<String>,
+    pub jwt_secret_previous: Option<String>,
+    pub jwt_issuer: Option<String>,
+    pub jwt_audience: Option<String>,
+    pub frontend_url: Option<String>,
+    pub email_from: Option<String>,
+    pub resend_api_key: Option<String>,
+    /// The watchlist producer activation instant from the release metadata
+    /// file (PD5), as written there. Absent until a release records one.
+    pub watchlist_producer_activated_at: Option<String>,
 }
 
 fn read_admission_default() -> u32 {

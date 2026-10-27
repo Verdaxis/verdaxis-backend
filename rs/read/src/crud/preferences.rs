@@ -294,7 +294,7 @@ async fn read(State(state): State<PreferencesState>, headers: HeaderMap) -> Resp
 async fn write(
     State(state): State<PreferencesState>,
     Path(namespace): Path<String>,
-    peer: Option<axum::Extension<axum::extract::ConnectInfo<std::net::SocketAddr>>>,
+    _peer: Option<axum::Extension<axum::extract::ConnectInfo<std::net::SocketAddr>>>,
     headers: HeaderMap,
     raw: Bytes,
 ) -> Response {
@@ -343,8 +343,8 @@ async fn write(
         }
         // Python's Any body has no schema validator before the endpoint wrapper:
         // the quota is consumed before namespace/size/schema validation.
-        let client = crate::runtime::http::client_ip(peer.map(|p| p.0.0.ip()), headers.get("x-forwarded-for").and_then(|v| v.to_str().ok()));
-        state.limits.check_endpoint(&client, "/api/users/me/preferences/", Utc::now().timestamp() as u64)?;
+        let user = tx.actor().id.to_string();
+        state.limits.check_endpoint(&user, "/api/users/me/preferences/", Utc::now().timestamp() as u64)?;
         let value = validate_value(&namespace, body)?;
         let (now, id) = state.controls.map(|controls| controls(&headers)).unwrap_or_else(|| (Utc::now(), Uuid::new_v4()));
         let actor = tx.actor().id;

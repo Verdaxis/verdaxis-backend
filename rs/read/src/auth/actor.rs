@@ -29,6 +29,10 @@ impl AuthenticatedRequest {
             support_context_present,
         }
     }
+    pub(crate) fn route_template(&self) -> &str {
+        &self.route_template
+    }
+
     pub fn lock_mode(&self) -> UserLockMode {
         if self.method == "GET"
             && !self.support_context_present

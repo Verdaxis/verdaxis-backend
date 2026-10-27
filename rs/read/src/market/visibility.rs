@@ -46,11 +46,10 @@ pub fn expand_shared_markers(sql: &str, gate: &str, clock: &str) -> String {
 /// column a tail starts reading must be added in this one place.
 pub const MAP_PROJECTION: &str = "o.id, o.product_id, o.delivery_point_id, o.side, o.provenance, o.availability_window, o.price_per_mt_usd, o.remaining_quantity_mt, o.created_at, o.updated_at, o.off_spec, o.idempotency_operation,";
 
-/// The count and distinct tails read only the projected labels: no order
-/// column at all, so the base rows travel through the predicate and nothing
-/// wider. (count groups by market_product; distinct takes the three labels.)
+/// Counts group by the policy label and need no order columns.
 pub const COUNT_PROJECTION: &str = "";
-pub const DISTINCT_PROJECTION: &str = "";
+/// Distinct labels probe for one eligible order per catalog identity pair.
+pub const DISTINCT_PROJECTION: &str = "o.product_id, o.delivery_point_id,";
 
 /// The projection every consumer needs: the order's own columns plus the
 /// catalog labels. `o.*` is the historical default; aggregate and distinct
@@ -191,6 +190,21 @@ impl OrderSurface {
 pub struct OrderQuery(pub(super) String);
 pub struct TradeQuery(String);
 
+impl OrderQuery {
+    /// The composed statement text. Diagnostic only: the plan-capture example
+    /// runs `EXPLAIN` on exactly these bytes, so it never re-composes SQL.
+    pub fn sql(&self) -> &str {
+        &self.0
+    }
+}
+
+impl TradeQuery {
+    /// See `OrderQuery::sql`.
+    pub fn sql(&self) -> &str {
+        &self.0
+    }
+}
+
 /// Rust decision 24: the one shared definition of the private digest input.
 /// Consumers expand it for the rows they keep, never for the whole relation.
 pub fn private_digest_input_sql(row_alias: &str) -> String {
@@ -225,6 +239,20 @@ pub fn order_query_sql(tail: &'static str) -> OrderQuery {
     )))
 }
 
+/// Opposing prices for a page's exact slices. The membership scan cannot
+/// multiply orders for duplicate keys; the unchanged tail retains its key join.
+/// Only developer-owned SQL selects the base relation and tail. All admission
+/// predicates remain in the shared relation, and request keys use bind `$14`.
+pub fn opposing_order_query_sql() -> OrderQuery {
+    OrderQuery(format!(
+        "WITH eligible_orders AS NOT MATERIALIZED ({}) {}",
+        relation_sql(include_str!(
+            "../../sql/orderbook/opposing_keyed_orders.sql"
+        )),
+        include_str!("../../sql/orderbook/opposing.sql")
+    ))
+}
+
 /// The shared relation with a narrow projection, for tails that aggregate or
 /// deduplicate and never read an order's wide columns. The predicate set is
 /// the shared one; only the projected columns differ from `order_query_sql`.
@@ -252,13 +280,26 @@ pub fn trade_query_sql(tail: &'static str) -> TradeQuery {
 }
 
 pub fn bind_order_query<'q>(
-    sql: &OrderQuery,
+    sql: &'q OrderQuery,
     policy: &MarketPolicy,
     clock: &VisibilityClock,
     config: &Config,
     filters: &PublicOrderFilters<'_>,
 ) -> Result<Query<'q, sqlx::Postgres, PgArguments>, sqlx::Error> {
-    Ok(sqlx::query(sqlx::AssertSqlSafe(sql.0.clone()))
+    bind_order_sql(sql.sql(), policy, clock, config, filters)
+}
+
+/// The one bind order for the shared-relation statement. `bind_order_query`
+/// delegates here, and the plan-capture proof can bind a wrapped statement
+/// (`SELECT to_jsonb(x) FROM (<composed>) x`) with the same values.
+pub fn bind_order_sql<'q>(
+    sql: &'q str,
+    policy: &MarketPolicy,
+    clock: &VisibilityClock,
+    config: &Config,
+    filters: &PublicOrderFilters<'_>,
+) -> Result<Query<'q, sqlx::Postgres, PgArguments>, sqlx::Error> {
+    Ok(sqlx::query(sqlx::AssertSqlSafe(sql.to_owned()))
         .bind(policy_json(policy)?)
         .bind(clock.now)
         .bind(clock.singapore_date.format("%Y-%m-%d").to_string())
@@ -275,11 +316,20 @@ pub fn bind_order_query<'q>(
 }
 
 pub fn bind_trade_query<'q>(
-    sql: &TradeQuery,
+    sql: &'q TradeQuery,
     policy: &MarketPolicy,
     filters: &TradeEvidenceFilters<'_>,
 ) -> Result<Query<'q, sqlx::Postgres, PgArguments>, sqlx::Error> {
-    Ok(sqlx::query(sqlx::AssertSqlSafe(sql.0.clone()))
+    bind_trade_sql(sql.sql(), policy, filters)
+}
+
+/// See `bind_order_sql`: the one bind order for the trade-evidence statement.
+pub fn bind_trade_sql<'q>(
+    sql: &'q str,
+    policy: &MarketPolicy,
+    filters: &TradeEvidenceFilters<'_>,
+) -> Result<Query<'q, sqlx::Postgres, PgArguments>, sqlx::Error> {
+    Ok(sqlx::query(sqlx::AssertSqlSafe(sql.to_owned()))
         .bind(policy_json(policy)?)
         .bind(filters.confirmed_since)
         .bind(filters.confirmed_before)

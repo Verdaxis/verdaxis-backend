@@ -34,6 +34,14 @@ name = "phase4_db_authority"
 path = "tests/phase4_db_authority.rs"
 required-features = ["contract-tests"]
 
+[[test]]
+name = "meaning_curve_queries"
+required-features = ["contract-tests"]
+
+[[test]]
+name = "meaning_orderbook_queries"
+required-features = ["contract-tests"]
+
 [[example]]
 name = "contract_server"
 required-features = ["contract-tests"]
@@ -44,6 +52,14 @@ required-features = ["contract-tests"]
 
 [[example]]
 name = "watchlist_server"
+required-features = ["contract-tests"]
+
+[[example]]
+name = "phase3_auth"
+required-features = ["contract-tests"]
+
+[[example]]
+name = "preauth_server"
 required-features = ["contract-tests"]
 
 [features]

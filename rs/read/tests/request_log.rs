@@ -22,7 +22,10 @@ fn request_logs_are_bounded_and_secret_free() {
         }
     }
     use verdaxis_read::runtime::http::middleware;
-    let app = middleware(Router::new().route("/fixture", get(|| async { "ok" })));
+    let app = middleware(
+        Router::new().route("/fixture", get(|| async { "ok" })),
+        "staging",
+    );
     // Reach the library callsite once with the subscriber installed.
     tracing::info!("capture-ready");
     let bytes = Arc::new(Mutex::new(Vec::new()));
