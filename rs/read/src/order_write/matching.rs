@@ -648,6 +648,16 @@ fn within_limit(limit: Option<Decimal>, actual: Option<Decimal>) -> bool {
     limit.is_none_or(|limit| actual.is_some_and(|actual| actual <= limit))
 }
 
+/// The shared owner projection supplies schema defaults and wire decimals.
+/// A missing quality result list has the same empty-list default as the schema.
+fn normalized_fame_declaration(terms:&Json)->Result<Json,()> {
+    let mut terms=terms.clone();
+    if let Some(Json::Object(evidence))=terms.get_mut("quality_evidence") {
+        evidence.entry("results".to_owned()).or_insert_with(||Json::Array(Vec::new()));
+    }
+    crate::market::terms::owner_response_terms(FAME_PROFILE,&terms).map_err(|_|())
+}
+
 /// A validated B100 requirement.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FameBidTerms {
@@ -694,7 +704,7 @@ impl FameBidTerms {
             )?,
             evidence_due: declared_text(object, "evidence_due")?
                 .unwrap_or_else(|| "BEFORE_LOADING".to_owned()),
-            declaration: crate::market::terms::owner_response_terms(FAME_PROFILE,terms).map_err(|_| ())?,
+            declaration: normalized_fame_declaration(terms)?,
         })
     }
 }
@@ -768,7 +778,7 @@ impl FameAskTerms {
                 .map_err(|_| ())?,
             quality_evidence_status: quality_status,
             sustainability_evidence: sustainability,
-            declaration: crate::market::terms::owner_response_terms(FAME_PROFILE,terms).map_err(|_| ())?,
+            declaration: normalized_fame_declaration(terms)?,
         })
     }
 }
@@ -850,7 +860,8 @@ impl LngBidTerms {
                 .ok_or(())?,
             min_methane_number: declared_number(object, "min_methane_number")?,
             accept_resellers: declared_flag(object, "accept_resellers", true)?,
-            declaration: crate::market::terms::owner_response_terms(LNG_PROFILE,terms).map_err(|_| ())?,
+            declaration: crate::market::terms::owner_response_terms(LNG_PROFILE, terms)
+                .map_err(|_| ())?,
         })
     }
 }
@@ -884,7 +895,8 @@ impl LngAskTerms {
             min_methane_number: declared_number(object, "min_methane_number")?,
             delivery_method: required_text(object, "delivery_method")?,
             seller_is_physical_supplier: required_flag(object, "seller_is_physical_supplier")?,
-            declaration: crate::market::terms::owner_response_terms(LNG_PROFILE,terms).map_err(|_| ())?,
+            declaration: crate::market::terms::owner_response_terms(LNG_PROFILE, terms)
+                .map_err(|_| ())?,
         })
     }
 }
@@ -1694,9 +1706,9 @@ async fn apply_plan(
 }
 
 fn fee_refusal(message: &'static str) -> MarketWriteError {
-    let mut error=MarketWriteError::new(MarketErrorCode::FeeRateInvalid);
-    error.status=axum::http::StatusCode::CONFLICT;
-    error.message=message;
+    let mut error = MarketWriteError::new(MarketErrorCode::FeeRateInvalid);
+    error.status = axum::http::StatusCode::CONFLICT;
+    error.message = message;
     error
 }
 
@@ -1721,9 +1733,15 @@ pub(super) async fn apply_plan_with_fees(
                         crate::subscriptions::FeeError::Database(error) => {
                             MarketWriteError::from(error)
                         }
-                        crate::subscriptions::FeeError::InvalidTier => fee_refusal("Seller subscription tier is invalid; contact Verdaxis support"),
-                        crate::subscriptions::FeeError::MissingNegotiatedRate => fee_refusal("Seller transaction fee is not configured; contact Verdaxis support"),
-                        crate::subscriptions::FeeError::InvalidRate => fee_refusal("Seller transaction fee is invalid; contact Verdaxis support"),
+                        crate::subscriptions::FeeError::InvalidTier => fee_refusal(
+                            "Seller subscription tier is invalid; contact Verdaxis support",
+                        ),
+                        crate::subscriptions::FeeError::MissingNegotiatedRate => fee_refusal(
+                            "Seller transaction fee is not configured; contact Verdaxis support",
+                        ),
+                        crate::subscriptions::FeeError::InvalidRate => fee_refusal(
+                            "Seller transaction fee is invalid; contact Verdaxis support",
+                        ),
                     })?;
                 entry.insert(fee);
             }
@@ -2033,7 +2051,17 @@ pub mod contract {
         pub fail_after_effects: bool,
     }
     impl Default for CompletionOptions {
-        fn default()->Self {Self {is_anonymous:true,fee_config:crate::subscriptions::FeeConfig::default(),receipt_key:None,request_id:None,demo_pair:None,actor:None,fail_after_effects:false}}
+        fn default() -> Self {
+            Self {
+                is_anonymous: true,
+                fee_config: crate::subscriptions::FeeConfig::default(),
+                receipt_key: None,
+                request_id: None,
+                demo_pair: None,
+                actor: None,
+                fail_after_effects: false,
+            }
+        }
     }
     #[derive(Default)]
     pub struct CompletionBarrier {
@@ -2155,7 +2183,9 @@ pub mod contract {
                     .effects()?
                     .capture_before(&policy, &config, &plan.locked_order_ids(), self.at)
                     .await?;
-                let outcome = tx.complete_match(&plan, &self.options.fee_config,self.options.is_anonymous).await?;
+                let outcome = tx
+                    .complete_match(&plan, &self.options.fee_config, self.options.is_anonymous)
+                    .await?;
                 let trade_ids: Vec<Uuid> = outcome.trades.iter().map(|trade| trade.id).collect();
                 let mut effects = before.stage();
                 let request = axum::http::Request::builder()

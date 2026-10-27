@@ -157,15 +157,28 @@ async fn match_emits_one_effect_set_per_trade() {
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn match_rebuilds_both_benchmarks_once() {
     let mut f = Fixture::new(2, "1.25").await;
-    sqlx::query("SELECT completion_fixture_benchmark_probe()").execute(&mut f.admin).await.unwrap();
+    sqlx::query("SELECT completion_fixture_benchmark_probe()")
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
     f.execute().await;
     let rows:Vec<(String,Decimal,Decimal,i32)>=sqlx::query_as("SELECT side::text,benchmark_price_per_mt_usd,total_remaining_quantity_mt,order_count FROM live_slice_benchmarks ORDER BY side::text").fetch_all(&mut f.observer).await.unwrap();
-    assert_eq!(rows,vec![("ASK".into(),Decimal::from(100),Decimal::new(75,2),1)]);
+    assert_eq!(
+        rows,
+        vec![("ASK".into(), Decimal::from(100), Decimal::new(75, 2), 1)]
+    );
     let operations:Vec<(String,i64)>=sqlx::query_as("SELECT operation,count(*) FROM completion_benchmark_calls GROUP BY operation ORDER BY operation").fetch_all(&mut f.admin).await.unwrap();
-    assert_eq!(operations,vec![("DELETE".into(),2),("INSERT".into(),1)]);
-    let deleted:Vec<String>=sqlx::query_scalar("SELECT side FROM completion_benchmark_deleted ORDER BY side").fetch_all(&mut f.admin).await.unwrap();
-    assert_eq!(deleted,vec!["ASK","BID"]);
-    sqlx::query("SELECT completion_fixture_benchmark_probe_remove()").execute(&mut f.admin).await.unwrap();
+    assert_eq!(operations, vec![("DELETE".into(), 2), ("INSERT".into(), 1)]);
+    let deleted: Vec<String> =
+        sqlx::query_scalar("SELECT side FROM completion_benchmark_deleted ORDER BY side")
+            .fetch_all(&mut f.admin)
+            .await
+            .unwrap();
+    assert_eq!(deleted, vec!["ASK", "BID"]);
+    sqlx::query("SELECT completion_fixture_benchmark_probe_remove()")
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -602,7 +615,7 @@ async fn match_captures_conditional_pin_and_both_slice_transitions() {
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn typed_trade_snapshots_keep_side_mapping_and_private_declarations() {
     let fame_bid = json!({"schema_version":1,"side":"BID","neat_fame":true,"standard":"EN_14214","standard_edition":"2012+A2:2019","sustainability_scheme":"ISCC_EU"});
-    let fame_ask = json!({"schema_version":1,"side":"ASK","neat_fame":true,"uco_mass_pct":100,"standard":"EN_14214","standard_edition":"2012+A2:2019","sustainability_scheme":"ISCC_EU","certificate_reference":"private-certificate","certificate_holder":"private-supplier","evidence_status":"PENDING","document_references":[],"certificate_valid_until":"2027-01-01","evidence_due":"BEFORE_LOADING","cfpp_c":-5});
+    let fame_ask = json!({"schema_version":1,"side":"ASK","neat_fame":true,"uco_mass_pct":100,"standard":"EN_14214","standard_edition":"2012+A2:2019","sustainability_scheme":"ISCC_EU","certificate_reference":"private-certificate","certificate_holder":"private-supplier","evidence_status":"PENDING","document_references":[],"certificate_valid_until":"2027-01-01","evidence_due":"BEFORE_LOADING","cfpp_c":" -5.00 ","quality_evidence":{"status":"PENDING"}});
     let lng_bid = json!({"schema_version":1,"availability_window":"SPOT","side":"BID","accepted_schemes":["ISCC_EU"],"accepted_delivery_methods":["SHIP_TO_SHIP"]});
     let lng_ask = json!({"side":"ASK","sustainability_scheme":"ISCC_EU","scheme_certificate_number":"PRIVATE-123","chain_of_custody":"MASS_BALANCE","union_database_registered":true,"bio_share_pct":"100","feedstock":"MANURE","production_country":"NL","wtt_ghg_gco2e_mj":"-20.25","specification_standard":"ISO 23306:2020","min_methane_number":"80","delivery_method":"SHIP_TO_SHIP","seller_is_physical_supplier":false,"physical_supplier_name":"Private supplier","pos_timing":"WITH_DELIVERY"});
     for (profile, bid, ask) in [("fame", fame_bid, fame_ask), ("lng", lng_bid, lng_ask)] {
@@ -651,17 +664,23 @@ async fn typed_trade_snapshots_keep_side_mapping_and_private_declarations() {
                 assert!(row.0.is_none());
                 row.1.unwrap()
             };
-            let normalized=python_snapshot(profile,&snapshot);
-            assert_eq!(snapshot,normalized,"snapshot stores normalized Python defaults");
-            if profile=="lng" {
+            let normalized = python_snapshot(profile, &snapshot);
+            assert_eq!(
+                snapshot, normalized,
+                "snapshot stores normalized Python defaults"
+            );
+            if profile == "lng" {
                 assert!(snapshot["bid"].get("schema_version").is_none());
                 assert!(snapshot["bid"].get("availability_window").is_none());
-                assert_eq!(snapshot["bid"]["accepted_custody"],json!(["MASS_BALANCE","PHYSICAL_SEGREGATION"]));
-                assert_eq!(snapshot["bid"]["require_union_database"],true);
-                assert_eq!(snapshot["bid"]["accept_resellers"],true);
+                assert_eq!(
+                    snapshot["bid"]["accepted_custody"],
+                    json!(["MASS_BALANCE", "PHYSICAL_SEGREGATION"])
+                );
+                assert_eq!(snapshot["bid"]["require_union_database"], true);
+                assert_eq!(snapshot["bid"]["accept_resellers"], true);
             } else {
-                assert_eq!(snapshot["bid"]["require_quality_evidence"],false);
-                assert_eq!(snapshot["ask"]["nomination_status"],"PENDING");
+                assert_eq!(snapshot["bid"]["require_quality_evidence"], false);
+                assert_eq!(snapshot["ask"]["nomination_status"], "PENDING");
             }
             sqlx::query("SELECT completion_fixture_amend_source()")
                 .execute(&mut f.admin)
@@ -849,41 +868,88 @@ asyncio.run(asyncio.wait_for(main(),timeout=15))
         .unwrap()
 }
 
-fn python_snapshot(profile:&str,snapshot:&Value)->Value {
-    let python=std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_|"venv/bin/python".into());
-    let root=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let script="import json,sys; from app.schemas.fame_order import FameTradeSnapshot; from app.schemas.lng_order import LngTradeSnapshot; model=FameTradeSnapshot if sys.argv[1]=='fame' else LngTradeSnapshot; print(model.model_validate_json(sys.argv[2]).model_dump_json())";
-    let result=std::process::Command::new(python).current_dir(root).arg("-c").arg(script).arg(profile).arg(snapshot.to_string()).output().unwrap();
-    assert!(result.status.success(),"Python must read Rust snapshot: {}",String::from_utf8_lossy(&result.stderr));
+fn python_snapshot(profile: &str, snapshot: &Value) -> Value {
+    let python = std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "venv/bin/python".into());
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let script = "import json,sys; from app.schemas.fame_order import FameTradeSnapshot; from app.schemas.lng_order import LngTradeSnapshot; model=FameTradeSnapshot if sys.argv[1]=='fame' else LngTradeSnapshot; print(model.model_validate_json(sys.argv[2]).model_dump_json())";
+    let result = std::process::Command::new(python)
+        .current_dir(root)
+        .arg("-c")
+        .arg(script)
+        .arg(profile)
+        .arg(snapshot.to_string())
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "Python must read Rust snapshot: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
     serde_json::from_slice(&result.stdout).unwrap()
 }
 
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn caller_anonymity_is_frozen_in_trade_and_participant_event() {
-    for anonymous in [true,false] {
-        let mut f=Fixture::new(1,"1").await;
-        run_completed_match(&f.pool,f.aggressor,now(),CompletionOptions { is_anonymous:anonymous,..Default::default() }).await.unwrap();
-        let stored:bool=sqlx::query_scalar("SELECT is_anonymous FROM trades").fetch_one(&mut f.observer).await.unwrap();
-        let payload:Value=sqlx::query_scalar("SELECT payload::jsonb FROM market_event_outbox WHERE event_type='trade_auto_matched'").fetch_one(&mut f.observer).await.unwrap();
-        assert_eq!(stored,anonymous); assert_eq!(payload["is_anonymous"],anonymous);
+    for anonymous in [true, false] {
+        let mut f = Fixture::new(1, "1").await;
+        run_completed_match(
+            &f.pool,
+            f.aggressor,
+            now(),
+            CompletionOptions {
+                is_anonymous: anonymous,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        let stored: bool = sqlx::query_scalar("SELECT is_anonymous FROM trades")
+            .fetch_one(&mut f.observer)
+            .await
+            .unwrap();
+        let payload: Value = sqlx::query_scalar(
+            "SELECT payload::jsonb FROM market_event_outbox WHERE event_type='trade_auto_matched'",
+        )
+        .fetch_one(&mut f.observer)
+        .await
+        .unwrap();
+        assert_eq!(stored, anonymous);
+        assert_eq!(payload["is_anonymous"], anonymous);
     }
 }
 
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn fee_configuration_refusals_keep_their_meaning() {
-    for (tier,message) in [("enterprise","Seller transaction fee is not configured; contact Verdaxis support"),("invalid","Seller subscription tier is invalid; contact Verdaxis support")] {
-        let mut f=Fixture::new(1,"1").await;
-        sqlx::query("SELECT completion_fixture_subscription($1,true,NULL,NULL)").bind(tier).execute(&mut f.admin).await.unwrap();
-        let error=run_completed_match(&f.pool,f.aggressor,now(),CompletionOptions::default()).await.unwrap_err();
-        assert_eq!(error.status.as_u16(),409);
-        assert_eq!(error.code,MarketErrorCode::FeeRateInvalid);
-        assert_eq!(error.message,message);
+    for (tier, message) in [
+        (
+            "enterprise",
+            "Seller transaction fee is not configured; contact Verdaxis support",
+        ),
+        (
+            "invalid",
+            "Seller subscription tier is invalid; contact Verdaxis support",
+        ),
+    ] {
+        let mut f = Fixture::new(1, "1").await;
+        sqlx::query("SELECT completion_fixture_subscription($1,true,NULL,NULL)")
+            .bind(tier)
+            .execute(&mut f.admin)
+            .await
+            .unwrap();
+        let error = run_completed_match(&f.pool, f.aggressor, now(), CompletionOptions::default())
+            .await
+            .unwrap_err();
+        assert_eq!(error.status.as_u16(), 409);
+        assert_eq!(error.code, MarketErrorCode::FeeRateInvalid);
+        assert_eq!(error.message, message);
         use axum::response::IntoResponse;
-        let body=axum::body::to_bytes(error.into_response().into_body(),4096).await.unwrap();
-        let body:Value=serde_json::from_slice(&body).unwrap();
-        assert_eq!(body["detail"]["message"],message);
-        assert_eq!(body["detail"]["code"],"FEE_RATE_INVALID");
+        let body = axum::body::to_bytes(error.into_response().into_body(), 4096)
+            .await
+            .unwrap();
+        let body: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["detail"]["message"], message);
+        assert_eq!(body["detail"]["code"], "FEE_RATE_INVALID");
     }
 }
