@@ -266,3 +266,23 @@ fn unreachable_state() -> verdaxis_read::AppState {
     )
     .unwrap()
 }
+
+#[tokio::test]
+async fn phase5_authenticated_routes_are_mounted_by_the_serving_router() {
+    let mut config = unreachable_state().config.clone();
+    config.phase2 = verdaxis_read::Phase2Options {
+        jwt_secret: Some(SECRET.into()),
+        jwt_issuer: Some("routing-test".into()),
+        jwt_audience: Some("routing-test".into()),
+        frontend_url: Some("https://routing.example.test".into()),
+        email_from: Some("noreply@example.test".into()),
+        resend_api_key: Some("disposable-key".into()),
+        ..Default::default()
+    };
+    let original = unreachable_state();
+    let state = verdaxis_read::AppState::new(config, original.pools.clone(), original.policy.clone()).unwrap();
+    let router = verdaxis_read::runtime::http::router(state);
+    for route in inventory().into_iter().filter(|route| !route.public) {
+        assert_eq!(send(&router, &route.method, &route.path).await.status(), StatusCode::UNAUTHORIZED, "{} {}", route.method, route.path);
+    }
+}
