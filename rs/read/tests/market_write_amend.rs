@@ -1,7 +1,7 @@
 #![cfg(feature = "contract-tests")]
 
 use chrono::{DateTime, Utc};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use verdaxis_read::routes::market_write::amend::AmendInput;
 
 fn now() -> DateTime<Utc> {
