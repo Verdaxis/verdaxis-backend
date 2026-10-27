@@ -1,4 +1,4 @@
-use crate::{Config, DEFAULT_READ_ADMISSION_SLOTS, verify_release};
+use crate::{verify_release, Config, DEFAULT_READ_ADMISSION_SLOTS};
 use percent_encoding::percent_decode_str;
 use std::net::IpAddr;
 
@@ -354,7 +354,7 @@ pub fn validate_config(config: &Config) -> Result<(), String> {
     if config.environment == "production" {
         if !matches!(
             config.migration_revision.as_str(),
-            "p0_20261016_union" | "prc_20261026_changes"
+            "p0_20261016_union" | "prc_20261026_changes" | "p3_20261020_auth_tokens"
         ) {
             return Err("production requires its reviewed union checkpoint".into());
         }
