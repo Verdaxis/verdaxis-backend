@@ -80,7 +80,12 @@ fn decimal_roundtrip_property() {
             let scale: u32 = $scale;
             let first = if $positive { 1 } else { 0 };
             let limit = maximum * 10_i64.pow(scale);
-            for coefficient in [first, 1, limit / 2, limit - 1, limit] {
+            let mut runner = TestRunner::new_with_rng(
+                Config { failure_persistence: None, ..Config::default() },
+                TestRng::from_seed(RngAlgorithm::ChaCha, &[37; 32]),
+            );
+            let generated = vec(first..=limit, 1024).new_tree(&mut runner).unwrap().current();
+            for coefficient in [first, 1, limit / 2, limit - 1, limit].into_iter().chain(generated) {
                 let input = Decimal::new(coefficient, scale);
                 let text = input.to_string();
                 let parsed = <$domain>::parse_exact(&text).expect(&text).value();
