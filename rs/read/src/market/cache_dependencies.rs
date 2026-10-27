@@ -714,6 +714,7 @@ mod tests {
             configured_max_connections: 100,
             compliance_eur_usd_rate: None,
             fleet_artifact_path: "data/fleet_demand.json".into(),
+            phase2: Default::default(),
         };
         let policy = crate::MarketPolicy {
             source_sha: crate::compiled_sha().into(),

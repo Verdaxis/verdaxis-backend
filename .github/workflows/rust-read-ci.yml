@@ -277,6 +277,47 @@ jobs:
           RELEASE_SHA: ${{ github.sha }}
         run: venv/bin/python scripts/rust_contract/sqlx_offline_check.py
 
+      # The published Caddy binary adapts the reviewed snippets and proves the
+      # exact method/path ownership and the decision-78 admin gate, including
+      # the 300-request stop across Python-owned and Rust-owned admin paths.
+      - name: Run the real-Caddy ownership matrix
+        env:
+          ENVIRONMENT: test
+          RELEASE_SHA: test
+          JWT_SECRET: test-secret-key-for-testing-minimum-32-chars
+          DATABASE_URL: "sqlite+aiosqlite:///:memory:"
+        run: |
+          venv/bin/python -m pytest \
+            tests/rust_contract/test_routing.py \
+            tests/rust_contract/test_phase2_caddy.py \
+            tests/unit/test_rust_caddy_candidate.py \
+            tests/rust_contract/test_phase2_report.py -q
+
+      - name: Run the Rust PostgreSQL integration and race tests
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+          RUST_TEST_PYTHON: ${{ github.workspace }}/venv/bin/python
+        run: bash rs/read/tests/run_postgres.sh
+
+      - name: Run every Phase 2 route scenario and race schedule
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          venv/bin/python -m scripts.rust_contract.run_disposable \
+            --phase2 --phase2-group all \
+            --report docs/rust-phase2/ci-scenarios.json
+          venv/bin/python - <<'PY'
+          import subprocess
+          from scripts.rust_contract.phase2_scenarios import REGISTRY
+          command = ["venv/bin/python", "-m", "scripts.rust_contract.run_disposable",
+                     "--phase2", "--phase2-races",
+                     "--report", "docs/rust-phase2/ci-races.json"]
+          for scenario in REGISTRY.values():
+              if scenario.route_qualification and scenario.races is not None:
+                  command.extend(["--phase2-scenario", scenario.name])
+          subprocess.run(command, check=True)
+          PY
+
       # upload-artifact keeps paths relative to the common parent of all listed
       # files, so the report would land under docs/rust-phase1/ in the artifact.
       # Stage both files flat: publish reads evidence/ci-contract.json and
@@ -285,7 +326,7 @@ jobs:
         if: always()
         run: |
           mkdir -p contract-evidence
-          for file in docs/rust-phase1/ci-contract.json tested-binary.json; do
+          for file in docs/rust-phase1/ci-contract.json docs/rust-phase2/ci-scenarios.json docs/rust-phase2/ci-races.json tested-binary.json; do
             if [ -f "$file" ]; then cp "$file" contract-evidence/; fi
           done
       - name: Upload the contract evidence

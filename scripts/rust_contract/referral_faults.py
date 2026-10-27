@@ -4,6 +4,7 @@ import json
 from dataclasses import replace
 
 from scripts.rust_contract.phase2_scenarios import Action, Scenario
+from scripts.rust_contract.phase2_state import expect_cache_invalidations
 from scripts.rust_contract.referral_allocation import auth
 from scripts.rust_contract.referral_allocation import servers as allocation_servers
 
@@ -39,6 +40,7 @@ def retained(before,after,response,mail):
     rows=expected['users']['rows']
     for row in rows.values():
         if row['id']==AFTER: row['referral_code']='VDX-AFTER1'
+    expect_cache_invalidations(expected, 1)
     assert expected==after
     assert not mail
 

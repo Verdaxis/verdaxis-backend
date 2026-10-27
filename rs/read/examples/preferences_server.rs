@@ -40,6 +40,7 @@ mod disposable {
             python_budget: 52,
             configured_max_connections: 100,
             kyc_execution_gate_enabled: true,
+            phase2: Default::default(),
         };
         let pools = verdaxis_read::connect(&config)
             .await
@@ -60,18 +61,35 @@ mod disposable {
             "verdaxis-test-web".into(),
         ));
         let expected = token.clone();
-        let app = verdaxis_read::crud::preferences::contract_router(
-            state,
-            verification,
-            verdaxis_read::auth::limits::SharedLimits::default(),
-            controls,
-        )
-        .merge(Router::new().route(
-            "/.well-known/verdaxis-disposable-test",
-            get(move || async move { Json(json!({"disposable":true,"token":expected})) }),
-        ));
+        // Deployment keys this quota by verified user, and the scenario replays
+        // many writes as one user. Each request gets its own store, so the
+        // scenario stays a route oracle; the quota contract and the PostgreSQL
+        // route tests own quota behaviour.
+        let app = Router::new()
+            .route(
+                "/.well-known/verdaxis-disposable-test",
+                get(move || async move { Json(json!({"disposable":true,"token":expected})) }),
+            )
+            .fallback(move |request: axum::extract::Request| {
+                let state = state.clone();
+                let verification = verification.clone();
+                async move {
+                    let limits = verdaxis_read::auth::limits::SharedLimits::default();
+                    let router = verdaxis_read::crud::preferences::contract_router(
+                        state,
+                        verification,
+                        limits,
+                        controls,
+                    );
+                    use tower::ServiceExt;
+                    router.oneshot(request).await.unwrap()
+                }
+            });
         let app = app.layer(axum::middleware::from_fn(response_loss));
-        let app = verdaxis_read::runtime::http::middleware(app);
+        let app = verdaxis_read::runtime::http::middleware(
+            app,
+            &std::env::var("ENVIRONMENT").unwrap_or_default(),
+        );
         axum::serve(
             tokio::net::TcpListener::bind(bind).await?,
             app.into_make_service_with_connect_info::<std::net::SocketAddr>(),

@@ -135,6 +135,7 @@ class Runner:
         require_complete_ledger: bool = False,
         report: Path | None = None,
         release: bool = False,
+        server_binary: Path | None = None,
     ) -> None:
         self.mixed_caddy = mixed_caddy
         self.record_all = record_all
@@ -147,6 +148,7 @@ class Runner:
         # overflow and so catches more defects). Latency measurements must use
         # the release profile, or they time unoptimized code. PM decision.
         self.release = release
+        self.server_binary = server_binary
         # Which Rust contract targets to run. A single group defaults to its own
         # target; `--group all` alone runs none (integration only), while
         # `--rust-target all` runs every target once in this shared database.
@@ -319,8 +321,13 @@ CREATE EXTENSION IF NOT EXISTS postgis;
 
     def server_path(self) -> Path:
         """The contract-server binary this run's build produced."""
+        if self.server_binary is not None:
+            return self.server_binary
         flavour = "release" if self.release else "debug"
-        return ROOT / "rs" / "target" / flavour / "examples" / "contract_server"
+        target = Path(os.environ.get("CARGO_TARGET_DIR", ROOT / "rs" / "target"))
+        if not target.is_absolute():
+            target = ROOT / target
+        return target / flavour / "examples" / "contract_server"
 
     def run(self) -> None:
         try:
@@ -524,6 +531,7 @@ CREATE EXTENSION IF NOT EXISTS postgis;
                 **env,
                 "PYTHON_CONTRACT_URL": python_url,
                 "RUST_CONTRACT_URL": rust_url,
+                "RUST_CONTRACT_SERVER_BINARY": str(self.server_path()),
                 "ORACLE_CAPTURE_URL": python_url,
                 "ORACLE_CAPTURE_GROUP": group,
                 "ORACLE_RETRY_LOG": str(retry_log),
@@ -700,10 +708,18 @@ CREATE EXTENSION IF NOT EXISTS postgis;
         caddy_env = {
             **env,
             "ROUTE_SNIPPET": str(ROOT / "deploy/caddy/rust-public-staging.caddy"),
+            "CRUD_SNIPPET": str(ROOT / "deploy/caddy/rust-crud.caddy"),
             "CADDY_PORT": str(port),
             "PYTHON_UPSTREAM": f"127.0.0.1:{python_port}",
+            # The Phase 1 harness Rust does not serve the Phase 2 groups, so
+            # every CRUD group keeps Python. The pre-auth authority is still the
+            # Rust service, because the mixed run proves the shared counter.
+            **{f"{group}_UPSTREAM": f"127.0.0.1:{python_port}"
+               for group in ("NOTIFICATIONS", "PREFERENCES", "FEEDBACK",
+                             "WATCHLISTS", "ALERTS", "REFERRALS")},
             **{f"{group}_UPSTREAM": f"127.0.0.1:{rust_port}"
                for group in ("SIMPLE", "ORDERBOOK", "PRICES", "CURVES", "MCP")},
+            "PREAUTH_UPSTREAM": f"127.0.0.1:{rust_port}",
         }
         # One shared config owns forwarding options for both route groups and
         # Python fallback; do not synthesize a plain-proxy variant here.
@@ -839,6 +855,11 @@ CREATE EXTENSION IF NOT EXISTS postgis;
 
     def run_phase2(self, args) -> None:
         """Use this lifecycle owner for isolated write cells; never a live target."""
+        if getattr(args, "phase2_journeys", False):
+            from scripts.rust_contract.phase2_journeys import run as run_journeys
+
+            run_journeys(self, args)
+            return
         from scripts.rust_contract.phase2_seed import (
             APP_ROLE as role,
         )
@@ -1161,9 +1182,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--phase2-scenario", action="append")
     parser.add_argument("--phase2-size", choices=("small", "large"), default="small")
     parser.add_argument("--phase2-races", action="store_true")
+    parser.add_argument("--phase2-journeys", action="store_true",
+                        help="run the six frontend client journeys against the Rust candidate")
     parser.add_argument("--phase2-measure", action="store_true")
     parser.add_argument("--phase2-order-write-benchmark", action="store_true")
     parser.add_argument("--release-binary", type=Path)
+    parser.add_argument("--server-binary", type=Path, help="Built contract_server path, including a shared Cargo target directory")
     parser.add_argument("--profile", choices=("phase1-meaning-v1",))
     parser.add_argument("--rules-sha256")
     args = parser.parse_args(argv)
@@ -1175,6 +1199,10 @@ def main(argv: list[str] | None = None) -> int:
         os.environ["MEANING_RULES_SHA256"] = args.rules_sha256
     elif args.rules_sha256:
         parser.error("rules digest requires an explicit profile")
+    if args.phase2_journeys and not args.phase2:
+        parser.error("--phase2-journeys requires --phase2")
+    if args.phase2_journeys and (args.phase2_races or args.phase2_measure or args.phase2_order_write_benchmark):
+        parser.error("--phase2-journeys runs alone")
     if args.phase2:
         scenarios = json.loads((ROOT / "tests/rust_contract/phase2/scenarios.json").read_text())["scenarios"]
         from scripts.rust_contract.phase2_scenarios import REGISTRY
@@ -1208,6 +1236,7 @@ def main(argv: list[str] | None = None) -> int:
         require_complete_ledger=args.require_complete_ledger,
         report=args.report,
         release=args.release,
+        server_binary=args.server_binary,
     )
     try:
         if args.phase2:

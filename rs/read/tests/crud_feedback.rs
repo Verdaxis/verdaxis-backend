@@ -193,6 +193,7 @@ impl Harness {
         verdaxis_read::runtime::http::middleware_with_limits(
             router.with_state((*self.state).clone()),
             self.limits.clone(),
+            "staging",
         )
     }
 }
@@ -268,6 +269,7 @@ async fn harness() -> Option<Harness> {
         pool_max: 17,
         python_budget: 52,
         configured_max_connections: 100,
+        phase2: Default::default(),
     };
     verdaxis_read::validate_config(&config).expect("valid disposable configuration");
     let pools = verdaxis_read::connect(&config)
@@ -661,7 +663,7 @@ async fn admin_role_and_account_state_are_enforced() {
         .unwrap();
     let (status, body, headers) = send(&harness.app(), get_admin(&harness.token, "")).await;
     assert_eq!(status, 401, "{body}");
-    assert_eq!(body, json!({"detail": "Could not validate credentials"}));
+    assert_eq!(body, verdaxis_read::auth::AuthError::Credentials.body());
     assert_eq!(headers["www-authenticate"], "Bearer");
 
     for (status_value, expected) in [

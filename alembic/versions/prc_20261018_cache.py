@@ -28,6 +28,25 @@ def upgrade():
     connection.execute(sa.text(
         "LOCK TABLE " + ", ".join(f'public."{table}"' for table in DEPENDENCIES)
         + " IN SHARE ROW EXCLUSIVE MODE NOWAIT"))
+    # Readers are compatible with the held lock. Refuse an existing reader
+    # explicitly before DDL; a reader arriving later remains unblocked because
+    # no dependency statement requests a stronger lock.
+    active_reader = connection.execute(sa.text("""
+        SELECT EXISTS (
+            SELECT 1 FROM pg_catalog.pg_locks l
+            WHERE l.locktype = 'relation'
+                AND l.database = (SELECT oid FROM pg_catalog.pg_database
+                                  WHERE datname = current_database())
+                AND l.relation = ANY (
+                    SELECT to_regclass('public.' || name)::oid
+                    FROM unnest(CAST(:dependencies AS text[])) AS dependency(name)
+                )
+                AND l.mode = 'AccessShareLock' AND l.granted
+                AND l.pid IS DISTINCT FROM pg_backend_pid()
+        )
+    """), {"dependencies": list(DEPENDENCIES)}).scalar()
+    if active_reader:
+        raise RuntimeError("cache dependency has an active reader; retry the upgrade")
     op.create_table("public_read_cache_generations",
         sa.Column("domain", sa.Text(), primary_key=True),
         sa.Column("generation", sa.BigInteger(), nullable=False, server_default="0"),

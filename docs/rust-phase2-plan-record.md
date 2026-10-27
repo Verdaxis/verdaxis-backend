@@ -85,11 +85,24 @@ serialized response.
 Evidence: 21 Rust tests, 10 of them on disposable PostgreSQL. No Python
 comparison is a gate.
 
-The trusted producer that would let the PD4-G guard go is a design proposal,
-not code: `docs/rust-phase2-task15-producer-design.md`. It covers the outbox
+The trusted producer that will let the PD4-G guard go is designed, not
+implemented: `docs/rust-phase2-task15-producer-design.md`. It covers the outbox
 consumer identity, additive producer columns, replay watermark, visibility
-transitions, shadow mode, activation metadata, rollback and the guard-removal
-preconditions. PM approval is required before implementation.
+transitions, activation metadata, rollback and the guard-removal
+preconditions.
+
+PM decision PD6-2 (Phase 6 fact base) approves that design as the target with
+two changes:
+
+1. No shadow comparison against Python's rows is acceptance evidence
+   (decision 112): Python's rows are the defective ones. The producer's own
+   unit, PostgreSQL integration and race tests prove the public-scope rules.
+2. The producer is built and activated in Phase 8 with the Rust order-write
+   cutover, because only the order writer can add the mutation identity and
+   before/after evidence to the outbox row in the same economic transaction.
+
+Phase 2 therefore ships with the PD4-G read guard exactly as ported above, and
+no Phase 2 gate waits on the producer.
 
 ## Approved difference PD8 — price-alert cap concurrency
 
@@ -122,11 +135,54 @@ the cross-process quota authority.
   client built from `RESEND_API_KEY`, and the shared quota authority into the
   composed routers. Do not create a second settings or quota owner.
 - Merge the exported route factory (`routes::referral_routes(settings)`), and
-  compose the notification, preference, feedback and price-alert routers through
-  their exported seams. Keep the market write boundary unmounted: Task 21 stays
-  excluded, and no market write route may be activated.
+  compose the notification, preference, feedback, watchlist and price-alert
+  routers through their exported seams. Keep the market write boundary
+  unmounted: Task 21 stays excluded, and no market write route may be activated.
+- Build `WatchlistSettings` only from release metadata (PD5): the producer
+  activation is the RFC 3339 instant that `.runtime-release.env` records as
+  `WATCHLIST_PRODUCER_ACTIVATED_AT`, or no instant while none is recorded. No
+  clock reading or fixed default stands in for it; an unreadable record refuses
+  the start. Phase 2 releases record none, because no trusted producer exists
+  before Phase 8; the PD4-G guard hides every best-price event by type either
+  way. The runtime preparer never projects the key from `.env`, and
+  `rs/read/tests/watchlist_activation_source.rs` refuses a clock or a default
+  in the production composition.
 - Keep the marked registration blocks intact when composing; the shared runner
   selects route groups through them.
+
+## Tasks 22 and 23 — review fixes and plan corrections
+
+Implemented as the Rust-native equivalent of the plan (decisions 112 and 113):
+
+- Group proxies forward the trusted client address; a Python-owned group no
+  longer gets a passive-health pool, so a Python restart has no fail window.
+- The quota map holds at most 50,000 identities and prunes once a minute; at
+  capacity it keeps existing accounting and refuses new identities until the
+  next pass, rather than clearing counters. Refusals carry `RATE_LIMITED` and
+  `Retry-After`.
+- An owner is reached only after the authority answers 204 with its admission
+  mark. A 404 still means the Rust authority is down and Python keeps its own
+  counter; the runbook requires a 204 probe before the `preauth` step.
+- The watchlist feed, read state and counts read a payload order with one SQL
+  rule.
+- The private projection keeps JWT, issuer, audience and sender bytes exactly
+  as deployed (Python verifies the same raw values), refuses blanks and control
+  characters, and quotes values for systemd.
+
+Plan points superseded:
+
+- The 27-operation inventory moves 25 operations; W09/W10 stay on Python.
+- The `disposable-artifact` report qualification and the
+  `--phase2 --mixed-caddy` runner mode belong to the byte and twin-database
+  evidence that decisions 112 and 113 retired. Their place is taken by the
+  Rust unit, PostgreSQL and race suites, every Phase 2 route scenario and race
+  schedule in the CI contract job (required for publication), and real-Caddy
+  tests, one of which serves the real Rust quota middleware and stops the
+  301st admin request across Python-owned and Rust-owned paths.
+- `outputs/rust-phase2/release-runbook.md` lives at
+  `docs/rust-phase2/release-runbook.md`; the repository keeps no `outputs/`
+  folder.
+- Measurements are not run (decision 110).
 
 ## Ownership
 

@@ -78,6 +78,7 @@ async fn state_with_slots(slots: u32) -> (Arc<AppState>, sqlx::PgPool, sqlx::PgP
         pool_max: slots + 1,
         python_budget: 52,
         configured_max_connections: 100,
+        phase2: Default::default(),
         prepared_budget: None,
         compliance_eur_usd_rate: None,
         fleet_artifact_path: "data/fleet_demand.json".into(),

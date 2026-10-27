@@ -1,5 +1,6 @@
 //! Actor-scoped batched loading. The caller supplies the shared public-order
 //! result captured on this transaction; no private visibility policy is copied.
+use super::events::source_order_sql;
 use super::{Event, Metrics, Summary, Target, project_summary};
 use chrono::{DateTime, Utc};
 use sqlx::{PgConnection, Row};
@@ -143,6 +144,13 @@ pub async fn capture_visible(
     Ok(VisibleSnapshot::from_orders(values))
 }
 
+const EVENTS_SQL: &str = concat!(
+    "SELECT e.watchlist_target_id,e.event_type::text AS event_type,",
+    "e.is_read,e.created_at,",
+    source_order_sql!(),
+    " FROM watchlist_events e WHERE e.watchlist_id=$1"
+);
+
 /// Four bounded statements independent of target count: owner, targets, events
 /// and (by the caller) the shared public-order relation. No state is updated.
 pub async fn load_detail(
@@ -181,22 +189,18 @@ pub async fn load_detail(
                     .is_some_and(|id| visible_order_ids.contains(&id))
         })
         .collect::<Vec<_>>();
-    let rows=sqlx::query("SELECT watchlist_target_id,event_type::text AS event_type,event_payload::text AS payload,is_read,created_at FROM watchlist_events WHERE watchlist_id=$1")
-        .bind(watchlist_id).fetch_all(&mut *connection).await?;
+    // The counts read the source order with the feed's own rule.
+    let rows = sqlx::query(EVENTS_SQL)
+        .bind(watchlist_id)
+        .fetch_all(&mut *connection)
+        .await?;
     let events = rows
         .iter()
         .map(|row| {
-            let payload: String = row.try_get("payload")?;
-            let payload: serde_json::Value = serde_json::from_str(&payload)
-                .map_err(|error| sqlx::Error::Decode(Box::new(error)))?;
-            let order_id = payload
-                .get("order_id")
-                .and_then(serde_json::Value::as_str)
-                .and_then(|text| Uuid::parse_str(text).ok());
             Ok(Event {
                 target_id: row.try_get("watchlist_target_id")?,
                 event_type: row.try_get("event_type")?,
-                order_id,
+                order_id: row.try_get("source_order")?,
                 is_read: row.try_get("is_read")?,
                 created_at: row.try_get("created_at")?,
             })

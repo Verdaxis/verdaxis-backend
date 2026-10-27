@@ -9,7 +9,7 @@
     "app/models/command_result.py": "97a8fdbf9db84a3b52c8bb6d6a8c56031765f259f2d99d1ab309e546b90d89ed",
     "app/models/market_event.py": "d87b731dda9a4d29a918ae0349a0f89d600ff5fbfcb1a9f57076e822cd8df349",
     "app/services/db_errors.py": "3fe23bfc6792cbb58437d41b77a62fdee92ec5409792a535da2804886bd5927a",
-    "deploy/postgres/app_acl_policy.sql": "e800b6429a2e25ec1921002d4b45d0aedc9105c5c3e7bf4f19a20fe17af4780f"
+    "deploy/postgres/app_acl_policy.sql": "b097b2b2fe2925d4031c4fa6f6158247204b3cee18cd74433102b1cd6ef2d38c"
   },
   "constants": {
     "python_requires": "3.12",

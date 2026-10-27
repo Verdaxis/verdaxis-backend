@@ -79,6 +79,7 @@ async fn fixture() -> Option<Fixture> {
         pool_max: 2,
         python_budget: 52,
         configured_max_connections: 100,
+        phase2: Default::default(),
     };
     let pools = verdaxis_read::connect(&config).await.unwrap();
     let read_pool = pools.read.clone();

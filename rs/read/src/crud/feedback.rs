@@ -181,7 +181,12 @@ async fn submit_feedback(State(state): State<AppState>, request: Request) -> Res
         move |transaction| {
             Box::pin(async move {
                 // Rule 3 and 4: account state, then typed input, then quota.
-                let submission = validate_and_admit(payload, &admission, validate_submission)?;
+                let submission = validate_and_admit(
+                    payload,
+                    &admission,
+                    transaction.actor().id,
+                    validate_submission,
+                )?;
                 insert_feedback(transaction, submission, now, id).await
             })
         },
@@ -237,7 +242,9 @@ async fn list_feedback(State(state): State<AppState>, request: Request) -> Respo
                 // A GET has no body; the shared seam still enforces typed
                 // validation before endpoint quota.
                 let pagination =
-                    validate_and_admit(Value::Null, &admission, |_| validate_query(&query))?;
+                    validate_and_admit(Value::Null, &admission, transaction.actor().id, |_| {
+                        validate_query(&query)
+                    })?;
                 select_feedback(transaction, pagination).await
             })
         },

@@ -162,10 +162,77 @@ validation vectors and scenario definitions. `feedback_scenario.py` registers
 31 real-route twin-database actions with full committed-state, rollback,
 postcommit no-replay and empty-mail-ledger assertions. The feature-gated
 `feedback_contract` example and Python test adapter control IDs and clocks without
-changing deployed settings. These routers are
-not activated in the serving binary. Feedback stays on Python at cutover until
-Task 22 provides the shared Python–Rust quota counter across real processes.
+changing deployed settings. Runtime composition now mounts the 25 non-legacy
+Phase 2 operations when `runtime/phase2.rs` accepts the private verification and
+invite settings. W09/W10 remain Python-owned. `deploy/caddy/rust-crud.caddy`
+selects each of six groups independently and uses Python as its fallback.
+Before the admin route split, Caddy calls Rust's single pre-auth authority;
+external quota marks are removed and only CORS preflights bypass counting. An
+owner is reached only after the authority answers 204 with its admission mark;
+an unmarked success is refused. Group proxies forward the trusted client
+address, and a group on Python uses the site's fallback without passive-health
+quarantine. Quota lives in two independent stores, each capped at 50,000
+buckets. The pre-auth store is keyed by the trusted client address, with IPv4
+kept per address and IPv6 grouped to its /64; authenticated endpoint quotas are
+keyed by verified user ID, never by address, so an unauthenticated flood cannot
+spend them. A full pre-auth store evicts its soonest-expiring bucket and counts
+the eviction in a number-only counter instead of refusing the new client.
+Buckets expire on their own windows; refusals use `RATE_LIMITED` with
+`Retry-After`. The operator order and rollback are in
+`docs/rust-phase2/release-runbook.md`. Actual cutover remains unapproved until
+the separate Task 24 operator window.
 
+
+## Rust Phase 3 auth storage and lock primitives
+
+`rs/read/src/auth/store.rs` holds every statement on `refresh_sessions` and
+`password_reset_tokens`, plus the user-row locks credential routes take. It runs
+on the caller's transaction and never commits. `rs/read/src/auth/lock.rs` owns
+the device advisory key (the first eight bytes of the cookie's SHA-256 digest,
+big-endian, signed, the same key Python uses), the session lock order (device,
+user, then that user's session or reset rows), the organization-write order
+(after the admission-held actor, organizations, other users, join requests,
+each by ascending id) and the bounded retry: three attempts on 40001/40P01,
+then a 503 `ORGANIZATION_WRITE_BUSY`. Reset issuance touches only its user's
+row; bounded expired-row cleanup executes separately through the pool.
+`alembic/versions/p3_20261020_auth_tokens.py` adds `password_reset_tokens`
+(one row per user, Rust-owned; `app/models/password_reset_token.py` only declares
+it for `alembic check`). Its runtime grants are table-level SELECT and DELETE and
+column-level INSERT and UPDATE, so a later column gets no write authority.
+`tests/postgres/test_phase3_auth_store.py` proves the single head, the additive
+and reversible migration, the grants, the shared device key
+(`tests/rust_contract/phase3/device-lock-keys.json`) and drives
+`rs/read/tests/auth_store_postgres.rs` on the migrated database. Unmounted
+session and recovery components use these primitives. Registration reuses the
+shared verification-mail dispatcher and monitor-canary policy; new applicants
+queue environment-labelled signup alerts only after commit. Existing-account
+mail uses `auth/templates/account_exists.html`. `runtime/phase3.rs` composes all twelve credential operations in the serving
+router, using the same quota authority as ingress and Phase 2. Release preparation
+projects the optional monitor authority and installed email-domain lists into
+private runtime files; absent datasets disable domain matching. The auth Caddy
+selector moves the complete area to one Rust upstream without Python fallback.
+`store::revoke_user_authentication` locks the user, advances
+`authentication_revoked_at` monotonically at PostgreSQL microsecond precision,
+and revokes all user refresh families without committing. Missing users return
+`sqlx::Error::RowNotFound`. `auth_revocation_postgres.rs`, driven by
+`tests/postgres/test_phase3_auth_revocation.py`, covers concurrent updates and
+caller rollback on the migrated runtime role.
+
+## Rust Phase 3 coexistence and session schedules
+
+`tests/postgres/test_phase3_cross_stack_auth.py` runs the real Python auth
+handlers and the release-profile, loopback-only `phase3_auth` example on one
+migrated disposable database. It passes actual login tokens and cookies in both
+directions, checks Python stream admission for Rust-issued tokens, and runs the
+Python maintenance writer against Rust-created rows. The example does not mount
+routes in the serving binary or change deployment revision pins.
+`auth_coexistence_postgres.rs` checks Python's device-key derivation against Rust
+and proves contention on independent connections. `auth_races_postgres.rs` and
+`test_phase3_races.py` cover single-stack session writers and the retained Python
+maintenance writer with database-observed lock waits. Python credential-route
+writer races are not required after the one-switch cutover.
+The shared authenticated transaction permits forced-change accounts on the exact
+profile and password paths, but still applies status and token cutoffs there.
 
 ## Rust Phase 2 order-write boundary
 
@@ -214,8 +281,13 @@ event id, and applies the PD4-G guard in SQL before `LIMIT`: best-price events
 and events whose payload names an order outside the full public order scope are
 hidden, and a PIN target must name a public order. Acknowledgement commits
 `is_read` only when the row is still unread and refuses a guarded event before
-any write. Python remains the event producer; the trusted Rust producer is a
-design proposal in `docs/rust-phase2-task15-producer-design.md`.
+any write. The feed, the read state and the container counts read a payload's
+source order through one SQL expression, and a response names only that order.
+Python remains the event producer; the trusted Rust producer is a design
+proposal in `docs/rust-phase2-task15-producer-design.md`. The serving router
+takes the producer activation (PD5) only from the release metadata key
+`WATCHLIST_PRODUCER_ACTIVATED_AT`; no Phase 2 release records one, and
+`rs/read/tests/watchlist_activation_source.rs` refuses a clock or default there.
 
 ## Rust Phase 2 referral routes
 
@@ -247,7 +319,7 @@ hard-coded UTC startup field cannot be overridden through `.options()`.
 Staging uses `Asia/Singapore` until Phase 0 convergence, then `UTC`. It does not open a
 migrator connection. `scripts/prepare_rust_budget.py` creates private budget
 metadata and verifies environment-file drift. The deploy transaction writes
-that artifact to `.runtime-rust/budget.json`, and the reviewed staging unit
+that artifact to `.runtime-rust/budget.json`, and the specified staging unit
 passes it to the binary with `--budget-file`; the contract harness may instead
 carry the document in `RUST_CONFIG`. `runtime::config::config_from_deployed_environment`
 builds the same validated `Config` from the flat deployed environment, so a
@@ -292,7 +364,7 @@ short floor cannot return PASS. Candidate activation remains a separate gate;
 see `docs/rust-phase1/readiness-task14b.md`.
 
 Task 5 exports the catalog policy as data. `scripts/rust_contract/export_policy.py`
-turns the approved `app.market_catalog` constants and the reviewed
+turns the approved `app.market_catalog` constants and the specified
 qualification-profile map into `deploy/rust/market-policy.json` (identity, lanes,
 execution mode, display order) and `deploy/rust/mcp-catalog.json` (the
 `list_markets` payload); `deploy/rust/market-policy.manifest.json` holds their
@@ -305,7 +377,7 @@ Task 6 adds the shared market rules under `rs/read/src/market/`. `visibility.rs`
 binds values into the two shared relations in `rs/read/sql/`:
 `public_orders.sql` projects internal order rows and private digest input from the attested policy
 plus the captured instants, and `trade_evidence.sql` selects formal trade
-snapshots. `terms.rs` owns typed execution qualification, the reviewed-terms
+snapshots. `terms.rs` owns typed execution qualification, the specified-terms
 digest, and the public redaction of private declarations; `decimal.rs`,
 `windows.rs`, and `provenance.rs` own normalized decimal text, the canonical
 availability-window grammar and aliases, and the evidence policy constants.
@@ -339,6 +411,13 @@ digest input remains separate. `market/map_decimal.rs` preserves exact aggregate
 arithmetic, and `market/listing_terms.rs` retains compatibility schema ordering.
 R18/R26 use decision 23's created-time/UUID descending pagination in both languages.
 All projections apply shared eligibility before sorting, grouping and pagination.
+BID/ASK opposing prices use `visibility::opposing_order_query_sql` to restrict
+base orders to the page's exact product/point/window/provenance keys before
+shared admission. The final opposing key join and numeric price aggregate stay
+unchanged; duplicate keys cannot multiply the base scan.
+Distinct product, fuel-type and region labels use static `orderbook/distinct*.sql`
+tails with one bounded eligible-order probe per catalog product/point pair;
+SQL DISTINCT and collation order remain database-owned.
 
 Task 6a adds `market/live_benchmarks.rs` and `sql/live_benchmarks.sql` for
 read-only, request-cached same-side benchmarks. It applies full typed/scalar
@@ -408,7 +487,7 @@ allocator, server producer and target consumer. It reads Linux procfs or macOS
 sysctl and fails closed without changing host settings. Database/Linux gates run
 through the approved `verdaxis-prod-test` isolated harness; local Colima stays off.
 
-Task 12c adds the reviewed staging unit
+Task 12c adds the specified staging unit
 `deploy/systemd/verdaxis-rust-staging.service` and its manifest entry, so the
 staging manifest now selects the backend, the Rust reads and the singleton
 maintenance units. The unit loads `.runtime-release.env` and the deploy-written
@@ -474,7 +553,7 @@ digest and the systemd 249/255 and staging-ABI start evidence.
 
 The explicit `phase1-meaning-v1` profile reuses `phase2_meaning.py` and its single
 raw-response comparator. The default byte path remains historical and unchanged.
-The successor CI runner supplies the reviewed ledger digest explicitly.
+The successor CI runner supplies the specified ledger digest explicitly.
 `phase1_meaning/corpus/{enabled,disabled}` retains all 487 requests per KYC state,
 recorded twice on disposable data. Canonical tape pages come from the complete
 Python-filtered relation before full-UUID pagination, not a sorted Python page.
@@ -483,6 +562,11 @@ request headers are rebuilt. It also supplies bounded trading entries tied to
 an authority/fence token, generation, policy identity and derived time boundary.
 Migration `prc_20261018_cache` adds the generation, event and incarnation tables
 and an always-enabled statement trigger on each trading dependency.
+Revision `prc_20261026_changes` replaces each with four event-specific ALWAYS
+statement triggers. DML transition tables suppress empty-statement bumps; TRUNCATE
+still bumps. It retains the latest 4,096 trading events, preserving generation and
+incarnation. A listener behind the retained window clears trading entries and
+resynchronizes; every read still checks its snapshot's generation.
 `runtime/cache_authority.rs` grants a hit only under an owner record outside the
 database (`scripts/rust_cache_authority.py` writes it), a lease, a matching database
 identity and a bound listener. `runtime/cache_events.rs::TradingCacheRuntime`
@@ -492,8 +576,9 @@ hook starts its loop only with `cache_listener=1` in the prepared budget; otherw
 no cache runtime or extra connection is created. `runtime/admission.rs::run_trading_read`
 checks identity and generation in one admitted read-only REPEATABLE READ snapshot
 and checks the fence again before insertion and before publication. With the
-runtime on, a read on a connection that is not admitted returns the database
-error, also when it would not cache. Overlapping snapshots each answer at their
+runtime on, unavailable cache authority uses an uncached database read. A fence
+change before publication discards the previous result and reloads it in a fresh
+read-only snapshot under the same admission permit. Overlapping snapshots each answer at their
 own generation; an older fill never replaces a newer entry. Restore detection
 belongs to the external activation protocol. `AppState::trading_read_observer`
 supplies the read clock and lifecycle checkpoints: serving uses the real clock,
@@ -531,7 +616,6 @@ OpenAPI operations, DTO exports, effect classes and Python source digests.
 on the isolated test host. `evidence-manifest.json` declares required route and
 scenario coverage and separates disposable-artifact qualification from
 production-cutover acceptance. It contains no run results or cutover verdict.
-See `outputs/rust-phase2/source-checkpoint.md` for the oracle identity and checks.
 Authentication issuance, market writers, SSE and dispatch remain Python-owned.
 `compare.py::compare_responses` is the raw-response profile boundary. Its explicit
 `phase2-meaning-v1` branch delegates to private `phase2_meaning.py`, with a
@@ -880,7 +964,7 @@ See `docs/phase0/progress-task4b.md` for acceptance and remaining host gates.
 
 The canonical UCOME B100 ID remains `e561e43f-d9b2-598e-981c-f1d28d515ddc`. Its execution mode is `ORDERBOOK`; the existing wholesale Singapore lane and 1 MT initial order minimum remain. Standard fractional fills use the same rules as other fuels. No synthetic UCOME B100 liquidity is seeded.
 
-`app/schemas/fame_order.py` defines BID requirements and ASK declarations within the standard order contract. `app/services/fame_order.py` validates current declarations, compares standard/edition/grade, cold-flow limits, comparable CI and certification/evidence requirements, and forms immutable trade snapshots. Matching and direct taking use the same checks. B100 direct takes bind the reviewed order version under the row lock; changed offers require a fresh review, while committed idempotent requests remain replayable. Inventory and assisted publication carry the same terms. Negotiation acceptance remains disabled for all fuels under the existing policy.
+`app/schemas/fame_order.py` defines BID requirements and ASK declarations within the standard order contract. `app/services/fame_order.py` validates current declarations, compares standard/edition/grade, cold-flow limits, comparable CI and certification/evidence requirements, and forms immutable trade snapshots. Matching and direct taking use the same checks. B100 direct takes bind the specified order version under the row lock; changed offers require a fresh review, while committed idempotent requests remain replayable. Inventory and assisted publication carry the same terms. Negotiation acceptance remains disabled for all fuels under the existing policy.
 
 Public order responses redact private certificate, batch, site and documentary references; owner and authorized trade responses retain them. Unknown measurements remain null, zero remains zero, and declared evidence is not platform verification. Operator certificates must be current at execution; availability windows remain matching buckets, not promised delivery dates. Required batch/consignment evidence has an explicit loading/delivery milestone.
 
@@ -941,3 +1025,7 @@ clients retry the unchanged request. The receipt commits with the economic effec
 and outbox. Runtime access is SELECT
 and INSERT only; receipts are retained. Migration `rcp_20261003_command_results`
 follows acceptance priority. Forward corrective releases must retain receipts.
+
+## Rust login component
+
+`auth/login.rs` owns form login, device-bound issuance and the login-day upsert in one transaction. Its router remains unmounted. Shared ingress supplies one pre-auth charge and Unix-second quota time; component-only requests admit locally. State-free HTTP constructors require an explicit environment.

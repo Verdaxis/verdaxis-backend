@@ -3,14 +3,15 @@
 
 Called by the canonical deploy transaction after the verified artifact is
 staged. It reads the deployed `.env` with no-follow regular-file semantics,
-projects ONLY the app database settings, the KYC execution switch and the
-runtime identity the Rust HTTP process needs, and writes
-`.runtime-rust/runtime.env` at mode 0600.
+projects ONLY the app database settings, the KYC execution switch, the runtime
+identity and (Task 23) the Phase 2 verification/invite settings the Rust HTTP
+process needs, and writes `.runtime-rust/runtime.env` at mode 0600.
 
-The Rust process must never receive mail, JWT, provider, or migrator
-credentials: its read pool is the shared app role, and the migrator-backed
-checks stay in the short-lived prestart control plane. The file also names the
-staged release directory and the prepared budget artifact so systemd's
+The migrator URL and every unrelated provider key stay out: its read pool is
+the shared app role, and the migrator-backed checks stay in the short-lived
+prestart control plane. The Phase 2 JWT and Resend values go into this private
+file only; the Python runtime keeps reading its own `.env`. The file also names
+the staged release directory and the prepared budget artifact so systemd's
 `EnvironmentFile=` lines resolve to one reviewed selection.
 """
 from __future__ import annotations
@@ -31,6 +32,18 @@ BUDGET_SCRIPT = "scripts/prepare_rust_budget.py"
 RUNTIME_KEYS = ("ENVIRONMENT", "RELEASE_SHA")
 APP_DATABASE_KEYS = ("DATABASE_URL",)
 KYC_GATE_KEY = "KYC_EXECUTION_GATE_ENABLED"
+# Task 23: the six authenticated CRUD groups verify tokens and send one invite,
+# so these are required in the deployed environment. The previous key is the
+# one optional value: it exists only while a rotation is in progress.
+PHASE2_REQUIRED_KEYS = (
+    "JWT_SECRET",
+    "JWT_ISSUER",
+    "JWT_AUDIENCE",
+    "FRONTEND_URL",
+    "EMAIL_FROM",
+    "RESEND_API_KEY",
+)
+PHASE2_PREVIOUS_KEY = "JWT_SECRET_PREVIOUS"
 # Pydantic accepts these spellings for a boolean setting; the deployed file
 # decides the value, exactly as the Python service reads it. A missing key is
 # Python's default (enabled), never Rust's own choice.
@@ -144,6 +157,65 @@ def kyc_execution_gate(values: dict) -> str:
     raise RustRuntimeError(f"{KYC_GATE_KEY} must be true or false")
 
 
+def phase2_settings(values: dict) -> dict:
+    """Return the private Phase 2 settings, refusing a partial projection.
+
+    A missing key is refused here, before a restart, because the Rust service
+    would refuse the same environment after the transaction committed. Values
+    keep their deployed spelling: the Rust side parses and validates the token
+    authority and the URL itself.
+    """
+    projected = {}
+    for key in PHASE2_REQUIRED_KEYS:
+        raw = values.get(key)
+        if not isinstance(raw, str) or not raw.strip():
+            raise RustRuntimeError(f"the deployed .env must define {key} for Phase 2")
+        projected[key] = raw
+    if len(projected["JWT_SECRET"]) < 32:
+        raise RustRuntimeError("JWT_SECRET must be at least 32 characters")
+    previous = values.get(PHASE2_PREVIOUS_KEY)
+    if previous is not None:
+        if not isinstance(previous, str):
+            raise RustRuntimeError(f"{PHASE2_PREVIOUS_KEY} must be text")
+        if previous.strip():
+            if len(previous) < 32:
+                raise RustRuntimeError(
+                    f"{PHASE2_PREVIOUS_KEY} must be at least 32 characters"
+                )
+            projected[PHASE2_PREVIOUS_KEY] = previous
+    frontend = urllib.parse.urlsplit(projected["FRONTEND_URL"])
+    if (
+        frontend.scheme not in {"http", "https"}
+        or not frontend.netloc
+        or any(character.isspace() for character in projected["FRONTEND_URL"])
+    ):
+        raise RustRuntimeError("FRONTEND_URL must be an absolute http or https URL")
+    return projected
+
+
+def phase3_settings(values: dict) -> dict:
+    """Project the monitor authority and installed, versioned domain datasets.
+
+    Missing datasets disable domain matching, as in the registration component.
+    No provider or domain lookup runs in a request.
+    """
+    try:
+        from disposable_email_domains import blocklist
+        from free_email_domains import whitelist
+    except ImportError:
+        datasets = None
+    else:
+        datasets = {"public": sorted(whitelist), "disposable": sorted(blocklist)}
+    projected = {"AUTH_DOMAIN_DATASETS": json.dumps(datasets, separators=(",", ":"))}
+    monitor = values.get("MONITOR_TOKEN")
+    if monitor is not None:
+        if not isinstance(monitor, str):
+            raise RustRuntimeError("MONITOR_TOKEN must be text")
+        if monitor:
+            projected["MONITOR_TOKEN"] = monitor
+    return projected
+
+
 def project_runtime_environment(
     environment_file: Path, release_sha: str, migration_revision: str, policy: dict
 ) -> dict:
@@ -154,13 +226,15 @@ def project_runtime_environment(
     if any(values.get(key) is None for key in RUNTIME_KEYS):
         raise RustRuntimeError("the deployed .env must define ENVIRONMENT and RELEASE_SHA")
     environment = policy["environment"]
-    if environment == "production" and migration_revision != "p0_20261016_union":
+    if environment == "production" and migration_revision not in {
+        "p0_20261016_union", "prc_20261026_changes", "p3_20261020_auth_tokens",
+    }:
         raise RustRuntimeError("production requires its reviewed union checkpoint")
     if values["ENVIRONMENT"] != environment or values["RELEASE_SHA"] != release_sha:
         raise RustRuntimeError(
             "the deployed environment identity does not match this release"
         )
-    return {
+    projected = {
         "ENVIRONMENT": environment,
         "RELEASE_SHA": release_sha,
         "MIGRATION_REVISION": migration_revision,
@@ -169,6 +243,16 @@ def project_runtime_environment(
         "READ_ADMISSION_SLOTS": values.get("READ_ADMISSION_SLOTS", "16"),
         KYC_GATE_KEY: kyc_execution_gate(values),
     }
+    projected.update(phase2_settings(values))
+    projected.update(phase3_settings(values))
+    # Refuse control characters; quotes and backslashes are escaped by the
+    # EnvironmentFile renderer without changing the deployed value.
+    for key, value in projected.items():
+        if any(ord(character) < 32 or ord(character) == 127 for character in value):
+            raise RustRuntimeError(
+                f"{key} contains a character the runtime file cannot carry"
+            )
+    return projected
 
 
 def write_env_file(output_dir: Path, projected: dict) -> Path:
@@ -182,7 +266,10 @@ def write_env_file(output_dir: Path, projected: dict) -> Path:
     # systemd's EnvironmentFile parser keeps it as one value.
     def render(key: str, value: str) -> str:
         plain = value != "" and urllib.parse.quote(value, safe="") == value
-        return f"{key}={value}\n" if plain else f'{key}="{value}"\n'
+        if any(ord(character) < 32 or ord(character) == 127 for character in value):
+            raise RustRuntimeError(f"{key} contains a control character")
+        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+        return f"{key}={value}\n" if plain else f'{key}="{escaped}"\n'
 
     body = "".join(render(key, value) for key, value in sorted(projected.items()))
     # Atomic publication: one create, one rename, never an in-place rewrite.
@@ -209,6 +296,21 @@ def prepare(
     projected = project_runtime_environment(
         environment_file, release_sha, migration_revision, policy
     )
+    # Domain datasets exceed operating-system per-variable limits. Publish them
+    # beside the private runtime file, and carry only their absolute path.
+    domains = projected.pop("AUTH_DOMAIN_DATASETS")
+    output_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if output_dir.is_symlink():
+        raise RustRuntimeError("the Rust runtime directory must be a real directory")
+    domain_path = output_dir / "auth-domains.json"
+    temporary = output_dir / f".auth-domains.tmp.{os.getpid()}"
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "w") as stream:
+        stream.write(domains)
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.replace(temporary, domain_path)
+    projected["AUTH_DOMAIN_DATASETS_FILE"] = str(domain_path.resolve())
     written = write_env_file(output_dir, projected)
     return {"policy": policy, "runtime_env": written}
 

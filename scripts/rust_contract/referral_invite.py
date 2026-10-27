@@ -9,6 +9,7 @@ import json
 from dataclasses import replace
 
 from scripts.rust_contract.phase2_scenarios import Action, Scenario, Server
+from scripts.rust_contract.phase2_state import expect_cache_invalidations
 from scripts.rust_contract.referral_allocation import auth
 from scripts.rust_contract.referral_allocation import servers as allocation_servers
 
@@ -53,6 +54,7 @@ def keeps_only_code(sender, before, after):
         if row['id'] == sender:
             assert not row['referral_code'], 'fixture sender already had a code'
             row['referral_code'] = CODES[sender][0]
+    expect_cache_invalidations(expected, 1)
     assert expected == after, 'invite changed more than the sender code'
 
 

@@ -79,6 +79,10 @@ pub struct AppState {
     pub reads: std::sync::Arc<tokio::sync::Semaphore>,
     pub reference_cache:
         std::sync::Arc<runtime::cache::ReferenceCache<runtime::cache::ReferenceKey>>,
+    /// Verified Phase 2 settings; `None` means this composition does not mount
+    /// the Phase 2 groups and Caddy keeps them on Python.
+    pub(crate) phase2: Option<runtime::phase2::Phase2Settings>,
+    pub(crate) phase3: runtime::phase3::Phase3Settings,
     /// Every route family's trading cache, so an authority or listener change
     /// can clear them together.
     pub trading_caches: std::sync::Arc<runtime::cache::TradingCaches>,
@@ -107,6 +111,8 @@ impl AppState {
         let reads = std::sync::Arc::new(tokio::sync::Semaphore::new(
             config.read_admission_slots as usize,
         ));
+        let phase2 = runtime::phase2::Phase2Settings::from_options(&config.phase2)?;
+        let phase3 = runtime::phase3::Phase3Settings::from_options(&config.phase2)?;
         let policy_identity = market::cache_dependencies::policy_identity(&config, &policy);
         let reference_cache = std::sync::Arc::new(runtime::cache::ReferenceCache::default());
         let trading_caches = std::sync::Arc::new(runtime::cache::TradingCaches::default());
@@ -127,6 +133,8 @@ impl AppState {
             policy: std::sync::Arc::new(policy),
             reads,
             reference_cache,
+            phase2,
+            phase3,
             trading_caches,
             trading_cache,
             public_trading_cache: std::sync::Arc::new(runtime::cache::TradingCache::default()),
@@ -217,10 +225,34 @@ pub struct Config {
     /// Operator configuration only; relative paths use the unit WorkingDirectory.
     #[serde(default = "fleet_artifact_default", alias = "FLEET_ARTIFACT_PATH")]
     pub fleet_artifact_path: std::path::PathBuf,
+    /// Phase 2 private runtime settings. The deploy transaction projects them
+    /// into the Rust runtime file only. Absent in the contract harness, where
+    /// the Phase 2 groups are not mounted and Caddy keeps them on Python.
+    #[serde(default)]
+    pub phase2: Phase2Options,
 }
 
 fn fleet_artifact_default() -> std::path::PathBuf {
     "data/fleet_demand.json".into()
+}
+
+/// The minimal Phase 2 verification, invite and public-link settings.
+#[derive(Clone, Default, serde::Deserialize)]
+#[serde(default)]
+pub struct Phase2Options {
+    pub jwt_secret: Option<String>,
+    pub jwt_secret_previous: Option<String>,
+    pub jwt_issuer: Option<String>,
+    pub jwt_audience: Option<String>,
+    pub frontend_url: Option<String>,
+    pub email_from: Option<String>,
+    pub resend_api_key: Option<String>,
+    /// Private auth projection; domain lists come from the installed release datasets.
+    pub auth_domain_datasets: Option<String>,
+    pub monitor_token: Option<String>,
+    /// The watchlist producer activation instant from the release metadata
+    /// file (PD5), as written there. Absent until a release records one.
+    pub watchlist_producer_activated_at: Option<String>,
 }
 
 fn read_admission_default() -> u32 {

@@ -37,9 +37,12 @@ fn snapshot(order_ids: &[Uuid]) -> VisibleSnapshot {
 fn cursors_round_trip_and_accept_python_spellings() {
     let cursor = EventCursor::new(instant(1_792_407_780), uuid(7));
     let encoded = encode_cursor(cursor);
+    // The client contract keeps Python's `isoformat` spelling: the fraction is
+    // omitted when microseconds are zero, six digits otherwise. Clients pass a
+    // cursor between stacks, so the wire spelling must stay identical.
     assert_eq!(
         encoded,
-        "2026-10-19T11:03:00.000000+00:00|00000000-0000-0000-0000-000000000007"
+        "2026-10-19T11:03:00+00:00|00000000-0000-0000-0000-000000000007"
     );
     assert_eq!(decode_cursor(&encoded).unwrap(), cursor);
 
@@ -57,13 +60,18 @@ fn cursors_round_trip_and_accept_python_spellings() {
         assert_eq!(decoded, cursor, "{text}");
     }
 
-    // Fractional seconds survive the round trip at microsecond precision.
+    // Fractional seconds survive the round trip at microsecond precision and
+    // keep Python's six-digit spelling; a whole second keeps no fraction.
     let fractional =
         decode_cursor("2026-10-19T11:03:00.250000+00:00|00000000-0000-0000-0000-000000000007")
             .unwrap();
     assert_eq!(
         fractional.created_at,
         instant(1_792_407_780) + chrono::Duration::milliseconds(250)
+    );
+    assert_eq!(
+        encode_cursor(fractional),
+        "2026-10-19T11:03:00.250000+00:00|00000000-0000-0000-0000-000000000007"
     );
     assert_eq!(
         decode_cursor(&encode_cursor(fractional)).unwrap(),
@@ -213,7 +221,7 @@ fn record(payload: Value, target: TargetColumns) -> StoredEvent {
 
 #[test]
 fn payload_fields_fall_back_independently() {
-    let event = record(
+    let mut event = record(
         json!({
             "market_product_code": "VLSFO",
             "delivery_point_id": "65000000-0000-0000-0000-000000000005",
@@ -222,6 +230,8 @@ fn payload_fields_fall_back_independently() {
         }),
         target("SLICE", None, None),
     );
+    // The feed query reads the source order; a canonical payload value is it.
+    event.source_order = Some(uuid(0x6500_0000_0000_0000_0000_0000_0000_0006));
     let response = event.project().unwrap();
     assert_eq!(response.market_product_code.as_deref(), Some("VLSFO"));
     assert_eq!(
@@ -251,6 +261,28 @@ fn payload_fields_fall_back_independently() {
     assert_eq!(response.market_product_code.as_deref(), Some("B30"));
     assert_eq!(response.delivery_point_id, Some(uuid(900)));
     assert_eq!(response.availability_window_code.as_deref(), Some("SPOT"));
+    assert_eq!(response.order_id, Some(uuid(3)));
+}
+
+#[test]
+fn the_response_order_is_the_source_order_the_guard_checked() {
+    // The guard reads a payload order only through the database UUID rule. A
+    // spelling that rule does not read is no source order, so the response
+    // must not name the order either; it falls back to the target's order.
+    let spelled = format!(
+        "urn:uuid:{}",
+        uuid(0x6400_0000_0000_0000_0000_0000_0000_0002)
+    );
+    let response = record(json!({"order_id": spelled}), target("SLICE", None, None))
+        .project()
+        .unwrap();
+    assert_eq!(response.order_id, None);
+    let response = record(
+        json!({"order_id": spelled}),
+        target("PIN", Some(uuid(3)), None),
+    )
+    .project()
+    .unwrap();
     assert_eq!(response.order_id, Some(uuid(3)));
 }
 
@@ -1161,5 +1193,73 @@ mod postgres {
             Some("Snapshot Point")
         );
         assert_eq!(page.items[0].delivery_point_id, None);
+    }
+
+    /// The feed, the read state and the container counts read a payload's
+    /// order with one rule, so a non-canonical spelling cannot make them
+    /// disagree or put a non-public order into a response.
+    #[tokio::test]
+    async fn feed_and_counts_read_one_payload_order_rule() {
+        let Some(migrator) = harness().await else {
+            return;
+        };
+        let at = instant(1_792_378_000);
+        // A URN spelling that only one of two parsers would read.
+        let urn = format!("urn:uuid:{}", uuid(HIDDEN_ORDER));
+        // A hyphen after every group of four digits, which only the other
+        // parser would read.
+        let simple = uuid(HIDDEN_ORDER).simple().to_string();
+        let grouped = simple
+            .as_bytes()
+            .chunks(4)
+            .map(|group| std::str::from_utf8(group).unwrap())
+            .collect::<Vec<_>>()
+            .join("-");
+        const URN_EVENT: u128 = 0x7c00_0000_0000_0000_0000_0000_0000_0001;
+        const GROUPED_EVENT: u128 = 0x7c00_0000_0000_0000_0000_0000_0000_0002;
+        insert_event(
+            &migrator,
+            URN_EVENT,
+            SLICE,
+            "SLICE_NEW_ORDER",
+            json!({"order_id": urn}),
+            at + chrono::Duration::seconds(2),
+            false,
+        )
+        .await;
+        insert_event(
+            &migrator,
+            GROUPED_EVENT,
+            SLICE,
+            "SLICE_NEW_ORDER",
+            json!({"order_id": grouped}),
+            at + chrono::Duration::seconds(1),
+            false,
+        )
+        .await;
+        let mut connection = migrator.acquire().await.unwrap();
+
+        let page = feed_page(
+            &mut connection,
+            uuid(CONTAINER),
+            &visible(),
+            query(20, None),
+        )
+        .await
+        .unwrap();
+        let ids: Vec<Uuid> = page.items.iter().map(|item| item.id).collect();
+        assert_eq!(ids, vec![uuid(URN_EVENT)]);
+        assert_eq!(page.items[0].order_id, None);
+
+        let summary = visible()
+            .detail(&mut connection, uuid(OWNER), uuid(CONTAINER), at)
+            .await
+            .unwrap()
+            .expect("the owner's container");
+        assert_eq!(summary.unread_event_count, ids.len() as i64);
+        assert_eq!(
+            summary.latest_event_at,
+            Some(at + chrono::Duration::seconds(2))
+        );
     }
 }

@@ -1,4 +1,3 @@
-use verdaxis_read::runtime::http::{RateBucket, admit};
 use verdaxis_read::{busy, database_error, request_id, selected_read};
 
 use axum::{
@@ -12,7 +11,10 @@ use tower::ServiceExt;
 #[tokio::test]
 async fn middleware_wraps_errors_and_preflight() {
     use verdaxis_read::runtime::http::middleware;
-    let app = middleware(Router::new().route("/fixture", get(|| async { busy() })));
+    let app = middleware(
+        Router::new().route("/fixture", get(|| async { busy() })),
+        "staging",
+    );
     for origin in [
         "https://staging.verdaxis.exchange",
         "https://denied.invalid",
@@ -110,6 +112,7 @@ fn forwarded_client_uses_final_hop_only_from_loopback() {
 async fn rate_bursts_share_one_client_route_bucket() {
     let app = verdaxis_read::runtime::http::middleware(
         Router::new().route("/api/prices/reference/export", get(|| async { "csv" })),
+        "staging",
     );
     let mut jobs = tokio::task::JoinSet::new();
     for _ in 0..25 {
@@ -157,6 +160,7 @@ async fn router_health_methods_and_empty_routes() {
         pool_max: 17,
         python_budget: 52,
         configured_max_connections: 100,
+        phase2: Default::default(),
         prepared_budget: None,
         compliance_eur_usd_rate: None,
         fleet_artifact_path: "data/fleet_demand.json".into(),
@@ -321,6 +325,7 @@ async fn post_orderbook_answers_python_auth_boundary() {
         pool_max: 17,
         python_budget: 52,
         configured_max_connections: 100,
+        phase2: Default::default(),
         prepared_budget: None,
         compliance_eur_usd_rate: None,
         fleet_artifact_path: "data/fleet_demand.json".into(),
@@ -497,21 +502,8 @@ fn database_errors_keep_market_scope() {
     );
 }
 
-#[test]
-fn exact_limit_and_reset() {
-    for limit in [60, 30, 10] {
-        let mut bucket = RateBucket {
-            started_ms: 1_000,
-            used: 0,
-        };
-        for _ in 0..limit {
-            assert!(admit(&mut bucket, limit, 1_000));
-        }
-        assert!(!admit(&mut bucket, limit, 60_999));
-        assert_eq!(bucket.started_ms, 1_000);
-        assert!(admit(&mut bucket, limit, 61_000));
-    }
-}
+// Window and reset semantics live in tests/ad01_limiter.rs, driven through
+// the bounded per-client store the middleware now uses.
 
 #[test]
 fn admission_default_is_rust_owned() {
@@ -530,7 +522,10 @@ async fn cancelled_query_keeps_slot_until_drop() {
 #[tokio::test]
 async fn support_context_boundary_rejects_unclassified_mutations() {
     use verdaxis_read::runtime::http::middleware;
-    let app = middleware(Router::new().route("/fixture", get(|| async { "ok" })));
+    let app = middleware(
+        Router::new().route("/fixture", get(|| async { "ok" })),
+        "staging",
+    );
     let context = "6f1c1dc0-1111-4222-8333-444455556666";
     let forbidden = app
         .clone()
@@ -586,18 +581,21 @@ fn peer(mut request: Request<Body>, address: &str) -> Request<Body> {
 async fn cors_covers_every_status_and_denied_origin() {
     use verdaxis_read::ApiError;
     use verdaxis_read::runtime::http::middleware;
-    let app = middleware(Router::new().route("/ok", get(|| async { "ok" })).route(
-        "/invalid",
-        get(|| async {
-            ApiError {
-                status: axum::http::StatusCode::UNPROCESSABLE_ENTITY,
-                detail: serde_json::json!([{"type":"missing","loc":["query","limit"],
+    let app = middleware(
+        Router::new().route("/ok", get(|| async { "ok" })).route(
+            "/invalid",
+            get(|| async {
+                ApiError {
+                    status: axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+                    detail: serde_json::json!([{"type":"missing","loc":["query","limit"],
                             "msg":"Field required","input":null}]),
-                retry_after: None,
-                kind: verdaxis_read::ApiErrorKind::Expected,
-            }
-        }),
-    ));
+                    retry_after: None,
+                    kind: verdaxis_read::ApiErrorKind::Expected,
+                }
+            }),
+        ),
+        "staging",
+    );
     let staging = "https://staging.verdaxis.exchange";
     for (path, status, allowed) in [
         ("/ok", 200, true),
@@ -697,6 +695,7 @@ async fn rate_limit_is_per_client_and_route() {
         Router::new()
             .route("/api/prices", get(|| async { "prices" }))
             .route("/api/prices/reference", get(|| async { "reference" })),
+        "staging",
     );
     let call = |path: &'static str, address: &'static str, forwarded: Option<&'static str>| {
         let app = app.clone();
@@ -762,6 +761,7 @@ async fn cors_wraps_saturated_admission() {
         pool_max: 17,
         python_budget: 52,
         configured_max_connections: 100,
+        phase2: Default::default(),
         prepared_budget: None,
         compliance_eur_usd_rate: None,
         fleet_artifact_path: "data/fleet_demand.json".into(),
@@ -798,7 +798,7 @@ async fn cors_wraps_saturated_admission() {
         .oneshot(
             Request::builder()
                 .uri("/api/ports")
-                .header("origin", "https://staging.verdaxis.exchange")
+                .header("origin", "https://test")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -808,7 +808,7 @@ async fn cors_wraps_saturated_admission() {
     assert_eq!(response.headers()["retry-after"], "1");
     assert_eq!(
         response.headers()["access-control-allow-origin"],
-        "https://staging.verdaxis.exchange"
+        "https://test"
     );
     assert_eq!(
         to_bytes(response.into_body(), 1024).await.unwrap(),

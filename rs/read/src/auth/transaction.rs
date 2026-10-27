@@ -4,7 +4,7 @@ use sqlx::{Connection, PgConnection, Row};
 
 use super::{
     AccountState, AuthError, AuthenticatedRequest, CurrentActor, UserLockMode, VerifiedAccess,
-    validate_account,
+    validate_account_for_path,
 };
 use crate::{ApiError, AppState};
 
@@ -91,10 +91,10 @@ pub async fn run_authenticated<T: Send + 'static>(
                 .ok_or(AuthenticatedError::Authentication(AuthError::Credentials))?;
             let password: Option<chrono::DateTime<chrono::Utc>> = row.get("password_changed_at");
             let revoked: Option<chrono::DateTime<chrono::Utc>> = row.get("authentication_revoked_at");
-            validate_account(&access, &AccountState {
+            validate_account_for_path(&access, &AccountState {
                 exists:true, status:row.get("status"), must_change_password:row.get("must_change_password"),
                 password_changed_at:password.map(|v|v.timestamp_micros()), authentication_revoked_at:revoked.map(|v|v.timestamp_micros()),
-            }).map_err(AuthenticatedError::Authentication)?;
+            }, request.route_template()).map_err(AuthenticatedError::Authentication)?;
             let actor = CurrentActor { id:row.get("id"), organization_id:row.get("organization_id"), role:row.get("role"), email_verified:row.get("email_verified") };
             work(&mut AuthenticatedTransaction { connection:&mut transaction, actor }).await.map_err(AuthenticatedError::Database)
         }.await;

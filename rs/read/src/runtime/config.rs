@@ -121,6 +121,13 @@ pub fn config_from_deployed_environment(
             .map(str::to_owned)
             .ok_or_else(|| format!("{key} must be set in the deployed environment"))
     };
+    let raw_required = |key: &str| {
+        environment
+            .get(key)
+            .filter(|value| !value.trim().is_empty())
+            .cloned()
+            .ok_or_else(|| format!("{key} must be set in the deployed environment"))
+    };
     let release_sha = required("RELEASE_SHA")?;
     let budget: PreparedBudget = serde_json::from_str(budget_json)
         .map_err(|_| "the prepared budget artifact is not valid JSON")?;
@@ -165,6 +172,34 @@ pub fn config_from_deployed_environment(
             .map(|value| value.trim().parse::<rust_decimal::Decimal>())
             .transpose()
             .map_err(|_| "COMPLIANCE_EUR_USD_RATE must be a decimal number")?,
+        phase2: crate::Phase2Options {
+            // Task 23: the deploy transaction writes these to the Rust runtime
+            // file only. A deployed start without them is refused rather than
+            // serving Phase 2 routes with an unverifiable token authority.
+            jwt_secret: Some(raw_required("JWT_SECRET")?),
+            jwt_secret_previous: environment
+                .get("JWT_SECRET_PREVIOUS")
+                .filter(|value| !value.trim().is_empty())
+                .cloned(),
+            jwt_issuer: Some(raw_required("JWT_ISSUER")?),
+            jwt_audience: Some(raw_required("JWT_AUDIENCE")?),
+            frontend_url: Some(raw_required("FRONTEND_URL")?),
+            email_from: Some(raw_required("EMAIL_FROM")?),
+            resend_api_key: Some(raw_required("RESEND_API_KEY")?),
+            auth_domain_datasets: Some(
+                std::fs::read_to_string(raw_required("AUTH_DOMAIN_DATASETS_FILE")?)
+                    .map_err(|_| "AUTH_DOMAIN_DATASETS_FILE must be readable".to_owned())?,
+            ),
+            monitor_token: environment
+                .get("MONITOR_TOKEN")
+                .filter(|value| !value.is_empty())
+                .cloned(),
+            // PD5: only `.runtime-release.env` carries this key; the runtime
+            // preparer never projects it from the deployed `.env`.
+            watchlist_producer_activated_at: environment
+                .get("WATCHLIST_PRODUCER_ACTIVATED_AT")
+                .cloned(),
+        },
     })
 }
 
@@ -514,7 +549,10 @@ pub fn validate_config(config: &Config) -> Result<(), String> {
     .map_err(|_| "invalid compiled revision allowlist")?;
     check_revision(&config.migration_revision, &allowed)?;
     if config.environment == "production" {
-        if config.migration_revision != "p0_20261016_union" {
+        if !matches!(
+            config.migration_revision.as_str(),
+            "p0_20261016_union" | "prc_20261026_changes" | "p3_20261020_auth_tokens"
+        ) {
             return Err("production requires its reviewed union checkpoint".into());
         }
         if config.prepared_budget.is_none() {

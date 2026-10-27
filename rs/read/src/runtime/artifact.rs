@@ -23,6 +23,8 @@ pub const ALLOWED_REVISIONS: &[&str] = &[
     "kycg_20261014_staging",
     "p0_20261016_union",
     "prc_20261018_cache",
+    "prc_20261026_changes",
+    "p3_20261020_auth_tokens",
     "p5_20261020_read_indexes",
 ];
 
@@ -129,6 +131,8 @@ mod tests {
                 "kycg_20261014_staging",
                 "p0_20261016_union",
                 "prc_20261018_cache",
+                "prc_20261026_changes",
+                "p3_20261020_auth_tokens",
                 "p5_20261020_read_indexes"
             ])
         );
