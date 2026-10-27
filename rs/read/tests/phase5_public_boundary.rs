@@ -23,10 +23,10 @@ fn read_router(path: &'static str, error: fn() -> ApiError) -> Router {
 #[tokio::test]
 async fn phase5_public_boundary_cases() {
     let response = request(
-        runtime::http::middleware(read_router(
-            "/api/availability",
-            market_data_error::unavailable,
-        ), "test"),
+        runtime::http::middleware(
+            read_router("/api/availability", market_data_error::unavailable),
+            "test",
+        ),
         "/api/availability",
     )
     .await;
@@ -64,10 +64,10 @@ async fn phase5_public_boundary_cases() {
 #[tokio::test]
 async fn phase5_public_boundary_result_cap() {
     let response = request(
-        runtime::http::middleware(read_router(
-            "/api/producers",
-            market_data_error::result_limit,
-        ), "test"),
+        runtime::http::middleware(
+            read_router("/api/producers", market_data_error::result_limit),
+            "test",
+        ),
         "/api/producers",
     )
     .await;
@@ -109,9 +109,12 @@ async fn phase5_public_boundary_result_cap() {
 async fn phase5_invalid_input_constructor() {
     // The handler constructs an error; it does not parse or validate the query.
     let response = request(
-        runtime::http::middleware(read_router("/api/demand", || {
-            market_data_error::invalid_input("limit must be between 1 and 512")
-        }), "test"),
+        runtime::http::middleware(
+            read_router("/api/demand", || {
+                market_data_error::invalid_input("limit must be between 1 and 512")
+            }),
+            "test",
+        ),
         "/api/demand?limit=513",
     )
     .await;
