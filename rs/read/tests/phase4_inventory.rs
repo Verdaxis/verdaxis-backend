@@ -74,7 +74,6 @@ const EXPECTED: &[(&str, &str, &str, &str)] = &[
     ("N03", "GET", "/api/admin/audit-logs", "O"),
     ("V01", "GET", "/api/vessels", "V"),
     ("V02", "GET", "/api/vessels/{vessel_id}", "V"),
-    ("I01", "POST", "/api/ai/chat", "I"),
     ("S01", "GET", "/api/subscriptions/fees", "S"),
     ("S02", "GET", "/api/subscriptions/me", "S"),
     ("S03", "GET", "/api/admin/subscriptions", "S"),
@@ -222,7 +221,7 @@ fn cells(route: &Value) -> BTreeSet<String> {
 fn p4_t1_c01() {
     let manifest = load("routes");
     let routes = rows(&manifest, "routes");
-    assert_eq!(routes.len(), 43);
+    assert_eq!(routes.len(), 42);
     let expected: BTreeSet<_> = EXPECTED.iter().copied().collect();
     let actual: BTreeSet<_> = routes
         .iter()
@@ -242,13 +241,12 @@ fn p4_t1_c01() {
             .map(|r| (string(r, "method"), string(r, "path")))
             .collect::<BTreeSet<_>>()
             .len(),
-        43
+        42
     );
     assert_eq!(manifest["source_sha"].as_str().unwrap().len(), 40);
     let groups: BTreeMap<_, _> =
-        [("B", 22), ("O", 2), ("V", 2), ("I", 1), ("S", 5), ("P", 11)].into();
-    for (arg, group) in ["B", "O", "V", "I", "S", "P"].iter().enumerate() {
-        assert_eq!(manifest["groups"][group]["caddy_arg"], arg + 2);
+        [("B", 22), ("O", 2), ("V", 2), ("S", 5), ("P", 11)].into();
+    for group in ["B", "O", "V", "S", "P"] {
         assert_eq!(
             routes.iter().filter(|r| r["group"] == *group).count(),
             groups[group]
@@ -262,7 +260,7 @@ fn p4_t1_c01() {
     }
     let client = load("client-contract");
     let surfaces = rows(&client, "surfaces");
-    assert_eq!(surfaces.len(), 43);
+    assert_eq!(surfaces.len(), 42);
     assert_eq!(
         surfaces
             .iter()

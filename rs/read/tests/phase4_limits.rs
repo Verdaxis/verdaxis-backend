@@ -102,31 +102,8 @@ fn business_quota_capacity_refuses_without_spending_existing_quota() {
 
 #[test]
 fn p4_t2_c51() {
-    let limits = SharedLimits::default();
-    let keys = BusinessLimitKeys {
-        client: "client",
-        user: Some("user"),
-        organization: Some("org"),
-        token: None,
-    };
-    for _ in 0..10 {
-        limits
-            .check_business("POST", "/api/ai/chat", keys, 100)
-            .unwrap();
-    }
-    assert!(
-        limits
-            .check_business("POST", "/api/ai/chat", keys, 100)
-            .is_err()
-    );
-    assert!(
-        limits
-            .check_business("DELETE", "/api/ai/chat", keys, 100)
-            .is_err()
-    );
-    assert!(
-        limits
-            .check_business("POST", "/api/ai/chat/extra", keys, 100)
-            .is_err()
-    );
+    let limits=SharedLimits::default();
+    let keys=BusinessLimitKeys { client:"client",user:Some("user"),organization:Some("org"),token:None };
+    let error=limits.check_business("POST","/api/ai/chat",keys,100).unwrap_err();
+    assert_eq!(error.status.as_u16(),404);
 }

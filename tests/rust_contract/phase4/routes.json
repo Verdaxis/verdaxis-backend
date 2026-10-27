@@ -4,7 +4,6 @@
   "groups": {
     "B": {
       "count": 22,
-      "caddy_arg": 2,
       "default_owner": "python",
       "allowed_owners": [
         "python",
@@ -13,7 +12,6 @@
     },
     "O": {
       "count": 2,
-      "caddy_arg": 3,
       "default_owner": "python",
       "allowed_owners": [
         "python",
@@ -22,16 +20,6 @@
     },
     "V": {
       "count": 2,
-      "caddy_arg": 4,
-      "default_owner": "python",
-      "allowed_owners": [
-        "python",
-        "rust"
-      ]
-    },
-    "I": {
-      "count": 1,
-      "caddy_arg": 5,
       "default_owner": "python",
       "allowed_owners": [
         "python",
@@ -40,7 +28,6 @@
     },
     "S": {
       "count": 5,
-      "caddy_arg": 6,
       "default_owner": "python",
       "allowed_owners": [
         "python",
@@ -49,7 +36,6 @@
     },
     "P": {
       "count": 11,
-      "caddy_arg": 7,
       "default_owner": "python",
       "allowed_owners": [
         "python",
@@ -987,48 +973,6 @@
       "ownership": "python_until_group_cutover"
     },
     {
-      "id": "I01",
-      "method": "POST",
-      "path": "/api/ai/chat",
-      "group": "I",
-      "task": "14",
-      "auth": "U",
-      "limits": [
-        {
-          "id": "limit_user_minute",
-          "count": 10,
-          "window": "minute",
-          "key": "user",
-          "fallback": null
-        },
-        {
-          "id": "limit_org_minute",
-          "count": 30,
-          "window": "minute",
-          "key": "org",
-          "fallback": "user"
-        }
-      ],
-      "body": "json",
-      "body_limit_bytes": 32768,
-      "request_schema": "AIChatRequest",
-      "query": [],
-      "path_parameters": {},
-      "writes": false,
-      "database": true,
-      "providers": [
-        "gemini"
-      ],
-      "scopes": [],
-      "read_cap": null,
-      "source": {
-        "path": "app/routers/ai.py",
-        "symbol": "chat",
-        "sha256": "2094047436569e867d4ffec4e246c4946e70d21c35e09e328e98295d0aebcc40"
-      },
-      "ownership": "python_until_group_cutover"
-    },
-    {
       "id": "S01",
       "method": "GET",
       "path": "/api/subscriptions/fees",
@@ -1741,5 +1685,13 @@
       "path": "deploy/postgres/app_acl_policy.sql",
       "sha256": "b097b2b2fe2925d4031c4fa6f6158247204b3cee18cd74433102b1cd6ef2d38c"
     }
-  ]
+  ],
+  "switch": {
+    "mode": "single",
+    "operation_count": 42,
+    "selector": "verdaxis_rust_phase4",
+    "python_retained": [
+      "POST /api/ai/chat"
+    ]
+  }
 }
