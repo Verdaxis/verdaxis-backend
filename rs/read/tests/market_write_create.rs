@@ -11,6 +11,37 @@ fn body() -> Value {
     json!({"side":"BID","product_id":"00000000-0000-0000-0000-000000000001","delivery_point_id":"00000000-0000-0000-0000-000000000002","quantity_mt":"200.00","price_per_mt_usd":"100.00"})
 }
 
+#[tokio::test]
+async fn error_details_are_specific_and_generic_responses_are_unchanged() {
+    use axum::response::IntoResponse;
+    use verdaxis_read::{MarketErrorCode, MarketWriteError};
+    async fn read(error: MarketWriteError) -> Value {
+        let response = error.into_response();
+        let bytes = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
+        serde_json::from_slice(&bytes).unwrap()
+    }
+    let kyc = read(MarketWriteError::kyc_required("REJECTED".into(), None)).await;
+    assert_eq!(kyc["detail"], json!({"code":"KYC_REQUIRED","message":MarketErrorCode::KycRequired.message(),"kyc_status":"REJECTED","grace_expires_at":null}));
+    for price in [None, Some(rust_decimal::Decimal::from(100))] {
+        let crossing = read(MarketWriteError::post_only_would_cross(price)).await;
+        assert_eq!(crossing["detail"].as_object().unwrap().len(), 3);
+        assert_eq!(crossing["detail"]["best_executable_opposing_price"], json!(price.map(|p| p.to_string())));
+    }
+    for code in MarketErrorCode::ALL {
+        let error = MarketWriteError::new(*code);
+        let response = error.into_response();
+        if code.as_str().starts_with("MARKET_SUPPORT_CONTEXT_") {
+            assert_eq!(response.headers()["x-verdaxis-market-support-context-invalid"], "true");
+            assert_eq!(response.headers()["x-verdaxis-market-support-context-code"], code.as_str());
+        }
+        let bytes = axum::body::to_bytes(response.into_body(),4096).await.unwrap();
+        let actual: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(actual, json!({"detail":{"code":code.as_str(),"message":code.message()}}));
+    }
+    assert_eq!(MarketErrorCode::ResellerAllocationRequired.status().as_u16(),422);
+    assert_eq!(MarketErrorCode::SupportInstructionTimeInvalid.status().as_u16(),400);
+}
+
 #[test]
 fn create_schema_preserves_defaults_and_normalizes_certifications() {
     let mut value = body();
