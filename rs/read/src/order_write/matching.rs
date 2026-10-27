@@ -650,12 +650,14 @@ fn within_limit(limit: Option<Decimal>, actual: Option<Decimal>) -> bool {
 
 /// The shared owner projection supplies schema defaults and wire decimals.
 /// A missing quality result list has the same empty-list default as the schema.
-fn normalized_fame_declaration(terms:&Json)->Result<Json,()> {
-    let mut terms=terms.clone();
-    if let Some(Json::Object(evidence))=terms.get_mut("quality_evidence") {
-        evidence.entry("results".to_owned()).or_insert_with(||Json::Array(Vec::new()));
+fn normalized_fame_declaration(terms: &Json) -> Result<Json, ()> {
+    let mut terms = terms.clone();
+    if let Some(Json::Object(evidence)) = terms.get_mut("quality_evidence") {
+        evidence
+            .entry("results".to_owned())
+            .or_insert_with(|| Json::Array(Vec::new()));
     }
-    crate::market::terms::owner_response_terms(FAME_PROFILE,&terms).map_err(|_|())
+    crate::market::terms::owner_response_terms(FAME_PROFILE, &terms).map_err(|_| ())
 }
 
 /// A validated B100 requirement.
