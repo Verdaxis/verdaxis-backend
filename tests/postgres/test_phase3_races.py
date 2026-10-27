@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import os
 import subprocess
+import sys
 
 import httpx
 import pytest
@@ -48,6 +49,8 @@ def test_phase3_rust_session_races(analytics_pg_url):
         "AUTH_EMAIL_TEST_OWNER_URL": analytics_pg_url.replace("postgresql+asyncpg://", "postgres://", 1),
         "AUTH_EMAIL_TEST_DATABASE_URL": os.environ["DATABASE_URL"].replace("postgresql+asyncpg://", "postgres://", 1),
         "SQLX_OFFLINE": "true",
+        # The cross-stack lock case derives the Python key with this interpreter.
+        "RUST_TEST_PYTHON": sys.executable,
         "RELEASE_SHA": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
     }
     for _ in range(3):
