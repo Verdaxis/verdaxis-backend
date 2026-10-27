@@ -214,6 +214,26 @@ async fn stream_runtime_database_lifecycle() {
         .await
         .unwrap();
     assert!(!verdaxis_read::streams::runtime::ready(&state));
+    let response = verdaxis_read::router(state.clone())
+        .oneshot(
+            Request::builder()
+                .uri("/health/ready")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 503);
+    let body: serde_json::Value = serde_json::from_slice(
+        &axum::body::to_bytes(response.into_body(), 1024)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        body,
+        serde_json::json!({"status":"error","db":"ok","environment":"test","release_sha":compiled_sha()})
+    );
     sqlx::query(
         "INSERT INTO market_event_replay_state(singleton,discarded_through_seq) VALUES (true,$1)",
     )
@@ -281,6 +301,26 @@ async fn stream_runtime_database_lifecycle() {
         Terminal::Unavailable
     );
     assert!(!verdaxis_read::streams::runtime::ready(&state));
+    let response = verdaxis_read::router(state.clone())
+        .oneshot(
+            Request::builder()
+                .uri("/health/ready")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 503);
+    let body: serde_json::Value = serde_json::from_slice(
+        &axum::body::to_bytes(response.into_body(), 1024)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        body,
+        serde_json::json!({"status":"error","db":"ok","environment":"test","release_sha":compiled_sha()})
+    );
     sqlx::query(
         "INSERT INTO market_event_replay_state(singleton,discarded_through_seq) VALUES (true,$1)",
     )
@@ -382,6 +422,46 @@ async fn invalid_persisted_row_resets_then_dispatches_without_restart() {
         fresh.recv().await,
         Some(verdaxis_read::streams::bus::Delivery::PublicInvalidation)
     ));
+    config.prepared_budget = Some(budget(&config, 0, 1));
+    let policy =
+        serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap();
+    let mut state = AppState::new(config, pools.clone(), policy).unwrap();
+    let runtime = start_streams(&mut state, CapacityConfig::default())
+        .await
+        .unwrap();
+    let runtime_hub = state.streams.as_ref().unwrap().hub.clone();
+    let mut subscribed = runtime_hub.subscribe_org(org).unwrap();
+    let pid: i32 = sqlx::query_scalar(
+        "SELECT pid FROM pg_stat_activity WHERE application_name='verdaxis-stream-election'",
+    )
+    .fetch_one(&admin)
+    .await
+    .unwrap();
+    for payload in [
+        serde_json::json!({"oversized":"x".repeat(256*1024)}),
+        serde_json::json!({"_public_market_invalidation":true}),
+    ] {
+        sqlx::query("INSERT INTO market_event_outbox(id,event_type,aggregate_type,aggregate_id,participant_org_ids,payload) VALUES ($1,'trade_created','trade','fixture',$2,$3)")
+            .bind(uuid::Uuid::new_v4()).bind(serde_json::json!([org])).bind(payload).execute(&admin).await.unwrap();
+    }
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(8), subscribed.wait_terminal())
+            .await
+            .unwrap(),
+        Terminal::InvalidEvent
+    );
+    assert!(verdaxis_read::streams::runtime::ready(&state));
+    let same_pid: i32 = sqlx::query_scalar(
+        "SELECT pid FROM pg_stat_activity WHERE application_name='verdaxis-stream-election'",
+    )
+    .fetch_one(&admin)
+    .await
+    .unwrap();
+    assert_eq!(
+        pid, same_pid,
+        "invalid event did not replace the supervised session"
+    );
+    runtime.shutdown().await;
     pools.read.close().await;
     pools.health.close().await;
     admin.close().await;
