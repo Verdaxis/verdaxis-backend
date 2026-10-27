@@ -625,6 +625,19 @@ impl Locked {
             .map(|step| (step.class, Uuid::parse_str(&step.identity).unwrap()))
             .collect()
     }
+    pub(super) fn has_acquired_economic_resources(&self) -> bool {
+        let economic = |step: &LockStep| {
+            matches!(
+                step.class,
+                LockClass::Order | LockClass::Inventory | LockClass::Pin
+            )
+        };
+        self.steps.iter().any(economic)
+            || self
+                .matching_steps
+                .lock()
+                .map_or(true, |steps| steps.iter().any(economic))
+    }
     pub(super) fn record_matching_resource(
         &self,
         class: LockClass,

@@ -1784,10 +1784,12 @@ impl LockedMarketTransaction<'_> {
         self.locked.require_economic_phase()?;
         super::matching::load_order(self.conn, id).await
     }
+    /// `bound` carries the validated catalog policy, the KYC execution switch
+    /// and the command's single clock sample.
     pub(super) async fn prepare_match(
         &mut self,
         aggressor: &super::matching::OrderRow,
-        bound: super::matching::MatchBound,
+        bound: super::matching::MatchBound<'_>,
     ) -> Result<super::matching::MatchPlan, super::MarketWriteError> {
         let plan = super::matching::MatchingPort::new(self.conn, &self.plan, self.locked)?
             .plan_match(aggressor, bound)
@@ -1834,10 +1836,22 @@ impl LockedMarketTransaction<'_> {
     pub(super) async fn match_order(
         &mut self,
         aggressor: &super::matching::OrderRow,
-        bound: super::matching::MatchBound,
+        bound: super::matching::MatchBound<'_>,
     ) -> Result<super::matching::MatchOutcome, super::MarketWriteError> {
         let plan = self.prepare_match(aggressor, bound).await?;
         self.apply_match(&plan).await
+    }
+    /// Post-only assessment of an assisted order before its insert. Candidate
+    /// rows are recorded in the lock evidence; nothing is written.
+    pub(super) async fn assess_post_only(
+        &mut self,
+        candidate: &super::matching::OrderRow,
+        organization: Uuid,
+        bound: super::matching::MatchBound<'_>,
+    ) -> Result<super::post_only::PostOnlyAssessment, super::MarketWriteError> {
+        super::post_only::PostOnlyPort::new(self.conn, &self.plan, self.locked)?
+            .assess(candidate, organization, bound)
+            .await
     }
     pub(super) fn commissions(
         &mut self,

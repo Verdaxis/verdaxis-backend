@@ -173,9 +173,25 @@ crossing rows and locks at most 100 by price, acceptance ordinal and UUID under
 the declared slice and complete party prefix. A remaining aggressor beyond the
 cap refuses the entire command. Application inserts confirmed trades and updates
 both orders per fill; its outcome retains before/after orders, trades and both
-changed sides for transaction-level completion. Detailed eligibility, immutable
-fee/term completion, inventory consumption and effect composition remain the
-order-entry integration steps before any serving route can use this component.
+changed sides for transaction-level completion. Immutable fee/term completion,
+inventory consumption and effect composition remain the order-entry integration
+steps before any serving route can use this component.
+
+Execution eligibility is part of the plan. Stored provenance is coerced fail
+closed: REAL crosses only REAL, and DEMO crosses DEMO only between the two demo
+activity organizations and for the exact two orders an internal caller pairs; no
+request type carries a pair. Both orders must be execution-qualified on the
+Singapore date of the command clock and have compatible typed terms (the
+certification set, the B100 requirement rules and the eight Bio-LNG rules); the
+validated typed terms are returned for trade snapshots. Under the held party
+locks the port revalidates each concrete owner through the shared execution
+rule; an assisted row needs its recording administrator and one execution-eligible
+customer member from the locked user set. The bound counts the previewed set, and
+eligibility skips rows only within the first hundred. `order_write/post_only.rs`
+assesses an unsaved assisted order against the complete REAL crossing set: it locks
+the previewed rows by ascending UUID, evaluates them in priority order, and reports
+a crossing price, a resting order, or an indeterminate set of more than one hundred
+rows, without writing.
 
 ## Supplier inventory component
 
