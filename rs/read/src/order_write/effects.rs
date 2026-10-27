@@ -408,7 +408,7 @@ impl<'a> EffectPort<'a> {
             set.push(MutationEffect {
                 kind:MutationKind::TradeAutoMatched,actor_id:actor,organization_id:aggressor.organization_id,
                 resource_type:"trade".into(),resource_id:trade.id,
-                changes:json!({"bid_order_id":trade.bid_order_id,"ask_order_id":trade.ask_order_id,
+                changes:json!({"trade_id":trade.id,"bid_order_id":trade.bid_order_id,"ask_order_id":trade.ask_order_id,
                     "quantity_mt":trade.quantity_mt.to_string(),"price_per_mt_usd":trade.price_per_mt_usd.to_string(),
                     "buyer_org_id":trade.buyer_id,"seller_org_id":trade.seller_id}),
                 event:Some(ParticipantEvent {event_type:"trade_auto_matched".into(),aggregate_type:"trade".into(),aggregate_id:trade.id.to_string(),
