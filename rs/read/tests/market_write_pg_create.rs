@@ -1008,86 +1008,200 @@ async fn typed_create_uses_catalog_profiles_and_refuses_reseller_admission() {
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn create_captured_clock_keeps_a_live_order_after_a_lock_wait() {
-    let mut f=Fixture::new(0).await;
-    let mut settings=CreateSettings::default();
-    settings.auto_matching_enabled=false;
-    let router=contract_router(f.pool.clone(),KEY,settings);
-    let mut blocker=f.pool.begin().await.unwrap();
-    let key=verdaxis_read::order_write::market_slice_lock_key(f.product,Some(f.point),"SPOT");
-    verdaxis_read::routes::market_write::order_create::contract_hold_key(&mut blocker,key).await;
-    let mut body=f.body("BID");
-    body["expires_at"]=json!((Utc::now()+chrono::Duration::milliseconds(180)).to_rfc3339());
-    let request=tokio::spawn(async move {send(&router,Some(buyer()),&[],body).await});
-    let mut observed=false;
+    let mut f = Fixture::new(0).await;
+    let settings = CreateSettings {auto_matching_enabled:false,..Default::default()};
+    let router = contract_router(f.pool.clone(), KEY, settings);
+    let mut blocker = f.pool.begin().await.unwrap();
+    let key = verdaxis_read::order_write::market_slice_lock_key(f.product, Some(f.point), "SPOT");
+    verdaxis_read::routes::market_write::order_create::contract_hold_key(&mut blocker, key).await;
+    let mut body = f.body("BID");
+    body["expires_at"] = json!((Utc::now() + chrono::Duration::milliseconds(180)).to_rfc3339());
+    let request = tokio::spawn(async move { send(&router, Some(buyer()), &[], body).await });
+    let mut observed = false;
     for _ in 0..100 {
         observed=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event='advisory' AND datname=current_database())").fetch_one(&mut f.admin).await.unwrap();
-        if observed {break;}
+        if observed {
+            break;
+        }
         tokio::time::sleep(std::time::Duration::from_millis(2)).await;
     }
     assert!(observed);
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     blocker.commit().await.unwrap();
-    let reply=request.await.unwrap();
-    assert_eq!(reply.0,StatusCode::CREATED,"{reply:?}");
-    assert_eq!(reply.1["status"],"OPEN");
-    assert_eq!(reply.1["version"],1);
+    let reply = request.await.unwrap();
+    assert_eq!(reply.0, StatusCode::CREATED, "{reply:?}");
+    assert_eq!(reply.1["status"], "OPEN");
+    assert_eq!(reply.1["version"], 1);
 }
 
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn create_non_replay_integrity_failure_returns_no_projection() {
-    let mut f=Fixture::new(0).await;
-    sqlx::query("SELECT create_fixture_always_refuse()").execute(&mut f.admin).await.unwrap();
-    let reply=send(&f.router,Some(buyer()),&[("Idempotency-Key","integrity")],f.body("BID")).await;
-    sqlx::query("SELECT create_fixture_abort_remove()").execute(&mut f.admin).await.unwrap();
-    assert_eq!(reply.0,StatusCode::INTERNAL_SERVER_ERROR,"{reply:?}");
+    let mut f = Fixture::new(0).await;
+    sqlx::query("SELECT create_fixture_always_refuse()")
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
+    let reply = send(
+        &f.router,
+        Some(buyer()),
+        &[("Idempotency-Key", "integrity")],
+        f.body("BID"),
+    )
+    .await;
+    sqlx::query("SELECT create_fixture_abort_remove()")
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
+    assert_eq!(reply.0, StatusCode::INTERNAL_SERVER_ERROR, "{reply:?}");
     assert!(reply.1.get("id").is_none());
-    for table in ["orders","trades","audit","events"] {assert_eq!(f.count(table).await,0);}
+    for table in ["orders", "trades", "audit", "events"] {
+        assert_eq!(f.count(table).await, 0);
+    }
 }
 
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn create_commit_ack_loss_does_not_repeat_the_order() {
-    use std::sync::{Arc,atomic::{AtomicUsize,Ordering}};
-    use tokio::io::{AsyncReadExt,AsyncWriteExt};
-    let mut f=Fixture::new(0).await;
-    let mut target=url::Url::parse(&std::env::var("RUST_CREATE_DATABASE_URL").unwrap()).unwrap();
-    target.query_pairs_mut().append_pair("sslmode","disable");
-    let upstream=target.port().unwrap();
-    let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    target.set_port(Some(listener.local_addr().unwrap().port())).unwrap();
-    let commits=Arc::new(AtomicUsize::new(0));let count=commits.clone();
-    let proxy=tokio::spawn(async move {
-        let (mut client,_)=listener.accept().await.unwrap();
-        let mut server=tokio::net::TcpStream::connect(("127.0.0.1",upstream)).await.unwrap();
-        let len=client.read_u32().await.unwrap();let mut startup=vec![0;len as usize-4];client.read_exact(&mut startup).await.unwrap();
-        server.write_u32(len).await.unwrap();server.write_all(&startup).await.unwrap();
-        let (mut cr,mut cw)=client.into_split();let (mut sr,mut sw)=server.into_split();
-        let armed=Arc::new(std::sync::atomic::AtomicBool::new(false));let arm=armed.clone();
-        let sender=tokio::spawn(async move {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut f = Fixture::new(0).await;
+    let mut target = url::Url::parse(&std::env::var("RUST_CREATE_DATABASE_URL").unwrap()).unwrap();
+    target.query_pairs_mut().append_pair("sslmode", "disable");
+    let upstream = target.port().unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    target
+        .set_port(Some(listener.local_addr().unwrap().port()))
+        .unwrap();
+    let commits = Arc::new(AtomicUsize::new(0));
+    let count = commits.clone();
+    let proxy = tokio::spawn(async move {
+        let (mut client, _) = listener.accept().await.unwrap();
+        let mut server = tokio::net::TcpStream::connect(("127.0.0.1", upstream))
+            .await
+            .unwrap();
+        let len = client.read_u32().await.unwrap();
+        let mut startup = vec![0; len as usize - 4];
+        client.read_exact(&mut startup).await.unwrap();
+        server.write_u32(len).await.unwrap();
+        server.write_all(&startup).await.unwrap();
+        let (mut cr, mut cw) = client.into_split();
+        let (mut sr, mut sw) = server.into_split();
+        let armed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let arm = armed.clone();
+        let sender = tokio::spawn(async move {
             loop {
-                let kind=cr.read_u8().await?;let len=cr.read_u32().await?;let mut bytes=vec![0;len as usize-4];cr.read_exact(&mut bytes).await?;
-                if kind==b'Q' && bytes.strip_suffix(&[0]).is_some_and(|s|s.eq_ignore_ascii_case(b"COMMIT")) {arm.store(true,Ordering::SeqCst);count.fetch_add(1,Ordering::SeqCst);}
-                sw.write_u8(kind).await?;sw.write_u32(len).await?;sw.write_all(&bytes).await?;
+                let kind = cr.read_u8().await?;
+                let len = cr.read_u32().await?;
+                let mut bytes = vec![0; len as usize - 4];
+                cr.read_exact(&mut bytes).await?;
+                if kind == b'Q'
+                    && bytes
+                        .strip_suffix(&[0])
+                        .is_some_and(|s| s.eq_ignore_ascii_case(b"COMMIT"))
+                {
+                    arm.store(true, Ordering::SeqCst);
+                    count.fetch_add(1, Ordering::SeqCst);
+                }
+                sw.write_u8(kind).await?;
+                sw.write_u32(len).await?;
+                sw.write_all(&bytes).await?;
             }
-            #[allow(unreachable_code)] Ok::<(),std::io::Error>(())
+            #[allow(unreachable_code)]
+            Ok::<(), std::io::Error>(())
         });
-        while let Ok(kind)=sr.read_u8().await {
-            let len=sr.read_u32().await.unwrap();let mut bytes=vec![0;len as usize-4];sr.read_exact(&mut bytes).await.unwrap();
-            if armed.load(Ordering::SeqCst) {if kind==b'Z' {cw.shutdown().await.unwrap();break;}}
-            else {cw.write_u8(kind).await.unwrap();cw.write_u32(len).await.unwrap();cw.write_all(&bytes).await.unwrap();}
+        while let Ok(kind) = sr.read_u8().await {
+            let len = sr.read_u32().await.unwrap();
+            let mut bytes = vec![0; len as usize - 4];
+            sr.read_exact(&mut bytes).await.unwrap();
+            if armed.load(Ordering::SeqCst) {
+                if kind == b'Z' {
+                    cw.shutdown().await.unwrap();
+                    break;
+                }
+            } else {
+                cw.write_u8(kind).await.unwrap();
+                cw.write_u32(len).await.unwrap();
+                cw.write_all(&bytes).await.unwrap();
+            }
         }
-        sender.abort();let _=sender.await;
+        sender.abort();
+        let _ = sender.await;
     });
-    let pool=sqlx::postgres::PgPoolOptions::new().min_connections(0).max_connections(1).connect_lazy(target.as_str()).unwrap();
-    let router=contract_router(pool,KEY,CreateSettings::default());
-    let reply=tokio::time::timeout(std::time::Duration::from_secs(20),send(&router,Some(buyer()),&[("Idempotency-Key","commit")],f.body("BID"))).await.unwrap();
-    tokio::time::timeout(std::time::Duration::from_secs(5),proxy).await.unwrap().unwrap();
-    assert_eq!(reply.0,StatusCode::SERVICE_UNAVAILABLE,"{reply:?}");
-    assert_eq!(reply.1["detail"]["code"],"COMMIT_OUTCOME_UNKNOWN");
-    assert_eq!(commits.load(Ordering::SeqCst),1);
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .min_connections(0)
+        .max_connections(1)
+        .connect_lazy(target.as_str())
+        .unwrap();
+    let router = contract_router(pool, KEY, CreateSettings::default());
+    let reply = tokio::time::timeout(
+        std::time::Duration::from_secs(20),
+        send(
+            &router,
+            Some(buyer()),
+            &[("Idempotency-Key", "commit")],
+            f.body("BID"),
+        ),
+    )
+    .await
+    .unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), proxy)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(reply.0, StatusCode::SERVICE_UNAVAILABLE, "{reply:?}");
+    assert_eq!(reply.1["detail"]["code"], "COMMIT_OUTCOME_UNKNOWN");
+    assert_eq!(commits.load(Ordering::SeqCst), 1);
+    assert_eq!(f.count("orders").await, 1);
+    let replay = send(
+        &f.router,
+        Some(buyer()),
+        &[("Idempotency-Key", "commit")],
+        f.body("BID"),
+    )
+    .await;
+    assert_eq!(replay.0, StatusCode::CREATED, "{replay:?}");
+    assert_eq!(f.count("events").await, 1);
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn uncommitted_create_effects_are_invisible_to_independent_readers() {
+    let mut f=Fixture::new(1).await;
+    let mut blocker=f.pool.begin().await.unwrap();
+    verdaxis_read::routes::market_write::order_create::contract_block_outbox(&mut blocker).await;
+    let router=f.router.clone();let body=f.body("BID");
+    let request=tokio::spawn(async move {send(&router,Some(buyer()),&[],body).await});
+    let mut observed=false;
+    for _ in 0..150 {
+        observed=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%market_event_outbox%')").fetch_one(&mut f.admin).await.unwrap();
+        if observed {break;}
+        tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+    }
+    assert!(observed,"writer must reach its staged outbox insert");
     assert_eq!(f.count("orders").await,1);
-    let replay=send(&f.router,Some(buyer()),&[("Idempotency-Key","commit")],f.body("BID")).await;
-    assert_eq!(replay.0,StatusCode::CREATED,"{replay:?}");
-    assert_eq!(f.count("events").await,1);
+    for table in ["trades","events","audit","notifications"] {assert_eq!(f.count(table).await,0);}
+    blocker.rollback().await.unwrap();
+    assert_eq!(request.await.unwrap().0,StatusCode::CREATED);
+    assert_eq!(f.count("orders").await,2);
+    assert_eq!(f.count("trades").await,1);
+    assert_eq!(f.count("events").await,3);
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn support_headers_confirmation_and_legacy_replay_keep_distinct_authority() {
+    let mut f=Fixture::new(0).await;
+    let missing=send(&f.router,Some(staff()),&[("X-Verdaxis-Market-Support-Context",CONTEXT),("Idempotency-Key","missing")],f.body("BID")).await;
+    assert_eq!(missing.0,StatusCode::BAD_REQUEST);
+    assert_eq!(send(&f.router,Some(buyer()),&[],f.assisted("BID")).await.0,StatusCode::BAD_REQUEST);
+    assert_eq!(send(&f.router,Some(staff()),&[("X-Verdaxis-Market-Support-Context","malformed")],f.body("BID")).await.0,StatusCode::BAD_REQUEST);
+    let body=f.body("BID");
+    let first=send(&f.router,Some(buyer()),&[("Idempotency-Key","legacy")],body.clone()).await;
+    assert_eq!(first.0,StatusCode::CREATED);
+    sqlx::query("SELECT create_fixture_nullable_owner($1)").bind(first.1["id"].as_str().unwrap().parse::<Uuid>().unwrap()).execute(&mut f.admin).await.unwrap();
+    assert_eq!(send(&f.router,Some(buyer()),&[("Idempotency-Key","legacy")],body).await.0,StatusCode::CREATED);
 }

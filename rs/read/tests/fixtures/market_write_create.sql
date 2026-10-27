@@ -63,3 +63,5 @@ CREATE OR REPLACE FUNCTION create_fixture_always_refuse() RETURNS void LANGUAGE 
  DROP TRIGGER IF EXISTS create_fixture_abort ON orderbook_orders;
  CREATE TRIGGER create_fixture_abort BEFORE INSERT ON orderbook_orders FOR EACH ROW EXECUTE FUNCTION create_fixture_abort();
 END $$;
+
+CREATE OR REPLACE FUNCTION create_fixture_nullable_owner(ord uuid) RETURNS void LANGUAGE sql AS $$ UPDATE orderbook_orders SET owner_user_id=NULL,created_by_actor_user_id=NULL WHERE id=ord $$;
