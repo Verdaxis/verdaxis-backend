@@ -118,6 +118,13 @@ pub fn routes(
     limits: crate::auth::limits::SharedLimits,
     provider: Provider,
 ) -> Router {
+    routes_with_provider(app, limits, provider)
+}
+pub fn routes_with_provider(
+    app: &AppState,
+    limits: crate::auth::limits::SharedLimits,
+    provider: Provider,
+) -> Router {
     let settings = app.phase2.as_ref().expect("business credentials");
     Router::new()
         .merge(analytics::marketplace::router(

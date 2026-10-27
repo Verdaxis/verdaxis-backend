@@ -1906,6 +1906,13 @@ fn with_suppression(mut body: Json, quality: &Quality) -> Json {
 /// token quota, then parse the query, then read. A refusal at any step costs no
 /// quota beyond the steps already passed, and no resource is read before its
 /// authority is established.
+#[cfg(feature = "contract-tests")]
+#[derive(Clone, Default)]
+pub struct ProviderPhaseGate {
+    pub arrived: std::sync::Arc<tokio::sync::Notify>,
+    pub resume: std::sync::Arc<tokio::sync::Notify>,
+}
+
 pub async fn dispatch(
     app: &crate::AppState,
     verification: &crate::auth::VerificationSettings,
@@ -1991,6 +1998,13 @@ pub async fn dispatch(
         Ok(permit) => permit,
         Err(error) => return error.into_response(),
     };
+    #[cfg(feature = "contract-tests")]
+    if app.config.environment == "test"
+        && let Some(gate) = request.extensions().get::<ProviderPhaseGate>()
+    {
+        gate.arrived.notify_one();
+        gate.resume.notified().await;
+    }
     let readings = service.provider_read(route, &query).await;
     drop(provider_permit);
 

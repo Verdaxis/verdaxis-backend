@@ -703,7 +703,11 @@ fn p4_t19_c09() {
     let mut reference = query();
     reference.activity = Activity::Reference;
     assert!(marketplace::refuse_reference(&reference).is_err());
-    for route in [AnalyticsRoute::Acquisition, AnalyticsRoute::Marketplace, AnalyticsRoute::Reliability] {
+    for route in [
+        AnalyticsRoute::Acquisition,
+        AnalyticsRoute::Marketplace,
+        AnalyticsRoute::Reliability,
+    ] {
         assert!(!route.accepts_reference());
     }
     // The refusal is the structured query code.
@@ -1444,11 +1448,11 @@ mod postgres {
     #[tokio::test]
     #[ignore = "requires explicit disposable PostgreSQL authority"]
     async fn mounted_fact_tabs_request_breakdowns_and_refuse_reference() {
+        use axum::{Json, Router, extract::Request, routing::any};
+        use std::sync::atomic::{AtomicUsize, Ordering};
         use tower::ServiceExt;
-        use std::sync::atomic::{AtomicUsize,Ordering};
-        use axum::{extract::Request,Json,Router,routing::any};
-        let calls=Arc::new(AtomicUsize::new(0));
-        let calls_in=calls.clone();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let calls_in = calls.clone();
         let stub=Router::new().fallback(any(move|request:Request|{let calls=calls_in.clone();async move {
             calls.fetch_add(1,Ordering::SeqCst);
             let path=request.uri().path();
@@ -1466,31 +1470,117 @@ mod postgres {
             } else {json!([])};
             Json(value)
         }}));
-        let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();let address=listener.local_addr().unwrap();
-        let server=tokio::spawn(async move {axum::serve(listener,stub).await.unwrap()});
-        let fixture=Fixture::new().await;
-        let schema=fixture.schema.clone();
-        let pool=sqlx::postgres::PgPoolOptions::new().max_connections(2).after_connect(move|conn,_|{let sql=format!("SET search_path TO {schema}");Box::pin(async move {sqlx::raw_sql(sqlx::AssertSqlSafe(sql)).execute(conn).await?;Ok(())})}).connect(&fixture.migrator_url).await.unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, stub).await.unwrap() });
+        let fixture = Fixture::new().await;
+        let schema = fixture.schema.clone();
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(2)
+            .after_connect(move |conn, _| {
+                let sql = format!("SET search_path TO {schema}");
+                Box::pin(async move {
+                    sqlx::raw_sql(sqlx::AssertSqlSafe(sql))
+                        .execute(conn)
+                        .await?;
+                    Ok(())
+                })
+            })
+            .connect(&fixture.migrator_url)
+            .await
+            .unwrap();
         sqlx::query("CREATE TABLE user_login_days(activity_date date,user_id uuid,role text,organization_id uuid)").execute(&pool).await.unwrap();
         let config:verdaxis_read::Config=serde_json::from_value(json!({"environment":"test","release_sha":verdaxis_read::compiled_sha(),"migration_revision":"kycg_20261014_staging","database_url":fixture.app_url,"db_session_time_zone":"UTC","bind":"127.0.0.1:0","read_admission_slots":2,"pool_max":3,"python_budget":52,"configured_max_connections":100,"phase2":{"jwt_secret":KEY,"jwt_issuer":"test","jwt_audience":"test","frontend_url":"https://app.example.test","email_from":"team@example.test","resend_api_key":"synthetic","auth_domain_datasets":"null"}})).unwrap();
-        let health=sqlx::postgres::PgPoolOptions::new().max_connections(1).connect_lazy(&fixture.app_url).unwrap();
-        let app=AppState::new(config,runtime::db::Pools {read:pool.clone(),health},policy()).unwrap();
-        let provider=verdaxis_read::runtime::phase4_analytics::Provider(verdaxis_read::providers::umami::UmamiClient::new(verdaxis_read::providers::umami::UmamiConfig {enabled:true,base_url:Some(format!("http://{address}")),website_id:Some(Uuid::new_v4().to_string()),api_username:Some("synthetic".into()),api_password:Some("synthetic".to_owned().into()),policy:Default::default(),catalog:Arc::new(verdaxis_read::analytics::events::DomainCatalog::from_policy(&policy(),Vec::<String>::new()))}).unwrap());
-        let router=verdaxis_read::runtime::phase4_analytics::routes_with_provider(&app,Default::default(),provider);
-        let now=Utc::now().timestamp();let token=jsonwebtoken::encode(&jsonwebtoken::Header::default(),&json!({"sub":fixture.admin_user,"type":"access","iat":now,"exp":now+600,"iss":"test","aud":"test"}),&jsonwebtoken::EncodingKey::from_secret(KEY.as_bytes())).unwrap();
-        for tab in ["overview","activation","engagement","retention"] {
-            let response=router.clone().oneshot(axum::http::Request::builder().uri(format!("/api/admin/analytics/product-analytics/{tab}?activity=REFERENCE")).header("authorization",format!("Bearer {token}")).body(axum::body::Body::empty()).unwrap()).await.unwrap();
-            assert_eq!(response.status(),422);
+        let health = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect_lazy(&fixture.app_url)
+            .unwrap();
+        let app = AppState::new(
+            config,
+            runtime::db::Pools {
+                read: pool.clone(),
+                health,
+            },
+            policy(),
+        )
+        .unwrap();
+        let provider = verdaxis_read::runtime::phase4_analytics::Provider(
+            verdaxis_read::providers::umami::UmamiClient::new(
+                verdaxis_read::providers::umami::UmamiConfig {
+                    enabled: true,
+                    base_url: Some(format!("http://{address}")),
+                    website_id: Some(Uuid::new_v4().to_string()),
+                    api_username: Some("synthetic".into()),
+                    api_password: Some("synthetic".to_owned().into()),
+                    policy: Default::default(),
+                    catalog: Arc::new(
+                        verdaxis_read::analytics::events::DomainCatalog::from_policy(
+                            &policy(),
+                            Vec::<String>::new(),
+                        ),
+                    ),
+                },
+            )
+            .unwrap(),
+        );
+        let router = verdaxis_read::runtime::phase4_analytics::routes_with_provider(
+            &app,
+            Default::default(),
+            provider,
+        );
+        let now = Utc::now().timestamp();
+        let token=jsonwebtoken::encode(&jsonwebtoken::Header::default(),&json!({"sub":fixture.admin_user,"type":"access","iat":now,"exp":now+600,"iss":"test","aud":"test"}),&jsonwebtoken::EncodingKey::from_secret(KEY.as_bytes())).unwrap();
+        for tab in ["overview", "activation", "engagement", "retention"] {
+            let response = router
+                .clone()
+                .oneshot(
+                    axum::http::Request::builder()
+                        .uri(format!(
+                            "/api/admin/analytics/product-analytics/{tab}?activity=REFERENCE"
+                        ))
+                        .header("authorization", format!("Bearer {token}"))
+                        .body(axum::body::Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), 422);
         }
-        assert_eq!(calls.load(Ordering::SeqCst),0,"refused filters must not contact provider");
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            0,
+            "refused filters must not contact provider"
+        );
         let response=router.oneshot(axum::http::Request::builder().uri("/api/admin/analytics/product-analytics/engagement?start=2026-06-01T00:00:00Z&end=2026-07-01T00:00:00Z&compare=false").header("authorization",format!("Bearer {token}")).body(axum::body::Body::empty()).unwrap()).await.unwrap();
-        assert_eq!(response.status(),200);
-        let body:serde_json::Value=serde_json::from_slice(&axum::body::to_bytes(response.into_body(),1_000_000).await.unwrap()).unwrap();
-        assert!(body["navigation_destinations"].as_array().unwrap().iter().any(|row|row["total"]["count"]==7));
-        assert!(body["navigation_destinations"].as_array().unwrap().iter().any(|row|row["total"]["suppressed"]==true));
-        assert!(!body["tutorial_steps"].as_array().unwrap().is_empty(),"{body}");
-        assert!(calls.load(Ordering::SeqCst)>0);
-        server.abort();pool.close().await;fixture.finish().await;
+        assert_eq!(response.status(), 200);
+        let body: serde_json::Value = serde_json::from_slice(
+            &axum::body::to_bytes(response.into_body(), 1_000_000)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(
+            body["navigation_destinations"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|row| row["total"]["count"] == 7)
+        );
+        assert!(
+            body["navigation_destinations"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|row| row["total"]["suppressed"] == true)
+        );
+        assert!(
+            !body["tutorial_steps"].as_array().unwrap().is_empty(),
+            "{body}"
+        );
+        assert!(calls.load(Ordering::SeqCst) > 0);
+        server.abort();
+        pool.close().await;
+        fixture.finish().await;
     }
 
     struct RevokingProvider {
@@ -1567,22 +1657,29 @@ mod postgres {
                     reference: Arc::new(StubReference { quote: None }),
                 },
             );
-            let mut request=axum::http::Request::builder()
-                .uri(format!("{}?start=2026-06-01T00:00:00Z&end=2026-07-01T00:00:00Z&compare=false",route.template()))
-                .header("authorization",format!("Bearer {token}"))
-                .body(axum::body::Body::empty()).unwrap();
-            let response = if route==AnalyticsRoute::Marketplace {
-                let gate=marketplace::ProviderPhaseGate::default();
+            let mut request = axum::http::Request::builder()
+                .uri(format!(
+                    "{}?start=2026-06-01T00:00:00Z&end=2026-07-01T00:00:00Z&compare=false",
+                    route.template()
+                ))
+                .header("authorization", format!("Bearer {token}"))
+                .body(axum::body::Body::empty())
+                .unwrap();
+            let response = if route == AnalyticsRoute::Marketplace {
+                let gate = marketplace::ProviderPhaseGate::default();
                 request.extensions_mut().insert(gate.clone());
-                let pending=tokio::spawn(async move {router.oneshot(request).await.unwrap()});
+                let pending = tokio::spawn(async move { router.oneshot(request).await.unwrap() });
                 gate.arrived.notified().await;
                 sqlx::query("UPDATE users SET authentication_revoked_at=now()+interval '1 second' WHERE id=$1").bind(fixture.admin_user).execute(&pool).await.unwrap();
                 gate.resume.notify_one();
-                let response=pending.await.unwrap();
-                assert_eq!(response.status(),axum::http::StatusCode::UNAUTHORIZED);
-                pool.close().await;fixture.finish().await;
+                let response = pending.await.unwrap();
+                assert_eq!(response.status(), axum::http::StatusCode::UNAUTHORIZED);
+                pool.close().await;
+                fixture.finish().await;
                 continue;
-            } else { router.oneshot(request).await.unwrap() };
+            } else {
+                router.oneshot(request).await.unwrap()
+            };
             assert_eq!(response.status(), axum::http::StatusCode::FORBIDDEN);
             pool.close().await;
             fixture.finish().await;
