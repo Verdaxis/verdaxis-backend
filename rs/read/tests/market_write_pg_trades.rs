@@ -527,3 +527,28 @@ async fn failed_effect_append_rolls_back_the_trade_and_remainder() {
     assert_eq!(f.state().await,before);
     sqlx::query("SELECT trades_fixture_allow_audit()").execute(&mut f.admin).await.unwrap();
 }
+
+#[tokio::test]
+#[ignore = "requires an attested disposable PostgreSQL"]
+async fn independent_take_and_cancel_serialize_on_the_held_party_prefix() {
+    let mut f=Fixture::new().await;
+    let digest=f.digest().await;
+    let mut blocker=f.admin.begin().await.unwrap();
+    sqlx::query("SELECT id FROM organizations WHERE id=$1 FOR UPDATE").bind(id(0x2000)).execute(&mut *blocker).await.unwrap();
+    let take_router=f.router.clone();let cancel_router=verdaxis_read::routes::market_write::orders::contract_router(f.pool.clone(),KEY);
+    let take=tokio::spawn(async move{send(&take_router,"POST","/api/trades/",Some(BUYER),&[],Some(json!({"order_id":id(ORDER),"quantity_mt":"3","expected_terms_digest":digest}))).await});
+    let cancel=tokio::spawn(async move{
+        let now=chrono::Utc::now().timestamp();let token=encode(&Header::default(),&json!({"sub":id(SELLER),"type":"access","iat":now,"exp":now+600,"iss":"cancel-tests","aud":"cancel-tests"}),&EncodingKey::from_secret(KEY.as_bytes())).unwrap();
+        cancel_router.oneshot(Request::builder().method("DELETE").uri(format!("/api/orderbook/{}",id(ORDER))).header("authorization",format!("Bearer {token}")).body(Body::empty()).unwrap()).await.unwrap().status()
+    });
+    let admin_url=std::env::var("RUST_TRADES_ADMIN_DATABASE_URL").unwrap();let mut observer=PgConnection::connect(&admin_url).await.unwrap();
+    let observed=tokio::time::timeout(std::time::Duration::from_secs(4),async{
+        loop {let n:i64=sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND usename='rust_app'").fetch_one(&mut observer).await.unwrap();if n>=2 {break n;}tokio::time::sleep(std::time::Duration::from_millis(5)).await;}
+    }).await;
+    blocker.commit().await.unwrap();assert!(observed.is_ok(),"both independent owners must reach the held prefix");
+    let take=take.await.unwrap();let cancel=cancel.await.unwrap();
+    assert!(matches!(take.0.as_u16(),200|400|409|503),"{take:?}");assert!(matches!(cancel.as_u16(),204|409|503));
+    let state=f.state().await;let pending=state["trades"].as_i64().unwrap();assert!(pending<=1);
+    let reserved=state["reserved"].as_str().unwrap().parse::<rust_decimal::Decimal>().unwrap();
+    if cancel==StatusCode::NO_CONTENT {assert_eq!(reserved,rust_decimal::Decimal::from(3*pending));}else{assert_eq!(reserved,rust_decimal::Decimal::from(10));}
+}
