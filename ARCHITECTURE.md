@@ -139,7 +139,7 @@ rewrites inside timestamp resolution can escape the metadata stability check.
 
 ## Phase 5 read lookup indexes
 
-`alembic/versions/p5_20261020_read_indexes.py` (parent `prc_20261018_cache`)
+`alembic/versions/p5_20261020_read_indexes.py` (parent `p3_20261020_auth_tokens`)
 adds three non-unique B-tree indexes for the Phase 5 reads:
 `vessels(organization_id, id)`, `producer_projects(cod_year, name, id)` and
 `producer_projects(status, cod_year, id)`. It takes SHARE locks on both tables
