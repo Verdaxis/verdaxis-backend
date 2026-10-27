@@ -97,6 +97,7 @@ fn cache_checkpoint_is_accepted_and_earlier_checkpoints_stay_accepted() {
         "p0_20261016_union",
         "prc_20261018_cache",
         "prc_20261026_changes",
+        "p3_20261020_auth_tokens",
     ] {
         config.migration_revision = revision.into();
         assert!(validate_config(&config).is_ok(), "{revision}");
@@ -126,6 +127,8 @@ fn production_requires_its_exact_database_and_union_checkpoint() {
         assert!(validate_config(&config).is_err());
     }
     base.migration_revision = "prc_20261026_changes".into();
+    assert!(validate_config(&base).is_ok());
+    base.migration_revision = "p3_20261020_auth_tokens".into();
     assert!(validate_config(&base).is_ok());
     base.migration_revision = "kycg_20261014_staging".into();
     assert!(validate_config(&base).is_err());
