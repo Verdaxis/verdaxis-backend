@@ -54,8 +54,8 @@ impl Fixture {
         ] {
             sqlx::raw_sql(sql).execute(&mut admin).await.unwrap();
         }
-        sqlx::query("SELECT create_fixture_seed($1)")
-            .bind(asks)
+        sqlx::query("SELECT amend_fixture_minimum($1)")
+            .bind(Decimal::ONE)
             .execute(&mut admin)
             .await
             .unwrap();

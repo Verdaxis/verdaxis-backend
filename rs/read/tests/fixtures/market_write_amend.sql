@@ -1,4 +1,7 @@
 -- Helpers for the amendment suite on a migrated disposable database.
+CREATE OR REPLACE FUNCTION amend_fixture_minimum(lot numeric) RETURNS void LANGUAGE sql AS $$
+    UPDATE products SET is_active=true,min_lot_size=lot WHERE id='c4cecebc-3d2d-5840-8021-57a9a11bc673'
+$$;
 CREATE OR REPLACE FUNCTION amend_fixture_split(ord uuid, filled numeric) RETURNS void LANGUAGE plpgsql AS $$
 BEGIN
     UPDATE orderbook_orders SET quantity_mt=remaining_quantity_mt+filled WHERE id=ord;
