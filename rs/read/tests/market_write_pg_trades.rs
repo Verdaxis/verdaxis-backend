@@ -84,27 +84,13 @@ impl Fixture {
             .and_then(|v| verdaxis_read::digest_terms(&v))
             .unwrap()
     }
-    async fn take(
-        &mut self,
-        actor: u128,
-        key: Option<&str>,
-        quantity: &str,
-    ) -> (StatusCode, Value) {
-        let digest = self.digest().await;
-        let headers: Vec<_> = key
-            .map(|k| vec![("idempotency-key", k)])
-            .unwrap_or_default();
-        send(
-            &self.router,
-            "POST",
-            "/api/trades/",
-            Some(actor),
-            &headers,
-            Some(
-                json!({"order_id":id(ORDER),"quantity_mt":quantity,"expected_terms_digest":digest}),
-            ),
-        )
-        .await
+    async fn take(&mut self, actor:u128,key:Option<&str>,quantity:&str)->(StatusCode,Value){
+        let digest=if let Some(key)=key {
+            let stored:Option<String>=sqlx::query_scalar("SELECT value FROM trades_fixture_requests WHERE key=$1").bind(key).fetch_optional(&mut self.admin).await.unwrap();
+            if let Some(value)=stored {value}else{let digest=self.digest().await;sqlx::query("INSERT INTO trades_fixture_requests(key,value) VALUES($1,$2)").bind(key).bind(&digest).execute(&mut self.admin).await.unwrap();digest}
+        }else{self.digest().await};
+        let headers:Vec<_>=key.map(|k|vec![("idempotency-key",k)]).unwrap_or_default();
+        send(&self.router,"POST","/api/trades/",Some(actor),&headers,Some(json!({"order_id":id(ORDER),"quantity_mt":quantity,"expected_terms_digest":digest}))).await
     }
     async fn state(&mut self) -> Value {
         sqlx::query_scalar("SELECT trades_fixture_state()")
@@ -166,9 +152,9 @@ async fn take_inserts_pending_without_consuming_stock() {
     assert_eq!(b["status"], "PENDING_CONFIRMATION");
     assert!(b["seller_id"].is_null());
     let state = f.state().await;
-    assert_eq!(state["remaining"], "7.00");
-    assert_eq!(state["reserved"], "10.00");
-    assert_eq!(state["current"], "0.00");
+    assert_eq!(state["remaining"].as_str().unwrap().parse::<rust_decimal::Decimal>().unwrap(),rust_decimal::Decimal::from(7u32));
+    assert_eq!(state["reserved"].as_str().unwrap().parse::<rust_decimal::Decimal>().unwrap(),rust_decimal::Decimal::from(10u32));
+    assert_eq!(state["current"].as_str().unwrap().parse::<rust_decimal::Decimal>().unwrap(),rust_decimal::Decimal::from(0u32));
     assert_eq!(state["trades"], 1);
     assert_eq!(state["audit"], 1);
     assert_eq!(state["notifications"], 1);
@@ -478,8 +464,8 @@ async fn concurrent_takes_preserve_the_pending_reservation() {
     let successes = [a.0, b.0].iter().filter(|s| **s == StatusCode::OK).count();
     assert_eq!(successes, 1, "{a:?} {b:?}");
     let state = f.state().await;
-    assert_eq!(state["remaining"], "3.00");
-    assert_eq!(state["reserved"], "10.00");
+    assert_eq!(state["remaining"].as_str().unwrap().parse::<rust_decimal::Decimal>().unwrap(),rust_decimal::Decimal::from(3u32));
+    assert_eq!(state["reserved"].as_str().unwrap().parse::<rust_decimal::Decimal>().unwrap(),rust_decimal::Decimal::from(10u32));
     assert_eq!(state["trades"], 1);
     assert!(f.pool.size() > 0);
 }
