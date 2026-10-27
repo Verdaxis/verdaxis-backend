@@ -316,7 +316,7 @@ impl Fixture {
                     "{context} quantity={value}"
                 );
             }
-            let rows = sqlx::query("SELECT o.id,o.status,o.quantity_mt,o.remaining_quantity_mt,coalesce((SELECT sum(t.quantity_mt) FROM trades t WHERE (t.ask_order_id=o.id OR t.bid_order_id=o.id) AND t.status IN ('PENDING_CONFIRMATION','CONFIRMED','DELIVERED','PAID')),0) AS traded FROM orderbook_orders o WHERE o.inventory_item_id=$1").bind(item).fetch_all(&mut self.admin).await.unwrap();
+            let rows = sqlx::query("SELECT o.id,o.status,o.quantity_mt,o.remaining_quantity_mt,coalesce((SELECT sum(t.quantity_mt) FROM trades t WHERE (t.ask_order_id=o.id OR t.bid_order_id=o.id) AND t.status IN ('PENDING_CONFIRMATION','CONFIRMED','DELIVERED','PAID')),0) AS traded FROM orderbook_orders o WHERE o.inventory_item_id=$1 OR (o.organization_id=$2 AND o.side='BID')").bind(item).bind(self.buyer_org).fetch_all(&mut self.admin).await.unwrap();
             let bid_links: i64 = sqlx::query_scalar("SELECT count(*) FROM orderbook_orders WHERE organization_id=$1 AND side='BID' AND inventory_item_id IS NOT NULL").bind(self.buyer_org).fetch_one(&mut self.admin).await.unwrap();
             assert_eq!(bid_links, 0, "{context} bid inventory link");
             for order in rows {
@@ -383,6 +383,10 @@ async fn stock_invariant_after_random_sequence() {
         assert_eq!(status, StatusCode::OK, "{value}");
         let item: Uuid = value["id"].as_str().unwrap().parse().unwrap();
         f.check(seed, 0, Writer::Create, "100.00").await;
+        let before=f.snapshot().await;
+        let (status, body)=f.create("1.001").await;
+        assert_eq!(status,StatusCode::UNPROCESSABLE_ENTITY,"{body}");
+        assert_eq!(f.snapshot().await,before);
         let order: Uuid = f
             .stock_step(Writer::Publish.label(), item, None, None, Decimal::ZERO)
             .await["order"]
@@ -414,6 +418,24 @@ async fn stock_invariant_after_random_sequence() {
         )
         .await;
         f.check(seed, 3, Writer::Confirm, "2").await;
+        let up=f.stock_step(Writer::Amend.label(),item,Some(order),None,Decimal::from(101)).await;
+        assert_eq!(up["refused"],true,"amend increase without available stock");
+        let down=f.stock_step(Writer::Amend.label(),item,Some(order),None,Decimal::from(90)).await;
+        assert_ne!(down["refused"],true);
+        f.check(seed,4,Writer::Amend,"90").await;
+        let up=f.stock_step(Writer::Amend.label(),item,Some(order),None,Decimal::from(100)).await;
+        assert_ne!(up["refused"],true);
+        f.check(seed,5,Writer::Amend,"100").await;
+        let before=f.snapshot().await;
+        let (status,body)=request(f.inventory.clone(),f.supplier,"PATCH",&format!("/api/inventory/{item}"),Some(json!({"current_stock_mt":"5"})),None).await;
+        assert_eq!(status,StatusCode::CONFLICT,"{body}");
+        assert_eq!(f.snapshot().await,before);
+        let too_large=f.stock_step(Writer::Take.label(),item,Some(order),None,Decimal::from(100)).await;
+        assert_eq!(too_large["refused"],true);
+        assert_eq!(f.snapshot().await,before);
+        let again=f.stock_step(Writer::Publish.label(),item,None,None,Decimal::ZERO).await;
+        assert_eq!(again["order"],order.to_string());
+        assert_eq!(f.snapshot().await,before);
         for (index, (kind, amount)) in steps.into_iter().enumerate() {
             let writer = match kind {
                 0 => Writer::Publish,
@@ -430,6 +452,7 @@ async fn stock_invariant_after_random_sequence() {
                 _ => Writer::Expire,
             };
             let context = format!("kind={kind} amount={amount}");
+            println!("seed={seed} step={} writer={} input={context}", index+6, writer.label());
             let live_order: Option<Uuid> = sqlx::query_scalar("SELECT id FROM orderbook_orders WHERE inventory_item_id=$1 AND status IN ('OPEN','PARTIALLY_FILLED') ORDER BY created_at DESC LIMIT 1").bind(item).fetch_optional(&mut f.admin).await.unwrap();
             let pending: Option<(Uuid, Uuid)> = sqlx::query_as("SELECT t.id,o.id FROM trades t JOIN orderbook_orders o ON o.id=t.ask_order_id WHERE o.inventory_item_id=$1 AND t.status='PENDING_CONFIRMATION' ORDER BY t.created_at LIMIT 1").bind(item).fetch_optional(&mut f.admin).await.unwrap();
             let trade = pending.map(|pair| pair.0);
@@ -530,7 +553,7 @@ async fn stock_invariant_after_random_sequence() {
                     }
                 }
             }
-            f.check(seed, index + 4, writer, &context).await;
+            f.check(seed, index + 6, writer, &context).await;
         }
     }
 }
@@ -625,6 +648,10 @@ async fn cancel_release_is_exactly_once() {
     )
     .await;
     f.check(0, 3, Writer::Decline, "pending").await;
+    let before=f.snapshot().await;
+    let (status,body)=request(f.inventory.clone(),f.supplier,"DELETE",&format!("/api/inventory/{item}"),None,None).await;
+    assert_eq!(status,StatusCode::CONFLICT,"{body}");
+    assert_eq!(f.snapshot().await,before);
 }
 
 #[tokio::test]
