@@ -349,7 +349,7 @@ async fn compliance_overlay_http_cases() {
 
     // The accepted middleware refuses a Market Support POST at the boundary;
     // the route never runs, and the refusal keeps the typed envelope.
-    let response = runtime::http::middleware(overlay_app(offline_state()))
+    let response = runtime::http::middleware(overlay_app(offline_state()), "test")
         .oneshot(
             Request::builder()
                 .method("POST")
