@@ -26,7 +26,7 @@ async fn three_supervisor_cycles_preserve_nonzero_baseline_and_release_sessions(
         .await
         .unwrap();
     let event = uuid::Uuid::new_v4();
-    sqlx::query("INSERT INTO market_event_outbox(id,event_type,aggregate_type,aggregate_id,participant_org_ids,payload,stream_seq) VALUES ($1,'trade_created','trade',$2,'[]','{}',$3)")
+    sqlx::query("INSERT INTO market_event_outbox(id,event_type,aggregate_type,aggregate_id,participant_org_ids,payload,stream_seq) VALUES ($1,'trade_created','trade',$2,json_build_array($2),'{}',$3)")
         .bind(event).bind(event.to_string()).bind(baseline).execute(&admin).await.unwrap();
     let pools = verdaxis_read::connect(&config).await.unwrap();
     let policy =

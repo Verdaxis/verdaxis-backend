@@ -15,7 +15,8 @@ from tests.rust_contract.phase6.coexistence import RustActor
 
 @pytest.mark.asyncio
 async def test_rust_assignment_connection_loss_is_atomic(analytics_pg_url):
-    coexistence_fixture.stream_fixture_binary.__wrapped__()
+    from tests.postgres.test_phase6_coexistence import stream_fixture_binary
+    stream_fixture_binary.__wrapped__()
     owner = create_async_engine(analytics_pg_url)
     admin = create_async_engine(os.environ["POSTGRES_ADMIN_TEST_DATABASE_URL"])
     org, event = str(uuid4()), uuid4()
