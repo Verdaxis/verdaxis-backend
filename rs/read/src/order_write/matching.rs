@@ -1624,7 +1624,7 @@ pub(super) async fn crossing_rows(
     let lock = if query.lock { " FOR UPDATE OF o" } else { "" };
     let sql = format!(
         "WITH anchor AS (SELECT 1) {sets} SELECT {ORDER_COLUMNS} FROM orderbook_orders o JOIN organizations g ON g.id=o.organization_id WHERE o.product_id=$1 AND o.delivery_point_id IS NOT DISTINCT FROM $3 AND o.availability_window=$4 AND o.side::text=$5 AND o.organization_id<>$6 AND o.provenance::text=$7 AND g.verification_status::text='APPROVED' AND o.status::text IN ('OPEN','PARTIALLY_FILLED') AND o.remaining_quantity_mt>0 AND (o.expires_at IS NULL OR o.expires_at>$2) AND o.price_per_mt_usd {comparison} $8 AND ($9::uuid[] IS NULL OR o.id=ANY($9)) AND CASE WHEN $10::uuid IS NOT NULL THEN o.id=$10 ELSE o.owner_user_id IS NOT NULL AND {OWNER_ADMISSION} END ORDER BY {order} LIMIT 101{lock}",
-        sets = crate::market::visibility::eligibility_sets_sql("$11"),
+        sets = crate::market::visibility::eligibility_sets_sql("$11", "$2"),
     );
     sqlx::query(sqlx::AssertSqlSafe(sql))
         .bind(query.product_id)
