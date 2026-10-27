@@ -150,7 +150,7 @@ impl<'a> PostOnlyPort<'a> {
     ) -> Result<PostOnlyAssessment, MarketWriteError> {
         self.locked.require_economic_phase()?;
         self.locked.require_effect_slice(&candidate.slice())?;
-        if candidate_acquisition_closed(self.plan)
+        if candidate_acquisition_closed(self.plan, self.locked)
             || !self.locked.contains(LockClass::Organization, organization)
         {
             return Err(changed());
@@ -224,6 +224,7 @@ pub mod contract {
 
     pub struct SealedPostOnly {
         pub assessment: PostOnlyAssessment,
+        pub follow_up_error: Option<super::super::MarketErrorCode>,
         /// Order rows recorded in the lock evidence, in acquisition order.
         pub order_lock_order: Vec<Uuid>,
     }
@@ -232,6 +233,7 @@ pub mod contract {
         organization: Uuid,
         at: DateTime<Utc>,
         kyc_gate_enabled: bool,
+        follow_up: Option<bool>,
     }
     impl Assessment {
         fn bound(&self) -> MatchBound<'static> {
@@ -269,6 +271,11 @@ pub mod contract {
                 let assessment = tx
                     .assess_post_only(&self.candidate, self.organization, self.bound())
                     .await?;
+                let follow_up_error = match self.follow_up {
+                    Some(true) => tx.prepare_match(&self.candidate, self.bound()).await.err().map(|error| error.code),
+                    Some(false) => tx.assess_post_only(&self.candidate, self.organization, self.bound()).await.err().map(|error| error.code),
+                    None => None,
+                };
                 let order_lock_order = tx
                     .matching_trace()
                     .into_iter()
@@ -277,6 +284,7 @@ pub mod contract {
                     .collect();
                 Ok(SealedPostOnly {
                     assessment,
+                    follow_up_error,
                     order_lock_order,
                 })
             })
@@ -292,6 +300,28 @@ pub mod contract {
         at: DateTime<Utc>,
         kyc_gate_enabled: bool,
     ) -> Result<SealedPostOnly, MarketWriteError> {
+        run_assessment(pool, candidate, organization, actor, at, kyc_gate_enabled, None).await
+    }
+    pub async fn run_sealed_post_only_followed_by(
+        pool: &sqlx::PgPool,
+        candidate: OrderRow,
+        organization: Uuid,
+        actor: Uuid,
+        at: DateTime<Utc>,
+        match_next: bool,
+    ) -> Result<SealedPostOnly, MarketWriteError> {
+        run_assessment(pool, candidate, organization, actor, at, true, Some(match_next)).await
+    }
+    #[allow(clippy::too_many_arguments)]
+    async fn run_assessment(
+        pool: &sqlx::PgPool,
+        candidate: OrderRow,
+        organization: Uuid,
+        actor: Uuid,
+        at: DateTime<Utc>,
+        kyc_gate_enabled: bool,
+        follow_up: Option<bool>,
+    ) -> Result<SealedPostOnly, MarketWriteError> {
         super::super::transaction::run_market_command(
             pool.clone(),
             Arc::new(tokio::sync::Semaphore::new(1)),
@@ -301,6 +331,7 @@ pub mod contract {
                 issuance_out_of_range: false,
             },
             Assessment {
+                follow_up,
                 candidate,
                 organization,
                 at,

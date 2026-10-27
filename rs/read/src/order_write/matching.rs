@@ -249,6 +249,8 @@ pub struct MatchBound<'a> {
     policy: Option<&'a MarketPolicy>,
     kyc_gate_enabled: bool,
     demo_pair: Option<DemoOrderPair>,
+    #[cfg(feature = "contract-tests")]
+    preview_barrier: Option<&'a contract::MatchPreviewBarrier>,
 }
 impl MatchBound<'static> {
     /// The committed catalog policy, the KYC execution gate on (its fail-safe
@@ -259,17 +261,24 @@ impl MatchBound<'static> {
             policy: COMMITTED_POLICY.as_ref(),
             kyc_gate_enabled: true,
             demo_pair: None,
+            #[cfg(feature = "contract-tests")]
+            preview_barrier: None,
         }
     }
 }
 impl MatchBound<'_> {
     /// The validated runtime catalog policy.
-    pub fn with_policy<'b>(self, policy: &'b MarketPolicy) -> MatchBound<'b> {
+    pub fn with_policy<'b>(self, policy: &'b MarketPolicy) -> MatchBound<'b>
+    where
+        Self: 'b,
+    {
         MatchBound {
             now: self.now,
             policy: Some(policy),
             kyc_gate_enabled: self.kyc_gate_enabled,
             demo_pair: self.demo_pair,
+            #[cfg(feature = "contract-tests")]
+            preview_barrier: self.preview_barrier,
         }
     }
     /// The runtime `KYC_EXECUTION_GATE_ENABLED` switch.
@@ -981,6 +990,15 @@ pub fn plan_match(
     aggressor: &OrderRow,
     bound: MatchBound<'_>,
 ) -> Result<MatchPlan, MarketWriteError> {
+    plan_match_with_overflow(candidates, aggressor, bound, false)
+}
+
+fn plan_match_with_overflow(
+    candidates: &[OrderRow],
+    aggressor: &OrderRow,
+    bound: MatchBound<'_>,
+    preview_exceeded: bool,
+) -> Result<MatchPlan, MarketWriteError> {
     aggressor.validate()?;
     let mut plan = MatchPlan::empty(aggressor, bound.now);
     let Some(admission) = aggressor_admission(aggressor, &bound) else {
@@ -998,7 +1016,7 @@ pub fn plan_match(
         }
     }
     rows.sort_by(|a, b| priority(a, b, aggressor.side));
-    let exceeded = rows.len() > MAX_CROSSING_ORDERS_PER_MATCH;
+    let exceeded = preview_exceeded || rows.len() > MAX_CROSSING_ORDERS_PER_MATCH;
     for row in rows.into_iter().take(MAX_CROSSING_ORDERS_PER_MATCH) {
         if plan.aggressor_after.remaining_quantity_mt == Decimal::ZERO {
             break;
@@ -1238,8 +1256,8 @@ pub(super) fn require_parties_locked<'r>(
 
 /// Candidate rows are acquired first in the economic phase, before any
 /// declared order, inventory or PIN resource.
-pub(super) fn candidate_acquisition_closed(plan: &OperationLockPlan) -> bool {
-    plan.trace().iter().any(|(class, _)| {
+pub(super) fn candidate_acquisition_closed(plan: &OperationLockPlan, locked: &Locked) -> bool {
+    locked.has_acquired_economic_resources() || plan.trace().iter().any(|(class, _)| {
         matches!(
             class,
             LockClass::Order | LockClass::Inventory | LockClass::Pin
@@ -1348,7 +1366,7 @@ impl<'a> MatchingPort<'a> {
     ) -> Result<MatchPlan, MarketWriteError> {
         self.locked.require_economic_phase()?;
         self.locked.require_effect_slice(&aggressor.slice())?;
-        if candidate_acquisition_closed(self.plan) {
+        if candidate_acquisition_closed(self.plan, self.locked) {
             return Err(changed());
         }
         let mut current = load_order(self.conn, aggressor.id).await?;
@@ -1366,6 +1384,12 @@ impl<'a> MatchingPort<'a> {
             .take(MAX_CROSSING_ORDERS_PER_MATCH)
             .map(|row| row.id)
             .collect();
+        let preview_exceeded = candidates.len() > MAX_CROSSING_ORDERS_PER_MATCH;
+        #[cfg(feature = "contract-tests")]
+        if let Some(barrier) = bound.preview_barrier {
+            barrier.reached.notify_one();
+            barrier.resume.notified().await;
+        }
         let mut rows = crossing_rows(self.conn, &query.locking(&ids, false), &bound).await?;
         sqlx::query("SELECT id FROM orderbook_orders WHERE id=$1 FOR UPDATE")
             .bind(current.id)
@@ -1385,11 +1409,9 @@ impl<'a> MatchingPort<'a> {
                     .await?;
             }
         }
-        // The look-ahead row decides only the bound and is never written or locked.
-        if candidates.len() > MAX_CROSSING_ORDERS_PER_MATCH {
-            rows.push(candidates[MAX_CROSSING_ORDERS_PER_MATCH].clone());
-        }
-        let mut result = plan_match(&rows, &current, bound)?;
+        // Overflow belongs to the preview, even when locked re-selection drops
+        // rows. The look-ahead identity is never executed or locked.
+        let mut result = plan_match_with_overflow(&rows, &current, bound, preview_exceeded)?;
         result.acquired_inventory = rows
             .iter()
             .take(MAX_CROSSING_ORDERS_PER_MATCH)
@@ -1744,7 +1766,21 @@ pub mod contract {
             None => bound,
         }
     }
+    #[derive(Default)]
+    pub struct MatchPreviewBarrier {
+        reached: tokio::sync::Notify,
+        resume: tokio::sync::Notify,
+    }
+    impl MatchPreviewBarrier {
+        pub async fn previewed(&self) {
+            self.reached.notified().await;
+        }
+        pub fn resume(&self) {
+            self.resume.notify_one();
+        }
+    }
     struct SealedMatch {
+        barrier: Option<std::sync::Arc<MatchPreviewBarrier>>,
         aggressor: Uuid,
         at: DateTime<Utc>,
         options: SealedMatchOptions,
@@ -1787,8 +1823,10 @@ pub mod contract {
         > {
             Box::pin(async move {
                 let aggressor = tx.matching_order(self.aggressor).await?;
+                let mut bound = bound_for(self.at, &self.options);
+                bound.preview_barrier = self.barrier.as_deref();
                 let plan = tx
-                    .prepare_match(&aggressor, bound_for(self.at, &self.options))
+                    .prepare_match(&aggressor, bound)
                     .await?;
                 let ids = plan.locked_order_ids();
                 let policy: crate::MarketPolicy = serde_json::from_str(include_str!(
@@ -1853,6 +1891,23 @@ pub mod contract {
         at: DateTime<Utc>,
         options: SealedMatchOptions,
     ) -> Result<SealedMatchResult, MarketWriteError> {
+        run_sealed_match_inner(pool, aggressor, at, options, None).await
+    }
+    pub async fn run_sealed_match_paused(
+        pool: sqlx::PgPool,
+        aggressor: Uuid,
+        at: DateTime<Utc>,
+        barrier: std::sync::Arc<MatchPreviewBarrier>,
+    ) -> Result<SealedMatchResult, MarketWriteError> {
+        run_sealed_match_inner(&pool, aggressor, at, SealedMatchOptions::default(), Some(barrier)).await
+    }
+    async fn run_sealed_match_inner(
+        pool: &sqlx::PgPool,
+        aggressor: Uuid,
+        at: DateTime<Utc>,
+        options: SealedMatchOptions,
+        barrier: Option<std::sync::Arc<MatchPreviewBarrier>>,
+    ) -> Result<SealedMatchResult, MarketWriteError> {
         let mut discovery = pool.acquire().await?;
         let row = load_order(&mut discovery, aggressor).await?;
         drop(discovery);
@@ -1869,6 +1924,7 @@ pub mod contract {
                 issuance_out_of_range: false,
             },
             SealedMatch {
+                barrier,
                 aggressor,
                 at,
                 options,
