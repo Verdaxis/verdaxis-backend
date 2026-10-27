@@ -71,8 +71,8 @@ async fn error_details_are_specific_and_generic_responses_are_unchanged() {
     );
 }
 
-#[test]
-fn kyc_refusal_reports_the_grace_deadline_in_the_source_text_format() {
+#[tokio::test]
+async fn kyc_refusal_reports_the_grace_deadline_in_the_source_text_format() {
     use axum::response::IntoResponse;
     use verdaxis_read::MarketWriteError;
     let grace: DateTime<Utc> = "2026-10-27T13:00:00.500Z".parse().unwrap();

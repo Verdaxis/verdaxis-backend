@@ -181,7 +181,10 @@ impl CreateCommand {
             }
             let capabilities:Vec<Uuid>=sqlx::query_scalar("SELECT id FROM staff_capability_assignments WHERE user_id=$1 AND capability::text IN ('MARKET_SUPPORT_LISTINGS','MARKET_SUPPORT_AUTHORIZATIONS') AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>$2) ORDER BY id").bind(actor.user_id()).bind(self.now).fetch_all(&mut *conn).await?;
             if capabilities.len() != 2 {
-                return Err(context_error(StatusCode::NOT_FOUND));
+                // The route resolved both capabilities before the command;
+                // a miss here is revocation discovered under the locks, which
+                // the source answers with the support-context conflict.
+                return Err(context_error(StatusCode::CONFLICT));
             }
             let row=sqlx::query("SELECT c.organization_id,c.status::text AS status,c.scope::text AS scope,c.expires_at,c.support_reference,o.provenance::text AS provenance,o.verification_status::text AS organization_status FROM market_support_contexts c JOIN organizations o ON o.id=c.organization_id WHERE c.id=$1 AND c.actor_user_id=$2").bind(context).bind(actor.user_id()).fetch_optional(&mut *conn).await?.ok_or_else(||context_error(StatusCode::NOT_FOUND))?;
             if row.get::<String, _>("status") != "ACTIVE"
@@ -303,8 +306,12 @@ impl MarketCommand for CreateCommand {
             .await?;
             let party = self.party(conn, &authenticated).await?;
             let mut preview_input = self.input.clone();
+            // Discovery sees the stored presentation: FAME fields derive for
+            // both sides, Bio-LNG fields only for ASK.
             for field in ["fame_terms", "lng_terms"] {
-                if !preview_input.fields[field].is_null() {
+                if !preview_input.fields[field].is_null()
+                    && (field == "fame_terms" || preview_input.fields["side"] == "ASK")
+                {
                     derive_metadata(&mut preview_input.fields, field)?;
                 }
             }
@@ -369,13 +376,27 @@ impl MarketCommand for CreateCommand {
         actor: &'a AuthenticatedActor,
     ) -> BoxFuture<'a, Result<Self::Output, MarketAttemptError>> {
         Box::pin(async move {
-            let (party, input, mut candidate) = {
+            let (party, declared, input, mut candidate) = {
                 let mut port = tx.create_port()?;
                 let party = self.party(port.conn, actor).await?;
+                // The source admits the acting account and its side role, then
+                // validates the request body, and only then admits the
+                // customer organization's execution and rechecks the minimum
+                // lot, expiry and assisted instruction.
+                port.admit_self(self, actor, &party).await?;
+                let (declared, input) = port.validate(self).await?;
                 port.admit(self, actor, &party).await?;
-                let input = port.validate(self).await?;
-                let candidate = self.candidate(&party, actor.user_id(), &input);
-                (party, input, candidate)
+                port.revalidate(self, &input).await?;
+                // Matching sees the construction presentation the stored row
+                // will carry, not the request as declared.
+                let mut stored = input.clone();
+                for field in ["fame_terms", "lng_terms"] {
+                    if !stored.fields[field].is_null() {
+                        derive_metadata(&mut stored.fields, field)?;
+                    }
+                }
+                let candidate = self.candidate(&party, actor.user_id(), &stored);
+                (party, declared, input, candidate)
             };
             if self.context.is_some() {
                 let assessment = tx
@@ -411,7 +432,7 @@ impl MarketCommand for CreateCommand {
                 .await?;
             let authorization = tx
                 .create_port()?
-                .insert(self, actor, &party, &input)
+                .insert(self, actor, &party, &declared, &input)
                 .await?;
             let outcome = if self.context.is_none() && self.settings.auto_matching_enabled {
                 candidate = tx.matching_order(self.id).await?;
@@ -506,6 +527,82 @@ impl<'a> CreatePort<'a> {
         locked.require_economic_phase()?;
         Ok(Self { conn, locked })
     }
+    /// Fresh self-service admission: KYC, account admission and the side
+    /// role, in the source's order, before request-body validation.
+    async fn admit_self(
+        &mut self,
+        command: &CreateCommand,
+        actor: &AuthenticatedActor,
+        party: &Party,
+    ) -> Result<(), MarketWriteError> {
+        if command.context.is_some() {
+            return Ok(());
+        }
+        let row=sqlx::query("SELECT u.kyc_status,u.kyc_organization_id,g.expires_at FROM users u LEFT JOIN kyc_execution_grace g ON g.user_id=u.id AND g.organization_id=u.organization_id WHERE u.id=$1").bind(actor.user_id()).fetch_one(&mut *self.conn).await?;
+        let status: String = row.get("kyc_status");
+        let parsed = serde_json::from_value(json!(status)).map_err(|_| internal())?;
+        let grace = row
+            .get::<Option<DateTime<Utc>>, _>("expires_at")
+            .map(|expires_at| crate::kyc::grace::Grace {
+                user_id: actor.user_id(),
+                organization_id: party.organization,
+                expires_at,
+            });
+        let result = crate::kyc::policy::eligibility(
+            &crate::kyc::policy::KycPolicy {
+                execution_gate_enabled: command.settings.kyc_execution_gate_enabled,
+            },
+            &crate::kyc::policy::KycParty {
+                user_id: actor.user_id(),
+                organization_id: Some(party.organization),
+                kyc_organization_id: row.get("kyc_organization_id"),
+                kyc_status: parsed,
+            },
+            grace.as_ref(),
+            command.now,
+        );
+        if !result.eligible {
+            return Err(MarketWriteError::kyc_required(
+                status,
+                result.grace_expires_at,
+            ));
+        }
+        let access = crate::auth::VerifiedAccess {
+            subject: actor.user_id(),
+            issued_at: actor.access().issued_at,
+            issuance_out_of_range: actor.access().issuance_out_of_range,
+        };
+        let authenticated = super::authority::admission::authenticate(
+            self.conn,
+            self.locked,
+            access,
+            AdmissionClass::Execution,
+        )
+        .await?;
+        super::authority::admission::execution_context(
+            self.conn,
+            self.locked,
+            authenticated,
+            party.organization,
+            command.context,
+            command.now,
+            command.settings.kyc_execution_gate_enabled,
+        )
+        .await?;
+        if (command.input.fields["side"] == "BID" && actor.account().role != ActorRole::Buyer)
+            || (command.input.fields["side"] == "ASK"
+                && actor.account().role != ActorRole::Supplier)
+        {
+            return Err(refusal(
+                StatusCode::FORBIDDEN,
+                "The account role cannot place this order side",
+            ));
+        }
+        Ok(())
+    }
+    /// The customer organization's execution admission the source evaluates
+    /// after request-body validation. Self-service admission is complete by
+    /// then; an assisted request admits its customer organization here.
     async fn admit(
         &mut self,
         command: &CreateCommand,
@@ -513,35 +610,7 @@ impl<'a> CreatePort<'a> {
         party: &Party,
     ) -> Result<(), MarketWriteError> {
         if command.context.is_none() {
-            let row=sqlx::query("SELECT u.kyc_status,u.kyc_organization_id,g.expires_at FROM users u LEFT JOIN kyc_execution_grace g ON g.user_id=u.id AND g.organization_id=u.organization_id WHERE u.id=$1").bind(actor.user_id()).fetch_one(&mut *self.conn).await?;
-            let status: String = row.get("kyc_status");
-            let parsed = serde_json::from_value(json!(status)).map_err(|_| internal())?;
-            let grace = row
-                .get::<Option<DateTime<Utc>>, _>("expires_at")
-                .map(|expires_at| crate::kyc::grace::Grace {
-                    user_id: actor.user_id(),
-                    organization_id: party.organization,
-                    expires_at,
-                });
-            let result = crate::kyc::policy::eligibility(
-                &crate::kyc::policy::KycPolicy {
-                    execution_gate_enabled: command.settings.kyc_execution_gate_enabled,
-                },
-                &crate::kyc::policy::KycParty {
-                    user_id: actor.user_id(),
-                    organization_id: Some(party.organization),
-                    kyc_organization_id: row.get("kyc_organization_id"),
-                    kyc_status: parsed,
-                },
-                grace.as_ref(),
-                command.now,
-            );
-            if !result.eligible {
-                return Err(MarketWriteError::kyc_required(
-                    status,
-                    result.grace_expires_at,
-                ));
-            }
+            return Ok(());
         }
         let access = crate::auth::VerifiedAccess {
             subject: actor.user_id(),
@@ -572,19 +641,15 @@ impl<'a> CreatePort<'a> {
                 e
             }
         })?;
-        if command.context.is_none()
-            && ((command.input.fields["side"] == "BID" && actor.account().role != ActorRole::Buyer)
-                || (command.input.fields["side"] == "ASK"
-                    && actor.account().role != ActorRole::Supplier))
-        {
-            return Err(refusal(
-                StatusCode::FORBIDDEN,
-                "The account role cannot place this order side",
-            ));
-        }
         Ok(())
     }
-    async fn validate(&mut self, command: &CreateCommand) -> Result<CreateInput, MarketWriteError> {
+    /// Request-body validation, in the source's order. Returns the declared
+    /// input (the request as parsed, before display derivation) alongside the
+    /// derived input the stored order carries.
+    async fn validate(
+        &mut self,
+        command: &CreateCommand,
+    ) -> Result<(CreateInput, CreateInput), MarketWriteError> {
         let mut input = command.input.clone();
         let f = &mut input.fields;
         let window = f["availability_window"].as_str().unwrap();
@@ -639,6 +704,12 @@ impl<'a> CreatePort<'a> {
                         MarketErrorCode::ResellerAllocationRequired,
                     ));
                 }
+            }
+        }
+        // The source derives FAME display fields for both sides but Bio-LNG
+        // display fields only for ASK, each after its typed admission checks.
+        for field in ["fame_terms", "lng_terms"] {
+            if !f[field].is_null() && (field == "fame_terms" || f["side"] == "ASK") {
                 derive_metadata(f, field)?;
             }
         }
@@ -711,17 +782,35 @@ impl<'a> CreatePort<'a> {
         if !p.lanes.contains(&input.point) {
             return Err(bad("Product is not available at this delivery point"));
         }
-        if !command.policy.points.iter().any(|p| p.id == input.point) {
+        let catalog_point = command
+            .policy
+            .points
+            .iter()
+            .find(|point| point.id == input.point)
+            .ok_or_else(|| bad("Invalid delivery_point_id"))?;
+        let row = sqlx::query("SELECT is_active,name,region FROM delivery_points WHERE id=$1")
+            .bind(input.point)
+            .fetch_optional(&mut *self.conn)
+            .await?;
+        let Some(row) = row else {
+            return Err(bad("Invalid delivery_point_id"));
+        };
+        if !row.get::<bool, _>("is_active")
+            || row.get::<String, _>("name") != catalog_point.name
+            || row.get::<String, _>("region") != catalog_point.region
+        {
             return Err(bad("Invalid delivery_point_id"));
         }
-        let exists: bool =
-            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM delivery_points WHERE id=$1)")
-                .bind(input.point)
-                .fetch_one(&mut *self.conn)
-                .await?;
-        if !exists {
-            return Err(bad("Invalid delivery_point_id"));
-        }
+        Ok((command.input.clone(), input))
+    }
+    /// Post-admission revalidation: the minimum lot, the fresh expiry clock
+    /// and the assisted confirmation checks the source keeps after its
+    /// admission locks.
+    async fn revalidate(
+        &mut self,
+        command: &CreateCommand,
+        input: &CreateInput,
+    ) -> Result<(), MarketWriteError> {
         let minimum: Option<Decimal> =
             sqlx::query_scalar("SELECT min_lot_size FROM products WHERE id=$1")
                 .bind(input.product)
@@ -737,7 +826,7 @@ impl<'a> CreatePort<'a> {
             return Err(bad("Order expiry must be in the future"));
         }
         if let Some(confirmation) = &input.confirmation {
-            if !f["port_id"].is_null() || !f["vessel_id"].is_null() {
+            if !input.fields["port_id"].is_null() || !input.fields["vessel_id"].is_null() {
                 return Err(bad("Assisted orders use the canonical delivery point only"));
             }
             let instruction: DateTime<Utc> = confirmation["instruction_at"]
@@ -754,7 +843,7 @@ impl<'a> CreatePort<'a> {
                 return Err(bad("Order expiry must follow instruction time"));
             }
         }
-        Ok(input)
+        Ok(())
     }
     async fn replay(
         &mut self,
@@ -802,6 +891,7 @@ impl<'a> CreatePort<'a> {
         command: &CreateCommand,
         actor: &AuthenticatedActor,
         party: &Party,
+        declared: &CreateInput,
         input: &CreateInput,
     ) -> Result<Option<Uuid>, MarketAttemptError> {
         let ordinal: i64 = sqlx::query_scalar("SELECT nextval('orderbook_acceptance_ordinal_seq')")
@@ -809,12 +899,22 @@ impl<'a> CreatePort<'a> {
             .await?;
         let authorization = if command.context.is_some() {
             Some(
-                self.insert_authorization(command, actor, party, input)
+                self.insert_authorization(command, actor, party, declared)
                     .await?,
             )
         } else {
             None
         };
+        // The stored row carries the construction-time presentation: FAME
+        // display fields for both sides, Bio-LNG display fields for both
+        // sides as well, regardless of what validation derived.
+        let mut stored = input.clone();
+        for field in ["fame_terms", "lng_terms"] {
+            if !stored.fields[field].is_null() {
+                derive_metadata(&mut stored.fields, field)?;
+            }
+        }
+        let input = &stored;
         let f = &input.fields;
         let payload = json!({"id":command.id,"organization_id":party.organization,"owner_user_id":actor.user_id(),"created_by_actor_user_id":actor.user_id(),"creation_method":if command.context.is_some(){"MARKET_SUPPORT"}else{"SELF_SERVICE"},"provenance":party.provenance,"side":f["side"],"product_id":input.product,"delivery_point_id":input.point,"port_id":f["port_id"],"vessel_id":f["vessel_id"],"quantity_mt":input.quantity.to_string(),"remaining_quantity_mt":input.quantity.to_string(),"price_per_mt_usd":input.price.to_string(),"availability_window":f["availability_window"],"expires_at":input.expiry,"certifications":f["certifications"],"certification_declared":f["certification_declared"],"certification_scheme":f["certification_scheme"],"specification_standard":f["specification_standard"],"msds_available":f["msds_available"],"carbon_intensity_gco2_mj":f["carbon_intensity_gco2_mj"],"carbon_intensity_method":f["carbon_intensity_method"],"feedstock":f["feedstock"],"origin":f["origin"],"off_spec":f["off_spec"],"off_spec_notes":f["off_spec_notes"],"fame_terms":f["fame_terms"],"lng_terms":f["lng_terms"],"idempotency_key":command.key,"idempotency_operation":command.key.as_ref().map(|_|"order.create"),"idempotency_request_hash":command.key.as_ref().map(|_|&command.hash),"acceptance_ordinal":ordinal,"support_authorization_id":authorization,"created_at":command.now,"updated_at":command.now,"status":"OPEN","version":1,"is_verdaxis_verified":false});
         sqlx::query("INSERT INTO orderbook_orders(id,organization_id,owner_user_id,created_by_actor_user_id,creation_method,provenance,side,product_id,delivery_point_id,port_id,vessel_id,quantity_mt,remaining_quantity_mt,price_per_mt_usd,availability_window,expires_at,certifications,certification_declared,certification_scheme,specification_standard,msds_available,carbon_intensity_gco2_mj,carbon_intensity_method,feedstock,origin,off_spec,off_spec_notes,fame_terms,lng_terms,idempotency_key,idempotency_operation,idempotency_request_hash,acceptance_ordinal,support_authorization_id,created_at,updated_at,status,version,is_verdaxis_verified) SELECT id,organization_id,owner_user_id,created_by_actor_user_id,creation_method,provenance,side,product_id,delivery_point_id,port_id,vessel_id,quantity_mt,remaining_quantity_mt,price_per_mt_usd,availability_window,expires_at,certifications,certification_declared,certification_scheme,specification_standard,msds_available,carbon_intensity_gco2_mj,carbon_intensity_method,feedstock,origin,off_spec,off_spec_notes,fame_terms,lng_terms,idempotency_key,idempotency_operation,idempotency_request_hash,acceptance_ordinal,support_authorization_id,created_at,updated_at,status,version,is_verdaxis_verified FROM jsonb_populate_record(NULL::orderbook_orders,$1::jsonb)").bind(payload).execute(&mut *self.conn).await?;
@@ -825,23 +925,25 @@ impl<'a> CreatePort<'a> {
         command: &CreateCommand,
         actor: &AuthenticatedActor,
         party: &Party,
-        input: &CreateInput,
+        declared: &CreateInput,
     ) -> Result<Uuid, MarketWriteError> {
         let id = Uuid::new_v4();
-        let confirmation = input.confirmation.as_ref().ok_or_else(internal)?;
-        let mut payload = input.economic_payload()?;
+        let confirmation = declared.confirmation.as_ref().ok_or_else(internal)?;
+        // The authority records the request as declared: display derivation
+        // never reaches the assisted authorization's terms.
+        let mut payload = declared.economic_payload()?;
         let map = payload.as_object_mut().ok_or_else(internal)?;
         let expiry = party.context_expiry.ok_or_else(internal)?;
-        let expiry = input.expiry.map_or(expiry, |at| at.min(expiry));
-        let digest = input.authorization_digest()?;
+        let expiry = declared.expiry.map_or(expiry, |at| at.min(expiry));
+        let digest = declared.authorization_digest()?;
         for (key, value) in [
             ("id", json!(id)),
             ("organization_id", json!(party.organization)),
             ("accountable_user_id", json!(actor.user_id())),
             ("market_support_context_id", json!(command.context)),
-            ("order_side", input.fields["side"].clone()),
+            ("order_side", declared.fields["side"].clone()),
             ("authorization_expires_at", json!(expiry)),
-            ("order_expires_at", json!(input.expiry)),
+            ("order_expires_at", json!(declared.expiry)),
             ("terms_digest", json!(digest)),
             (
                 "evidence_reference",
