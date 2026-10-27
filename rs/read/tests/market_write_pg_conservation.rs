@@ -318,7 +318,7 @@ impl Fixture {
             }
             let rows = sqlx::query("SELECT o.id,o.status,o.quantity_mt,o.remaining_quantity_mt,coalesce((SELECT sum(t.quantity_mt) FROM trades t WHERE (t.ask_order_id=o.id OR t.bid_order_id=o.id) AND t.status IN ('PENDING_CONFIRMATION','CONFIRMED','DELIVERED','PAID')),0) AS traded FROM orderbook_orders o WHERE o.inventory_item_id=$1").bind(item).fetch_all(&mut self.admin).await.unwrap();
             let bid_links: i64 = sqlx::query_scalar("SELECT count(*) FROM orderbook_orders WHERE organization_id=$1 AND side='BID' AND inventory_item_id IS NOT NULL").bind(self.buyer_org).fetch_one(&mut self.admin).await.unwrap();
-            assert_eq!(bid_links,0,"{context} bid inventory link");
+            assert_eq!(bid_links, 0, "{context} bid inventory link");
             for order in rows {
                 let quantity: Decimal = order.get("quantity_mt");
                 let remaining: Decimal = order.get("remaining_quantity_mt");
@@ -341,7 +341,10 @@ impl Fixture {
                         );
                         assert_eq!(remaining, quantity - traded, "{context}");
                     }
-                    "FILLED" => { assert_eq!(remaining, Decimal::ZERO, "{context}"); assert_eq!(remaining, quantity-traded, "{context}"); },
+                    "FILLED" => {
+                        assert_eq!(remaining, Decimal::ZERO, "{context}");
+                        assert_eq!(remaining, quantity - traded, "{context}");
+                    }
                     "CANCELLED" | "EXPIRED" => {}
                     _ => panic!("{context} status={status}"),
                 }
@@ -552,7 +555,13 @@ async fn cancel_release_is_exactly_once() {
         .unwrap()
         .parse()
         .unwrap();
-    let declined: Uuid = f.stock_step("fixture:take", item, Some(order), None, Decimal::from(2)).await["trade"].as_str().unwrap().parse().unwrap();
+    let declined: Uuid = f
+        .stock_step("fixture:take", item, Some(order), None, Decimal::from(2))
+        .await["trade"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
     let path = format!("/api/orderbook/{order}");
     assert_eq!(
         request(
@@ -607,7 +616,14 @@ async fn cancel_release_is_exactly_once() {
     )
     .await;
     f.check(0, 2, Writer::Confirm, "pending").await;
-    f.stock_step(Writer::Decline.label(), item, Some(order), Some(declined), Decimal::ZERO).await;
+    f.stock_step(
+        Writer::Decline.label(),
+        item,
+        Some(order),
+        Some(declined),
+        Decimal::ZERO,
+    )
+    .await;
     f.check(0, 3, Writer::Decline, "pending").await;
 }
 
@@ -618,50 +634,128 @@ async fn take_and_cancel_on_one_order_conserve_stock() {
         let mut f = Fixture::new().await;
         let (_, item) = f.create("10.00").await;
         let item: Uuid = item["id"].as_str().unwrap().parse().unwrap();
-        let order: Uuid = f.stock_step(Writer::Publish.label(), item, None, None, Decimal::ZERO).await["order"].as_str().unwrap().parse().unwrap();
-        let key = verdaxis_read::market_contract::locks::market_slice_lock_key(f.product_id, Some(f.point), "SPOT");
+        let order: Uuid = f
+            .stock_step(Writer::Publish.label(), item, None, None, Decimal::ZERO)
+            .await["order"]
+            .as_str()
+            .unwrap()
+            .parse()
+            .unwrap();
+        let key = verdaxis_read::market_contract::locks::market_slice_lock_key(
+            f.product_id,
+            Some(f.point),
+            "SPOT",
+        );
         if take_first {
             let mut holder = PgConnection::connect(&f.admin_url).await.unwrap();
             let mut transaction = holder.begin().await.unwrap();
             sqlx::query("SELECT conservation_step($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)")
-                .bind("fixture:lock").bind(item).bind(order).bind(Option::<Uuid>::None).bind(Decimal::from(key))
-                .bind(f.product_id).bind(f.point).bind(f.buyer_org).bind(f.buyer).bind(f.product["code"].as_str().unwrap())
-                .execute(&mut *transaction).await.unwrap();
-            let result: Value = sqlx::query_scalar("SELECT conservation_step($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)")
-                .bind("fixture:take").bind(item).bind(order).bind(Option::<Uuid>::None).bind(Decimal::from(4))
-                .bind(f.product_id).bind(f.point).bind(f.buyer_org).bind(f.buyer).bind(f.product["code"].as_str().unwrap())
-                .fetch_one(&mut *transaction).await.unwrap();
+                .bind("fixture:lock")
+                .bind(item)
+                .bind(order)
+                .bind(Option::<Uuid>::None)
+                .bind(Decimal::from(key))
+                .bind(f.product_id)
+                .bind(f.point)
+                .bind(f.buyer_org)
+                .bind(f.buyer)
+                .bind(f.product["code"].as_str().unwrap())
+                .execute(&mut *transaction)
+                .await
+                .unwrap();
+            let result: Value =
+                sqlx::query_scalar("SELECT conservation_step($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)")
+                    .bind("fixture:take")
+                    .bind(item)
+                    .bind(order)
+                    .bind(Option::<Uuid>::None)
+                    .bind(Decimal::from(4))
+                    .bind(f.product_id)
+                    .bind(f.point)
+                    .bind(f.buyer_org)
+                    .bind(f.buyer)
+                    .bind(f.product["code"].as_str().unwrap())
+                    .fetch_one(&mut *transaction)
+                    .await
+                    .unwrap();
             assert!(result["trade"].is_string());
-            let barrier=Arc::new(Barrier::new(2));
-            let waiter=barrier.clone(); let router=f.orders.clone(); let actor=f.supplier;
-            let cancel=tokio::spawn(async move { waiter.wait().await; request(router,actor,"DELETE",&format!("/api/orderbook/{order}"),None,None).await });
+            let barrier = Arc::new(Barrier::new(2));
+            let waiter = barrier.clone();
+            let router = f.orders.clone();
+            let actor = f.supplier;
+            let cancel = tokio::spawn(async move {
+                waiter.wait().await;
+                request(
+                    router,
+                    actor,
+                    "DELETE",
+                    &format!("/api/orderbook/{order}"),
+                    None,
+                    None,
+                )
+                .await
+            });
             barrier.wait().await;
             transaction.commit().await.unwrap();
-            let (status, body)=cancel.await.unwrap();
-            assert_eq!(status, StatusCode::NO_CONTENT,"{body}");
+            let (status, body) = cancel.await.unwrap();
+            assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
         } else {
-            let barrier=Arc::new(Barrier::new(2));
-            let waiter=barrier.clone(); let router=f.orders.clone(); let actor=f.supplier;
-            let cancel=tokio::spawn(async move { waiter.wait().await; request(router,actor,"DELETE",&format!("/api/orderbook/{order}"),None,None).await });
+            let barrier = Arc::new(Barrier::new(2));
+            let waiter = barrier.clone();
+            let router = f.orders.clone();
+            let actor = f.supplier;
+            let cancel = tokio::spawn(async move {
+                waiter.wait().await;
+                request(
+                    router,
+                    actor,
+                    "DELETE",
+                    &format!("/api/orderbook/{order}"),
+                    None,
+                    None,
+                )
+                .await
+            });
             barrier.wait().await;
-            let (status,body)=cancel.await.unwrap();
-            assert_eq!(status,StatusCode::NO_CONTENT,"{body}");
-            let before=f.snapshot().await;
+            let (status, body) = cancel.await.unwrap();
+            assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+            let before = f.snapshot().await;
             let mut holder = PgConnection::connect(&f.admin_url).await.unwrap();
             let mut transaction = holder.begin().await.unwrap();
             sqlx::query("SELECT conservation_step($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)")
-                .bind("fixture:lock").bind(item).bind(order).bind(Option::<Uuid>::None).bind(Decimal::from(key))
-                .bind(f.product_id).bind(f.point).bind(f.buyer_org).bind(f.buyer).bind(f.product["code"].as_str().unwrap())
-                .execute(&mut *transaction).await.unwrap();
-            let result: Value = sqlx::query_scalar("SELECT conservation_step($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)")
-                .bind("fixture:take").bind(item).bind(order).bind(Option::<Uuid>::None).bind(Decimal::from(4))
-                .bind(f.product_id).bind(f.point).bind(f.buyer_org).bind(f.buyer).bind(f.product["code"].as_str().unwrap())
-                .fetch_one(&mut *transaction).await.unwrap();
+                .bind("fixture:lock")
+                .bind(item)
+                .bind(order)
+                .bind(Option::<Uuid>::None)
+                .bind(Decimal::from(key))
+                .bind(f.product_id)
+                .bind(f.point)
+                .bind(f.buyer_org)
+                .bind(f.buyer)
+                .bind(f.product["code"].as_str().unwrap())
+                .execute(&mut *transaction)
+                .await
+                .unwrap();
+            let result: Value =
+                sqlx::query_scalar("SELECT conservation_step($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)")
+                    .bind("fixture:take")
+                    .bind(item)
+                    .bind(order)
+                    .bind(Option::<Uuid>::None)
+                    .bind(Decimal::from(4))
+                    .bind(f.product_id)
+                    .bind(f.point)
+                    .bind(f.buyer_org)
+                    .bind(f.buyer)
+                    .bind(f.product["code"].as_str().unwrap())
+                    .fetch_one(&mut *transaction)
+                    .await
+                    .unwrap();
             assert_eq!(result["refused"], true);
             transaction.commit().await.unwrap();
-            assert_eq!(f.snapshot().await,before);
+            assert_eq!(f.snapshot().await, before);
         }
-        f.check(0,0,Writer::Cancel,"take/cancel order").await;
+        f.check(0, 0, Writer::Cancel, "take/cancel order").await;
     }
 }
 
