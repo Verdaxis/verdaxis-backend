@@ -892,7 +892,7 @@ async fn market_data_reads_answer_saturated_admission_with_the_typed_envelope() 
         app.clone().oneshot(
             Request::builder()
                 .uri(path)
-                .header("origin", "https://staging.verdaxis.exchange")
+                .header("origin", "https://test")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -905,7 +905,7 @@ async fn market_data_reads_answer_saturated_admission_with_the_typed_envelope() 
         assert_eq!(response.headers()["retry-after"], "1", "{path}");
         assert_eq!(
             response.headers()["access-control-allow-origin"],
-            "https://staging.verdaxis.exchange"
+            "https://test"
         );
         let body = to_bytes(response.into_body(), 1024).await.unwrap();
         assert_eq!(
