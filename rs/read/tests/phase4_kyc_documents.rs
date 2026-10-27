@@ -853,7 +853,10 @@ mod postgres {
         let mut f = Fixture::new().await;
         let state = f.state();
         let context = f.context(true);
-        let expires = chrono::Utc::now() + chrono::Duration::seconds(4);
+        // JWT expiry is an integer second. Admit the upload first, then place
+        // only the final 200 ms before expiry inside the 500 ms lock budget.
+        let expires = chrono::DateTime::from_timestamp(chrono::Utc::now().timestamp() + 4, 0)
+            .expect("expiry instant");
         let before = f.snapshot().await;
         let (entered, ready) = tokio::sync::oneshot::channel();
         let (release, wait) = tokio::sync::oneshot::channel();
@@ -882,11 +885,41 @@ mod postgres {
             .execute(&mut *blocker)
             .await
             .expect("organization lock");
+        let release_at = expires - chrono::Duration::milliseconds(200);
+        tokio::time::sleep(
+            (release_at - chrono::Utc::now())
+                .to_std()
+                .expect("upload must reach the barrier before expiry"),
+        )
+        .await;
+        assert!(
+            chrono::Utc::now() < expires,
+            "token is valid before the lock wait"
+        );
         release.send(()).expect("release body");
-        let until = (expires + chrono::Duration::seconds(1) - chrono::Utc::now())
-            .to_std()
-            .expect("expiry barrier");
-        tokio::time::sleep(until).await;
+        let mut lock_wait_observed = false;
+        while chrono::Utc::now() < expires {
+            lock_wait_observed = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM pg_locks WHERE locktype='transactionid' AND transactionid=pg_current_xact_id()::text::xid AND NOT granted)",
+            )
+            .fetch_one(&mut *blocker)
+            .await
+            .expect("observe organization lock wait");
+            if lock_wait_observed {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+        assert!(
+            lock_wait_observed,
+            "writer must wait for the lock while its token is valid"
+        );
+        tokio::time::sleep(
+            (expires + chrono::Duration::milliseconds(20) - chrono::Utc::now())
+                .to_std()
+                .unwrap_or_default(),
+        )
+        .await;
         blocker.commit().await.expect("release locks");
         let result = writer.await.expect("handler owner");
         assert!(
