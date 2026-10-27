@@ -157,7 +157,8 @@ def test_device_lock_key_matches_python():
 def test_phase3_migration_has_one_head_and_direct_parent():
     script = _script()
     assert PARENT == RECORD["observed_single_head_at_task_start"]
-    assert script.get_heads() == [REVISION]
+    assert script.get_heads() == ["p5_20261020_read_indexes"]
+    assert script.get_revision("p5_20261020_read_indexes").down_revision == REVISION
     revision = script.get_revision(REVISION)
     assert revision.down_revision == PARENT
     assert revision.module.branch_labels is None
@@ -211,7 +212,9 @@ async def test_phase3_migration_is_additive_and_reversible(migration_database):
         (ROOT / "deploy/migration-checkpoints.tsv").read_text()
     )
     rows = {tuple(row) for row in RECORD["checkpoint_rows"]}
-    assert {row for row in policy if REVISION in row} == rows
+    assert {row for row in policy if REVISION in row} == rows | {
+        (REVISION, "p5_20261020_read_indexes")
+    }
     script = _script()
     path = [revision.revision for revision in script.iterate_revisions(REVISION, PARENT)]
     assert path == [REVISION]
