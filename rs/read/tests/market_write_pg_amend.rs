@@ -21,9 +21,6 @@ fn buyer() -> Uuid {
 fn seller() -> Uuid {
     Uuid::from_u128(0x2001)
 }
-fn staff() -> Uuid {
-    Uuid::from_u128(0x3001)
-}
 
 /// The fixture produces buyer/seller organizations (REAL, approved) with one
 /// admitted user each, one BID for the buyer and `asks` ASK rows for the
@@ -35,7 +32,6 @@ struct Fixture {
     router: Router,
     bid: Uuid,
     asks: Vec<Uuid>,
-    product: Uuid,
     point: Uuid,
 }
 impl Fixture {
@@ -78,10 +74,6 @@ impl Fixture {
         .await
         .unwrap();
         let asks: Vec<Uuid> = ask_rows.iter().map(|row| row.get("id")).collect();
-        let product = sqlx::query_scalar("SELECT product_id FROM orderbook_orders LIMIT 1")
-            .fetch_one(&mut admin)
-            .await
-            .unwrap();
         let point = sqlx::query_scalar("SELECT id FROM delivery_points WHERE name='Rotterdam'")
             .fetch_one(&mut admin)
             .await
@@ -96,25 +88,8 @@ impl Fixture {
             router,
             bid,
             asks,
-            product,
             point,
         }
-    }
-    async fn count(&mut self, table: &str) -> i64 {
-        let sql = match table {
-            "orders" => "SELECT count(*) FROM orderbook_orders",
-            "trades" => "SELECT count(*) FROM trades",
-            "audit" => "SELECT count(*) FROM audit_logs",
-            "events" => "SELECT count(*) FROM market_event_outbox",
-            "receipts" => "SELECT count(*) FROM market_command_results",
-            "notifications" => "SELECT count(*) FROM notifications",
-            "watchlist" => "SELECT count(*) FROM watchlist_events",
-            _ => panic!("unknown table"),
-        };
-        sqlx::query_scalar(sql)
-            .fetch_one(&mut self.observer)
-            .await
-            .unwrap()
     }
     async fn order(&mut self, id: Uuid) -> serde_json::Value {
         sqlx::query_scalar::<_, serde_json::Value>(
