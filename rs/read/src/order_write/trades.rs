@@ -144,14 +144,19 @@ pub struct TradePage {
     pub action_required: bool,
     pub status_group: String,
 }
-impl TradePage {
-    pub fn parse(raw: Option<&str>) -> Result<Self, MarketWriteError> {
-        let mut p = Self {
+impl Default for TradePage {
+    fn default() -> Self {
+        Self {
             skip: 0,
             limit: 20,
             action_required: false,
             status_group: "all".into(),
-        };
+        }
+    }
+}
+impl TradePage {
+    pub fn parse(raw: Option<&str>) -> Result<Self, MarketWriteError> {
+        let mut p = Self::default();
         for (k, v) in url::form_urlencoded::parse(raw.unwrap_or_default().as_bytes()) {
             match k.as_ref() {
                 "skip" => p.skip = v.parse().map_err(|_| invalid())?,
@@ -370,7 +375,11 @@ impl TradeCommand {
             MarketOperation::InventoryEdit
         });
         locks.parties(&parties)?;
-        if let (Some(org), Some(key)) = (org, &self.request.key) {
+        // Only a take takes the create idempotency lock; a read never touches
+        // the create advisory-key space, whatever headers it carried.
+        if let (Some(org), Some(key)) = (org, self.request.key.as_deref())
+            && self.request.create.is_some()
+        {
             locks.idempotency(org, "trade.create", key)?;
         }
         for row in &orders {
@@ -780,6 +789,14 @@ fn counterparty_snapshot(
     };
     let stored = stored.ok_or_else(invalid)?;
     let supplied = supplied.ok_or_else(invalid)?;
+    // The taker fills the resting order's opposite side. A declaration of the
+    // resting side is invalid input, whatever its own field validity, and is
+    // refused before any pairing or compatibility rule can normalize it into
+    // the wrong slot.
+    let expected = if bid_side { "ASK" } else { "BID" };
+    if supplied.get("side").and_then(Value::as_str) != Some(expected) {
+        return Err(invalid());
+    }
     let (bid, ask) = if bid_side {
         (stored, supplied)
     } else {

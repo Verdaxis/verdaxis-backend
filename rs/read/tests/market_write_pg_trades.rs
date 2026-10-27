@@ -83,7 +83,7 @@ impl Fixture {
     /// The same fixture with a router that schedules post-commit analytics.
     async fn with_analytics(sender: AnalyticsSender) -> Self {
         let mut fixture = Self::new().await;
-        fixture.router = contract_router_with_sender(fixture.pool.clone(), KEY, true, sender);
+        fixture.router = contract_router_with_sender(fixture.pool.clone(), KEY, true, Some(sender));
         fixture
     }
     async fn digest(&mut self) -> String {
@@ -199,7 +199,10 @@ struct Collector {
     rows: Arc<Mutex<Vec<Value>>>,
     arrived: Arc<Notify>,
 }
-async fn receive(State(state): State<Collector>, Json(value): Json<Value>) -> (StatusCode, Json<Value>) {
+async fn receive(
+    State(state): State<Collector>,
+    Json(value): Json<Value>,
+) -> (StatusCode, Json<Value>) {
     state.rows.lock().await.push(value);
     state.arrived.notify_one();
     (StatusCode::OK, Json(json!({"ok": true})))
@@ -962,7 +965,7 @@ async fn wrong_side_counterparty_terms_are_refused_before_compatibility() {
     let fame_bid = json!({"schema_version":1,"side":"BID","neat_fame":true,"standard":"EN_14214","standard_edition":"2012+A2:2019","sustainability_scheme":"ISCC_EU"});
     let fame_ask = json!({"schema_version":1,"side":"ASK","neat_fame":true,"uco_mass_pct":100,"standard":"EN_14214","standard_edition":"2012+A2:2019","sustainability_scheme":"ISCC_EU","certificate_reference":"private-certificate","certificate_holder":"private-supplier","evidence_status":"PENDING","document_references":[],"certificate_valid_until":"2027-01-01","evidence_due":"BEFORE_LOADING"});
     let lng_bid = json!({"side":"BID","accepted_schemes":["ISCC_EU"],"accepted_delivery_methods":["SHIP_TO_SHIP"]});
-    let lng_ask = json!({"side":"ASK","sustainability_scheme":"ISCC_EU","scheme_certificate_number":"private-certificate","chain_of_custody":"MASS_BALANCE","union_database_registered":true,"bio_share_pct":"100","feedstock":"MANURE","production_country":"NL","wtt_ghg_gco2_mj":"-20.25","specification_standard":"ISO 23306:2020","min_methane_number":"80","delivery_method":"SHIP_TO_SHIP","seller_is_physical_supplier":false,"physical_supplier_name":"private-supplier","pos_timing":"WITH_DELIVERY"});
+    let lng_ask = json!({"side":"ASK","sustainability_scheme":"ISCC_EU","scheme_certificate_number":"private-certificate","chain_of_custody":"MASS_BALANCE","union_database_registered":true,"bio_share_pct":"100","feedstock":"MANURE","production_country":"NL","wtt_ghg_gco2e_mj":"-20.25","specification_standard":"ISO 23306:2020","min_methane_number":"80","delivery_method":"SHIP_TO_SHIP","seller_is_physical_supplier":false,"physical_supplier_name":"private-supplier","pos_timing":"WITH_DELIVERY"});
     let policy: Value =
         serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap();
     for (profile, own_side_terms, other_side_terms, field) in [
@@ -992,13 +995,29 @@ async fn wrong_side_counterparty_terms_are_refused_before_compatibility() {
         let mut body =
             json!({"order_id":id(ORDER),"quantity_mt":"1","expected_terms_digest":digest});
         body[field] = other_side_terms;
-        let (s, b) = send(&f.router, "POST", "/api/trades/", Some(BUYER), &[], Some(body)).await;
+        let (s, b) = send(
+            &f.router,
+            "POST",
+            "/api/trades/",
+            Some(BUYER),
+            &[],
+            Some(body),
+        )
+        .await;
         assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "{profile}: {b}");
         assert_eq!(f.state().await["trades"], 0);
         let mut body =
             json!({"order_id":id(ORDER),"quantity_mt":"1","expected_terms_digest":digest});
         body[field] = own_side_terms;
-        let (s, b) = send(&f.router, "POST", "/api/trades/", Some(BUYER), &[], Some(body)).await;
+        let (s, b) = send(
+            &f.router,
+            "POST",
+            "/api/trades/",
+            Some(BUYER),
+            &[],
+            Some(body),
+        )
+        .await;
         assert_eq!(s, StatusCode::OK, "{profile}: {b}");
         assert_eq!(f.state().await["trades"], 1);
     }
@@ -1120,11 +1139,8 @@ async fn a_take_ignores_the_query_string_and_reads_ignores_the_key_header() {
     // Reads never acquire the trade.create idempotency advisory lock: holding
     // that create key for the reader's own organization must not stall the
     // read. The take's lock timeout makes the wrong outcome a 503, not a hang.
-    let lock_key = verdaxis_read::order_write::idempotency_lock_key(
-        id(0x1000),
-        "trade.create",
-        "held",
-    );
+    let lock_key =
+        verdaxis_read::order_write::idempotency_lock_key(id(0x1000), "trade.create", "held");
     let mut holder = f.admin.begin().await.unwrap();
     sqlx::query("SELECT pg_advisory_xact_lock($1)")
         .bind(lock_key)

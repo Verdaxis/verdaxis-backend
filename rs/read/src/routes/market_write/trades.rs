@@ -84,7 +84,12 @@ async fn handle(state: RouteState, request: Request, create: bool, summary: bool
         }
     };
     let result = async {
-        let page = TradePage::parse(parts.uri.query())?;
+        // Only the reads carry a page; a take never inspects the query string.
+        let page = if create {
+            TradePage::default()
+        } else {
+            TradePage::parse(parts.uri.query())?
+        };
         let context = header("x-verdaxis-market-support-context")
             .map(str::trim)
             .filter(|v| !v.is_empty())
@@ -107,16 +112,21 @@ async fn handle(state: RouteState, request: Request, create: bool, summary: bool
         } else {
             None
         };
-        let key = header("idempotency-key")
-            .filter(|v| !v.is_empty())
-            .map(|v| {
-                let key = v.trim();
-                if key.is_empty() || key.chars().count() > 255 {
-                    return Err(bad(StatusCode::BAD_REQUEST));
-                }
-                Ok(key.to_owned())
-            })
-            .transpose()?;
+        // Only a take reads the key: a read never parses or validates it.
+        let key = if create {
+            header("idempotency-key")
+                .filter(|v| !v.is_empty())
+                .map(|v| {
+                    let key = v.trim();
+                    if key.is_empty() || key.chars().count() > 255 {
+                        return Err(bad(StatusCode::BAD_REQUEST));
+                    }
+                    Ok(key.to_owned())
+                })
+                .transpose()?
+        } else {
+            None
+        };
         let (ip, request_id) = crate::runtime::http::audit_identity(&parts);
         let audit = AuditContext::new(Some(ip), Some(request_id))?;
         let result = trades::dispatch(
@@ -191,6 +201,18 @@ async fn handle(state: RouteState, request: Request, create: bool, summary: bool
 }
 #[cfg(feature = "contract-tests")]
 pub fn contract_router(pool: sqlx::PgPool, key: &str, support_enabled: bool) -> Router {
+    contract_router_with_sender(pool, key, support_enabled, None)
+}
+
+/// The same component router with a conversion sender attached, for the
+/// post-commit delivery cases; serving composition stays integration-owned.
+#[cfg(feature = "contract-tests")]
+pub fn contract_router_with_sender(
+    pool: sqlx::PgPool,
+    key: &str,
+    support_enabled: bool,
+    analytics: Option<AnalyticsSender>,
+) -> Router {
     let config=serde_json::from_value(json!({"environment":"test","release_sha":"test","migration_revision":"p89_20261022_trade_freeze","database_url":"","db_session_time_zone":"UTC","bind":"127.0.0.1:0","read_admission_slots":8,"pool_max":9,"python_budget":0,"configured_max_connections":100})).unwrap();
     let app = AppState {
         config: Arc::new(config),
@@ -217,6 +239,6 @@ pub fn contract_router(pool: sqlx::PgPool, key: &str, support_enabled: bool) -> 
         ),
         support_enabled,
         Default::default(),
-        None,
+        analytics,
     )
 }
