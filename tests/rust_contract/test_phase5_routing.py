@@ -165,7 +165,8 @@ def site(request, tmp_path_factory):
                         headers = {"Host": "routing.test", **kwargs.pop("headers", {})}
                         return client.request(method, path, headers=headers, **kwargs)
 
-                    send.phase5_owner = "phase5" if request.param == "rust" else "python"
+                    send.phase5_owner = {"rust": "phase5", "python": "python",
+                                         "rust-stopped": "unavailable"}[request.param]
                     yield send
             finally:
                 process.terminate()
@@ -179,6 +180,9 @@ def site(request, tmp_path_factory):
 def owner(site, method, path, **kwargs):
     response = site(method, path, **kwargs)
     detail = f"{method} {path} answered {response.status_code} {dict(response.headers)}"
+    if response.status_code == 502:
+        assert "X-Route-Owner" not in response.headers, detail
+        return "unavailable"
     assert response.status_code == 200 and "X-Route-Owner" in response.headers, detail
     return response.headers["X-Route-Owner"]
 
@@ -234,6 +238,9 @@ def test_mcp_and_health_are_unchanged(site):
 
 def test_requests_reach_the_owner_unchanged(site):
     response = site("GET", "/api/producers?limit=2&q=a%20b", headers={"X-Forwarded-For": "203.0.113.9"})
+    if site.phase5_owner == "unavailable":
+        assert response.status_code == 502
+        return
     assert response.headers["X-Route-Owner"] == site.phase5_owner
     assert response.headers["X-Seen-Host"] == "routing.test"
     assert response.headers["X-Seen-Target"] == "/api/producers?limit=2&q=a%20b"
@@ -242,5 +249,8 @@ def test_requests_reach_the_owner_unchanged(site):
     body = json.dumps({"label": "x", "year": 2026})
     response = site("POST", "/api/compliance/scenario", content=body,
                     headers={"Content-Type": "application/json"})
+    if site.phase5_owner == "unavailable":
+        assert response.status_code == 502
+        return
     assert response.headers["X-Route-Owner"] == site.phase5_owner
     assert response.headers["X-Seen-Body"] == body

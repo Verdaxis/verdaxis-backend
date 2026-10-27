@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 import pytest
+
 from scripts import rust_caddy_candidate as sites
 from scripts import rust_phase5_candidate as generator
 
@@ -61,14 +62,15 @@ def test_snippet_matchers_are_exact_and_share_one_switch():
         assert "*" not in patterns[0]
     for node in handles:
         body = snippet[node["start"]:node["end"]]
-        # Rust first, the unchanged Python process second, and the same
-        # forwarding, retry and passive-health options as the first read groups.
-        assert "reverse_proxy {args[0]} {args[1]} {" in body
-        for option in ("header_up X-Forwarded-For {client_ip}", "lb_policy first", "lb_try_duration 10s",
-                       "lb_try_interval 250ms", "fail_duration 30s", "max_fails 1",
+        # The selected upstream alone serves the entire read group.
+        assert "reverse_proxy {args[0]} {" in body
+        assert "{args[1]}" not in body
+        for option in ("header_up X-Forwarded-For {client_ip}",
                        "flush_interval -1", "transport http {", "keepalive off"):
             assert option in body
-    assert snippet.count("{args[") == 2 * 3 + 2 * 3
+        for option in ("lb_policy", "lb_try_", "fail_duration", "max_fails"):
+            assert option not in body
+    assert snippet.count("{args[") == 2 * 3 + 3
     assert "{args[2]}" not in snippet
 
 
@@ -116,10 +118,9 @@ def test_production_inserts_one_block_between_analytics_and_python():
     block = updated[start:stop]
     assert updated[:start] + updated[stop:] == logged
     assert updated.index("handle /api/send") < start < updated.index("reverse_proxy localhost:8000")
-    assert block.count("reverse_proxy 127.0.0.1:8010 127.0.0.1:8000 {") == 3
+    assert block.count("reverse_proxy 127.0.0.1:8010 {") == 3
     assert "{args[" not in block
-    for option in ("header_up X-Forwarded-For {client_ip}", "lb_policy first", "lb_try_duration 10s",
-                   "lb_try_interval 250ms", "fail_duration 30s", "max_fails 1",
+    for option in ("header_up X-Forwarded-For {client_ip}",
                    "flush_interval -1", "keepalive off"):
         assert option in block
     assert generator.candidate(updated, "production", "python") == logged
@@ -145,7 +146,7 @@ def test_production_refuses_an_unreviewed_layout():
     with pytest.raises(ValueError):
         generator.candidate(logged, "production", "python")  # nothing to remove
     with pytest.raises(ValueError):
-        generator.candidate(updated.replace("max_fails 1", "max_fails 2", 1), "production", "python")
+        generator.candidate(updated.replace("flush_interval -1", "flush_interval 1s", 1), "production", "python")
     with pytest.raises(ValueError):
         generator.candidate(logged.replace("localhost:8000", "localhost:9000"), "production", "rust")
     with pytest.raises(ValueError):
@@ -194,15 +195,11 @@ def test_real_caddy_adapts_every_candidate(tmp_path):
         ("staging-rust", generator.candidate(staging_site(), "staging", "rust")),
     ):
         document = adapted(caddy, snippet + text, tmp_path, name)
-        phase5 = [p for p in proxies(document) if len(p["upstreams"]) == 2
-                  and p["upstreams"][1]["dial"] == PYTHON
-                  and p["upstreams"][0]["dial"] in {PYTHON, RUST} and "X-Forwarded-For" in json.dumps(p)]
-        assert len(phase5) == 3, name
+        phase5 = [p for p in proxies(document) if p["upstreams"] == [{"dial": RUST}]]
+        assert len(phase5) == (3 if name.endswith("rust") else 0), name
         for proxy in phase5:
-            balancing = proxy["load_balancing"]
-            assert balancing["selection_policy"] == {"policy": "first"}
-            assert balancing["try_duration"] == 10_000_000_000
-            assert proxy["health_checks"]["passive"] == {"fail_duration": 30_000_000_000, "max_fails": 1}
+            assert "load_balancing" not in proxy
+            assert "health_checks" not in proxy
     current = production_site()
     for name, text in (("production-python", current),
                        ("production-rust", generator.candidate(current, "production", "rust"))):
@@ -210,8 +207,8 @@ def test_real_caddy_adapts_every_candidate(tmp_path):
         moved = [p for p in proxies(document) if any(u["dial"] == "127.0.0.1:8010" for u in p["upstreams"])]
         assert len(moved) == (3 if name.endswith("rust") else 0), name
         for proxy in moved:
-            assert [u["dial"] for u in proxy["upstreams"]] == ["127.0.0.1:8010", "127.0.0.1:8000"]
-            assert proxy["load_balancing"]["selection_policy"] == {"policy": "first"}
+            assert [u["dial"] for u in proxy["upstreams"]] == ["127.0.0.1:8010"]
+            assert "load_balancing" not in proxy
 
 
 @pytest.mark.parametrize("environment,site,target", [
