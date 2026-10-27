@@ -273,3 +273,9 @@ async fn analytics_sender_drops_collector_failures_without_affecting_callers() {
     assert_eq!(receiver.rows.lock().await.len(), 2);
     task.abort();
 }
+
+#[test]
+fn trade_projection_excludes_unlisted_columns() {
+ let value=project_trade(json!({"buyer_id":Uuid::new_v4(),"seller_id":Uuid::new_v4(),"status":"PAID","is_anonymous":false,"private_future_column":"retained only in storage"}),None,false).unwrap();
+ assert!(value.get("private_future_column").is_none());
+}
