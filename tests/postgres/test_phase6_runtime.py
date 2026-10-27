@@ -29,4 +29,4 @@ async def test_stream_runtime_on_disposable_database(analytics_pg_url):
     )
     output = result.stdout + result.stderr
     assert result.returncode == 0, output
-    assert "test result: ok. 1 passed; 0 failed; 0 ignored" in output, output
+    assert "test result: ok. 2 passed; 0 failed; 0 ignored" in output, output

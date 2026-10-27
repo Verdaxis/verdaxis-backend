@@ -127,11 +127,8 @@ async fn stream_startup_failure_keeps_rest_available() {
     let mut config = config();
     config.prepared_budget = Some(budget(&config, 0, 1));
     let mut state = state(config);
-    assert!(
-        start_streams(&mut state, CapacityConfig::default())
-            .await
-            .is_none()
-    );
+    let runtime = start_streams(&mut state, CapacityConfig::default()).await.unwrap();
+    assert!(!verdaxis_read::streams::runtime::ready(&state));
     let response = verdaxis_read::router(state)
         .oneshot(
             Request::builder()
@@ -142,6 +139,7 @@ async fn stream_startup_failure_keeps_rest_available() {
         .await
         .unwrap();
     assert_eq!(response.status(), 200);
+    runtime.shutdown().await;
 }
 
 #[tokio::test]
@@ -160,6 +158,8 @@ async fn stream_failure_readiness_is_not_ok() {
         .await
         .unwrap();
     assert_eq!(response.status(), 503);
+    let body: serde_json::Value = serde_json::from_slice(&axum::body::to_bytes(response.into_body(), 1024).await.unwrap()).unwrap();
+    assert_eq!(body, serde_json::json!({"status":"error","db":"unavailable","environment":"test","release_sha":compiled_sha()}));
 }
 
 #[test]
@@ -200,11 +200,7 @@ async fn stream_runtime_database_lifecycle() {
         .execute(&admin)
         .await
         .unwrap();
-    assert!(
-        start_streams(&mut state, CapacityConfig::default())
-            .await
-            .is_none()
-    );
+    let runtime = start_streams(&mut state, CapacityConfig::default()).await.unwrap();
     assert!(!verdaxis_read::streams::runtime::ready(&state));
     sqlx::query(
         "INSERT INTO market_event_replay_state(singleton,discarded_through_seq) VALUES (true,$1)",
@@ -214,9 +210,11 @@ async fn stream_runtime_database_lifecycle() {
     .await
     .unwrap();
     admin.close().await;
-    let runtime = start_streams(&mut state, CapacityConfig::default())
-        .await
-        .unwrap();
+    tokio::time::timeout(Duration::from_secs(40), async {
+        while !verdaxis_read::streams::runtime::ready(&state) {
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    }).await.unwrap();
     assert!(verdaxis_read::streams::runtime::ready(&state));
     let hub = state.streams.as_ref().unwrap().hub.clone();
     let mut subscription = hub.subscribe_public(PublicChannel::Prices).unwrap();
@@ -306,4 +304,41 @@ async fn stream_runtime_database_lifecycle() {
     owner.close().await;
     pools.read.close().await;
     pools.health.close().await;
+}
+
+
+#[tokio::test]
+#[ignore = "requires the disposable PostgreSQL stream runtime fixture"]
+async fn invalid_persisted_row_resets_then_dispatches_without_restart() {
+    use verdaxis_read::streams::{dispatch::{Dispatch, PgDispatchStore}, store};
+    let mut config = config();
+    config.database_url = std::env::var("STREAM_RUNTIME_APP_URL").unwrap();
+    let pools = verdaxis_read::connect(&config).await.unwrap();
+    let admin = sqlx::PgPool::connect(&std::env::var("STREAM_RUNTIME_ADMIN_URL").unwrap()).await.unwrap();
+    let hub = verdaxis_read::streams::bus::StreamHub::default();
+    let mut source = PgDispatchStore::new(pools.read.clone());
+    let mut dispatch = Dispatch::initialize(&mut source, hub.clone()).await.unwrap();
+    let org = uuid::Uuid::new_v4();
+    let mut private = hub.subscribe_org(org).unwrap();
+    let mut public = hub.subscribe_public(PublicChannel::Prices).unwrap();
+    let mut sequences = Vec::new();
+    for payload in [serde_json::json!({"oversized":"x".repeat(256*1024)}), serde_json::json!({"trade_id":"fixture","_public_market_invalidation":true})] {
+        let seq:i64 = sqlx::query_scalar("SELECT nextval('market_event_stream_seq')").fetch_one(&admin).await.unwrap();
+        sequences.push(seq);
+        sqlx::query("INSERT INTO market_event_outbox(id,event_type,aggregate_type,aggregate_id,participant_org_ids,payload,stream_seq) VALUES ($1,'trade_created','trade','fixture',$2,$3,$4)")
+            .bind(uuid::Uuid::new_v4()).bind(serde_json::json!([org])).bind(payload).bind(seq).execute(&admin).await.unwrap();
+    }
+    dispatch.turn(&mut source).await.unwrap();
+    assert_eq!(private.wait_terminal().await, Terminal::InvalidEvent);
+    assert_eq!(public.wait_terminal().await, Terminal::InvalidEvent);
+    assert_eq!(dispatch.cursor(), *sequences.last().unwrap());
+    assert!(hub.is_available());
+    assert!(store::replay_page(&pools.read,org,sequences[0]-1,sequences[1],Default::default()).await.is_err());
+    let mut fresh = hub.subscribe_public(PublicChannel::Prices).unwrap();
+    let seq:i64 = sqlx::query_scalar("SELECT nextval('market_event_stream_seq')").fetch_one(&admin).await.unwrap();
+    sqlx::query("INSERT INTO market_event_outbox(id,event_type,aggregate_type,aggregate_id,participant_org_ids,payload,stream_seq) VALUES ($1,'trade_created','trade','fixture',$2,$3,$4)")
+        .bind(uuid::Uuid::new_v4()).bind(serde_json::json!([org])).bind(serde_json::json!({"_public_market_invalidation":true})).bind(seq).execute(&admin).await.unwrap();
+    dispatch.turn(&mut source).await.unwrap();
+    assert!(matches!(fresh.recv().await,Some(verdaxis_read::streams::bus::Delivery::PublicInvalidation)));
+    pools.read.close().await;pools.health.close().await;admin.close().await;
 }
