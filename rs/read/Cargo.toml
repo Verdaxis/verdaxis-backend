@@ -76,6 +76,14 @@ name = "streams_watchlist_guard"
 name = "preauth_server"
 required-features = ["contract-tests"]
 
+[[test]]
+name = "streams_coexistence"
+required-features = ["contract-tests"]
+
+[[example]]
+name = "streams_fixture"
+required-features = ["contract-tests"]
+
 [features]
 contract-tests = []
 
