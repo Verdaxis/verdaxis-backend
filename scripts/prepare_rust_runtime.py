@@ -245,6 +245,24 @@ def project_runtime_environment(
     }
     projected.update(phase2_settings(values))
     projected.update(phase3_settings(values))
+    # Read-only aggregates and seller fees are the only business additions.
+    for key, default in (("SELLER_FEE_PILOT_PER_MT_USD", "2"),
+                         ("SELLER_FEE_PROFESSIONAL_PER_MT_USD", "1.50")):
+        from decimal import Decimal, InvalidOperation
+        try:
+            rate = Decimal(values.get(key) or default)
+            if not rate.is_finite() or rate < 0:
+                raise ValueError("invalid seller fee")
+        except (InvalidOperation, ValueError) as exc:
+            raise RustRuntimeError("seller fee must be finite and nonnegative") from exc
+        projected[key] = str(rate)
+    for key in ("UMAMI_BASE_URL", "UMAMI_WEBSITE_ID", "UMAMI_API_USERNAME", "UMAMI_API_PASSWORD"):
+        value = values.get(key)
+        if isinstance(value, str) and value.strip():
+            projected[key] = value
+    projected["UMAMI_ENABLED"] = "true" if all(projected.get(key) for key in
+        ("UMAMI_BASE_URL", "UMAMI_WEBSITE_ID", "UMAMI_API_USERNAME", "UMAMI_API_PASSWORD")) else "false"
+
     # Refuse control characters; quotes and backslashes are escaped by the
     # EnvironmentFile renderer without changing the deployed value.
     for key, value in projected.items():

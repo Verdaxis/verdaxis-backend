@@ -596,6 +596,10 @@ pub fn router_with(extra: Router<crate::AppState>, state: crate::AppState) -> Ro
         Some(auth) => routes.merge(auth),
         None => routes,
     };
+    let routes = match super::phase4::routes(&state, limits.clone()) {
+        Some(business) => routes.merge(business),
+        None => routes,
+    };
     let routes = routes
         .fallback(fallback)
         .method_not_allowed_fallback(method_not_allowed);

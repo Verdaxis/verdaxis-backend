@@ -11,5 +11,8 @@ pub mod http;
 pub mod logging;
 pub mod phase2;
 pub mod phase3;
+pub mod phase4;
+mod phase4_adapters;
+mod phase4_analytics;
 pub mod policy;
 pub mod trading_routes;
