@@ -61,6 +61,7 @@ struct Fixture {
     point: Uuid,
     port: String,
     supplied: BTreeMap<Uuid, Decimal>,
+    admin_url: String,
 }
 impl Fixture {
     async fn new() -> Self {
@@ -92,7 +93,7 @@ impl Fixture {
         let inventory = verdaxis_read::routes::market_write::inventory::router(state, verification);
         let pool = PgPoolOptions::new().max_connections(10).connect(&runtime_url).await.unwrap();
         let orders = served_contract_router(pool, KEY, true);
-        Self { admin, inventory, orders, supplier, buyer, organization, buyer_org, product, product_id, point, port, supplied: BTreeMap::new() }
+        Self { admin, inventory, orders, supplier, buyer, organization, buyer_org, product, product_id, point, port, supplied: BTreeMap::new(), admin_url }
     }
     async fn create(&mut self, quantity: &str) -> (StatusCode, Value) {
         let body = json!({"port_id":self.port,"product_name":self.product["name"],"fuel_type":self.product["fuel_type"],"current_stock_mt":quantity,"incoming_stock_mt":"0","price_per_mt_usd":"100"});
@@ -107,6 +108,13 @@ impl Fixture {
             .bind(operation).bind(item).bind(order).bind(trade).bind(amount).bind(self.product_id).bind(self.point)
             .bind(self.buyer_org).bind(self.buyer).bind(self.product["code"].as_str().unwrap())
             .fetch_one(&mut self.admin).await.unwrap()
+    }
+    async fn cancel_effects(&mut self, order: Uuid, receipt_count: i64) {
+        let audit: i64 = sqlx::query_scalar("SELECT count(*) FROM audit_logs WHERE action='order.cancelled' AND resource_id=$1").bind(order.to_string()).fetch_one(&mut self.admin).await.unwrap();
+        let events: i64 = sqlx::query_scalar("SELECT count(*) FROM market_event_outbox WHERE event_type='order_cancelled' AND aggregate_id=$1").bind(order.to_string()).fetch_one(&mut self.admin).await.unwrap();
+        let receipts: i64 = sqlx::query_scalar("SELECT count(*) FROM market_command_results WHERE actor_user_id=$1 AND operation='order.cancel'").bind(self.supplier).fetch_one(&mut self.admin).await.unwrap();
+        let notifications: i64 = sqlx::query_scalar("SELECT count(*) FROM notifications WHERE recipient_id IN ($1,$2)").bind(self.supplier).bind(self.buyer).fetch_one(&mut self.admin).await.unwrap();
+        assert_eq!((audit,events,receipts,notifications),(1,1,receipt_count,0));
     }
     async fn snapshot(&mut self) -> Value {
         sqlx::query_scalar("SELECT jsonb_build_object('inventory',coalesce((SELECT jsonb_agg(to_jsonb(i) ORDER BY i.id) FROM inventory_items i WHERE supplier_id=$1),'[]'::jsonb),'orders',coalesce((SELECT jsonb_agg(to_jsonb(o) ORDER BY o.id) FROM orderbook_orders o WHERE organization_id IN ($1,$2)),'[]'::jsonb),'trades',coalesce((SELECT jsonb_agg(to_jsonb(t) ORDER BY t.id) FROM trades t WHERE buyer_id IN ($1,$2) OR seller_id IN ($1,$2)),'[]'::jsonb),'audit',coalesce((SELECT jsonb_agg(to_jsonb(a) ORDER BY a.id) FROM audit_logs a WHERE user_id IN ($3,$4)),'[]'::jsonb),'events',coalesce((SELECT jsonb_agg(to_jsonb(e) ORDER BY e.id) FROM market_event_outbox e WHERE participant_org_ids::jsonb @> jsonb_build_array($1::text) OR participant_org_ids::jsonb @> jsonb_build_array($2::text)),'[]'::jsonb),'receipts',coalesce((SELECT jsonb_agg(to_jsonb(r) ORDER BY r.id) FROM market_command_results r WHERE actor_user_id IN ($3,$4)),'[]'::jsonb),'notifications',coalesce((SELECT jsonb_agg(to_jsonb(n) ORDER BY n.id) FROM notifications n WHERE recipient_id IN ($3,$4)),'[]'::jsonb))").bind(self.organization).bind(self.buyer_org).bind(self.supplier).bind(self.buyer).fetch_one(&mut self.admin).await.unwrap()
@@ -205,6 +213,7 @@ async fn cancel_release_is_exactly_once() {
     assert_eq!(request(f.orders.clone(),f.supplier,"DELETE",&path,None,Some("new-key")).await.0,StatusCode::BAD_REQUEST);
     assert_eq!(f.snapshot().await,before);
     f.check(0,1,Writer::Cancel,"same-key").await;
+    f.cancel_effects(order,1).await;
     f.stock_step("fixture:confirm",item,Some(order),Some(trade),Decimal::ZERO).await;
     f.check(0,2,Writer::Confirm,"pending").await;
 }
@@ -223,6 +232,7 @@ async fn parallel_cancel_has_one_winner() {
         for task in tasks { let (status,body)=task.await.unwrap(); if status==StatusCode::NO_CONTENT {success+=1;} else { let code=body["detail"]["code"].as_str().unwrap_or(""); assert!((status==StatusCode::BAD_REQUEST && code=="ORDER_TERMINAL") || (status==StatusCode::CONFLICT && code=="MARKET_BUSY") || (keyed && status==StatusCode::SERVICE_UNAVAILABLE && code=="IDEMPOTENCY_BUSY"),"{status} {body}"); } }
         if keyed { assert!(success>=1); } else { assert_eq!(success,1); }
         f.check(0,0,Writer::Cancel,"parallel").await;
+        f.cancel_effects(order, i64::from(keyed)).await;
         if keyed { let before=f.snapshot().await; assert_eq!(request(f.orders.clone(),f.supplier,"DELETE",&format!("/api/orderbook/{order}"),None,Some("parallel-key")).await.0,StatusCode::NO_CONTENT); assert_eq!(f.snapshot().await,before); }
     }
 }
