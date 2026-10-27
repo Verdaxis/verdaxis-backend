@@ -79,6 +79,8 @@ async fn fixture() -> Option<Fixture> {
         pool_max: 2,
         python_budget: 52,
         configured_max_connections: 100,
+        compliance_eur_usd_rate: None,
+        fleet_artifact_path: "data/fleet_demand.json".into(),
         phase2: Default::default(),
     };
     let pools = verdaxis_read::connect(&config).await.unwrap();

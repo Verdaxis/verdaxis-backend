@@ -269,6 +269,8 @@ async fn harness() -> Option<Harness> {
         pool_max: 17,
         python_budget: 52,
         configured_max_connections: 100,
+        compliance_eur_usd_rate: None,
+        fleet_artifact_path: "data/fleet_demand.json".into(),
         phase2: Default::default(),
     };
     verdaxis_read::validate_config(&config).expect("valid disposable configuration");

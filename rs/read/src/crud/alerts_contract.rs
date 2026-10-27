@@ -109,6 +109,8 @@ pub async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         pool_max: 17,
         python_budget: 52,
         configured_max_connections: 100,
+        compliance_eur_usd_rate: None,
+        fleet_artifact_path: "data/fleet_demand.json".into(),
         phase2: Default::default(),
     };
     // The shared runner names its clones phase2_route_N_{python,rust,mixed},

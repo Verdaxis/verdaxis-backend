@@ -70,6 +70,7 @@ fn test_config(
         pool_max: 5,
         python_budget: 52,
         configured_max_connections: 100,
+        phase2: Default::default(),
         compliance_eur_usd_rate,
         fleet_artifact_path: "data/fleet_demand.json".into(),
     }
