@@ -233,3 +233,15 @@ pub mod market_trades {
     pub(crate) use crate::order_write::trades::{TradeRequest, dispatch};
     pub use crate::order_write::{MarketErrorCode, MarketWriteError};
 }
+
+/// Sealed order-entry component interface; no raw transaction is exported.
+pub(crate) mod market_create {
+    pub(crate) use crate::order_write::effects::AuditContext;
+    #[cfg(feature = "contract-tests")]
+    pub(crate) use crate::order_write::idempotency_lock_key as contract_key;
+    pub(crate) use crate::order_write::order_create::{CreateRequest, dispatch};
+    pub(crate) use crate::order_write::{
+        Canonical, MarketErrorCode, MarketWriteError, OrderQuantity, Price, command_request_hash,
+        idempotency_request_hash,
+    };
+}

@@ -331,6 +331,10 @@ fn boundary_insert_allowed(root: &Path, path: &Path, table: &str) -> bool {
         ),
         ("matching.rs", &["TRADES"]),
         ("trades.rs", &["TRADES"]),
+        (
+            "order_create.rs",
+            &["ORDERBOOK_ORDERS", "MARKET_SUPPORT_AUTHORIZATIONS"],
+        ),
         ("dismissal.rs", &["MATCH_SUGGESTIONS"]),
         ("benchmarks.rs", &["LIVE_SLICE_BENCHMARKS"]),
         ("events.rs", &["WATCHLIST_EVENTS"]),
@@ -1253,6 +1257,41 @@ fn dismissal_insert_authority_is_scoped_to_the_exact_source_file() {
     }
     for table in WRITE_TABLES {
         assert!(boundary_insert_allowed(&root, &dismissal, table));
+    }
+}
+
+#[test]
+fn order_create_insert_authority_is_scoped_to_the_exact_source_file() {
+    let root = repository_root();
+    let boundary = root.join("rs/read/src/order_write");
+    for table in ["ORDERBOOK_ORDERS", "MARKET_SUPPORT_AUTHORIZATIONS"] {
+        assert!(boundary_insert_allowed(
+            &root,
+            &boundary.join("order_create.rs"),
+            table
+        ));
+        for file in [
+            "transaction.rs",
+            "orders.rs",
+            "matching.rs",
+            "effects.rs",
+            "nested/order_create.rs",
+        ] {
+            assert!(!boundary_insert_allowed(&root, &boundary.join(file), table));
+        }
+    }
+    for table in [
+        "TRADES",
+        "USERS",
+        "NOTIFICATIONS",
+        "INVENTORY_ITEMS",
+        "UNLISTED_TABLE",
+    ] {
+        assert!(!boundary_insert_allowed(
+            &root,
+            &boundary.join("order_create.rs"),
+            table
+        ));
     }
 }
 

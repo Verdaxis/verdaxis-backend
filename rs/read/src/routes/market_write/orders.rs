@@ -101,6 +101,19 @@ struct RouteState {
     verification: Arc<VerificationSettings>,
     support_enabled: bool,
 }
+/// Add order entry without replacing cancellation or owner-read routes.
+/// This component composition does not activate any serving route.
+pub fn router_with_create(
+    app: AppState,
+    order_verification: VerificationSettings,
+    create_verification: VerificationSettings,
+    settings: super::order_create::CreateSettings,
+) -> Router {
+    router_with_support(app.clone(), order_verification, settings.support_enabled).merge(
+        super::order_create::router(app, create_verification, settings),
+    )
+}
+
 pub fn router(app: AppState, verification: VerificationSettings) -> Router {
     router_with_support(app, verification, false)
 }

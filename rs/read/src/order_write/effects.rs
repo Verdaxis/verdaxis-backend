@@ -22,6 +22,8 @@ use crate::{Config, MarketPolicy};
 
 #[derive(Clone, Copy, Debug)]
 pub enum MutationKind {
+    OrderCreated,
+    AssistedOrderAuthorizationCreated,
     OrderCancelled,
     OrderExpired,
     InventoryCreated,
@@ -47,6 +49,8 @@ impl MutationKind {
             Self::InventoryCreated | Self::InventoryUpdated | Self::InventoryDeleted => {
                 return None;
             }
+            Self::OrderCreated => "order.created",
+            Self::AssistedOrderAuthorizationCreated => "market_support.authorization_created",
             Self::OrderCancelled => "order.cancelled",
             Self::OrderExpired => "order.expired",
             Self::InventoryPublished => "inventory.published",
@@ -65,7 +69,8 @@ impl MutationKind {
     fn changes_order_economics(self) -> bool {
         matches!(
             self,
-            Self::OrderCancelled
+            Self::OrderCreated
+                | Self::OrderCancelled
                 | Self::OrderExpired
                 | Self::InventoryPublished
                 | Self::TradeCreated
@@ -413,6 +418,28 @@ impl<'a> EffectPort<'a> {
         self.finish(policy, config, set).await
     }
 
+    /// Add already locked resting rows before applying a prepared match. Slice
+    /// aggregates remain the pre-insert baseline captured by order entry.
+    pub(super) async fn include_existing(
+        &mut self,
+        before: &mut BeforeEffects,
+        policy: &MarketPolicy,
+        config: &Config,
+        ids: &[Uuid],
+    ) -> Result<(), MarketWriteError> {
+        if ids.iter().any(|id| !self.order_ids.contains(id)) {
+            return Err(inconsistent());
+        }
+        let rows = load_orders(self.conn, policy, config, ids, before.at).await?;
+        let targets = sqlx::query("SELECT t.id,t.watchlist_id,w.user_id,t.target_type,t.order_id,t.market_product_code,t.delivery_point_id,t.availability_window_code FROM watchlist_targets t JOIN watchlists w ON w.id=t.watchlist_id WHERE t.target_type='PIN' AND t.order_id=ANY($1) ORDER BY t.id")
+            .bind(ids).fetch_all(&mut *self.conn).await?;
+        for row in targets {
+            before.targets.push(json!({"target_id":row.try_get::<Uuid,_>("id")?,"watchlist_id":row.try_get::<Uuid,_>("watchlist_id")?,"observer_id":row.try_get::<Uuid,_>("user_id")?,"target_type":row.try_get::<String,_>("target_type")?,"order_id":row.try_get::<Option<Uuid>,_>("order_id")?,"market_product":row.try_get::<String,_>("market_product_code")?,"delivery_point_id":row.try_get::<Uuid,_>("delivery_point_id")?,"availability_window":row.try_get::<String,_>("availability_window_code")?}));
+        }
+        before.orders.extend(rows);
+        Ok(())
+    }
+
     /// Stage match effects alongside route effects; the caller finalizes once.
     pub async fn matched(
         &mut self,
@@ -703,6 +730,21 @@ impl<'a> EffectPort<'a> {
                     .bind(Uuid::new_v4()).bind(recipient).bind(json!({"trade_id":trade,"auto_matched":true})).bind(before.at).execute(&mut *self.conn).await?;
             }
         }
+        for effect in &set.effects {
+            if matches!(effect.kind, MutationKind::OrderCreated)
+                && effect.changes["creation_method"] == "MARKET_SUPPORT"
+            {
+                let recipients: Vec<Uuid> =
+                    sqlx::query_scalar("SELECT id FROM users WHERE organization_id=$1 ORDER BY id")
+                        .bind(effect.organization_id)
+                        .fetch_all(&mut *self.conn)
+                        .await?;
+                for recipient in recipients {
+                    sqlx::query("INSERT INTO notifications(id,recipient_id,type,title,message,data,is_read,created_at) VALUES($1,$2,'ORDER_UPDATE','Listing set up by Verdaxis Support','Verdaxis Support published an authorized listing for your organization.',$3,false,$4)")
+                        .bind(Uuid::new_v4()).bind(recipient).bind(json!({"order_id":effect.resource_id,"creation_method":"MARKET_SUPPORT"})).bind(before.at).execute(&mut *self.conn).await?;
+                }
+            }
+        }
         self.locked.begin_target_phase()?;
         sync_pin_display(self.conn, &after).await?;
         let mutation_id = Uuid::new_v4();
@@ -721,6 +763,24 @@ impl<'a> EffectPort<'a> {
         }
         Ok(mutation_id)
     }
+}
+
+pub(super) async fn order_visible(
+    conn: &mut PgConnection,
+    policy: &MarketPolicy,
+    config: &Config,
+    id: Uuid,
+    at: DateTime<Utc>,
+) -> Result<bool, MarketWriteError> {
+    let sql = order_query_sql("SELECT id FROM eligible_orders WHERE id=$14");
+    let clock = VisibilityClock::at(at);
+    Ok(
+        bind_order_query(&sql, policy, &clock, config, &PublicOrderFilters::default())?
+            .bind(id)
+            .fetch_optional(conn)
+            .await?
+            .is_some(),
+    )
 }
 
 fn inconsistent() -> MarketWriteError {

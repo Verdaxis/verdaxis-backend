@@ -14,6 +14,19 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
+/// Format an instant as the source's `isoformat()`: no fractional seconds
+/// when exact to the second, six digits otherwise, and the `+00:00` offset
+/// rather than `Z`. Kept local because this module also compiles standalone.
+fn isoformat_utc(value: chrono::DateTime<chrono::Utc>) -> String {
+    let seconds = value.format("%Y-%m-%dT%H:%M:%S");
+    let micros = value.timestamp_subsec_micros();
+    if micros == 0 {
+        format!("{seconds}+00:00")
+    } else {
+        format!("{seconds}.{micros:06}+00:00")
+    }
+}
+
 /// Declare every stable market write error code, with its HTTP status and text.
 macro_rules! market_error_codes {
     ($( $variant:ident => $name:literal, $status:expr, $message:literal; )*) => {
@@ -193,6 +206,10 @@ market_error_codes! {
         "The monetary value has too many decimal places";
     ValueOverflow => "VALUE_OVERFLOW", StatusCode::UNPROCESSABLE_ENTITY,
         "Arithmetic on the monetary value overflowed";
+    ResellerAllocationRequired => "RESELLER_ALLOCATION_REQUIRED", StatusCode::UNPROCESSABLE_ENTITY,
+        "Reseller listings require a verified supplier allocation";
+    SupportInstructionTimeInvalid => "MARKET_SUPPORT_INSTRUCTION_TIME_INVALID", StatusCode::BAD_REQUEST,
+        "Instruction time cannot be in the future";
 }
 
 /// The one error a market write handler returns.
@@ -202,9 +219,39 @@ pub struct MarketWriteError {
     pub code: MarketErrorCode,
     pub message: &'static str,
     retry_sqlstate: Option<&'static str>,
+    detail: Option<RefusalDetail>,
+}
+
+#[derive(Debug)]
+enum RefusalDetail {
+    Kyc {
+        status: String,
+        grace_expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    },
+    Crossing {
+        price: Option<rust_decimal::Decimal>,
+    },
 }
 
 impl MarketWriteError {
+    pub fn kyc_required(
+        status: String,
+        grace_expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Self {
+        let mut error = Self::new(MarketErrorCode::KycRequired);
+        error.detail = Some(RefusalDetail::Kyc {
+            status,
+            grace_expires_at,
+        });
+        error
+    }
+
+    pub fn post_only_would_cross(price: Option<rust_decimal::Decimal>) -> Self {
+        let mut error = Self::new(MarketErrorCode::PostOnlyWouldCross);
+        error.detail = Some(RefusalDetail::Crossing { price });
+        error
+    }
+
     /// The refusal this code always carries.
     pub const fn new(code: MarketErrorCode) -> Self {
         Self {
@@ -212,6 +259,7 @@ impl MarketWriteError {
             code,
             message: code.message(),
             retry_sqlstate: None,
+            detail: None,
         }
     }
 
@@ -325,10 +373,27 @@ fn classify(sqlstate: Option<&str>, constraint: Option<&str>) -> MarketErrorCode
 impl IntoResponse for MarketWriteError {
     fn into_response(self) -> Response {
         let code = self.code.as_str();
-        let detail = serde_json::json!({
+        let mut detail = serde_json::json!({
             "code": code,
             "message": self.message,
         });
+        match self.detail {
+            Some(RefusalDetail::Kyc {
+                status,
+                grace_expires_at,
+            }) => {
+                detail["kyc_status"] = serde_json::json!(status);
+                // The source serialises this deadline with `isoformat()`:
+                // no fraction when exact to the second, six digits otherwise,
+                // and the `+00:00` offset rather than `Z`.
+                detail["grace_expires_at"] = serde_json::json!(grace_expires_at.map(isoformat_utc));
+            }
+            Some(RefusalDetail::Crossing { price }) => {
+                detail["best_executable_opposing_price"] =
+                    serde_json::json!(price.map(|p| p.to_string()));
+            }
+            None => {}
+        }
         let mut response = (
             self.status,
             axum::Json(serde_json::json!({ "detail": detail })),

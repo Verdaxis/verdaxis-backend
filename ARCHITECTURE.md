@@ -165,6 +165,18 @@ shared lock evidence records the terminal PIN phase and refuses later economic
 acquisition. Receipt replays bypass fresh effects. The committed-evidence consumer
 and stream transport integration remain separate components.
 
+## Order creation component
+
+`order_write/order_create.rs` and `routes/market_write/order_create.rs` supply
+unmounted order entry. The sealed owner previews all parties, locks the
+organization-scoped create key and canonical slice, then allocates acceptance
+priority. Replay reads the current create projection from the order row before
+fresh execution admission. Ordinary entry composes inline match completion;
+assisted entry assesses post-only before inserting its consumed authorization.
+Both paths stage one terminal audit, benchmark, notification and outbox set.
+The component takes fee and consent configuration at composition; analytics
+sender wiring and serving activation remain separate integration work.
+
 ## Ordered matching component
 
 `order_write/matching.rs` separates an exact-decimal, deterministic fill plan

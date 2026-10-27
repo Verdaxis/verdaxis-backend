@@ -25,6 +25,7 @@ mod inventory;
 pub use inventory::{InventoryAction, InventoryInput, execute_inventory};
 pub mod locks;
 pub mod matching;
+pub(crate) mod order_create;
 pub(crate) mod orders;
 pub mod outbox;
 mod post_only;

@@ -1724,6 +1724,10 @@ pub(super) async fn inventory_replay_probe(
 /// Typed market commands run only inside the sealed, organization-first owner.
 pub trait MarketCommand: Send + Sync + 'static {
     type Output: Send + 'static;
+    /// Only an order-row create key may use order-owned replay recovery.
+    fn uses_order_create_replay(&self) -> bool {
+        false
+    }
     /// Whether a planned row that is gone when the owner locks it means the
     /// preview is out of date. If so, the attempt ends as preview drift and
     /// the next attempt, within the same attempt bound, plans again; otherwise
@@ -2108,7 +2112,13 @@ pub async fn run_market_command<C: MarketCommand>(
             match market_attempt(&pool, &access, &command, class, false).await {
                 Ok(value) => return Ok(value),
                 Err(MarketAttemptError::Database(error))
-                    if is_command_receipt_collision(&error) =>
+                    if is_command_receipt_collision(&error)
+                        || (command.uses_order_create_replay()
+                            && error.as_database_error().is_some_and(|e| {
+                                e.code().as_deref() == Some("23505")
+                                    && e.constraint()
+                                        == Some("uq_orderbook_orders_org_operation_idempotency")
+                            })) =>
                 {
                     return market_attempt(&pool, &access, &command, class, true)
                         .await
@@ -2514,6 +2524,12 @@ pub(super) async fn append_market_effect(
 }
 
 impl LockedMarketTransaction<'_> {
+    pub(super) fn create_port(
+        &mut self,
+    ) -> Result<super::order_create::CreatePort<'_>, super::MarketWriteError> {
+        super::order_create::CreatePort::new(self.conn, self.locked)
+    }
+
     pub(super) fn order_port(
         &mut self,
     ) -> Result<super::orders::OrderPort<'_>, super::MarketWriteError> {
