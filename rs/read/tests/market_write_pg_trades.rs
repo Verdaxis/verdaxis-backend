@@ -586,3 +586,25 @@ async fn pending_effects_have_exact_participant_scope_and_source_fields() {
     let payload:Value=row.get("payload");assert_eq!(payload["id"],trade["id"]);assert_eq!(payload["status"],"PENDING_CONFIRMATION");assert_eq!(payload["_public_market_invalidation"],true);assert_eq!(payload["schema_version"],1);assert!(payload.get("commission_fee_per_mt_usd").is_none());assert!(payload.get("producer_evidence").is_none());
     let audit=sqlx::query("SELECT action,resource_type,changes FROM audit_logs").fetch_one(&mut f.admin).await.unwrap();assert_eq!(audit.get::<String,_>("action"),"trade.created");assert_eq!(audit.get::<String,_>("resource_type"),"trade");let changes:Value=audit.get("changes");assert_eq!(changes["order_id"],id(ORDER).to_string());assert!(changes.get("lng_terms_snapshot").is_none());
 }
+
+#[tokio::test]
+#[ignore = "requires an attested disposable PostgreSQL"]
+async fn typed_direct_takes_freeze_normalized_terms_and_keep_pending_identity_private() {
+    let fame_bid=json!({"schema_version":1,"side":"BID","neat_fame":true,"standard":"EN_14214","standard_edition":"2012+A2:2019","sustainability_scheme":"ISCC_EU"});
+    let fame_ask=json!({"schema_version":1,"side":"ASK","neat_fame":true,"uco_mass_pct":100,"standard":"EN_14214","standard_edition":"2012+A2:2019","sustainability_scheme":"ISCC_EU","certificate_reference":"private-certificate","certificate_holder":"private-supplier","evidence_status":"PENDING","document_references":[],"certificate_valid_until":"2027-01-01","evidence_due":"BEFORE_LOADING"});
+    let lng_bid=json!({"side":"BID","accepted_schemes":["ISCC_EU"],"accepted_delivery_methods":["SHIP_TO_SHIP"]});
+    let lng_ask=json!({"side":"ASK","sustainability_scheme":"ISCC_EU","scheme_certificate_number":"private-certificate","chain_of_custody":"MASS_BALANCE","union_database_registered":true,"bio_share_pct":"100","feedstock":"MANURE","production_country":"NL","wtt_ghg_gco2e_mj":"-20.25","specification_standard":"ISO 23306:2020","min_methane_number":"80","delivery_method":"SHIP_TO_SHIP","seller_is_physical_supplier":false,"physical_supplier_name":"private-supplier","pos_timing":"WITH_DELIVERY"});
+    let policy:Value=serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap();
+    for(profile,bid,ask,field) in [("fame_v1",fame_bid,fame_ask,"fame_terms"),("lng_v1",lng_bid,lng_ask,"lng_terms")] {
+        let mut f=Fixture::new().await;
+        let p=policy["products"].as_array().unwrap().iter().find(|p|p["qualification_profile"]==profile).unwrap();
+        sqlx::query("SELECT trades_fixture_typed($1,$2,$3,$4)").bind(p["id"].as_str().unwrap().parse::<Uuid>().unwrap()).bind(p["lanes"][0].as_str().unwrap().parse::<Uuid>().unwrap()).bind(profile).bind(&ask).execute(&mut f.admin).await.unwrap();
+        let digest=f.digest().await;let mut body=json!({"order_id":id(ORDER),"quantity_mt":"1","expected_terms_digest":digest});body[field]=bid;
+        let(s,response)=send(&f.router,"POST","/api/trades/",Some(BUYER),&[],Some(body)).await;assert_eq!(s,StatusCode::OK,"{profile}: {response}");
+        let text=response.to_string();assert!(!text.contains("private-certificate"));assert!(!text.contains("private-supplier"));
+        let stored:Value=sqlx::query_scalar("SELECT COALESCE(fame_terms_snapshot::jsonb,lng_terms_snapshot::jsonb) FROM trades").fetch_one(&mut f.admin).await.unwrap();
+        assert!(stored.to_string().contains("private-certificate"));
+        let normalized=verdaxis_read::market::terms::owner_response_terms(profile,&ask).unwrap();assert_eq!(stored["ask"],normalized);
+        if profile=="lng_v1" {assert_eq!(stored["bid"]["accept_resellers"],true);assert!(stored["bid"].get("schema_version").is_none());}
+    }
+}

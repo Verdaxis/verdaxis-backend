@@ -69,3 +69,11 @@ BEGIN
  UPDATE orderbook_orders SET owner_user_id=actor,created_by_actor_user_id=actor,creation_method='MARKET_SUPPORT',support_authorization_id=authorization WHERE id=ord;
 END $$;
 CREATE OR REPLACE FUNCTION trades_fixture_tie_times() RETURNS void LANGUAGE plpgsql AS $$ BEGIN UPDATE trades SET created_at='2026-10-01T00:00:00Z';END $$;
+
+CREATE OR REPLACE FUNCTION trades_fixture_typed(product uuid,point uuid,profile text,terms jsonb) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE source orderbook_orders%ROWTYPE;BEGIN
+ SELECT * INTO STRICT source FROM orderbook_orders LIMIT 1;
+ DELETE FROM orderbook_orders WHERE id=source.id;
+ INSERT INTO orderbook_orders(id,organization_id,owner_user_id,created_by_actor_user_id,creation_method,provenance,side,product_id,delivery_point_id,quantity_mt,remaining_quantity_mt,price_per_mt_usd,availability_window,status,inventory_item_id,certification_declared,msds_available,certification_scheme,fame_terms,lng_terms)
+ VALUES(source.id,source.organization_id,source.owner_user_id,source.created_by_actor_user_id,source.creation_method,source.provenance,source.side,product,point,source.quantity_mt,source.remaining_quantity_mt,source.price_per_mt_usd,source.availability_window,source.status,source.inventory_item_id,true,true,'ISCC EU',CASE WHEN profile='fame_v1' THEN terms ELSE NULL END,CASE WHEN profile='lng_v1' THEN terms ELSE NULL END);
+END $$;
