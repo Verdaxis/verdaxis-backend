@@ -948,10 +948,9 @@ mod tests {
 
     #[test]
     fn cancellation_version_rule_uses_catalog_qualification() {
-        let mut policy: MarketPolicy = serde_json::from_str(include_str!(
-            "../../../../deploy/rust/market-policy.json"
-        ))
-        .unwrap();
+        let mut policy: MarketPolicy =
+            serde_json::from_str(include_str!("../../../../deploy/rust/market-policy.json"))
+                .unwrap();
         let product = policy
             .products
             .iter_mut()
