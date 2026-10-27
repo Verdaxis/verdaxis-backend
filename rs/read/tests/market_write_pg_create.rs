@@ -1374,8 +1374,9 @@ async fn lng_bid_keeps_its_declared_certifications_and_hash_inputs() {
     )
     .await;
     assert_eq!(reply.0, StatusCode::CREATED, "{reply:?}");
+    let created: Uuid = reply.1["id"].as_str().unwrap().parse().unwrap();
     let row = sqlx::query("SELECT certification_scheme,certifications,certification_declared,carbon_intensity_gco2_mj,carbon_intensity_method FROM orderbook_orders WHERE id=$1")
-        .bind(reply.1["id"].as_str().unwrap())
+        .bind(created)
         .fetch_one(&mut f.observer)
         .await
         .unwrap();
