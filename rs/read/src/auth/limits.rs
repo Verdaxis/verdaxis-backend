@@ -86,31 +86,39 @@ impl SharedLimits {
             let window = if policy["window"] == "hour" { 3600 } else { 60 };
             policies.push((identity, bucket, limit, window));
         }
-        let mut authority = self.0.lock().expect("quota authority lock");
-        for (identity, bucket, limit, window) in &policies {
-            if let Some((started, used)) = authority
+        let mut authority = self.lock_recovering();
+        for (identity, bucket, limit, _) in &policies {
+            if let Some(stored) = authority
+                .business_store
                 .buckets
                 .get(&(identity.to_string(), bucket.clone()))
+                && stored.expires_at > now && stored.count >= *limit
             {
-                let elapsed = now.saturating_sub(*started);
-                if elapsed < *window && used >= limit {
                     let mut error = refusal(
                         StatusCode::TOO_MANY_REQUESTS,
                         "RATE_LIMITED",
                         "The request quota is exhausted.",
                     );
                     error.retry_after = Some(
-                        u32::try_from(window.saturating_sub(elapsed).max(1))
+                        u32::try_from(stored.expires_at.saturating_sub(now).max(1))
                             .expect("bounded quota window"),
                     );
                     return Err(error);
-                }
             }
         }
+        let new_buckets = policies
+            .iter()
+            .filter(|(identity, bucket, _, _)| {
+                !authority.business_store.buckets.contains_key(&(identity.to_string(), bucket.clone()))
+            })
+            .count();
+        if authority.business_store.buckets.len().saturating_add(new_buckets) > MAX_BUCKETS {
+            return Err(refusal(StatusCode::SERVICE_UNAVAILABLE, "QUOTA_CAPACITY", "The quota authority is at capacity."));
+        }
         for (identity, bucket, limit, window) in policies {
-            authority
-                .admit(identity, &bucket, limit, window, now)
-                .expect("quota checked under the same lock");
+            if !authority.business_store.accept(identity, &bucket, limit, window, now, false) {
+                return Err(refusal(StatusCode::SERVICE_UNAVAILABLE, "QUOTA_CAPACITY", "The quota authority is at capacity."));
+            }
         }
         Ok(())
     }
@@ -289,6 +297,7 @@ pub struct Phase2Limits {
     preauth_store: QuotaStore,
     address_endpoint_store: QuotaStore,
     user_store: QuotaStore,
+    business_store: QuotaStore,
 }
 
 fn network_identity(client: &str) -> String {
