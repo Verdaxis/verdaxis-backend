@@ -40,7 +40,7 @@ pub struct LoginState {
     refresh_keys: Arc<Vec<DecodingKey>>,
     token_issuer: String,
     audience: String,
-    dummy_hash: &'static str,
+    dummy_hash: Option<&'static str>,
     pub limits: SharedLimits,
     #[cfg(feature = "contract-tests")]
     pub hooks: LoginHooks,
@@ -50,6 +50,30 @@ pub struct LoginState {
 impl LoginState {
     #[allow(clippy::too_many_arguments)]
     pub async fn new(
+        pool: PgPool,
+        environment: &str,
+        current_secret: &str,
+        previous_secret: Option<&str>,
+        issuer: &str,
+        audience: &str,
+        limits: SharedLimits,
+    ) -> Self {
+        let mut state = Self::from_settings(
+            pool,
+            environment,
+            current_secret,
+            previous_secret,
+            issuer,
+            audience,
+            limits,
+        );
+        state.dummy_hash = Some(password::dummy_hash().await);
+        state
+    }
+
+    /// Synchronous composition; the process-wide dummy is prepared before verification.
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_settings(
         pool: PgPool,
         environment: &str,
         current_secret: &str,
@@ -70,7 +94,7 @@ impl LoginState {
             ),
             token_issuer: issuer.into(),
             audience: audience.into(),
-            dummy_hash: password::dummy_hash().await,
+            dummy_hash: None,
             limits,
             #[cfg(feature = "contract-tests")]
             hooks: LoginHooks::default(),
@@ -229,11 +253,15 @@ async fn issue_attempt(
     if let Some(calls) = &state.hooks.verifications {
         calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     }
+    let dummy_hash = match state.dummy_hash {
+        Some(hash) => hash,
+        None => password::dummy_hash().await,
+    };
     let verified = password::verify(
         password,
         user.as_ref()
             .map(|u| u.password_hash.as_str())
-            .unwrap_or(state.dummy_hash),
+            .unwrap_or(dummy_hash),
     )
     .await;
     let user = user

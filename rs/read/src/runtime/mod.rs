@@ -10,5 +10,6 @@ pub mod health;
 pub mod http;
 pub mod logging;
 pub mod phase2;
+pub mod phase3;
 pub mod policy;
 pub mod trading_routes;

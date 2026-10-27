@@ -126,10 +126,10 @@ fn production_requires_its_exact_database_and_union_checkpoint() {
         config.database_url = config.database_url.replace(from, to);
         assert!(validate_config(&config).is_err());
     }
-    base.migration_revision = "prc_20261026_changes".into();
-    assert!(validate_config(&base).is_ok());
-    base.migration_revision = "p3_20261020_auth_tokens".into();
-    assert!(validate_config(&base).is_ok());
+    for revision in ["prc_20261026_changes", "p3_20261020_auth_tokens"] {
+        base.migration_revision = revision.into();
+        assert!(validate_config(&base).is_ok());
+    }
     base.migration_revision = "kycg_20261014_staging".into();
     assert!(validate_config(&base).is_err());
 }
@@ -403,6 +403,13 @@ fn deployed_environment() -> std::collections::HashMap<String, String> {
         ("FRONTEND_URL", "https://staging.verdaxis.exchange"),
         ("EMAIL_FROM", "Verdaxis <noreply@verdaxis.exchange>"),
         ("RESEND_API_KEY", "re_deployed_key"),
+        (
+            "AUTH_DOMAIN_DATASETS_FILE",
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/auth-domains.json"
+            ),
+        ),
     ]
     .into_iter()
     .map(|(key, value)| (key.to_owned(), value.to_owned()))

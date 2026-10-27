@@ -177,6 +177,14 @@ pub fn config_from_deployed_environment(
             frontend_url: Some(raw_required("FRONTEND_URL")?),
             email_from: Some(raw_required("EMAIL_FROM")?),
             resend_api_key: Some(raw_required("RESEND_API_KEY")?),
+            auth_domain_datasets: Some(
+                std::fs::read_to_string(raw_required("AUTH_DOMAIN_DATASETS_FILE")?)
+                    .map_err(|_| "AUTH_DOMAIN_DATASETS_FILE must be readable".to_owned())?,
+            ),
+            monitor_token: environment
+                .get("MONITOR_TOKEN")
+                .filter(|value| !value.is_empty())
+                .cloned(),
             // PD5: only `.runtime-release.env` carries this key; the runtime
             // preparer never projects it from the deployed `.env`.
             watchlist_producer_activated_at: environment

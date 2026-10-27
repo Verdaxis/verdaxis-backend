@@ -40,7 +40,7 @@ async fn forgot_attempt(
     settings: &EmailSettings,
     address: &str,
 ) -> Result<Option<AuthMail>, sqlx::Error> {
-    let mut tx = settings.pool.begin().await?;
+    let mut tx = settings.pool.begin_with("BEGIN READ WRITE").await?;
     let user = store::lock_user_by_email(&mut tx, address).await?;
     let mail = if let Some(user) = user.filter(|user| user.email_verified) {
         let now = Utc::now();
@@ -101,7 +101,7 @@ async fn reset_attempt(
     digest: &str,
     hash: &str,
 ) -> Result<Result<Value, ApiError>, sqlx::Error> {
-    let mut tx = settings.pool.begin().await?;
+    let mut tx = settings.pool.begin_with("BEGIN READ WRITE").await?;
     let Some(id) = store::reset_token_owner(&mut tx, digest).await? else {
         return Ok(Err(invalid()));
     };
@@ -140,20 +140,25 @@ pub fn router(settings: EmailSettings) -> Router {
     Router::new()
         .route("/api/auth/forgot-password", post(forgot_route))
         .route("/api/auth/reset-password", post(reset_route))
+        .route("/api/auth/forgot-password/", post(forgot_route))
+        .route("/api/auth/reset-password/", post(reset_route))
         .with_state(settings)
 }
 async fn forgot_route(
     State(settings): State<EmailSettings>,
+    charged: Option<Extension<crate::auth::login::PreauthCharged>>,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: HeaderMap,
     body: axum::body::Body,
 ) -> Result<Json<Value>, ApiError> {
     let client = client_address(peer, &headers);
     let now = Utc::now().timestamp() as u64;
-    settings
-        .limits
-        .preauth_check(&client, "/api/auth/forgot-password", now)
-        .map_err(|error| ApiError::from(error.auth_failure()))?;
+    if charged.is_none() {
+        settings
+            .limits
+            .preauth_check(&client, "/api/auth/forgot-password", now)
+            .map_err(|error| ApiError::from(error.auth_failure()))?;
+    }
     let body: Value = auth_json(&headers, body).await?;
     let address = email_address(&body)?;
     settings

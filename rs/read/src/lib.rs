@@ -87,6 +87,7 @@ pub struct AppState {
     /// Verified Phase 2 settings; `None` means this composition does not mount
     /// the Phase 2 groups and Caddy keeps them on Python.
     pub(crate) phase2: Option<runtime::phase2::Phase2Settings>,
+    pub(crate) phase3: runtime::phase3::Phase3Settings,
     /// Every route family's trading cache, so an authority or listener change
     /// can clear them together.
     pub trading_caches: std::sync::Arc<runtime::cache::TradingCaches>,
@@ -116,6 +117,7 @@ impl AppState {
             config.read_admission_slots as usize,
         ));
         let phase2 = runtime::phase2::Phase2Settings::from_options(&config.phase2)?;
+        let phase3 = runtime::phase3::Phase3Settings::from_options(&config.phase2)?;
         let policy_identity = market::cache_dependencies::policy_identity(&config, &policy);
         let reference_cache = std::sync::Arc::new(runtime::cache::ReferenceCache::default());
         let trading_caches = std::sync::Arc::new(runtime::cache::TradingCaches::default());
@@ -137,6 +139,7 @@ impl AppState {
             reads,
             reference_cache,
             phase2,
+            phase3,
             trading_caches,
             trading_cache,
             public_trading_cache: std::sync::Arc::new(runtime::cache::TradingCache::default()),
@@ -237,6 +240,9 @@ pub struct Phase2Options {
     pub frontend_url: Option<String>,
     pub email_from: Option<String>,
     pub resend_api_key: Option<String>,
+    /// Private auth projection; domain lists come from the installed release datasets.
+    pub auth_domain_datasets: Option<String>,
+    pub monitor_token: Option<String>,
     /// The watchlist producer activation instant from the release metadata
     /// file (PD5), as written there. Absent until a release records one.
     pub watchlist_producer_activated_at: Option<String>,
