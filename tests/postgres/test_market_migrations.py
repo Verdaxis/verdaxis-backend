@@ -16,7 +16,6 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
-
 _BACKEND_ROOT = Path(__file__).resolve().parents[2]
 _PARENT = "miq_20260720_market_quarantine"
 # Later product migrations extend the linearized market chain. The mi-specific
@@ -1334,11 +1333,13 @@ async def test_cache_checkpoint_follows_production_revision(migration_database):
         "prc_20261018_cache",
         "prc_20261026_changes",
         "p3_20261020_auth_tokens",
+        "sse_20261021_replay_floor",
     ]
     policy = (_BACKEND_ROOT / "deploy/migration-checkpoints.tsv").read_text()
     assert "prc_20261018_cache\tprc_20261026_changes" in policy
     assert "p0_20261016_union\tprc_20261026_changes" in policy
     assert "prc_20261026_changes\tprc_20261026_changes" in policy
+    assert "p3_20261020_auth_tokens\tsse_20261021_replay_floor" in policy
 
     production = await asyncio.to_thread(
         _alembic, database_url, "upgrade", "p0_20261016_union"
