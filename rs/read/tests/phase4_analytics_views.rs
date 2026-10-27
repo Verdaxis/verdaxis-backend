@@ -1441,6 +1441,35 @@ mod postgres {
          CREATE TABLE audit_logs(id uuid PRIMARY KEY,user_id uuid,action varchar(100),resource_type varchar(50),resource_id varchar(100),changes jsonb,ip_address varchar(45),request_id varchar(36),timestamp timestamptz NOT NULL);"
     }
 
+    struct RevokingProvider { pool: sqlx::PgPool, user: Uuid }
+    impl BehavioralRead for RevokingProvider {
+        fn window<'a>(&'a self,query:&'a AnalyticsQuery,_properties:&'a AllowedPropertySet)->ProviderFuture<'a,BehavioralWindow> {
+            Box::pin(async move {
+                sqlx::query("UPDATE users SET role='BUYER' WHERE id=$1").bind(self.user).execute(&self.pool).await.unwrap();
+                BehavioralWindow::unavailable(query.start,query.end,Utc::now(),Diagnostic::Disabled)
+            })
+        }
+    }
+    #[tokio::test]
+    #[ignore = "requires explicit disposable PostgreSQL authority"]
+    async fn provider_completion_rechecks_administrator_authority() {
+        use tower::ServiceExt;
+        for route in [AnalyticsRoute::Acquisition,AnalyticsRoute::Reliability] {
+            let fixture=Fixture::new().await;
+            let schema=fixture.schema.clone();
+            let pool=sqlx::postgres::PgPoolOptions::new().max_connections(2).after_connect(move|conn,_|{let sql=format!("SET search_path TO {schema}");Box::pin(async move {sqlx::raw_sql(sqlx::AssertSqlSafe(sql)).execute(conn).await?;Ok(())})}).connect(&fixture.migrator_url).await.unwrap();
+            let config:verdaxis_read::Config=serde_json::from_value(json!({"environment":"test","release_sha":verdaxis_read::compiled_sha(),"migration_revision":"kycg_20261014_staging","database_url":fixture.app_url,"db_session_time_zone":"UTC","bind":"127.0.0.1:0","read_admission_slots":2,"pool_max":3,"python_budget":52,"configured_max_connections":100})).unwrap();
+            let health=sqlx::postgres::PgPoolOptions::new().max_connections(1).connect_lazy(&fixture.app_url).unwrap();
+            let app=AppState::new(config,runtime::db::Pools {read:pool.clone(),health},policy()).unwrap();
+            let now=Utc::now().timestamp();
+            let token=jsonwebtoken::encode(&jsonwebtoken::Header::default(),&json!({"sub":fixture.admin_user,"type":"access","iat":now,"exp":now+600,"iss":"test","aud":"test"}),&jsonwebtoken::EncodingKey::from_secret(KEY.as_bytes())).unwrap();
+            let router=marketplace::router(app,auth::VerificationSettings::new(KEY.into(),None,"test".into(),"test".into()),Default::default(),AnalyticsService {behavioral:Arc::new(RevokingProvider {pool:pool.clone(),user:fixture.admin_user}),reference:Arc::new(StubReference { quote:None })});
+            let response=router.oneshot(axum::http::Request::builder().uri(format!("{}?start=2026-06-01T00:00:00Z&end=2026-07-01T00:00:00Z&compare=false",route.template())).header("authorization",format!("Bearer {token}")).body(axum::body::Body::empty()).unwrap()).await.unwrap();
+            assert_eq!(response.status(),axum::http::StatusCode::FORBIDDEN);
+            pool.close().await;fixture.finish().await;
+        }
+    }
+
     #[tokio::test]
     #[ignore = "requires explicit disposable PostgreSQL authority"]
     async fn p4_t19_c18() {
