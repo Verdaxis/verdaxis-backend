@@ -102,3 +102,10 @@ if ! grep -Eq '^test result: ok\. [1-9][0-9]* passed' "$log"; then
   echo "no Rust test ran: refusing a green result" >&2
   exit 1
 fi
+
+# Phase 4 authority/review suites mark database cases explicitly; execute them
+# here as well as the default workspace cases, on the same disposable endpoint.
+cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read --features contract-tests \
+  --test phase4_analytics_views --test phase4_analytics_legacy \
+  --test phase4_admission --test phase4_organizations --test phase4_races \
+  -- --include-ignored --test-threads=1
