@@ -35,9 +35,7 @@ impl Fixture {
         let owner = PgPool::connect(&std::env::var("AUTH_EMAIL_TEST_OWNER_URL").unwrap())
             .await
             .unwrap();
-        let pool = read_default_pool()
-            .await
-            .unwrap();
+        let pool = read_default_pool().await.unwrap();
         let mail = Arc::new(Mutex::new(Vec::new()));
         let release = Arc::new(Semaphore::new(0));
         let received = mail.clone();
@@ -1091,5 +1089,7 @@ async fn read_default_pool() -> Result<sqlx::PgPool, sqlx::Error> {
         .expect("disposable runtime database")
         .parse::<sqlx::postgres::PgConnectOptions>()?
         .options([("default_transaction_read_only", "on")]);
-    sqlx::postgres::PgPoolOptions::new().connect_with(options).await
+    sqlx::postgres::PgPoolOptions::new()
+        .connect_with(options)
+        .await
 }
