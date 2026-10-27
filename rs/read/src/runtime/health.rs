@@ -24,6 +24,15 @@ pub async fn probe(pool: &sqlx::PgPool, environment: &str, sha: &str) -> (Status
 }
 
 pub async fn ready(State(state): State<AppState>) -> Response {
+    if !crate::streams::runtime::ready(&state) {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            axum::Json(serde_json::json!({
+                "status":"error", "streams":"unavailable"
+            })),
+        )
+            .into_response();
+    }
     let (status, body) = probe(
         &state.pools.health,
         &state.config.environment,

@@ -52,7 +52,16 @@ are aliases of the shared stream policy, and metadata is checked before JSON
 is decoded. `PgDispatchStore` reads global pages and the retention boundary in
 one short read-only snapshot. `Replay` remains pull-driven and owns its bounded
 page and registration; terminal-only subscription waits cancel pending reads.
-HTTP route composition and runtime activation remain Tasks 8 and 9.
+`streams/http.rs` composes the six canonical/alias GET paths. `streams/runtime.rs`
+starts the scan baseline and attested election session before admission, owns
+bounded supervision and releases its session on shutdown. The prepared
+`stream_listener` budget choice enables this component in the existing binary;
+without it the routes return unavailable. Readiness refuses a failed enabled
+component while REST liveness stays available. Python's complete worker budget,
+the Rust read/readiness pools and each enabled cache/stream listener are counted
+against configured and observed PostgreSQL limits. The production checkpoint pin
+is unchanged; the replay-floor checkpoint is allowlisted for nonproduction.
+No deployment or proxy activation is implied.
 
 ## Rust Phase 2 feedback
 

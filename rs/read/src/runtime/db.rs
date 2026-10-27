@@ -146,10 +146,7 @@ async fn attest(
         .await
         .map_err(|_| ApiError::internal())?;
     validate_budget(
-        config
-            .python_budget
-            .checked_add(config.pool_max)
-            .ok_or_else(ApiError::internal)?,
+        super::config::runtime_connection_total(config).map_err(|_| ApiError::internal())?,
         config.configured_max_connections,
         observed.parse().map_err(|_| ApiError::internal())?,
     )

@@ -214,6 +214,7 @@ struct Registry {
     admitted: usize,
     count: usize,
     next_id: u64,
+    unavailable: bool,
 }
 
 struct Inner {
@@ -275,7 +276,8 @@ impl StreamHub {
     }
     fn subscribe(&self, channel: Channel) -> Result<Subscription, Capacity> {
         let mut registry = self.inner.lock();
-        if registry.admitted >= self.inner.policy.process
+        if registry.unavailable
+            || registry.admitted >= self.inner.policy.process
             || registry
                 .admitted_by_channel
                 .get(&channel)
@@ -354,6 +356,22 @@ impl StreamHub {
         }
         registry.channels.clear();
         registry.count = 0;
+    }
+    pub fn is_available(&self) -> bool {
+        !self.inner.lock().unavailable
+    }
+    pub fn set_available(&self, available: bool, terminal: Terminal) {
+        let mut registry = self.inner.lock();
+        registry.unavailable = !available;
+        if !available {
+            for entries in registry.channels.values() {
+                for entry in entries.values() {
+                    entry.terminal.send_replace(Some(terminal));
+                }
+            }
+            registry.channels.clear();
+            registry.count = 0;
+        }
     }
     pub fn subscriber_count(&self) -> usize {
         self.inner.lock().count

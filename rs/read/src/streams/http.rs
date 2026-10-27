@@ -172,7 +172,12 @@ async fn orderbook(State(state): State<StreamsState>) -> Response {
 }
 
 fn public(state: &StreamsState, channel: PublicChannel) -> Response {
-    let Some(streams) = state.state.streams.as_ref() else {
+    let Some(streams) = state
+        .state
+        .streams
+        .as_ref()
+        .filter(|streams| streams.hub.is_available())
+    else {
         return unavailable();
     };
     let Ok(subscription) = streams.hub.subscribe_public(channel) else {
@@ -195,7 +200,12 @@ async fn trades(
     RawQuery(query): RawQuery,
     headers: HeaderMap,
 ) -> Response {
-    let Some(streams) = state.state.streams.as_ref() else {
+    let Some(streams) = state
+        .state
+        .streams
+        .as_ref()
+        .filter(|streams| streams.hub.is_available())
+    else {
         return unavailable();
     };
     let query = TradesQuery::parse(query.as_deref());

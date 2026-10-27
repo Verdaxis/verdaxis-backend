@@ -688,12 +688,21 @@ pub enum ActorExit {
 pub async fn run_election(
     settings: SessionSettings,
     hub_wake: Arc<Notify>,
+    shutdown: watch::Receiver<bool>,
+) -> ActorExit {
+    run_election_with_session(settings, None, hub_wake, shutdown).await
+}
+
+pub(crate) async fn run_election_with_session(
+    settings: SessionSettings,
+    session: Option<ElectionSession>,
+    hub_wake: Arc<Notify>,
     mut shutdown: watch::Receiver<bool>,
 ) -> ActorExit {
     let mut actor = Actor {
         settings,
         hub_wake,
-        session: None,
+        session,
         failures: FailureBudget::default(),
     };
     let exit = actor.run(&mut shutdown).await;

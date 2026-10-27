@@ -29,17 +29,42 @@ async fn serve() -> Result<(), ()> {
     let pools = connect(&config).await.map_err(|_| ())?;
     let bind = config.bind;
     let policy = committed_policy().map_err(|_| ())?;
-    let state = AppState::new(config, pools, policy).map_err(|_| ())?;
+    let mut state = AppState::new(config, pools, policy).map_err(|_| ())?;
+    let streams = verdaxis_read::streams::runtime::start_streams(
+        &mut state,
+        verdaxis_read::streams::runtime::CapacityConfig::default(),
+    )
+    .await;
     // Disabled caching starts no task; an enabled cache starts the authority
     // refresh and invalidation loop before the service accepts traffic.
     state.start_trading_cache();
     let listener = tokio::net::TcpListener::bind(bind).await.map_err(|_| ())?;
-    axum::serve(
+    let result = axum::serve(
         listener,
         router(state).into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
-    .await
-    .map_err(|_| ())
+    .with_graceful_shutdown(async move {
+        shutdown_signal().await;
+        if let Some(streams) = streams {
+            streams.shutdown().await;
+        }
+    })
+    .await;
+    result.map_err(|_| ())
+}
+
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+        let mut terminate = signal(SignalKind::terminate()).expect("termination signal handler");
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {},
+            _ = terminate.recv() => {},
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = tokio::signal::ctrl_c().await;
 }
 
 /// The contract harness supplies one `RUST_CONFIG` document; the reviewed

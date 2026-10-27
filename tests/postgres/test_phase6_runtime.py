@@ -23,7 +23,8 @@ async def test_stream_runtime_on_disposable_database(analytics_pg_url):
         cwd=ROOT,
         env={**os.environ, "SQLX_OFFLINE": "true",
              "STREAM_RUNTIME_APP_URL": _sqlx_url(app_url),
-             "STREAM_RUNTIME_OWNER_URL": _sqlx_url(analytics_pg_url)},
+             "STREAM_RUNTIME_OWNER_URL": _sqlx_url(analytics_pg_url),
+             "STREAM_RUNTIME_ADMIN_URL": _sqlx_url(os.environ["POSTGRES_ADMIN_TEST_DATABASE_URL"])},
         capture_output=True, text=True, timeout=1800, check=False,
     )
     output = result.stdout + result.stderr

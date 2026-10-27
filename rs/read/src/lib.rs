@@ -46,7 +46,14 @@ pub use runtime::config::{check_revision, connection_budget, validate_budget, va
 pub use runtime::db::connect;
 pub use runtime::error::{busy, database_error};
 pub use runtime::health::{live, ready};
-pub use runtime::http::router;
+pub fn router(state: AppState) -> axum::Router {
+    let routes = runtime::http::public_routes();
+    let streams = streams::http::routes().with_state(streams::http::StreamsState {
+        state: std::sync::Arc::new(state.clone()),
+    });
+    let streams = runtime::http::middleware_with_state(streams, state.clone());
+    runtime::http::router_with(routes, state).merge(streams)
+}
 pub use runtime::logging::request_id;
 
 impl ApiError {
