@@ -272,6 +272,7 @@ async fn the_boundary_takes_every_lock_in_the_reviewed_order() {
             response_status: 200,
             response_body: serde_json::json!({"id": "10000000-0000-4000-8000-0000000000a1"}),
             replayed: false,
+            matched_trades: 0,
         }
     );
     let recorded = recording.lock().unwrap();
@@ -525,6 +526,7 @@ async fn a_replay_returns_the_stored_result_and_emits_nothing() {
             response_status: 201,
             response_body: serde_json::json!({"id": "stored"}),
             replayed: true,
+            matched_trades: 0,
         }
     );
     let recorded = recording.lock().unwrap();

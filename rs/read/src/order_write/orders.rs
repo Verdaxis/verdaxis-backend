@@ -166,11 +166,7 @@ async fn dispatch_read(
     })
     .await;
     match result {
-        Ok(body) => Ok(CommittedCommand {
-            response_status: 200,
-            response_body: body,
-            replayed: false,
-        }),
+        Ok(body) => Ok(CommittedCommand::new(200, body, false)),
         Err(crate::auth::AuthenticatedError::Authentication(error)) => Err(refusal(
             match error {
                 crate::auth::AuthError::PasswordChanged => MarketErrorCode::AuthPasswordChanged,
@@ -437,11 +433,7 @@ impl MarketCommand for OrderCommand {
             tx.effects()?
                 .finish(&self.policy, &self.config, effects)
                 .await?;
-            Ok(CommittedCommand {
-                response_status: 204,
-                response_body: Value::Null,
-                replayed: false,
-            })
+            Ok(CommittedCommand::new(204, Value::Null, false))
         })
     }
 }

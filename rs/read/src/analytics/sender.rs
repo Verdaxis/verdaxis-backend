@@ -45,6 +45,13 @@ fn bounded_hostname(value: &str) -> Option<String> {
 pub struct AnalyticsSender {
     inner: Arc<Inner>,
 }
+impl std::fmt::Debug for AnalyticsSender {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // The collector URL and monitor digest are configuration, not state
+        // a debug dump should echo.
+        formatter.debug_struct("AnalyticsSender").finish_non_exhaustive()
+    }
+}
 struct Inner {
     http: reqwest::Client,
     url: Option<String>,

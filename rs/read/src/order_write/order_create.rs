@@ -510,6 +510,7 @@ impl MarketCommand for CreateCommand {
                 response_status: 201,
                 response_body: response,
                 replayed: false,
+                matched_trades: outcome.as_ref().map_or(0, |o| o.trades.len()),
             })
         })
     }
@@ -884,6 +885,7 @@ impl<'a> CreatePort<'a> {
                 .projection(row.get("id"), &command.policy, &command.config, command.now)
                 .await?,
             replayed: true,
+            matched_trades: 0,
         }))
     }
     async fn insert(

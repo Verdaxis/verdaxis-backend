@@ -234,11 +234,11 @@ impl MarketCommand for Command {
             if let Some(state) = self.abort.filter(|_| call == 0 || self.always_abort) {
                 tx.ordered_abort(state).await?;
             }
-            let response = CommittedCommand {
-                response_status: 200,
-                response_body: json!({"trade":self.trade,"protected":"stored"}),
-                replayed: false,
-            };
+            let response = CommittedCommand::new(
+                200,
+                json!({"trade":self.trade,"protected":"stored"}),
+                false,
+            );
             if let Some(key) = &self.key {
                 if let Some(collision) = &self.collision {
                     collision.ready.notify_one();

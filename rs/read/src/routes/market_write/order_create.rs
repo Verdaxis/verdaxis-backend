@@ -16,6 +16,13 @@ use uuid::Uuid;
 
 use crate::{
     AppState,
+    analytics::{
+        events::{
+            AllowedProperty, AllowedPropertyValue, AllowedServerEvent, DomainCatalog,
+            RegisteredEvent, ServerEvent,
+        },
+        sender::RequestMetadata,
+    },
     auth::VerificationSettings,
     market_create::{
         AuditContext, Canonical, MarketErrorCode, MarketWriteError, OrderQuantity, Price,
@@ -410,6 +417,8 @@ pub struct CreateSettings {
     pub consent_version: String,
     pub consent_reference: String,
     pub fees: crate::subscriptions::FeeConfig,
+    /// Post-commit conversion delivery; absent until serving composition.
+    pub analytics: Option<crate::analytics::sender::AnalyticsSender>,
 }
 impl Default for CreateSettings {
     fn default() -> Self {
@@ -422,6 +431,7 @@ impl Default for CreateSettings {
             consent_version: "2026-09-01".into(),
             consent_reference: "Market support consent".into(),
             fees: Default::default(),
+            analytics: None,
         }
     }
 }
@@ -490,14 +500,14 @@ async fn create(
             Some(crate::runtime::logging::request_id(header("x-request-id")?)),
         )?;
         crate::market_create::dispatch(
-            state.app,
+            state.app.clone(),
             access,
             crate::market_create::CreateRequest {
                 input,
                 context,
                 raw_key: header("idempotency-key")?.map(str::to_owned),
                 audit,
-                settings: state.settings,
+                settings: state.settings.clone(),
                 now,
             },
         )
@@ -505,8 +515,83 @@ async fn create(
     }
     .await;
     match result {
-        Ok(reply) => (StatusCode::CREATED, axum::Json(reply.response_body)).into_response(),
+        Ok(reply) => {
+            // A known fresh commit schedules conversion delivery: one order
+            // event plus one trade event per inline match. Replay, refusal
+            // and rollback never reach this branch, and the sender drops
+            // the work without touching the committed result.
+            if !reply.replayed && reply.response_status == 201 && let Some(sender) = &state.settings.analytics {
+                let events = std::iter::once(AllowedServerEvent::OrderCreated).chain(
+                    std::iter::repeat_n(AllowedServerEvent::TradeCreated, reply.matched_trades),
+                );
+                for event in events {
+                    schedule_conversion(
+                        sender,
+                        &state.app,
+                        event,
+                        &reply.response_body,
+                        &headers,
+                    );
+                }
+            }
+            (StatusCode::CREATED, axum::Json(reply.response_body)).into_response()
+        }
         Err(e) => e.into_response(),
+    }
+}
+
+/// Build one registered conversion event from the committed create response
+/// and hand it to the shared sender with this request's metadata. The origin
+/// request supplies the side and market labels; values outside the closed
+/// taxonomy are dropped by the event builder, never by this route.
+fn schedule_conversion(
+    sender: &crate::analytics::sender::AnalyticsSender,
+    app: &AppState,
+    event: AllowedServerEvent,
+    order: &Value,
+    headers: &HeaderMap,
+) {
+    let registered = RegisteredEvent::Server(event);
+    let side = order["side"].as_str().unwrap_or_default();
+    let role = match side {
+        "BID" => Some("BUYER"),
+        "ASK" => Some("SUPPLIER"),
+        _ => None,
+    };
+    let catalog = DomainCatalog::from_policy(&app.policy, Vec::<String>::new());
+    let mut properties = Vec::new();
+    for (property, value) in [
+        (AllowedProperty::Role, role),
+        (AllowedProperty::Side, Some(side)),
+        (
+            AllowedProperty::CanonicalProduct,
+            order["market_product"].as_str(),
+        ),
+        (
+            AllowedProperty::DeliveryPoint,
+            order["delivery_point_name"].as_str(),
+        ),
+        (
+            AllowedProperty::AvailabilityWindow,
+            order["availability_window"].as_str(),
+        ),
+    ] {
+        if let Some(value) = value.and_then(|v| AllowedPropertyValue::parse(registered, property, v, &catalog))
+        {
+            properties.push((property, value));
+        }
+    }
+    if let Ok(delivery) = ServerEvent::new(event, properties) {
+        let header = |name: &str| {
+            headers
+                .get(name)
+                .and_then(|value| value.to_str().ok())
+        };
+        sender.schedule(
+            delivery,
+            RequestMetadata::new(header("user-agent"), header("host")),
+            header("x-monitor-token"),
+        );
     }
 }
 
@@ -558,4 +643,17 @@ pub fn contract_router(pool: sqlx::PgPool, key: &str, settings: CreateSettings) 
     );
     let routes = router(app.clone(), verification, settings);
     crate::runtime::http::router_with(routes.with_state(()), app)
+}
+
+/// The same component router with a conversion sender attached, for the
+/// post-commit delivery cases; serving composition stays integration-owned.
+#[cfg(feature = "contract-tests")]
+pub fn contract_router_with_sender(
+    pool: sqlx::PgPool,
+    key: &str,
+    mut settings: CreateSettings,
+    sender: crate::analytics::sender::AnalyticsSender,
+) -> Router {
+    settings.analytics = Some(sender);
+    contract_router(pool, key, settings)
 }

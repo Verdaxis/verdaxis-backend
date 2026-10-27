@@ -1368,11 +1368,7 @@ pub mod contract {
                     .execution_context(actor, self.probe.organization_id, Utc::now(), true)
                     .await?;
                 perform(tx, &self.probe, context.now()).await?;
-                let response = CommittedCommand {
-                    response_status: 204,
-                    response_body: Value::Null,
-                    replayed: false,
-                };
+                let response = CommittedCommand::new(204, Value::Null, false);
                 tx.record_receipt(
                     &context,
                     &ReceiptRecord {

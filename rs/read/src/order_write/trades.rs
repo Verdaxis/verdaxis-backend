@@ -477,11 +477,11 @@ impl MarketCommand for TradeCommand {
                         self.request.now,
                     )
                     .await?;
-                Ok(CommittedCommand {
-                    response_status: 200,
-                    response_body: project_trade(body, Some(org), false)?,
-                    replayed: false,
-                })
+                Ok(CommittedCommand::new(
+                    200,
+                    project_trade(body, Some(org), false)?,
+                    false,
+                ))
             } else {
                 let context = if let Some(id) = self.request.context {
                     Some(
@@ -499,11 +499,11 @@ impl MarketCommand for TradeCommand {
                     None
                 };
                 if context == Some(None) {
-                    return Ok(CommittedCommand {
-                        response_status: 409,
-                        response_body: json!({"detail":{"code":"MARKET_SUPPORT_CONTEXT_INVALID","message":"Support context has expired"}}),
-                        replayed: false,
-                    });
+                    return Ok(CommittedCommand::new(
+                        409,
+                        json!({"detail":{"code":"MARKET_SUPPORT_CONTEXT_INVALID","message":"Support context has expired"}}),
+                        false,
+                    ));
                 }
                 let body = tx
                     .trades()?
@@ -516,11 +516,7 @@ impl MarketCommand for TradeCommand {
                         self.request.now,
                     )
                     .await?;
-                Ok(CommittedCommand {
-                    response_status: 200,
-                    response_body: body,
-                    replayed: false,
-                })
+                Ok(CommittedCommand::new(200, body, false))
             }
         })
     }
@@ -620,11 +616,11 @@ impl<'a> TradePort<'a> {
             return Err(MarketWriteError::new(MarketErrorCode::IdempotencyConflict));
         }
         let body = self.load(row.get("id")).await?;
-        Ok(Some(CommittedCommand {
-            response_status: 200,
-            response_body: project_trade(body, org, actor.account().role == ActorRole::Admin)?,
-            replayed: true,
-        }))
+        Ok(Some(CommittedCommand::new(
+            200,
+            project_trade(body, org, actor.account().role == ActorRole::Admin)?,
+            true,
+        )))
     }
     #[allow(clippy::too_many_arguments)]
     async fn take(

@@ -110,6 +110,22 @@ pub struct CommittedCommand {
     pub response_body: Value,
     /// `true` when a stored receipt answered this request and nothing ran again.
     pub replayed: bool,
+    /// How many trades a fresh create matched, so post-commit conversion
+    /// delivery can schedule one event per trade. Always zero elsewhere and
+    /// on replay, where no fresh effect ran.
+    pub matched_trades: usize,
+}
+
+impl CommittedCommand {
+    /// Every command that does not compose inline matching reports none.
+    pub fn new(status: u16, body: Value, replayed: bool) -> Self {
+        Self {
+            response_status: status,
+            response_body: body,
+            replayed,
+            matched_trades: 0,
+        }
+    }
 }
 
 /// The one database port of the order-book write boundary.
@@ -282,11 +298,11 @@ where
                         .map_err(|_| ApiError::database())?
                         .ok_or_else(ApiError::database)?;
                     validate_plan_receipt(&receipt, &plan)?;
-                    Ok(CommittedCommand {
-                        response_status: receipt.response_status,
-                        response_body: receipt.response_body,
-                        replayed: true,
-                    })
+                    Ok(CommittedCommand::new(
+                        receipt.response_status,
+                        receipt.response_body,
+                        true,
+                    ))
                 }
                 .await;
                 reader.rollback().await.map_err(|_| ApiError::database())?;
@@ -354,11 +370,11 @@ async fn run_attempt<S: WriteSession>(
             })?;
         if let Some(stored) = stored {
             validate_plan_receipt(&stored, plan).map_err(AttemptFailure::Refusal)?;
-            return Ok(AttemptOutcome::Replayed(CommittedCommand {
-                response_status: stored.response_status,
-                response_body: stored.response_body,
-                replayed: true,
-            }));
+            return Ok(AttemptOutcome::Replayed(CommittedCommand::new(
+                stored.response_status,
+                stored.response_body,
+                true,
+            )));
         }
     }
 
@@ -430,11 +446,11 @@ async fn run_attempt<S: WriteSession>(
             })?;
     }
     // Fully own the result before COMMIT. No response read or assembly follows it.
-    let prepared = CommittedCommand {
-        response_status: command.response_status,
-        response_body: command.response_body.clone(),
-        replayed: false,
-    };
+    let prepared = CommittedCommand::new(
+        command.response_status,
+        command.response_body.clone(),
+        false,
+    );
     if let Some(key) = plan.idempotency_key.as_deref() {
         let receipt = ReceiptRecord {
             id: Uuid::new_v4(),
@@ -2426,11 +2442,11 @@ impl LockedMarketTransaction<'_> {
             idempotency_key: None,
         };
         validate_receipt(&receipt, &command_context, operation, resource_id, hash)?;
-        Ok(Some(CommittedCommand {
-            response_status: receipt.response_status,
-            response_body: receipt.response_body,
-            replayed: true,
-        }))
+        Ok(Some(CommittedCommand::new(
+            receipt.response_status,
+            receipt.response_body,
+            true,
+        )))
     }
 
     pub(super) async fn record_receipt(
