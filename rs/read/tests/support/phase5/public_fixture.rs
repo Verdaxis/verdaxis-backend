@@ -10,7 +10,7 @@ use sqlx::error::DatabaseError;
 use tower::ServiceExt;
 
 /// The credentialed browser origin the boundary answers with CORS headers.
-pub const ORIGIN: &str = "https://staging.verdaxis.exchange";
+pub const ORIGIN: &str = "https://test";
 /// Correlation ID the request carries; the boundary echoes it back.
 pub const REQUEST_ID: &str = "phase5-public-case";
 
