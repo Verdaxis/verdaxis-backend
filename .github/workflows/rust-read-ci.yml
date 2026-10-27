@@ -1,14 +1,12 @@
 # Rust read-service CI: build, contract-test, and attest the release artifact.
 #
 # Live branches are staging/prod. This workflow never deploys and never receives
-# staging or production secrets. The contract job starts its own disposable
-# PostgreSQL, Python oracle, Rust server and Caddy inside that one job.
+# staging or production secrets. Each contract-check lane starts its own
+# disposable services; no database or server is shared between runners.
 #
-# Triggers (PM decision, 16 Oct): pull requests to staging/prod run the offline
-# and contract jobs; pushes to staging/prod run all three; a manual dispatch runs
-# the offline and contract jobs. No job runs on every feature-branch push.
-# The publish job runs only on a push to staging/prod and only when both other
-# jobs returned exactly `success` (not `skipped`).
+# Pull requests and manual dispatch run offline and all contract checks. Pushes
+# to staging/prod also publish, but only after every check returns exactly
+# `success` (not `skipped`). No job runs on every feature-branch push.
 #
 # Every third-party Action is pinned by full commit SHA; the tag is in a comment
 # beside it. SHAs were resolved from the release tags with read-only `gh api`
@@ -31,7 +29,7 @@ env:
   # on the oldest of the two and the binary must not need a newer glibc symbol.
   RUST_TARGET: x86_64-unknown-linux-gnu
   LIBC_MIN: "2.35"
-  # Caddy is used only by the contract job. Pin the release and its checksum.
+  # Caddy is used only by the contract checks. Pin the release and its checksum.
   CADDY_VERSION: "2.11.7"
   # SHA-256 of caddy_2.11.7_linux_amd64.tar.gz as GitHub records it for the release
   # asset (`gh api repos/caddyserver/caddy/releases/tags/v2.11.7`, field `digest`).
@@ -59,8 +57,19 @@ jobs:
 
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
-          path: ~/.cargo
-          key: cargo-offline-${{ runner.os }}-${{ env.RUST_TARGET }}-${{ hashFiles('rs/Cargo.lock') }}
+          # Cache downloads, installed pinned tools and debug compilation only.
+          # Release output is never restored: the artifact is built from scratch.
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin
+            ~/.cargo/.crates.toml
+            ~/.cargo/.crates2.json
+            rs/target/debug
+          key: cargo-v2-offline-${{ runner.os }}-${{ env.RUST_TARGET }}-${{ hashFiles('rs/rust-toolchain.toml') }}-${{ hashFiles('rs/Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            cargo-v2-offline-${{ runner.os }}-${{ env.RUST_TARGET }}-${{ hashFiles('rs/rust-toolchain.toml') }}-${{ hashFiles('rs/Cargo.lock') }}-
+            cargo-v2-offline-${{ runner.os }}-${{ env.RUST_TARGET }}-${{ hashFiles('rs/rust-toolchain.toml') }}-
 
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
@@ -166,12 +175,15 @@ jobs:
             release/artifact-metadata.json
             release/glibc-report.txt
 
-  # The full differential contract gate and the unchanged integration suite,
-  # each against this job's own disposable database. It also runs the release
-  # binary's identity check, so the digest it reports is one it executed.
-  contract:
+  # Independent checks run on separate runners. The existing scripts create
+  # and remove their own pinned disposable PostgreSQL containers as needed.
+  contract-checks:
     needs: offline
     runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        check: [combined, sqlx, caddy, postgres, phase2]
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
@@ -189,8 +201,17 @@ jobs:
 
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
-          path: ~/.cargo
-          key: cargo-contract-${{ runner.os }}-${{ env.RUST_TARGET }}-${{ hashFiles('rs/Cargo.lock') }}
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin
+            ~/.cargo/.crates.toml
+            ~/.cargo/.crates2.json
+            rs/target/debug
+          key: cargo-v2-contract-${{ matrix.check }}-${{ runner.os }}-${{ env.RUST_TARGET }}-${{ env.SQLX_CLI_VERSION }}-${{ hashFiles('rs/rust-toolchain.toml') }}-${{ hashFiles('rs/Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            cargo-v2-contract-${{ matrix.check }}-${{ runner.os }}-${{ env.RUST_TARGET }}-${{ env.SQLX_CLI_VERSION }}-${{ hashFiles('rs/rust-toolchain.toml') }}-${{ hashFiles('rs/Cargo.lock') }}-
+            cargo-v2-contract-${{ matrix.check }}-${{ runner.os }}-${{ env.RUST_TARGET }}-${{ env.SQLX_CLI_VERSION }}-${{ hashFiles('rs/rust-toolchain.toml') }}-
 
       - name: Install the Python environment the runner expects
         run: |
@@ -199,6 +220,7 @@ jobs:
           venv/bin/pip install -r requirements.txt -c constraints.txt
 
       - name: Install sqlx-cli
+        if: matrix.check == 'sqlx'
         run: |
           if ! command -v sqlx >/dev/null; then
             cargo install sqlx-cli --version "$SQLX_CLI_VERSION" --locked \
@@ -206,6 +228,7 @@ jobs:
           fi
 
       - name: Install the pinned Caddy
+        if: matrix.check == 'combined' || matrix.check == 'caddy' || matrix.check == 'phase2'
         shell: bash
         run: |
           curl -fsSL -o "caddy_${CADDY_VERSION}_linux_amd64.tar.gz" \
@@ -216,12 +239,14 @@ jobs:
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
       - name: Download the release artifact
+        if: matrix.check == 'combined'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: rust-read-artifact
           path: release
 
       - name: Test the release binary identity
+        if: matrix.check == 'combined'
         shell: bash
         env:
           RELEASE_SHA: ${{ github.sha }}
@@ -247,6 +272,7 @@ jobs:
           PY
 
       - name: Run the combined contract gate
+        if: matrix.check == 'combined'
         env:
           RELEASE_SHA: ${{ github.sha }}
         run: |
@@ -257,6 +283,7 @@ jobs:
             --report docs/rust-phase1/ci-contract.json
 
       - name: Check the SQLx query metadata
+        if: matrix.check == 'sqlx'
         env:
           RELEASE_SHA: ${{ github.sha }}
         run: venv/bin/python scripts/rust_contract/sqlx_offline_check.py
@@ -265,6 +292,7 @@ jobs:
       # exact method/path ownership and the decision-78 admin gate, including
       # the 300-request stop across Python-owned and Rust-owned admin paths.
       - name: Run the real-Caddy ownership matrix
+        if: matrix.check == 'caddy'
         env:
           ENVIRONMENT: test
           RELEASE_SHA: test
@@ -278,12 +306,14 @@ jobs:
             tests/rust_contract/test_phase2_report.py -q
 
       - name: Run the Rust PostgreSQL integration and race tests
+        if: matrix.check == 'postgres'
         env:
           RELEASE_SHA: ${{ github.sha }}
           RUST_TEST_PYTHON: ${{ github.workspace }}/venv/bin/python
         run: bash rs/read/tests/run_postgres.sh
 
       - name: Run every Phase 2 route scenario and race schedule
+        if: matrix.check == 'phase2'
         env:
           RELEASE_SHA: ${{ github.sha }}
         run: |
@@ -302,35 +332,65 @@ jobs:
           subprocess.run(command, check=True)
           PY
 
-      # upload-artifact keeps paths relative to the common parent of all listed
-      # files, so the report would land under docs/rust-phase1/ in the artifact.
-      # Stage both files flat: publish reads evidence/ci-contract.json and
-      # evidence/tested-binary.json.
+      # Each lane stages only its own reports, flat for the aggregate download.
+      # Keep evidence from failed lanes without allowing publication.
       - name: Stage the contract evidence
         if: always()
         run: |
           mkdir -p contract-evidence
-          for file in docs/rust-phase1/ci-contract.json docs/rust-phase2/ci-scenarios.json docs/rust-phase2/ci-races.json tested-binary.json; do
+          case "${{ matrix.check }}" in
+            combined) files="docs/rust-phase1/ci-contract.json tested-binary.json" ;;
+            phase2) files="docs/rust-phase2/ci-scenarios.json docs/rust-phase2/ci-races.json" ;;
+            *) files="" ;;
+          esac
+          for file in $files; do
             if [ -f "$file" ]; then cp "$file" contract-evidence/; fi
           done
       - name: Upload the contract evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: rust-contract-evidence
+          name: rust-contract-evidence-${{ matrix.check }}
           if-no-files-found: warn
           retention-days: 7
           path: contract-evidence/
 
-  # Publish runs only for a push to a live branch and only when both other jobs
-  # returned exactly `success`. It attests the exact binary digest the contract
-  # job tested, then packages the release bundle for the operator.
+  # Preserve the required contract check and the evidence artifact consumed by
+  # publish. An unsuccessful or skipped matrix lane makes this check fail.
+  contract:
+    needs: contract-checks
+    if: always()
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Require every contract check to succeed
+        env:
+          CONTRACT_RESULT: ${{ needs.contract-checks.result }}
+        run: test "$CONTRACT_RESULT" = success
+
+      - name: Download all contract evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: rust-contract-evidence-*
+          merge-multiple: true
+          path: contract-evidence
+
+      - name: Upload the contract evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rust-contract-evidence
+          if-no-files-found: error
+          retention-days: 7
+          path: contract-evidence/
+
+  # Publish attests the exact binary digest the combined contract lane tested,
+  # only after offline, every matrix lane and the aggregate check succeed.
   publish:
-    needs: [offline, contract]
+    needs: [offline, contract-checks, contract]
     if: >-
       github.event_name == 'push' &&
       (github.ref == 'refs/heads/staging' || github.ref == 'refs/heads/prod') &&
       needs.offline.result == 'success' &&
+      needs.contract-checks.result == 'success' &&
       needs.contract.result == 'success'
     runs-on: ubuntu-22.04
     permissions:
