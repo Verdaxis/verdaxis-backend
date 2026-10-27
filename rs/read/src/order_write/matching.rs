@@ -348,14 +348,20 @@ impl MatchPlan {
     pub fn fills(&self) -> &[Fill] {
         &self.fills
     }
-    pub(super) fn aggressor_before(&self) -> &OrderRow { &self.aggressor_before }
-    pub(super) fn clock(&self) -> DateTime<Utc> { self.now }
-    pub(super) fn reserved_consumption(&self) -> Result<BTreeMap<Uuid,Decimal>,MarketWriteError> {
-        let mut consumption=BTreeMap::<Uuid,Decimal>::new();
+    pub(super) fn reserved_consumption(&self) -> Result<BTreeMap<Uuid, Decimal>, MarketWriteError> {
+        let mut consumption = BTreeMap::<Uuid, Decimal>::new();
         for fill in &self.fills {
-            for item in [self.aggressor_before.inventory_item_id,fill.resting_before.inventory_item_id].into_iter().flatten() {
-                let amount=consumption.entry(item).or_default();
-                *amount=amount.checked_add(fill.quantity_mt).ok_or_else(inconsistent)?;
+            for item in [
+                self.aggressor_before.inventory_item_id,
+                fill.resting_before.inventory_item_id,
+            ]
+            .into_iter()
+            .flatten()
+            {
+                let amount = consumption.entry(item).or_default();
+                *amount = amount
+                    .checked_add(fill.quantity_mt)
+                    .ok_or_else(inconsistent)?;
             }
         }
         Ok(consumption)
@@ -1043,7 +1049,7 @@ fn plan_match_with_overflow(
         let mut after = row.clone();
         decrement(&mut after, quantity)?;
         decrement(&mut plan.aggressor_after, quantity)?;
-        let terms = compatible_terms(aggressor,row,bound).ok_or_else(inconsistent)?;
+        let terms = compatible_terms(aggressor, row, bound).ok_or_else(inconsistent)?;
         plan.fills.push(Fill {
             terms,
             resting_before: row.clone(),
@@ -1684,7 +1690,7 @@ async fn apply_plan(
     conn: &mut PgConnection,
     plan: &MatchPlan,
 ) -> Result<MatchOutcome, MarketWriteError> {
-    apply_plan_with_fees(conn,plan,None).await
+    apply_plan_with_fees(conn, plan, None).await
 }
 
 pub(super) async fn apply_plan_with_fees(
@@ -1692,15 +1698,23 @@ pub(super) async fn apply_plan_with_fees(
     plan: &MatchPlan,
     fee_config: Option<&crate::subscriptions::FeeConfig>,
 ) -> Result<MatchOutcome, MarketWriteError> {
-    let mut fees=BTreeMap::new();
-    if let Some(config)=fee_config {
+    let mut fees = BTreeMap::new();
+    if let Some(config) = fee_config {
         for fill in &plan.fills {
-            let seller=if plan.aggressor_before.side==Side::Ask { plan.aggressor_before.organization_id } else {fill.resting_before.organization_id};
-            if let std::collections::btree_map::Entry::Vacant(entry)=fees.entry(seller) {
-                let fee=crate::subscriptions::resolve_seller_fee(conn,seller,plan.now,config).await.map_err(|error|match error {
-                    crate::subscriptions::FeeError::Database(error)=>MarketWriteError::from(error),
-                    _=>MarketWriteError::new(MarketErrorCode::TradePartiesInvalid),
-                })?;
+            let seller = if plan.aggressor_before.side == Side::Ask {
+                plan.aggressor_before.organization_id
+            } else {
+                fill.resting_before.organization_id
+            };
+            if let std::collections::btree_map::Entry::Vacant(entry) = fees.entry(seller) {
+                let fee = crate::subscriptions::resolve_seller_fee(conn, seller, plan.now, config)
+                    .await
+                    .map_err(|error| match error {
+                        crate::subscriptions::FeeError::Database(error) => {
+                            MarketWriteError::from(error)
+                        }
+                        _ => MarketWriteError::new(MarketErrorCode::TradePartiesInvalid),
+                    })?;
                 entry.insert(fee);
             }
         }
@@ -1728,11 +1742,17 @@ pub(super) async fn apply_plan_with_fees(
             price_per_mt_usd: fill.price_per_mt_usd,
             confirmed_at: plan.now,
         };
-        let fee=fees.get(&seller.organization_id);
-        let (fame,lng)=match &fill.terms {
-            CompatibleTerms::Scalar => (None,None),
-            CompatibleTerms::Fame {bid,ask} => (Some(serde_json::json!({"bid":bid.declaration,"ask":ask.declaration})),None),
-            CompatibleTerms::Lng {bid,ask} => (None,Some(serde_json::json!({"bid":bid.declaration,"ask":ask.declaration}))),
+        let fee = fees.get(&seller.organization_id);
+        let (fame, lng) = match &fill.terms {
+            CompatibleTerms::Scalar => (None, None),
+            CompatibleTerms::Fame { bid, ask } => (
+                Some(serde_json::json!({"bid":bid.declaration,"ask":ask.declaration})),
+                None,
+            ),
+            CompatibleTerms::Lng { bid, ask } => (
+                None,
+                Some(serde_json::json!({"bid":bid.declaration,"ask":ask.declaration})),
+            ),
         };
         let inserted = sqlx::query("INSERT INTO trades (id,bid_order_id,ask_order_id,buyer_id,seller_id,buyer_user_id,seller_user_id,initiator_org_id,buyer_provenance,seller_provenance,initiated_by,quantity_mt,price_per_mt_usd,status,confirmed_at,product_id,product_name,fuel_type,fuel_grade,market_product,delivery_point_id,delivery_point_name,delivery_point_region,availability_window,market_snapshot_version,commission_rate_pct,is_anonymous,commission_plan,commission_fee_per_mt_usd,fame_terms_snapshot,lng_terms_snapshot) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'CONFIRMED',$14,o.product_id,p.name,p.fuel_type,p.fuel_grade,catalog.code,o.delivery_point_id,dp.name,dp.region,o.availability_window,1,0,true,$17,$18,$19,$20 FROM orderbook_orders o JOIN products p ON p.id=o.product_id JOIN jsonb_to_recordset($16::jsonb) AS catalog(id uuid,code text) ON catalog.id=p.id JOIN delivery_points dp ON dp.id=o.delivery_point_id WHERE o.id=$15")
             .bind(trade.id).bind(trade.bid_order_id).bind(trade.ask_order_id).bind(trade.buyer_id).bind(trade.seller_id).bind(buyer.owner_user_id).bind(seller.owner_user_id).bind(aggressor.organization_id).bind(&buyer.provenance).bind(&seller.provenance).bind(if aggressor.side==Side::Bid { "BUYER" } else { "SELLER" }).bind(trade.quantity_mt).bind(trade.price_per_mt_usd).bind(plan.now).bind(aggressor.id).bind(catalog_products()?).bind(fee.map(|f|f.plan.as_str())).bind(fee.map(|f|f.seller_fee_per_mt_usd)).bind(fame).bind(lng).execute(&mut *conn).await?;
@@ -1741,7 +1761,14 @@ pub(super) async fn apply_plan_with_fees(
         }
 
         if fee_config.is_some() {
-            super::confirmed_effect::on_trade_confirmed(conn,trade.id,trade.buyer_id,trade.seller_id,plan.now).await?;
+            super::confirmed_effect::on_trade_confirmed(
+                conn,
+                trade.id,
+                trade.buyer_id,
+                trade.seller_id,
+                plan.now,
+            )
+            .await?;
         }
         update_order(conn, resting, &fill.resting_after, plan.now).await?;
         update_order(conn, &aggressor, &fill.aggressor_after, plan.now).await?;
@@ -1983,95 +2010,240 @@ pub mod contract {
         .await
     }
     /// Configurable enclosing command for completion qualification; not a serving route.
-    #[derive(Clone,Debug)]
+    #[derive(Clone, Debug, Default)]
     pub struct CompletionOptions {
-        pub fee_config:crate::subscriptions::FeeConfig,
-        pub receipt_key:Option<String>,
-        pub request_id:Option<String>,
-        pub demo_pair:Option<DemoOrderPair>,
-        pub actor:Option<Uuid>,
-        pub fail_after_effects:bool,
-    }
-    impl Default for CompletionOptions {
-        fn default()->Self { Self {fee_config:crate::subscriptions::FeeConfig::default(),receipt_key:None,request_id:None,demo_pair:None,actor:None,fail_after_effects:false} }
+        pub fee_config: crate::subscriptions::FeeConfig,
+        pub receipt_key: Option<String>,
+        pub request_id: Option<String>,
+        pub demo_pair: Option<DemoOrderPair>,
+        pub actor: Option<Uuid>,
+        pub fail_after_effects: bool,
     }
     #[derive(Default)]
-    pub struct CompletionBarrier { entered:tokio::sync::Notify,release:tokio::sync::Notify }
+    pub struct CompletionBarrier {
+        entered: tokio::sync::Notify,
+        release: tokio::sync::Notify,
+    }
     impl CompletionBarrier {
-        pub async fn staged(&self) {self.entered.notified().await;}
-        pub fn resume(&self) {self.release.notify_one();}
+        pub async fn staged(&self) {
+            self.entered.notified().await;
+        }
+        pub fn resume(&self) {
+            self.release.notify_one();
+        }
     }
     #[derive(Debug)]
-    pub struct CompletionResult {pub trade_ids:Vec<Uuid>,pub replayed:bool}
-    struct CompletedMatch {aggressor:Uuid,at:DateTime<Utc>,options:CompletionOptions,barrier:Option<std::sync::Arc<CompletionBarrier>>}
+    pub struct CompletionResult {
+        pub trade_ids: Vec<Uuid>,
+        pub replayed: bool,
+    }
+    struct CompletedMatch {
+        aggressor: Uuid,
+        at: DateTime<Utc>,
+        options: CompletionOptions,
+        barrier: Option<std::sync::Arc<CompletionBarrier>>,
+    }
     impl super::super::transaction::MarketCommand for CompletedMatch {
-        type Output=CompletionResult;
-        fn preview<'a>(&'a self,conn:&'a mut PgConnection,actor:Uuid)->super::super::transaction::BoxFuture<'a,Result<super::super::transaction::MarketPreview,super::super::transaction::MarketAttemptError>> {
+        type Output = CompletionResult;
+        fn preview<'a>(
+            &'a self,
+            conn: &'a mut PgConnection,
+            actor: Uuid,
+        ) -> super::super::transaction::BoxFuture<
+            'a,
+            Result<
+                super::super::transaction::MarketPreview,
+                super::super::transaction::MarketAttemptError,
+            >,
+        > {
             Box::pin(async move {
-                let order=load_order(conn,self.aggressor).await?;
-                let mut bound=MatchBound::new(self.at);
-                if let Some(pair)=self.options.demo_pair {bound=bound.with_demo_pair(pair);}
-                let discovered=match_parties(conn,&order,bound).await?;
-                let parties=PartyLockPreview::new(discovered.organizations,discovered.users,actor,discovered.fingerprint);
-                let mut locks=OperationLockPlan::new(MarketOperation::Amend);
-                locks.parties(&parties)?;
-                if let Some(key)=&self.options.receipt_key {locks.idempotency(actor,super::super::Operation::OrderAmend.as_str(),key)?;}
-                locks.slices([order.slice()])?;
-                Ok(super::super::transaction::MarketPreview {parties,locks})
-            })
-        }
-        fn replay<'a>(&'a self,tx:&'a mut super::super::transaction::LockedMarketTransaction<'_>,actor:&'a super::super::AuthenticatedActor)->super::super::transaction::BoxFuture<'a,Result<Option<Self::Output>,super::super::transaction::MarketAttemptError>> {
-            Box::pin(async move {
-                let Some(key)=&self.options.receipt_key else {return Ok(None)};
-                let order=tx.matching_order(self.aggressor).await?;
-                let context=tx.match_receipt_context(actor,order.organization_id,self.at).await?;
-                let receipt=tx.replay_receipt(&context,super::super::Operation::OrderAmend,self.aggressor,key,"completion-v1").await?;
-                receipt.map(|receipt| {
-                    let trade_ids=serde_json::from_value(receipt.response_body).map_err(|_|inconsistent())?;
-                    Ok(CompletionResult {trade_ids,replayed:true})
-                }).transpose()
-            })
-        }
-        fn execute<'a>(&'a self,tx:&'a mut super::super::transaction::LockedMarketTransaction<'_>,actor:&'a super::super::AuthenticatedActor)->super::super::transaction::BoxFuture<'a,Result<Self::Output,super::super::transaction::MarketAttemptError>> {
-            Box::pin(async move {
-                let order=tx.matching_order(self.aggressor).await?;
-                let mut bound=MatchBound::new(self.at);
-                if let Some(pair)=self.options.demo_pair {bound=bound.with_demo_pair(pair);}
-                let plan=tx.prepare_match(&order,bound).await?;
-                let policy:crate::MarketPolicy=serde_json::from_str(include_str!("../../../../deploy/rust/market-policy.json")).map_err(|_|inconsistent())?;
-                let config:crate::Config=serde_json::from_value(serde_json::json!({"environment":"test","release_sha":"test","migration_revision":"p89_20261022_watchlist_producer","database_url":"","db_session_time_zone":"UTC","bind":"127.0.0.1:0","pool_max":4,"python_budget":0,"configured_max_connections":100})).map_err(|_|inconsistent())?;
-                let before=tx.effects()?.capture_before(&policy,&config,&plan.locked_order_ids(),self.at).await?;
-                let outcome=tx.complete_match(&plan,&self.options.fee_config).await?;
-                let trade_ids:Vec<Uuid>=outcome.trades.iter().map(|trade|trade.id).collect();
-                let mut effects=before.stage();
-                let request=axum::http::Request::builder().header("x-request-id",self.options.request_id.as_deref().unwrap_or("completion")).body(()).map_err(|_|inconsistent())?;
-                let (mut parts,_)=request.into_parts();
-                parts.extensions.insert(axum::extract::ConnectInfo(std::net::SocketAddr::from(([127,0,0,1],12345))));
-                let (ip,request_id)=crate::runtime::http::audit_identity(&parts);
-                let audit=super::super::effects::AuditContext::new(Some(ip),Some(request_id))?;
-                tx.effects()?.matched(&mut effects,&outcome,&order,actor.user_id(),audit).await?;
-                if let Some(key)=&self.options.receipt_key {
-                    let context=tx.match_receipt_context(actor,order.organization_id,self.at).await?;
-                    tx.record_receipt(&context,&super::super::ReceiptRecord {id:Uuid::new_v4(),actor_user_id:actor.user_id(),effective_organization_id:order.organization_id,support_context_id:None,operation:super::super::Operation::OrderAmend,idempotency_key:key.clone(),request_hash:"completion-v1".into(),resource_id:order.id,response_status:200,response_body:serde_json::json!(trade_ids)}).await?;
+                let order = load_order(conn, self.aggressor).await?;
+                let mut bound = MatchBound::new(self.at);
+                if let Some(pair) = self.options.demo_pair {
+                    bound = bound.with_demo_pair(pair);
                 }
-                if !outcome.trades.is_empty() {tx.effects()?.finish(&policy,&config,effects).await?;}
-                if self.options.fail_after_effects {return Err(inconsistent().into());}
-                if let Some(barrier)=&self.barrier {barrier.entered.notify_one();barrier.release.notified().await;}
-                Ok(CompletionResult {trade_ids,replayed:false})
+                let discovered = match_parties(conn, &order, bound).await?;
+                let parties = PartyLockPreview::new(
+                    discovered.organizations,
+                    discovered.users,
+                    actor,
+                    discovered.fingerprint,
+                );
+                let mut locks = OperationLockPlan::new(MarketOperation::Amend);
+                locks.parties(&parties)?;
+                if let Some(key) = &self.options.receipt_key {
+                    locks.idempotency(actor, super::super::Operation::OrderAmend.as_str(), key)?;
+                }
+                locks.slices([order.slice()])?;
+                Ok(super::super::transaction::MarketPreview { parties, locks })
+            })
+        }
+        fn replay<'a>(
+            &'a self,
+            tx: &'a mut super::super::transaction::LockedMarketTransaction<'_>,
+            actor: &'a super::super::AuthenticatedActor,
+        ) -> super::super::transaction::BoxFuture<
+            'a,
+            Result<Option<Self::Output>, super::super::transaction::MarketAttemptError>,
+        > {
+            Box::pin(async move {
+                let Some(key) = &self.options.receipt_key else {
+                    return Ok(None);
+                };
+                let order = tx.matching_order(self.aggressor).await?;
+                let context = tx
+                    .match_receipt_context(actor, order.organization_id, self.at)
+                    .await?;
+                let receipt = tx
+                    .replay_receipt(
+                        &context,
+                        super::super::Operation::OrderAmend,
+                        self.aggressor,
+                        key,
+                        "d314f4a480f7ebd361f4ef1d49c528b044797eedba17810a435a48b272817e55",
+                    )
+                    .await?;
+                receipt
+                    .map(|receipt| {
+                        let trade_ids = serde_json::from_value(receipt.response_body)
+                            .map_err(|_| inconsistent())?;
+                        Ok(CompletionResult {
+                            trade_ids,
+                            replayed: true,
+                        })
+                    })
+                    .transpose()
+            })
+        }
+        fn execute<'a>(
+            &'a self,
+            tx: &'a mut super::super::transaction::LockedMarketTransaction<'_>,
+            actor: &'a super::super::AuthenticatedActor,
+        ) -> super::super::transaction::BoxFuture<
+            'a,
+            Result<Self::Output, super::super::transaction::MarketAttemptError>,
+        > {
+            Box::pin(async move {
+                let order = tx.matching_order(self.aggressor).await?;
+                let mut bound = MatchBound::new(self.at);
+                if let Some(pair) = self.options.demo_pair {
+                    bound = bound.with_demo_pair(pair);
+                }
+                let plan = tx.prepare_match(&order, bound).await?;
+                let policy: crate::MarketPolicy = serde_json::from_str(include_str!(
+                    "../../../../deploy/rust/market-policy.json"
+                ))
+                .map_err(|_| inconsistent())?;
+                let config:crate::Config=serde_json::from_value(serde_json::json!({"environment":"test","release_sha":"test","migration_revision":"p89_20261022_watchlist_producer","database_url":"","db_session_time_zone":"UTC","bind":"127.0.0.1:0","pool_max":4,"python_budget":0,"configured_max_connections":100})).map_err(|_|inconsistent())?;
+                let before = tx
+                    .effects()?
+                    .capture_before(&policy, &config, &plan.locked_order_ids(), self.at)
+                    .await?;
+                let outcome = tx.complete_match(&plan, &self.options.fee_config).await?;
+                let trade_ids: Vec<Uuid> = outcome.trades.iter().map(|trade| trade.id).collect();
+                let mut effects = before.stage();
+                let request = axum::http::Request::builder()
+                    .header(
+                        "x-request-id",
+                        self.options.request_id.as_deref().unwrap_or("completion"),
+                    )
+                    .body(())
+                    .map_err(|_| inconsistent())?;
+                let (mut parts, _) = request.into_parts();
+                parts
+                    .extensions
+                    .insert(axum::extract::ConnectInfo(std::net::SocketAddr::from((
+                        [127, 0, 0, 1],
+                        12345,
+                    ))));
+                let (ip, request_id) = crate::runtime::http::audit_identity(&parts);
+                let audit = super::super::effects::AuditContext::new(Some(ip), Some(request_id))?;
+                tx.effects()?
+                    .matched(&mut effects, &outcome, &order, actor.user_id(), audit)
+                    .await?;
+                if let Some(key) = &self.options.receipt_key {
+                    let context = tx
+                        .match_receipt_context(actor, order.organization_id, self.at)
+                        .await?;
+                    tx.record_receipt(
+                        &context,
+                        &super::super::ReceiptRecord {
+                            id: Uuid::new_v4(),
+                            actor_user_id: actor.user_id(),
+                            effective_organization_id: order.organization_id,
+                            support_context_id: None,
+                            operation: super::super::Operation::OrderAmend,
+                            idempotency_key: key.clone(),
+                            request_hash: "d314f4a480f7ebd361f4ef1d49c528b044797eedba17810a435a48b272817e55".into(),
+                            resource_id: order.id,
+                            response_status: 200,
+                            response_body: serde_json::json!(trade_ids),
+                        },
+                    )
+                    .await?;
+                }
+                if !outcome.trades.is_empty() {
+                    tx.effects()?.finish(&policy, &config, effects).await?;
+                }
+                if self.options.fail_after_effects {
+                    return Err(inconsistent().into());
+                }
+                if let Some(barrier) = &self.barrier {
+                    barrier.entered.notify_one();
+                    barrier.release.notified().await;
+                }
+                Ok(CompletionResult {
+                    trade_ids,
+                    replayed: false,
+                })
             })
         }
     }
-    pub async fn run_completed_match(pool:&sqlx::PgPool,aggressor:Uuid,at:DateTime<Utc>,options:CompletionOptions)->Result<CompletionResult,MarketWriteError> {
-        completed(pool,aggressor,at,options,None).await
+    pub async fn run_completed_match(
+        pool: &sqlx::PgPool,
+        aggressor: Uuid,
+        at: DateTime<Utc>,
+        options: CompletionOptions,
+    ) -> Result<CompletionResult, MarketWriteError> {
+        completed(pool, aggressor, at, options, None).await
     }
-    pub async fn run_completed_match_paused(pool:&sqlx::PgPool,aggressor:Uuid,at:DateTime<Utc>,options:CompletionOptions,barrier:std::sync::Arc<CompletionBarrier>)->Result<CompletionResult,MarketWriteError> {
-        completed(pool,aggressor,at,options,Some(barrier)).await
+    pub async fn run_completed_match_paused(
+        pool: &sqlx::PgPool,
+        aggressor: Uuid,
+        at: DateTime<Utc>,
+        options: CompletionOptions,
+        barrier: std::sync::Arc<CompletionBarrier>,
+    ) -> Result<CompletionResult, MarketWriteError> {
+        completed(pool, aggressor, at, options, Some(barrier)).await
     }
-    async fn completed(pool:&sqlx::PgPool,aggressor:Uuid,at:DateTime<Utc>,options:CompletionOptions,barrier:Option<std::sync::Arc<CompletionBarrier>>)->Result<CompletionResult,MarketWriteError> {
-        let mut conn=pool.acquire().await?;
-        let row=load_order(&mut conn,aggressor).await?;drop(conn);
-        let subject=options.actor.or(row.owner_user_id).ok_or_else(changed)?;
-        super::super::transaction::run_market_command(pool.clone(),std::sync::Arc::new(tokio::sync::Semaphore::new(1)),crate::auth::VerifiedAccess {subject,issued_at:Some(Utc::now()),issuance_out_of_range:false},CompletedMatch {aggressor,at,options,barrier},super::super::AdmissionClass::Cleanup).await
+    async fn completed(
+        pool: &sqlx::PgPool,
+        aggressor: Uuid,
+        at: DateTime<Utc>,
+        options: CompletionOptions,
+        barrier: Option<std::sync::Arc<CompletionBarrier>>,
+    ) -> Result<CompletionResult, MarketWriteError> {
+        let mut conn = pool.acquire().await?;
+        let row = load_order(&mut conn, aggressor).await?;
+        drop(conn);
+        let subject = options.actor.or(row.owner_user_id).ok_or_else(changed)?;
+        super::super::transaction::run_market_command(
+            pool.clone(),
+            std::sync::Arc::new(tokio::sync::Semaphore::new(1)),
+            crate::auth::VerifiedAccess {
+                subject,
+                issued_at: Some(Utc::now()),
+                issuance_out_of_range: false,
+            },
+            CompletedMatch {
+                aggressor,
+                at,
+                options,
+                barrier,
+            },
+            super::super::AdmissionClass::Cleanup,
+        )
+        .await
     }
     pub async fn probe_order_lock(conn: &mut PgConnection, id: Uuid) -> Result<Uuid, sqlx::Error> {
         sqlx::query_scalar("SELECT id FROM orderbook_orders WHERE id=$1 FOR UPDATE NOWAIT")

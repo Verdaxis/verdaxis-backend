@@ -63,7 +63,10 @@ impl MutationKind {
     fn changes_order_economics(self) -> bool {
         matches!(
             self,
-            Self::OrderCancelled | Self::OrderExpired | Self::InventoryPublished | Self::TradeAutoMatched
+            Self::OrderCancelled
+                | Self::OrderExpired
+                | Self::InventoryPublished
+                | Self::TradeAutoMatched
         )
     }
     fn is_retired(self) -> bool {
@@ -200,7 +203,7 @@ pub struct EffectSet {
     before: BeforeEffects,
     effects: Vec<MutationEffect>,
     expiry: Vec<ExpiryEffect>,
-    confirmed_notifications: Vec<(Uuid,Uuid,Uuid)>,
+    confirmed_notifications: Vec<(Uuid, Uuid, Uuid)>,
 }
 impl BeforeEffects {
     pub fn stage(self) -> EffectSet {
@@ -373,24 +376,35 @@ impl<'a> EffectPort<'a> {
         aggressor: &super::matching::OrderRow,
         actor: Uuid,
         audit_context: AuditContext,
-    ) -> Result<(),MarketWriteError> {
-        use super::outbox::{MatchActivity,ParticipantFields};
-        if outcome.trades.is_empty() { return Ok(()); }
-        let mut participants=BTreeSet::from([aggressor.organization_id]);
+    ) -> Result<(), MarketWriteError> {
+        use super::outbox::{MatchActivity, ParticipantFields};
+        if outcome.trades.is_empty() {
+            return Ok(());
+        }
+        let mut participants = BTreeSet::from([aggressor.organization_id]);
         for trade in &outcome.trades {
             let row=sqlx::query("SELECT product_id,product_name,fuel_type,market_product,delivery_point_id,availability_window,buyer_provenance::text AS buyer_provenance,is_anonymous FROM trades WHERE id=$1")
                 .bind(trade.id).fetch_one(&mut *self.conn).await?;
-            let demo=row.get::<String,_>("buyer_provenance")=="DEMO";
-            let point:Option<Uuid>=row.get("delivery_point_id");
-            let activity=MatchActivity {
-                source_kind:if demo {"DEMO_SEED"} else {"CONFIRMED_TRADE"}.into(),
-                scope:if point.is_some(){"DELIVERY_POINT"}else{"UNKNOWN"}.into(),
-                demo_status:if demo {"DEMO_ONLY"}else{"REAL_ONLY"}.into(), unknown_count:0,
-                market_product:row.get("market_product"),delivery_point_id:point,
-                availability_window:row.get("availability_window"),observed_at:trade.confirmed_at,
+            let demo = row.get::<String, _>("buyer_provenance") == "DEMO";
+            let point: Option<Uuid> = row.get("delivery_point_id");
+            let activity = MatchActivity {
+                source_kind: if demo { "DEMO_SEED" } else { "CONFIRMED_TRADE" }.into(),
+                scope: if point.is_some() {
+                    "DELIVERY_POINT"
+                } else {
+                    "UNKNOWN"
+                }
+                .into(),
+                demo_status: if demo { "DEMO_ONLY" } else { "REAL_ONLY" }.into(),
+                unknown_count: 0,
+                market_product: row.get("market_product"),
+                delivery_point_id: point,
+                availability_window: row.get("availability_window"),
+                observed_at: trade.confirmed_at,
             };
-            participants.extend([trade.buyer_id,trade.seller_id]);
-            set.confirmed_notifications.push((trade.id,trade.buyer_id,trade.seller_id));
+            participants.extend([trade.buyer_id, trade.seller_id]);
+            set.confirmed_notifications
+                .push((trade.id, trade.buyer_id, trade.seller_id));
             set.push(MutationEffect {
                 kind:MutationKind::TradeAutoMatched,actor_id:actor,organization_id:aggressor.organization_id,
                 resource_type:"trade".into(),resource_id:trade.id,
@@ -405,22 +419,49 @@ impl<'a> EffectPort<'a> {
                 at:set.before.at,audit_context:audit_context.clone(),
             })?;
         }
-        let source=sqlx::query("SELECT t.market_product,t.delivery_point_name FROM trades t WHERE id=$1")
-            .bind(outcome.trades[0].id).fetch_one(&mut *self.conn).await?;
-        let demo=aggressor.provenance=="DEMO";
+        let source =
+            sqlx::query("SELECT t.market_product,t.delivery_point_name FROM trades t WHERE id=$1")
+                .bind(outcome.trades[0].id)
+                .fetch_one(&mut *self.conn)
+                .await?;
+        let demo = aggressor.provenance == "DEMO";
         set.push(MutationEffect {
-            kind:MutationKind::OrdersMatched,actor_id:actor,organization_id:aggressor.organization_id,
-            resource_type:"order".into(),resource_id:aggressor.id,changes:Value::Null,
-            event:Some(ParticipantEvent {event_type:"orders_matched".into(),aggregate_type:"order".into(),aggregate_id:aggressor.id.to_string(),
-                participant_org_ids:participants.into_iter().collect(),public_invalidated:true,
-                fields:ParticipantFields::OrdersMatched {activity:MatchActivity {
-                    source_kind:if demo {"DEMO_SEED"}else{"LIVE_ORDER"}.into(),
-                    scope:if aggressor.delivery_point_id.is_some(){"DELIVERY_POINT"}else{"UNKNOWN"}.into(),
-                    demo_status:if demo {"DEMO_ONLY"}else{"REAL_ONLY"}.into(),unknown_count:0,
-                    market_product:source.get("market_product"),delivery_point_id:aggressor.delivery_point_id,
-                    availability_window:aggressor.availability_window.clone(),observed_at:set.before.at,
-                },order_id:aggressor.id,matches:outcome.trades.len(),is_demo_listing:demo,delivery_point:source.get("delivery_point_name")}}),
-            at:set.before.at,audit_context,
+            kind: MutationKind::OrdersMatched,
+            actor_id: actor,
+            organization_id: aggressor.organization_id,
+            resource_type: "order".into(),
+            resource_id: aggressor.id,
+            changes: Value::Null,
+            event: Some(ParticipantEvent {
+                event_type: "orders_matched".into(),
+                aggregate_type: "order".into(),
+                aggregate_id: aggressor.id.to_string(),
+                participant_org_ids: participants.into_iter().collect(),
+                public_invalidated: true,
+                fields: ParticipantFields::OrdersMatched {
+                    activity: MatchActivity {
+                        source_kind: if demo { "DEMO_SEED" } else { "LIVE_ORDER" }.into(),
+                        scope: if aggressor.delivery_point_id.is_some() {
+                            "DELIVERY_POINT"
+                        } else {
+                            "UNKNOWN"
+                        }
+                        .into(),
+                        demo_status: if demo { "DEMO_ONLY" } else { "REAL_ONLY" }.into(),
+                        unknown_count: 0,
+                        market_product: source.get("market_product"),
+                        delivery_point_id: aggressor.delivery_point_id,
+                        availability_window: aggressor.availability_window.clone(),
+                        observed_at: set.before.at,
+                    },
+                    order_id: aggressor.id,
+                    matches: outcome.trades.len(),
+                    is_demo_listing: demo,
+                    delivery_point: source.get("delivery_point_name"),
+                },
+            }),
+            at: set.before.at,
+            audit_context,
         })?;
         Ok(())
     }
@@ -605,9 +646,13 @@ impl<'a> EffectPort<'a> {
                 .await?;
             }
         }
-        for (trade,buyer,seller) in &set.confirmed_notifications {
-            let recipients:Vec<Uuid>=sqlx::query_scalar("SELECT id FROM users WHERE organization_id=ANY($1::uuid[]) ORDER BY id")
-                .bind([*buyer,*seller].as_slice()).fetch_all(&mut *self.conn).await?;
+        for (trade, buyer, seller) in &set.confirmed_notifications {
+            let recipients: Vec<Uuid> = sqlx::query_scalar(
+                "SELECT id FROM users WHERE organization_id=ANY($1::uuid[]) ORDER BY id",
+            )
+            .bind([*buyer, *seller].as_slice())
+            .fetch_all(&mut *self.conn)
+            .await?;
             for recipient in recipients {
                 sqlx::query("INSERT INTO notifications(id,recipient_id,type,title,message,data,is_read,created_at) VALUES($1,$2,'TRADE_CONFIRMED','Auto-Matched Trade','Your order was automatically matched',$3,false,$4)")
                     .bind(Uuid::new_v4()).bind(recipient).bind(json!({"trade_id":trade,"auto_matched":true})).bind(before.at).execute(&mut *self.conn).await?;
