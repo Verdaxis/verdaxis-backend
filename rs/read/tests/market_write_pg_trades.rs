@@ -612,7 +612,7 @@ async fn typed_direct_takes_freeze_normalized_terms_and_keep_pending_identity_pr
 #[tokio::test]
 #[ignore = "requires an attested disposable PostgreSQL"]
 async fn take_fee_fallback_and_configuration_matrix() {
- for(plan,active,expired,rate,expected) in [("professional",true,false,None,Some("1.5")),("professional",false,false,None,Some("2")),("professional",true,true,None,Some("2")),("enterprise",true,false,Some("0.75"),Some("0.75")),("enterprise",true,false,None,None)] {
+ for(plan,active,expired,rate,expected) in [("standard",true,false,None,Some("1.5")),("standard",false,false,None,Some("2")),("standard",true,true,None,Some("2")),("enterprise",true,false,Some("0.75"),Some("0.75")),("enterprise",true,false,None,None)] {
   let mut f=Fixture::new().await;let expiry=chrono::Utc::now()+chrono::Duration::hours(if expired{-1}else{1});
   sqlx::query("SELECT trades_fixture_subscription($1,$2,$3,$4)").bind(plan).bind(active).bind(expiry).bind(rate.map(|v|v.parse::<rust_decimal::Decimal>().unwrap())).execute(&mut f.admin).await.unwrap();
   let before=f.state().await;let(s,b)=f.take(BUYER,None,"1").await;
