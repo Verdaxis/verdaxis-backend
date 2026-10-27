@@ -179,11 +179,16 @@ pub fn routes(app: &AppState, limits: auth::limits::SharedLimits) -> Option<Rout
     )
 }
 fn client(request: &Request) -> String {
-    request
-        .extensions()
-        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
-        .map(|c| c.0.ip().to_string())
-        .unwrap_or_else(|| "unknown".into())
+    super::http::client_ip(
+        request
+            .extensions()
+            .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+            .map(|c| c.0.ip()),
+        request
+            .headers()
+            .get("x-forwarded-for")
+            .and_then(|value| value.to_str().ok()),
+    )
 }
 fn access(authority: &Authority, request: &Request) -> Result<auth::VerifiedAccess, ApiError> {
     auth::verify_authorization(
@@ -348,7 +353,7 @@ async fn review_join(
     let note = business::joins::ReviewNote::parse(
         body.get("review_note")
             .and_then(Value::as_str)
-            .unwrap_or("Reviewed by administrator"),
+            .unwrap_or(""),
     )?;
     let result = business::joins::review(
         &a.app,
