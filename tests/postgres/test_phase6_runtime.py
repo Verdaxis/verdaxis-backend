@@ -22,6 +22,9 @@ async def test_stream_runtime_on_disposable_database(analytics_pg_url):
          "streams_runtime", "--", "--ignored", "--test-threads=1", "--nocapture"],
         cwd=ROOT,
         env={**os.environ, "SQLX_OFFLINE": "true",
+             "RELEASE_SHA": subprocess.check_output(
+                 ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+             ).strip(),
              "STREAM_RUNTIME_APP_URL": _sqlx_url(app_url),
              "STREAM_RUNTIME_OWNER_URL": _sqlx_url(analytics_pg_url),
              "STREAM_RUNTIME_ADMIN_URL": _sqlx_url(os.environ["POSTGRES_ADMIN_TEST_DATABASE_URL"])},

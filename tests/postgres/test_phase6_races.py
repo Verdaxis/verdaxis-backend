@@ -12,6 +12,15 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from tests.rust_contract.phase6.coexistence import RustActor
 
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def _release_sha() -> str:
+    """The build script requires a full 40-hex release identity."""
+    return subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+    ).strip()
+
 
 @pytest.mark.asyncio
 async def test_rust_assignment_connection_loss_is_atomic(analytics_pg_url):
@@ -58,7 +67,8 @@ async def test_three_runtime_restart_cycles(analytics_pg_url):
         ["cargo", "test", "--manifest-path", "rs/Cargo.toml", "--locked", "-p", "verdaxis-read",
          "--features", "contract-tests", "--test", "streams_coexistence", "--", "--ignored", "--nocapture"],
         cwd=Path(__file__).resolve().parents[2],
-        env={**os.environ, "STREAM_RUNTIME_APP_URL": os.environ["DATABASE_URL"].replace("postgresql+asyncpg", "postgresql"),
+        env={**os.environ, "RELEASE_SHA": _release_sha(),
+             "STREAM_RUNTIME_APP_URL": os.environ["DATABASE_URL"].replace("postgresql+asyncpg", "postgresql"),
              "STREAM_RUNTIME_ADMIN_URL": os.environ["POSTGRES_ADMIN_TEST_DATABASE_URL"].replace("postgresql+asyncpg", "postgresql")},
         capture_output=True, text=True, timeout=300, check=False,
     )

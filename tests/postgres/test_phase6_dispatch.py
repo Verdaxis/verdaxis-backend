@@ -30,6 +30,13 @@ async def isolated_dispatch_history(analytics_pg_url):
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def _release_sha() -> str:
+    """The build script requires a full 40-hex release identity."""
+    return subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+    ).strip()
+
+
 def test_committed_dispatch_visibility(analytics_pg_url):
     app_url = os.environ["DATABASE_URL"]
     assert app_url.startswith("postgresql+asyncpg://")
@@ -44,9 +51,7 @@ def test_committed_dispatch_visibility(analytics_pg_url):
         env={
             **os.environ,
             "SQLX_OFFLINE": "true",
-            "RELEASE_SHA": subprocess.check_output(
-                ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
-            ).strip(),
+            "RELEASE_SHA": _release_sha(),
             "STREAM_DISPATCH_APP_URL": app_url.replace(
                 "postgresql+asyncpg://", "postgresql://", 1
             ),
@@ -71,6 +76,7 @@ def test_retention_snapshot_resets_existing_subscribers(analytics_pg_url):
          "--", "--exact", "--ignored", "--test-threads=1"],
         cwd=ROOT,
         env={**os.environ, "SQLX_OFFLINE": "true",
+             "RELEASE_SHA": _release_sha(),
              "STREAM_DISPATCH_APP_URL": os.environ["DATABASE_URL"].replace(
                  "postgresql+asyncpg://", "postgresql://", 1),
              "STREAM_DISPATCH_OWNER_URL": analytics_pg_url.replace(
@@ -95,6 +101,7 @@ def test_legacy_byte_budget(analytics_pg_url, case):
          "-p", "verdaxis-read", "--features", "contract-tests", "--test",
          "streams_dispatch", f"postgres::{case}", "--", "--exact", "--ignored", "--test-threads=1"],
         cwd=ROOT, env={**os.environ, "SQLX_OFFLINE": "true",
+            "RELEASE_SHA": _release_sha(),
             "STREAM_DISPATCH_APP_URL": os.environ["DATABASE_URL"].replace("postgresql+asyncpg://", "postgresql://", 1),
             "STREAM_DISPATCH_OWNER_URL": analytics_pg_url.replace("postgresql+asyncpg://", "postgresql://", 1)},
         capture_output=True, text=True, timeout=1800, check=False,

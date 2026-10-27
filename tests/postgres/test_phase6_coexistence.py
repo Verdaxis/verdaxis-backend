@@ -20,9 +20,13 @@ ROOT = Path(__file__).resolve().parents[2]
 
 @pytest.fixture(scope="module")
 def stream_fixture_binary():
+    release_sha = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+    ).strip()
     result = subprocess.run(["cargo", "build", "--manifest-path", "rs/Cargo.toml", "--locked",
         "-p", "verdaxis-read", "--features", "contract-tests", "--example", "streams_fixture"],
-        cwd=ROOT, capture_output=True, text=True, timeout=1800, check=False)
+        cwd=ROOT, env={**os.environ, "RELEASE_SHA": release_sha},
+        capture_output=True, text=True, timeout=1800, check=False)
     assert result.returncode == 0, result.stdout + result.stderr
 
 

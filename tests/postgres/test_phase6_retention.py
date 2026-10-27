@@ -181,6 +181,10 @@ def _run_store_test(database_url: str, name: str) -> None:
         cwd=ROOT,
         env={
             **os.environ,
+            "SQLX_OFFLINE": "true",
+            "RELEASE_SHA": subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+            ).strip(),
             "STREAMS_STORE_TEST_DATABASE_URL": database_url.replace(
                 "postgresql+asyncpg://", "postgresql://"
             ),

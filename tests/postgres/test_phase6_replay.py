@@ -32,6 +32,9 @@ async def test_retained_replay_snapshots_and_live_admission(pg_session, analytic
     ], cwd=ROOT, env={
         **os.environ,
         "SQLX_OFFLINE": "true",
+        "RELEASE_SHA": subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+        ).strip(),
         "STREAM_REPLAY_APP_URL": os.environ["DATABASE_URL"].replace("postgresql+asyncpg://", "postgresql://", 1),
         "STREAM_REPLAY_OWNER_URL": analytics_pg_url.replace("postgresql+asyncpg://", "postgresql://", 1),
         "STREAM_REPLAY_USER": str(user),

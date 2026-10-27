@@ -111,6 +111,9 @@ async def test_private_stream_route_on_the_disposable_database(pg_session, analy
         env={
             **os.environ,
             "SQLX_OFFLINE": "true",
+            "RELEASE_SHA": subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+            ).strip(),
             "STREAM_HTTP_APP_URL": _sqlx_url(app_url),
             "STREAM_HTTP_OWNER_URL": _sqlx_url(analytics_pg_url),
             "STREAM_HTTP_USER": str(member),
