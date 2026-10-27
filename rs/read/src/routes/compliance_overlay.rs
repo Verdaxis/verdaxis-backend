@@ -348,7 +348,7 @@ async fn overlay(
             Box::pin(async move {
                 // Support refusal, then the typed rules, then the domain
                 // statement: the closure has already validated the account.
-                let request = prepared.admit(&admission, |value| {
+                let request = prepared.admit(&admission, transaction.actor().id, |value| {
                     OverlayRequest::validate(value).map_err(|_| invalid_input())
                 })?;
                 let actor = transaction.actor().clone();

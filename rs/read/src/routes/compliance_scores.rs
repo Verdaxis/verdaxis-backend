@@ -468,7 +468,7 @@ async fn scenario(
     let result = run_authenticated(&state, access, authenticated, move |transaction| {
         Box::pin(async move {
             let actor = transaction.actor().clone();
-            let scenario: ScenarioRequest = prepared.admit(&post, ScenarioRequest::validate)?;
+            let scenario: ScenarioRequest = prepared.admit(&post, actor.id, ScenarioRequest::validate)?;
             let vessel = match Uuid::parse_str(scenario.vessel_id()) {
                 Ok(id) => select_vessel(transaction.connection(), id).await?,
                 Err(_) => None,

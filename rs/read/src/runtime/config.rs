@@ -551,7 +551,10 @@ pub fn validate_config(config: &Config) -> Result<(), String> {
     if config.environment == "production" {
         if !matches!(
             config.migration_revision.as_str(),
-            "p0_20261016_union" | "prc_20261026_changes" | "p3_20261020_auth_tokens" | "p5_20261020_read_indexes"
+            "p0_20261016_union"
+                | "prc_20261026_changes"
+                | "p3_20261020_auth_tokens"
+                | "p5_20261020_read_indexes"
         ) {
             return Err("production requires its reviewed union checkpoint".into());
         }

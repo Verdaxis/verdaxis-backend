@@ -137,12 +137,13 @@ impl PreparedPost {
     pub fn admit<T>(
         self,
         post: &CompliancePost,
+        actor: uuid::Uuid,
         validate: impl FnOnce(Value) -> Result<T, ApiError>,
     ) -> Result<T, ApiError> {
         if post.support_present {
             return Err(support_context_denied());
         }
-        validate_and_admit(self.body, &post.admission, validate)
+        validate_and_admit(self.body, &post.admission, actor, validate)
     }
 }
 

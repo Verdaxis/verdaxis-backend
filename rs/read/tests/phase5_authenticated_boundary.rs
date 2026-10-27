@@ -86,7 +86,7 @@ async fn admit_route(
 ) -> Result<usize, Refusal> {
     let prepared = parse_post_body(raw).map_err(Refusal::Body)?;
     authenticate.await.map_err(Refusal::Auth)?;
-    prepared.admit(post, validate).map_err(Refusal::Policy)
+    prepared.admit(post, Uuid::nil(), validate).map_err(Refusal::Policy)
 }
 
 #[tokio::test]
@@ -497,7 +497,7 @@ async fn phase5_transaction_cases_scoped_actor_read() {
                     .expect("statement timeout");
                 assert_eq!(deadline, "5s");
                 assert_eq!(tx.actor().id, subject);
-                let admitted = prepared.admit(&admission, |body| {
+                let admitted = prepared.admit(&admission, tx.actor().id, |body| {
                     fuel_mix_container(&body)?;
                     checked.fetch_add(1, Ordering::SeqCst);
                     Ok(1)

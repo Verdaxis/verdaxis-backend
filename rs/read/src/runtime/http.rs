@@ -569,10 +569,13 @@ pub fn router_with(extra: Router<crate::AppState>, state: crate::AppState) -> Ro
         ));
         let overlay = crate::routes::compliance_overlay::routes(
             crate::routes::compliance_overlay::OverlayAuthority::new(
-                settings.verification.clone(), limits.clone(),
+                settings.verification.clone(),
+                limits.clone(),
             ),
         );
-        routes.merge(scores.with_state(state.clone())).merge(overlay.with_state(state.clone()))
+        routes
+            .merge(scores.with_state(state.clone()))
+            .merge(overlay.with_state(state.clone()))
     } else {
         routes
     };
