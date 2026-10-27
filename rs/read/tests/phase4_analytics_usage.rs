@@ -434,7 +434,12 @@ fn p4_t17a_c08() {
     assert_eq!(refused.status, StatusCode::TOO_MANY_REQUESTS);
     assert_eq!(refused.retry_after, Some(60));
     assert_eq!(refused.detail["code"], "RATE_LIMITED");
-    assert_eq!(usage::check_quota(&limits, &admin, Some("Bearer b"), 1_000).unwrap_err().status,StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(
+        usage::check_quota(&limits, &admin, Some("Bearer b"), 1_000)
+            .unwrap_err()
+            .status,
+        StatusCode::TOO_MANY_REQUESTS
+    );
     usage::check_quota(&limits, &admin, Some("Bearer a"), 1_060).unwrap();
 }
 
@@ -1067,7 +1072,7 @@ mod postgres {
         for _ in 0..5 {
             let minute = Utc::now().timestamp() / 60;
             let limits = SharedLimits::default();
-            let identity = format!("usr:{}",fixture.users[0]);
+            let identity = format!("usr:{}", fixture.users[0]);
             for _ in 0..30 {
                 limits
                     .check_business(
