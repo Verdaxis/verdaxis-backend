@@ -616,12 +616,24 @@ async fn typed_trade_snapshots_keep_side_mapping_and_private_declarations() {
             } else {
                 f.aggressor
             };
-            let compatible=if profile=="fame" {verdaxis_read::market_matching::fame_terms_compatible(&bid,&ask,now().date_naive())}else{verdaxis_read::market_matching::lng_terms_compatible(&bid,&ask)};
-            assert!(compatible,"typed pair must qualify: {profile}");
-            let result=run_completed_match(&f.pool, trigger, now(), CompletionOptions::default())
+            let compatible = if profile == "fame" {
+                verdaxis_read::market_matching::fame_terms_compatible(
+                    &bid,
+                    &ask,
+                    now().date_naive(),
+                )
+            } else {
+                verdaxis_read::market_matching::lng_terms_compatible(&bid, &ask)
+            };
+            assert!(compatible, "typed pair must qualify: {profile}");
+            let result = run_completed_match(&f.pool, trigger, now(), CompletionOptions::default())
                 .await
                 .unwrap();
-            assert_eq!(result.trade_ids.len(),1,"profile={profile} ask_aggressor={ask_aggressor}");
+            assert_eq!(
+                result.trade_ids.len(),
+                1,
+                "profile={profile} ask_aggressor={ask_aggressor}"
+            );
             let row: (Option<Value>, Option<Value>) = sqlx::query_as(
                 "SELECT fame_terms_snapshot::jsonb,lng_terms_snapshot::jsonb FROM trades",
             )
@@ -635,7 +647,14 @@ async fn typed_trade_snapshots_keep_side_mapping_and_private_declarations() {
                 assert!(row.0.is_none());
                 row.1.unwrap()
             };
-            assert_eq!(snapshot, if profile=="fame" {json!({"schema_version":1,"bid":bid,"ask":ask})}else{json!({"bid":bid,"ask":ask})});
+            assert_eq!(
+                snapshot,
+                if profile == "fame" {
+                    json!({"schema_version":1,"bid":bid,"ask":ask})
+                } else {
+                    json!({"bid":bid,"ask":ask})
+                }
+            );
             sqlx::query("SELECT completion_fixture_amend_source()")
                 .execute(&mut f.admin)
                 .await

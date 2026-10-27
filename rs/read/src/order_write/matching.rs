@@ -1746,7 +1746,9 @@ pub(super) async fn apply_plan_with_fees(
         let (fame, lng) = match &fill.terms {
             CompatibleTerms::Scalar => (None, None),
             CompatibleTerms::Fame { bid, ask } => (
-                Some(serde_json::json!({"schema_version":1,"bid":bid.declaration,"ask":ask.declaration})),
+                Some(
+                    serde_json::json!({"schema_version":1,"bid":bid.declaration,"ask":ask.declaration}),
+                ),
                 None,
             ),
             CompatibleTerms::Lng { bid, ask } => (
