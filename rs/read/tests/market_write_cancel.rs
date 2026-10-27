@@ -7,7 +7,10 @@ use verdaxis_read::routes::market_write::orders::{CancelInput, order_etag};
 fn cancel_reason_and_method_contract() {
     assert!(CancelInput::parse(false, None, None, None).is_ok());
     // A POST without a reason is refused after the order lookup, not here.
-    assert_eq!(CancelInput::parse(true, None, None, None).unwrap().reason, None);
+    assert_eq!(
+        CancelInput::parse(true, None, None, None).unwrap().reason,
+        None
+    );
     assert_eq!(
         CancelInput::parse(true, Some(json!({"reason":"  "})), None, None)
             .unwrap_err()
