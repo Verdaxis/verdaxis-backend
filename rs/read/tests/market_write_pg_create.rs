@@ -3,12 +3,11 @@
 use std::{sync::Arc, time::Duration};
 
 use axum::{
-    Router,
+    Json, Router,
     body::Body,
     extract::State,
     http::{Request, StatusCode},
     routing::post,
-    Json,
 };
 use chrono::Utc;
 use jsonwebtoken::{EncodingKey, Header, encode};
@@ -19,8 +18,8 @@ use tokio::sync::{Mutex, Notify};
 use tower::ServiceExt;
 use uuid::Uuid;
 use verdaxis_read::analytics::sender::AnalyticsSender;
-use verdaxis_read::providers::umami::{UmamiConfig, UmamiPolicy};
 use verdaxis_read::order_write::market_slice_lock_key;
+use verdaxis_read::providers::umami::{UmamiConfig, UmamiPolicy};
 use verdaxis_read::routes::market_write::order_create::{
     CreateSettings, contract_router, contract_router_with_sender,
 };
@@ -180,7 +179,10 @@ struct Collector {
     rows: Arc<Mutex<Vec<Value>>>,
     arrived: Arc<Notify>,
 }
-async fn receive(State(state): State<Collector>, Json(value): Json<Value>) -> (StatusCode, Json<Value>) {
+async fn receive(
+    State(state): State<Collector>,
+    Json(value): Json<Value>,
+) -> (StatusCode, Json<Value>) {
     state.rows.lock().await.push(value);
     state.arrived.notify_one();
     (StatusCode::OK, Json(json!({"ok": true})))

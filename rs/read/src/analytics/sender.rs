@@ -49,7 +49,9 @@ impl std::fmt::Debug for AnalyticsSender {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // The collector URL and monitor digest are configuration, not state
         // a debug dump should echo.
-        formatter.debug_struct("AnalyticsSender").finish_non_exhaustive()
+        formatter
+            .debug_struct("AnalyticsSender")
+            .finish_non_exhaustive()
     }
 }
 struct Inner {

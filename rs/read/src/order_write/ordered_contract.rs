@@ -236,7 +236,7 @@ impl MarketCommand for Command {
             }
             let response = CommittedCommand::new(
                 200,
-                json!({"trade":self.trade,"protected":"stored"}),
+                json!({"trade": self.trade, "protected": "stored"}),
                 false,
             );
             if let Some(key) = &self.key {

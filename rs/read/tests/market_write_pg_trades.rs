@@ -16,7 +16,9 @@ use tower::ServiceExt;
 use uuid::Uuid;
 use verdaxis_read::analytics::sender::AnalyticsSender;
 use verdaxis_read::providers::umami::{UmamiConfig, UmamiPolicy};
-use verdaxis_read::routes::market_write::trades::{contract_key, contract_router, contract_router_with_sender};
+use verdaxis_read::routes::market_write::trades::{
+    contract_key, contract_router, contract_router_with_sender,
+};
 const KEY: &str = "synthetic-trades-signing-key-at-least-32";
 fn id(n: u128) -> Uuid {
     Uuid::from_u128(n)

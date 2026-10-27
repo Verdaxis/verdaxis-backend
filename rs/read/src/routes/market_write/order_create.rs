@@ -520,18 +520,15 @@ async fn create(
             // event plus one trade event per inline match. Replay, refusal
             // and rollback never reach this branch, and the sender drops
             // the work without touching the committed result.
-            if !reply.replayed && reply.response_status == 201 && let Some(sender) = &state.settings.analytics {
+            if !reply.replayed
+                && reply.response_status == 201
+                && let Some(sender) = &state.settings.analytics
+            {
                 let events = std::iter::once(AllowedServerEvent::OrderCreated).chain(
                     std::iter::repeat_n(AllowedServerEvent::TradeCreated, reply.matched_trades),
                 );
                 for event in events {
-                    schedule_conversion(
-                        sender,
-                        &state.app,
-                        event,
-                        &reply.response_body,
-                        &headers,
-                    );
+                    schedule_conversion(sender, &state.app, event, &reply.response_body, &headers);
                 }
             }
             (StatusCode::CREATED, axum::Json(reply.response_body)).into_response()
@@ -576,17 +573,14 @@ fn schedule_conversion(
             order["availability_window"].as_str(),
         ),
     ] {
-        if let Some(value) = value.and_then(|v| AllowedPropertyValue::parse(registered, property, v, &catalog))
+        if let Some(value) =
+            value.and_then(|v| AllowedPropertyValue::parse(registered, property, v, &catalog))
         {
             properties.push((property, value));
         }
     }
     if let Ok(delivery) = ServerEvent::new(event, properties) {
-        let header = |name: &str| {
-            headers
-                .get(name)
-                .and_then(|value| value.to_str().ok())
-        };
+        let header = |name: &str| headers.get(name).and_then(|value| value.to_str().ok());
         sender.schedule(
             delivery,
             RequestMetadata::new(header("user-agent"), header("host")),
