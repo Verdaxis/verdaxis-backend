@@ -193,6 +193,14 @@ the previewed rows by ascending UUID, evaluates them in priority order, and repo
 a crossing price, a resting order, or an indeterminate set of more than one hundred
 rows, without writing.
 
+
+The conservation tests in `rs/read/tests/market_write_properties.rs` and
+`rs/read/tests/market_write_pg_conservation.rs` use fixed reproducible seeds.
+Their writer labels distinguish Rust inventory, cancellation and expiry from
+fixture publication, bids, takes, fills, amendments and trade transitions.
+The SQL fixture models stock substeps in a disposable migrated database with
+a one-tonne catalog minimum and checks the fixed party and scalar-term domain.
+
 ## Supplier inventory component
 
 `order_write/inventory.rs` implements supplier inventory records through the ordered

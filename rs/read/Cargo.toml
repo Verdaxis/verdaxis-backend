@@ -41,6 +41,7 @@ contract-tests = []
 name = "phase4_analytics_policy"
 
 [dev-dependencies]
+proptest = { version = "=1.12.0", default-features = false, features = ["std"] }
 verdaxis-contract = { path = "../contract" }
 
 [dependencies]
