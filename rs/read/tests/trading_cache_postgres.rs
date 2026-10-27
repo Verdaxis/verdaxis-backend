@@ -57,7 +57,27 @@ fn state_config(url: &str) -> Config {
         database_url: url.into(),
         db_session_time_zone: "UTC".into(),
         // The reviewed switch for this test: one budgeted listener slot.
-        prepared_budget: Some("{\"cache_listener\":1}".into()),
+        // A `prepared_budget` is validated in every environment, so the
+        // placeholder must be a full, internally consistent document whose
+        // rust_pool, python budget and total match the fields below.
+        prepared_budget: Some(
+            serde_json::json!({
+                "version": 1,
+                "release_sha": compiled_sha(),
+                "environment_digest": "a".repeat(64),
+                "services": 2,
+                "workers": 4,
+                "pool": 2,
+                "overflow": 1,
+                "reserve": 20,
+                "rust_pool": 5,
+                "python_budget": 52,
+                "cache_listener": 1,
+                "total": 58,
+                "configured_max_connections": 100,
+            })
+            .to_string(),
+        ),
         bind: "127.0.0.1:0".parse().unwrap(),
         read_admission_slots: 4,
         pool_max: 5,
