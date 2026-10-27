@@ -48,3 +48,14 @@ DECLARE actor uuid := '00000000-0000-0000-0000-000000004001'; context uuid := '0
  INSERT INTO market_support_contexts(id,actor_user_id,organization_id,accountable_user_id,support_reference,scope,started_at,expires_at,status,version)
  VALUES(context,actor,'00000000-0000-0000-0000-000000001000',actor,'fixture','ASSISTED_ORDER_ENTRY',now()-interval '1 hour',CASE WHEN expired THEN now()-interval '1 minute' ELSE now()+interval '1 hour' END,'ACTIVE',1);
  RETURN context; END $$;
+
+-- Named confirmation ledger fixture; the lifecycle route belongs to its component.
+CREATE OR REPLACE FUNCTION trades_fixture_confirm(target uuid) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE amount numeric;item uuid;BEGIN
+ SELECT t.quantity_mt,o.inventory_item_id INTO STRICT amount,item FROM trades t JOIN orderbook_orders o ON o.id=COALESCE(t.ask_order_id,t.bid_order_id) WHERE t.id=target;
+ UPDATE trades SET status='CONFIRMED',confirmed_at=now() WHERE id=target;
+ UPDATE inventory_items SET reserved_stock_mt=reserved_stock_mt-amount WHERE id=item;
+END $$;
+CREATE OR REPLACE FUNCTION trades_fixture_audit_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'fixture audit refusal' USING ERRCODE='23514'; END $$;
+CREATE OR REPLACE FUNCTION trades_fixture_reject_audit() RETURNS void LANGUAGE plpgsql AS $$ BEGIN CREATE TRIGGER trades_fixture_audit_failure BEFORE INSERT ON audit_logs FOR EACH ROW EXECUTE FUNCTION trades_fixture_audit_failure();END $$;
+CREATE OR REPLACE FUNCTION trades_fixture_allow_audit() RETURNS void LANGUAGE plpgsql AS $$ BEGIN DROP TRIGGER IF EXISTS trades_fixture_audit_failure ON audit_logs;END $$;

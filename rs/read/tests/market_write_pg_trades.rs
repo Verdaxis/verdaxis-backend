@@ -252,9 +252,9 @@ async fn take_freezes_the_fee_basis() {
     let (s, b) = f.take(BUYER, None, "2").await;
     assert_eq!(s, StatusCode::OK, "{b}");
     let row=sqlx::query("SELECT commission_fee_per_mt_usd::text AS fee,commission_plan,commission_rate_pct::text AS legacy FROM trades").fetch_one(&mut f.admin).await.unwrap();
-    assert_eq!(row.get::<String, _>("fee"), "2.00");
-    assert_eq!(row.get::<String, _>("commission_plan"), "FREE");
-    assert_eq!(row.get::<String, _>("legacy"), "0.000");
+    assert_eq!(row.get::<String, _>("fee").parse::<rust_decimal::Decimal>().unwrap(),rust_decimal::Decimal::from(2));
+    assert_eq!(row.get::<String, _>("commission_plan"), "free");
+    assert_eq!(row.get::<String, _>("legacy").parse::<rust_decimal::Decimal>().unwrap(),rust_decimal::Decimal::ZERO);
     assert!(b["commission_fee_per_mt_usd"].is_null());
 }
 #[tokio::test]
@@ -467,5 +467,63 @@ async fn concurrent_takes_preserve_the_pending_reservation() {
     assert_eq!(state["remaining"].as_str().unwrap().parse::<rust_decimal::Decimal>().unwrap(),rust_decimal::Decimal::from(3u32));
     assert_eq!(state["reserved"].as_str().unwrap().parse::<rust_decimal::Decimal>().unwrap(),rust_decimal::Decimal::from(10u32));
     assert_eq!(state["trades"], 1);
-    assert!(f.pool.size() > 0);
+    f.pool.acquire().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "requires an attested disposable PostgreSQL"]
+async fn take_and_cancel_release_only_the_uncommitted_remainder() {
+    let mut f=Fixture::new().await;
+    assert_eq!(f.take(BUYER,None,"3").await.0,StatusCode::OK);
+    let cancel=verdaxis_read::routes::market_write::orders::contract_router(f.pool.clone(),KEY);
+    // Cancellation's component uses its own token audience.
+    let now=chrono::Utc::now().timestamp();
+    let token=encode(&Header::default(),&json!({"sub":id(SELLER),"type":"access","iat":now,"exp":now+600,"iss":"cancel-tests","aud":"cancel-tests"}),&EncodingKey::from_secret(KEY.as_bytes())).unwrap();
+    let response=cancel.oneshot(Request::builder().method("DELETE").uri(format!("/api/orderbook/{}",id(ORDER))).header("authorization",format!("Bearer {token}")).body(Body::empty()).unwrap()).await.unwrap();
+    assert_eq!(response.status(),StatusCode::NO_CONTENT);
+    let state=f.state().await;
+    assert_eq!(state["reserved"].as_str().unwrap().parse::<rust_decimal::Decimal>().unwrap(),rust_decimal::Decimal::from(3));
+    assert_eq!(state["current"].as_str().unwrap().parse::<rust_decimal::Decimal>().unwrap(),rust_decimal::Decimal::from(7));
+    assert_eq!(state["trades"],1);
+    let before=state;
+    assert_eq!(f.take(STRANGER,None,"1").await.0,StatusCode::BAD_REQUEST);
+    assert_eq!(f.state().await,before);
+}
+
+#[tokio::test]
+#[ignore = "requires an attested disposable PostgreSQL"]
+async fn summary_and_list_deduplicate_current_and_recorded_membership() {
+    let mut f=Fixture::new().await;
+    assert_eq!(f.take(BUYER,None,"1").await.0,StatusCode::OK);
+    let(_,list)=send(&f.router,"GET","/api/trades/my",Some(BUYER),&[],None).await;
+    let(_,summary)=send(&f.router,"GET","/api/trades/summary",Some(BUYER),&[],None).await;
+    assert_eq!(list["total"],1);assert_eq!(list["items"].as_array().unwrap().len(),1);assert_eq!(summary["total_count"],1);assert_eq!(summary["awaiting_counterparty_count"],1);
+}
+
+#[tokio::test]
+#[ignore = "requires an attested disposable PostgreSQL"]
+async fn version_is_hashed_without_a_fresh_version_mismatch_refusal() {
+    let mut f=Fixture::new().await;let digest=f.digest().await;
+    let(s,b)=send(&f.router,"POST","/api/trades/",Some(BUYER),&[],Some(json!({"order_id":id(ORDER),"quantity_mt":"1","expected_terms_digest":digest,"expected_order_version":999}))).await;
+    assert_eq!(s,StatusCode::OK,"{b}");
+}
+
+#[tokio::test]
+#[ignore = "requires an attested disposable PostgreSQL"]
+async fn exact_key_replay_precedes_current_kyc_and_uses_current_trade_projection() {
+    let mut f=Fixture::new().await;let(s,trade)=f.take(BUYER,Some("current"),"1").await;assert_eq!(s,StatusCode::OK);
+    let trade_id=trade["id"].as_str().unwrap().parse::<Uuid>().unwrap();
+    sqlx::query("SELECT trades_fixture_confirm($1)").bind(trade_id).execute(&mut f.admin).await.unwrap();
+    f.change(BUYER,"kyc").await;let before=f.state().await;
+    let(s,replay)=f.take(BUYER,Some("current"),"1").await;assert_eq!(s,StatusCode::OK,"{replay}");assert_eq!(replay["status"],"CONFIRMED");assert_eq!(replay["seller_id"],id(0x2000).to_string());assert_eq!(f.state().await,before);
+}
+
+#[tokio::test]
+#[ignore = "requires an attested disposable PostgreSQL"]
+async fn failed_effect_append_rolls_back_the_trade_and_remainder() {
+    let mut f=Fixture::new().await;let before=f.state().await;
+    sqlx::query("SELECT trades_fixture_reject_audit()").execute(&mut f.admin).await.unwrap();
+    assert!(!f.take(BUYER,None,"1").await.0.is_success());
+    assert_eq!(f.state().await,before);
+    sqlx::query("SELECT trades_fixture_allow_audit()").execute(&mut f.admin).await.unwrap();
 }
