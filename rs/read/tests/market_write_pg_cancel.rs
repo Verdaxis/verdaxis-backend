@@ -872,12 +872,7 @@ async fn owner_reads_take_no_market_write_locks() {
             .await
             .unwrap();
     sqlx::query("BEGIN").execute(&mut holder).await.unwrap();
-    sqlx::query("SELECT id FROM organizations WHERE id=$1 FOR UPDATE")
-        .bind(f.organization)
-        .execute(&mut holder)
-        .await
-        .unwrap();
-    sqlx::query("SELECT id FROM orderbook_orders WHERE organization_id=$1 FOR UPDATE")
+    sqlx::query("SELECT cancel_fixture_hold_owner_rows($1)")
         .bind(f.organization)
         .execute(&mut holder)
         .await

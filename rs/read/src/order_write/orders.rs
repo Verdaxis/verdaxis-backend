@@ -223,7 +223,7 @@ async fn resolve_support(
     let capabilities: i64 = sqlx::query_scalar("SELECT count(DISTINCT capability) FROM staff_capability_assignments WHERE user_id=$1 AND capability::text IN ('MARKET_SUPPORT_AUTHORIZATIONS','MARKET_SUPPORT_LISTINGS') AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>$2)")
         .bind(actor).bind(now).fetch_one(&mut *conn).await?;
     if capabilities != 2 {
-        return Err(missing());
+        return Err(MarketWriteError::new(MarketErrorCode::NotFound));
     }
     let row = sqlx::query("SELECT c.organization_id,c.status::text AS status,c.scope::text AS scope,c.expires_at,o.verification_status::text AS organization_status,o.provenance::text AS provenance FROM market_support_contexts c JOIN organizations o ON o.id=c.organization_id WHERE c.id=$1 AND c.actor_user_id=$2")
         .bind(context).bind(actor).fetch_optional(&mut *conn).await?.ok_or_else(missing)?;
