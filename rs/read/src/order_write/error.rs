@@ -168,7 +168,6 @@ market_error_codes! {
         "The post-only check could not be decided";
     MarketSupportLegacyMutationRetired => "MARKET_SUPPORT_LEGACY_MUTATION_RETIRED",
         StatusCode::GONE, "The legacy market support mutation is retired";
-    SupportDisabled => "NOT_FOUND", StatusCode::NOT_FOUND, "Not found";
     SupportForbidden => "FORBIDDEN", StatusCode::FORBIDDEN, "Administrator authority is required";
     SupportCapabilityRequired => "MARKET_SUPPORT_CAPABILITY_REQUIRED", StatusCode::FORBIDDEN, "A current support capability is required";
     SupportTargetInvalid => "MARKET_SUPPORT_TARGET_INVALID", StatusCode::CONFLICT, "The target must be an approved administrator";

@@ -390,7 +390,7 @@ impl SupportCommand {
         };
         validate_account(&self.access, &account).map_err(account_refusal)?;
         if !self.settings.enabled {
-            return Err(refusal(MarketErrorCode::SupportDisabled));
+            return Err(refusal(MarketErrorCode::NotFound));
         }
         let role: Option<String> = row.try_get("role")?;
         if role.as_deref() != Some("ADMIN") {

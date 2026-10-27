@@ -244,7 +244,7 @@ impl SupportPort<'_> {
             .bind(actor)
             .fetch_optional(&mut *self.conn)
             .await?
-            .ok_or_else(|| refusal(MarketErrorCode::SupportDisabled))?;
+            .ok_or_else(|| refusal(MarketErrorCode::NotFound))?;
         if !self.locked.contains(LockClass::Context, id) {
             return Err(refusal(MarketErrorCode::MarketSliceChanged));
         }
