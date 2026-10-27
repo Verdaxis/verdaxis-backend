@@ -257,6 +257,10 @@ mod postgres {
         .await
         .unwrap();
         assert_eq!(result, ApprovalDelivery::Deferred);
+        sqlx::query("SET default_transaction_read_only=off")
+            .execute(&f.pool)
+            .await
+            .unwrap();
         assert_eq!(
             f.pending().await,
             (
