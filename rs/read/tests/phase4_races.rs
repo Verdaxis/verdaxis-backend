@@ -993,14 +993,17 @@ async fn auth_maintenance_and_reissue_preserve_invitation_safety() {
         .expect("a stored digest");
 
     let gate = Gate::closed();
-    let reissue = spawn_write(
-        &world.pool,
-        world.actor,
-        Gated::new(
-            invite_supplier("expired@customer.example", organization),
-            &gate,
-        ),
+    let command = Gated::new(
+        invite_supplier("expired@customer.example", organization),
+        &gate,
     );
+    let reissue = tokio::spawn({
+        let pool = world.pool.clone();
+        let actor = world.actor;
+        async move {
+            run_ordered_write(pool, Arc::new(Semaphore::new(1)), access(actor), command).await
+        }
+    });
     let holder = gate.arrived().await;
     let mut maintenance = world.runtime_connection().await;
     let maintenance = tokio::spawn(async move {
@@ -1008,7 +1011,10 @@ async fn auth_maintenance_and_reissue_preserve_invitation_safety() {
     });
     wait_blocked(&mut world.watcher, holder, 1).await;
     gate.open();
-    let reissued = finished(reissue).await.expect("the reissue committed");
+    let reissued = reissue
+        .await
+        .expect("the reissue task completed")
+        .expect("the reissue committed");
     maintenance.await.unwrap();
     let reissued_digest = verdaxis_read::business::invitations::store::digest_of(
         reissued
@@ -1030,7 +1036,10 @@ async fn auth_maintenance_and_reissue_preserve_invitation_safety() {
         "the invitation digest and expiry must be cleared or kept together"
     );
     if let Some(kept) = kept {
-        assert!(kept == reissued_digest, "only the reissued digest may remain");
+        assert!(
+            kept == reissued_digest,
+            "only the reissued digest may remain"
+        );
         assert_eq!(
             expires.map(|at| at.timestamp_micros()),
             Some(reissued.expires_at.timestamp_micros())
@@ -1068,7 +1077,10 @@ async fn auth_maintenance_and_reissue_preserve_invitation_safety() {
         .await;
     assert!(lock_for_acceptance(&world.pool, &current).await.is_none());
     assert_eq!(live_sessions(&world, invitee).await, 1);
-    assert_eq!(audits_of(&world, "user.invitation_accepted", invitee).await, 1);
+    assert_eq!(
+        audits_of(&world, "user.invitation_accepted", invitee).await,
+        1
+    );
     world.finish().await;
 }
 
