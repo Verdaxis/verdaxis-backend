@@ -246,7 +246,7 @@ where
     F: Future<Output = bool>,
 {
     let claim = {
-        let mut tx = pool.begin().await?;
+        let mut tx = pool.begin_with("BEGIN READ WRITE").await?;
         let claim = claim_approval_mail(&mut tx, user_id, transition_id, clock()).await?;
         tx.commit().await?;
         claim
@@ -261,7 +261,7 @@ where
     )
     .await
     .unwrap_or(false);
-    let mut tx = pool.begin().await?;
+    let mut tx = pool.begin_with("BEGIN READ WRITE").await?;
     finalize_approval_mail(&mut tx, &claim, accepted, clock()).await?;
     tx.commit().await?;
     Ok(if accepted {
