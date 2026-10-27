@@ -1217,6 +1217,7 @@ def test_runtime_environment_carries_only_the_projected_settings(release_fixture
         "FRONTEND_URL",
         "EMAIL_FROM",
         "RESEND_API_KEY",
+        "AUTH_DOMAIN_DATASETS_FILE",
     }
     # The shipped fixture `.env` carries the Private Beta switch state, so the
     # projection is proven to follow the deployed file rather than a default.
@@ -1225,6 +1226,7 @@ def test_runtime_environment_carries_only_the_projected_settings(release_fixture
         .splitlines()
     ) == sorted(
         [
+            'AUTH_DOMAIN_DATASETS_FILE="' + str(release_fixture.checkout / '.runtime-rust/auth-domains.json') + '"',
             'DATABASE_URL="postgresql://verdaxis_app_staging:fixture-password'
             '@127.0.0.1:5432/verdaxis_staging"',
             "DB_SESSION_TIME_ZONE=UTC",

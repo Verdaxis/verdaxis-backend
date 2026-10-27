@@ -24,9 +24,7 @@ async fn e3_consumes_and_assigns_once() {
     sqlx::query("INSERT INTO users (id,email,password_hash,status,email_verified,must_change_password,email_verification_token_hash,email_verification_token_expires_at) VALUES ($1,$2,'unused','PENDING',false,false,$3,$4)")
         .bind(id).bind(format!("{id}@example.com")).bind(token_digest(&token)).bind(Utc::now()+Duration::hours(24)).execute(&pool).await.unwrap();
     let settings = email_verification::EmailSettings::new(
-        sqlx::PgPool::connect(&std::env::var("AUTH_EMAIL_TEST_DATABASE_URL").unwrap())
-            .await
-            .unwrap(),
+        read_default_pool().await.unwrap(),
         email::MailDispatcher::new(crud::referrals::invite::MailClient::disabled()),
     );
     sqlx::query("INSERT INTO referrals(id,referrer_id,referred_user_id,referral_code_used,status) VALUES ($1,$2,$3,'VDX-TEST01','SIGNED_UP')").bind(Uuid::new_v4()).bind(referrer).bind(id).execute(&pool).await.unwrap();
@@ -140,12 +138,8 @@ async fn e4_response_and_delivery_boundary() {
         )
         .unwrap(),
     );
-    let settings = email_verification::EmailSettings::new(
-        sqlx::PgPool::connect(&std::env::var("AUTH_EMAIL_TEST_DATABASE_URL").unwrap())
-            .await
-            .unwrap(),
-        mail.clone(),
-    );
+    let settings =
+        email_verification::EmailSettings::new(read_default_pool().await.unwrap(), mail.clone());
     let mut expected = None;
     let mut ids = Vec::new();
     for verified in [Some(false), Some(true), None] {
@@ -205,9 +199,7 @@ async fn e4_write_attempt_restarts() {
     let owner = sqlx::PgPool::connect(&std::env::var("AUTH_EMAIL_TEST_OWNER_URL").unwrap())
         .await
         .unwrap();
-    let runtime = sqlx::PgPool::connect(&std::env::var("AUTH_EMAIL_TEST_DATABASE_URL").unwrap())
-        .await
-        .unwrap();
+    let runtime = read_default_pool().await.unwrap();
     let id = Uuid::new_v4();
     let address = format!("{id}@example.com");
     sqlx::query("INSERT INTO users(id,email,password_hash,status,email_verified,must_change_password) VALUES ($1,$2,'unused','PENDING',false,false)").bind(id).bind(&address).execute(&owner).await.unwrap();
@@ -247,9 +239,7 @@ async fn e3_e4_serial_schedules() {
     let owner = sqlx::PgPool::connect(&std::env::var("AUTH_EMAIL_TEST_OWNER_URL").unwrap())
         .await
         .unwrap();
-    let runtime = sqlx::PgPool::connect(&std::env::var("AUTH_EMAIL_TEST_DATABASE_URL").unwrap())
-        .await
-        .unwrap();
+    let runtime = read_default_pool().await.unwrap();
     let role: String = sqlx::query_scalar("SELECT current_user")
         .fetch_one(&runtime)
         .await
@@ -463,9 +453,7 @@ async fn e4_http_canary_admission() {
     let owner = sqlx::PgPool::connect(&std::env::var("AUTH_EMAIL_TEST_OWNER_URL").unwrap())
         .await
         .unwrap();
-    let runtime = sqlx::PgPool::connect(&std::env::var("AUTH_EMAIL_TEST_DATABASE_URL").unwrap())
-        .await
-        .unwrap();
+    let runtime = read_default_pool().await.unwrap();
     let id = Uuid::new_v4();
     let address = format!("canary+{id}@one.canary.verdaxis.exchange");
     sqlx::query("INSERT INTO users(id,email,password_hash,status,email_verified,must_change_password) VALUES ($1,$2,'unused','PENDING',false,false)").bind(id).bind(&address).execute(&owner).await.unwrap();
@@ -531,9 +519,7 @@ async fn e4_http_quota() {
         http::{Request, StatusCode},
     };
     use tower::ServiceExt;
-    let runtime = sqlx::PgPool::connect(&std::env::var("AUTH_EMAIL_TEST_DATABASE_URL").unwrap())
-        .await
-        .unwrap();
+    let runtime = read_default_pool().await.unwrap();
     let app = email_verification::router(email_verification::EmailSettings::new(
         runtime,
         email::MailDispatcher::new(crud::referrals::invite::MailClient::disabled()),
@@ -556,4 +542,14 @@ async fn e4_http_quota() {
             assert!(response.headers().contains_key("retry-after"));
         }
     }
+}
+
+async fn read_default_pool() -> Result<sqlx::PgPool, sqlx::Error> {
+    let options = std::env::var("AUTH_EMAIL_TEST_DATABASE_URL")
+        .expect("disposable runtime database")
+        .parse::<sqlx::postgres::PgConnectOptions>()?
+        .options([("default_transaction_read_only", "on")]);
+    sqlx::postgres::PgPoolOptions::new()
+        .connect_with(options)
+        .await
 }

@@ -165,13 +165,16 @@ fn admit(
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: &HeaderMap,
     path: &str,
+    charged: Option<Extension<crate::auth::login::PreauthCharged>>,
 ) -> Result<(), ApiError> {
     let client = client_address(peer, headers);
     let now = Utc::now().timestamp() as u64;
-    settings
-        .limits
-        .preauth_check(&client, path, now)
-        .map_err(|r| ApiError::from(r.auth_failure()))?;
+    if charged.is_none() {
+        settings
+            .limits
+            .preauth_check(&client, path, now)
+            .map_err(|r| ApiError::from(r.auth_failure()))?;
+    }
     settings.limits.check_address_endpoint(&client, path, now)
 }
 pub fn router(settings: RegistrationSettings) -> Router {
@@ -184,6 +187,7 @@ pub fn router(settings: RegistrationSettings) -> Router {
 }
 async fn register_route(
     State(settings): State<RegistrationSettings>,
+    charged: Option<Extension<crate::auth::login::PreauthCharged>>,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: HeaderMap,
     body: axum::body::Body,
@@ -196,7 +200,7 @@ async fn register_route(
     {
         return Err(validation());
     }
-    admit(&settings, peer, &headers, "/api/auth/register")?;
+    admit(&settings, peer, &headers, "/api/auth/register", charged)?;
     let hash = password::hash(&input.password)
         .await
         .map_err(|_| validation())?;
@@ -235,7 +239,7 @@ async fn register_attempt(
     hash: &str,
     suppressed: bool,
 ) -> Result<Vec<AuthMail>, sqlx::Error> {
-    let mut tx = settings.pool.begin().await?;
+    let mut tx = settings.pool.begin_with("BEGIN READ WRITE").await?;
     let exists: Option<Uuid> = sqlx::query_scalar("SELECT id FROM users WHERE email=$1 FOR UPDATE")
         .bind(&input.email)
         .fetch_optional(&mut *tx)
@@ -354,6 +358,7 @@ struct Pending {
 }
 async fn with_org_route(
     State(settings): State<RegistrationSettings>,
+    charged: Option<Extension<crate::auth::login::PreauthCharged>>,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: HeaderMap,
     body: axum::body::Body,
@@ -369,7 +374,13 @@ async fn with_org_route(
     {
         return Err(validation());
     }
-    admit(&settings, peer, &headers, "/api/auth/register-with-org")?;
+    admit(
+        &settings,
+        peer,
+        &headers,
+        "/api/auth/register-with-org",
+        charged,
+    )?;
     if input.registration_token.is_empty() || input.registration_token.len() > 1024 {
         return Err(invalid_token());
     }
@@ -398,7 +409,7 @@ async fn with_org_attempt(
     input: &WithOrganization,
     headers: &HeaderMap,
 ) -> Result<Result<Value, ApiError>, sqlx::Error> {
-    let mut tx = settings.pool.begin().await?;
+    let mut tx = settings.pool.begin_with("BEGIN READ WRITE").await?;
     let pending:Option<Pending>=sqlx::query_as("SELECT id,email,password_hash,first_name,last_name,role,referral_code FROM pending_registrations WHERE token_hash=$1 AND used_at IS NULL AND expires_at>$2 FOR UPDATE").bind(token_digest(&input.registration_token)).bind(Utc::now()).fetch_optional(&mut *tx).await?;
     let Some(pending) = pending else {
         return Ok(Err(invalid_token()));

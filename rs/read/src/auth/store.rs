@@ -324,6 +324,7 @@ pub async fn sweep_expired_reset_tokens(
     pool: &sqlx::PgPool,
     now: DateTime<Utc>,
 ) -> Result<u64, sqlx::Error> {
+    let mut transaction = pool.begin_with("BEGIN READ WRITE").await?;
     let deleted = sqlx::query(
         "DELETE FROM password_reset_tokens WHERE user_id IN ( \
              SELECT user_id FROM password_reset_tokens WHERE expires_at <= $1 \
@@ -331,8 +332,9 @@ pub async fn sweep_expired_reset_tokens(
     )
     .bind(now)
     .bind(EXPIRED_RESET_SWEEP_LIMIT)
-    .execute(pool)
+    .execute(&mut *transaction)
     .await?;
+    transaction.commit().await?;
     Ok(deleted.rows_affected())
 }
 

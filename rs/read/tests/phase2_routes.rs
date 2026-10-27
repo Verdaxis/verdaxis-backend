@@ -68,6 +68,8 @@ fn phase2() -> Phase2Options {
         frontend_url: Some("https://staging.example.test".into()),
         email_from: Some("Verdaxis <noreply@example.test>".into()),
         resend_api_key: Some("re_disposable_key".into()),
+        auth_domain_datasets: None,
+        monitor_token: None,
         watchlist_producer_activated_at: None,
     }
 }

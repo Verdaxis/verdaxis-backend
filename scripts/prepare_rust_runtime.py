@@ -193,6 +193,29 @@ def phase2_settings(values: dict) -> dict:
     return projected
 
 
+def phase3_settings(values: dict) -> dict:
+    """Project the monitor authority and installed, versioned domain datasets.
+
+    Missing datasets disable domain matching, as in the registration component.
+    No provider or domain lookup runs in a request.
+    """
+    try:
+        from disposable_email_domains import blocklist
+        from free_email_domains import whitelist
+    except ImportError:
+        datasets = None
+    else:
+        datasets = {"public": sorted(whitelist), "disposable": sorted(blocklist)}
+    projected = {"AUTH_DOMAIN_DATASETS": json.dumps(datasets, separators=(",", ":"))}
+    monitor = values.get("MONITOR_TOKEN")
+    if monitor is not None:
+        if not isinstance(monitor, str):
+            raise RustRuntimeError("MONITOR_TOKEN must be text")
+        if monitor:
+            projected["MONITOR_TOKEN"] = monitor
+    return projected
+
+
 def project_runtime_environment(
     environment_file: Path, release_sha: str, migration_revision: str, policy: dict
 ) -> dict:
@@ -204,7 +227,10 @@ def project_runtime_environment(
         raise RustRuntimeError("the deployed .env must define ENVIRONMENT and RELEASE_SHA")
     environment = policy["environment"]
     if environment == "production" and migration_revision not in {
-        "p0_20261016_union", "prc_20261026_changes", "sse_20261021_replay_floor",
+        "p0_20261016_union",
+        "prc_20261026_changes",
+        "p3_20261020_auth_tokens",
+        "sse_20261021_replay_floor",
     }:
         raise RustRuntimeError("production requires its reviewed union checkpoint")
     if values["ENVIRONMENT"] != environment or values["RELEASE_SHA"] != release_sha:
@@ -221,6 +247,7 @@ def project_runtime_environment(
         KYC_GATE_KEY: kyc_execution_gate(values),
     }
     projected.update(phase2_settings(values))
+    projected.update(phase3_settings(values))
     # Refuse control characters; quotes and backslashes are escaped by the
     # EnvironmentFile renderer without changing the deployed value.
     for key, value in projected.items():
@@ -272,6 +299,21 @@ def prepare(
     projected = project_runtime_environment(
         environment_file, release_sha, migration_revision, policy
     )
+    # Domain datasets exceed operating-system per-variable limits. Publish them
+    # beside the private runtime file, and carry only their absolute path.
+    domains = projected.pop("AUTH_DOMAIN_DATASETS")
+    output_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if output_dir.is_symlink():
+        raise RustRuntimeError("the Rust runtime directory must be a real directory")
+    domain_path = output_dir / "auth-domains.json"
+    temporary = output_dir / f".auth-domains.tmp.{os.getpid()}"
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "w") as stream:
+        stream.write(domains)
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.replace(temporary, domain_path)
+    projected["AUTH_DOMAIN_DATASETS_FILE"] = str(domain_path.resolve())
     written = write_env_file(output_dir, projected)
     return {"policy": policy, "runtime_env": written}
 
