@@ -247,14 +247,26 @@ async fn sealed_post_only_closes_later_candidate_acquisition() {
     let mut f = Fixture::new(3).await;
     for match_next in [false, true] {
         let result = run_sealed_post_only_followed_by(
-            &f.pool, f.candidate("110"), CUSTOMER, ADMIN, now(), match_next,
-        ).await.unwrap();
+            &f.pool,
+            f.candidate("110"),
+            CUSTOMER,
+            ADMIN,
+            now(),
+            match_next,
+        )
+        .await
+        .unwrap();
         assert_eq!(result.assessment, PostOnlyAssessment::crosses(d("100")));
-        assert_eq!(result.follow_up_error, Some(MarketErrorCode::MarketSliceChanged));
+        assert_eq!(
+            result.follow_up_error,
+            Some(MarketErrorCode::MarketSliceChanged)
+        );
         let mut expected = f.resting.clone();
         expected.sort();
-        assert_eq!(result.order_lock_order, expected,
-            "a refused follow-up acquires no additional candidate rows");
+        assert_eq!(
+            result.order_lock_order, expected,
+            "a refused follow-up acquires no additional candidate rows"
+        );
         f.unchanged().await;
     }
 }

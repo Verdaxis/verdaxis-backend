@@ -272,8 +272,16 @@ pub mod contract {
                     .assess_post_only(&self.candidate, self.organization, self.bound())
                     .await?;
                 let follow_up_error = match self.follow_up {
-                    Some(true) => tx.prepare_match(&self.candidate, self.bound()).await.err().map(|error| error.code),
-                    Some(false) => tx.assess_post_only(&self.candidate, self.organization, self.bound()).await.err().map(|error| error.code),
+                    Some(true) => tx
+                        .prepare_match(&self.candidate, self.bound())
+                        .await
+                        .err()
+                        .map(|error| error.code),
+                    Some(false) => tx
+                        .assess_post_only(&self.candidate, self.organization, self.bound())
+                        .await
+                        .err()
+                        .map(|error| error.code),
                     None => None,
                 };
                 let order_lock_order = tx
@@ -300,7 +308,16 @@ pub mod contract {
         at: DateTime<Utc>,
         kyc_gate_enabled: bool,
     ) -> Result<SealedPostOnly, MarketWriteError> {
-        run_assessment(pool, candidate, organization, actor, at, kyc_gate_enabled, None).await
+        run_assessment(
+            pool,
+            candidate,
+            organization,
+            actor,
+            at,
+            kyc_gate_enabled,
+            None,
+        )
+        .await
     }
     pub async fn run_sealed_post_only_followed_by(
         pool: &sqlx::PgPool,
@@ -310,7 +327,16 @@ pub mod contract {
         at: DateTime<Utc>,
         match_next: bool,
     ) -> Result<SealedPostOnly, MarketWriteError> {
-        run_assessment(pool, candidate, organization, actor, at, true, Some(match_next)).await
+        run_assessment(
+            pool,
+            candidate,
+            organization,
+            actor,
+            at,
+            true,
+            Some(match_next),
+        )
+        .await
     }
     #[allow(clippy::too_many_arguments)]
     async fn run_assessment(

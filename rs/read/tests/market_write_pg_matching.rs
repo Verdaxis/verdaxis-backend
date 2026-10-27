@@ -946,20 +946,30 @@ async fn preview_overflow_survives_a_row_dropped_before_locking() {
         .unwrap();
     let barrier = Arc::new(MatchPreviewBarrier::default());
     let pending = tokio::spawn(run_sealed_match_paused(
-        pool.clone(), f.aggressor, now(), barrier.clone(),
+        pool.clone(),
+        f.aggressor,
+        now(),
+        barrier.clone(),
     ));
     tokio::time::timeout(std::time::Duration::from_secs(10), barrier.previewed())
-        .await.unwrap();
+        .await
+        .unwrap();
     // The SQL preview has 101 rows. Remove the first identity from the live
     // crossing set before locked re-selection takes its statement snapshot.
     f.order(f.resting[0], "ownerless").await;
     barrier.resume();
     let result = pending.await.unwrap();
-    assert_eq!(result.unwrap_err().code, MarketErrorCode::MatchFanoutExceeded);
+    assert_eq!(
+        result.unwrap_err().code,
+        MarketErrorCode::MatchFanoutExceeded
+    );
     Fixture::unchanged(&mut f.observer, f.aggressor, "101").await;
     let untouched: bool = sqlx::query_scalar(
         "SELECT bool_and(remaining_quantity_mt=quantity_mt) FROM orderbook_orders",
-    ).fetch_one(&mut f.observer).await.unwrap();
+    )
+    .fetch_one(&mut f.observer)
+    .await
+    .unwrap();
     assert!(untouched);
     pool.close().await;
 }

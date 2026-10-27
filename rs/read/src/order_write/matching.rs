@@ -1257,12 +1257,13 @@ pub(super) fn require_parties_locked<'r>(
 /// Candidate rows are acquired first in the economic phase, before any
 /// declared order, inventory or PIN resource.
 pub(super) fn candidate_acquisition_closed(plan: &OperationLockPlan, locked: &Locked) -> bool {
-    locked.has_acquired_economic_resources() || plan.trace().iter().any(|(class, _)| {
-        matches!(
-            class,
-            LockClass::Order | LockClass::Inventory | LockClass::Pin
-        )
-    })
+    locked.has_acquired_economic_resources()
+        || plan.trace().iter().any(|(class, _)| {
+            matches!(
+                class,
+                LockClass::Order | LockClass::Inventory | LockClass::Pin
+            )
+        })
 }
 
 /// The complete party set a crossing assessment may revalidate: organizations,
@@ -1768,8 +1769,8 @@ pub mod contract {
     }
     #[derive(Default)]
     pub struct MatchPreviewBarrier {
-        reached: tokio::sync::Notify,
-        resume: tokio::sync::Notify,
+        pub(super) reached: tokio::sync::Notify,
+        pub(super) resume: tokio::sync::Notify,
     }
     impl MatchPreviewBarrier {
         pub async fn previewed(&self) {
@@ -1825,9 +1826,7 @@ pub mod contract {
                 let aggressor = tx.matching_order(self.aggressor).await?;
                 let mut bound = bound_for(self.at, &self.options);
                 bound.preview_barrier = self.barrier.as_deref();
-                let plan = tx
-                    .prepare_match(&aggressor, bound)
-                    .await?;
+                let plan = tx.prepare_match(&aggressor, bound).await?;
                 let ids = plan.locked_order_ids();
                 let policy: crate::MarketPolicy = serde_json::from_str(include_str!(
                     "../../../../deploy/rust/market-policy.json"
@@ -1899,7 +1898,14 @@ pub mod contract {
         at: DateTime<Utc>,
         barrier: std::sync::Arc<MatchPreviewBarrier>,
     ) -> Result<SealedMatchResult, MarketWriteError> {
-        run_sealed_match_inner(&pool, aggressor, at, SealedMatchOptions::default(), Some(barrier)).await
+        run_sealed_match_inner(
+            &pool,
+            aggressor,
+            at,
+            SealedMatchOptions::default(),
+            Some(barrier),
+        )
+        .await
     }
     async fn run_sealed_match_inner(
         pool: &sqlx::PgPool,
