@@ -87,6 +87,7 @@ impl SharedLimits {
             policies.push((identity, bucket, limit, window));
         }
         let mut authority = self.lock_recovering();
+        authority.business_store.remove_expired(now);
         for (identity, bucket, limit, _) in &policies {
             if let Some(stored) = authority
                 .business_store
@@ -223,6 +224,19 @@ struct QuotaStore {
 }
 
 impl QuotaStore {
+    fn remove_expired(&mut self, now: u64) {
+        for _ in 0..EXPIRED_CLEANUP_BUDGET {
+            let Some((expires_at, _)) = self.expiration.first() else {
+                break;
+            };
+            if *expires_at > now {
+                break;
+            }
+            let (_, expired) = self.expiration.pop_first().expect("expiration entry");
+            self.buckets.remove(&expired);
+        }
+    }
+
     fn accept(
         &mut self,
         owner: &str,
@@ -245,16 +259,7 @@ impl QuotaStore {
         // A small fixed batch bounds synchronous cleanup under the shared
         // lock: stale accounting drains faster than new identities can add
         // it, without one caller releasing every expired entry at once.
-        for _ in 0..EXPIRED_CLEANUP_BUDGET {
-            let Some((expires_at, _)) = self.expiration.first() else {
-                break;
-            };
-            if *expires_at > now {
-                break;
-            }
-            let (_, expired) = self.expiration.pop_first().expect("expiration entry");
-            self.buckets.remove(&expired);
-        }
+        self.remove_expired(now);
         if !self.buckets.contains_key(&identity) {
             if self.buckets.len() >= MAX_BUCKETS {
                 if !evict {
