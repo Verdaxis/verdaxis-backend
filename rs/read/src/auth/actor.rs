@@ -36,6 +36,8 @@ impl AuthenticatedRequest {
                 self.route_template.as_str(),
                 "/api/notifications"
                     | "/api/notifications/unread-count"
+                    | "/api/orderbook/my"
+                    | "/api/orderbook/my/latest-ask-template"
                     | "/api/users/me/preferences"
                     | "/api/watchlists"
                     | "/api/watchlists/{watchlist_id}"

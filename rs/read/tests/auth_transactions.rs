@@ -276,6 +276,8 @@ fn only_audited_get_templates_share_the_user_lock() {
     for path in [
         "/api/notifications",
         "/api/notifications/unread-count",
+        "/api/orderbook/my",
+        "/api/orderbook/my/latest-ask-template",
         "/api/users/me/preferences",
         "/api/watchlists",
         "/api/watchlists/{watchlist_id}",

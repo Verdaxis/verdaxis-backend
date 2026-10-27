@@ -271,6 +271,45 @@ fn public_get_path(path: &str) -> bool {
             .is_some_and(|id| !id.is_empty() && !id.contains('/'))
 }
 
+/// Python's deny-by-default classification of a request that carries a support
+/// context (`is_market_support_mutation_allowed`). Reads pass. Under a context
+/// only three mutations exist: order creation, assisted order cancellation and
+/// leaving the context. A path without the `/api/` prefix is classified as if
+/// it had one, as Python does.
+fn support_context_request_allowed(method: &str, path: &str) -> bool {
+    let method = method.to_ascii_uppercase();
+    if matches!(method.as_str(), "GET" | "HEAD" | "OPTIONS") {
+        return true;
+    }
+    if method != "POST" {
+        return false;
+    }
+    let normalized = if path.starts_with("/api/") {
+        path.to_owned()
+    } else {
+        format!("/api/{}", path.trim_start_matches('/'))
+    };
+    normalized.trim_end_matches('/') == "/api/orderbook"
+        || identified_action(&normalized, "/api/orderbook/", "/cancel")
+        || identified_action(&normalized, "/api/admin/market-support/contexts/", "/exit")
+}
+
+/// `prefix`, a 36-character identifier of hex digits and dashes, then `action`
+/// with at most one trailing slash (Python's `_ORDER_ID` path patterns).
+fn identified_action(path: &str, prefix: &str, action: &str) -> bool {
+    let Some(rest) = path.strip_prefix(prefix) else {
+        return false;
+    };
+    let rest = rest.strip_suffix('/').unwrap_or(rest);
+    let Some(id) = rest.strip_suffix(action) else {
+        return false;
+    };
+    id.len() == 36
+        && id
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() || byte == b'-')
+}
+
 /// The pre-auth 429. An auth route gets the auth envelope and the seconds until
 /// its window resets; the Phase 2 admin prefix keeps its existing response.
 fn preauth_refusal(path: &str, refusal: Refusal) -> Response {
@@ -315,16 +354,12 @@ async fn dispatch_boundary(
     if let Some(response) = crate::auth::scope::known_get_refusal(request.method().as_str(), path) {
         return response;
     }
-    // Python's support-scope middleware classifies POST /api/orderbook as an
-    // allowed market-support mutation, so that one combination falls through
-    // to the route instead of the generic 403 other unclassified mutations get.
-    let orderbook_create = request.method() == "POST" && path == "/api/orderbook";
-    if !matches!(request.method().as_str(), "GET" | "HEAD" | "OPTIONS")
-        && !orderbook_create
-        && request
-            .headers()
-            .get("x-verdaxis-market-support-context")
-            .is_some_and(|value| !value.is_empty())
+    // Any non-empty context header is classified; the route checks its value.
+    if request
+        .headers()
+        .get("x-verdaxis-market-support-context")
+        .is_some_and(|value| !value.is_empty())
+        && !support_context_request_allowed(request.method().as_str(), path)
     {
         // Public reads never become private projections under a support context.
         return ApiError {

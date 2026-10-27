@@ -214,3 +214,10 @@ pub mod market_support {
     pub use crate::order_write::support::*;
     pub use crate::routes::support::{SupportState, router};
 }
+
+/// Narrow component entry points; no serving route is mounted here.
+pub(crate) mod market_orders {
+    pub(crate) use crate::order_write::effects::AuditContext;
+    pub(crate) use crate::order_write::orders::{OrderRequest, dispatch, refusal};
+    pub(crate) use crate::order_write::{MarketErrorCode, MarketWriteError};
+}

@@ -931,7 +931,11 @@ impl StockOrder {
 impl<'a> StockLedger<'a> {
     // Only transaction.rs can construct this port. The coordinator has already
     // acquired every declared order and inventory row in ascending UUID order.
-    fn new(conn: &'a mut PgConnection, inventory_ids: &[Uuid], order_ids: &[Uuid]) -> Self {
+    pub(super) fn new(
+        conn: &'a mut PgConnection,
+        inventory_ids: &[Uuid],
+        order_ids: &[Uuid],
+    ) -> Self {
         Self {
             conn,
             inventory_ids: inventory_ids.to_vec(),
@@ -947,7 +951,7 @@ impl<'a> StockLedger<'a> {
         }
     }
 
-    async fn order(&mut self, id: Uuid) -> Result<StockOrder, MarketWriteError> {
+    pub(super) async fn order(&mut self, id: Uuid) -> Result<StockOrder, MarketWriteError> {
         if !self.order_ids.contains(&id) {
             return Err(inconsistent_stock());
         }
@@ -1140,19 +1144,27 @@ impl<'a> StockLedger<'a> {
         self.release(item, quantity, false).await
     }
 
+    /// Withdraw a live order's unfilled remainder. `bump_version` follows the
+    /// caller's rule for invalidating reviewed terms; Python bumps the version
+    /// only for assisted orders and executable B100 (`bump_version()`).
     pub(super) async fn withdraw_order(
         &mut self,
         order: &StockOrder,
         status: &str,
+        bump_version: bool,
     ) -> Result<(), MarketWriteError> {
         if !order.live() || !matches!(status, "CANCELLED" | "EXPIRED") {
             return Err(inconsistent_stock());
         }
         self.verify_invariants().await?;
-        let version = order
-            .version
-            .checked_add(1)
-            .ok_or_else(inconsistent_stock)?;
+        let version = if bump_version {
+            order
+                .version
+                .checked_add(1)
+                .ok_or_else(inconsistent_stock)?
+        } else {
+            order.version
+        };
         // Validate the resulting stock before changing either row.
         if let Some(item) = order.item {
             let (current, reserved) = self.balance(item).await?;
@@ -1514,7 +1526,7 @@ pub mod stock_contract {
         let mut tx = conn.begin().await?;
         let mut port = ledger(&mut tx).await?;
         let order = port.order(id).await?;
-        port.withdraw_order(&order, status).await?;
+        port.withdraw_order(&order, status, true).await?;
         tx.commit().await?;
         Ok(())
     }
@@ -2407,4 +2419,17 @@ pub(super) async fn append_market_effect(
         .bind(&event.aggregate_id).bind(participants).bind(payload).bind(evidence)
         .bind(at).execute(conn).await?;
     Ok(())
+}
+
+impl LockedMarketTransaction<'_> {
+    pub(super) fn order_port(
+        &mut self,
+    ) -> Result<super::orders::OrderPort<'_>, super::MarketWriteError> {
+        super::orders::OrderPort::new(
+            self.conn,
+            self.locked,
+            self.plan.order_ids(),
+            self.plan.inventory_ids(),
+        )
+    }
 }

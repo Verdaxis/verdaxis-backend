@@ -134,24 +134,45 @@ struct Slice {
 struct OrderState {
     id: Uuid,
     organization_id: Uuid,
-    slice: Slice,
+    product_id: Uuid,
+    /// The market policy code; absent for a product outside the policy.
+    product: Option<String>,
+    /// Absent for an order without a delivery point.
+    point: Option<Uuid>,
+    window: String,
     version: i32,
     status: String,
     side: String,
     price: Decimal,
     quantity: Decimal,
     remaining: Decimal,
-    point_name: String,
+    point_name: Option<String>,
     public: Option<Value>,
     qualified: bool,
     provenance: String,
 }
 
 impl OrderState {
+    /// The benchmark slice. An order without a policy product or a delivery
+    /// point has none, so no benchmark aggregate or rebuild covers it.
+    fn slice(&self) -> Option<Slice> {
+        Some(Slice {
+            product_id: self.product_id,
+            product: self.product.clone()?,
+            point: self.point?,
+            window: self.window.clone(),
+        })
+    }
+    fn same_market_identity(&self, other: &Self) -> bool {
+        self.id == other.id
+            && self.product_id == other.product_id
+            && self.point == other.point
+            && self.window == other.window
+    }
     fn evidence(&self) -> Value {
         json!({"order_id":self.id,"version":self.version,"status":self.status,
-            "side":self.side,"product_id":self.slice.product_id,"market_product":self.slice.product,
-            "delivery_point_id":self.slice.point,"availability_window":self.slice.window,
+            "side":self.side,"product_id":self.product_id,"market_product":self.product,
+            "delivery_point_id":self.point,"availability_window":self.window,
             "price_per_mt_usd":self.price.to_string(),"quantity_mt":self.quantity.to_string(),
             "remaining_quantity_mt":self.remaining.to_string(),"provenance":self.provenance,
             "public_admitted":self.public.is_some(),"benchmark_qualified":self.qualified,
@@ -455,7 +476,7 @@ impl<'a> EffectPort<'a> {
         if before
             .orders
             .iter()
-            .any(|a| !after.iter().any(|b| a.id == b.id && a.slice == b.slice))
+            .any(|a| !after.iter().any(|b| a.same_market_identity(b)))
         {
             return Err(inconsistent());
         }
@@ -465,9 +486,9 @@ impl<'a> EffectPort<'a> {
                 .find(|o| o.id == new.order_id)
                 .ok_or_else(inconsistent)?;
             if order.organization_id != new.organization_id
-                || order.slice.product_id != new.slice.product_id
-                || order.slice.point != new.slice.delivery_point_id
-                || order.slice.window != new.slice.availability_window
+                || order.product_id != new.slice.product_id
+                || order.point != Some(new.slice.delivery_point_id)
+                || order.window != new.slice.availability_window
             {
                 return Err(inconsistent());
             }
@@ -545,7 +566,7 @@ fn internal() -> MarketWriteError {
     MarketWriteError::new(MarketErrorCode::DatabaseError)
 }
 fn slices(orders: &[OrderState]) -> BTreeSet<Slice> {
-    orders.iter().map(|o| o.slice.clone()).collect()
+    orders.iter().filter_map(OrderState::slice).collect()
 }
 fn slice_values(slices: &BTreeSet<Slice>) -> Value {
     json!(
@@ -583,7 +604,7 @@ async fn load_orders(
             ),
         );
     }
-    let rows=sqlx::query("SELECT o.id,o.organization_id,o.product_id,o.delivery_point_id,o.availability_window,o.version,o.status::text AS status,o.side::text AS side,o.price_per_mt_usd,o.quantity_mt,o.remaining_quantity_mt,o.provenance::text AS provenance,dp.name AS point_name FROM orderbook_orders o JOIN delivery_points dp ON dp.id=o.delivery_point_id WHERE o.id=ANY($1) ORDER BY o.id")
+    let rows=sqlx::query("SELECT o.id,o.organization_id,o.product_id,o.delivery_point_id,o.availability_window,o.version,o.status::text AS status,o.side::text AS side,o.price_per_mt_usd,o.quantity_mt,o.remaining_quantity_mt,o.provenance::text AS provenance,dp.name AS point_name FROM orderbook_orders o LEFT JOIN delivery_points dp ON dp.id=o.delivery_point_id WHERE o.id=ANY($1) ORDER BY o.id")
         .bind(ids).fetch_all(conn).await?;
     if rows.len() != ids.len() {
         return Err(inconsistent());
@@ -596,19 +617,16 @@ async fn load_orders(
                 .products
                 .iter()
                 .find(|p| p.id == product_id)
-                .ok_or_else(inconsistent)?;
+                .map(|p| p.code.clone());
             let window: String = r.try_get("availability_window")?;
             let admitted = public.remove(&id);
             Ok(OrderState {
                 id,
                 organization_id: r.try_get("organization_id")?,
-                slice: Slice {
-                    product_id,
-                    product: product.code.clone(),
-                    point: r.try_get("delivery_point_id")?,
-                    window: normalize_window(&window, at.date_naive())
-                        .map_err(|_| inconsistent())?,
-                },
+                product_id,
+                product,
+                point: r.try_get("delivery_point_id")?,
+                window: normalize_window(&window, at.date_naive()).map_err(|_| inconsistent())?,
                 version: r.try_get("version")?,
                 status: r.try_get("status")?,
                 side: r.try_get("side")?,
@@ -737,8 +755,9 @@ async fn sync_pin_display(
             .iter()
             .find(|o| o.id == order_id)
             .ok_or_else(inconsistent)?;
-        sqlx::query("UPDATE watchlist_targets SET snapshot_price_per_mt_usd=$3::numeric::double precision,snapshot_quantity_mt=$4::numeric::double precision,snapshot_remaining_quantity_mt=$5::numeric::double precision,snapshot_status=$6,snapshot_side=$7,snapshot_market_product=$8,snapshot_delivery_point_name=$9,snapshot_availability_window=$10,snapshot_counterparty_label=NULL,market_product_code=$8,delivery_point_id=$11,availability_window_code=$10 WHERE id=$1 AND target_type='PIN' AND order_id=$2")
-            .bind(id).bind(order.id).bind(order.price).bind(order.quantity).bind(order.remaining).bind(&order.status).bind(&order.side).bind(&order.slice.product).bind(&order.point_name).bind(&order.slice.window).bind(order.slice.point).execute(&mut *conn).await?;
+        // A PIN keeps its market codes when the order has no policy product or point.
+        sqlx::query("UPDATE watchlist_targets SET snapshot_price_per_mt_usd=$3::numeric::double precision,snapshot_quantity_mt=$4::numeric::double precision,snapshot_remaining_quantity_mt=$5::numeric::double precision,snapshot_status=$6,snapshot_side=$7,snapshot_market_product=$8,snapshot_delivery_point_name=$9,snapshot_availability_window=$10,snapshot_counterparty_label=NULL,market_product_code=COALESCE($8,market_product_code),delivery_point_id=COALESCE($11,delivery_point_id),availability_window_code=$10 WHERE id=$1 AND target_type='PIN' AND order_id=$2")
+            .bind(id).bind(order.id).bind(order.price).bind(order.quantity).bind(order.remaining).bind(&order.status).bind(&order.side).bind(&order.product).bind(&order.point_name).bind(&order.window).bind(order.point).execute(&mut *conn).await?;
     }
     Ok(())
 }
@@ -894,7 +913,7 @@ pub mod contract {
                     demo_status: "REAL_ONLY".into(),
                     is_demo_listing: false,
                     unknown_count: 0,
-                    market_product: product.code.clone(),
+                    market_product: Some(product.code.clone()),
                     delivery_point_id: row.try_get("delivery_point_id")?,
                     availability_window: row.try_get("availability_window")?,
                     observed_at: Some(row.try_get("updated_at")?),

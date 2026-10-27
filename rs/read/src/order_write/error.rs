@@ -63,6 +63,17 @@ macro_rules! market_error_codes {
 }
 
 market_error_codes! {
+    OrderNotFound => "ORDER_NOT_FOUND", StatusCode::NOT_FOUND, "Order not found";
+    OrderOwnerForbidden => "ORDER_OWNER_FORBIDDEN", StatusCode::FORBIDDEN,
+        "The order is not owned by this actor";
+    IfMatchRequired => "IF_MATCH_REQUIRED", StatusCode::PRECONDITION_REQUIRED,
+        "If-Match is required";
+    IfMatchMalformed => "IF_MATCH_MALFORMED", StatusCode::BAD_REQUEST, "If-Match is malformed";
+    OrderVersionStale => "ORDER_VERSION_STALE", StatusCode::PRECONDITION_FAILED,
+        "Listing changed; reload and retry";
+    MarketSupportContextInvalid => "MARKET_SUPPORT_CONTEXT_INVALID", StatusCode::CONFLICT,
+        "The support context is not valid";
+    NotFound => "NOT_FOUND", StatusCode::NOT_FOUND, "Not found";
     AuthCredentialsInvalid => "AUTH_CREDENTIALS_INVALID", StatusCode::UNAUTHORIZED,
         "The credentials are not valid";
     AuthPasswordChanged => "AUTH_PASSWORD_CHANGED", StatusCode::UNAUTHORIZED,
@@ -310,14 +321,29 @@ fn classify(sqlstate: Option<&str>, constraint: Option<&str>) -> MarketErrorCode
 
 impl IntoResponse for MarketWriteError {
     fn into_response(self) -> Response {
+        let code = self.code.as_str();
         let detail = serde_json::json!({
-            "code": self.code.as_str(),
+            "code": code,
             "message": self.message,
         });
-        (
+        let mut response = (
             self.status,
             axum::Json(serde_json::json!({ "detail": detail })),
         )
-            .into_response()
+            .into_response();
+        // Every support-context refusal is also marked in headers, so a client
+        // can leave a context that is no longer valid.
+        if code.starts_with("MARKET_SUPPORT_CONTEXT_") {
+            let headers = response.headers_mut();
+            headers.insert(
+                "x-verdaxis-market-support-context-invalid",
+                axum::http::HeaderValue::from_static("true"),
+            );
+            headers.insert(
+                "x-verdaxis-market-support-context-code",
+                axum::http::HeaderValue::from_static(code),
+            );
+        }
+        response
     }
 }

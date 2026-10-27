@@ -72,6 +72,14 @@ pub(crate) async fn authenticate_shared(
     class: AdmissionClass,
 ) -> Result<AuthenticatedActor, MarketWriteError> {
     require_locked(locked, LockClass::User, access.subject)?;
+    authenticate_preview(conn, access, class).await
+}
+
+pub(crate) async fn authenticate_preview(
+    conn: &mut PgConnection,
+    access: std::sync::Arc<VerifiedAccess>,
+    class: AdmissionClass,
+) -> Result<AuthenticatedActor, MarketWriteError> {
     let row=sqlx::query("SELECT id,organization_id,role::text AS role,status::text AS status,email_verified,must_change_password,password_changed_at,authentication_revoked_at FROM users WHERE id=$1")
         .bind(access.subject).fetch_optional(conn).await?.ok_or_else(||MarketWriteError::new(MarketErrorCode::AuthCredentialsInvalid))?;
     let status = match row.get::<String, _>("status").as_str() {
@@ -441,4 +449,98 @@ pub async fn test_seed_assisted(conn: &mut PgConnection, change: &str) {
         _ => "SELECT 1",
     };
     sqlx::raw_sql(sql).execute(conn).await.unwrap();
+}
+
+/// The 409 for a support context that can no longer act.
+fn support_context_invalid() -> MarketWriteError {
+    MarketWriteError::new(MarketErrorCode::MarketSupportContextInvalid)
+}
+
+/// The 404 for a support context that is not the actor's own.
+fn support_context_not_found() -> MarketWriteError {
+    let mut error = support_context_invalid();
+    error.status = axum::http::StatusCode::NOT_FOUND;
+    error.message = "Not found";
+    error
+}
+
+/// Cancellation authority under the complete lock graph. A support context is
+/// rechecked as Python's `lock_request_party_context` does after locking: both
+/// capabilities active, and the context the actor's own, active and unexpired.
+/// The administrator, scope and organization facts resolved before locking are
+/// rechecked as well. Cleanup needs no execution admission.
+pub(crate) async fn order_context(
+    conn: &mut PgConnection,
+    locked: &Locked,
+    actor: &AuthenticatedActor,
+    organization_id: Uuid,
+    support_context_id: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> Result<WriteContext, MarketWriteError> {
+    require_locked(locked, LockClass::Organization, organization_id)?;
+    let support = match support_context_id {
+        Some(context_id) => {
+            if actor.account.role != ActorRole::Admin
+                || actor.account.status != AccountState::Approved
+            {
+                return Err(support_context_not_found());
+            }
+            require_locked(locked, LockClass::Context, context_id)?;
+            for capability in ["MARKET_SUPPORT_AUTHORIZATIONS", "MARKET_SUPPORT_LISTINGS"] {
+                let row = sqlx::query("SELECT id,revoked_at,expires_at FROM staff_capability_assignments WHERE user_id=$1 AND capability::text=$2")
+                    .bind(actor.user_id())
+                    .bind(capability)
+                    .fetch_optional(&mut *conn)
+                    .await?
+                    .ok_or_else(support_context_invalid)?;
+                require_locked(locked, LockClass::Capability, row.get("id"))?;
+                let revoked = row.get::<Option<DateTime<Utc>>, _>("revoked_at").is_some();
+                let expired = row
+                    .get::<Option<DateTime<Utc>>, _>("expires_at")
+                    .is_some_and(|expires_at| expires_at <= now);
+                if revoked || expired {
+                    return Err(support_context_invalid());
+                }
+            }
+            let row = sqlx::query("SELECT actor_user_id,organization_id,status::text AS status,scope::text AS scope,expires_at FROM market_support_contexts WHERE id=$1")
+                .bind(context_id)
+                .fetch_optional(&mut *conn)
+                .await?
+                .ok_or_else(support_context_not_found)?;
+            if row.get::<Uuid, _>("actor_user_id") != actor.user_id()
+                || row.get::<Uuid, _>("organization_id") != organization_id
+            {
+                return Err(support_context_not_found());
+            }
+            if row.get::<String, _>("status") != "ACTIVE"
+                || row.get::<String, _>("scope") != "ASSISTED_ORDER_ENTRY"
+                || row.get::<DateTime<Utc>, _>("expires_at") <= now
+            {
+                return Err(support_context_invalid());
+            }
+            let organization = sqlx::query("SELECT verification_status::text AS status,provenance::text AS provenance FROM organizations WHERE id=$1")
+                .bind(organization_id)
+                .fetch_one(&mut *conn)
+                .await?;
+            if organization.get::<String, _>("status") != "APPROVED"
+                || organization.get::<String, _>("provenance") != "REAL"
+            {
+                return Err(support_context_invalid());
+            }
+            Some(super::SupportContextRef { id: context_id })
+        }
+        None => None,
+    };
+    let actor = AuthenticatedActor {
+        access: actor.access.clone(),
+        account: actor.account.clone(),
+    };
+    Ok(WriteContext {
+        actor,
+        effective_organization_id: organization_id,
+        support,
+        now,
+        settlement_trade_id: None,
+        settlement_ownership: None,
+    })
 }

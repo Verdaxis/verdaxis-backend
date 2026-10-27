@@ -31,11 +31,13 @@ pub struct OrderActivity {
     pub demo_status: String,
     pub is_demo_listing: bool,
     pub unknown_count: u32,
-    pub market_product: String,
-    pub delivery_point_id: Uuid,
+    /// Absent for a product outside the market policy.
+    pub market_product: Option<String>,
+    /// Absent for an order without a delivery point.
+    pub delivery_point_id: Option<Uuid>,
     pub availability_window: String,
     pub observed_at: Option<DateTime<Utc>>,
-    pub delivery_point: String,
+    pub delivery_point: Option<String>,
 }
 impl OrderActivity {
     fn payload(&self) -> Value {
