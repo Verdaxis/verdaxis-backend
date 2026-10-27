@@ -167,13 +167,14 @@ impl Fixture {
         let organization = Uuid::new_v4();
         let buyer_org = Uuid::new_v4();
         let port = format!("c-{}", &supplier.simple().to_string()[..12]);
-        sqlx::query("SELECT conservation_seed($1,$2,$3,$4,$5,$6)")
+        sqlx::query("SELECT conservation_seed($1,$2,$3,$4,$5,$6,$7)")
             .bind(organization)
             .bind(supplier)
             .bind(buyer_org)
             .bind(buyer)
             .bind(&port)
             .bind(point)
+            .bind(product_id)
             .execute(&mut admin)
             .await
             .unwrap();
