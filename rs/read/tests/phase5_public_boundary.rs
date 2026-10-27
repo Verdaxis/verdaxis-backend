@@ -26,7 +26,7 @@ async fn phase5_public_boundary_cases() {
         runtime::http::middleware(read_router(
             "/api/availability",
             market_data_error::unavailable,
-        )),
+        ), "test"),
         "/api/availability",
     )
     .await;
@@ -67,7 +67,7 @@ async fn phase5_public_boundary_result_cap() {
         runtime::http::middleware(read_router(
             "/api/producers",
             market_data_error::result_limit,
-        )),
+        ), "test"),
         "/api/producers",
     )
     .await;
@@ -111,7 +111,7 @@ async fn phase5_invalid_input_constructor() {
     let response = request(
         runtime::http::middleware(read_router("/api/demand", || {
             market_data_error::invalid_input("limit must be between 1 and 512")
-        })),
+        }), "test"),
         "/api/demand?limit=513",
     )
     .await;

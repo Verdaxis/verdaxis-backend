@@ -80,7 +80,7 @@ async fn compliance_fuels_cases_are_public() {
         },
     )
     .unwrap();
-    let app = verdaxis_read::runtime::http::middleware(routes().with_state(state));
+    let app = verdaxis_read::runtime::http::middleware(routes().with_state(state), "test");
     for (uri, bearer) in [
         (PATH.to_owned(), false),
         (format!("{PATH}?window=SPOT&unknown=1"), false),

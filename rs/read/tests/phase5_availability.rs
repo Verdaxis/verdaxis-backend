@@ -116,7 +116,7 @@ async fn availability_public_boundary_cases() {
         .unwrap();
     let state = AppState::new(config, runtime::db::Pools { read: pool, health }, policy()).unwrap();
     let _permit = state.reads.clone().acquire_many_owned(16).await.unwrap();
-    let app = runtime::http::middleware(availability::routes().with_state(state));
+    let app = runtime::http::middleware(availability::routes().with_state(state), "test");
     let response = public_fixture::request(app, "/api/availability").await;
     assert_eq!(response.status(), 503);
     assert_eq!(
