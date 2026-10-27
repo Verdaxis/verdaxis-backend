@@ -713,6 +713,65 @@ async fn cancel_release_is_exactly_once() {
 
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
+async fn completed_fill_leaves_no_stock_to_publish() {
+    let mut f=Fixture::new().await;
+    let (_,value)=f.create("10.00").await;
+    let item: Uuid=value["id"].as_str().unwrap().parse().unwrap();
+    let ask: Uuid=f.stock_step(Writer::Publish.label(),item,None,None,Decimal::ZERO).await["order"].as_str().unwrap().parse().unwrap();
+    let bid: Uuid=f.stock_step(Writer::Bid.label(),item,None,None,Decimal::from(10)).await["order"].as_str().unwrap().parse().unwrap();
+    f.check(0,1,Writer::Bid,"10").await;
+    let fill=f.stock_step(Writer::Fill.label(),item,Some(ask),Some(bid),Decimal::ZERO).await;
+    assert!(fill["trade"].is_string());
+    f.check(0,2,Writer::Fill,"10").await;
+    let before=f.snapshot().await;
+    let refused=f.stock_step(Writer::Publish.label(),item,None,None,Decimal::ZERO).await;
+    assert_eq!(refused["refused"],true);
+    assert_eq!(f.snapshot().await,before);
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn elapsed_decline_expires_the_full_remainder() {
+    let mut f=Fixture::new().await;
+    let (_,value)=f.create("10.00").await;
+    let item: Uuid=value["id"].as_str().unwrap().parse().unwrap();
+    let order: Uuid=f.stock_step(Writer::Publish.label(),item,None,None,Decimal::ZERO).await["order"].as_str().unwrap().parse().unwrap();
+    let trade: Uuid=f.stock_step(Writer::Take.label(),item,Some(order),None,Decimal::from(4)).await["trade"].as_str().unwrap().parse().unwrap();
+    f.stock_step(Writer::Elapse.label(),item,Some(order),None,Decimal::ZERO).await;
+    f.check(0,1,Writer::Elapse,"elapsed").await;
+    f.stock_step(Writer::Decline.label(),item,Some(order),Some(trade),Decimal::ZERO).await;
+    f.check(0,2,Writer::Decline,"elapsed").await;
+    let status: String=sqlx::query_scalar("SELECT status FROM orderbook_orders WHERE id=$1").bind(order).fetch_one(&mut f.admin).await.unwrap();
+    assert_eq!(status,"EXPIRED");
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn expiry_preserves_pending_and_allows_republication() {
+    let mut f = Fixture::new().await;
+    let (status, value) = f.create("10.00").await;
+    assert_eq!(status, StatusCode::OK, "{value}");
+    let item: Uuid = value["id"].as_str().unwrap().parse().unwrap();
+    let order: Uuid = f.stock_step(Writer::Publish.label(), item, None, None, Decimal::ZERO).await["order"].as_str().unwrap().parse().unwrap();
+    let trade: Uuid = f.stock_step(Writer::Take.label(), item, Some(order), None, Decimal::from(4)).await["trade"].as_str().unwrap().parse().unwrap();
+    f.stock_step(Writer::Elapse.label(), item, Some(order), None, Decimal::ZERO).await;
+    f.check(0, 1, Writer::Elapse, "elapsed").await;
+    let before=f.snapshot().await;
+    let refused=f.stock_step(Writer::Publish.label(), item, None, None, Decimal::ZERO).await;
+    assert_eq!(refused["refused"],true);
+    assert_eq!(f.snapshot().await,before);
+    let expired=verdaxis_read::market_contract::stock_contract::expire(&mut f.admin,f.product_id,Some(f.point),"SPOT","ASK",chrono::Utc::now()).await.unwrap();
+    assert_eq!(expired.len(),1);
+    f.check(0,2,Writer::Expire,"pending").await;
+    let next=f.stock_step(Writer::Publish.label(),item,None,None,Decimal::ZERO).await;
+    assert!(next["order"].is_string());
+    f.check(0,3,Writer::Publish,"republish").await;
+    f.stock_step(Writer::Decline.label(),item,Some(order),Some(trade),Decimal::ZERO).await;
+    f.check(0,4,Writer::Decline,"expired pending").await;
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
 async fn take_and_cancel_on_one_order_conserve_stock() {
     for take_first in [true, false] {
         let mut f = Fixture::new().await;
