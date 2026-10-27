@@ -71,14 +71,15 @@ jobs:
       # The artifact tests import only the standard library and cryptography, but
       # the shared tests/conftest.py imports httpx and SQLAlchemy, so the offline
       # job installs the same requirements the existing backend CI does. The
-      # pure differential tests under rs/ (orderbook_map) exec the project
-      # interpreter at <repo>/venv/bin/python, so the dependencies live in a venv
-      # at exactly that path, as the contract job already builds.
+      # Rust-launched Python checks use RUST_TEST_PYTHON. Export the workflow's
+      # interpreter explicitly and put it on PATH for portable Python launchers.
       - name: Install the Python test environment
         run: |
           python -m venv venv
-          venv/bin/python -m pip install --upgrade pip
-          venv/bin/pip install -r requirements.txt -c constraints.txt
+          echo "$PWD/venv/bin" >> "$GITHUB_PATH"
+          echo "RUST_TEST_PYTHON=$PWD/venv/bin/python" >> "$GITHUB_ENV"
+          "$PWD/venv/bin/python" -m pip install --upgrade pip
+          "$PWD/venv/bin/python" -m pip install -r requirements.txt -c constraints.txt
 
       - name: Run the artifact verifier unit tests
         env:
@@ -86,7 +87,7 @@ jobs:
           RELEASE_SHA: test
           JWT_SECRET: test-secret-key-for-testing-minimum-32-chars
           DATABASE_URL: "sqlite+aiosqlite:///:memory:"
-        run: venv/bin/python -m pytest tests/unit/test_rust_artifact.py -q
+        run: python3 -m pytest tests/unit/test_rust_artifact.py -q
 
       - name: Run Phase 2 runner Python tests
         env:
@@ -94,7 +95,7 @@ jobs:
           RELEASE_SHA: test
           JWT_SECRET: test-secret-key-for-testing-minimum-32-chars
           DATABASE_URL: "sqlite+aiosqlite:///:memory:"
-        run: venv/bin/python -m pytest tests/rust_contract/test_phase2_scenarios.py tests/rust_contract/test_phase2_runner.py -q
+        run: python3 -m pytest tests/rust_contract/test_phase2_scenarios.py tests/rust_contract/test_phase2_runner.py -q
 
       - name: Check dependency advisories
         working-directory: rs
@@ -195,8 +196,10 @@ jobs:
       - name: Install the Python environment the runner expects
         run: |
           python -m venv venv
-          venv/bin/python -m pip install --upgrade pip
-          venv/bin/pip install -r requirements.txt -c constraints.txt
+          echo "$PWD/venv/bin" >> "$GITHUB_PATH"
+          echo "RUST_TEST_PYTHON=$PWD/venv/bin/python" >> "$GITHUB_ENV"
+          "$PWD/venv/bin/python" -m pip install --upgrade pip
+          "$PWD/venv/bin/python" -m pip install -r requirements.txt -c constraints.txt
 
       - name: Install sqlx-cli
         run: |
@@ -250,7 +253,7 @@ jobs:
         env:
           RELEASE_SHA: ${{ github.sha }}
         run: |
-          venv/bin/python -m scripts.rust_contract.run_disposable \
+          python3 -m scripts.rust_contract.run_disposable \
             --group all --rust-target all --mixed-caddy --require-complete-ledger \
             --profile phase1-meaning-v1 \
             --rules-sha256 f68125dd74d59f0af49f120b839d8e3cdadef1deca8027f9d0f08fc8a0b99e0e \
@@ -259,7 +262,7 @@ jobs:
       - name: Check the SQLx query metadata
         env:
           RELEASE_SHA: ${{ github.sha }}
-        run: venv/bin/python scripts/rust_contract/sqlx_offline_check.py
+        run: python3 scripts/rust_contract/sqlx_offline_check.py
 
       # The published Caddy binary adapts the reviewed snippets and proves the
       # exact method/path ownership and the decision-78 admin gate, including
@@ -271,7 +274,7 @@ jobs:
           JWT_SECRET: test-secret-key-for-testing-minimum-32-chars
           DATABASE_URL: "sqlite+aiosqlite:///:memory:"
         run: |
-          venv/bin/python -m pytest \
+          python3 -m pytest \
             tests/rust_contract/test_routing.py \
             tests/rust_contract/test_phase2_caddy.py \
             tests/unit/test_rust_caddy_candidate.py \
@@ -291,13 +294,13 @@ jobs:
         env:
           RELEASE_SHA: ${{ github.sha }}
         run: |
-          venv/bin/python -m scripts.rust_contract.run_disposable \
+          python3 -m scripts.rust_contract.run_disposable \
             --phase2 --phase2-group all \
             --report docs/rust-phase2/ci-scenarios.json
-          venv/bin/python - <<'PY'
-          import subprocess
+          python3 - <<'PY'
+          import subprocess, sys
           from scripts.rust_contract.phase2_scenarios import REGISTRY
-          command = ["venv/bin/python", "-m", "scripts.rust_contract.run_disposable",
+          command = [sys.executable, "-m", "scripts.rust_contract.run_disposable",
                      "--phase2", "--phase2-races",
                      "--report", "docs/rust-phase2/ci-races.json"]
           for scenario in REGISTRY.values():

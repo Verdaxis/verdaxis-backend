@@ -27,7 +27,7 @@ try:
     guard=run/'guard'; guard.mkdir(exist_ok=True)
     (guard/'sitecustomize.py').write_bytes((ROOT/'tests/phase0/network_guard.py').read_bytes())
     env={'PATH':os.environ['PATH'],'HOME':str(run),'ENVIRONMENT':'test','RELEASE_SHA':cmd('git','rev-parse','HEAD',capture_output=True).stdout.strip(),'JWT_SECRET':'test-secret-key-for-testing-minimum-32-chars','JWT_ISSUER':'verdaxis-test-api','JWT_AUDIENCE':'verdaxis-test-web','KYC_EXECUTION_GATE_ENABLED':'false','DATABASE_URL':url,'MIGRATOR_DATABASE_URL':url,'PHASE0_PORT':port,'PYTHONPATH':f'{guard}:{ROOT}','DISPOSABLE_ITEST_PASSWORD':'Synthetic-HTTP-Password-42!','DISPOSABLE_TEST_TOKEN':uuid.uuid4().hex}
-    python=str(ROOT/'venv/bin/python')
+    python=sys.executable
     cmd(python,'-m','alembic','-c',str(ROOT/'alembic.ini'),'upgrade','head',env=env,cwd=ROOT)
     cmd(python,str(ROOT/'tests/phase0/http_seed.py'),env=dict(env,DATABASE_URL=url.replace('phase0_owner:','postgres:')),cwd=run)
     policy='/tmp/runtime-policy'

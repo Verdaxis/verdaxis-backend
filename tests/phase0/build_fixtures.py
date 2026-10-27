@@ -3,6 +3,7 @@ import asyncio
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 from sqlalchemy import text
@@ -56,7 +57,7 @@ async def inspect(name):
             async with engine.begin() as connection:
                 await historical(connection)
             tree = Path(os.environ["PHASE0_WORK"]) / name
-            subprocess.run([str(tree / "venv/bin/python"), "-m", "alembic", "upgrade", "kycg_20261014_prod"],
+            subprocess.run([sys.executable, "-m", "alembic", "upgrade", "kycg_20261014_prod"],
                            cwd=tree, env=dict(os.environ, DATABASE_URL=url, MIGRATOR_DATABASE_URL=url), check=True)
         async with engine.begin() as connection:
             await connection.execute(text("SET LOCAL TIME ZONE 'UTC'"))
@@ -98,7 +99,7 @@ async def build_union():
     subprocess.run(['tar', '-xf', str(archive), '-C', str(tree)], check=True)
     (tree / 'venv').symlink_to(ROOT / 'venv', target_is_directory=True)
     for arguments in (('upgrade', 'p0_20261016_union'), ('check',)):
-        subprocess.run([str(tree / 'venv/bin/python'), '-m', 'alembic', *arguments],
+        subprocess.run([sys.executable, '-m', 'alembic', *arguments],
                        cwd=tree, env=dict(os.environ, DATABASE_URL=url, MIGRATOR_DATABASE_URL=url), check=True)
     engine = create_async_engine(url)
     try:
