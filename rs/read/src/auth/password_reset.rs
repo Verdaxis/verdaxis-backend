@@ -40,7 +40,7 @@ async fn forgot_attempt(
     settings: &EmailSettings,
     address: &str,
 ) -> Result<Option<AuthMail>, sqlx::Error> {
-    let mut tx = settings.pool.begin().await?;
+    let mut tx = settings.pool.begin_with("BEGIN READ WRITE").await?;
     let user = store::lock_user_by_email(&mut tx, address).await?;
     let mail = if let Some(user) = user.filter(|user| user.email_verified) {
         let now = Utc::now();
@@ -101,7 +101,7 @@ async fn reset_attempt(
     digest: &str,
     hash: &str,
 ) -> Result<Result<Value, ApiError>, sqlx::Error> {
-    let mut tx = settings.pool.begin().await?;
+    let mut tx = settings.pool.begin_with("BEGIN READ WRITE").await?;
     let Some(id) = store::reset_token_owner(&mut tx, digest).await? else {
         return Ok(Err(invalid()));
     };

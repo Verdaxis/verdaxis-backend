@@ -239,7 +239,7 @@ async fn register_attempt(
     hash: &str,
     suppressed: bool,
 ) -> Result<Vec<AuthMail>, sqlx::Error> {
-    let mut tx = settings.pool.begin().await?;
+    let mut tx = settings.pool.begin_with("BEGIN READ WRITE").await?;
     let exists: Option<Uuid> = sqlx::query_scalar("SELECT id FROM users WHERE email=$1 FOR UPDATE")
         .bind(&input.email)
         .fetch_optional(&mut *tx)
@@ -409,7 +409,7 @@ async fn with_org_attempt(
     input: &WithOrganization,
     headers: &HeaderMap,
 ) -> Result<Result<Value, ApiError>, sqlx::Error> {
-    let mut tx = settings.pool.begin().await?;
+    let mut tx = settings.pool.begin_with("BEGIN READ WRITE").await?;
     let pending:Option<Pending>=sqlx::query_as("SELECT id,email,password_hash,first_name,last_name,role,referral_code FROM pending_registrations WHERE token_hash=$1 AND used_at IS NULL AND expires_at>$2 FOR UPDATE").bind(token_digest(&input.registration_token)).bind(Utc::now()).fetch_optional(&mut *tx).await?;
     let Some(pending) = pending else {
         return Ok(Err(invalid_token()));

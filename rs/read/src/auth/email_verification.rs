@@ -79,7 +79,7 @@ async fn verify_attempt(
     settings: &EmailSettings,
     digest: &str,
 ) -> Result<Result<Value, ApiError>, sqlx::Error> {
-    let mut tx = settings.pool.begin().await?;
+    let mut tx = settings.pool.begin_with("BEGIN READ WRITE").await?;
     let now = Utc::now();
     let user: Option<(uuid::Uuid, String, Option<String>)> = sqlx::query_as("SELECT id,email,referral_code FROM users WHERE email_verification_token_hash=$1 AND email_verification_token_expires_at > $2 AND NOT email_verified FOR UPDATE")
         .bind(digest).bind(now).fetch_optional(&mut *tx).await?;
@@ -159,7 +159,7 @@ async fn resend_attempt(
     settings: &EmailSettings,
     address: &str,
 ) -> Result<Option<AuthMail>, sqlx::Error> {
-    let mut tx = settings.pool.begin().await?;
+    let mut tx = settings.pool.begin_with("BEGIN READ WRITE").await?;
     let user: Option<(uuid::Uuid, Option<String>)> = sqlx::query_as(
         "SELECT id,first_name FROM users WHERE email=$1 AND NOT email_verified FOR UPDATE",
     )

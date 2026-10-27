@@ -35,7 +35,7 @@ impl Fixture {
         let owner = PgPool::connect(&std::env::var("AUTH_EMAIL_TEST_OWNER_URL").unwrap())
             .await
             .unwrap();
-        let pool = sqlx::postgres::PgPoolOptions::new().connect_with(std::env::var("AUTH_EMAIL_TEST_DATABASE_URL").unwrap().parse::<sqlx::postgres::PgConnectOptions>().unwrap().options([("default_transaction_read_only", "on")]))
+        let pool = read_default_pool()
             .await
             .unwrap();
         let mail = Arc::new(Mutex::new(Vec::new()));
@@ -1084,4 +1084,12 @@ fn e6_redacted_assertion_child() {
         serde_json::Value::Null == token,
         "registration credential mismatch"
     );
+}
+
+async fn read_default_pool() -> Result<sqlx::PgPool, sqlx::Error> {
+    let options = std::env::var("AUTH_EMAIL_TEST_DATABASE_URL")
+        .expect("disposable runtime database")
+        .parse::<sqlx::postgres::PgConnectOptions>()?
+        .options([("default_transaction_read_only", "on")]);
+    sqlx::postgres::PgPoolOptions::new().connect_with(options).await
 }

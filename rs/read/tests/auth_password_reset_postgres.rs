@@ -46,7 +46,7 @@ async fn e2_consumes_and_revokes() {
     .await
     .unwrap();
     let settings = email_verification::EmailSettings::new(
-        sqlx::postgres::PgPoolOptions::new().connect_with(std::env::var("AUTH_EMAIL_TEST_DATABASE_URL").unwrap().parse::<sqlx::postgres::PgConnectOptions>().unwrap().options([("default_transaction_read_only", "on")]))
+        read_default_pool()
             .await
             .unwrap(),
         email::MailDispatcher::new(crud::referrals::invite::MailClient::disabled()),
@@ -201,7 +201,7 @@ async fn e1_write_attempt_restarts() {
     let owner = sqlx::PgPool::connect(&std::env::var("AUTH_EMAIL_TEST_OWNER_URL").unwrap())
         .await
         .unwrap();
-    let runtime = sqlx::postgres::PgPoolOptions::new().connect_with(std::env::var("AUTH_EMAIL_TEST_DATABASE_URL").unwrap().parse::<sqlx::postgres::PgConnectOptions>().unwrap().options([("default_transaction_read_only", "on")]))
+    let runtime = read_default_pool()
         .await
         .unwrap();
     let id = Uuid::new_v4();
@@ -254,7 +254,7 @@ async fn e1_response_cleanup_and_delivery() {
     let owner = sqlx::PgPool::connect(&std::env::var("AUTH_EMAIL_TEST_OWNER_URL").unwrap())
         .await
         .unwrap();
-    let runtime = sqlx::postgres::PgPoolOptions::new().connect_with(std::env::var("AUTH_EMAIL_TEST_DATABASE_URL").unwrap().parse::<sqlx::postgres::PgConnectOptions>().unwrap().options([("default_transaction_read_only", "on")]))
+    let runtime = read_default_pool()
         .await
         .unwrap();
     let role: String = sqlx::query_scalar("SELECT current_user")
@@ -387,7 +387,7 @@ async fn e2_invited_account_retains_resolver_state() {
     let owner = sqlx::PgPool::connect(&std::env::var("AUTH_EMAIL_TEST_OWNER_URL").unwrap())
         .await
         .unwrap();
-    let runtime = sqlx::postgres::PgPoolOptions::new().connect_with(std::env::var("AUTH_EMAIL_TEST_DATABASE_URL").unwrap().parse::<sqlx::postgres::PgConnectOptions>().unwrap().options([("default_transaction_read_only", "on")]))
+    let runtime = read_default_pool()
         .await
         .unwrap();
     let org = Uuid::new_v4();
@@ -459,4 +459,12 @@ asyncio.run(main())
         .execute(&owner)
         .await
         .unwrap();
+}
+
+async fn read_default_pool() -> Result<sqlx::PgPool, sqlx::Error> {
+    let options = std::env::var("AUTH_EMAIL_TEST_DATABASE_URL")
+        .expect("disposable runtime database")
+        .parse::<sqlx::postgres::PgConnectOptions>()?
+        .options([("default_transaction_read_only", "on")]);
+    sqlx::postgres::PgPoolOptions::new().connect_with(options).await
 }
