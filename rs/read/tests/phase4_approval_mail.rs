@@ -240,6 +240,7 @@ mod postgres {
         let marker = marker(f.user, instant());
         f.freeze(&marker).await;
         let expected = serde_json::to_value(&marker.payload).unwrap();
+        sqlx::query("SET default_transaction_read_only=on").execute(&f.pool).await.unwrap();
         let result = deliver_account_approval_mail(
             &f.pool,
             f.user,
