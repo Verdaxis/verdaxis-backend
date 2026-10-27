@@ -76,10 +76,10 @@ async fn credential_operations_reach_their_admission_boundary() {
 #[tokio::test]
 async fn ingress_and_credential_handlers_share_one_preauth_charge() {
     let app = app().await;
-    for index in 0..31 {
+    for index in 0..16 {
         let response = app.clone().oneshot(Request::builder().method("POST")
-            .uri("/api/auth/register").header("content-type", "application/json")
+            .uri("/api/auth/forgot-password").header("content-type", "application/json")
             .body(Body::from("{}")).unwrap()).await.unwrap();
-        assert_eq!(response.status().as_u16(), if index < 30 { 422 } else { 429 });
+        assert_eq!(response.status().as_u16(), if index < 15 { 422 } else { 429 });
     }
 }

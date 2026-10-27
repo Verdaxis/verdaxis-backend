@@ -400,6 +400,13 @@ fn deployed_environment() -> std::collections::HashMap<String, String> {
         ("FRONTEND_URL", "https://staging.verdaxis.exchange"),
         ("EMAIL_FROM", "Verdaxis <noreply@verdaxis.exchange>"),
         ("RESEND_API_KEY", "re_deployed_key"),
+        (
+            "AUTH_DOMAIN_DATASETS_FILE",
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/auth-domains.json"
+            ),
+        ),
     ]
     .into_iter()
     .map(|(key, value)| (key.to_owned(), value.to_owned()))

@@ -72,8 +72,11 @@ and reversible migration, the grants, the shared device key
 session and recovery components use these primitives. Registration reuses the
 shared verification-mail dispatcher and monitor-canary policy; new applicants
 queue environment-labelled signup alerts only after commit. Existing-account
-mail uses `auth/templates/account_exists.html`. Release datasets, monitor settings
-and serving composition remain integration-owned.
+mail uses `auth/templates/account_exists.html`. `runtime/phase3.rs` composes all twelve credential operations in the serving
+router, using the same quota authority as ingress and Phase 2. Release preparation
+projects the optional monitor authority and installed email-domain lists into
+private runtime files; absent datasets disable domain matching. The auth Caddy
+selector moves the complete area to one Rust upstream without Python fallback.
 `store::revoke_user_authentication` locks the user, advances
 `authentication_revoked_at` monotonically at PostgreSQL microsecond precision,
 and revokes all user refresh families without committing. Missing users return

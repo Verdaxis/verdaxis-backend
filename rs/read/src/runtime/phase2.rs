@@ -150,6 +150,8 @@ mod tests {
             frontend_url: Some("https://staging.verdaxis.exchange".into()),
             email_from: Some("Verdaxis <noreply@verdaxis.exchange>".into()),
             resend_api_key: Some("re_disposable_key".into()),
+            auth_domain_datasets: None,
+            monitor_token: None,
             watchlist_producer_activated_at: None,
         }
     }

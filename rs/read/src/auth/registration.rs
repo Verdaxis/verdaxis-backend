@@ -165,13 +165,14 @@ fn admit(
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: &HeaderMap,
     path: &str,
+    charged: Option<Extension<super::login::PreauthCharged>>,
 ) -> Result<(), ApiError> {
     let client = client_address(peer, headers);
     let now = Utc::now().timestamp() as u64;
-    settings
-        .limits
-        .preauth_check(&client, path, now)
-        .map_err(|r| ApiError::from(r.auth_failure()))?;
+    if charged.is_none() {
+        settings.limits.preauth_check(&client, path, now)
+            .map_err(|r| ApiError::from(r.auth_failure()))?;
+    }
     settings.limits.check_address_endpoint(&client, path, now)
 }
 pub fn router(settings: RegistrationSettings) -> Router {
@@ -184,6 +185,7 @@ pub fn router(settings: RegistrationSettings) -> Router {
 }
 async fn register_route(
     State(settings): State<RegistrationSettings>,
+    charged: Option<Extension<super::login::PreauthCharged>>,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: HeaderMap,
     body: axum::body::Body,
@@ -196,7 +198,7 @@ async fn register_route(
     {
         return Err(validation());
     }
-    admit(&settings, peer, &headers, "/api/auth/register")?;
+    admit(&settings, peer, &headers, "/api/auth/register", charged)?;
     let hash = password::hash(&input.password)
         .await
         .map_err(|_| validation())?;
@@ -354,6 +356,7 @@ struct Pending {
 }
 async fn with_org_route(
     State(settings): State<RegistrationSettings>,
+    charged: Option<Extension<super::login::PreauthCharged>>,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: HeaderMap,
     body: axum::body::Body,
@@ -369,7 +372,7 @@ async fn with_org_route(
     {
         return Err(validation());
     }
-    admit(&settings, peer, &headers, "/api/auth/register-with-org")?;
+    admit(&settings, peer, &headers, "/api/auth/register-with-org", charged)?;
     if input.registration_token.is_empty() || input.registration_token.len() > 1024 {
         return Err(invalid_token());
     }

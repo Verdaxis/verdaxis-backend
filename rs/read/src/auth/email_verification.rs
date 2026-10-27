@@ -222,6 +222,8 @@ pub fn router(settings: EmailSettings) -> Router {
     Router::new()
         .route("/api/auth/verify-email", post(verify_route))
         .route("/api/auth/resend-verification-email", post(resend_route))
+        .route("/api/auth/verify-email/", post(verify_route))
+        .route("/api/auth/resend-verification-email/", post(resend_route))
         .with_state(settings)
 }
 async fn verify_route(
