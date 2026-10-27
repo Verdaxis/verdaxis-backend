@@ -608,6 +608,52 @@ async fn cancel_release_is_exactly_once() {
 
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
+async fn take_and_cancel_on_one_order_conserve_stock() {
+    for take_first in [true, false] {
+        let mut f = Fixture::new().await;
+        let (_, item) = f.create("10.00").await;
+        let item: Uuid = item["id"].as_str().unwrap().parse().unwrap();
+        let order: Uuid = f.stock_step(Writer::Publish.label(), item, None, None, Decimal::ZERO).await["order"].as_str().unwrap().parse().unwrap();
+        let key = verdaxis_read::market_contract::locks::market_slice_lock_key(f.product_id, Some(f.point), "SPOT");
+        if take_first {
+            let mut holder = PgConnection::connect(&f.admin_url).await.unwrap();
+            let mut transaction = holder.begin().await.unwrap();
+            sqlx::query("SELECT conservation_step($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)")
+                .bind("fixture:lock").bind(item).bind(order).bind(Option::<Uuid>::None).bind(Decimal::from(key))
+                .bind(f.product_id).bind(f.point).bind(f.buyer_org).bind(f.buyer).bind(f.product["code"].as_str().unwrap())
+                .execute(&mut *transaction).await.unwrap();
+            let result: Value = sqlx::query_scalar("SELECT conservation_step($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)")
+                .bind("fixture:take").bind(item).bind(order).bind(Option::<Uuid>::None).bind(Decimal::from(4))
+                .bind(f.product_id).bind(f.point).bind(f.buyer_org).bind(f.buyer).bind(f.product["code"].as_str().unwrap())
+                .fetch_one(&mut *transaction).await.unwrap();
+            assert!(result["trade"].is_string());
+            transaction.commit().await.unwrap();
+            let (status, body)=request(f.orders.clone(),f.supplier,"DELETE",&format!("/api/orderbook/{order}"),None,None).await;
+            assert_eq!(status, StatusCode::NO_CONTENT,"{body}");
+        } else {
+            let (status, body)=request(f.orders.clone(),f.supplier,"DELETE",&format!("/api/orderbook/{order}"),None,None).await;
+            assert_eq!(status, StatusCode::NO_CONTENT,"{body}");
+            let before=f.snapshot().await;
+            let mut holder = PgConnection::connect(&f.admin_url).await.unwrap();
+            let mut transaction = holder.begin().await.unwrap();
+            sqlx::query("SELECT conservation_step($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)")
+                .bind("fixture:lock").bind(item).bind(order).bind(Option::<Uuid>::None).bind(Decimal::from(key))
+                .bind(f.product_id).bind(f.point).bind(f.buyer_org).bind(f.buyer).bind(f.product["code"].as_str().unwrap())
+                .execute(&mut *transaction).await.unwrap();
+            let result: Value = sqlx::query_scalar("SELECT conservation_step($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)")
+                .bind("fixture:take").bind(item).bind(order).bind(Option::<Uuid>::None).bind(Decimal::from(4))
+                .bind(f.product_id).bind(f.point).bind(f.buyer_org).bind(f.buyer).bind(f.product["code"].as_str().unwrap())
+                .fetch_one(&mut *transaction).await.unwrap();
+            assert_eq!(result["refused"], true);
+            transaction.commit().await.unwrap();
+            assert_eq!(f.snapshot().await,before);
+        }
+        f.check(0,0,Writer::Cancel,"take/cancel order").await;
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
 async fn parallel_cancel_has_one_winner() {
     for keyed in [false, true] {
         let mut f = Fixture::new().await;
