@@ -206,12 +206,22 @@ pub enum SupportRequest {
         organization: String,
         query: Option<String>,
     },
-    Entry { organization: String },
-    ContextStart { body: Bytes },
+    Entry {
+        organization: String,
+    },
+    ContextStart {
+        body: Bytes,
+    },
     ContextActive,
-    ContextGet { context: String },
-    ContextExit { context: String },
-    Composite { organization: String },
+    ContextGet {
+        context: String,
+    },
+    ContextExit {
+        context: String,
+    },
+    Composite {
+        organization: String,
+    },
     /// A legacy workspace mutation. Its body is never read.
     Retired,
 }
@@ -247,7 +257,9 @@ impl SupportRequest {
                 page: Page::parse(query.as_deref())?,
             },
             Self::Entry { organization } => SupportAction::Entry(identifier(organization)?),
-            Self::ContextStart { body } => SupportAction::ContextStart(contexts::ContextCreate::parse(decode_json(body)?)?),
+            Self::ContextStart { body } => {
+                SupportAction::ContextStart(contexts::ContextCreate::parse(decode_json(body)?)?)
+            }
             Self::ContextActive => SupportAction::ContextActive,
             Self::ContextGet { context } => SupportAction::ContextGet(identifier(context)?),
             Self::ContextExit { context } => SupportAction::ContextExit(identifier(context)?),
@@ -288,7 +300,15 @@ impl SupportAction {
     /// `_require_any_capability` for the organization list.
     fn permitted_by(&self, capabilities: &[Capability]) -> bool {
         match self {
-            Self::Entry(_) | Self::ContextStart(_) | Self::ContextActive | Self::ContextGet(_) | Self::ContextExit(_) | Self::Composite(_) => capabilities.contains(&Capability::Authorizations) && capabilities.contains(&Capability::Listings),
+            Self::Entry(_)
+            | Self::ContextStart(_)
+            | Self::ContextActive
+            | Self::ContextGet(_)
+            | Self::ContextExit(_)
+            | Self::Composite(_) => {
+                capabilities.contains(&Capability::Authorizations)
+                    && capabilities.contains(&Capability::Listings)
+            }
             Self::Authorizations { .. } => capabilities.contains(&Capability::Authorizations),
             Self::Listings { .. } => capabilities.contains(&Capability::Listings),
             Self::Organizations(_) => !capabilities.is_empty(),
@@ -499,7 +519,14 @@ impl MarketCommand for SupportCommand {
                 SupportAction::Revoke { assignment, .. } => {
                     revoke_preview(conn, actor, *assignment).await?
                 }
-                SupportAction::Entry(_) | SupportAction::ContextStart(_) | SupportAction::ContextActive | SupportAction::ContextGet(_) | SupportAction::ContextExit(_) | SupportAction::Composite(_) => contexts::preview(conn, actor, &authorized.action).await?,
+                SupportAction::Entry(_)
+                | SupportAction::ContextStart(_)
+                | SupportAction::ContextActive
+                | SupportAction::ContextGet(_)
+                | SupportAction::ContextExit(_)
+                | SupportAction::Composite(_) => {
+                    contexts::preview(conn, actor, &authorized.action).await?
+                }
                 _ => read_preview(actor)?,
             };
             Ok(preview)
@@ -985,7 +1012,11 @@ fn authorization_item(row: &PgRow, now: DateTime<Utc>) -> Result<Value, MarketWr
     let stored: Value = row.try_get("stored")?;
     let quantity = json!(row.try_get::<String, _>("quantity")?);
     let price = json!(row.try_get::<String, _>("price")?);
-    let fame_terms = typed_terms(TermsKind::Fame, &stored["order_side"], &stored["fame_terms"])?;
+    let fame_terms = typed_terms(
+        TermsKind::Fame,
+        &stored["order_side"],
+        &stored["fame_terms"],
+    )?;
     let lng_terms = typed_terms(TermsKind::Lng, &stored["order_side"], &stored["lng_terms"])?;
     let mut item = Map::new();
     for field in AUTHORIZATION_FIELDS {

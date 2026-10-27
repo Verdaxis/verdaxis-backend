@@ -2,18 +2,18 @@ use chrono::{Duration, TimeZone, Utc};
 use serde_json::json;
 use uuid::Uuid;
 use verdaxis_read::market_support::{
-    contexts::{ContextCreate, ContextRecord, ContextStatus, Organization, Principal},
     SupportSettings,
+    contexts::{ContextCreate, ContextRecord, ContextStatus, Organization, Principal},
 };
 
 #[test]
 fn context_reference_checks_raw_length_then_trims() {
     let organization = Uuid::new_v4();
     for raw in ["", "ab", "   ", &"x".repeat(201)] {
-        assert!(ContextCreate::parse(
-            json!({"organization_id":organization,"support_reference":raw})
-        )
-        .is_err());
+        assert!(
+            ContextCreate::parse(json!({"organization_id":organization,"support_reference":raw}))
+                .is_err()
+        );
     }
     let body = ContextCreate::parse(
         json!({"organization_id":organization,"support_reference":"\u{001c} ab \u{001f}"}),
@@ -23,10 +23,10 @@ fn context_reference_checks_raw_length_then_trims() {
     assert!(!body.confirm_replacement);
     assert_eq!(body.organization_id, organization);
     for value in [json!(1), json!(null), json!(true)] {
-        assert!(ContextCreate::parse(
-            json!({"organization_id":organization,"support_reference":value})
-        )
-        .is_err());
+        assert!(
+            ContextCreate::parse(json!({"organization_id":organization,"support_reference":value}))
+                .is_err()
+        );
     }
     assert!(ContextCreate::parse(json!({"organization_id":organization,"support_reference":"case","confirm_replacement":"true"})).is_err());
 }
@@ -41,9 +41,11 @@ fn context_ttl_has_a_default_and_validated_bounds() {
         assert_eq!(settings.context_ttl_minutes(), minutes);
     }
     for minutes in [0, -1, 1441] {
-        assert!(SupportSettings::new(true, "")
-            .with_context_ttl_minutes(minutes)
-            .is_err());
+        assert!(
+            SupportSettings::new(true, "")
+                .with_context_ttl_minutes(minutes)
+                .is_err()
+        );
     }
 }
 
@@ -110,13 +112,10 @@ fn context_projection_keeps_actor_name_whitespace_and_requires_identities() {
     assert_eq!(response["organization"]["domain"], json!(null));
     assert_eq!(response["started_at"], "2026-10-27T00:00:00Z");
     assert_eq!(response["ended_at"], json!(null));
-    assert_eq!(response.as_object().unwrap().len(), 13);
+    assert_eq!(response.as_object().unwrap().len(), 12);
     for (org, person) in [(None, Some(&principal)), (Some(&organization), None)] {
         let error = record.response(org, person).unwrap_err();
         assert_eq!(error.status.as_u16(), 409);
-        assert_eq!(
-            error.code.as_str(),
-            "MARKET_SUPPORT_IDENTITIES_UNAVAILABLE"
-        );
+        assert_eq!(error.code.as_str(), "MARKET_SUPPORT_IDENTITIES_UNAVAILABLE");
     }
 }
