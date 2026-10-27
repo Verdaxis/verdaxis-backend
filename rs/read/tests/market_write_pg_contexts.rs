@@ -930,15 +930,70 @@ async fn composite_uses_shared_execution_eligibility_with_gate_on_and_off() {
     }
 }
 
+/// Observe the actual lock wait before allowing the competing command to proceed.
+async fn wait_for_blocked_transaction(observer: &mut PgConnection, blocker: i32) -> i32 {
+    tokio::time::timeout(std::time::Duration::from_millis(300), async {
+        loop {
+            let waiting: Option<i32> = sqlx::query_scalar(
+                "SELECT pid FROM pg_stat_activity WHERE datname=current_database() \
+                 AND wait_event_type='Lock' AND $1=ANY(pg_blocking_pids(pid)) ORDER BY pid LIMIT 1",
+            )
+            .bind(blocker)
+            .fetch_optional(&mut *observer)
+            .await
+            .unwrap();
+            if let Some(pid) = waiting {
+                return pid;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+        }
+    })
+    .await
+    .expect("a competing transaction must be observed waiting before the barrier is released")
+}
+
+async fn race_response(app: Router, request: Request<Body>) -> (StatusCode, Value) {
+    let response = app.oneshot(request).await.unwrap();
+    let status = response.status();
+    let bytes = axum::body::to_bytes(response.into_body(), 1048576)
+        .await
+        .unwrap();
+    (status, serde_json::from_slice(&bytes).unwrap())
+}
+
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn concurrent_context_starts_leave_one_active_context() {
     let (mut f, app) = Fixture::ready().await;
     let other = f.organization("Other approved", "APPROVED", "REAL").await;
-    let (a, b) = tokio::join!(
-        f.start(&app, f.organization, true),
-        f.start(&app, other, true)
-    );
+    let mut barrier = PgConnection::connect(&f.runtime_url).await.unwrap();
+    let mut held = barrier.begin().await.unwrap();
+    let barrier_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *held)
+        .await
+        .unwrap();
+    sqlx::query("SELECT id FROM staff_capability_assignments WHERE user_id=$1 FOR UPDATE")
+        .bind(f.target)
+        .fetch_all(&mut *held)
+        .await
+        .unwrap();
+    let start_request = |organization| {
+        f.builder(Some(f.target), "POST", &format!("{ROOT}/contexts"))
+            .body(Body::from(json!({"organization_id":organization,"support_reference":"Context case","confirm_replacement":true}).to_string()))
+            .unwrap()
+    };
+    let first_request = start_request(f.organization);
+    let second_request = start_request(other);
+    let first = tokio::spawn(race_response(app.clone(), first_request));
+    // The first command holds the actor and waits for the capability barrier.
+    let first_pid = wait_for_blocked_transaction(&mut f.admin, barrier_pid).await;
+    let second = tokio::spawn(race_response(app.clone(), second_request));
+    // The second command must wait for that first command's actor lock.
+    let second_pid = wait_for_blocked_transaction(&mut f.admin, first_pid).await;
+    assert_ne!(first_pid, second_pid);
+    held.commit().await.unwrap();
+    let a = first.await.unwrap();
+    let b = second.await.unwrap();
     for (status, body) in [&a, &b] {
         assert!(
             *status == StatusCode::CREATED
@@ -969,10 +1024,30 @@ async fn exit_and_expiry_on_read_end_a_context_once() {
         .await;
     let exit = format!("{ROOT}/contexts/{id}/exit");
     let read = format!("{ROOT}/contexts/{id}");
-    let (a, b) = tokio::join!(
-        f.request(&app, f.target, "POST", &exit, None),
-        f.request(&app, f.target, "GET", &read, None)
-    );
+    let mut barrier = PgConnection::connect(&f.runtime_url).await.unwrap();
+    let mut held = barrier.begin().await.unwrap();
+    let barrier_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *held)
+        .await
+        .unwrap();
+    sqlx::query("SELECT id FROM market_support_contexts WHERE id=$1 FOR UPDATE")
+        .bind(id)
+        .fetch_one(&mut *held)
+        .await
+        .unwrap();
+    let exit_request = f.builder(Some(f.target), "POST", &exit)
+        .body(Body::empty()).unwrap();
+    let first = tokio::spawn(race_response(app.clone(), exit_request));
+    // Exit holds the actor and capabilities before waiting for the context.
+    let first_pid = wait_for_blocked_transaction(&mut f.admin, barrier_pid).await;
+    let read_request = f.builder(Some(f.target), "GET", &read)
+        .body(Body::empty()).unwrap();
+    let second = tokio::spawn(race_response(app.clone(), read_request));
+    let second_pid = wait_for_blocked_transaction(&mut f.admin, first_pid).await;
+    assert_ne!(first_pid, second_pid);
+    held.commit().await.unwrap();
+    let a = first.await.unwrap();
+    let b = second.await.unwrap();
     assert_eq!(a.0, StatusCode::OK, "{:?}", a);
     assert_eq!(b.0, StatusCode::OK, "{:?}", b);
     assert_eq!(f.state(id).await, ("EXPIRED".into(), 2, true));
