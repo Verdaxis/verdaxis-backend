@@ -282,6 +282,8 @@ jobs:
           RELEASE_SHA: ${{ github.sha }}
           RUST_TEST_PYTHON: ${{ github.workspace }}/venv/bin/python
         run: bash rs/read/tests/run_postgres.sh
+      - name: Phase 4 migrated database authority
+        run: bash rs/read/tests/run_phase4_authority.sh
 
       - name: Run every Phase 2 route scenario and race schedule
         env:
