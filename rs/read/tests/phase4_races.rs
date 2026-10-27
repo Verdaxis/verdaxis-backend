@@ -967,12 +967,11 @@ async fn invitation_rotation_vs_acceptance_is_serialized() {
     world.finish().await;
 }
 
-/// The Python maintenance command clears invitation digests whose expiry has
-/// passed. An administrator reissuing an expired invitation races it: the
-/// reissued digest must survive.
+/// Invitation cleanup and reissue leave a consistent credential pair. Older
+/// secrets stay unusable, and another reissue produces a spendable invitation.
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL authority"]
-async fn auth_maintenance_cannot_clear_a_reissued_invitation_digest() {
+async fn auth_maintenance_and_reissue_preserve_invitation_safety() {
     let mut world = World::new().await;
     let organization = world.supplier_organization().await;
     let created = run_ordered_write(
@@ -1009,13 +1008,67 @@ async fn auth_maintenance_cannot_clear_a_reissued_invitation_digest() {
     });
     wait_blocked(&mut world.watcher, holder, 1).await;
     gate.open();
-    finished(reissue).await.expect("the reissue committed");
+    let reissued = finished(reissue).await.expect("the reissue committed");
     maintenance.await.unwrap();
-    let kept = invitee_digest(&world, invitee).await;
-    assert!(
-        kept.as_deref().is_some_and(|digest| digest != expired),
-        "the maintenance command cleared the digest the administrator just issued"
+    let reissued_digest = verdaxis_read::business::invitations::store::digest_of(
+        reissued
+            .acceptance_url
+            .split_once("#token=")
+            .expect("the invitation link contains its secret")
+            .1,
     );
+    let (kept, expires): (Option<String>, Option<DateTime<Utc>>) = sqlx::query_as(
+        "SELECT password_reset_token_hash,password_reset_expires FROM users WHERE id=$1",
+    )
+    .bind(invitee)
+    .fetch_one(&world.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        kept.is_some(),
+        expires.is_some(),
+        "the invitation digest and expiry must be cleared or kept together"
+    );
+    if let Some(kept) = kept {
+        assert!(kept == reissued_digest, "only the reissued digest may remain");
+        assert_eq!(
+            expires.map(|at| at.timestamp_micros()),
+            Some(reissued.expires_at.timestamp_micros())
+        );
+    }
+    assert!(
+        lock_for_acceptance(&world.pool, &expired).await.is_none(),
+        "the expired invitation must not resolve"
+    );
+    assert_eq!(live_sessions(&world, invitee).await, 0);
+
+    let repeated = run_ordered_write(
+        world.pool.clone(),
+        Arc::new(Semaphore::new(1)),
+        access(world.actor),
+        invite_supplier("expired@customer.example", organization),
+    )
+    .await
+    .expect("the administrator can reissue after cleanup");
+    assert_eq!(repeated.user_id, invitee);
+    assert!(repeated.reissued);
+    for stale in [&expired, &reissued_digest] {
+        assert!(
+            lock_for_acceptance(&world.pool, stale).await.is_none(),
+            "an older invitation must not resolve after another reissue"
+        );
+    }
+    let current = invitee_digest(&world, invitee)
+        .await
+        .expect("the repeated reissue stores a digest");
+    lock_for_acceptance(&world.pool, &current)
+        .await
+        .expect("the repeated reissue resolves")
+        .consume()
+        .await;
+    assert!(lock_for_acceptance(&world.pool, &current).await.is_none());
+    assert_eq!(live_sessions(&world, invitee).await, 1);
+    assert_eq!(audits_of(&world, "user.invitation_accepted", invitee).await, 1);
     world.finish().await;
 }
 
