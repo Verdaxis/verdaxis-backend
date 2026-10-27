@@ -1000,9 +1000,7 @@ async fn auth_maintenance_and_reissue_preserve_invitation_safety() {
     let reissue = tokio::spawn({
         let pool = world.pool.clone();
         let actor = world.actor;
-        async move {
-            run_ordered_write(pool, Arc::new(Semaphore::new(1)), access(actor), command).await
-        }
+        async move { run_ordered_write(pool, Arc::new(Semaphore::new(1)), access(actor), command).await }
     });
     let holder = gate.arrived().await;
     let mut maintenance = world.runtime_connection().await;
@@ -2212,8 +2210,15 @@ async fn rejected_party_new_execution_refused_but_existing_deliver_pay_allowed()
                         Err(AuthError::SessionRevoked),
                         "{case}: a token issued before the rejection still works"
                     );
+                    // Isolate account status from the second-resolution token cutoff.
+                    let cutoff = DateTime::from_timestamp_micros(
+                        state.authentication_revoked_at.expect("a rejection cutoff"),
+                    )
+                    .unwrap();
+                    let mut after_cutoff = access(member);
+                    after_cutoff.issued_at = Some(cutoff + Duration::microseconds(1));
                     assert_eq!(
-                        validate_account(&access_issued_at(member, Utc::now()), &state),
+                        validate_account(&after_cutoff, &state),
                         Err(AuthError::Rejected),
                         "{case}: a rejected account authenticated"
                     );
