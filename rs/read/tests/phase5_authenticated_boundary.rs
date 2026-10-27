@@ -86,7 +86,9 @@ async fn admit_route(
 ) -> Result<usize, Refusal> {
     let prepared = parse_post_body(raw).map_err(Refusal::Body)?;
     authenticate.await.map_err(Refusal::Auth)?;
-    prepared.admit(post, Uuid::nil(), validate).map_err(Refusal::Policy)
+    prepared
+        .admit(post, Uuid::nil(), validate)
+        .map_err(Refusal::Policy)
 }
 
 #[tokio::test]

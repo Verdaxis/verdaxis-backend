@@ -245,6 +245,7 @@ async fn fleet_config_cases() {
     let fixture = Fixture::new();
     let app = verdaxis_read::runtime::http::middleware(
         fleet_intelligence::routes().with_state(state(fixture.path())),
+        "test",
     );
     for available in [false, true] {
         if available {
