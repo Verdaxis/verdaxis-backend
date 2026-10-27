@@ -561,7 +561,8 @@ fn sqlstate_mapping_table_is_total() {
         "ORGANIZATION_NOT_APPROVED",
         "ORGANIZATION_NOT_REAL",
         "SUPPORT_CONTEXT_INVALID",
-        "CONTEXT_REPLACEMENT_REQUIRED",
+        "MARKET_SUPPORT_CONTEXT_REPLACEMENT_REQUIRED",
+        "MARKET_SUPPORT_IDENTITIES_UNAVAILABLE",
         "VALIDATION_FAILED",
         "DATABASE_ERROR",
         "VALUE_OUT_OF_RANGE",
@@ -674,5 +675,36 @@ fn market_write_authority_declares_the_shared_context_without_a_constructor() {
             !source.contains(forbidden),
             "authority.rs adds a construction path: {forbidden}"
         );
+    }
+}
+
+#[test]
+fn support_context_refusals_carry_clearing_headers() {
+    use axum::response::IntoResponse;
+    for code in MarketErrorCode::ALL {
+        let response = MarketWriteError::new(*code).into_response();
+        let clears = code.as_str().starts_with("MARKET_SUPPORT_CONTEXT_");
+        assert_eq!(
+            response
+                .headers()
+                .contains_key("x-verdaxis-market-support-context-invalid"),
+            clears
+        );
+        assert_eq!(
+            response
+                .headers()
+                .contains_key("x-verdaxis-market-support-context-code"),
+            clears
+        );
+        if clears {
+            assert_eq!(
+                response.headers()["x-verdaxis-market-support-context-invalid"],
+                "true"
+            );
+            assert_eq!(
+                response.headers()["x-verdaxis-market-support-context-code"],
+                code.as_str()
+            );
+        }
     }
 }

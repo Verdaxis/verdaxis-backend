@@ -335,6 +335,7 @@ fn boundary_insert_allowed(root: &Path, path: &Path, table: &str) -> bool {
         ("events.rs", &["WATCHLIST_EVENTS"]),
         ("inventory.rs", &["INVENTORY_ITEMS"]),
         ("support.rs", &["STAFF_CAPABILITY_ASSIGNMENTS"]),
+        ("support/contexts.rs", &["MARKET_SUPPORT_CONTEXTS"]),
     ];
     per_file
         .iter()
@@ -1445,5 +1446,32 @@ fn support_insert_authority_is_scoped_to_the_exact_source_file() {
             &boundary.join("support.rs"),
             table
         ));
+    }
+}
+
+#[test]
+fn context_insert_authority_is_scoped_to_the_exact_source_file() {
+    let root = repository_root();
+    let boundary = root.join("rs/read/src/order_write");
+    let context = boundary.join("support/contexts.rs");
+    assert!(boundary_insert_allowed(
+        &root,
+        &context,
+        "MARKET_SUPPORT_CONTEXTS"
+    ));
+    for file in ["support.rs", "effects.rs", "nested/contexts.rs"] {
+        assert!(!boundary_insert_allowed(
+            &root,
+            &boundary.join(file),
+            "MARKET_SUPPORT_CONTEXTS"
+        ));
+    }
+    for table in [
+        "STAFF_CAPABILITY_ASSIGNMENTS",
+        "AUDIT_LOGS",
+        "USERS",
+        "UNLISTED_TABLE",
+    ] {
+        assert!(!boundary_insert_allowed(&root, &context, table));
     }
 }

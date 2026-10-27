@@ -176,9 +176,11 @@ market_error_codes! {
     SupportOrganizationNotFound => "ORGANIZATION_NOT_FOUND", StatusCode::NOT_FOUND, "Organization not found";
     SupportOrganizationNotApproved => "ORGANIZATION_NOT_APPROVED", StatusCode::CONFLICT, "The organization is not approved";
     SupportOrganizationNotReal => "ORGANIZATION_NOT_REAL", StatusCode::CONFLICT, "Support is limited to real organizations";
+    SupportIdentitiesUnavailable => "MARKET_SUPPORT_IDENTITIES_UNAVAILABLE", StatusCode::CONFLICT,
+        "Support context identities are not available";
     SupportContextInvalid => "SUPPORT_CONTEXT_INVALID", StatusCode::CONFLICT,
         "The support context is not valid for this action";
-    ContextReplacementRequired => "CONTEXT_REPLACEMENT_REQUIRED", StatusCode::CONFLICT,
+    ContextReplacementRequired => "MARKET_SUPPORT_CONTEXT_REPLACEMENT_REQUIRED", StatusCode::CONFLICT,
         "A replacement support context is required";
     ValidationFailed => "VALIDATION_FAILED", StatusCode::UNPROCESSABLE_ENTITY,
         "The request could not be validated";

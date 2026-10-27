@@ -935,4 +935,9 @@ effect set before commit. Bounded organization, authorization and assisted-listi
 reads retain their capability checks. Each request is checked in Python's
 order: account state, the feature switch, the administrator role, request
 validation, the bootstrap allowlist, then the capability. `routes/market_write/support.rs` exposes a
-component router; no serving route is mounted. Context creation remains separate.
+component router; no serving route is mounted. `support/contexts.rs` owns actor-bound context creation, same-organization
+reuse, confirmed replacement, expiry on read and versioned exit. Commands lock
+the actor, both capabilities and declared contexts, prepare their responses and
+stage audit effects before commit. The composite organization view reuses the
+shared eligible-owner relation and the bounded authorization/listing projections.
+The component routes remain separate from serving composition.
