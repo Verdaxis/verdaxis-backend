@@ -315,7 +315,6 @@ fn cors_app(environment: &str) -> Router {
     let config = verdaxis_read::Config {
         kyc_execution_gate_enabled: true,
         db_session_time_zone: "UTC".into(),
-        phase2: Default::default(),
         environment: "test".into(),
         release_sha: verdaxis_read::compiled_sha().into(),
         migration_revision: "kycg_20261014_staging".into(),

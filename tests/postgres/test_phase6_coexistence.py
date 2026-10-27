@@ -29,6 +29,10 @@ def stream_fixture_binary():
 @pytest.mark.asyncio
 async def test_four_python_workers_and_rust_sequence_committed_rows(analytics_pg_url, stream_fixture_binary):
     await _require_app_role(os.environ["DATABASE_URL"])
+    admin = create_async_engine(os.environ["POSTGRES_ADMIN_TEST_DATABASE_URL"])
+    async with admin.begin() as connection:
+        await connection.execute(text("SELECT setval('market_event_stream_seq', GREATEST((SELECT COALESCE(MAX(stream_seq),1) FROM market_event_outbox), (SELECT last_value FROM market_event_stream_seq)), true)"))
+    await admin.dispose()
     context = multiprocessing.get_context("spawn")
     workers = []
     actor = RustActor()

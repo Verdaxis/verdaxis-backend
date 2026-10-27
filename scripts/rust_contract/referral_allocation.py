@@ -63,8 +63,6 @@ def only_code(before, after, response, mail):
     expected = copy.deepcopy(before)
     changed = 0
     for key, row in expected['users']['rows'].items():
-        row['referral_code'] = after['users']['rows'][key]['referral_code']
-    assert_cache_change(expected, after, int(response["status"] == 200))
         code = after['users']['rows'][key]['referral_code']
         changed += row['referral_code'] != code
         row['referral_code'] = code
@@ -128,10 +126,6 @@ def races(context):
     for first, second, collision in [(IDS[2],IDS[2],False),(IDS[3],IDS[4],True),(IDS[5],IDS[5],False),(IDS[6],IDS[7],True)]:
         thread = schedule(first,second,collision)
         def invariant(before,after,results):
-            expected = copy.deepcopy(before)
-            for key,row in expected['users']['rows'].items(): row['referral_code']=after['users']['rows'][key]['referral_code']
-            assert_cache_change(expected, after, 1)
-            assert expected == after
             only_code(before, after, None, [])
             assert not errors, errors
         yield Race((Action('first','R01','POST','/api/referrals/my-code',200,headers=auth(first),actor_id=first),
