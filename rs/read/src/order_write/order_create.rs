@@ -44,16 +44,28 @@ fn context_error(status: StatusCode) -> MarketWriteError {
     )
 }
 
+pub(crate) struct CreateRequest {
+    pub input: CreateInput,
+    pub context: Option<Uuid>,
+    pub raw_key: Option<String>,
+    pub audit: AuditContext,
+    pub settings: CreateSettings,
+    pub now: DateTime<Utc>,
+}
+
 pub(crate) async fn dispatch(
     app: AppState,
     access: crate::auth::VerifiedAccess,
-    input: CreateInput,
-    context: Option<Uuid>,
-    raw_key: Option<String>,
-    audit: AuditContext,
-    settings: CreateSettings,
-    now: DateTime<Utc>,
+    request: CreateRequest,
 ) -> Result<CommittedCommand, MarketWriteError> {
+    let CreateRequest {
+        input,
+        context,
+        raw_key,
+        audit,
+        settings,
+        now,
+    } = request;
     let access = Arc::new(access);
     if let Some(context) = context {
         if !settings.support_enabled {
@@ -270,6 +282,9 @@ impl CreateCommand {
 }
 impl MarketCommand for CreateCommand {
     type Output = CommittedCommand;
+    fn uses_order_create_replay(&self) -> bool {
+        self.key.is_some()
+    }
     fn prepare_response(&self, value: &Self::Output) -> Result<(), MarketAttemptError> {
         serde_json::to_vec(&value.response_body).map_err(|_| internal())?;
         Ok(())
@@ -287,7 +302,13 @@ impl MarketCommand for CreateCommand {
             )
             .await?;
             let party = self.party(conn, &authenticated).await?;
-            let candidate = self.candidate(&party, actor, &self.input);
+            let mut preview_input = self.input.clone();
+            for field in ["fame_terms", "lng_terms"] {
+                if !preview_input.fields[field].is_null() {
+                    derive_metadata(&mut preview_input.fields, field)?;
+                }
+            }
+            let candidate = self.candidate(&party, actor, &preview_input);
             let discovered = if self.context.is_some() {
                 super::post_only::post_only_parties(
                     conn,
@@ -459,6 +480,11 @@ impl MarketCommand for CreateCommand {
             tx.effects()?
                 .finish(&self.policy, &self.config, set)
                 .await?;
+            #[cfg(feature = "contract-tests")]
+            if let Some(barrier) = &self.settings.barrier {
+                barrier.reached.notify_one();
+                barrier.resume.notified().await;
+            }
             Ok(CommittedCommand {
                 response_status: 201,
                 response_body: response,
@@ -658,20 +684,18 @@ impl<'a> CreatePort<'a> {
                 }
                 if let Some(required) =
                     policy_product.and_then(|p| p.specification_standard.as_deref())
-                {
-                    if !f["specification_standard"]
+                    && (!f["specification_standard"]
                         .as_str()
                         .unwrap()
                         .trim()
                         .eq_ignore_ascii_case(required)
                         || f["carbon_intensity_method"]
                             .as_str()
-                            .is_none_or(|s| s.trim().is_empty())
-                    {
-                        return Err(bad(
-                            "Supplier specification and lifecycle method are required",
-                        ));
-                    }
+                            .is_none_or(|s| s.trim().is_empty()))
+                {
+                    return Err(bad(
+                        "Supplier specification and lifecycle method are required",
+                    ));
                 }
             }
         }
@@ -779,7 +803,7 @@ impl<'a> CreatePort<'a> {
         actor: &AuthenticatedActor,
         party: &Party,
         input: &CreateInput,
-    ) -> Result<Option<Uuid>, MarketWriteError> {
+    ) -> Result<Option<Uuid>, MarketAttemptError> {
         let ordinal: i64 = sqlx::query_scalar("SELECT nextval('orderbook_acceptance_ordinal_seq')")
             .fetch_one(&mut *self.conn)
             .await?;
@@ -809,12 +833,7 @@ impl<'a> CreatePort<'a> {
         let map = payload.as_object_mut().ok_or_else(internal)?;
         let expiry = party.context_expiry.ok_or_else(internal)?;
         let expiry = input.expiry.map_or(expiry, |at| at.min(expiry));
-        let digest = super::locks::sha256_hex(
-            super::python_json(
-                &super::Canonical::from_json(&input.economic_payload()?).map_err(|_| internal())?,
-            )
-            .as_bytes(),
-        );
+        let digest = input.authorization_digest()?;
         for (key, value) in [
             ("id", json!(id)),
             ("organization_id", json!(party.organization)),
@@ -858,7 +877,7 @@ impl<'a> CreatePort<'a> {
         ] {
             map.insert(key.into(), value);
         }
-        sqlx::query("INSERT INTO market_support_authorizations(id,organization_id,accountable_user_id,market_support_context_id,product_id,delivery_point_id,availability_window,quantity_mt,price_per_mt_usd,order_side,authorization_expires_at,order_expires_at,is_anonymous,certifications,certification_declared,certification_scheme,fame_terms,lng_terms,specification_standard,msds_available,carbon_intensity_gco2_mj,carbon_intensity_method,feedstock,origin,off_spec,off_spec_notes,terms_digest,evidence_reference,evidence_sha256,instruction_at,acknowledge_exact_terms,acknowledge_executable_standing_order,commercial_consent_version,commercial_consent_reference,support_case_reference,idempotency_key,idempotency_request_hash,created_by_actor_user_id,status,consumed_at,created_at,version) SELECT id,organization_id,accountable_user_id,market_support_context_id,product_id,delivery_point_id,availability_window,quantity_mt,price_per_mt_usd,order_side,authorization_expires_at,order_expires_at,is_anonymous,certifications,certification_declared,certification_scheme,fame_terms,lng_terms,specification_standard,msds_available,carbon_intensity_gco2_mj,carbon_intensity_method,feedstock,origin,off_spec,off_spec_notes,terms_digest,evidence_reference,evidence_sha256,instruction_at,acknowledge_exact_terms,acknowledge_executable_standing_order,commercial_consent_version,commercial_consent_reference,support_case_reference,idempotency_key,idempotency_request_hash,created_by_actor_user_id,status,consumed_at,created_at,version FROM jsonb_populate_record(NULL::market_support_authorizations,$1::jsonb)").bind(payload).execute(&mut *self.conn).await?;
+        sqlx::query("INSERT INTO market_support_authorizations(id,organization_id,accountable_user_id,market_support_context_id,product_id,delivery_point_id,availability_window,quantity_mt,price_per_mt_usd,order_side,authorization_expires_at,order_expires_at,is_anonymous,certifications,certification_declared,certification_scheme,fame_terms,lng_terms,specification_standard,msds_available,carbon_intensity_gco2_mj,carbon_intensity_method,feedstock,origin,off_spec,off_spec_notes,terms_digest,evidence_reference,evidence_sha256,instruction_at,acknowledge_exact_terms,acknowledge_executable_standing_order,commercial_consent_version,commercial_consent_reference,support_case_reference,idempotency_key,idempotency_request_hash,created_by_actor_user_id,status,consumed_at,created_at) SELECT id,organization_id,accountable_user_id,market_support_context_id,product_id,delivery_point_id,availability_window,quantity_mt,price_per_mt_usd,order_side,authorization_expires_at,order_expires_at,is_anonymous,certifications,certification_declared,certification_scheme,fame_terms,lng_terms,specification_standard,msds_available,carbon_intensity_gco2_mj,carbon_intensity_method,feedstock,origin,off_spec,off_spec_notes,terms_digest,evidence_reference,evidence_sha256,instruction_at,acknowledge_exact_terms,acknowledge_executable_standing_order,commercial_consent_version,commercial_consent_reference,support_case_reference,idempotency_key,idempotency_request_hash,created_by_actor_user_id,status,consumed_at,created_at FROM jsonb_populate_record(NULL::market_support_authorizations,$1::jsonb)").bind(payload).execute(&mut *self.conn).await?;
         Ok(id)
     }
     async fn authorization_effect(
@@ -922,8 +941,8 @@ impl<'a> CreatePort<'a> {
                 .as_str()
                 .unwrap_or("UNKNOWN")
                 .into(),
-            is_demo_listing: party.provenance != "REAL",
-            unknown_count: 0,
+            is_demo_listing: party.provenance == "DEMO",
+            unknown_count: u32::from(party.provenance == "UNKNOWN"),
             market_product: projection["market_product"].as_str().map(str::to_owned),
             delivery_point_id: Some(input.point),
             availability_window: f["availability_window"].as_str().unwrap().into(),
@@ -988,9 +1007,23 @@ impl<'a> CreatePort<'a> {
         )
         .await
         .map_err(|_| internal())?;
-        projection
+        let mut response = projection
             .public(false, benchmarks.values().next())
-            .map_err(|_| internal())
+            .map_err(|_| internal())?;
+        let provenance = projection.provenance.as_str();
+        response["is_demo_listing"] = json!(provenance == "DEMO");
+        response["source_kind"] = json!(match provenance {
+            "REAL" => "LIVE_ORDER",
+            "DEMO" => "DEMO_SEED",
+            _ => "UNKNOWN",
+        });
+        response["demo_status"] = json!(match provenance {
+            "REAL" => "REAL_ONLY",
+            "DEMO" => "DEMO_ONLY",
+            _ => "UNKNOWN",
+        });
+        response["unknown_count"] = json!(u32::from(provenance == "UNKNOWN"));
+        Ok(response)
     }
 }
 

@@ -17,8 +17,8 @@ use uuid::Uuid;
 use crate::{
     AppState,
     auth::VerificationSettings,
-    order_write::{
-        Canonical, MarketErrorCode, MarketWriteError, OrderQuantity, Price, effects::AuditContext,
+    market_create::{
+        AuditContext, Canonical, MarketErrorCode, MarketWriteError, OrderQuantity, Price,
         idempotency_request_hash,
     },
 };
@@ -309,7 +309,31 @@ impl CreateInput {
                 fields.remove(name);
             }
         }
+        for name in ["fame_terms", "lng_terms"] {
+            if let Some(terms) = fields.get_mut(name) {
+                normalize_term_numbers(terms);
+            }
+        }
         Ok(Value::Object(fields))
+    }
+    pub fn authorization_digest(&self) -> Result<String, MarketWriteError> {
+        let mut payload = self.economic_payload()?;
+        for name in [
+            "quantity_mt",
+            "price_per_mt_usd",
+            "carbon_intensity_gco2_mj",
+        ] {
+            if let Some(text) = payload[name].as_str() {
+                let number = Decimal::from_str_exact(text).map_err(|_| invalid())?;
+                payload[name] = json!(number.normalize().to_string());
+            }
+        }
+        if let Some(expiry) = self.expiry {
+            payload["expires_at"] =
+                json!(expiry.to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true));
+        }
+        let canonical = Canonical::from_json(&payload).map_err(|_| invalid())?;
+        Ok(crate::market_create::command_request_hash(&canonical))
     }
     pub fn confirmation_payload(&self) -> Option<Value> {
         self.confirmation.clone()
@@ -326,8 +350,60 @@ impl CreateInput {
     }
 }
 
+fn normalize_term_numbers(value: &mut Value) {
+    match value {
+        Value::Object(fields) => {
+            for (name, value) in fields {
+                if matches!(
+                    name.as_str(),
+                    "uco_mass_pct"
+                        | "max_cfpp_c"
+                        | "max_cloud_point_c"
+                        | "cfpp_c"
+                        | "cloud_point_c"
+                        | "max_ci_gco2e_mj"
+                        | "ci_gco2e_mj"
+                        | "lhv_mj_kg"
+                        | "bio_share_pct"
+                        | "min_bio_share_pct"
+                        | "wtt_ghg_gco2e_mj"
+                        | "max_wtt_ghg_gco2e_mj"
+                        | "min_methane_number"
+                        | "value"
+                ) {
+                    let text = value
+                        .as_str()
+                        .map(str::to_owned)
+                        .or_else(|| value.is_number().then(|| value.to_string()));
+                    if let Some(number) = text.and_then(|s| Decimal::from_str_exact(s.trim()).ok())
+                    {
+                        *value = json!(number.normalize().to_string());
+                    }
+                } else {
+                    normalize_term_numbers(value);
+                }
+            }
+        }
+        Value::Array(values) => {
+            for value in values {
+                normalize_term_numbers(value);
+            }
+        }
+        _ => {}
+    }
+}
+
+#[cfg(feature = "contract-tests")]
+#[derive(Debug, Default)]
+pub struct CreateBarrier {
+    pub reached: tokio::sync::Notify,
+    pub resume: tokio::sync::Notify,
+}
+
 #[derive(Clone, Debug)]
 pub struct CreateSettings {
+    #[cfg(feature = "contract-tests")]
+    pub barrier: Option<Arc<CreateBarrier>>,
     pub auto_matching_enabled: bool,
     pub kyc_execution_gate_enabled: bool,
     pub support_enabled: bool,
@@ -338,6 +414,8 @@ pub struct CreateSettings {
 impl Default for CreateSettings {
     fn default() -> Self {
         Self {
+            #[cfg(feature = "contract-tests")]
+            barrier: None,
             auto_matching_enabled: true,
             kyc_execution_gate_enabled: true,
             support_enabled: true,
@@ -366,7 +444,12 @@ pub fn router(
             settings,
         })
 }
-async fn create(State(state): State<RouteState>, headers: HeaderMap, body: Bytes) -> Response {
+async fn create(
+    State(state): State<RouteState>,
+    peer: Option<axum::Extension<axum::extract::ConnectInfo<std::net::SocketAddr>>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     let now = Utc::now();
     let result = async {
         let access = crate::auth::verify_authorization(
@@ -398,20 +481,25 @@ async fn create(State(state): State<RouteState>, headers: HeaderMap, body: Bytes
                 })
             })
             .transpose()?;
-        let ip = crate::runtime::http::client_ip(None, header("x-forwarded-for")?);
+        let ip = crate::runtime::http::client_ip(
+            peer.map(|peer| peer.0.0.ip()),
+            header("x-forwarded-for")?,
+        );
         let audit = AuditContext::new(
             Some(ip),
             Some(crate::runtime::logging::request_id(header("x-request-id")?)),
         )?;
-        crate::order_write::order_create::dispatch(
+        crate::market_create::dispatch(
             state.app,
             access,
-            input,
-            context,
-            header("idempotency-key")?.map(str::to_owned),
-            audit,
-            state.settings,
-            now,
+            crate::market_create::CreateRequest {
+                input,
+                context,
+                raw_key: header("idempotency-key")?.map(str::to_owned),
+                audit,
+                settings: state.settings,
+                now,
+            },
         )
         .await
     }
@@ -420,6 +508,28 @@ async fn create(State(state): State<RouteState>, headers: HeaderMap, body: Bytes
         Ok(reply) => (StatusCode::CREATED, axum::Json(reply.response_body)).into_response(),
         Err(e) => e.into_response(),
     }
+}
+
+#[cfg(feature = "contract-tests")]
+pub async fn contract_hold_key(conn: &mut sqlx::PgConnection, key: i64) {
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(key)
+        .execute(conn)
+        .await
+        .unwrap();
+}
+
+#[cfg(feature = "contract-tests")]
+pub async fn contract_block_outbox(conn: &mut sqlx::PgConnection) {
+    sqlx::query("LOCK TABLE market_event_outbox IN SHARE MODE")
+        .execute(conn)
+        .await
+        .unwrap();
+}
+
+#[cfg(feature = "contract-tests")]
+pub fn contract_key(organization: Uuid, operation: &str, key: &str) -> i64 {
+    crate::market_create::contract_key(organization, operation, key)
 }
 
 #[cfg(feature = "contract-tests")]

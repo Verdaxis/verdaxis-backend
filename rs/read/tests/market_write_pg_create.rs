@@ -1173,19 +1173,32 @@ async fn create_commit_ack_loss_does_not_repeat_the_order() {
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn uncommitted_create_effects_are_invisible_to_independent_readers() {
-    let mut f=Fixture::new(1).await;
-    let barrier=std::sync::Arc::new(verdaxis_read::routes::market_write::order_create::CreateBarrier::default());
-    let settings=CreateSettings {barrier:Some(barrier.clone()),..Default::default()};
-    let router=contract_router(f.pool.clone(),KEY,settings);let body=f.body("BID");
-    let request=tokio::spawn(async move {send(&router,Some(buyer()),&[],body).await});
-    tokio::time::timeout(std::time::Duration::from_secs(10),barrier.reached.notified()).await.unwrap();
-    assert_eq!(f.count("orders").await,1);
-    for table in ["trades","events","audit","notifications"] {assert_eq!(f.count(table).await,0);}
+    let mut f = Fixture::new(1).await;
+    let barrier = std::sync::Arc::new(
+        verdaxis_read::routes::market_write::order_create::CreateBarrier::default(),
+    );
+    let settings = CreateSettings {
+        barrier: Some(barrier.clone()),
+        ..Default::default()
+    };
+    let router = contract_router(f.pool.clone(), KEY, settings);
+    let body = f.body("BID");
+    let request = tokio::spawn(async move { send(&router, Some(buyer()), &[], body).await });
+    tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        barrier.reached.notified(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(f.count("orders").await, 1);
+    for table in ["trades", "events", "audit", "notifications"] {
+        assert_eq!(f.count(table).await, 0);
+    }
     barrier.resume.notify_one();
-    assert_eq!(request.await.unwrap().0,StatusCode::CREATED);
-    assert_eq!(f.count("orders").await,2);
-    assert_eq!(f.count("trades").await,1);
-    assert_eq!(f.count("events").await,3);
+    assert_eq!(request.await.unwrap().0, StatusCode::CREATED);
+    assert_eq!(f.count("orders").await, 2);
+    assert_eq!(f.count("trades").await, 1);
+    assert_eq!(f.count("events").await, 3);
 }
 
 #[tokio::test]
@@ -1250,15 +1263,21 @@ async fn support_headers_confirmation_and_legacy_replay_keep_distinct_authority(
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn unknown_organization_provenance_is_not_a_demo_listing() {
-    let mut f=Fixture::new(0).await;
-    sqlx::query("SELECT create_fixture_unknown_member()").execute(&mut f.admin).await.unwrap();
-    let reply=send(&f.router,Some(Uuid::from_u128(0x9001)),&[],f.body("BID")).await;
-    assert_eq!(reply.0,StatusCode::CREATED,"{reply:?}");
-    assert_eq!(reply.1["is_demo_listing"],false);
-    assert_eq!(reply.1["source_kind"],"UNKNOWN");
-    assert_eq!(reply.1["demo_status"],"UNKNOWN");
-    assert_eq!(reply.1["unknown_count"],1);
-    let event:Value=sqlx::query_scalar("SELECT payload::jsonb FROM market_event_outbox").fetch_one(&mut f.observer).await.unwrap();
-    assert_eq!(event["is_demo_listing"],false);
-    assert_eq!(event["unknown_count"],1);
+    let mut f = Fixture::new(0).await;
+    sqlx::query("SELECT create_fixture_unknown_member()")
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
+    let reply = send(&f.router, Some(Uuid::from_u128(0x9001)), &[], f.body("BID")).await;
+    assert_eq!(reply.0, StatusCode::CREATED, "{reply:?}");
+    assert_eq!(reply.1["is_demo_listing"], false);
+    assert_eq!(reply.1["source_kind"], "UNKNOWN");
+    assert_eq!(reply.1["demo_status"], "UNKNOWN");
+    assert_eq!(reply.1["unknown_count"], 1);
+    let event: Value = sqlx::query_scalar("SELECT payload::jsonb FROM market_event_outbox")
+        .fetch_one(&mut f.observer)
+        .await
+        .unwrap();
+    assert_eq!(event["is_demo_listing"], false);
+    assert_eq!(event["unknown_count"], 1);
 }
