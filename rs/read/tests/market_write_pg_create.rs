@@ -1,18 +1,28 @@
 #![cfg(feature = "contract-tests")]
 
+use std::{sync::Arc, time::Duration};
+
 use axum::{
     Router,
     body::Body,
+    extract::State,
     http::{Request, StatusCode},
+    routing::post,
+    Json,
 };
 use chrono::Utc;
 use jsonwebtoken::{EncodingKey, Header, encode};
 use rust_decimal::Decimal;
 use serde_json::{Value, json};
 use sqlx::{Connection, PgConnection, PgPool, Row};
+use tokio::sync::{Mutex, Notify};
 use tower::ServiceExt;
 use uuid::Uuid;
-use verdaxis_read::routes::market_write::order_create::{CreateSettings, contract_router};
+use verdaxis_read::analytics::sender::AnalyticsSender;
+use verdaxis_read::providers::umami::{UmamiConfig, UmamiPolicy};
+use verdaxis_read::routes::market_write::order_create::{
+    CreateSettings, contract_router, contract_router_with_sender,
+};
 
 const KEY: &str = "synthetic-create-signing-key-at-least-32-characters";
 const CONTEXT: &str = "00000000-0000-0000-0000-000000003201";
@@ -78,6 +88,17 @@ impl Fixture {
             product,
             point,
         }
+    }
+    /// The same fixture with a router that schedules post-commit analytics.
+    async fn with_analytics(sender: AnalyticsSender) -> Self {
+        let mut fixture = Self::new(2).await;
+        fixture.router = contract_router_with_sender(
+            fixture.pool.clone(),
+            KEY,
+            CreateSettings::default(),
+            sender,
+        );
+        fixture
     }
     fn body(&self, side: &str) -> Value {
         let mut b = json!({"side":side,"product_id":self.product,"delivery_point_id":self.point,"quantity_mt":"200","price_per_mt_usd":"110"});
@@ -149,6 +170,49 @@ async fn send(
         status,
         serde_json::from_slice(&bytes).unwrap_or(Value::Null),
     )
+}
+
+/// A local conversion collector: it records every delivery and signals each
+/// arrival, so route cases can observe scheduled post-commit work.
+#[derive(Clone, Default)]
+struct Collector {
+    rows: Arc<Mutex<Vec<Value>>>,
+    arrived: Arc<Notify>,
+}
+async fn receive(State(state): State<Collector>, Json(value): Json<Value>) -> (StatusCode, Json<Value>) {
+    state.rows.lock().await.push(value);
+    state.arrived.notify_one();
+    (StatusCode::OK, Json(json!({"ok": true})))
+}
+/// One sender bound to a local receiver on a loopback port.
+async fn collector_sender(label: &str) -> (AnalyticsSender, Collector) {
+    let collector = Collector::default();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let router = axum::Router::new()
+        .route("/api/send", post(receive))
+        .with_state(collector.clone());
+    tokio::spawn(async move {
+        axum::serve(listener, router).await.unwrap();
+    });
+    let sender = AnalyticsSender::new(
+        &UmamiConfig {
+            enabled: true,
+            base_url: Some(format!("http://{address}")),
+            website_id: Some(label.into()),
+            api_username: None,
+            api_password: None,
+            policy: UmamiPolicy {
+                timeout: Duration::from_millis(500),
+            },
+            catalog: Arc::new(Default::default()),
+        },
+        Some("create-monitor".into()),
+        "https://app.example.test",
+        2,
+    )
+    .unwrap();
+    (sender, collector)
 }
 
 #[tokio::test]
@@ -584,6 +648,59 @@ async fn create_with_match_commits_order_and_trades_together() {
     .await;
     assert_eq!(result.0, StatusCode::CREATED);
     assert_eq!(f.count("events").await, 4);
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn route_analytics_fires_once_per_commit_and_never_on_replay_or_refusal() {
+    let (sender, collector) = collector_sender("create-site").await;
+    let mut f = Fixture::with_analytics(sender).await;
+    // A refused create commits nothing, so it must not reach the collector.
+    let mut refused = f.body("BID");
+    refused["quantity_mt"] = json!("1");
+    assert_eq!(
+        send(&f.router, Some(buyer()), &[], refused).await.0,
+        StatusCode::BAD_REQUEST
+    );
+    // One committed create with two inline matches schedules exactly one
+    // order_created event and one trade_created event per matched trade.
+    let (status, body) = send(
+        &f.router,
+        Some(buyer()),
+        &[("Idempotency-Key", "once")],
+        f.body("BID"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    assert_eq!(f.count("trades").await, 2);
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while collector.rows.lock().await.len() < 3 {
+            collector.arrived.notified().await;
+        }
+    })
+    .await
+    .expect("the committed create must schedule its events");
+    // A replay of the same key returns the stored projection and schedules
+    // nothing: neither the order event nor any trade event again.
+    let (status, replay) = send(
+        &f.router,
+        Some(buyer()),
+        &[("Idempotency-Key", "once")],
+        f.body("BID"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(replay["id"], body["id"]);
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let rows = collector.rows.lock().await;
+    assert_eq!(rows.len(), 3, "exactly three deliveries across all cases");
+    assert_eq!(rows[0]["payload"]["name"], "order_created");
+    assert_eq!(rows[0]["payload"]["website"], "create-site");
+    assert_eq!(
+        rows[1]["payload"]["name"], "trade_created",
+        "one delivery per matched trade"
+    );
+    assert_eq!(rows[2]["payload"]["name"], "trade_created");
 }
 
 #[tokio::test]
