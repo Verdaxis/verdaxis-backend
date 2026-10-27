@@ -117,10 +117,7 @@ async fn amend(
             e.status = StatusCode::PAYLOAD_TOO_LARGE;
             return Err(e);
         }
-        let input = AmendBody::parse(
-            &serde_json::from_slice(&body).map_err(|_| invalid())?,
-            now,
-        )?;
+        let input = AmendBody::parse(&serde_json::from_slice(&body).map_err(|_| invalid())?, now)?;
         let header = |name| {
             headers
                 .get(name)
@@ -244,20 +241,17 @@ pub fn contract_router(pool: sqlx::PgPool, key: &str, settings: AmendSettings) -
             health: pool,
         },
         policy: Arc::new(
-            serde_json::from_str(include_str!("../../../../../deploy/rust/market-policy.json"))
-                .unwrap(),
+            serde_json::from_str(include_str!(
+                "../../../../../deploy/rust/market-policy.json"
+            ))
+            .unwrap(),
         ),
         reads: Arc::new(tokio::sync::Semaphore::new(8)),
         reference_cache: Arc::new(crate::runtime::cache::ReferenceCache::default()),
     };
     router(
         app,
-        VerificationSettings::new(
-            key.into(),
-            None,
-            "amend-tests".into(),
-            "amend-tests".into(),
-        ),
+        VerificationSettings::new(key.into(), None, "amend-tests".into(), "amend-tests".into()),
         settings,
     )
 }

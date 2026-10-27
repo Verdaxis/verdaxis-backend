@@ -127,7 +127,10 @@ impl Fixture {
     }
     async fn scalar(&mut self, sql: &str, id: Uuid) -> Value {
         let text = sql.replace("$1", &format!("'{id}'"));
-        let row: (Value,) = sqlx::query_as(&text).fetch_one(&mut self.observer).await.unwrap();
+        let row: (Value,) = sqlx::query_as(&text)
+            .fetch_one(&mut self.observer)
+            .await
+            .unwrap();
         row.0
     }
 }
@@ -202,14 +205,8 @@ async fn amend_rejects_each_nullable_economic_field() {
         "off_spec",
         "off_spec_notes",
     ] {
-        let (status, body) = send(
-            &f.router,
-            Some(buyer()),
-            f.bid,
-            &[],
-            json!({ field: null }),
-        )
-        .await;
+        let (status, body) =
+            send(&f.router, Some(buyer()), f.bid, &[], json!({ field: null })).await;
         assert_eq!(status.as_u16(), 422, "{field}: {body}");
         assert_eq!(body["detail"]["code"], "ORDER_FIELD_NULL", "{field}");
         let row = f.order(f.bid).await;
@@ -406,20 +403,17 @@ async fn amend_rebuilds_both_sides_of_the_slice() {
     .await
     .unwrap();
     assert_eq!(mirrors, 0);
-    let sides: i64 = sqlx::query_scalar(
-        "SELECT count(DISTINCT side) FROM live_slice_benchmarks",
-    )
-    .fetch_one(&mut f.observer)
-    .await
-    .unwrap();
+    let sides: i64 = sqlx::query_scalar("SELECT count(DISTINCT side) FROM live_slice_benchmarks")
+        .fetch_one(&mut f.observer)
+        .await
+        .unwrap();
     assert_eq!(sides, 2);
     // Exactly one rebuild per side: one row per (side) after deduplication.
-    let bid_rows: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM live_slice_benchmarks WHERE side='BID'",
-    )
-    .fetch_one(&mut f.observer)
-    .await
-    .unwrap();
+    let bid_rows: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM live_slice_benchmarks WHERE side='BID'")
+            .fetch_one(&mut f.observer)
+            .await
+            .unwrap();
     assert_eq!(bid_rows, 1);
 }
 
@@ -488,24 +482,23 @@ async fn newly_qualified_order_gets_a_new_ordinal_and_cannot_jump_the_queue() {
         .execute(&mut f.admin)
         .await
         .unwrap();
-    let earlier_ordinal: i64 = sqlx::query_scalar(
-        "SELECT acceptance_ordinal FROM orderbook_orders WHERE id=$1",
-    )
-    .bind(executable)
-    .fetch_one(&mut f.admin)
-    .await
-    .unwrap();
-    let inert_ordinal: i64 = sqlx::query_scalar(
-        "SELECT acceptance_ordinal FROM orderbook_orders WHERE id=$1",
-    )
-    .bind(inert)
-    .fetch_one(&mut f.admin)
-    .await
-    .unwrap();
-    let every_prior: i64 = sqlx::query_scalar("SELECT max(acceptance_ordinal) FROM orderbook_orders")
-        .fetch_one(&mut f.admin)
-        .await
-        .unwrap();
+    let earlier_ordinal: i64 =
+        sqlx::query_scalar("SELECT acceptance_ordinal FROM orderbook_orders WHERE id=$1")
+            .bind(executable)
+            .fetch_one(&mut f.admin)
+            .await
+            .unwrap();
+    let inert_ordinal: i64 =
+        sqlx::query_scalar("SELECT acceptance_ordinal FROM orderbook_orders WHERE id=$1")
+            .bind(inert)
+            .fetch_one(&mut f.admin)
+            .await
+            .unwrap();
+    let every_prior: i64 =
+        sqlx::query_scalar("SELECT max(acceptance_ordinal) FROM orderbook_orders")
+            .fetch_one(&mut f.admin)
+            .await
+            .unwrap();
     // Declaring the certification makes the inert ASK executable: it must get
     // a fresh ordinal greater than every previously accepted order.
     let (status, body) = send(
@@ -545,5 +538,8 @@ async fn newly_qualified_order_gets_a_new_ordinal_and_cannot_jump_the_queue() {
     .unwrap();
     let _ = earlier_ordinal;
     assert!(!filled.is_empty());
-    assert_eq!(filled[0], executable, "the earlier executable ASK must fill first");
+    assert_eq!(
+        filled[0], executable,
+        "the earlier executable ASK must fill first"
+    );
 }

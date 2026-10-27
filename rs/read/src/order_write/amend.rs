@@ -16,8 +16,7 @@ use uuid::Uuid;
 
 use super::{
     AdmissionClass, AuthenticatedActor, Canonical, CommittedCommand, MarketErrorCode,
-    MarketWriteError, Operation, OrderQuantity, Price, ReceiptRecord, StockQuantity,
-    WriteContext,
+    MarketWriteError, Operation, OrderQuantity, Price, ReceiptRecord, StockQuantity, WriteContext,
     effects::{AuditContext, BeforeEffects, EffectPort, MutationEffect, MutationKind},
     locks::{LockClass, Locked, MarketOperation, OperationLockPlan, PartyLockPreview},
     matching::{MatchBound, MatchOutcome, OrderRow, OrderStatus, Side},
@@ -132,6 +131,7 @@ pub(crate) struct AmendRequest {
 
 /// The parsed update body: the supplied fields, their validated values and the
 /// canonical request identity for one order.
+#[derive(Clone, Debug)]
 pub(crate) struct AmendBody {
     fields: Map<String, Value>,
     payload_hash: String,
@@ -146,9 +146,12 @@ impl AmendBody {
         else {
             return Ok(None);
         };
-        Decimal::from_str_exact(text.trim())
-            .map(Some)
-            .map_err(|_| refusal(StatusCode::UNPROCESSABLE_ENTITY, "A decimal field is not valid"))
+        Decimal::from_str_exact(text.trim()).map(Some).map_err(|_| {
+            refusal(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "A decimal field is not valid",
+            )
+        })
     }
     fn text(value: &Value) -> Result<(), MarketWriteError> {
         if !value.is_null() && !value.is_string() {
@@ -205,11 +208,17 @@ impl AmendBody {
             let parsed: DateTime<Utc> = expiry
                 .as_str()
                 .ok_or_else(|| {
-                    refusal(StatusCode::UNPROCESSABLE_ENTITY, "expires_at must be a timestamp")
+                    refusal(
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        "expires_at must be a timestamp",
+                    )
                 })?
                 .parse()
                 .map_err(|_| {
-                    refusal(StatusCode::UNPROCESSABLE_ENTITY, "expires_at must carry a timezone")
+                    refusal(
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        "expires_at must carry a timezone",
+                    )
                 })?;
             if parsed <= now {
                 return Err(refusal(
@@ -226,7 +235,10 @@ impl AmendBody {
             && !certifications.is_null()
         {
             let list = certifications.as_array().ok_or_else(|| {
-                refusal(StatusCode::UNPROCESSABLE_ENTITY, "certifications must be a list")
+                refusal(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    "certifications must be a list",
+                )
             })?;
             let mut normalized = Vec::new();
             for item in list {
@@ -254,7 +266,10 @@ impl AmendBody {
             })?;
             let normalized = crate::market::terms::normalize_certification_scheme(Some(text))
                 .ok_or_else(|| {
-                    refusal(StatusCode::UNPROCESSABLE_ENTITY, "certification_scheme is empty")
+                    refusal(
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        "certification_scheme is empty",
+                    )
                 })?;
             fields.insert("certification_scheme".into(), json!(normalized));
         }
@@ -474,8 +489,7 @@ impl MarketCommand for AmendCommand {
             let parties = if self.settings.auto_matching_enabled
                 && self.input.supplied_any(&ECONOMIC_FIELDS)
             {
-                let discovered =
-                    super::matching::match_parties(conn, &row, self.bound()).await?;
+                let discovered = super::matching::match_parties(conn, &row, self.bound()).await?;
                 organizations.extend(discovered.organizations);
                 users.extend(discovered.users);
                 PartyLockPreview::new(
@@ -509,13 +523,14 @@ impl MarketCommand for AmendCommand {
             };
             let order = tx.matching_order(self.order).await?;
             authorize(actor, &order)?;
-            let context = tx.execution_context(
-                actor,
-                order.organization_id,
-                self.now,
-                self.config.kyc_execution_gate_enabled,
-            )
-            .await?;
+            let context = tx
+                .execution_context(
+                    actor,
+                    order.organization_id,
+                    self.now,
+                    self.config.kyc_execution_gate_enabled,
+                )
+                .await?;
             Ok(tx
                 .replay_receipt(
                     &context,
@@ -535,13 +550,14 @@ impl MarketCommand for AmendCommand {
         Box::pin(async move {
             let order = tx.matching_order(self.order).await?;
             authorize(actor, &order)?;
-            let context = tx.execution_context(
-                actor,
-                order.organization_id,
-                self.now,
-                self.config.kyc_execution_gate_enabled,
-            )
-            .await?;
+            let context = tx
+                .execution_context(
+                    actor,
+                    order.organization_id,
+                    self.now,
+                    self.config.kyc_execution_gate_enabled,
+                )
+                .await?;
             let (staged, matched) = {
                 let mut port = tx.amend_port(self, &context)?;
                 port.run(&order).await?
@@ -568,8 +584,15 @@ impl MarketCommand for AmendCommand {
             });
             // The audit descriptor and the participant event join the staged
             // match effects; one finish composes the terminal effect set.
-            let mut set = staged.before.stage();
-            if let Some(outcome) = &staged.outcome {
+            let StagedAmend {
+                before,
+                public_before,
+                outcome,
+                update,
+                participants,
+            } = staged;
+            let mut set = before.stage();
+            if let Some(outcome) = &outcome {
                 tx.effects()?
                     .matched(
                         &mut set,
@@ -581,8 +604,16 @@ impl MarketCommand for AmendCommand {
                     .await?;
             }
             set.push(
-                self.order_descriptor(tx, &staged, &order, after_public, matched)
-                    .await?,
+                self.order_descriptor_parts(
+                    tx.amend_conn(),
+                    &update,
+                    &participants,
+                    &order,
+                    public_before,
+                    after_public,
+                    matched,
+                )
+                .await?,
             )?;
             if let Some(receipt) = receipt {
                 tx.record_receipt(&context, &receipt).await?;
@@ -616,11 +647,14 @@ impl AmendCommand {
 
     /// The route's own effect: one `order.updated` audit when an economic value
     /// changed, and one `order_updated` participant event whatever changed.
-    async fn order_descriptor(
+    #[allow(clippy::too_many_arguments)]
+    async fn order_descriptor_parts(
         &self,
         conn: &mut PgConnection,
-        staged: &StagedAmend,
+        update: &Map<String, Value>,
+        participants: &[Uuid],
         before: &OrderRow,
+        public_before: bool,
         public_after: bool,
         matched: usize,
     ) -> Result<MutationEffect, MarketWriteError> {
@@ -639,7 +673,9 @@ impl AmendCommand {
             side: row.try_get("side")?,
             product_name: row.try_get("product_name")?,
             fuel_type: row.try_get("fuel_type")?,
-            region: row.try_get::<Option<String>, _>("region")?.unwrap_or_default(),
+            region: row
+                .try_get::<Option<String>, _>("region")?
+                .unwrap_or_default(),
             source_kind: match provenance.as_str() {
                 "REAL" => "LIVE_ORDER",
                 "DEMO" => "DEMO_SEED",
@@ -667,6 +703,7 @@ impl AmendCommand {
             delivery_point: row.try_get("point_name")?,
         };
         // The audit carries only fields whose effective value changed.
+        let _ = &self.input;
         let mut changes = Map::new();
         for field in [
             "quantity_mt",
@@ -688,7 +725,7 @@ impl AmendCommand {
             "fame_terms",
             "lng_terms",
         ] {
-            if let Some(value) = staged.update.get(field) {
+            if let Some(value) = update.get(field) {
                 changes.insert(field.into(), json!({"from": null, "to": value}));
             }
         }
@@ -710,10 +747,9 @@ impl AmendCommand {
                 event_type: "order_updated".into(),
                 aggregate_type: "order".into(),
                 aggregate_id: self.order.to_string(),
-                participant_org_ids: staged.participants.clone(),
+                participant_org_ids: participants.to_vec(),
                 fields: ParticipantFields::OrderUpdated(activity),
-                public_invalidated: (staged.public_before || public_after)
-                    || matched > 0,
+                public_invalidated: (public_before || public_after) || matched > 0,
             }),
             at: self.now,
             audit_context: self.audit.clone(),
@@ -741,7 +777,7 @@ fn authorize(actor: &AuthenticatedActor, order: &OrderRow) -> Result<(), MarketW
         return Err(unauthorized());
     }
     if order.creation_method == super::matching::CreationMethod::MarketSupport {
-        return Err(refusal(
+        return Err(super::orders::refusal(
             MarketErrorCode::ValidationFailed,
             StatusCode::CONFLICT,
             "Assisted listings cannot be edited; cancel and create a replacement",
@@ -797,9 +833,7 @@ fn loses_priority(order: &OrderRow, update: &Map<String, Value>) -> bool {
                 .into_iter()
                 .flatten()
                 .filter_map(|item| item.as_str())
-                .map(|text| {
-                    crate::market::terms::normalize_certification_scheme(Some(text))
-                })
+                .map(|text| crate::market::terms::normalize_certification_scheme(Some(text)))
                 .collect()
         };
         let old = json!(order.terms.certifications);
@@ -810,9 +844,7 @@ fn loses_priority(order: &OrderRow, update: &Map<String, Value>) -> bool {
     for field in ["certification_scheme", "fame_terms", "lng_terms"] {
         if let Some(value) = update.get(field) {
             let stored: Value = match field {
-                "certification_scheme" => {
-                    order.terms.certification_scheme.clone().into()
-                }
+                "certification_scheme" => order.terms.certification_scheme.clone().into(),
                 "fame_terms" => order.terms.fame_terms.clone().unwrap_or(Value::Null),
                 _ => order.terms.lng_terms.clone().unwrap_or(Value::Null),
             };
@@ -845,11 +877,27 @@ fn newly_qualified(
         None => order.terms.carbon_intensity_gco2_mj.map(|v| v.to_string()),
         Some(value) => value.as_str().map(str::to_owned),
     };
+    // Every projection field borrows, so each effective value is a named local.
+    let delivery_point = order.delivery_point_id.map(|id| id.to_string());
+    let scheme = effective(
+        "certification_scheme",
+        order.terms.certification_scheme.as_deref(),
+    );
+    let standard = effective(
+        "specification_standard",
+        order.terms.specification_standard.as_deref(),
+    );
+    let method = effective(
+        "carbon_intensity_method",
+        order.terms.carbon_intensity_method.as_deref(),
+    );
+    let feedstock = effective("feedstock", order.terms.feedstock.as_deref());
+    let origin = effective("origin", order.terms.origin.as_deref());
     let projection = crate::market::terms::QualificationInput {
         product_id: Some(order.product_id),
         market_product: None,
         side: order.side.as_str(),
-        delivery_point_id: order.delivery_point_id.map(|id| id.to_string()).as_deref(),
+        delivery_point_id: delivery_point.as_deref(),
         availability_window: &order.availability_window,
         off_spec: update
             .get("off_spec")
@@ -859,32 +907,18 @@ fn newly_qualified(
             .get("msds_available")
             .and_then(Value::as_bool)
             .unwrap_or(order.terms.msds_available),
-        certification_scheme: effective(
-            "certification_scheme",
-            order.terms.certification_scheme.as_deref(),
-        )
-        .as_deref(),
+        certification_scheme: scheme.as_deref(),
         certification_declared: update
             .get("certification_declared")
             .and_then(Value::as_bool)
             .unwrap_or(order.terms.certification_declared),
-        fame_terms: update
-            .get("fame_terms")
-            .or(order.terms.fame_terms.as_ref()),
+        fame_terms: update.get("fame_terms").or(order.terms.fame_terms.as_ref()),
         lng_terms: update.get("lng_terms").or(order.terms.lng_terms.as_ref()),
-        specification_standard: effective(
-            "specification_standard",
-            order.terms.specification_standard.as_deref(),
-        )
-        .as_deref(),
-        carbon_intensity_method: effective(
-            "carbon_intensity_method",
-            order.terms.carbon_intensity_method.as_deref(),
-        )
-        .as_deref(),
+        specification_standard: standard.as_deref(),
+        carbon_intensity_method: method.as_deref(),
         carbon_intensity_gco2_mj: intensity.as_deref(),
-        feedstock: effective("feedstock", order.terms.feedstock.as_deref()).as_deref(),
-        origin: effective("origin", order.terms.origin.as_deref()).as_deref(),
+        feedstock: feedstock.as_deref(),
+        origin: origin.as_deref(),
     };
     crate::market::terms::order_is_execution_qualified_at(policy, &projection, today)
         && !super::matching::order_is_execution_qualified(
@@ -893,13 +927,13 @@ fn newly_qualified(
         )
 }
 
-/// The order's creation instant, for the before-state qualification check.
-
 /// Allocate the next acceptance ordinal under the held slice lock.
 async fn next_ordinal(conn: &mut PgConnection) -> Result<i64, MarketWriteError> {
-    Ok(sqlx::query_scalar("SELECT nextval('orderbook_acceptance_ordinal_seq')")
-        .fetch_one(conn)
-        .await?)
+    Ok(
+        sqlx::query_scalar("SELECT nextval('orderbook_acceptance_ordinal_seq')")
+            .fetch_one(conn)
+            .await?,
+    )
 }
 
 /// One amendment inside the sealed transaction, from the locked row to the
@@ -928,13 +962,13 @@ pub(super) struct StagedAmend {
     participants: Vec<Uuid>,
 }
 
-impl AmendPort<'_> {
+impl<'a> AmendPort<'a> {
     pub(super) fn new(
-        conn: &mut PgConnection,
-        plan: &OperationLockPlan,
-        locked: &Locked,
-        command: &AmendCommand,
-        context: &WriteContext,
+        conn: &'a mut PgConnection,
+        plan: &'a OperationLockPlan,
+        locked: &'a Locked,
+        command: &'a AmendCommand,
+        context: &'a WriteContext,
     ) -> Result<Self, MarketWriteError> {
         locked.require_economic_phase()?;
         Ok(Self {
@@ -964,7 +998,7 @@ impl AmendPort<'_> {
             && !window.is_null()
             && window.as_str().unwrap_or_default() != order.availability_window
         {
-            return Err(refusal(
+            return Err(super::orders::refusal(
                 MarketErrorCode::OrderIdentityImmutable,
                 StatusCode::CONFLICT,
                 "Executable order market identity is immutable; cancel and create a new order",
@@ -1003,12 +1037,10 @@ impl AmendPort<'_> {
                 })
         };
         let fame = match update.get("fame_terms") {
-            None | Some(Value::Null) => {
-                (profile == "fame_v1")
-                    .then(|| stored("fame_terms"))
-                    .transpose()?
-                    .flatten()
-            }
+            None | Some(Value::Null) => (profile == "fame_v1")
+                .then(|| stored("fame_terms"))
+                .transpose()?
+                .flatten(),
             Some(terms) => {
                 if profile != "fame_v1" {
                     return Err(refusal(
@@ -1028,24 +1060,20 @@ impl AmendPort<'_> {
                     )
                 })?;
                 Some(
-                    crate::market::terms::owner_response_terms("fame_v1", terms).map_err(
-                        |_| {
-                            refusal(
-                                StatusCode::UNPROCESSABLE_ENTITY,
-                                "Valid B100 requirements or declarations are required",
-                            )
-                        },
-                    )?,
+                    crate::market::terms::owner_response_terms("fame_v1", terms).map_err(|_| {
+                        refusal(
+                            StatusCode::UNPROCESSABLE_ENTITY,
+                            "Valid B100 requirements or declarations are required",
+                        )
+                    })?,
                 )
             }
         };
         let lng = match update.get("lng_terms") {
-            None | Some(Value::Null) => {
-                (profile == "lng_v1")
-                    .then(|| stored("lng_terms"))
-                    .transpose()?
-                    .flatten()
-            }
+            None | Some(Value::Null) => (profile == "lng_v1")
+                .then(|| stored("lng_terms"))
+                .transpose()?
+                .flatten(),
             Some(terms) => {
                 if profile != "lng_v1" {
                     return Err(refusal(
@@ -1061,14 +1089,12 @@ impl AmendPort<'_> {
                         )
                     })?;
                 Some(
-                    crate::market::terms::owner_response_terms("lng_v1", terms).map_err(
-                        |_| {
-                            refusal(
-                                StatusCode::UNPROCESSABLE_ENTITY,
-                                "Valid Bio-LNG requirements or declarations are required",
-                            )
-                        },
-                    )?,
+                    crate::market::terms::owner_response_terms("lng_v1", terms).map_err(|_| {
+                        refusal(
+                            StatusCode::UNPROCESSABLE_ENTITY,
+                            "Valid Bio-LNG requirements or declarations are required",
+                        )
+                    })?,
                 )
             }
         };
@@ -1136,8 +1162,10 @@ impl AmendPort<'_> {
                     None | Some(Value::Null) => fallback,
                     Some(value) => value.as_str().map(str::to_owned),
                 };
-                let standard =
-                    effective("specification_standard", order.terms.specification_standard.clone());
+                let standard = effective(
+                    "specification_standard",
+                    order.terms.specification_standard.clone(),
+                );
                 let method = effective(
                     "carbon_intensity_method",
                     order.terms.carbon_intensity_method.clone(),
@@ -1223,7 +1251,6 @@ impl AmendPort<'_> {
                     None => Value::Null,
                 },
                 "off_spec" => json!(order.terms.off_spec),
-                "off_spec_notes" => json!(order.terms.off_spec_notes.as_deref().unwrap_or("")),
                 "fame_terms" => order.terms.fame_terms.clone().unwrap_or(Value::Null),
                 "lng_terms" => order.terms.lng_terms.clone().unwrap_or(Value::Null),
                 "remaining_quantity_mt" => json!(order.remaining_quantity_mt.to_string()),
@@ -1296,16 +1323,16 @@ impl AmendPort<'_> {
         for column in &assigned {
             let value = &payload[*column];
             query = match *column {
-                "quantity_mt" | "price_per_mt_usd" | "remaining_quantity_mt"
+                "quantity_mt"
+                | "price_per_mt_usd"
+                | "remaining_quantity_mt"
                 | "carbon_intensity_gco2_mj" => {
                     query.bind(value.as_str().and_then(|t| t.parse::<Decimal>().ok()))
                 }
                 "acceptance_ordinal" | "version" => query.bind(value.as_i64()),
-                "expires_at" => query.bind(
-                    value
-                        .as_str()
-                        .and_then(|t| t.parse::<DateTime<Utc>>().ok()),
-                ),
+                "expires_at" => {
+                    query.bind(value.as_str().and_then(|t| t.parse::<DateTime<Utc>>().ok()))
+                }
                 "updated_at" => query.bind(command.now),
                 // JSON columns bind their serialized text; the statement casts.
                 "certifications" | "fame_terms" | "lng_terms" => {
@@ -1319,35 +1346,34 @@ impl AmendPort<'_> {
                 _ => query.bind(value.as_str().map(str::to_owned)),
             };
         }
-        query.bind(order.id);
+        let query = query.bind(order.id);
         query.execute(&mut *self.conn).await?;
         Ok(())
     }
 
     /// Run the complete amendment: revalidate, apply the update and its exact
     /// stock delta, optionally rematch, then stage one terminal effect set.
-    async fn run(
-        &mut self,
-        order: &OrderRow,
-    ) -> Result<(StagedAmend, usize), MarketAttemptError> {
+    async fn run(&mut self, order: &OrderRow) -> Result<(StagedAmend, usize), MarketAttemptError> {
         let command = self.command;
         // The locked-row state checks the source performs after its locks.
         if order.expires_at.is_some_and(|at| at <= command.now)
-            && matches!(order.status, OrderStatus::Open | OrderStatus::PartiallyFilled)
+            && matches!(
+                order.status,
+                OrderStatus::Open | OrderStatus::PartiallyFilled
+            )
         {
             return Err(bad("Order has expired").into());
         }
-        if !matches!(order.status, OrderStatus::Open | OrderStatus::PartiallyFilled) {
-            return Err(bad(
-                "Can only update orders with OPEN or PARTIALLY_FILLED status",
-            )
-            .into());
+        if !matches!(
+            order.status,
+            OrderStatus::Open | OrderStatus::PartiallyFilled
+        ) {
+            return Err(bad("Can only update orders with OPEN or PARTIALLY_FILLED status").into());
         }
         let update = self.effective_update(order).await?;
         // Quantity is recomputed against the locked row: the preview may have
         // waited behind another update on the same slice.
         let mut update = update;
-        let mut new_remaining = order.remaining_quantity_mt;
         let mut new_status: Option<&str> = None;
         if let Some(quantity) = update
             .get("quantity_mt")
@@ -1355,23 +1381,18 @@ impl AmendPort<'_> {
             .and_then(|text| Decimal::from_str_exact(text).ok())
         {
             let filled = order.quantity_mt - order.remaining_quantity_mt;
-            new_remaining = quantity - filled;
+            let new_remaining = quantity - filled;
             if new_remaining < Decimal::ZERO {
-                return Err(bad(
-                    "New quantity cannot be less than already filled amount",
-                )
-                .into());
+                return Err(bad("New quantity cannot be less than already filled amount").into());
             }
             let minimum: Option<Decimal> =
                 sqlx::query_scalar("SELECT min_lot_size FROM products WHERE id=$1")
                     .bind(order.product_id)
                     .fetch_one(self.conn())
                     .await?;
-            let minimum = minimum
-                .filter(|v| *v > Decimal::ZERO)
-                .ok_or_else(|| {
-                    refusal(StatusCode::CONFLICT, "Product minimum lot is unavailable")
-                })?;
+            let minimum = minimum.filter(|v| *v > Decimal::ZERO).ok_or_else(|| {
+                refusal(StatusCode::CONFLICT, "Product minimum lot is unavailable")
+            })?;
             if quantity < minimum {
                 return Err(bad("Order quantity is below the product minimum lot").into());
             }
@@ -1400,12 +1421,7 @@ impl AmendPort<'_> {
             update.insert("status".into(), json!(status));
         }
         let ordinal = if loses_priority(order, &update)
-            || newly_qualified(
-                &command.policy,
-                order,
-                &update,
-                command.bound().today(),
-            )
+            || newly_qualified(&command.policy, order, &update, command.bound().today())
         {
             Some(next_ordinal(self.conn()).await?)
         } else {
@@ -1416,13 +1432,14 @@ impl AmendPort<'_> {
         }
         // Capture the before-state before the first mutation; the matcher's
         // resting rows join before completion.
-        let mut before = EffectPort::new(
-            self.conn,
-            self.plan.order_ids(),
-            self.locked,
-        )
-        .capture_before(&command.policy, &command.config, &[command.order], command.now)
-        .await?;
+        let mut before = EffectPort::new(self.conn, self.plan.order_ids(), self.locked)
+            .capture_before(
+                &command.policy,
+                &command.config,
+                &[command.order],
+                command.now,
+            )
+            .await?;
         let public_before = super::effects::order_visible(
             self.conn,
             &command.policy,
@@ -1437,9 +1454,8 @@ impl AmendPort<'_> {
         let mut matched = 0usize;
         let mut outcome: Option<MatchOutcome> = None;
         let mut resting_ids: Vec<Uuid> = Vec::new();
-        if command.settings.auto_matching_enabled
-            && command.input.supplied_any(&ECONOMIC_FIELDS)
-        {
+        let mut participants: Vec<Uuid> = vec![order.organization_id];
+        if command.settings.auto_matching_enabled && command.input.supplied_any(&ECONOMIC_FIELDS) {
             let current = super::matching::load_order(self.conn, command.order).await?;
             let plan = super::matching::MatchingPort::new(self.conn, self.plan, self.locked)?
                 .plan_match(&current, command.bound())
@@ -1451,35 +1467,39 @@ impl AmendPort<'_> {
                 .collect();
             let items = plan.inventory_ids();
             for id in resting_ids.iter().chain(std::iter::once(&command.order)) {
-                self.locked.record_matching_resource(LockClass::Order, *id)?;
+                self.locked
+                    .record_matching_resource(LockClass::Order, *id)?;
             }
             for id in &items {
                 sqlx::query("SELECT id FROM inventory_items WHERE id=$1 FOR UPDATE")
                     .bind(id)
                     .fetch_optional(&mut *self.conn)
                     .await?
-                    .ok_or_else(|| {
-                        MarketWriteError::new(MarketErrorCode::InventoryInconsistent)
-                    })?;
+                    .ok_or_else(|| MarketWriteError::new(MarketErrorCode::InventoryInconsistent))?;
                 self.locked
                     .record_matching_resource(LockClass::Inventory, *id)?;
             }
-            self.plan.record_matching_resources(&resting_ids, &items);
-            outcome = Some(
-                super::matching::apply_plan_with_fees(
-                    self.conn,
-                    &plan,
-                    Some(&command.settings.fees),
-                    true,
-                )
-                .await?,
-            );
+            let applied = super::matching::apply_plan_with_fees(
+                self.conn,
+                &plan,
+                Some(&command.settings.fees),
+                true,
+            )
+            .await?;
             for (item, quantity) in plan.reserved_consumption()? {
                 super::transaction::StockLedger::new(self.conn, &[item], &[])
                     .consume_reserved(item, StockQuantity::checked(quantity)?)
                     .await?;
             }
-            matched = outcome.as_ref().map_or(0, |o| o.trades.len());
+            matched = applied.trades.len();
+            let mut organizations: BTreeSet<Uuid> = applied
+                .trades
+                .iter()
+                .flat_map(|trade| [trade.buyer_id, trade.seller_id])
+                .collect();
+            organizations.insert(order.organization_id);
+            participants = organizations.into_iter().collect();
+            outcome = Some(applied);
         }
         // The matcher's resting rows join the captured before-state so the one
         // terminal effect set covers their transition too.
@@ -1493,18 +1513,7 @@ impl AmendPort<'_> {
             public_before,
             outcome,
             update,
-            participants: outcome
-                .as_ref()
-                .map(|outcome| {
-                    let mut organizations: BTreeSet<Uuid> = outcome
-                        .trades
-                        .iter()
-                        .flat_map(|t| [t.buyer_id, t.seller_id])
-                        .collect();
-                    organizations.insert(order.organization_id);
-                    organizations.into_iter().collect()
-                })
-                .unwrap_or_else(|| vec![order.organization_id]),
+            participants,
         };
         Ok((staged, matched))
     }
