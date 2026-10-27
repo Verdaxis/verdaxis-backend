@@ -93,32 +93,53 @@ impl SharedLimits {
                 .business_store
                 .buckets
                 .get(&(identity.to_string(), bucket.clone()))
-                && stored.expires_at > now && stored.count >= *limit
+                && stored.expires_at > now
+                && stored.count >= *limit
             {
-                    let mut error = refusal(
-                        StatusCode::TOO_MANY_REQUESTS,
-                        "RATE_LIMITED",
-                        "The request quota is exhausted.",
-                    );
-                    error.retry_after = Some(
-                        u32::try_from(stored.expires_at.saturating_sub(now).max(1))
-                            .expect("bounded quota window"),
-                    );
-                    return Err(error);
+                let mut error = refusal(
+                    StatusCode::TOO_MANY_REQUESTS,
+                    "RATE_LIMITED",
+                    "The request quota is exhausted.",
+                );
+                error.retry_after = Some(
+                    u32::try_from(stored.expires_at.saturating_sub(now).max(1))
+                        .expect("bounded quota window"),
+                );
+                return Err(error);
             }
         }
         let new_buckets = policies
             .iter()
             .filter(|(identity, bucket, _, _)| {
-                !authority.business_store.buckets.contains_key(&(identity.to_string(), bucket.clone()))
+                !authority
+                    .business_store
+                    .buckets
+                    .contains_key(&(identity.to_string(), bucket.clone()))
             })
             .count();
-        if authority.business_store.buckets.len().saturating_add(new_buckets) > MAX_BUCKETS {
-            return Err(refusal(StatusCode::SERVICE_UNAVAILABLE, "QUOTA_CAPACITY", "The quota authority is at capacity."));
+        if authority
+            .business_store
+            .buckets
+            .len()
+            .saturating_add(new_buckets)
+            > MAX_BUCKETS
+        {
+            return Err(refusal(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "QUOTA_CAPACITY",
+                "The quota authority is at capacity.",
+            ));
         }
         for (identity, bucket, limit, window) in policies {
-            if !authority.business_store.accept(identity, &bucket, limit, window, now, false) {
-                return Err(refusal(StatusCode::SERVICE_UNAVAILABLE, "QUOTA_CAPACITY", "The quota authority is at capacity."));
+            if !authority
+                .business_store
+                .accept(identity, &bucket, limit, window, now, false)
+            {
+                return Err(refusal(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "QUOTA_CAPACITY",
+                    "The quota authority is at capacity.",
+                ));
             }
         }
         Ok(())
