@@ -1142,6 +1142,19 @@ impl std::io::Write for Capture {
 /// unreachable after it verifies, or the cursor refusal comes first.
 #[test]
 fn query_token_not_logged() {
+    std::thread::scope(|scope| {
+        let first = scope.spawn(|| capture_query_token_logs("stream-capture-first"));
+        let second = scope.spawn(|| capture_query_token_logs("stream-capture-second"));
+        let first = first.join().unwrap();
+        let second = second.join().unwrap();
+        assert!(first.contains("stream-capture-first"));
+        assert!(!first.contains("stream-capture-second"));
+        assert!(second.contains("stream-capture-second"));
+        assert!(!second.contains("stream-capture-first"));
+    });
+}
+
+fn capture_query_token_logs(request_id: &str) -> String {
     let bytes = Arc::new(Mutex::new(Vec::new()));
     let writer = Capture(bytes.clone());
     let subscriber = tracing_subscriber::fmt()
@@ -1182,7 +1195,8 @@ fn query_token_not_logged() {
             ),
         ];
         for (path, status) in cases {
-            let (actual, headers, body) = send(&router, get(&path)).await;
+            let (actual, headers, body) =
+                send(&router, request("GET", &path, &[("x-request-id", request_id)])).await;
             assert_eq!(actual, status, "{path}");
             let body = String::from_utf8_lossy(&body);
             let headers = format!("{headers:?}");
@@ -1204,6 +1218,7 @@ fn query_token_not_logged() {
         !captured.contains("stream_token"),
         "a log line carries the query"
     );
+    captured
 }
 
 /// A dropped body leaves the hub at once: its registration and its admission
