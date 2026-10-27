@@ -95,7 +95,7 @@ CREATE OR REPLACE FUNCTION completion_fixture_benchmark_probe() RETURNS void LAN
     DROP TRIGGER IF EXISTS completion_benchmark_row ON live_slice_benchmarks;
     TRUNCATE completion_benchmark_calls,completion_benchmark_deleted;
     INSERT INTO live_slice_benchmarks(id,side,market_product,delivery_point_id,availability_window,benchmark_price_per_mt_usd,total_remaining_quantity_mt,order_count,source,created_at,updated_at)
-    SELECT gen_random_uuid(),s.side,'BIOFUEL_B30',o.delivery_point_id,o.availability_window,999,999,99,'live_slice_vwap',now(),now()
+    SELECT gen_random_uuid(),s.side,'B30',o.delivery_point_id,o.availability_window,999,999,99,'live_slice_vwap',now(),now()
     FROM (SELECT * FROM orderbook_orders LIMIT 1) o CROSS JOIN (VALUES('BID'),('ASK')) s(side);
     CREATE TRIGGER completion_benchmark_statement AFTER INSERT OR DELETE ON live_slice_benchmarks FOR EACH STATEMENT EXECUTE FUNCTION completion_benchmark_call();
     CREATE TRIGGER completion_benchmark_row AFTER DELETE ON live_slice_benchmarks FOR EACH ROW EXECUTE FUNCTION completion_benchmark_delete();

@@ -694,7 +694,7 @@ impl FameBidTerms {
             )?,
             evidence_due: declared_text(object, "evidence_due")?
                 .unwrap_or_else(|| "BEFORE_LOADING".to_owned()),
-            declaration: terms.clone(),
+            declaration: crate::market::terms::owner_response_terms(FAME_PROFILE,terms).map_err(|_| ())?,
         })
     }
 }
@@ -768,7 +768,7 @@ impl FameAskTerms {
                 .map_err(|_| ())?,
             quality_evidence_status: quality_status,
             sustainability_evidence: sustainability,
-            declaration: terms.clone(),
+            declaration: crate::market::terms::owner_response_terms(FAME_PROFILE,terms).map_err(|_| ())?,
         })
     }
 }
@@ -850,7 +850,7 @@ impl LngBidTerms {
                 .ok_or(())?,
             min_methane_number: declared_number(object, "min_methane_number")?,
             accept_resellers: declared_flag(object, "accept_resellers", true)?,
-            declaration: terms.clone(),
+            declaration: crate::market::terms::owner_response_terms(LNG_PROFILE,terms).map_err(|_| ())?,
         })
     }
 }
@@ -884,7 +884,7 @@ impl LngAskTerms {
             min_methane_number: declared_number(object, "min_methane_number")?,
             delivery_method: required_text(object, "delivery_method")?,
             seller_is_physical_supplier: required_flag(object, "seller_is_physical_supplier")?,
-            declaration: terms.clone(),
+            declaration: crate::market::terms::owner_response_terms(LNG_PROFILE,terms).map_err(|_| ())?,
         })
     }
 }
@@ -1690,13 +1690,21 @@ async fn apply_plan(
     conn: &mut PgConnection,
     plan: &MatchPlan,
 ) -> Result<MatchOutcome, MarketWriteError> {
-    apply_plan_with_fees(conn, plan, None).await
+    apply_plan_with_fees(conn, plan, None, true).await
+}
+
+fn fee_refusal(message: &'static str) -> MarketWriteError {
+    let mut error=MarketWriteError::new(MarketErrorCode::FeeRateInvalid);
+    error.status=axum::http::StatusCode::CONFLICT;
+    error.message=message;
+    error
 }
 
 pub(super) async fn apply_plan_with_fees(
     conn: &mut PgConnection,
     plan: &MatchPlan,
     fee_config: Option<&crate::subscriptions::FeeConfig>,
+    is_anonymous: bool,
 ) -> Result<MatchOutcome, MarketWriteError> {
     let mut fees = BTreeMap::new();
     if let Some(config) = fee_config {
@@ -1713,7 +1721,9 @@ pub(super) async fn apply_plan_with_fees(
                         crate::subscriptions::FeeError::Database(error) => {
                             MarketWriteError::from(error)
                         }
-                        _ => MarketWriteError::new(MarketErrorCode::TradePartiesInvalid),
+                        crate::subscriptions::FeeError::InvalidTier => fee_refusal("Seller subscription tier is invalid; contact Verdaxis support"),
+                        crate::subscriptions::FeeError::MissingNegotiatedRate => fee_refusal("Seller transaction fee is not configured; contact Verdaxis support"),
+                        crate::subscriptions::FeeError::InvalidRate => fee_refusal("Seller transaction fee is invalid; contact Verdaxis support"),
                     })?;
                 entry.insert(fee);
             }
@@ -1756,8 +1766,8 @@ pub(super) async fn apply_plan_with_fees(
                 Some(serde_json::json!({"bid":bid.declaration,"ask":ask.declaration})),
             ),
         };
-        let inserted = sqlx::query("INSERT INTO trades (id,bid_order_id,ask_order_id,buyer_id,seller_id,buyer_user_id,seller_user_id,initiator_org_id,buyer_provenance,seller_provenance,initiated_by,quantity_mt,price_per_mt_usd,status,confirmed_at,product_id,product_name,fuel_type,fuel_grade,market_product,delivery_point_id,delivery_point_name,delivery_point_region,availability_window,market_snapshot_version,commission_rate_pct,is_anonymous,commission_plan,commission_fee_per_mt_usd,fame_terms_snapshot,lng_terms_snapshot) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'CONFIRMED',$14,o.product_id,p.name,p.fuel_type,p.fuel_grade,catalog.code,o.delivery_point_id,dp.name,dp.region,o.availability_window,1,0,true,$17,$18,$19,$20 FROM orderbook_orders o JOIN products p ON p.id=o.product_id JOIN jsonb_to_recordset($16::jsonb) AS catalog(id uuid,code text) ON catalog.id=p.id JOIN delivery_points dp ON dp.id=o.delivery_point_id WHERE o.id=$15")
-            .bind(trade.id).bind(trade.bid_order_id).bind(trade.ask_order_id).bind(trade.buyer_id).bind(trade.seller_id).bind(buyer.owner_user_id).bind(seller.owner_user_id).bind(aggressor.organization_id).bind(&buyer.provenance).bind(&seller.provenance).bind(if aggressor.side==Side::Bid { "BUYER" } else { "SELLER" }).bind(trade.quantity_mt).bind(trade.price_per_mt_usd).bind(plan.now).bind(aggressor.id).bind(catalog_products()?).bind(fee.map(|f|f.plan.as_str())).bind(fee.map(|f|f.seller_fee_per_mt_usd)).bind(fame).bind(lng).execute(&mut *conn).await?;
+        let inserted = sqlx::query("INSERT INTO trades (id,bid_order_id,ask_order_id,buyer_id,seller_id,buyer_user_id,seller_user_id,initiator_org_id,buyer_provenance,seller_provenance,initiated_by,quantity_mt,price_per_mt_usd,status,confirmed_at,product_id,product_name,fuel_type,fuel_grade,market_product,delivery_point_id,delivery_point_name,delivery_point_region,availability_window,market_snapshot_version,commission_rate_pct,is_anonymous,commission_plan,commission_fee_per_mt_usd,fame_terms_snapshot,lng_terms_snapshot) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'CONFIRMED',$14,o.product_id,p.name,p.fuel_type,p.fuel_grade,catalog.code,o.delivery_point_id,dp.name,dp.region,o.availability_window,1,0,$21,$17,$18,$19,$20 FROM orderbook_orders o JOIN products p ON p.id=o.product_id JOIN jsonb_to_recordset($16::jsonb) AS catalog(id uuid,code text) ON catalog.id=p.id JOIN delivery_points dp ON dp.id=o.delivery_point_id WHERE o.id=$15")
+            .bind(trade.id).bind(trade.bid_order_id).bind(trade.ask_order_id).bind(trade.buyer_id).bind(trade.seller_id).bind(buyer.owner_user_id).bind(seller.owner_user_id).bind(aggressor.organization_id).bind(&buyer.provenance).bind(&seller.provenance).bind(if aggressor.side==Side::Bid { "BUYER" } else { "SELLER" }).bind(trade.quantity_mt).bind(trade.price_per_mt_usd).bind(plan.now).bind(aggressor.id).bind(catalog_products()?).bind(fee.map(|f|f.plan.as_str())).bind(fee.map(|f|f.seller_fee_per_mt_usd)).bind(fame).bind(lng).bind(is_anonymous).execute(&mut *conn).await?;
         if inserted.rows_affected() != 1 {
             return Err(inconsistent());
         }
@@ -2012,14 +2022,18 @@ pub mod contract {
         .await
     }
     /// Configurable enclosing command for completion qualification; not a serving route.
-    #[derive(Clone, Debug, Default)]
+    #[derive(Clone, Debug)]
     pub struct CompletionOptions {
+        pub is_anonymous: bool,
         pub fee_config: crate::subscriptions::FeeConfig,
         pub receipt_key: Option<String>,
         pub request_id: Option<String>,
         pub demo_pair: Option<DemoOrderPair>,
         pub actor: Option<Uuid>,
         pub fail_after_effects: bool,
+    }
+    impl Default for CompletionOptions {
+        fn default()->Self {Self {is_anonymous:true,fee_config:crate::subscriptions::FeeConfig::default(),receipt_key:None,request_id:None,demo_pair:None,actor:None,fail_after_effects:false}}
     }
     #[derive(Default)]
     pub struct CompletionBarrier {
@@ -2141,7 +2155,7 @@ pub mod contract {
                     .effects()?
                     .capture_before(&policy, &config, &plan.locked_order_ids(), self.at)
                     .await?;
-                let outcome = tx.complete_match(&plan, &self.options.fee_config).await?;
+                let outcome = tx.complete_match(&plan, &self.options.fee_config,self.options.is_anonymous).await?;
                 let trade_ids: Vec<Uuid> = outcome.trades.iter().map(|trade| trade.id).collect();
                 let mut effects = before.stage();
                 let request = axum::http::Request::builder()
