@@ -59,3 +59,13 @@ END $$;
 CREATE OR REPLACE FUNCTION trades_fixture_audit_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'fixture audit refusal' USING ERRCODE='23514'; END $$;
 CREATE OR REPLACE FUNCTION trades_fixture_reject_audit() RETURNS void LANGUAGE plpgsql AS $$ BEGIN CREATE TRIGGER trades_fixture_audit_failure BEFORE INSERT ON audit_logs FOR EACH ROW EXECUTE FUNCTION trades_fixture_audit_failure();END $$;
 CREATE OR REPLACE FUNCTION trades_fixture_allow_audit() RETURNS void LANGUAGE plpgsql AS $$ BEGIN DROP TRIGGER IF EXISTS trades_fixture_audit_failure ON audit_logs;END $$;
+
+CREATE OR REPLACE FUNCTION trades_fixture_assisted() RETURNS void LANGUAGE plpgsql AS $$
+DECLARE authorization uuid:=gen_random_uuid();actor uuid:='00000000-0000-0000-0000-000000004001';ord uuid:='00000000-0000-0000-0000-000000000001';context uuid;
+BEGIN
+ context:=trades_fixture_support(false);
+ INSERT INTO market_support_authorizations(id,organization_id,accountable_user_id,order_side,product_id,delivery_point_id,availability_window,quantity_mt,price_per_mt_usd,certification_declared,certification_scheme,msds_available,authorization_expires_at,status,created_by_actor_user_id,market_support_context_id,terms_digest,evidence_reference,commercial_consent_version,commercial_consent_reference,idempotency_key,idempotency_request_hash)
+ SELECT authorization,organization_id,actor,side,product_id,delivery_point_id,availability_window,quantity_mt,price_per_mt_usd,true,'ISCC EU',true,now()+interval '1 hour','CONSUMED',actor,context,repeat('a',64),'Fixture instruction','fixture-v1','Fixture instruction',authorization::text,repeat('b',64) FROM orderbook_orders WHERE id=ord;
+ UPDATE orderbook_orders SET owner_user_id=actor,created_by_actor_user_id=actor,creation_method='MARKET_SUPPORT',support_authorization_id=authorization WHERE id=ord;
+END $$;
+CREATE OR REPLACE FUNCTION trades_fixture_tie_times() RETURNS void LANGUAGE plpgsql AS $$ BEGIN UPDATE trades SET created_at='2026-10-01T00:00:00Z';END $$;

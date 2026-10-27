@@ -552,3 +552,37 @@ async fn independent_take_and_cancel_serialize_on_the_held_party_prefix() {
     let reserved=state["reserved"].as_str().unwrap().parse::<rust_decimal::Decimal>().unwrap();
     if cancel==StatusCode::NO_CONTENT {assert_eq!(reserved,rust_decimal::Decimal::from(3*pending));}else{assert_eq!(reserved,rust_decimal::Decimal::from(10));}
 }
+
+#[tokio::test]
+#[ignore = "requires an attested disposable PostgreSQL"]
+async fn assisted_discovery_requires_linked_customer_membership_not_staff_identity() {
+    let mut f=Fixture::new().await;
+    sqlx::query("SELECT trades_fixture_assisted()").execute(&mut f.admin).await.unwrap();
+    let(s,b)=f.take(BUYER,None,"1").await;assert_eq!(s,StatusCode::OK,"{b}");
+    let(_,customer)=send(&f.router,"GET","/api/trades/summary",Some(SELLER),&[],None).await;assert_eq!(customer["total_count"],1);assert_eq!(customer["action_required_count"],1);
+    let(_,staff)=send(&f.router,"GET","/api/trades/my",Some(ADMIN),&[],None).await;assert_eq!(staff["total"],0);
+    f.change(SELLER,"detached").await;
+    let(_,detached)=send(&f.router,"GET","/api/trades/my",Some(SELLER),&[],None).await;assert_eq!(detached["total"],0);
+}
+
+#[tokio::test]
+#[ignore = "requires an attested disposable PostgreSQL"]
+async fn equal_time_pages_use_uuid_descending_and_match_summary() {
+    let mut f=Fixture::new().await;let(_,a)=f.take(BUYER,None,"1").await;let(_,b)=f.take(BUYER,None,"1").await;
+    sqlx::query("SELECT trades_fixture_tie_times()").execute(&mut f.admin).await.unwrap();
+    let(_,page)=send(&f.router,"GET","/api/trades/my?limit=1",Some(BUYER),&[],None).await;
+    let mut ids=vec![a["id"].as_str().unwrap(),b["id"].as_str().unwrap()];ids.sort_unstable();
+    assert_eq!(page["items"][0]["id"],ids[1]);
+    let(_,next)=send(&f.router,"GET","/api/trades/my?limit=1&skip=1",Some(BUYER),&[],None).await;assert_eq!(next["items"][0]["id"],ids[0]);
+    let(_,completed)=send(&f.router,"GET","/api/trades/my?status_group=completed",Some(BUYER),&[],None).await;assert_eq!(completed["total"],0);
+}
+
+#[tokio::test]
+#[ignore = "requires an attested disposable PostgreSQL"]
+async fn pending_effects_have_exact_participant_scope_and_source_fields() {
+    let mut f=Fixture::new().await;let(s,trade)=f.take(BUYER,None,"2").await;assert_eq!(s,StatusCode::OK);
+    let row=sqlx::query("SELECT event_type,participant_org_ids,payload,producer_evidence FROM market_event_outbox").fetch_one(&mut f.admin).await.unwrap();
+    assert_eq!(row.get::<String,_>("event_type"),"trade_created");let mut parties=row.get::<Vec<Uuid>,_>("participant_org_ids");parties.sort_unstable();assert_eq!(parties,vec![id(0x1000),id(0x2000)]);
+    let payload:Value=row.get("payload");assert_eq!(payload["id"],trade["id"]);assert_eq!(payload["status"],"PENDING_CONFIRMATION");assert_eq!(payload["_public_market_invalidation"],true);assert_eq!(payload["schema_version"],1);assert!(payload.get("commission_fee_per_mt_usd").is_none());assert!(payload.get("producer_evidence").is_none());
+    let audit=sqlx::query("SELECT action,resource_type,changes FROM audit_logs").fetch_one(&mut f.admin).await.unwrap();assert_eq!(audit.get::<String,_>("action"),"trade.created");assert_eq!(audit.get::<String,_>("resource_type"),"trade");let changes:Value=audit.get("changes");assert_eq!(changes["order_id"],id(ORDER).to_string());assert!(changes.get("lng_terms_snapshot").is_none());
+}
