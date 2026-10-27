@@ -1,4 +1,6 @@
 pub mod catalog;
+#[path = "market_write/support.rs"]
+pub mod support;
 pub mod market_write;
 // Phase 2 Task 10: feedback route registration.
 pub use crate::crud::feedback::routes as feedback_routes;

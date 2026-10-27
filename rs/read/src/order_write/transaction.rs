@@ -1749,6 +1749,12 @@ pub struct LockedMarketTransaction<'a> {
     locked: &'a super::locks::Locked,
 }
 impl LockedMarketTransaction<'_> {
+    pub(super) fn support(
+        &mut self,
+    ) -> Result<super::support::SupportPort<'_>, super::MarketWriteError> {
+        self.locked.require_economic_phase()?;
+        Ok(super::support::SupportPort::new(self.conn, self.locked))
+    }
     pub(super) fn inventory(
         &mut self,
     ) -> Result<super::inventory::InventoryPort<'_>, super::MarketWriteError> {

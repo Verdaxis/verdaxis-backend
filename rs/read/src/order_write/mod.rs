@@ -25,6 +25,7 @@ pub mod locks;
 pub mod matching;
 pub mod outbox;
 mod reservations;
+pub mod support;
 mod transaction;
 
 pub use authority::admission::{

@@ -334,6 +334,7 @@ fn boundary_insert_allowed(root: &Path, path: &Path, table: &str) -> bool {
         ("benchmarks.rs", &["LIVE_SLICE_BENCHMARKS"]),
         ("events.rs", &["WATCHLIST_EVENTS"]),
         ("inventory.rs", &["INVENTORY_ITEMS"]),
+        ("support.rs", &["STAFF_CAPABILITY_ASSIGNMENTS"]),
     ];
     per_file
         .iter()
@@ -1407,6 +1408,41 @@ fn inventory_inserts_have_one_named_source() {
         assert!(!boundary_insert_allowed(
             &root,
             &boundary.join("inventory.rs"),
+            table
+        ));
+    }
+}
+
+#[test]
+fn support_insert_authority_is_scoped_to_the_exact_source_file() {
+    let root = repository_root();
+    let boundary = root.join("rs/read/src/order_write");
+    assert!(boundary_insert_allowed(
+        &root,
+        &boundary.join("support.rs"),
+        "STAFF_CAPABILITY_ASSIGNMENTS"
+    ));
+    for file in [
+        "effects.rs",
+        "transaction.rs",
+        "inventory.rs",
+        "nested/support.rs",
+    ] {
+        assert!(!boundary_insert_allowed(
+            &root,
+            &boundary.join(file),
+            "STAFF_CAPABILITY_ASSIGNMENTS"
+        ));
+    }
+    for table in [
+        "MARKET_SUPPORT_CONTEXTS",
+        "AUDIT_LOGS",
+        "USERS",
+        "UNLISTED_TABLE",
+    ] {
+        assert!(!boundary_insert_allowed(
+            &root,
+            &boundary.join("support.rs"),
             table
         ));
     }

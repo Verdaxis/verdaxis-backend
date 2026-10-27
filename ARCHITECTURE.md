@@ -925,3 +925,14 @@ clients retry the unchanged request. The receipt commits with the economic effec
 and outbox. Runtime access is SELECT
 and INSERT only; receipts are retained. Migration `rcp_20261003_command_results`
 follows acceptance priority. Forward corrective releases must retain receipts.
+
+## Rust support capability component
+
+`order_write/support.rs` uses the ordered transaction owner for bootstrap-bound
+capability grants and revocations. Revocation locks the assignment before the
+actor's active contexts, stages the Python audit descriptors, and finalizes one
+effect set before commit. Bounded organization, authorization and assisted-listing
+reads retain their capability checks. Each request is checked in Python's
+order: account state, the feature switch, the administrator role, request
+validation, the bootstrap allowlist, then the capability. `routes/market_write/support.rs` exposes a
+component router; no serving route is mounted. Context creation remains separate.

@@ -208,3 +208,9 @@ pub use order_write::{MarketErrorCode, MarketWriteError};
 pub mod market_commands {
     pub use crate::order_write::dismiss_suggestion;
 }
+
+pub mod market_support {
+    pub use crate::order_write::effects::AuditContext;
+    pub use crate::order_write::support::*;
+    pub use crate::routes::support::{SupportState, router};
+}
