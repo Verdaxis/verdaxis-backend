@@ -58,7 +58,15 @@ impl LoginState {
         audience: &str,
         limits: SharedLimits,
     ) -> Self {
-        let mut state = Self::from_settings(pool, environment, current_secret, previous_secret, issuer, audience, limits);
+        let mut state = Self::from_settings(
+            pool,
+            environment,
+            current_secret,
+            previous_secret,
+            issuer,
+            audience,
+            limits,
+        );
         state.dummy_hash = Some(password::dummy_hash().await);
         state
     }
@@ -66,8 +74,13 @@ impl LoginState {
     /// Synchronous composition; the process-wide dummy is prepared before verification.
     #[allow(clippy::too_many_arguments)]
     pub fn from_settings(
-        pool: PgPool, environment: &str, current_secret: &str,
-        previous_secret: Option<&str>, issuer: &str, audience: &str, limits: SharedLimits,
+        pool: PgPool,
+        environment: &str,
+        current_secret: &str,
+        previous_secret: Option<&str>,
+        issuer: &str,
+        audience: &str,
+        limits: SharedLimits,
     ) -> Self {
         Self {
             pool,

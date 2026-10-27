@@ -170,7 +170,9 @@ fn admit(
     let client = client_address(peer, headers);
     let now = Utc::now().timestamp() as u64;
     if charged.is_none() {
-        settings.limits.preauth_check(&client, path, now)
+        settings
+            .limits
+            .preauth_check(&client, path, now)
             .map_err(|r| ApiError::from(r.auth_failure()))?;
     }
     settings.limits.check_address_endpoint(&client, path, now)
@@ -372,7 +374,13 @@ async fn with_org_route(
     {
         return Err(validation());
     }
-    admit(&settings, peer, &headers, "/api/auth/register-with-org", charged)?;
+    admit(
+        &settings,
+        peer,
+        &headers,
+        "/api/auth/register-with-org",
+        charged,
+    )?;
     if input.registration_token.is_empty() || input.registration_token.len() > 1024 {
         return Err(invalid_token());
     }

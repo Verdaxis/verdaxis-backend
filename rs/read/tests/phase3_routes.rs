@@ -28,14 +28,25 @@ async fn app() -> axum::Router {
         },
     };
     let pools = verdaxis_read::runtime::db::Pools {
-        read: sqlx::postgres::PgPoolOptions::new().max_connections(4)
-            .connect_lazy(&config.database_url).unwrap(),
-        health: sqlx::postgres::PgPoolOptions::new().max_connections(1)
-            .connect_lazy(&config.database_url).unwrap(),
+        read: sqlx::postgres::PgPoolOptions::new()
+            .max_connections(4)
+            .connect_lazy(&config.database_url)
+            .unwrap(),
+        health: sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect_lazy(&config.database_url)
+            .unwrap(),
     };
-    let state = AppState::new(config, pools, MarketPolicy {
-        source_sha: verdaxis_read::compiled_sha().into(), products: vec![], points: vec![],
-    }).unwrap();
+    let state = AppState::new(
+        config,
+        pools,
+        MarketPolicy {
+            source_sha: verdaxis_read::compiled_sha().into(),
+            products: vec![],
+            points: vec![],
+        },
+    )
+    .unwrap();
     verdaxis_read::runtime::http::router_with(axum::Router::new(), state)
 }
 
@@ -57,18 +68,43 @@ async fn credential_operations_reach_their_admission_boundary() {
         ("POST", "/api/auth/register-with-org", 422),
     ] {
         for suffix in ["", "/"] {
-            let response = app.clone().oneshot(Request::builder().method(method)
-                .uri(format!("{path}{suffix}"))
-                .header("origin", "https://untrusted.example.test")
-                .header("cookie", "refresh_token=invalid")
-                .header("content-type", "application/json")
-                .body(Body::from("{}" )).unwrap()).await.unwrap();
-            assert_eq!(response.status().as_u16(), expected, "{method} {path}{suffix}");
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method(method)
+                        .uri(format!("{path}{suffix}"))
+                        .header("origin", "https://untrusted.example.test")
+                        .header("cookie", "refresh_token=invalid")
+                        .header("content-type", "application/json")
+                        .body(Body::from("{}"))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                response.status().as_u16(),
+                expected,
+                "{method} {path}{suffix}"
+            );
         }
     }
-    for path in ["/api/auth/me", "/api/auth/invitations/resolve", "/api/auth/survey"] {
-        let response = app.clone().oneshot(Request::builder().method("POST").uri(path)
-            .body(Body::empty()).unwrap()).await.unwrap();
+    for path in [
+        "/api/auth/me",
+        "/api/auth/invitations/resolve",
+        "/api/auth/survey",
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(path)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(response.status(), 404, "{path}");
     }
 }
@@ -77,9 +113,21 @@ async fn credential_operations_reach_their_admission_boundary() {
 async fn ingress_and_credential_handlers_share_one_preauth_charge() {
     let app = app().await;
     for index in 0..16 {
-        let response = app.clone().oneshot(Request::builder().method("POST")
-            .uri("/api/auth/forgot-password").header("content-type", "application/json")
-            .body(Body::from("{}")).unwrap()).await.unwrap();
-        assert_eq!(response.status().as_u16(), if index < 15 { 422 } else { 429 });
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/auth/forgot-password")
+                    .header("content-type", "application/json")
+                    .body(Body::from("{}"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status().as_u16(),
+            if index < 15 { 422 } else { 429 }
+        );
     }
 }

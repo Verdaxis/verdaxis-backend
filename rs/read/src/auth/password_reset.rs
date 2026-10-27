@@ -154,7 +154,9 @@ async fn forgot_route(
     let client = client_address(peer, &headers);
     let now = Utc::now().timestamp() as u64;
     if charged.is_none() {
-        settings.limits.preauth_check(&client, "/api/auth/forgot-password", now)
+        settings
+            .limits
+            .preauth_check(&client, "/api/auth/forgot-password", now)
             .map_err(|error| ApiError::from(error.auth_failure()))?;
     }
     let body: Value = auth_json(&headers, body).await?;
