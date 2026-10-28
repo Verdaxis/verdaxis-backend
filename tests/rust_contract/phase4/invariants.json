@@ -5228,7 +5228,7 @@
     },
     {
       "path": "tests/unit/test_kyc_document_contract.py",
-      "sha256": "021ea380dbb9f05032bdff6c5a85f0dc712e3c5db973101bf736a64740fb7fb3",
+      "sha256": "3b6a7c227a2bdb7fabb9891004e866391a5fc5790db132a2236f6b20366b778f",
       "definitions": [
         {
           "id": "P4_SRC_055",
