@@ -1177,35 +1177,64 @@ async fn publication_flush_recovers_only_a_matching_recorded_key() {
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn typed_publication_refuses_a_certified_fame_inventory_record() {
-    let mut f=Fixture::new(0,200).await;
-    sqlx::query("SELECT publish_fixture_fame($1)").bind(fame_declaration()).execute(&mut f.admin).await.unwrap();
+    let mut f = Fixture::new(0, 200).await;
+    sqlx::query("SELECT publish_fixture_fame($1)")
+        .bind(fame_declaration())
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
     f.sql("UPDATE inventory_items SET is_certified=true").await;
-    let before=f.counts().await;let reply=f.publish(None).await;
-    assert_eq!(reply.0,StatusCode::UNPROCESSABLE_ENTITY,"{reply:?}");assert_eq!(f.counts().await,before);assert_eq!(f.stock().await,(Decimal::from(200),Decimal::ZERO));
+    let before = f.counts().await;
+    let reply = f.publish(None).await;
+    assert_eq!(reply.0, StatusCode::UNPROCESSABLE_ENTITY, "{reply:?}");
+    assert_eq!(f.counts().await, before);
+    assert_eq!(f.stock().await, (Decimal::from(200), Decimal::ZERO));
 }
 
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn unkeyed_publication_integrity_error_has_no_recovery_effects() {
-    let mut f=Fixture::new(0,200).await;
+    let mut f = Fixture::new(0, 200).await;
     f.sql("CREATE TRIGGER publish_fixture_insert_error BEFORE INSERT ON orderbook_orders FOR EACH ROW EXECUTE FUNCTION publish_fixture_order_error()").await;
-    let reply=f.publish(None).await;
-    f.sql("DROP TRIGGER publish_fixture_insert_error ON orderbook_orders").await;
-    assert_eq!(reply.0,StatusCode::UNPROCESSABLE_ENTITY,"{reply:?}");assert_eq!(f.counts().await["orders"],0);assert_eq!(f.stock().await,(Decimal::from(200),Decimal::ZERO));
+    let reply = f.publish(None).await;
+    f.sql("DROP TRIGGER publish_fixture_insert_error ON orderbook_orders")
+        .await;
+    assert_eq!(reply.0, StatusCode::UNPROCESSABLE_ENTITY, "{reply:?}");
+    assert_eq!(f.counts().await["orders"], 0);
+    assert_eq!(f.stock().await, (Decimal::from(200), Decimal::ZERO));
 }
 
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn second_listing_reuse_leaves_expiry_and_stock_unchanged() {
-    let mut f=Fixture::new(0,200).await;f.sql("SELECT publish_fixture_expired(1,true)").await;
-    let barrier=std::sync::Arc::new(verdaxis_read::routes::market_write::order_create::CreateBarrier::default());
-    let router=hooked_component(&f,inventory::PublicationHooks{before_resources:Some(barrier.clone()),..Default::default()});
-    let before=f.counts().await;
-    let task=tokio::spawn(async move{send(&router,Some(seller()),item(),None).await});
-    tokio::time::timeout(Duration::from_secs(10),barrier.reached.notified()).await.unwrap();
-    sqlx::query("SELECT publish_fixture_expiry($1)").bind(Utc::now()+chrono::Duration::hours(1)).execute(&mut f.admin).await.unwrap();
-    barrier.resume.notify_one();let reply=task.await.unwrap();assert_eq!(reply.0,StatusCode::OK,"{reply:?}");
-    assert_eq!(reply.1["listing_id"],json!(Uuid::from_u128(0x6001)));assert_eq!(f.counts().await,before);assert_eq!(f.stock().await,(Decimal::from(200),Decimal::from(200)));
+    let mut f = Fixture::new(0, 200).await;
+    f.sql("SELECT publish_fixture_expired(1,true)").await;
+    let barrier = std::sync::Arc::new(
+        verdaxis_read::routes::market_write::order_create::CreateBarrier::default(),
+    );
+    let router = hooked_component(
+        &f,
+        inventory::PublicationHooks {
+            before_resources: Some(barrier.clone()),
+            ..Default::default()
+        },
+    );
+    let before = f.counts().await;
+    let task = tokio::spawn(async move { send(&router, Some(seller()), item(), None).await });
+    tokio::time::timeout(Duration::from_secs(10), barrier.reached.notified())
+        .await
+        .unwrap();
+    sqlx::query("SELECT publish_fixture_expiry($1)")
+        .bind(Utc::now() + chrono::Duration::hours(1))
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
+    barrier.resume.notify_one();
+    let reply = task.await.unwrap();
+    assert_eq!(reply.0, StatusCode::OK, "{reply:?}");
+    assert_eq!(reply.1["listing_id"], json!(Uuid::from_u128(0x6001)));
+    assert_eq!(f.counts().await, before);
+    assert_eq!(f.stock().await, (Decimal::from(200), Decimal::from(200)));
 }
 
 async fn concurrent(n: i32, stock: i64, key: Option<&str>) {
