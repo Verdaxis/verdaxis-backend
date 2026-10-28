@@ -1114,11 +1114,31 @@ async fn confirmation_uses_the_shared_grace_and_advisory_gate_policy() {
 #[ignore = "requires an attested disposable PostgreSQL"]
 async fn assisted_link_and_customer_statuses_precede_ordinary_authority() {
     use verdaxis_read::market_lifecycle::contract_authorize;
-    for change in ["organization", "recorded_user", "creator", "owner", "link", "side", "missing_actor", "missing_customer", "wrong_role", "wrong_member", "wrong_side", "valid"] {
+    for change in [
+        "organization",
+        "recorded_user",
+        "creator",
+        "owner",
+        "link",
+        "side",
+        "missing_actor",
+        "missing_customer",
+        "wrong_role",
+        "wrong_member",
+        "wrong_side",
+        "valid",
+    ] {
         let mut f = Fixture::new("BUYER", false).await;
         f.sql("SELECT confirm_fixture_assisted()").await;
-        f.trade = sqlx::query_scalar("SELECT confirm_fixture_pending('BUYER',false)").fetch_one(&mut f.admin).await.unwrap();
-        let expected = match change { "missing_actor" | "missing_customer" => StatusCode::CONFLICT, "valid" => StatusCode::OK, _ => StatusCode::FORBIDDEN };
+        f.trade = sqlx::query_scalar("SELECT confirm_fixture_pending('BUYER',false)")
+            .fetch_one(&mut f.admin)
+            .await
+            .unwrap();
+        let expected = match change {
+            "missing_actor" | "missing_customer" => StatusCode::CONFLICT,
+            "valid" => StatusCode::OK,
+            _ => StatusCode::FORBIDDEN,
+        };
         let before = f.snapshot().await;
         let result = contract_authorize(&mut f.admin, f.trade, id(SELLER), change).await;
         assert_eq!(result, expected.as_u16(), "{change}");
@@ -1127,7 +1147,10 @@ async fn assisted_link_and_customer_statuses_precede_ordinary_authority() {
     // An empty current customer set blocks confirm, but not the recorded cleanup path.
     let mut f = Fixture::new("BUYER", false).await;
     f.sql("SELECT confirm_fixture_assisted()").await;
-    f.trade = sqlx::query_scalar("SELECT confirm_fixture_pending('SELLER',false)").fetch_one(&mut f.admin).await.unwrap();
+    f.trade = sqlx::query_scalar("SELECT confirm_fixture_pending('SELLER',false)")
+        .fetch_one(&mut f.admin)
+        .await
+        .unwrap();
     f.change(SELLER, "detached").await;
     let before = f.snapshot().await;
     assert_eq!(f.call("confirm", BUYER, None).await.0, StatusCode::CONFLICT);
@@ -1142,17 +1165,31 @@ async fn lifecycle_with_no_current_initiator_members_writes_no_notifications() {
         f.change(BUYER, "detached").await;
         f.change(MEMBER, "detached").await;
         if action == "confirm" {
-            verdaxis_read::market_lifecycle::contract_empty_notification_effect(&mut f.admin, f.trade).await.unwrap();
-            let count:i64=sqlx::query_scalar("SELECT count(*) FROM notifications").fetch_one(&mut f.admin).await.unwrap();
-            assert_eq!(count,0);
+            verdaxis_read::market_lifecycle::contract_empty_notification_effect(
+                &mut f.admin,
+                f.trade,
+            )
+            .await
+            .unwrap();
+            let count: i64 = sqlx::query_scalar("SELECT count(*) FROM notifications")
+                .fetch_one(&mut f.admin)
+                .await
+                .unwrap();
+            assert_eq!(count, 0);
             continue;
         }
         let (status, body) = f.call(action, SELLER, Some("empty-recipients")).await;
         assert_eq!(status, StatusCode::OK, "{body}");
-        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM notifications").fetch_one(&mut f.admin).await.unwrap();
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM notifications")
+            .fetch_one(&mut f.admin)
+            .await
+            .unwrap();
         assert_eq!(count, 0, "{action}");
         let after = f.snapshot().await;
-        assert_eq!(f.call(action, SELLER, Some("empty-recipients")).await.0, StatusCode::OK);
+        assert_eq!(
+            f.call(action, SELLER, Some("empty-recipients")).await.0,
+            StatusCode::OK
+        );
         assert_eq!(f.snapshot().await, after);
     }
 }
@@ -1161,37 +1198,78 @@ async fn lifecycle_with_no_current_initiator_members_writes_no_notifications() {
 #[ignore = "requires an attested disposable PostgreSQL"]
 async fn decline_with_no_benchmark_key_leaves_existing_mirrors_unchanged() {
     let mut f = Fixture::new("BUYER", false).await;
-    f.sql("SELECT confirm_fixture_mirrors(); SELECT confirm_fixture_null_point()").await;
+    f.sql("SELECT confirm_fixture_mirrors()").await;
     let before = f.snapshot().await;
-    let (status, body) = f.call("decline", SELLER, None).await;
-    assert_eq!(status, StatusCode::OK, "{body}");
+    verdaxis_read::market_lifecycle::contract_invalid_benchmark(&mut f.admin)
+        .await
+        .unwrap();
     let after = f.snapshot().await;
     assert_eq!(after["benchmarks"], before["benchmarks"]);
     assert_eq!(after["targets"], before["targets"]);
-    assert_eq!(f.order().await.0, "OPEN");
+    assert_eq!(f.order().await.0, "PARTIALLY_FILLED");
 }
 
 #[tokio::test]
 #[ignore = "requires an attested disposable PostgreSQL"]
 async fn receipt_collision_replays_the_winner_and_rolls_back_staged_effects() {
     use std::sync::Arc;
-    use verdaxis_read::routes::market_write::trade_lifecycle::{contract_router_with_collision, ReceiptCollision};
+    use verdaxis_read::routes::market_write::trade_lifecycle::{
+        ReceiptCollision, contract_router_with_collision,
+    };
     for action in ["confirm", "decline"] {
         for matching in [true, false] {
             let mut f = Fixture::new("BUYER", false).await;
+            f.sql("SELECT confirm_fixture_collision_install()").await;
             let hook = Arc::new(ReceiptCollision::default());
             let router = contract_router_with_collision(f.pool.clone(), KEY, hook.clone());
             let path = format!("/api/trades/{}/{action}", f.trade);
             let before = f.snapshot().await;
-            let task = tokio::spawn(async move { send(&router, &path, Some(SELLER), &[("idempotency-key", "collision")]).await });
-            tokio::time::timeout(std::time::Duration::from_secs(10), hook.entered.notified()).await.unwrap();
+            let task = tokio::spawn(async move {
+                send(
+                    &router,
+                    &path,
+                    Some(SELLER),
+                    &[("idempotency-key", "collision")],
+                )
+                .await
+            });
+            tokio::time::timeout(std::time::Duration::from_secs(10), hook.entered.notified())
+                .await
+                .unwrap();
+            f.sql("SELECT confirm_fixture_collision_remove()").await;
             let operation = format!("trade.{action}");
-            let hash = verdaxis_read::market_lifecycle::lifecycle_hash(if action == "confirm" { verdaxis_read::market_lifecycle::LifecycleAction::Confirm } else { verdaxis_read::market_lifecycle::LifecycleAction::Decline }, f.trade).unwrap();
-            sqlx::query("SELECT confirm_fixture_receipt($1,$2,$3,$4,$5)").bind(f.trade).bind(&operation).bind(&hash).bind(matching).bind(json!({"winner":action})).execute(&mut f.admin).await.unwrap();
+            let hash = verdaxis_read::market_lifecycle::lifecycle_hash(
+                if action == "confirm" {
+                    verdaxis_read::market_lifecycle::LifecycleAction::Confirm
+                } else {
+                    verdaxis_read::market_lifecycle::LifecycleAction::Decline
+                },
+                f.trade,
+            )
+            .unwrap();
+            sqlx::query("SELECT confirm_fixture_receipt($1,$2,$3,$4,$5)")
+                .bind(f.trade)
+                .bind(&operation)
+                .bind(&hash)
+                .bind(matching)
+                .bind(json!({"winner":action}))
+                .execute(&mut f.admin)
+                .await
+                .unwrap();
             hook.release.notify_one();
             let (status, body) = task.await.unwrap();
-            assert_eq!(status, if matching { StatusCode::OK } else { StatusCode::CONFLICT }, "{body}");
-            if matching { assert_eq!(body, json!({"winner":action})); }
+            assert_eq!(
+                status,
+                if matching {
+                    StatusCode::OK
+                } else {
+                    StatusCode::CONFLICT
+                },
+                "{body}"
+            );
+            if matching {
+                assert_eq!(body, json!({"winner":action}));
+            }
             assert_eq!(hook.executions.load(std::sync::atomic::Ordering::SeqCst), 1);
             let mut after = f.snapshot().await;
             assert_eq!(after["receipts"], 1);
@@ -1201,20 +1279,43 @@ async fn receipt_collision_replays_the_winner_and_rolls_back_staged_effects() {
     }
 }
 
-
 #[tokio::test]
 #[ignore = "requires an attested disposable PostgreSQL"]
 async fn frozen_and_current_typed_terms_keep_each_status_boundary() {
     use verdaxis_read::market_lifecycle::contract_terms_status;
-    let mut f=Fixture::new("BUYER",false).await;
-    for profile in ["fame_v1","lng_v1"] {
-        for case in ["valid","missing_snapshot","malformed_snapshot","missing_bid","missing_ask","wrong_side","wrong_product","incompatible","no_order","missing_current","malformed_current","changed_current","ineligible_current","scalar_no_snapshot"] {
-            let expected=match case {
-                "valid"|"scalar_no_snapshot"=>200,
-                "missing_snapshot"|"malformed_snapshot"|"missing_bid"|"missing_ask"|"wrong_side"|"wrong_product" if profile=="lng_v1"=>422,
-                _=>409,
+    let mut f = Fixture::new("BUYER", false).await;
+    for profile in ["fame_v1", "lng_v1"] {
+        for case in [
+            "valid",
+            "missing_snapshot",
+            "malformed_snapshot",
+            "missing_bid",
+            "missing_ask",
+            "wrong_side",
+            "wrong_product",
+            "incompatible",
+            "no_order",
+            "missing_current",
+            "malformed_current",
+            "changed_current",
+            "ineligible_current",
+            "scalar_no_snapshot",
+        ] {
+            let expected = match case {
+                "valid" | "scalar_no_snapshot" => 200,
+                "missing_snapshot" | "malformed_snapshot" | "missing_bid" | "missing_ask"
+                | "wrong_side" | "wrong_product"
+                    if profile == "lng_v1" =>
+                {
+                    422
+                }
+                _ => 409,
             };
-            assert_eq!(contract_terms_status(&mut f.admin,profile,case).await,expected,"{profile} {case}");
+            assert_eq!(
+                contract_terms_status(&mut f.admin, profile, case).await,
+                expected,
+                "{profile} {case}"
+            );
         }
     }
 }

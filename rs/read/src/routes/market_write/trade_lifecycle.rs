@@ -21,6 +21,8 @@ use std::sync::Arc;
 struct RouteState {
     app: AppState,
     verification: Arc<VerificationSettings>,
+    #[cfg(feature = "contract-tests")]
+    collision: Option<Arc<ReceiptCollision>>,
 }
 pub fn router(app: AppState, verification: VerificationSettings) -> Router {
     Router::new()
@@ -29,6 +31,8 @@ pub fn router(app: AppState, verification: VerificationSettings) -> Router {
         .with_state(RouteState {
             app,
             verification: Arc::new(verification),
+            #[cfg(feature = "contract-tests")]
+            collision: None,
         })
 }
 async fn confirm(State(state): State<RouteState>, request: Request) -> Response {
@@ -97,6 +101,8 @@ async fn handle(state: RouteState, request: Request, action: LifecycleAction) ->
                 action,
                 key,
                 audit: AuditContext::new(Some(ip), Some(request_id))?,
+                #[cfg(feature = "contract-tests")]
+                collision: state.collision,
             },
         )
         .await?;
@@ -113,6 +119,25 @@ async fn handle(state: RouteState, request: Request, action: LifecycleAction) ->
 
 #[cfg(feature = "contract-tests")]
 pub fn contract_router(pool: sqlx::PgPool, key: &str, kyc_gate: bool) -> Router {
+    contract_router_inner(pool, key, kyc_gate, None)
+}
+#[cfg(feature = "contract-tests")]
+pub use crate::market_lifecycle::ReceiptCollision;
+#[cfg(feature = "contract-tests")]
+pub fn contract_router_with_collision(
+    pool: sqlx::PgPool,
+    key: &str,
+    hook: Arc<ReceiptCollision>,
+) -> Router {
+    contract_router_inner(pool, key, true, Some(hook))
+}
+#[cfg(feature = "contract-tests")]
+fn contract_router_inner(
+    pool: sqlx::PgPool,
+    key: &str,
+    kyc_gate: bool,
+    collision: Option<Arc<ReceiptCollision>>,
+) -> Router {
     let config=serde_json::from_value(json!({"environment":"test","release_sha":"test","migration_revision":"p89_20261022_trade_freeze","database_url":"","db_session_time_zone":"UTC","bind":"127.0.0.1:0","read_admission_slots":8,"pool_max":9,"python_budget":0,"configured_max_connections":100,"kyc_execution_gate_enabled":kyc_gate})).unwrap();
     let app = AppState {
         config: Arc::new(config),
@@ -129,13 +154,17 @@ pub fn contract_router(pool: sqlx::PgPool, key: &str, kyc_gate: bool) -> Router 
         reads: Arc::new(tokio::sync::Semaphore::new(8)),
         reference_cache: Arc::new(Default::default()),
     };
-    router(
-        app,
-        VerificationSettings::new(
-            key.into(),
-            None,
-            "lifecycle-tests".into(),
-            "lifecycle-tests".into(),
-        ),
-    )
+    Router::new()
+        .route("/api/trades/{trade_id}/confirm", put(confirm))
+        .route("/api/trades/{trade_id}/decline", put(decline))
+        .with_state(RouteState {
+            app,
+            verification: Arc::new(VerificationSettings::new(
+                key.into(),
+                None,
+                "lifecycle-tests".into(),
+                "lifecycle-tests".into(),
+            )),
+            collision,
+        })
 }

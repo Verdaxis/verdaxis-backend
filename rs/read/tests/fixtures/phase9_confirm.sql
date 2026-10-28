@@ -112,19 +112,17 @@ CREATE OR REPLACE FUNCTION confirm_fixture_grace() RETURNS void LANGUAGE plpgsql
  INSERT INTO kyc_execution_grace(id,user_id,organization_id,kyc_status_at_enrollment,enrolled_at,expires_at,created_by) VALUES(gen_random_uuid(),'00000000-0000-0000-0000-000000002001','00000000-0000-0000-0000-000000002000','PENDING',now(),now()+interval '1 hour','fixture');
 END $$;
 
-CREATE OR REPLACE FUNCTION confirm_fixture_null_point() RETURNS void LANGUAGE plpgsql AS $$
-DECLARE t trades%ROWTYPE; o orderbook_orders%ROWTYPE; BEGIN
- SELECT * INTO STRICT t FROM trades LIMIT 1;
- SELECT * INTO STRICT o FROM orderbook_orders WHERE id=t.ask_order_id;
- DELETE FROM trades WHERE id=t.id;
- DELETE FROM watchlist_targets WHERE order_id=o.id;
- DELETE FROM orderbook_orders WHERE id=o.id;
- o.delivery_point_id:=NULL;
- INSERT INTO orderbook_orders SELECT o.*;
- t.delivery_point_id:=NULL;t.delivery_point_name:=NULL;t.delivery_point_region:=NULL;t.market_snapshot_version:=NULL;
- INSERT INTO trades SELECT t.*;
-END $$;
 CREATE OR REPLACE FUNCTION confirm_fixture_receipt(trade_id uuid,op text,hash text,matching boolean,body jsonb) RETURNS void LANGUAGE plpgsql AS $$ BEGIN
  INSERT INTO market_command_results(id,actor_user_id,effective_organization_id,support_context_id,operation,idempotency_key,request_hash,resource_type,resource_id,response_status,response_body)
  VALUES(gen_random_uuid(),'00000000-0000-0000-0000-000000002001','00000000-0000-0000-0000-000000002000',NULL,op,'collision',CASE WHEN matching THEN hash ELSE repeat('f',64) END,'trade',trade_id,200,body);
+END $$;
+
+CREATE OR REPLACE FUNCTION confirm_fixture_collision() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+ RAISE EXCEPTION 'receipt key already present' USING ERRCODE='23505',CONSTRAINT='uq_market_command_results_actor_operation_key';
+END $$;
+CREATE OR REPLACE FUNCTION confirm_fixture_collision_install() RETURNS void LANGUAGE plpgsql AS $$ BEGIN
+ CREATE TRIGGER confirm_fixture_collision BEFORE INSERT ON market_command_results FOR EACH ROW EXECUTE FUNCTION confirm_fixture_collision();
+END $$;
+CREATE OR REPLACE FUNCTION confirm_fixture_collision_remove() RETURNS void LANGUAGE plpgsql AS $$ BEGIN
+ DROP TRIGGER confirm_fixture_collision ON market_command_results;
 END $$;

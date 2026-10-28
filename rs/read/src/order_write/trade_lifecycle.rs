@@ -79,6 +79,8 @@ pub(crate) struct LifecycleRequest {
     pub action: LifecycleAction,
     pub key: Option<String>,
     pub audit: AuditContext,
+    #[cfg(feature = "contract-tests")]
+    pub collision: Option<Arc<ReceiptCollision>>,
 }
 struct LifecycleCommand {
     request: LifecycleRequest,
@@ -130,6 +132,16 @@ impl LifecycleCommand {
         conn: &mut PgConnection,
         actor: Uuid,
     ) -> Result<MarketPreview, MarketAttemptError> {
+        #[cfg(feature = "contract-tests")]
+        if let Some(hook) = &self.request.collision
+            && hook.executions.load(std::sync::atomic::Ordering::SeqCst) > 0
+            && !hook
+                .recovery_seen
+                .swap(true, std::sync::atomic::Ordering::SeqCst)
+        {
+            hook.entered.notify_one();
+            hook.release.notified().await;
+        }
         let authenticated = super::authority::admission::authenticate_preview(
             conn,
             self.access.clone(),
@@ -299,6 +311,11 @@ impl MarketCommand for LifecycleCommand {
                 )
                 .await?;
             if let (Some(key), Some(context)) = (&self.request.key, context) {
+                #[cfg(feature = "contract-tests")]
+                if let Some(hook) = &self.request.collision {
+                    hook.executions
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
                 tx.record_receipt(
                     &context,
                     &ReceiptRecord {
@@ -558,6 +575,7 @@ impl<'a> LifecyclePort<'a> {
             {
                 return Err(forbidden());
             }
+            require_assisted_presence(self.conn,actor.user_id(),order.organization_id).await?;
             if Some(actor.user_id()) == order.owner_user_id {
                 return Err(forbidden());
             }
@@ -919,5 +937,248 @@ fn revalidate_terms(
             return Err(invalid_parties());
         }
     }
+    Ok(())
+}
+
+async fn require_assisted_presence(conn:&mut PgConnection,actor:Uuid,customer:Uuid)->Result<(),MarketWriteError>{
+    let actor_exists:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE id=$1)").bind(actor).fetch_one(&mut *conn).await?;
+    let customer_exists:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM organizations WHERE id=$1)").bind(customer).fetch_one(&mut *conn).await?;
+    if !actor_exists||!customer_exists{return Err(invalid_parties());}Ok(())
+}
+#[cfg(feature = "contract-tests")]
+#[derive(Default)]
+pub struct ReceiptCollision {
+    pub entered: tokio::sync::Notify,
+    pub release: tokio::sync::Notify,
+    pub executions: std::sync::atomic::AtomicUsize,
+    recovery_seen: std::sync::atomic::AtomicBool,
+}
+
+#[cfg(feature = "contract-tests")]
+pub async fn contract_authorize(
+    conn: &mut PgConnection,
+    trade_id: Uuid,
+    actor_id: Uuid,
+    change: &str,
+) -> u16 {
+    let result: Result<(), MarketWriteError> = async {
+        let access = Arc::new(crate::auth::VerifiedAccess {
+            subject: actor_id,
+            issued_at: Some(Utc::now()),
+            issuance_out_of_range: false,
+        });
+        let actor = super::authority::admission::authenticate_preview(
+            conn,
+            access,
+            AdmissionClass::Cleanup,
+        )
+        .await?;
+        let mut trade = load_trade(conn, trade_id).await?.ok_or_else(fault)?;
+        let mut order = linked_orders(conn, &trade).await?.remove(0);
+        let parties = PartyLockPreview::new(
+            [
+                required_uuid(&trade, "buyer_id")?,
+                required_uuid(&trade, "seller_id")?,
+            ],
+            [actor_id],
+            actor_id,
+            json!({}),
+        );
+        let mut plan = OperationLockPlan::new(MarketOperation::Decline);
+        plan.parties(&parties)?;
+        let locked = plan.acquire(conn).await?;
+        match change {
+            "organization" => order.organization_id = Uuid::nil(),
+            "recorded_user" => trade["seller_user_id"] = json!(actor_id),
+            "creator" => order.created_by_actor_user_id = Some(actor_id),
+            "owner" => order.owner_user_id = None,
+            "link" => trade["ask_order_id"] = Value::Null,
+            "side" => order.side = Side::Bid,
+            "missing_actor" => {
+                require_assisted_presence(conn,Uuid::nil(),order.organization_id).await?;
+            }
+            "missing_customer" => {
+                require_assisted_presence(conn,actor_id,Uuid::nil()).await?;
+            }
+            "wrong_side" => trade["initiated_by"] = json!("SELLER"),
+            "wrong_role" | "wrong_member" | "valid" => {}
+            _ => return Err(fault()),
+        }
+        let actor = if matches!(change, "wrong_role" | "wrong_member") {
+            let user = sqlx::query_scalar::<_, Uuid>(if change == "wrong_role" {
+                "SELECT id FROM users WHERE role::text='BUYER' ORDER BY id LIMIT 1"
+            } else {
+                "SELECT id FROM users WHERE organization_id<>$1 ORDER BY id LIMIT 1"
+            });
+            let id = if change == "wrong_role" {
+                user.fetch_one(&mut *conn).await?
+            } else {
+                user.bind(order.organization_id)
+                    .fetch_one(&mut *conn)
+                    .await?
+            };
+            super::authority::admission::authenticate_preview(
+                conn,
+                Arc::new(crate::auth::VerifiedAccess {
+                    subject: id,
+                    issued_at: Some(Utc::now()),
+                    issuance_out_of_range: false,
+                }),
+                AdmissionClass::Cleanup,
+            )
+            .await?
+        } else {
+            actor
+        };
+        LifecyclePort::new(conn, &locked)?
+            .authorize(&actor, &trade, Some(&order), false)
+            .await?;
+        Ok(())
+    }
+    .await;
+    result.map_or_else(|e| e.status.as_u16(), |_| 200)
+}
+
+#[cfg(feature = "contract-tests")]
+pub async fn contract_terms_status(conn: &mut PgConnection, profile: &str, case: &str) -> u16 {
+    let fame_bid = json!({"schema_version":1,"side":"BID","neat_fame":true,"standard":"EN_14214","standard_edition":"2012+A2:2019","sustainability_scheme":"ISCC_EU"});
+    let fame_ask = json!({"schema_version":1,"side":"ASK","neat_fame":true,"uco_mass_pct":100,"standard":"EN_14214","standard_edition":"2012+A2:2019","sustainability_scheme":"ISCC_EU","certificate_reference":"private-certificate","certificate_holder":"private-supplier","evidence_status":"PENDING","document_references":[],"certificate_valid_until":"2027-01-01","evidence_due":"BEFORE_LOADING"});
+    let lng_bid = json!({"side":"BID","accepted_schemes":["ISCC_EU"],"accepted_delivery_methods":["SHIP_TO_SHIP"]});
+    let lng_ask = json!({"side":"ASK","sustainability_scheme":"ISCC_EU","scheme_certificate_number":"private-certificate","chain_of_custody":"MASS_BALANCE","union_database_registered":true,"bio_share_pct":"100","feedstock":"MANURE","production_country":"NL","wtt_ghg_gco2e_mj":"-20.25","specification_standard":"ISO 23306:2020","min_methane_number":"80","delivery_method":"SHIP_TO_SHIP","seller_is_physical_supplier":false,"physical_supplier_name":"private-supplier","pos_timing":"WITH_DELIVERY"});
+
+    let policy: MarketPolicy =
+        serde_json::from_str(include_str!("../../../../deploy/rust/market-policy.json")).unwrap();
+    let product = policy
+        .products
+        .iter()
+        .find(|p| p.qualification_profile == profile)
+        .unwrap();
+    let (bid, ask, field) = if profile == "fame_v1" {
+        (fame_bid, fame_ask, "fame_terms_snapshot")
+    } else {
+        (lng_bid, lng_ask, "lng_terms_snapshot")
+    };
+    let mut order = matching::load_order(conn, Uuid::from_u128(1))
+        .await
+        .unwrap();
+    order.product_id = product.id;
+    order.delivery_point_id = product.lanes.first().copied();
+    if profile == "fame_v1" {
+        order.terms.fame_terms = Some(ask.clone());
+    } else {
+        order.terms.lng_terms = Some(ask.clone());
+    }
+    let mut trade = json!({"product_id":product.id,field:{"schema_version":1,"bid":bid,"ask":ask}});
+    match case {
+        "missing_snapshot" => trade[field] = Value::Null,
+        "malformed_snapshot" => trade[field] = json!([]),
+        "missing_bid" => {
+            trade[field].as_object_mut().unwrap().remove("bid");
+        }
+        "missing_ask" => {
+            trade[field].as_object_mut().unwrap().remove("ask");
+        }
+        "wrong_side" => trade[field]["bid"]["side"] = json!("ASK"),
+        "wrong_product" => {
+            trade["product_id"] = json!(
+                policy
+                    .products
+                    .iter()
+                    .find(|p| p.qualification_profile == "scalar")
+                    .unwrap()
+                    .id
+            )
+        }
+        "incompatible" => {
+            if profile == "fame_v1" {
+                trade[field]["bid"]["sustainability_scheme"] = json!("REDCERT_EU");
+            } else {
+                trade[field]["bid"]["accepted_schemes"] = json!(["REDCERT_EU"]);
+            }
+        }
+        "missing_current" => {
+            order.terms.fame_terms = None;
+            order.terms.lng_terms = None;
+        }
+        "malformed_current" => {
+            if profile == "fame_v1" {
+                order.terms.fame_terms = Some(json!({}));
+            } else {
+                order.terms.lng_terms = Some(json!({}));
+            }
+        }
+        "changed_current" => {
+            if profile == "fame_v1" {
+                order.terms.fame_terms.as_mut().unwrap()["certificate_reference"] =
+                    json!("another-certificate");
+            } else {
+                order.terms.lng_terms.as_mut().unwrap()["scheme_certificate_number"] =
+                    json!("another-certificate");
+            }
+        }
+        "ineligible_current" => order.terms.off_spec = true,
+        "scalar_no_snapshot" => {
+            trade = json!({"product_id":policy.products.iter().find(|p|p.qualification_profile=="scalar").unwrap().id});
+        }
+        "no_order" | "valid" => {}
+        _ => panic!("unknown terms case"),
+    }
+    revalidate_terms(
+        &trade,
+        if matches!(case, "no_order" | "scalar_no_snapshot") {
+            None
+        } else {
+            Some(&order)
+        },
+        &policy,
+        Utc::now(),
+    )
+    .map_or_else(|e| e.status.as_u16(), |_| 200)
+}
+
+#[cfg(feature = "contract-tests")]
+pub async fn contract_empty_notification_effect(
+    conn: &mut PgConnection,
+    trade: Uuid,
+) -> Result<(), MarketWriteError> {
+    let row = load_trade(conn, trade).await?.ok_or_else(fault)?;
+    super::effects::notify_trade_initiator(
+        conn,
+        required_uuid(&row, "buyer_id")?,
+        trade,
+        &row,
+        true,
+        Utc::now(),
+    )
+    .await
+}
+
+#[cfg(feature = "contract-tests")]
+pub async fn contract_invalid_benchmark(conn: &mut PgConnection) -> Result<(), MarketWriteError> {
+    let policy: MarketPolicy =
+        serde_json::from_str(include_str!("../../../../deploy/rust/market-policy.json")).unwrap();
+    let product = policy
+        .products
+        .iter()
+        .find(|p| p.qualification_profile == "scalar")
+        .unwrap();
+    let config:Config=serde_json::from_value(json!({"environment":"test","release_sha":"test","migration_revision":"p89_20261022_trade_freeze","database_url":"","db_session_time_zone":"UTC","bind":"127.0.0.1:0","read_admission_slots":8,"pool_max":9,"python_budget":0,"configured_max_connections":100})).unwrap();
+    let result = super::rebuild_live_slice_benchmarks_for_keys(
+        conn,
+        &policy,
+        &config,
+        &[super::BenchmarkRebuildKey {
+            side: "ASK".into(),
+            market_product: Some(product.code.clone()),
+            delivery_point_id: None,
+            availability_window: Some("SPOT".into()),
+        }],
+        Utc::now(),
+    )
+    .await
+    .map_err(|_| fault())?;
+    assert_eq!(result.ignored_null_points, 1);
+    assert!(result.rebuilt.is_empty());
+    assert!(result.deleted.is_empty());
     Ok(())
 }
