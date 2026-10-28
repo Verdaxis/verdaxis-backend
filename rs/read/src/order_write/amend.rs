@@ -18,7 +18,7 @@ use super::{
     AdmissionClass, AuthenticatedActor, Canonical, CommittedCommand, MarketErrorCode,
     MarketWriteError, Operation, OrderQuantity, Price, ReceiptRecord, StockQuantity, WriteContext,
     effects::{AuditContext, BeforeEffects, EffectPort, MutationEffect, MutationKind},
-    locks::{LockClass, Locked, MarketOperation, OperationLockPlan, PartyLockPreview},
+    locks::{Locked, MarketOperation, OperationLockPlan, PartyLockPreview},
     matching::{MatchBound, MatchOutcome, OrderRow, OrderStatus, Side},
     outbox::{OrderActivity, ParticipantEvent, ParticipantFields},
     transaction::{
@@ -1553,7 +1553,7 @@ impl<'a> AmendPort<'a> {
         // resting rows join it before completion. The amended row is the one
         // economic row this port names: the plan keeps candidates open.
         let owned = [command.order];
-        let mut before = EffectPort::new(self.conn, &owned, self.locked)
+        let before = EffectPort::new(self.conn, &owned, self.locked)
             .capture_before(
                 &command.policy,
                 &command.config,
