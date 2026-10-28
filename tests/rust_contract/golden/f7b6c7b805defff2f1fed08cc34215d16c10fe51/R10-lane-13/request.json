@@ -1,0 +1,8 @@
+{
+  "method": "GET",
+  "path": "/api/curves/forward/slice",
+  "query": "market_product=BIO_METHANOL&delivery_point_id=78281fb3-e726-5396-802e-34b01fda21e8&availability_window=2026-11",
+  "headers": {
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  }
+}

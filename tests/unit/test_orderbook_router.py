@@ -8,7 +8,6 @@ from uuid import uuid4
 
 from fastapi import HTTPException
 
-from app.market_catalog import BIOFUEL_SPECIFICATION_STANDARDS, PRODUCT_IDS
 from app.models.user import UserRole
 from app.routers.orderbook import (
     _amendment_loses_priority,
@@ -17,7 +16,6 @@ from app.routers.orderbook import (
 )
 from app.models.orderbook import OrderBookOrder
 from app.schemas.orderbook import OrderCreate, OrderSide
-from app.services.execution_policy import order_is_execution_qualified
 
 
 def _make_buyer_user():
@@ -25,6 +23,8 @@ def _make_buyer_user():
     user.id = uuid4()
     user.role = UserRole.BUYER
     user.organization_id = uuid4()
+    user.kyc_status = "APPROVED"
+    user.kyc_organization_id = user.organization_id
     return user
 
 
@@ -33,6 +33,8 @@ def _make_supplier_user():
     user.id = uuid4()
     user.role = UserRole.SUPPLIER
     user.organization_id = uuid4()
+    user.kyc_status = "APPROVED"
+    user.kyc_organization_id = user.organization_id
     return user
 
 
@@ -47,6 +49,7 @@ def _priority_order(**overrides):
         "expires_at": datetime.now(UTC) + timedelta(days=1),
         "certifications": ["ISCC EU"],
         "certification_scheme": "ISCC EU",
+        "fame_terms": None,
         "off_spec": False,
     }
     values.update(overrides)
@@ -60,6 +63,7 @@ def _priority_order(**overrides):
         {"quantity_mt": Decimal("1001")},
         {"certifications": ["ISCC EU", "REDcert EU"]},
         {"certification_scheme": "REDcert EU"},
+        {"fame_terms": {"feedstock": "used_cooking_oil"}},
     ],
 )
 def test_execution_broadening_loses_priority(changes):
@@ -295,6 +299,8 @@ class TestLatestSupplierListingTemplate:
         latest_order.origin = "Brazil"
         latest_order.off_spec = True
         latest_order.off_spec_notes = "Do not carry"
+        latest_order.fame_terms = None
+        latest_order.lng_terms = None
 
         result = MagicMock()
         result.scalars.return_value.first.return_value = latest_order
@@ -325,56 +331,3 @@ class TestLatestSupplierListingTemplate:
         )
 
         assert payload is None
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("product_name", ["B30", "B100"])
-@pytest.mark.parametrize("bad_field", ["specification_standard", "carbon_intensity_method"])
-async def test_biofuel_admission_rejects_wrong_contract_or_missing_whole_fuel_method(product_name, bad_field):
-    product_id = PRODUCT_IDS[product_name]
-    metadata = dict(
-        certification_declared=True,
-        certification_scheme="ISCC EU",
-        specification_standard=BIOFUEL_SPECIFICATION_STANDARDS[product_id],
-        msds_available=True,
-        carbon_intensity_gco2_mj=Decimal("70"),
-        carbon_intensity_method="Lifecycle calculation for the whole supplied fuel",
-        feedstock="Used cooking oil FAME",
-        origin="Singapore",
-    )
-    metadata[bad_field] = "IMPCA" if bad_field == "specification_standard" else " "
-    order = OrderCreate(
-        side=OrderSide.ASK,
-        product_id=product_id,
-        delivery_point_id=uuid4(),
-        quantity_mt=Decimal("1000"),
-        price_per_mt_usd=Decimal("800"),
-        **metadata,
-    )
-    with pytest.raises(HTTPException, match=bad_field) as failure:
-        await create_order(
-            request=_fake_request(), order_data=order,
-            current_user=_make_supplier_user(), db=AsyncMock(),
-        )
-    assert failure.value.status_code == 400
-    assert not order_is_execution_qualified(OrderBookOrder(
-        product_id=product_id, side=OrderSide.ASK, **metadata,
-    ))
-
-
-@pytest.mark.parametrize("product_name", ["B30", "B100"])
-def test_biofuel_execution_requires_complete_metadata_and_accepts_case_and_outer_whitespace(product_name):
-    product_id = PRODUCT_IDS[product_name]
-    order = OrderBookOrder(
-        product_id=product_id, side=OrderSide.ASK,
-        certification_declared=True, certification_scheme="ISCC EU",
-        specification_standard=f" {BIOFUEL_SPECIFICATION_STANDARDS[product_id].lower()} ",
-        msds_available=True, carbon_intensity_gco2_mj=Decimal("70"),
-        carbon_intensity_method="Lifecycle calculation for the whole supplied fuel",
-        feedstock="Used cooking oil FAME", origin="Singapore",
-    )
-    assert order_is_execution_qualified(order)
-    order.msds_available = False
-    assert not order_is_execution_qualified(order)
-    order.side = OrderSide.BID
-    assert order_is_execution_qualified(order)

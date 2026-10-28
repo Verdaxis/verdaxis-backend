@@ -1,0 +1,21 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "jsonrpc": "2.0",
+    "id": 14,
+    "result": {
+      "content": [
+        {
+          "text": "Error executing tool get_market_slice: availability_window must be SPOT, YYYY-MM, YYYY-QN, or YYYY-CAL",
+          "type": "text"
+        }
+      ],
+      "isError": true
+    }
+  },
+  "body_sha256": "b2a5c1edc868963a179730d4c3e0d59ed08a4bb7f6e71af8a0784e533a0efb17"
+}

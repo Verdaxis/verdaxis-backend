@@ -1,0 +1,21 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "jsonrpc": "2.0",
+    "id": 18,
+    "result": {
+      "content": [
+        {
+          "text": "Error executing tool plan_voyage_fuel: start_date must be within 30 days before and 730 days after today",
+          "type": "text"
+        }
+      ],
+      "isError": true
+    }
+  },
+  "body_sha256": "8b1e37cc8584ba9581597902f0453e4d5fe83de82d33c5077c43ff4b6eafc9af"
+}

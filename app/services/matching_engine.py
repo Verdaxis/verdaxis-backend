@@ -14,6 +14,7 @@ from app.models.orderbook import (
     OrderBookOrder, Trade, OrderSide, OrderBookStatus, TradeStatus, Initiator
 )
 from app.models.notification import NotificationType
+from app.services.market_data_eligibility import public_order_owner_admission_clause
 from app.models.user import Organization, User
 from app.services.demo_market import (
     DEMO_ACTIVITY_BUYER_ORG_ID,
@@ -26,15 +27,15 @@ from app.services.execution_policy import (
     order_is_execution_qualified,
     orders_execution_compatible,
 )
-from app.services.market_data_eligibility import public_order_owner_admission_clause
 from app.services.market_locks import acquire_market_slice_lock
 from app.services.provenance import coerce_provenance, execution_provenance_compatible
 from app.models.user import OrganizationProvenance
 from app.services.inventory_reservations import lock_inventory_items
-from app.services.lng_terms import is_bio_lng_product, lng_trade_snapshot
 from app.services.market_admission import lock_and_load_market_organizations
 from app.services.org_notifications import OrgNotification, notify_org_users_batched
 from app.services.trade_fees import resolve_seller_trade_fee
+from app.services.fame_order import fame_trade_snapshot, is_fame_product
+from app.services.lng_order import lng_trade_snapshot, is_lng_product
 
 # A single transaction must not hold an unbounded number of market rows. This
 # is a conservative operational cap. An over-cap match is rejected and the
@@ -150,24 +151,19 @@ async def match_order(
         ),
     ]
 
+    if allowed_demo_counterparty_id is None:
+        match_filters.extend((
+            OrderBookOrder.owner_user_id.is_not(None),
+            public_order_owner_admission_clause(OrderBookOrder),
+        ))
+    else:
+        match_filters.append(OrderBookOrder.id == allowed_demo_counterparty_id)
+
     # delivery_point_id match: both NULL or both equal
     if new_order.delivery_point_id is None:
         match_filters.append(OrderBookOrder.delivery_point_id.is_(None))
     else:
         match_filters.append(OrderBookOrder.delivery_point_id == new_order.delivery_point_id)
-
-    if allowed_demo_counterparty_id is None:
-        # Hidden, non-executable liquidity must not consume the fan-out budget.
-        match_filters.extend([
-            OrderBookOrder.owner_user_id.is_not(None),
-            public_order_owner_admission_clause(OrderBookOrder, now_expression=now),
-        ])
-    else:
-        # Only the exact sanctioned synthetic pair bypasses owner KYC.
-        match_filters.extend([
-            OrderBookOrder.id == allowed_demo_counterparty_id,
-            OrderBookOrder.organization_id == allowed_demo_counterparty_org_id,
-        ])
 
     # Preview a strictly bounded, already provenance/admission-filtered set.
     candidate_stmt = (
@@ -284,20 +280,12 @@ async def match_order(
             bid_order_id = new_order.id
             ask_order_id = crossing.id
             initiated_by = Initiator.BUYER
-            bid_order, ask_order = new_order, crossing
         else:
             buyer_org = crossing.organization_id
             seller_org = new_order.organization_id
             bid_order_id = crossing.id
             ask_order_id = new_order.id
             initiated_by = Initiator.SELLER
-            bid_order, ask_order = crossing, new_order
-        # orders_execution_compatible above already required compatible terms.
-        lng_terms_snapshot = (
-            lng_trade_snapshot(bid_order.lng_terms, ask_order.lng_terms)
-            if is_bio_lng_product(new_order.product_id)
-            else None
-        )
 
         if seller_org not in seller_fee_snapshots:
             seller_fee_snapshots[seller_org] = await resolve_seller_trade_fee(
@@ -354,7 +342,20 @@ async def match_order(
             commission_rate_pct=Decimal("0"),
             commission_fee_per_mt_usd=commission_fee_per_mt_usd,
             commission_plan=commission_plan.value,
-            lng_terms_snapshot=lng_terms_snapshot,
+            lng_terms_snapshot=(
+                lng_trade_snapshot(
+                    new_order.lng_terms if new_order.side == OrderSide.BID else crossing.lng_terms,
+                    crossing.lng_terms if new_order.side == OrderSide.BID else new_order.lng_terms,
+                )
+                if is_lng_product(new_order.product_id) else None
+            ),
+            fame_terms_snapshot=(
+                fame_trade_snapshot(
+                    new_order.fame_terms if new_order.side == OrderSide.BID else crossing.fame_terms,
+                    crossing.fame_terms if new_order.side == OrderSide.BID else new_order.fame_terms,
+                )
+                if is_fame_product(new_order.product_id) else None
+            ),
         )
         db.add(trade)
         await db.flush()

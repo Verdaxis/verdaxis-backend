@@ -1,0 +1,1594 @@
+{
+  "version": 1,
+  "oracle_sha": "573c962de8bbac857b339da49b61f4de6fff4e10",
+  "inventory_sha256": "6aa227efee88b7cad0586027699d884c3409fb04cf99639810c71d9be95113ad",
+  "comparator_profile": "phase2-meaning-v1",
+  "route_ids": [
+    "N01",
+    "N02",
+    "N03",
+    "N04",
+    "P01",
+    "P02",
+    "F01",
+    "F02",
+    "W01",
+    "W02",
+    "W03",
+    "W04",
+    "W05",
+    "W06",
+    "W07",
+    "W08",
+    "W09",
+    "W10",
+    "W11",
+    "A01",
+    "A02",
+    "A03",
+    "R01",
+    "R02",
+    "R03",
+    "R04",
+    "R05"
+  ],
+  "required_scenarios": [
+    {
+      "id": "N01:success",
+      "route_id": "N01",
+      "case": "success"
+    },
+    {
+      "id": "N01:malformed",
+      "route_id": "N01",
+      "case": "malformed"
+    },
+    {
+      "id": "N01:method-slash",
+      "route_id": "N01",
+      "case": "method-slash"
+    },
+    {
+      "id": "N01:database-error",
+      "route_id": "N01",
+      "case": "database-error"
+    },
+    {
+      "id": "N01:cors",
+      "route_id": "N01",
+      "case": "cors"
+    },
+    {
+      "id": "N01:auth-matrix",
+      "route_id": "N01",
+      "case": "auth-matrix"
+    },
+    {
+      "id": "N01:support-context",
+      "route_id": "N01",
+      "case": "support-context"
+    },
+    {
+      "id": "N01:scope",
+      "route_id": "N01",
+      "case": "scope"
+    },
+    {
+      "id": "N01:repeat",
+      "route_id": "N01",
+      "case": "repeat"
+    },
+    {
+      "id": "N01:committed-state",
+      "route_id": "N01",
+      "case": "committed-state"
+    },
+    {
+      "id": "N02:success",
+      "route_id": "N02",
+      "case": "success"
+    },
+    {
+      "id": "N02:malformed",
+      "route_id": "N02",
+      "case": "malformed"
+    },
+    {
+      "id": "N02:method-slash",
+      "route_id": "N02",
+      "case": "method-slash"
+    },
+    {
+      "id": "N02:database-error",
+      "route_id": "N02",
+      "case": "database-error"
+    },
+    {
+      "id": "N02:cors",
+      "route_id": "N02",
+      "case": "cors"
+    },
+    {
+      "id": "N02:auth-matrix",
+      "route_id": "N02",
+      "case": "auth-matrix"
+    },
+    {
+      "id": "N02:support-context",
+      "route_id": "N02",
+      "case": "support-context"
+    },
+    {
+      "id": "N02:scope",
+      "route_id": "N02",
+      "case": "scope"
+    },
+    {
+      "id": "N02:repeat",
+      "route_id": "N02",
+      "case": "repeat"
+    },
+    {
+      "id": "N02:committed-state",
+      "route_id": "N02",
+      "case": "committed-state"
+    },
+    {
+      "id": "N03:success",
+      "route_id": "N03",
+      "case": "success"
+    },
+    {
+      "id": "N03:malformed",
+      "route_id": "N03",
+      "case": "malformed"
+    },
+    {
+      "id": "N03:method-slash",
+      "route_id": "N03",
+      "case": "method-slash"
+    },
+    {
+      "id": "N03:database-error",
+      "route_id": "N03",
+      "case": "database-error"
+    },
+    {
+      "id": "N03:cors",
+      "route_id": "N03",
+      "case": "cors"
+    },
+    {
+      "id": "N03:auth-matrix",
+      "route_id": "N03",
+      "case": "auth-matrix"
+    },
+    {
+      "id": "N03:support-context",
+      "route_id": "N03",
+      "case": "support-context"
+    },
+    {
+      "id": "N03:scope",
+      "route_id": "N03",
+      "case": "scope"
+    },
+    {
+      "id": "N03:repeat",
+      "route_id": "N03",
+      "case": "repeat"
+    },
+    {
+      "id": "N03:committed-state",
+      "route_id": "N03",
+      "case": "committed-state"
+    },
+    {
+      "id": "N04:success",
+      "route_id": "N04",
+      "case": "success"
+    },
+    {
+      "id": "N04:malformed",
+      "route_id": "N04",
+      "case": "malformed"
+    },
+    {
+      "id": "N04:method-slash",
+      "route_id": "N04",
+      "case": "method-slash"
+    },
+    {
+      "id": "N04:database-error",
+      "route_id": "N04",
+      "case": "database-error"
+    },
+    {
+      "id": "N04:cors",
+      "route_id": "N04",
+      "case": "cors"
+    },
+    {
+      "id": "N04:auth-matrix",
+      "route_id": "N04",
+      "case": "auth-matrix"
+    },
+    {
+      "id": "N04:support-context",
+      "route_id": "N04",
+      "case": "support-context"
+    },
+    {
+      "id": "N04:scope",
+      "route_id": "N04",
+      "case": "scope"
+    },
+    {
+      "id": "N04:repeat",
+      "route_id": "N04",
+      "case": "repeat"
+    },
+    {
+      "id": "N04:committed-state",
+      "route_id": "N04",
+      "case": "committed-state"
+    },
+    {
+      "id": "P01:success",
+      "route_id": "P01",
+      "case": "success"
+    },
+    {
+      "id": "P01:malformed",
+      "route_id": "P01",
+      "case": "malformed"
+    },
+    {
+      "id": "P01:method-slash",
+      "route_id": "P01",
+      "case": "method-slash"
+    },
+    {
+      "id": "P01:database-error",
+      "route_id": "P01",
+      "case": "database-error"
+    },
+    {
+      "id": "P01:cors",
+      "route_id": "P01",
+      "case": "cors"
+    },
+    {
+      "id": "P01:auth-matrix",
+      "route_id": "P01",
+      "case": "auth-matrix"
+    },
+    {
+      "id": "P01:support-context",
+      "route_id": "P01",
+      "case": "support-context"
+    },
+    {
+      "id": "P01:scope",
+      "route_id": "P01",
+      "case": "scope"
+    },
+    {
+      "id": "P01:repeat",
+      "route_id": "P01",
+      "case": "repeat"
+    },
+    {
+      "id": "P01:committed-state",
+      "route_id": "P01",
+      "case": "committed-state"
+    },
+    {
+      "id": "P02:success",
+      "route_id": "P02",
+      "case": "success"
+    },
+    {
+      "id": "P02:malformed",
+      "route_id": "P02",
+      "case": "malformed"
+    },
+    {
+      "id": "P02:method-slash",
+      "route_id": "P02",
+      "case": "method-slash"
+    },
+    {
+      "id": "P02:database-error",
+      "route_id": "P02",
+      "case": "database-error"
+    },
+    {
+      "id": "P02:cors",
+      "route_id": "P02",
+      "case": "cors"
+    },
+    {
+      "id": "P02:auth-matrix",
+      "route_id": "P02",
+      "case": "auth-matrix"
+    },
+    {
+      "id": "P02:support-context",
+      "route_id": "P02",
+      "case": "support-context"
+    },
+    {
+      "id": "P02:scope",
+      "route_id": "P02",
+      "case": "scope"
+    },
+    {
+      "id": "P02:repeat",
+      "route_id": "P02",
+      "case": "repeat"
+    },
+    {
+      "id": "P02:committed-state",
+      "route_id": "P02",
+      "case": "committed-state"
+    },
+    {
+      "id": "F01:success",
+      "route_id": "F01",
+      "case": "success"
+    },
+    {
+      "id": "F01:malformed",
+      "route_id": "F01",
+      "case": "malformed"
+    },
+    {
+      "id": "F01:method-slash",
+      "route_id": "F01",
+      "case": "method-slash"
+    },
+    {
+      "id": "F01:database-error",
+      "route_id": "F01",
+      "case": "database-error"
+    },
+    {
+      "id": "F01:cors",
+      "route_id": "F01",
+      "case": "cors"
+    },
+    {
+      "id": "F01:auth-matrix",
+      "route_id": "F01",
+      "case": "auth-matrix"
+    },
+    {
+      "id": "F01:support-context",
+      "route_id": "F01",
+      "case": "support-context"
+    },
+    {
+      "id": "F01:scope",
+      "route_id": "F01",
+      "case": "scope"
+    },
+    {
+      "id": "F01:repeat",
+      "route_id": "F01",
+      "case": "repeat"
+    },
+    {
+      "id": "F01:committed-state",
+      "route_id": "F01",
+      "case": "committed-state"
+    },
+    {
+      "id": "F02:success",
+      "route_id": "F02",
+      "case": "success"
+    },
+    {
+      "id": "F02:malformed",
+      "route_id": "F02",
+      "case": "malformed"
+    },
+    {
+      "id": "F02:method-slash",
+      "route_id": "F02",
+      "case": "method-slash"
+    },
+    {
+      "id": "F02:database-error",
+      "route_id": "F02",
+      "case": "database-error"
+    },
+    {
+      "id": "F02:cors",
+      "route_id": "F02",
+      "case": "cors"
+    },
+    {
+      "id": "F02:auth-matrix",
+      "route_id": "F02",
+      "case": "auth-matrix"
+    },
+    {
+      "id": "F02:support-context",
+      "route_id": "F02",
+      "case": "support-context"
+    },
+    {
+      "id": "F02:scope",
+      "route_id": "F02",
+      "case": "scope"
+    },
+    {
+      "id": "F02:repeat",
+      "route_id": "F02",
+      "case": "repeat"
+    },
+    {
+      "id": "F02:committed-state",
+      "route_id": "F02",
+      "case": "committed-state"
+    },
+    {
+      "id": "W01:success",
+      "route_id": "W01",
+      "case": "success"
+    },
+    {
+      "id": "W01:malformed",
+      "route_id": "W01",
+      "case": "malformed"
+    },
+    {
+      "id": "W01:method-slash",
+      "route_id": "W01",
+      "case": "method-slash"
+    },
+    {
+      "id": "W01:database-error",
+      "route_id": "W01",
+      "case": "database-error"
+    },
+    {
+      "id": "W01:cors",
+      "route_id": "W01",
+      "case": "cors"
+    },
+    {
+      "id": "W01:auth-matrix",
+      "route_id": "W01",
+      "case": "auth-matrix"
+    },
+    {
+      "id": "W01:support-context",
+      "route_id": "W01",
+      "case": "support-context"
+    },
+    {
+      "id": "W01:scope",
+      "route_id": "W01",
+      "case": "scope"
+    },
+    {
+      "id": "W01:repeat",
+      "route_id": "W01",
+      "case": "repeat"
+    },
+    {
+      "id": "W01:committed-state",
+      "route_id": "W01",
+      "case": "committed-state"
+    },
+    {
+      "id": "W02:success",
+      "route_id": "W02",
+      "case": "success"
+    },
+    {
+      "id": "W02:malformed",
+      "route_id": "W02",
+      "case": "malformed"
+    },
+    {
+      "id": "W02:method-slash",
+      "route_id": "W02",
+      "case": "method-slash"
+    },
+    {
+      "id": "W02:database-error",
+      "route_id": "W02",
+      "case": "database-error"
+    },
+    {
+      "id": "W02:cors",
+      "route_id": "W02",
+      "case": "cors"
+    },
+    {
+      "id": "W02:auth-matrix",
+      "route_id": "W02",
+      "case": "auth-matrix"
+    },
+    {
+      "id": "W02:support-context",
+      "route_id": "W02",
+      "case": "support-context"
+    },
+    {
+      "id": "W02:scope",
+      "route_id": "W02",
+      "case": "scope"
+    },
+    {
+      "id": "W02:repeat",
+      "route_id": "W02",
+      "case": "repeat"
+    },
+    {
+      "id": "W02:committed-state",
+      "route_id": "W02",
+      "case": "committed-state"
+    },
+    {
+      "id": "W03:success",
+      "route_id": "W03",
+      "case": "success"
+    },
+    {
+      "id": "W03:malformed",
+      "route_id": "W03",
+      "case": "malformed"
+    },
+    {
+      "id": "W03:method-slash",
+      "route_id": "W03",
+      "case": "method-slash"
+    },
+    {
+      "id": "W03:database-error",
+      "route_id": "W03",
+      "case": "database-error"
+    },
+    {
+      "id": "W03:cors",
+      "route_id": "W03",
+      "case": "cors"
+    },
+    {
+      "id": "W03:auth-matrix",
+      "route_id": "W03",
+      "case": "auth-matrix"
+    },
+    {
+      "id": "W03:support-context",
+      "route_id": "W03",
+      "case": "support-context"
+    },
+    {
+      "id": "W03:scope",
+      "route_id": "W03",
+      "case": "scope"
+    },
+    {
+      "id": "W03:repeat",
+      "route_id": "W03",
+      "case": "repeat"
+    },
+    {
+      "id": "W03:committed-state",
+      "route_id": "W03",
+      "case": "committed-state"
+    },
+    {
+      "id": "W04:success",
+      "route_id": "W04",
+      "case": "success"
+    },
+    {
+      "id": "W04:malformed",
+      "route_id": "W04",
+      "case": "malformed"
+    },
+    {
+      "id": "W04:method-slash",
+      "route_id": "W04",
+      "case": "method-slash"
+    },
+    {
+      "id": "W04:database-error",
+      "route_id": "W04",
+      "case": "database-error"
+    },
+    {
+      "id": "W04:cors",
+      "route_id": "W04",
+      "case": "cors"
+    },
+    {
+      "id": "W04:auth-matrix",
+      "route_id": "W04",
+      "case": "auth-matrix"
+    },
+    {
+      "id": "W04:support-context",
+      "route_id": "W04",
+      "case": "support-context"
+    },
+    {
+      "id": "W04:scope",
+      "route_id": "W04",
+      "case": "scope"
+    },
+    {
+      "id": "W04:repeat",
+      "route_id": "W04",
+      "case": "repeat"
+    },
+    {
+      "id": "W04:committed-state",
+      "route_id": "W04",
+      "case": "committed-state"
+    },
+    {
+      "id": "W05:success",
+      "route_id": "W05",
+      "case": "success"
+    },
+    {
+      "id": "W05:malformed",
+      "route_id": "W05",
+      "case": "malformed"
+    },
+    {
+      "id": "W05:method-slash",
+      "route_id": "W05",
+      "case": "method-slash"
+    },
+    {
+      "id": "W05:database-error",
+      "route_id": "W05",
+      "case": "database-error"
+    },
+    {
+      "id": "W05:cors",
+      "route_id": "W05",
+      "case": "cors"
+    },
+    {
+      "id": "W05:auth-matrix",
+      "route_id": "W05",
+      "case": "auth-matrix"
+    },
+    {
+      "id": "W05:support-context",
+      "route_id": "W05",
+      "case": "support-context"
+    },
+    {
+      "id": "W05:scope",
+      "route_id": "W05",
+      "case": "scope"
+    },
+    {
+      "id": "W05:repeat",
+      "route_id": "W05",
+      "case": "repeat"
+    },
+    {
+      "id": "W05:committed-state",
+      "route_id": "W05",
+      "case": "committed-state"
+    },
+    {
+      "id": "W06:success",
+      "route_id": "W06",
+      "case": "success"
+    },
+    {
+      "id": "W06:malformed",
+      "route_id": "W06",
+      "case": "malformed"
+    },
+    {
+      "id": "W06:method-slash",
+      "route_id": "W06",
+      "case": "method-slash"
+    },
+    {
+      "id": "W06:database-error",
+      "route_id": "W06",
+      "case": "database-error"
+    },
+    {
+      "id": "W06:cors",
+      "route_id": "W06",
+      "case": "cors"
+    },
+    {
+      "id": "W06:auth-matrix",
+      "route_id": "W06",
+      "case": "auth-matrix"
+    },
+    {
+      "id": "W06:support-context",
+      "route_id": "W06",
+      "case": "support-context"
+    },
+    {
+      "id": "W06:scope",
+      "route_id": "W06",
+      "case": "scope"
+    },
+    {
+      "id": "W06:repeat",
+      "route_id": "W06",
+      "case": "repeat"
+    },
+    {
+      "id": "W06:committed-state",
+      "route_id": "W06",
+      "case": "committed-state"
+    },
+    {
+      "id": "W07:success",
+      "route_id": "W07",
+      "case": "success"
+    },
+    {
+      "id": "W07:malformed",
+      "route_id": "W07",
+      "case": "malformed"
+    },
+    {
+      "id": "W07:method-slash",
+      "route_id": "W07",
+      "case": "method-slash"
+    },
+    {
+      "id": "W07:database-error",
+      "route_id": "W07",
+      "case": "database-error"
+    },
+    {
+      "id": "W07:cors",
+      "route_id": "W07",
+      "case": "cors"
+    },
+    {
+      "id": "W07:auth-matrix",
+      "route_id": "W07",
+      "case": "auth-matrix"
+    },
+    {
+      "id": "W07:support-context",
+      "route_id": "W07",
+      "case": "support-context"
+    },
+    {
+      "id": "W07:scope",
+      "route_id": "W07",
+      "case": "scope"
+    },
+    {
+      "id": "W07:repeat",
+      "route_id": "W07",
+      "case": "repeat"
+    },
+    {
+      "id": "W07:committed-state",
+      "route_id": "W07",
+      "case": "committed-state"
+    },
+    {
+      "id": "W08:success",
+      "route_id": "W08",
+      "case": "success"
+    },
+    {
+      "id": "W08:malformed",
+      "route_id": "W08",
+      "case": "malformed"
+    },
+    {
+      "id": "W08:method-slash",
+      "route_id": "W08",
+      "case": "method-slash"
+    },
+    {
+      "id": "W08:database-error",
+      "route_id": "W08",
+      "case": "database-error"
+    },
+    {
+      "id": "W08:cors",
+      "route_id": "W08",
+      "case": "cors"
+    },
+    {
+      "id": "W08:auth-matrix",
+      "route_id": "W08",
+      "case": "auth-matrix"
+    },
+    {
+      "id": "W08:support-context",
+      "route_id": "W08",
+      "case": "support-context"
+    },
+    {
+      "id": "W08:scope",
+      "route_id": "W08",
+      "case": "scope"
+    },
+    {
+      "id": "W08:repeat",
+      "route_id": "W08",
+      "case": "repeat"
+    },
+    {
+      "id": "W08:committed-state",
+      "route_id": "W08",
+      "case": "committed-state"
+    },
+    {
+      "id": "W09:success",
+      "route_id": "W09",
+      "case": "success"
+    },
+    {
+      "id": "W09:malformed",
+      "route_id": "W09",
+      "case": "malformed"
+    },
+    {
+      "id": "W09:method-slash",
+      "route_id": "W09",
+      "case": "method-slash"
+    },
+    {
+      "id": "W09:database-error",
+      "route_id": "W09",
+      "case": "database-error"
+    },
+    {
+      "id": "W09:cors",
+      "route_id": "W09",
+      "case": "cors"
+    },
+    {
+      "id": "W09:auth-matrix",
+      "route_id": "W09",
+      "case": "auth-matrix"
+    },
+    {
+      "id": "W09:support-context",
+      "route_id": "W09",
+      "case": "support-context"
+    },
+    {
+      "id": "W09:scope",
+      "route_id": "W09",
+      "case": "scope"
+    },
+    {
+      "id": "W09:repeat",
+      "route_id": "W09",
+      "case": "repeat"
+    },
+    {
+      "id": "W09:committed-state",
+      "route_id": "W09",
+      "case": "committed-state"
+    },
+    {
+      "id": "W10:success",
+      "route_id": "W10",
+      "case": "success"
+    },
+    {
+      "id": "W10:malformed",
+      "route_id": "W10",
+      "case": "malformed"
+    },
+    {
+      "id": "W10:method-slash",
+      "route_id": "W10",
+      "case": "method-slash"
+    },
+    {
+      "id": "W10:database-error",
+      "route_id": "W10",
+      "case": "database-error"
+    },
+    {
+      "id": "W10:cors",
+      "route_id": "W10",
+      "case": "cors"
+    },
+    {
+      "id": "W10:auth-matrix",
+      "route_id": "W10",
+      "case": "auth-matrix"
+    },
+    {
+      "id": "W10:support-context",
+      "route_id": "W10",
+      "case": "support-context"
+    },
+    {
+      "id": "W10:scope",
+      "route_id": "W10",
+      "case": "scope"
+    },
+    {
+      "id": "W10:repeat",
+      "route_id": "W10",
+      "case": "repeat"
+    },
+    {
+      "id": "W10:committed-state",
+      "route_id": "W10",
+      "case": "committed-state"
+    },
+    {
+      "id": "W11:success",
+      "route_id": "W11",
+      "case": "success"
+    },
+    {
+      "id": "W11:malformed",
+      "route_id": "W11",
+      "case": "malformed"
+    },
+    {
+      "id": "W11:method-slash",
+      "route_id": "W11",
+      "case": "method-slash"
+    },
+    {
+      "id": "W11:database-error",
+      "route_id": "W11",
+      "case": "database-error"
+    },
+    {
+      "id": "W11:cors",
+      "route_id": "W11",
+      "case": "cors"
+    },
+    {
+      "id": "W11:auth-matrix",
+      "route_id": "W11",
+      "case": "auth-matrix"
+    },
+    {
+      "id": "W11:support-context",
+      "route_id": "W11",
+      "case": "support-context"
+    },
+    {
+      "id": "W11:scope",
+      "route_id": "W11",
+      "case": "scope"
+    },
+    {
+      "id": "W11:repeat",
+      "route_id": "W11",
+      "case": "repeat"
+    },
+    {
+      "id": "W11:committed-state",
+      "route_id": "W11",
+      "case": "committed-state"
+    },
+    {
+      "id": "A01:success",
+      "route_id": "A01",
+      "case": "success"
+    },
+    {
+      "id": "A01:malformed",
+      "route_id": "A01",
+      "case": "malformed"
+    },
+    {
+      "id": "A01:method-slash",
+      "route_id": "A01",
+      "case": "method-slash"
+    },
+    {
+      "id": "A01:database-error",
+      "route_id": "A01",
+      "case": "database-error"
+    },
+    {
+      "id": "A01:cors",
+      "route_id": "A01",
+      "case": "cors"
+    },
+    {
+      "id": "A01:auth-matrix",
+      "route_id": "A01",
+      "case": "auth-matrix"
+    },
+    {
+      "id": "A01:support-context",
+      "route_id": "A01",
+      "case": "support-context"
+    },
+    {
+      "id": "A01:scope",
+      "route_id": "A01",
+      "case": "scope"
+    },
+    {
+      "id": "A01:repeat",
+      "route_id": "A01",
+      "case": "repeat"
+    },
+    {
+      "id": "A01:committed-state",
+      "route_id": "A01",
+      "case": "committed-state"
+    },
+    {
+      "id": "A02:success",
+      "route_id": "A02",
+      "case": "success"
+    },
+    {
+      "id": "A02:malformed",
+      "route_id": "A02",
+      "case": "malformed"
+    },
+    {
+      "id": "A02:method-slash",
+      "route_id": "A02",
+      "case": "method-slash"
+    },
+    {
+      "id": "A02:database-error",
+      "route_id": "A02",
+      "case": "database-error"
+    },
+    {
+      "id": "A02:cors",
+      "route_id": "A02",
+      "case": "cors"
+    },
+    {
+      "id": "A02:auth-matrix",
+      "route_id": "A02",
+      "case": "auth-matrix"
+    },
+    {
+      "id": "A02:support-context",
+      "route_id": "A02",
+      "case": "support-context"
+    },
+    {
+      "id": "A02:scope",
+      "route_id": "A02",
+      "case": "scope"
+    },
+    {
+      "id": "A02:repeat",
+      "route_id": "A02",
+      "case": "repeat"
+    },
+    {
+      "id": "A02:committed-state",
+      "route_id": "A02",
+      "case": "committed-state"
+    },
+    {
+      "id": "A03:success",
+      "route_id": "A03",
+      "case": "success"
+    },
+    {
+      "id": "A03:malformed",
+      "route_id": "A03",
+      "case": "malformed"
+    },
+    {
+      "id": "A03:method-slash",
+      "route_id": "A03",
+      "case": "method-slash"
+    },
+    {
+      "id": "A03:database-error",
+      "route_id": "A03",
+      "case": "database-error"
+    },
+    {
+      "id": "A03:cors",
+      "route_id": "A03",
+      "case": "cors"
+    },
+    {
+      "id": "A03:auth-matrix",
+      "route_id": "A03",
+      "case": "auth-matrix"
+    },
+    {
+      "id": "A03:support-context",
+      "route_id": "A03",
+      "case": "support-context"
+    },
+    {
+      "id": "A03:scope",
+      "route_id": "A03",
+      "case": "scope"
+    },
+    {
+      "id": "A03:repeat",
+      "route_id": "A03",
+      "case": "repeat"
+    },
+    {
+      "id": "A03:committed-state",
+      "route_id": "A03",
+      "case": "committed-state"
+    },
+    {
+      "id": "R01:success",
+      "route_id": "R01",
+      "case": "success"
+    },
+    {
+      "id": "R01:malformed",
+      "route_id": "R01",
+      "case": "malformed"
+    },
+    {
+      "id": "R01:method-slash",
+      "route_id": "R01",
+      "case": "method-slash"
+    },
+    {
+      "id": "R01:database-error",
+      "route_id": "R01",
+      "case": "database-error"
+    },
+    {
+      "id": "R01:cors",
+      "route_id": "R01",
+      "case": "cors"
+    },
+    {
+      "id": "R01:auth-matrix",
+      "route_id": "R01",
+      "case": "auth-matrix"
+    },
+    {
+      "id": "R01:support-context",
+      "route_id": "R01",
+      "case": "support-context"
+    },
+    {
+      "id": "R01:scope",
+      "route_id": "R01",
+      "case": "scope"
+    },
+    {
+      "id": "R01:repeat",
+      "route_id": "R01",
+      "case": "repeat"
+    },
+    {
+      "id": "R01:committed-state",
+      "route_id": "R01",
+      "case": "committed-state"
+    },
+    {
+      "id": "R02:success",
+      "route_id": "R02",
+      "case": "success"
+    },
+    {
+      "id": "R02:malformed",
+      "route_id": "R02",
+      "case": "malformed"
+    },
+    {
+      "id": "R02:method-slash",
+      "route_id": "R02",
+      "case": "method-slash"
+    },
+    {
+      "id": "R02:database-error",
+      "route_id": "R02",
+      "case": "database-error"
+    },
+    {
+      "id": "R02:cors",
+      "route_id": "R02",
+      "case": "cors"
+    },
+    {
+      "id": "R02:auth-matrix",
+      "route_id": "R02",
+      "case": "auth-matrix"
+    },
+    {
+      "id": "R02:support-context",
+      "route_id": "R02",
+      "case": "support-context"
+    },
+    {
+      "id": "R02:scope",
+      "route_id": "R02",
+      "case": "scope"
+    },
+    {
+      "id": "R02:repeat",
+      "route_id": "R02",
+      "case": "repeat"
+    },
+    {
+      "id": "R02:committed-state",
+      "route_id": "R02",
+      "case": "committed-state"
+    },
+    {
+      "id": "R03:success",
+      "route_id": "R03",
+      "case": "success"
+    },
+    {
+      "id": "R03:malformed",
+      "route_id": "R03",
+      "case": "malformed"
+    },
+    {
+      "id": "R03:method-slash",
+      "route_id": "R03",
+      "case": "method-slash"
+    },
+    {
+      "id": "R03:database-error",
+      "route_id": "R03",
+      "case": "database-error"
+    },
+    {
+      "id": "R03:cors",
+      "route_id": "R03",
+      "case": "cors"
+    },
+    {
+      "id": "R03:auth-matrix",
+      "route_id": "R03",
+      "case": "auth-matrix"
+    },
+    {
+      "id": "R03:support-context",
+      "route_id": "R03",
+      "case": "support-context"
+    },
+    {
+      "id": "R03:scope",
+      "route_id": "R03",
+      "case": "scope"
+    },
+    {
+      "id": "R03:repeat",
+      "route_id": "R03",
+      "case": "repeat"
+    },
+    {
+      "id": "R03:committed-state",
+      "route_id": "R03",
+      "case": "committed-state"
+    },
+    {
+      "id": "R04:success",
+      "route_id": "R04",
+      "case": "success"
+    },
+    {
+      "id": "R04:malformed",
+      "route_id": "R04",
+      "case": "malformed"
+    },
+    {
+      "id": "R04:method-slash",
+      "route_id": "R04",
+      "case": "method-slash"
+    },
+    {
+      "id": "R04:database-error",
+      "route_id": "R04",
+      "case": "database-error"
+    },
+    {
+      "id": "R04:cors",
+      "route_id": "R04",
+      "case": "cors"
+    },
+    {
+      "id": "R04:auth-matrix",
+      "route_id": "R04",
+      "case": "auth-matrix"
+    },
+    {
+      "id": "R04:support-context",
+      "route_id": "R04",
+      "case": "support-context"
+    },
+    {
+      "id": "R04:scope",
+      "route_id": "R04",
+      "case": "scope"
+    },
+    {
+      "id": "R04:repeat",
+      "route_id": "R04",
+      "case": "repeat"
+    },
+    {
+      "id": "R04:committed-state",
+      "route_id": "R04",
+      "case": "committed-state"
+    },
+    {
+      "id": "R05:success",
+      "route_id": "R05",
+      "case": "success"
+    },
+    {
+      "id": "R05:malformed",
+      "route_id": "R05",
+      "case": "malformed"
+    },
+    {
+      "id": "R05:method-slash",
+      "route_id": "R05",
+      "case": "method-slash"
+    },
+    {
+      "id": "R05:database-error",
+      "route_id": "R05",
+      "case": "database-error"
+    },
+    {
+      "id": "R05:cors",
+      "route_id": "R05",
+      "case": "cors"
+    },
+    {
+      "id": "notification_scope_and_email_state",
+      "route_id": "N01",
+      "case": "notification_scope_and_email_state"
+    },
+    {
+      "id": "foreign_watchlist_is_not_found",
+      "route_id": "W04",
+      "case": "foreign_watchlist_is_not_found"
+    },
+    {
+      "id": "pin_and_companion_slice_are_atomic",
+      "route_id": "W05",
+      "case": "pin_and_companion_slice_are_atomic"
+    },
+    {
+      "id": "legacy_translation_conflict_preserves_entry",
+      "route_id": "W09",
+      "case": "legacy_translation_conflict_preserves_entry"
+    },
+    {
+      "id": "foreign_alert_delete_is_403",
+      "route_id": "A03",
+      "case": "foreign_alert_delete_is_403"
+    },
+    {
+      "id": "invite_failure_preserves_only_pre_send_code_commit",
+      "route_id": "R04",
+      "case": "invite_failure_preserves_only_pre_send_code_commit"
+    },
+    {
+      "id": "revocation_waits_for_authenticated_transaction",
+      "route_id": "N03",
+      "case": "revocation_waits_for_authenticated_transaction"
+    },
+    {
+      "id": "missing_evidence_is_inconclusive",
+      "route_id": null,
+      "case": "missing_evidence_is_inconclusive"
+    },
+    {
+      "id": "auth-token-matrix",
+      "route_id": null,
+      "case": "auth-token-matrix"
+    },
+    {
+      "id": "auth-negative-cookie-matrix",
+      "route_id": null,
+      "case": "auth-negative-cookie-matrix"
+    },
+    {
+      "id": "auth-cutoff-boundaries",
+      "route_id": null,
+      "case": "auth-cutoff-boundaries"
+    },
+    {
+      "id": "shared-admin-prefix-rate-limit",
+      "route_id": "F02",
+      "case": "shared-admin-prefix-rate-limit"
+    },
+    {
+      "id": "preference-size-and-validation-order",
+      "route_id": "P02",
+      "case": "preference-size-and-validation-order"
+    },
+    {
+      "id": "feedback-sanitization",
+      "route_id": "F01",
+      "case": "feedback-sanitization"
+    },
+    {
+      "id": "malformed-stored-pin-window",
+      "route_id": "W05",
+      "case": "malformed-stored-pin-window"
+    },
+    {
+      "id": "watchlist-metrics-visibility",
+      "route_id": "W04",
+      "case": "watchlist-metrics-visibility"
+    },
+    {
+      "id": "pin-snapshot-visibility",
+      "route_id": "W05",
+      "case": "pin-snapshot-visibility"
+    },
+    {
+      "id": "cross-stack-opaque-cursor",
+      "route_id": "W07",
+      "case": "cross-stack-opaque-cursor"
+    },
+    {
+      "id": "watchlist-event-postcommit-failure",
+      "route_id": "W08",
+      "case": "watchlist-event-postcommit-failure"
+    },
+    {
+      "id": "radar-postcommit-summary-failure",
+      "route_id": "W02",
+      "case": "radar-postcommit-summary-failure"
+    },
+    {
+      "id": "alert-rounding-overflow",
+      "route_id": "A01",
+      "case": "alert-rounding-overflow"
+    },
+    {
+      "id": "alert-cap-race",
+      "route_id": "A01",
+      "case": "alert-cap-race"
+    },
+    {
+      "id": "python-alert-trigger-interop",
+      "route_id": "A01",
+      "case": "python-alert-trigger-interop"
+    },
+    {
+      "id": "referral-code-collisions",
+      "route_id": "R01",
+      "case": "referral-code-collisions"
+    },
+    {
+      "id": "referral-final-newline",
+      "route_id": "R05",
+      "case": "referral-final-newline"
+    },
+    {
+      "id": "referral-provider-timeout-duplicate",
+      "route_id": "R04",
+      "case": "referral-provider-timeout-duplicate"
+    },
+    {
+      "id": "python-referral-progression-interop",
+      "route_id": "R02",
+      "case": "python-referral-progression-interop"
+    },
+    {
+      "id": "twin-database-seed-identity",
+      "route_id": null,
+      "case": "twin-database-seed-identity"
+    },
+    {
+      "id": "whole-user-row-immutability",
+      "route_id": null,
+      "case": "whole-user-row-immutability"
+    },
+    {
+      "id": "fault-schedules-and-ambiguous-commit",
+      "route_id": null,
+      "case": "fault-schedules-and-ambiguous-commit"
+    },
+    {
+      "id": "mixed-writer-python-dispatcher",
+      "route_id": null,
+      "case": "mixed-writer-python-dispatcher"
+    }
+  ],
+  "kyc_switch_states": [
+    false,
+    true
+  ],
+  "scopes": {
+    "disposable-artifact": [
+      "responses",
+      "committed-state",
+      "side-effects",
+      "auth",
+      "concurrency",
+      "integration-junit",
+      "artifact-provenance",
+      "cleanup"
+    ],
+    "production-cutover": [
+      "responses",
+      "committed-state",
+      "side-effects",
+      "auth",
+      "concurrency",
+      "integration-junit",
+      "artifact-provenance",
+      "cleanup",
+      "measurement",
+      "order-write-benchmark",
+      "release-rehearsal",
+      "staging-read-coverage"
+    ]
+  },
+  "required_identity_fields": [
+    "candidate_sha",
+    "release_binary_sha256",
+    "oracle_sha",
+    "dependency_lock_sha256",
+    "schema_revision",
+    "acl_sha256",
+    "session_time_zone",
+    "seed_sha256",
+    "comparator_profile_sha256",
+    "normalization_sha256",
+    "python_database_identity",
+    "rust_database_identity",
+    "initial_state_sha256"
+  ],
+  "required_run_fields": [
+    "id",
+    "start",
+    "end",
+    "exit_code",
+    "expected_cases",
+    "observed_cases",
+    "skips",
+    "failures",
+    "input_sha256"
+  ],
+  "measurement": {
+    "successful_samples_per_route_runtime_size": 1000,
+    "runtimes": [
+      "python",
+      "rust"
+    ],
+    "sizes": [
+      "small",
+      "large"
+    ],
+    "required_fields": [
+      "workload",
+      "repetitions",
+      "route_weights",
+      "runtime_topology",
+      "sample_counts",
+      "all_statuses",
+      "transport_failures"
+    ]
+  },
+  "results": "not-run"
+}

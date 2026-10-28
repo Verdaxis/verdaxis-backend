@@ -1,5 +1,16 @@
 # Verdaxis Backend - Claude Code Instructions
 
+## Bio-LNG contract
+
+Bio-LNG uses `app/schemas/lng_order.py` and `app/services/lng_order.py` for typed
+`lng_terms`, shared matching compatibility and identity redaction. It is available
+only at Rotterdam; no demo or benchmark seed price is permitted. WTT emissions
+must never populate lifecycle CI. Trades freeze `lng_terms_snapshot`; incompatible
+takes return HTTP 409 `LNG_TERMS_INCOMPATIBLE`. Inventory publication is refused.
+Production country uses `app/reference/iso_countries.py` assigned ISO codes.
+FUEL_TRADER supplier admission is admin-invitation only. The staging checkpoint is
+`blng_20261014_staging`; see the approved 2026-10-14 design and ARCHITECTURE.md.
+
 ## Live VPS Layout
 
 Production API and PostgreSQL run on the EU VPS `169.58.37.164` (`vmi3623757`). Staging runs on the shared host `194.233.68.86`. Read `/home/verdaxis-prod/verdaxis/PRODUCTION_HOST.md` and `/home/jons-openclaw/VPS_MAP.md` before any deployment or recovery. The old shared-host production checkout is retired.
@@ -34,15 +45,6 @@ four-key `/health/ready` corpus before declaring a restart successful. The
 monitor contract and integration seams are in `deploy/monitor/README.md`.
 There is no monitor-owned installer or activation path in this branch. Any
 live deploy, even a dry run, requires separate operator authorization.
-
-The legacy public monitor, guarded recovery runner, independent public-monitor
-trigger, and read-only automatic incident diagnosis source are tracked
-separately under `deploy/external_monitor`. Recovery is limited to one hourly
-attempt of the documented backend restart, validated Caddy reload/restart, or
-existing backup service runbook; it cannot operate during a deployment
-transaction. It must rerun the complete public monitor. Every other failure
-goes to the bounded read-only diagnosis path, which has no production mutation
-or deployment authority.
 
 Read ARCHITECTURE.md before exploring the codebase.
 
@@ -105,8 +107,9 @@ SEED_DATABASE_URL=... SEED_TARGET_DATABASE=verdaxis_staging \
 
 ## Deployment
 
-**Production API/database:** EU VPS `169.58.37.164`; SSH alias `verdaxis-prod-eu`, administrator `verdaxis-admin`, runtime owner `verdaxis-prod`.
-**Staging:** shared VPS `194.233.68.86`; operate as `verdaxis-prod`.
+**Staging SSH:** `jons-openclaw@194.233.68.86`.
+**Production SSH:** alias `verdaxis-prod-eu`, administrator `verdaxis-admin`, EU VPS `169.58.37.164`.
+**Service account:** Run `sudo su - verdaxis-prod` after login; no password is required.
 **API:** `https://api.verdaxis.exchange/api` (Caddy reverse proxy -> `127.0.0.1:8000`; staging -> `127.0.0.1:8001`)
 **Swagger:** `https://api.verdaxis.exchange/docs`
 **Admin Panel:** `https://api.verdaxis.exchange/admin` (credentials from `ADMIN_USERNAME`/`ADMIN_PASSWORD` in `.env`)
@@ -114,6 +117,11 @@ SEED_DATABASE_URL=... SEED_TARGET_DATABASE=verdaxis_staging \
 The production frontend (`app.verdaxis.exchange`) is hosted on Vercel. EU Caddy
 fronts the production API. Shared-host Caddy fronts the staging API and frontend.
 Neither host serves the production frontend build.
+
+Before deployment, confirm current DNS for the target site/API and the live
+systemd unit's `User` and `WorkingDirectory`. Production runs on `vmi3623757`;
+staging runs on `vmi1840561`. Historical `144.126.151.136` references are not
+deployment authority. Keep the SSH login and service account distinct.
 
 ### CI/CD (GitHub Actions)
 
@@ -144,6 +152,7 @@ sudo -n -u verdaxis-prod /home/verdaxis-prod/verdaxis/staging/be/scripts/deploy.
 
 | Table                | Purpose                                           |
 | -------------------- | ------------------------------------------------- |
+| `kyc_documents` | Append-only AES-256-GCM encrypted KYC evidence; RESTRICT user/org ownership |
 | `users`              | Auth, role (BUYER/SUPPLIER/ADMIN), status         |
 | `organizations`      | Companies. Users belong to orgs. Has `domain` for auto-matching on registration |
 | `orderbook_orders`   | Unified order book. side=BID (buyer wants) or ASK (seller offers) |
@@ -158,11 +167,11 @@ sudo -n -u verdaxis-prod /home/verdaxis-prod/verdaxis/staging/be/scripts/deploy.
 | `notifications`      | In-app notifications with JSON `data` payload     |
 | `producer_projects`  | Fuel production facilities for the map (GENA data) |
 | `compliance_ledger`  | EU ETS/FuelEU financial transactions               |
-| `kyc_execution_grace` | One-time 14-day KYC grace snapshot from `kycg_20261014_prod`; runtime SELECT only |
 
 ## API Routes (all prefixed with `/api`)
 
 ### Public (no auth)
+- `POST /mcp` -- read-only MCP endpoint (development/test/staging only; see docs/agent-mcp.md)
 - `GET /api/prices` -- Aggregated trade price summaries (price ticker)
 - `GET /api/availability` -- Fuel availability by port (map data)
 - `GET /api/demand` -- Anonymized buyer demand signals
@@ -186,17 +195,14 @@ sudo -n -u verdaxis-prod /home/verdaxis-prod/verdaxis/staging/be/scripts/deploy.
 - `POST /api/auth/register-with-org` -- Complete registration with new org creation
 - `POST /api/auth/invitations/resolve` -- Resolve a valid admin-issued invitation secret
 - `POST /api/auth/invitations/accept` -- Accept a pre-approved invitation, set a password, and issue a session
-- `GET /api/auth/me` -- Current user info, including `kyc_status` and `execution_eligibility {eligible, reason, grace_expires_at}`
+- `GET /api/auth/me` -- Current user info
 
 ### Authenticated
-
-New executions (`POST /api/orderbook`, `PUT /api/orderbook/{id}`, `POST /api/inventory/{id}/publish`, `POST /api/trades/`, `PUT /api/trades/{id}/confirm`) require KYC approved for the current organization or valid grace, and otherwise return 403 `KYC_REQUIRED`. Cancel, decline, deliver and pay never apply KYC.
-
-- `POST /api/orderbook` -- Place BID (BUYER) or ASK (SUPPLIER) order; Bio-LNG orders require `lng_terms` and Rotterdam
+- `POST /api/orderbook` -- Place BID (BUYER) or ASK (SUPPLIER) order
 - `PUT /api/orderbook/{id}` -- Update own order
 - `DELETE /api/orderbook/{id}` -- Cancel own order
 - `GET /api/orderbook/my` -- Own orders with trade counts
-- `POST /api/trades/` -- Hit an order to create a trade; taking a Bio-LNG ASK requires buyer `lng_terms` (incompatible: `LNG_TERMS_INCOMPATIBLE`)
+- `POST /api/trades/` -- Hit an order to create a trade
 - `GET /api/trades/my` -- Own trades
 - `PUT /api/trades/{id}/confirm` -- Counterparty confirms
 - `PUT /api/trades/{id}/decline` -- Counterparty declines (restores order quantity)
@@ -215,7 +221,11 @@ New executions (`POST /api/orderbook`, `PUT /api/orderbook/{id}`, `POST /api/inv
 - `POST /api/matchmaking/generate/{order_id}` -- Trigger match generation
 - `PATCH /api/matchmaking/suggestions/{id}/dismiss`
 
+- `POST /api/kyc/submit` -- Retain encrypted ID and company documents; no external provider
+
 ### Admin Only
+- `GET /api/kyc/admin/{user_id}/documents` -- Up to 50 newest document metadata rows
+- `GET /api/kyc/admin/documents/{document_id}` -- Audited, no-store encrypted-vault download
 - `GET /api/auth/admin/invitations/organizations` -- Eligible real organizations for pre-approved invitations
 - `POST /api/auth/admin/invitations` -- Create or rotate a single-use pre-approved invitation, optionally creating its onboarding-approved organization atomically
 - `PUT /api/auth/approve/{user_id}` -- Approve a verified account and queue a frozen, transition-scoped sign-in email for row-serialized post-commit delivery
@@ -254,6 +264,19 @@ New executions (`POST /api/orderbook`, `PUT /api/orderbook/{id}`, `POST /api/inv
 10. **Orderbook router: static routes before parametric.** `/bids`, `/asks`, `/my`, `/aggregated`, `/regions`, `/fuel-types`, `/with-ci` are defined before `/{order_id}` to avoid path conflicts.
 11. **After completing work, update ARCHITECTURE.md if file structure or key relationships changed.**
 
+## KYC document retention
+
+KYC uses no Gemini or other external document provider. An advisory DeepSeek V4.1 Flash check on a non-PRC host is planned, not built. Store both encrypted rows with status and audit; retain history. Runtime access is SELECT/INSERT only. Never weaken RESTRICT or register documents in SQLAdmin. Keys come from systemd credentials (explicit file path only for development/test); missing/invalid keys disable storage, not readiness. See the security operator runbook for offline backup and rotation.
+
+## KYC execution gate
+
+- New execution requires organization-bound APPROVED KYC or valid migration-owned grace. Rejection overrides grace. Use `app/services/kyc_execution.py`, not a reject-only mirror.
+- Exact committed replays precede KYC admission. Cleanup (cancel, decline, deliver, pay, retract) must remain available with authentication and ownership checks. Indicative routes retain their prior admission policy.
+- Assisted execution uses the shared customer-organization helper in `execution_policy.py`; administrator KYC is irrelevant. Never seed fake demo KYC.
+- `kyc_execution_grace` is runtime SELECT-only. Notice claims live separately. The operator-only `app.cli.send_kyc_grace_notices` requires explicit deployed environment and full release SHA; no timer is installed. Uncertain sends remain claimed and are not automatically retried.
+- `/api/auth/me` includes `kyc_status` and `execution_eligibility`. Positive execution fixtures must explicitly bind approved KYC to their organization.
+- The whole gate is behind one switch, `KYC_EXECUTION_GATE_ENABLED` (default `true`, fail safe). It lives only in `app/services/kyc_execution.py` — the one decision point — and the SQL mirror and every caller follow it. Do not add `if settings...` gate checks in routes or services. Prod and staging set it `false` for Private Beta; see `docs/security-hardening-v2.md` and the security operator runbook.
+
 ## Known Gotchas
 
 1. **API returns numbers as strings.** Pydantic serializes `Decimal` fields as strings by default. The frontend must wrap numeric fields with `Number()` before arithmetic. Affected fields: `quantity_mt`, `price_per_mt_usd`, `final_quantity_mt`, `final_price_per_mt`, `final_total_usd`, etc.
@@ -290,9 +313,7 @@ New executions (`POST /api/orderbook`, `PUT /api/orderbook/{id}`, `POST /api/inv
 
 17. **Production backend exposure is systemd-loopback only.** Production binds `127.0.0.1:8000` and staging binds `127.0.0.1:8001`; Caddy handles external traffic. Docker Compose remains a development/disposable topology and is not the live service manager.
 
-18. **The KYC gate has three policies.** Use `MarketPartyPolicy.EXECUTION` (the default, `require_execution_eligible_user`) for new commitments, `CLEANUP` for settling or withdrawing them, and `INDICATIVE` for RFQ, negotiation, inventory records and suggestions. Grace is written only by its migration; send the one-time email with `python -m app.cli.send_kyc_grace_notices --environment <env> --release-sha <sha>` (operator-run, no timer). Never create KYC approvals or grace for demo users.
-
-19. **The KYC execution gate has one on/off switch.** `KYC_EXECUTION_GATE_ENABLED` (default true, fail safe) lives only in `app/services/kyc_execution.py` — the one decision point — and its SQL mirrors and the `advisory_kyc_allows` helper follow it automatically. Do not add `if settings...` gate checks in routes or services; change the switch and the shared helpers. When it is false (Private Beta on prod and staging) the EXECUTION policy behaves as the pre-gate advisory rule: only `REJECTED` or a review bound to another organization blocks, and an eligible user reports `KYC_NOT_ENFORCED`. The startup log prints one line per worker with the state (four lines with four Uvicorn workers), and `python -m app.cli.send_kyc_grace_notices` refuses with a non-zero exit. The switch does not reach the availability map: `/api/availability` and `public_inventory_is_visible` still count a supplier's inventory as REAL stock only for `kyc_status == "APPROVED"` (`app/services/market_provenance.py:137`), unchanged from before the gate. Keep all KYC code and data; turning the gate back on blocks every user without approved KYC at once. See the KYC runbook (`docs/security-hardening-v2.md`).
+18. **The KYC execution gate has one on/off switch.** `KYC_EXECUTION_GATE_ENABLED` (default true, fail safe) is read only in `app/services/kyc_execution.py` — the one decision point — and its SQL mirror and every caller follow it automatically. Do not add `if settings...` gate checks in routes or services; change the switch and the shared helpers. When it is false (Private Beta on prod and staging) the EXECUTION policy behaves as the pre-gate advisory rule: only `REJECTED` or a review bound to another organization blocks, and an eligible user reports `KYC_NOT_ENFORCED`. The lifespan logs one line with the state, and `python -m app.cli.send_kyc_grace_notices` refuses with a non-zero exit. Keep all KYC code and data; turning the gate back on blocks every user without approved KYC at once. See the KYC runbook (`docs/security-hardening-v2.md`).
 
 ## Environment Variables
 
@@ -336,20 +357,9 @@ BACKEND_CORS_ORIGINS=          # Omit for exact environment-specific allowlist
 
 - **`staging`** branch: live staging backend source at `/home/verdaxis-prod/verdaxis/staging/be`.
 - **`prod`** branch: live production backend source at `/home/verdaxis-prod/verdaxis/prod/be`.
-- **`master`** branch: GitHub default branch. CI does not run on pushes to it, and it deploys nothing.
-- The legacy `main` branch was deleted on 2026-10-14. Older docs that name `main` are historical.
+- **`main`** branch: legacy/default development branch in older docs and workflows.
+- Do not assume a push to `main` deploys the current live topology; verify `.github/workflows/backend-ci.yml` before relying on CI/CD.
 
 ## Local Development
 
 Use the isolated-worktree procedure in [README.md](README.md#local-development).
-<!-- codesight-local:start -->
-## Codesight Bootstrap
-
-Before exploring the tree, read:
-1. `.codesight/wiki/index.md` — 200-token catalog of all wiki articles (start here)
-2. `.codesight/wiki/overview.md` — architecture and high-impact files
-3. Load topic articles on demand: `.codesight/wiki/<topic>.md` (auth, database, payments, users, ui, etc.)
-4. `.codesight/CODESIGHT.md` — full route/schema/lib map (fallback if wiki missing)
-
-Only open full source files after consulting the wiki first.
-<!-- codesight-local:end -->

@@ -21,7 +21,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.database import Base
 from app.models.product_analytics import UserLoginDay, UserStatusTransition
-from app.models.user_activity import UserActivityDeliveryReport, UserBrowsingEvent
 from app.models.user import User, UserRole, UserStatus
 
 _BACKEND_ROOT = Path(__file__).resolve().parents[2]
@@ -56,13 +55,7 @@ def _load_prune_module():
 @pytest.fixture
 async def prune_db():
     engine = create_async_engine("sqlite+aiosqlite://", echo=False)
-    tables = [
-        User.__table__,
-        UserLoginDay.__table__,
-        UserStatusTransition.__table__,
-        UserBrowsingEvent.__table__,
-        UserActivityDeliveryReport.__table__,
-    ]
+    tables = [User.__table__, UserLoginDay.__table__, UserStatusTransition.__table__]
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all, tables=tables)
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
@@ -154,71 +147,6 @@ async def test_status_transitions_are_never_pruned(prune_db):
     await prune.prune_login_days(prune_db, today=date(2026, 7, 15))
     count = await prune_db.scalar(select(func.count(UserStatusTransition.id)))
     assert count == 1
-
-
-async def test_browsing_prune_keeps_exact_90_day_boundary(prune_db):
-    prune = _load_prune_module()
-    user = await _seed_user(prune_db)
-    now = datetime(2026, 9, 25, 12, tzinfo=UTC)
-    events = [
-        UserBrowsingEvent(
-            user_id=user.id,
-            event_id=uuid4(),
-            consent_version=2,
-            action="page_view",
-            page="home",
-            received_at=received_at,
-        )
-        for received_at in (
-            now - timedelta(days=90, seconds=1),
-            now - timedelta(days=90),
-            now,
-        )
-    ]
-    prune_db.add_all(events)
-    await prune_db.commit()
-
-    assert await prune.prune_browsing_events(prune_db, now=now) == 1
-    remaining = (
-        await prune_db.execute(
-            select(UserBrowsingEvent.received_at).order_by(UserBrowsingEvent.received_at)
-        )
-    ).scalars().all()
-    assert len(remaining) == 2
-
-
-async def test_delivery_report_prune_keeps_exact_90_day_boundary(prune_db):
-    prune = _load_prune_module()
-    user = await _seed_user(prune_db)
-    now = datetime(2026, 10, 3, 12, tzinfo=UTC)
-    prune_db.add_all(
-        [
-            UserActivityDeliveryReport(
-                user_id=user.id,
-                report_id=uuid4(),
-                dropped_events=1,
-                rejected_events=0,
-                received_at=received_at,
-            )
-            for received_at in (
-                now - timedelta(days=90, seconds=1),
-                now - timedelta(days=90),
-                now,
-            )
-        ]
-    )
-    await prune_db.commit()
-
-    assert await prune.prune_activity_delivery_reports(prune_db, now=now) == 1
-    assert await prune.prune_activity_delivery_reports(prune_db, now=now) == 0
-    remaining = (
-        await prune_db.execute(
-            select(UserActivityDeliveryReport.received_at).order_by(
-                UserActivityDeliveryReport.received_at
-            )
-        )
-    ).scalars().all()
-    assert len(remaining) == 2
 
 
 @pytest.mark.parametrize(

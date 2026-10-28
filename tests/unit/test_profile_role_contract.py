@@ -1,6 +1,5 @@
 """Role-boundary coverage for self-service profile updates."""
 
-from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
@@ -9,9 +8,8 @@ from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.database import Base
-from app.models.kyc_execution_grace import KycExecutionGrace
-from app.models.user import Organization, OrgType, User, UserRole, UserStatus
-from app.routers.auth_simple import read_users_me, update_users_me
+from app.models.user import Organization, User, UserRole, UserStatus
+from app.routers.auth_simple import update_users_me
 from app.schemas.user import UserCreate, UserResponse, UserUpdate
 
 
@@ -21,7 +19,7 @@ async def profile_db():
     async with engine.begin() as connection:
         await connection.run_sync(
             Base.metadata.create_all,
-            tables=[Organization.__table__, User.__table__, KycExecutionGrace.__table__],
+            tables=[Organization.__table__, User.__table__],
         )
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     async with factory() as session:
@@ -38,6 +36,7 @@ def _user(*, role: UserRole | None) -> User:
         status=UserStatus.APPROVED,
         email_verified=True,
         must_change_password=False,
+        kyc_status="PENDING",
     )
 
 
@@ -51,42 +50,6 @@ def test_response_allows_legacy_null_role_while_registration_requires_role():
             password="valid password 9",
             role=None,
         )
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("kyc_status", ["SUBMITTED", "APPROVED"])
-async def test_profile_reports_kyc_status_and_execution_eligibility(profile_db, kyc_status):
-    organization = Organization(name="Graced Org", type=OrgType.FUEL_BUYER, verification_status="APPROVED")
-    profile_db.add(organization)
-    await profile_db.flush()
-    user = _user(role=UserRole.BUYER)
-    user.organization_id = organization.id
-    user.kyc_status = kyc_status
-    user.kyc_organization_id = None
-    profile_db.add(user)
-    await profile_db.flush()
-    # A future deadline, so the grace row is valid at request time.
-    enrolled_at = datetime.now(UTC).replace(microsecond=0) - timedelta(days=1)
-    profile_db.add(
-        KycExecutionGrace(
-            user_id=user.id,
-            organization_id=organization.id,
-            kyc_status_at_enrollment=kyc_status,
-            enrolled_at=enrolled_at,
-            expires_at=enrolled_at + timedelta(days=14),
-            created_by="kycg_20261014_prod",
-        )
-    )
-    await profile_db.commit()
-
-    profile = (await read_users_me(user, profile_db)).model_dump(mode="json")
-
-    assert profile["kyc_status"] == kyc_status
-    assert profile["execution_eligibility"] == {
-        "eligible": True,
-        "reason": "KYC_GRACE",
-        "grace_expires_at": (enrolled_at + timedelta(days=14)).isoformat().replace("+00:00", "Z"),
-    }
 
 
 @pytest.mark.asyncio

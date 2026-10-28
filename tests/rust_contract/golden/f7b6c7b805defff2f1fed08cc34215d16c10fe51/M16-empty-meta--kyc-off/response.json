@@ -1,0 +1,16 @@
+{
+  "status": 400,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "error": {
+      "code": -32602,
+      "message": "params._meta is missing the required envelope key(s): io.modelcontextprotocol/protocolVersion, io.modelcontextprotocol/clientCapabilities"
+    }
+  },
+  "body_sha256": "6cd2457785a6a4a3b4648a3367c8783427002e7f899e37c0bb46597c5ac858bd"
+}

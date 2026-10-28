@@ -34,7 +34,7 @@ async def client():
 
 @pytest.fixture
 async def buyer_headers(client: AsyncClient, itest_password):
-    form = {"username": "itest-buyer@disposable.invalid", "password": itest_password}
+    form = {"username": "itest-buyer@example.com", "password": itest_password}
     res = await client.post("/api/auth/login", data=form)
     assert res.status_code == 200, f"Buyer login failed: {res.text}"
     token = res.json()["access_token"]
@@ -43,7 +43,7 @@ async def buyer_headers(client: AsyncClient, itest_password):
 
 @pytest.fixture
 async def seller_headers(client: AsyncClient, itest_password):
-    form = {"username": "itest-seller@disposable.invalid", "password": itest_password}
+    form = {"username": "itest-seller@example.com", "password": itest_password}
     res = await client.post("/api/auth/login", data=form)
     assert res.status_code == 200, f"Seller login failed: {res.text}"
     token = res.json()["access_token"]

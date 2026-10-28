@@ -26,17 +26,18 @@ import enum
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from app.model_base import Base
+from app.market_catalog import PRODUCT_IDS
 from app.services.availability_windows import SPOT_WINDOW
 from app.models.user import OrganizationProvenance
 from app.market_constraints import (
+    ORDER_FAME_TERMS, ORDER_LNG_TERMS,
+    TRADE_FAME_TERMS, TRADE_LNG_TERMS,
     ORDER_DOMAIN,
     ORDER_LIFECYCLE,
-    ORDER_LNG_TERMS,
     ORDER_NUMERIC_VALUES,
     TRADE_DOMAIN,
     TRADE_COMMISSION_SNAPSHOT,
     TRADE_LIFECYCLE,
-    TRADE_LNG_TERMS,
     TRADE_NUMERIC_VALUES,
     TRADE_SNAPSHOT,
     postgresql_check,
@@ -49,8 +50,6 @@ class FuelGrade(str, enum.Enum):
     BIO = "Bio"
     E = "E"
     SYNTHETIC = "Synthetic"
-    B30 = "B30"
-    B100 = "B100"
 
 
 class OrderSide(str, enum.Enum):
@@ -113,6 +112,8 @@ class OrderBookOrder(Base):
     """
     __tablename__ = "orderbook_orders"
     __table_args__ = (
+        postgresql_check(ORDER_FAME_TERMS, name="ck_orderbook_orders_fame_terms"),
+        postgresql_check(ORDER_LNG_TERMS, name="ck_orderbook_orders_lng_terms"),
         Index(
             "ix_orderbook_orders_active_slice_lookup",
             "side",
@@ -164,7 +165,6 @@ class OrderBookOrder(Base):
         postgresql_check(ORDER_DOMAIN, name="ck_orderbook_orders_domain"),
         postgresql_check(ORDER_NUMERIC_VALUES, name="ck_orderbook_orders_numeric_values"),
         postgresql_check(ORDER_LIFECYCLE, name="ck_orderbook_orders_lifecycle"),
-        postgresql_check(ORDER_LNG_TERMS, name="ck_orderbook_orders_lng_terms"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -244,6 +244,8 @@ class OrderBookOrder(Base):
     )
     certification_declared: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     certification_scheme: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    fame_terms: Mapped[dict | None] = mapped_column(JSON(none_as_null=True), nullable=True)
+    lng_terms: Mapped[dict | None] = mapped_column(JSON(none_as_null=True), nullable=True)
     specification_standard: Mapped[str | None] = mapped_column(String(120), nullable=True)
     msds_available: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     is_verdaxis_verified: Mapped[bool] = mapped_column(
@@ -262,8 +264,6 @@ class OrderBookOrder(Base):
     origin: Mapped[str | None] = mapped_column(String(255), nullable=True)
     off_spec: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     off_spec_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # Bio-LNG declarations (ASK) or requirements (BID); NULL for every other product.
-    lng_terms: Mapped[dict | None] = mapped_column(JSON(none_as_null=True), nullable=True)
 
     # Status
     status: Mapped[OrderBookStatus] = mapped_column(
@@ -310,8 +310,11 @@ class OrderBookOrder(Base):
         return TierLabel.INDEPENDENT
 
     def bump_version(self) -> None:
-        """Advance optimistic concurrency only for support-managed orders."""
-        if self.creation_method == OrderCreationMethod.MARKET_SUPPORT:
+        """Invalidate reviewed terms for assisted orders and executable B100."""
+        if (
+            self.creation_method == OrderCreationMethod.MARKET_SUPPORT
+            or self.product_id == PRODUCT_IDS["UCOME_B100"]
+        ):
             self.version += 1
 
     @property
@@ -375,11 +378,12 @@ class Trade(Base):
         postgresql_check(TRADE_NUMERIC_VALUES, name="ck_trades_numeric_values"),
         postgresql_check(TRADE_LIFECYCLE, name="ck_trades_lifecycle"),
         postgresql_check(TRADE_SNAPSHOT, name="ck_trades_snapshot"),
+        postgresql_check(TRADE_FAME_TERMS, name="ck_trades_fame_terms"),
+        postgresql_check(TRADE_LNG_TERMS, name="ck_trades_lng_terms"),
         postgresql_check(
             TRADE_COMMISSION_SNAPSHOT,
             name="ck_trades_commission_snapshot",
         ),
-        postgresql_check(TRADE_LNG_TERMS, name="ck_trades_lng_terms"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -425,10 +429,10 @@ class Trade(Base):
         default=1,
         server_default="1",
     )
+    fame_terms_snapshot: Mapped[dict | None] = mapped_column(JSON(none_as_null=True), nullable=True)
+    lng_terms_snapshot: Mapped[dict | None] = mapped_column(JSON(none_as_null=True), nullable=True)
     quantity_mt: Mapped[Decimal] = mapped_column(Numeric(), nullable=False)
     price_per_mt_usd: Mapped[Decimal] = mapped_column(Numeric(), nullable=False)
-    # Bio-LNG {bid, ask} terms frozen at creation; the database trigger keeps it immutable.
-    lng_terms_snapshot: Mapped[dict | None] = mapped_column(JSON(none_as_null=True), nullable=True)
 
     # Status
     status: Mapped[TradeStatus] = mapped_column(

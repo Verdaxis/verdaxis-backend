@@ -117,12 +117,7 @@ class TestRefreshCookieMigration:
             "referral_code": None,
             "must_change_password": False,
             "kyc_status": "PENDING",
-            # A user without an organization never trades as a party.
-            "execution_eligibility": {
-                "eligible": False,
-                "reason": "NOT_APPLICABLE",
-                "grace_expires_at": None,
-            },
+            "execution_eligibility": {"eligible": False, "reason": "NOT_APPLICABLE", "grace_expires_at": None},
         }
         assert "password_hash" not in response.text
         # The refresh token must travel ONLY in the HttpOnly cookie.
@@ -131,6 +126,40 @@ class TestRefreshCookieMigration:
         assert "refresh_token=refresh-token-login" in cookie_header
         assert "HttpOnly" in cookie_header
         assert "Path=/api/auth" in cookie_header
+
+    @pytest.mark.asyncio
+    async def test_login_reports_not_applicable_for_role_less_profile(self):
+        """Login keeps production's NOT_APPLICABLE for a role-less profile.
+
+        The profile has an organization but no trading role yet. Pinned
+        production reserves KYC eligibility for BUYER/SUPPLIER, so an
+        incomplete onboarding profile must not advertise eligibility.
+        """
+        user = _approved_user()
+        user.role = None
+        user.organization_id = uuid4()
+        session = _mock_db_session(user)
+
+        with (
+            patch("app.routers.auth_simple.verify_password_async", return_value=True),
+            patch("app.routers.auth_simple.create_access_token", return_value="access-token-login"),
+            patch("app.routers.auth_simple.create_refresh_token", return_value="refresh-token-login"),
+            patch("app.routers.auth_simple._store_refresh_session", new=AsyncMock()),
+        ):
+            async with _auth_client(session) as client:
+                response = await client.post(
+                    "/api/auth/login",
+                    data={"username": user.email, "password": "password"},
+                )
+
+        assert response.status_code == 200
+        profile = response.json()["profile"]
+        assert profile["role"] is None
+        assert profile["execution_eligibility"] == {
+            "eligible": False,
+            "reason": "NOT_APPLICABLE",
+            "grace_expires_at": None,
+        }
 
     @pytest.mark.asyncio
     async def test_login_sets_opaque_http_only_device_cookie_and_serializes_device_families(self, caplog):

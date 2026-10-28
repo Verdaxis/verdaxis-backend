@@ -21,9 +21,8 @@ MARKET_SUPPORT_CONTEXT_REVOKED = "market_support.context_revoked"
 KYC_APPROVED = "kyc.approved"
 KYC_REJECTED = "kyc.rejected"
 KYC_SUBMITTED = "kyc.submitted"
+KYC_DOCUMENT_VIEWED = "kyc.document_viewed"
 KYC_MEMBERSHIP_INVALIDATED = "kyc.membership_invalidated"
-# The durable record that the one-time KYC grace email was delivered.
-KYC_GRACE_NOTICE_SENT = "kyc.grace_notice_sent"
 # negotiation.accepted / rfq.accepted are intentionally absent: negotiation
 # and RFQ execution are disabled in this release (market-owned decision), and
 # the registry never carries actions without a live call site.
@@ -36,9 +35,13 @@ ORDER_EXPIRED = "order.expired"
 ORDER_UPDATED = "order.updated"
 RFQ_CANCELLED = "rfq.cancelled"
 RFQ_CREATED = "rfq.created"
+RFQ_QUOTE_REVISED = "rfq.quote_revised"
 RFQ_QUOTE_SUBMITTED = "rfq.quote_submitted"
 RFQ_QUOTE_WITHDRAWN = "rfq.quote_withdrawn"
 SUBSCRIPTION_UPDATED = "subscription.updated"
+SUPPLIER_OFFER_CREATED = "supplier_offer.created"
+SUPPLIER_OFFER_UPDATED = "supplier_offer.updated"
+SUPPLIER_OFFER_WITHDRAWN = "supplier_offer.withdrawn"
 TRADE_AUTO_MATCHED = "trade.auto_matched"
 TRADE_CANCELLED = "trade.cancelled"
 TRADE_CONFIRMED = "trade.confirmed"
@@ -46,11 +49,6 @@ TRADE_CREATED = "trade.created"
 TRADE_DECLINED = "trade.declined"
 TRADE_DELIVERED = "trade.delivered"
 TRADE_PAID = "trade.paid"
-WATCHLIST_SAVED_TARGET = "watchlist.saved_target"
-WATCHLIST_REMOVED_TARGET = "watchlist.removed_target"
-WATCHLIST_PINNED = "watchlist.pinned"
-WATCHLIST_UNPINNED = "watchlist.unpinned"
-MARKET_WATCH_PREFERENCES_SAVED = "preferences.market_watch_saved"
 USER_PASSWORD_CHANGED = "user.password_changed"
 USER_PASSWORD_RESET_COMPLETED = "user.password_reset_completed"
 USER_PASSWORD_RESET_REQUESTED = "user.password_reset_requested"
@@ -82,8 +80,8 @@ AUDIT_ACTIONS = frozenset(
         KYC_APPROVED,
         KYC_REJECTED,
         KYC_SUBMITTED,
+        KYC_DOCUMENT_VIEWED,
         KYC_MEMBERSHIP_INVALIDATED,
-        KYC_GRACE_NOTICE_SENT,
         NEGOTIATION_COUNTERED,
         NEGOTIATION_CREATED,
         NEGOTIATION_DECLINED,
@@ -93,9 +91,13 @@ AUDIT_ACTIONS = frozenset(
         ORDER_UPDATED,
         RFQ_CANCELLED,
         RFQ_CREATED,
+        RFQ_QUOTE_REVISED,
         RFQ_QUOTE_SUBMITTED,
         RFQ_QUOTE_WITHDRAWN,
         SUBSCRIPTION_UPDATED,
+        SUPPLIER_OFFER_CREATED,
+        SUPPLIER_OFFER_UPDATED,
+        SUPPLIER_OFFER_WITHDRAWN,
         TRADE_AUTO_MATCHED,
         TRADE_CANCELLED,
         TRADE_CONFIRMED,
@@ -103,11 +105,6 @@ AUDIT_ACTIONS = frozenset(
         TRADE_DECLINED,
         TRADE_DELIVERED,
         TRADE_PAID,
-        WATCHLIST_SAVED_TARGET,
-        WATCHLIST_REMOVED_TARGET,
-        WATCHLIST_PINNED,
-        WATCHLIST_UNPINNED,
-        MARKET_WATCH_PREFERENCES_SAVED,
         USER_PASSWORD_CHANGED,
         USER_PASSWORD_RESET_COMPLETED,
         USER_PASSWORD_RESET_REQUESTED,

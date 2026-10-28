@@ -98,6 +98,8 @@ async def test_successful_old_replay_precedes_current_terms_check(db):
     await db.commit()
     request = _fake_request()
     request.headers["Idempotency-Key"] = existing.idempotency_key
+    buyer.kyc_status = "PENDING"
+    await db.flush()
 
     response = await trades.create_trade(
         payload=trades.TradeCreate(**legacy_payload),
@@ -116,11 +118,9 @@ def test_new_digest_is_part_of_idempotency_hash():
         order_id="00000000-0000-0000-0000-000000000001",
         quantity_mt="100.00",
     )
-    assert trades.trade_create_idempotency_payload(legacy) == {
-        "order_id": "00000000-0000-0000-0000-000000000001",
-        "quantity_mt": "100.00",
-    }
+    canonical = trades.trade_create_idempotency_payload(legacy)
+    assert "expected_terms_digest" not in canonical
     reviewed = legacy.model_copy(update={"expected_terms_digest": "a" * 64})
     assert idempotency_request_hash(trades.trade_create_idempotency_payload(reviewed)) != (
-        idempotency_request_hash(trades.trade_create_idempotency_payload(legacy))
+        idempotency_request_hash(canonical)
     )

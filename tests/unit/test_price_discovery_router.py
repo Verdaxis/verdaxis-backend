@@ -524,8 +524,9 @@ class TestAggregateFunction:
                             trade.product_name = "Mismatched snapshot"
                         await db.commit()
 
-                # An additional port must also survive batching unchanged.
-                spec = PRODUCTS_BY_NAME["B100"]
+                # An additional supported alcohol port must survive batching unchanged.
+                # UCOME B100 keeps its existing Singapore-only lane.
+                spec = PRODUCTS_BY_NAME["Bio Methanol"]
                 product = await db.get(Product, spec.id)
                 await _seed_confirmed_trade(
                     db,

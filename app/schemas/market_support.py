@@ -15,8 +15,12 @@ from app.models.market_support import (
     MarketSupportContextStatus,
 )
 from app.models.orderbook import OrderCreationMethod, OrderSide
+from app.schemas.fame_order import FameOrderTerms
+from app.schemas.lng_order import LngOrderTerms
 from app.schemas.orderbook import (
     MarketSupportFinalConfirmation as _MarketSupportFinalConfirmation,
+)
+from app.schemas.orderbook import (
     OrderCreate,
     OrderResponse,
 )
@@ -139,6 +143,8 @@ class AuthorizationResponse(BaseModel):
     accountable_user_id: UUID
     status: MarketSupportAuthorizationStatus
     order: OrderCreate
+    fame_terms: FameOrderTerms | None = None
+    lng_terms: LngOrderTerms | None = None
     product_id: UUID
     delivery_point_id: UUID
     availability_window: str

@@ -4,6 +4,17 @@ This release is deliberately fail closed. Applying migrations or running the
 preflight does not deploy or mutate admission/ownership decisions. Production
 promotion still requires the product decisions listed below.
 
+## Phase 0 vault and admission acceptance
+
+See the blocked [integrated checklist](../outputs/phase0/acceptance.md). Preserve
+`KYC_EXECUTION_GATE_ENABLED=false` for both pilot environments without weakening
+rejection or organization binding. Copy review/audit/grace evidence; start the
+new production encrypted document table empty. Previously discarded files cannot
+be recovered by import. Missing storage keys return 503; failed download
+decryption returns 500. A proxy 504 is uncertain and is not proof of rollback.
+Task 10 still owns four-worker credentials and encrypted key-ring recovery;
+frontend fault coverage is not established by the reused two-bundle gate.
+
 ## JWT configuration, rotation, and refresh contract
 
 Every environment must explicitly configure its own `JWT_SECRET`,
@@ -82,9 +93,8 @@ protected by a case-insensitive unique index. Register/change/reset passwords
 are capped at 1024 UTF-8 bytes, and auth requests are capped at 128 KiB.
 
 Credentialed CORS is a closed environment-derived set: production accepts
-only `https://app.verdaxis.exchange`, `https://verdaxis.exchange`, and the
-stable pre-promotion origin `https://canary.verdaxis.exchange`; staging accepts
-only `https://staging.verdaxis.exchange`. Cookie-backed auth reads and
+only `https://app.verdaxis.exchange` and `https://verdaxis.exchange`; staging
+accepts only `https://staging.verdaxis.exchange`. Cookie-backed auth reads and
 mutations require an exact allowed `Origin`; native bearer clients without a
 cookie may omit it. Production and staging API units listen on loopback, and
 forwarded client addresses are honored only from a loopback reverse proxy.
@@ -130,57 +140,62 @@ Public/disposable domains, including `mailinator.com` and
 `guerrillamail.com`, never become shared tenant boundaries. If either dataset
 cannot load, all domain attachment is disabled fail safely.
 
-Gemini KYC output is advisory and never approves a user. Submitted files are
-validated for bounded size/type and deterministic organization fields, sent to
-the provider, then discarded; raw documents are not retained in-platform for
-this staging pass. Admin approval requires a printable external evidence/case
-reference and a substantive review note and records reviewer/time in the user
-and audit log. Every submission/review is bound to the then-current
-organization. Membership changes clear that state and write an audit entry;
-legacy rows remain organization-unknown. Pending/unknown KYC remains advisory
-for existing execution eligibility until product-owner approval. Explicit
-human KYC rejection is authoritative and triggers security invalidation.
+KYC documents are validated for bounded size/type and organization fields, then
+retained with application-level encryption. No KYC document is sent to Gemini
+or any other external provider. Submission audit records use
+`{"provider": "none", "status": "disabled"}`. A DeepSeek V4.1 Flash advisory
+check on a non-PRC host is planned, not built. Human review remains authoritative.
+Approve/reject request contracts are unchanged. Legacy discarded documents cannot
+be recovered. Review audit flags report whether retained documents exist for the
+reviewed user and organization.
 
-### KYC execution gate switch (Private Beta)
+### Encrypted document vault: final design (15 October 2026)
 
-`KYC_EXECUTION_GATE_ENABLED` turns the KYC execution rule off without removing
-any KYC code or data. The code default is `true` (fail safe): a missing setting
-still enforces KYC. **Production and staging run with it `false` through
-Private Beta; public launch turns it on.**
+`kycd_20261015_staging` follows `kycg_20261014_staging`. The checkpoint policy
+allows that exact transition and a same-revision restart. Two `kyc_documents`
+rows share a submission UUID and commit with status and audit. Resubmission keeps
+history. No plaintext filename or hash is stored. Each document uses a random
+32-byte AES-256-GCM data key and separate random 12-byte data/wrap nonces. Versioned
+associated data binds document, submission, user, organization, kind and MIME;
+wrapping binds document and key ID. The runtime has SELECT/INSERT only; PUBLIC
+has no access. User/organization foreign keys use RESTRICT. Downgrade refuses
+nonempty evidence storage. No document-deletion command is provided pending counsel.
 
-With the gate off, one decision point (`app/services/kyc_execution.py`) makes
-the EXECUTION policy behave as the pre-gate advisory rule: only a `REJECTED`
-review or a review bound to another organization revokes access; every other
-status is admitted and reports the new `KYC_NOT_ENFORCED` reason with no grace
-deadline. The SQL mirrors and every layer above them (route gates, assisted
-customer-organization execution, matching, public order visibility, benchmarks,
-the action-required projection) follow the same switch, so non-KYC resting
-orders show and match again. Route handlers and services must not carry their
-own gate checks.
+ADMIN metadata reads are bounded to 50 newest records. Downloads authenticate,
+decrypt, and commit `kyc.document_viewed` before returning bytes. They use
+attachment disposition, no-store and nosniff headers, and a 30/minute limit.
+Decryption errors return `KYC_DOCUMENT_DECRYPTION_FAILED` and log only the document
+ID. Missing/invalid keys disable submission with `KYC_DOCUMENT_STORAGE_UNAVAILABLE`
+(503), with one sanitized startup error per worker; readiness is unchanged.
 
-**The availability map does not follow the switch.** `/api/availability` and
-`public_inventory_is_visible` count a supplier's inventory as REAL stock only
-when `user.kyc_status == "APPROVED"`
-(`app/services/market_provenance.py:137`, `organization_evidence_clause`). That
-condition is unchanged from before the gate and does not read
-`KYC_EXECUTION_GATE_ENABLED`. With the gate off, a PENDING supplier's ASK shows
-and matches, but the same supplier's inventory stays hidden from availability.
-This matches the pre-gate behavior; the order book and the map can differ.
+The initial design used an empty, invalid fallback (`SetCredential=kyc-document-keys:`
+plus the requested `LoadCredential=`). The 17 October 2026 production cutover
+disproved it on the live hosts: systemd 255.4 (Ubuntu 24.04, production) logs
+`SetCredential=` with an empty value as "Invalid syntax, ignoring", and a missing
+`LoadCredential` source then fails the start with 243/CREDENTIALS. Staging's
+systemd 249 never hit the missing case because its real 93-byte key ring exists.
+The approved state since that window is: **no `SetCredential=` line at all**, and
+a host without a real key ring publishes an **empty root:root 0400 placeholder
+file** at the unit's exact key path. `LoadCredential` succeeds on an empty file,
+and the application's strict JSON validation treats the empty credential as
+absent: KYC storage is disabled (503 on submission), readiness is unaffected.
+The installer's preflight refuses an absent source and prints the exact
+placeholder command; an empty placeholder and a real ring both pass its
+metadata-only check. See the security runbook's KYC key operations for the
+placeholder and the B11 founder-ring replacement.
 
-- The lifespan logs one line per worker: `KYC execution gate: enabled` or
-  `disabled`. Four Uvicorn workers print four lines; each worker logs its own
-  state.
-- `python -m app.cli.send_kyc_grace_notices` refuses with a clear message and a
-  non-zero exit while the gate is off, before any database contact.
-- Unchanged: KYC submission, admin approve/reject, `kyc_execution_grace` rows
-  (they still expire on 28 Oct 2026), the migration chain (no new migration),
-  and ACLs.
-
-**Launch note.** Turn the gate on only after planning KYC handling. Grace has
-expired by then, so every user without approved KYC is blocked at once:
-`/api/auth/me` reports `KYC_REQUIRED`, and new executions return 403
-`KYC_REQUIRED`. Approve the KYC of every trading user first, or write a new
-reviewed grace snapshot, before you set the switch to `true`.
+Deletion review: monitor cleanup deletes users and empty organizations; both now
+check retention before deletion. SQLAdmin User/Organization delete overrides lock
+the target and refuse with `KYC_DOCUMENTS_RETAINED`; SQLAdmin displays the conflict
+in its error banner rather than returning an API 409. No document ModelView is
+registered. RESTRICT remains the database backstop. No account-delete route exists
+in auth_simple. Seed/demo/market-quarantine cleanup deletes market records, not
+users or organizations. Registration/auth maintenance deletes pending records and
+sessions, not accounts. Test-only deletion paths are organization resets in
+`test_orderbook_marketplace_filters.py`, explicit user/org cleanup in
+`test_runtime_role_policy.py`, and disposable PostgreSQL TRUNCATE CASCADE fixtures
+and `test_market_integrity_concurrency.py`. Those fixtures retain their existing
+cleanup semantics. See the operator runbook for keys and rotation.
 
 ## Two-step migrations and preflight
 
@@ -256,7 +271,9 @@ The central execution gate requires a concrete BUYER/SUPPLIER user whose
 `organization_id` exactly equals a non-null approved organization, approved
 user/email state, and no required password change. Pending/legacy KYC is
 advisory; a bound KYC organization must match current membership, and explicit
-rejection revokes eligibility. ADMIN has no acting-mode contract.
+rejection revokes eligibility. ADMIN has no acting-mode contract. The KYC part
+of this gate follows `KYC_EXECUTION_GATE_ENABLED`; see "KYC execution gate
+switch" below.
 
 Order matching, direct trades, RFQ acceptance, negotiations, trade lifecycle,
 and inventory publication lock and revalidate every concrete user and exact
@@ -296,6 +313,41 @@ subscription paths unsubscribe on error/cancellation. Production and staging
 systemd units disable Uvicorn access logs so query tokens are not logged;
 application logs contain only fixed event names and path-safe metadata.
 
+## KYC execution gate switch (Private Beta)
+
+`KYC_EXECUTION_GATE_ENABLED` turns the KYC execution rule off without removing
+any KYC code or data. The code default is `true` (fail safe): a missing setting
+still enforces KYC. **Production and staging run with it `false` through
+Private Beta; public launch turns it on.**
+
+With the gate off, one decision point (`app/services/kyc_execution.py`) makes
+the EXECUTION policy behave as the pre-gate advisory rule: only a `REJECTED`
+review or a review bound to another organization revokes access; every other
+status is admitted and reports the new `KYC_NOT_ENFORCED` reason with no grace
+deadline. The SQL mirror (`kyc_execution_clause` → `advisory_kyc_clause`) and
+every layer above the helpers follow the same switch, so non-KYC resting orders
+show and match again: route gates (`require_kyc_execution`), the shared
+`execution_party_is_eligible` / `market_party_is_admitted` admission helper,
+assisted customer-organization execution (`customer_organization_is_execution_eligible`),
+matching, the public order-book owner-admission mirror, and the trade
+action-required projection. Route handlers and services must not carry their
+own gate checks.
+
+- The lifespan logs one line: `KYC execution gate: enabled` or `disabled`
+  (once per Uvicorn worker).
+- `python -m app.cli.send_kyc_grace_notices --environment <env> --release-sha
+  <sha>` refuses with a clear message and a non-zero exit while the gate is
+  off, before any database contact.
+- Unchanged: KYC submission, admin approve/reject, `kyc_execution_grace` rows
+  (they still expire on 28 Oct 2026), the migration chain (no new migration),
+  and ACLs.
+
+**Launch note.** Turn the gate on only after planning KYC handling. Grace has
+expired by then, so every user without approved KYC is blocked at once:
+`/api/auth/me` reports `KYC_REQUIRED`, and new executions return 403
+`KYC_REQUIRED`. Approve the KYC of every trading user first, or write a new
+reviewed grace snapshot, before you set the switch to `true`.
+
 ## Removed and scheduled surfaces
 
 The unauthenticated dashboard log/host-metric routes, manual news refresh API,
@@ -324,5 +376,5 @@ recipient addresses, provider bodies, or exception messages.
 - Product owner must explicitly approve KYC execution-enforcement rollout;
   leave pending/unknown KYC advisory until then.
 - Approve the external KYC evidence system and legal retention policy. This
-  release stores references/notes only, never raw documents.
+  release retains encrypted documents and review references/notes.
 - Schedule the production JWT overlap or explicitly approve a forced logout.

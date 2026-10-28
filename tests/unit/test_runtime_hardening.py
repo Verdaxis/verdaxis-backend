@@ -1,7 +1,8 @@
 """Focused tests for runtime configuration and integration safety."""
 
-import os
 import importlib.util
+import logging
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -14,6 +15,7 @@ from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
 from sqlalchemy import Boolean, Column, ForeignKey, Integer, MetaData, String, Table, UniqueConstraint, create_engine
 from app.migration_drift import compare_server_default, compare_type, include_object
+from app.runtime_server import DiagnosticProcess
 
 from app.config import Settings
 from app.database import (
@@ -47,7 +49,7 @@ def _settings(**overrides):
 
 def _deployed_values(environment: str) -> dict:
     identities = {
-        "production": ("verdaxis", "verdaxis_app", "verdaxis_migrator"),
+        "production": ("verdaxis_prod", "verdaxis_app", "verdaxis_migrator"),
         "staging": (
             "verdaxis_staging",
             "verdaxis_app_staging",
@@ -122,6 +124,92 @@ def test_deployed_units_use_the_validated_connection_budget(unit_name):
     assert settings.DB_SERVICE_COUNT * worker_count * (settings.DB_POOL_SIZE + settings.DB_MAX_OVERFLOW) + settings.DB_RESERVED_CONNECTIONS <= settings.DB_MAX_CONNECTIONS
 
 
+def test_staging_worker_diagnostics_preserve_the_pinned_uvicorn_cli():
+    root = Path(__file__).parents[2]
+    staging_unit = (root / "deploy/systemd/verdaxis-backend-staging.service").read_text()
+    production_unit = (root / "deploy/systemd/verdaxis-backend.service").read_text()
+    constraints = (root / "constraints.txt").read_text()
+
+    assert "uvicorn==0.51.0" in constraints
+    assert (
+        "ExecStart=/home/verdaxis-prod/verdaxis/staging/be/venv/bin/python "
+        "-m app.runtime_server app.main:app --host 127.0.0.1 --port 8001 "
+        "--workers ${UVICORN_WORKERS} --no-access-log --proxy-headers "
+        "--forwarded-allow-ips 127.0.0.1"
+    ) in staging_unit
+    assert "app.runtime_server" not in production_unit
+
+
+@pytest.mark.parametrize(
+    ("alive_results", "ping_result", "exitcode_before", "final_exitcode", "reason"),
+    [
+        ([True], True, None, None, None),
+        ([False], None, 7, 7, "exited_before_healthcheck"),
+        ([True, False], False, 23, 23, "exited_during_healthcheck"),
+        ([True, True], False, None, -9, "alive_after_failed_healthcheck"),
+    ],
+)
+def test_worker_diagnostic_observations(
+    caplog,
+    alive_results,
+    ping_result,
+    exitcode_before,
+    final_exitcode,
+    reason,
+):
+    actions = []
+
+    class FakeChildProcess:
+        pid = 1234
+
+        def __init__(self):
+            self._alive_results = iter(alive_results)
+            self._joined = False
+
+        def is_alive(self):
+            actions.append("is_alive")
+            return next(self._alive_results)
+
+        @property
+        def exitcode(self):
+            return final_exitcode if self._joined else exitcode_before
+
+        def join(self):
+            actions.append("join")
+            self._joined = True
+
+    process = object.__new__(DiagnosticProcess)
+    process.process = FakeChildProcess()
+
+    def ping(timeout):
+        actions.append(("ping", timeout))
+        return ping_result
+
+    process.ping = ping
+    with caplog.at_level(logging.WARNING, logger="uvicorn.error"):
+        assert process.is_alive(timeout=5) is (reason is None)
+        if reason is not None:
+            process.join()
+
+    expected_actions = ["is_alive", ("ping", 5)] if ping_result is True else ["is_alive"]
+    if reason == "exited_during_healthcheck" or reason == "alive_after_failed_healthcheck":
+        expected_actions.extend([("ping", 5), "is_alive"])
+    if reason is not None:
+        expected_actions.append("join")
+    assert actions == expected_actions
+
+    messages = [record.getMessage() for record in caplog.records]
+    if reason is None:
+        assert messages == []
+    else:
+        assert any(
+            f"reason={reason} pid=1234 exitcode_before_parent_kill={exitcode_before}"
+            in message
+            for message in messages
+        )
+        assert any(f"final_exitcode={final_exitcode}" in message for message in messages)
+
+
 @pytest.mark.parametrize(
     "overrides",
     [
@@ -186,7 +274,7 @@ def test_production_validates_the_effective_database_url_username(monkeypatch):
         Settings(
             **{
                 **_deployed_values("production"),
-                "DATABASE_URL": "postgresql+asyncpg://postgres:not-a-default@localhost/verdaxis",
+                "DATABASE_URL": "postgresql+asyncpg://postgres:not-a-default@localhost/verdaxis_prod",
             }
         )
 
@@ -198,7 +286,7 @@ def test_production_requires_app_and_migrator_on_same_database_endpoint(
     values = _deployed_values("production")
     values["MIGRATOR_DATABASE_URL"] = (
         "postgresql+asyncpg://verdaxis_migrator:not-a-default@"
-        "migration-db/verdaxis"
+        "migration-db/verdaxis_prod"
     )
 
     with pytest.raises(ValidationError, match="same database endpoint"):
@@ -207,7 +295,7 @@ def test_production_requires_app_and_migrator_on_same_database_endpoint(
         Settings(
             **{
                 **_deployed_values("production"),
-                "MIGRATOR_DATABASE_URL": "postgresql+asyncpg://postgres:not-a-default@localhost/verdaxis",
+                "MIGRATOR_DATABASE_URL": "postgresql+asyncpg://postgres:not-a-default@localhost/verdaxis_prod",
             }
         )
 
@@ -307,14 +395,7 @@ def test_non_deployed_environments_allow_only_their_explicit_placeholder(
 @pytest.mark.parametrize(
     "environment, expected",
     [
-        (
-            "production",
-            {
-                "https://verdaxis.exchange",
-                "https://app.verdaxis.exchange",
-                "https://canary.verdaxis.exchange",
-            },
-        ),
+        ("production", {"https://verdaxis.exchange", "https://app.verdaxis.exchange", "https://canary.verdaxis.exchange"}),
         ("staging", {"https://staging.verdaxis.exchange"}),
         (
             "development",
@@ -469,7 +550,7 @@ def test_mutating_target_accepts_only_known_staging_or_disposable_targets():
     ) == "http://127.0.0.1:18765"
 
 
-@pytest.mark.parametrize("database_name", ["verdaxis", "verdaxis_staging", "runtime", ""])
+@pytest.mark.parametrize("database_name", ["verdaxis_prod", "verdaxis_staging", "runtime", ""])
 def test_disposable_mutation_requires_a_proven_disposable_database(database_name):
     env = {
         "TEST_API_URL": "http://127.0.0.1:18765",
@@ -805,11 +886,6 @@ def test_least_privilege_role_artifacts_cover_existing_and_future_objects():
     assert "('market_command_results', ARRAY['SELECT', 'INSERT', 'UPDATE'])" not in policy
     assert "('market_command_results', ARRAY['SELECT', 'INSERT', 'DELETE'])" not in policy
     assert "('user_status_transitions', ARRAY['SELECT', 'INSERT'])" in policy
-    assert (
-        "('user_activity_delivery_reports', ARRAY['SELECT', 'INSERT', 'DELETE'])"
-        in policy
-    )
-    assert "('user_activity_delivery_reports', ARRAY['SELECT', 'INSERT', 'UPDATE'" not in policy
     column_policy = policy.split("app_column_policy", 1)[-1]
     # Admin admission can update verification status and can set provenance
     # only when it inserts a new organization. Existing provenance is immutable.

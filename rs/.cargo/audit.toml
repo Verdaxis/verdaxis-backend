@@ -1,0 +1,14 @@
+[advisories]
+# PD-SEC-1: rsa 0.9.10 is included by jsonwebtoken's rust_crypto feature.
+# RSA operations are unreachable: validation accepts HS256 only
+# (read/src/auth/token.rs:140). Revisit when a jsonwebtoken feature set
+# without rsa is available.
+#
+# PD-SEC-2: crypto-bigint 0.5.5 (RUSTSEC-2026-0387, timing variability) is
+# included by the same feature, through p256/p384 -> ecdsa -> elliptic-curve.
+# Elliptic-curve operations are unreachable for the same reason: every token
+# is signed and validated with HS256 only, and no EC key is ever loaded.
+# The fix needs crypto-bigint >= 0.7.6, which elliptic-curve 0.13 cannot use.
+# Revisit when jsonwebtoken moves to elliptic-curve 0.14 or offers a
+# feature set without EC.
+ignore = ["RUSTSEC-2023-0071", "RUSTSEC-2026-0387"]

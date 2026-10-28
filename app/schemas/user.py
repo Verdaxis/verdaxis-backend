@@ -1,10 +1,9 @@
-from datetime import datetime
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from uuid import UUID
-from typing import Optional
+from typing import Optional, Literal
+from datetime import datetime
 from enum import Enum
 from app.core.security import validate_password_bytes
-from app.services.kyc_execution import ExecutionEligibilityReason
 
 class UserStatus(str, Enum):
     PENDING = "PENDING"
@@ -37,31 +36,28 @@ class UserCreate(UserBase):
     def validate_password_size(cls, value: str) -> str:
         return validate_password_bytes(value)
 
-class UserResponse(UserBase):
+class ExecutionEligibilityResponse(BaseModel):
+    eligible: bool = False
+    reason: Literal["KYC_APPROVED", "KYC_GRACE", "KYC_REQUIRED", "KYC_REJECTED", "KYC_NOT_ENFORCED", "NOT_APPLICABLE"] = "KYC_REQUIRED"
+    grace_expires_at: datetime | None = None
+
+
+class UserResponse(BaseModel):
+    # Stored history is output, not a new email admission decision.
+    email: str
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
     role: Optional[UserRole] = None
     id: UUID
     status: UserStatus
     organization_id: Optional[UUID] = None
     referral_code: Optional[str] = None
     must_change_password: bool = False
+    kyc_status: str = "PENDING"
+    execution_eligibility: ExecutionEligibilityResponse = Field(default_factory=ExecutionEligibilityResponse)
     
     class Config:
         from_attributes = True
-
-
-class ExecutionEligibilityResponse(BaseModel):
-    """The KYC condition for new executions; account admission is separate."""
-
-    eligible: bool
-    reason: ExecutionEligibilityReason
-    grace_expires_at: Optional[datetime] = None
-
-
-class CurrentUserResponse(UserResponse):
-    """The signed-in user's own profile (login and /api/auth/me)."""
-
-    kyc_status: str
-    execution_eligibility: ExecutionEligibilityResponse
 
 class UserUpdate(BaseModel):
     first_name: Optional[str] = None
@@ -74,7 +70,7 @@ class Token(BaseModel):
 
 
 class LoginResponse(Token):
-    profile: CurrentUserResponse
+    profile: UserResponse
 
 
 class LoginRequest(BaseModel):

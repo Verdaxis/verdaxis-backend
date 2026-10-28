@@ -56,11 +56,11 @@ def test_complete_grid_uses_independent_axis_filters_without_changing_results():
     table, model = _market_slice_model()
     delivery_points = [uuid4(), uuid4()]
     keys = list(product(
-        ("B30", "B100"),
+        ("BIO_METHANOL", "UCOME_B100"),
         delivery_points,
         ("SPOT", "2027-Q1"),
     ))
-    outsider = ("B30", delivery_points[0], "2027-Q2")
+    outsider = ("BIO_METHANOL", delivery_points[0], "2027-Q2")
 
     rows = _query_rows(table, model, keys, [*keys, outsider])
 
@@ -71,13 +71,13 @@ def test_sparse_keys_do_not_admit_unrequested_cross_product():
     table, model = _market_slice_model()
     delivery_points = [uuid4(), uuid4()]
     keys = [
-        ("B30", delivery_points[0], "SPOT"),
-        ("B100", delivery_points[1], "2027-Q1"),
+        ("BIO_METHANOL", delivery_points[0], "SPOT"),
+        ("UCOME_B100", delivery_points[1], "2027-Q1"),
     ]
     cross_product_rows = [
         (product_name, delivery_point_id, window)
         for product_name, delivery_point_id, window in product(
-            ("B30", "B100"), delivery_points, ("SPOT", "2027-Q1")
+            ("BIO_METHANOL", "UCOME_B100"), delivery_points, ("SPOT", "2027-Q1")
         )
         if (product_name, delivery_point_id, window) not in keys
     ]
@@ -87,7 +87,7 @@ def test_sparse_keys_do_not_admit_unrequested_cross_product():
 
 def test_empty_keys_match_no_rows():
     table, model = _market_slice_model()
-    key = ("B30", uuid4(), "SPOT")
+    key = ("BIO_METHANOL", uuid4(), "SPOT")
 
     assert _query_rows(table, model, [key]) == {key}
     assert _query_rows(table, model, [], [key]) == set()
@@ -97,7 +97,7 @@ def test_duplicate_keys_cannot_fake_a_complete_grid():
     table, model = _market_slice_model()
     delivery_points = [uuid4(), uuid4()]
     all_keys = list(product(
-        ("B30", "B100"),
+        ("BIO_METHANOL", "UCOME_B100"),
         delivery_points,
         ("SPOT", "2027-Q1"),
     ))

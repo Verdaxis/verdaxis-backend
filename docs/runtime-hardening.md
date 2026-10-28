@@ -1,5 +1,16 @@
 # Runtime and test hardening
 
+## Phase 0 acceptance status
+
+The integrated candidate and eleven-category checklist are in
+[`outputs/phase0/acceptance.md`](../outputs/phase0/acceptance.md). Task 9's local
+fixture blockers are closed; independent sign-off remains pending. This is not
+deployment approval. Linux must repeat the Bash deploy, `/proc` four-worker
+SSE and unprivileged-monitor checks. Task 10 must prove the loaded systemd fence,
+exact runtime tuple, provider isolation, restored backup and full switch-back.
+Do not enable host bootstrap/copy by changing policy JSON. Keep UTC and pilot KYC
+off on the canonical targets; do not change the preserved old database.
+
 ## Database connection budget
 
 Production and staging run on separate hosts and separate PostgreSQL
@@ -158,9 +169,6 @@ disabled and supplies only the exact selected source root as `safe.directory`,
 so a root-owned or deployment-user-owned fixed checkout remains attestable
 without trusting any ambient repository. Health attempt and delay controls are bounded decimal integers
 before they can reach shell arithmetic.
-Dependency installation explicitly restores umask `022` so the deployed
-virtualenv remains readable by least-privilege service identities that execute
-attested application jobs.
 The application never shells out to Git.
 
 Immediately after the checkpoint succeeds and before any service restart,
@@ -188,6 +196,28 @@ service returns exact readiness; a restart/readiness failure stops the failed
 backend service. Recovery is a corrected forward release or an explicitly
 designed atomic code-and-identity restoration—not an identity-only rollback
 and never an automatic schema downgrade.
+
+A staging release whose committed `deploy/rust/staging-policy.json` enables Rust
+and whose committed manifest names `verdaxis-rust-staging.service` extends that
+same transaction instead of adding a second owner. It verifies the separately
+approved Rust artifact against its provenance record before any service stops,
+publishes the private `.runtime-rust/runtime.env` (mode 0600: app database
+settings, runtime identity and, from Phase 2, the JWT verification and invite
+sender settings; never the migrator credential or a release metadata value
+such as the watchlist producer activation) and the private
+`.runtime-rust/budget.json`,
+installs the active binary by atomic rename, and restarts both units in one
+`systemctl restart` inside the restart window. Python's public readiness and the
+Rust loopback readiness (`http://127.0.0.1:8011/health/ready`) must then both
+report the same environment and full SHA before state clears; the failure trap
+stops both attempted units. Production carries no Rust policy and reads no Rust
+path, so its command sequence is unchanged. The bootstrap uses two releases: the
+first deploys the guarded helper and artifact support with Rust inactive (the
+committed policy ships `false`), the operator installs the reviewed unit bundle
+at that exact clean SHA, and the second deploys the Rust-active policy that
+exercises both units and both readiness gates. Rollback remains
+forward-only: there is no identity-only or Rust-only rollback, and never an
+automatic schema downgrade.
 
 `scripts/deploy.sh --dry-run` makes no deployed-state change. It requires the
 live checkout to be clean and on the target branch, resolves one remote branch
@@ -221,7 +251,8 @@ requires `--environment production|staging` and an explicit full
 explicit `--apply`. The selected environment maps to one fixed release
 checkout. Its exact unit set comes from that commit's
 `deploy/systemd/runtime-units.manifest`; the current manifest names the backend,
-singleton news service/timer, and product-analytics prune service/timer. Before
+singleton news service/timer, product-analytics prune service/timer, and the
+staging Rust public-reads unit. Before
 preflight or mutation, the installer requires that checkout to be clean and
 exactly at the source ref. Git
 replacement refs and tracked `assume-unchanged`/`skip-worktree` flags are
@@ -300,11 +331,21 @@ forward-compatible corrective migration.
 
 ## Database roles and session timeouts
 
-Deployed identities are exact:
+Canonical Phase 0 release identities are exact. The old production release
+continues to require `verdaxis` for complete-tuple rollback; do not point either
+release at the other's database. This source change is not a live cutover.
+See [the fenced one-use checklist](runbooks/phase0-cutover.md).
+
+Both fixed checkout paths select canonical `staging`. Normal deploy publishes
+`.runtime-release.env` and credential-free `.runtime-monitor.env` while durable
+state blocks starts. The external Phase 0 guard adds a root-owned operator-lock
+condition; it never replaces the existing two-lock guard or migration gates.
+
+Canonical identities:
 
 | Environment | Database | Runtime app role | Migrator role |
 |---|---|---|---|
-| production | `verdaxis` | `verdaxis_app` | `verdaxis_migrator` |
+| production | `verdaxis_prod` | `verdaxis_app` | `verdaxis_migrator` |
 | staging | `verdaxis_staging` | `verdaxis_app_staging` | `verdaxis_migrator_staging` |
 
 Both environments require PostgreSQL URLs, explicit non-default passwords in
@@ -343,6 +384,28 @@ ALTER ROLE verdaxis_migrator SET statement_timeout = '300s';
 ALTER ROLE verdaxis_migrator SET lock_timeout = '30s';
 ALTER ROLE verdaxis_migrator SET idle_in_transaction_session_timeout = '300s';
 ```
+
+Each canonical database session also runs in UTC. The target database default
+and the per-role override for the app, migrator and backup roles are set from a
+connection to `postgres`:
+
+```sql
+ALTER DATABASE <database> SET timezone TO 'UTC';
+ALTER ROLE <app_role> IN DATABASE <database> SET timezone TO 'UTC';
+ALTER ROLE <migrator_role> IN DATABASE <database> SET timezone TO 'UTC';
+ALTER ROLE <backup_role> IN DATABASE <database> SET timezone TO 'UTC';
+```
+
+`deploy/phase0/set_timezone.sql` is the executable artifact. The
+role-in-database value is the highest server-side priority, so it overrides both
+the database default and any role-wide setting. A connection option such as
+`PGOPTIONS` or a startup `timezone` parameter outranks it and is invisible to
+the server, so the operator and the tooling must inspect and reject unexplained
+connection options before trusting `SHOW TimeZone`. A default applies only when
+a session connects; recycle the API pools and every CLI process after the
+change. Session-sensitive day buckets then move from the former 16:00 UTC
+boundary to 00:00 UTC. Explicit `timezone('UTC', …)` buckets, stored
+`timestamptz` instants and the Singapore certificate-date rules do not change.
 
 The idempotent executable artifacts are
 `deploy/postgres/bootstrap_roles.sql` and `deploy/postgres/validate_roles.sql`.
@@ -505,8 +568,7 @@ SHA; wrong database status, environment, SHA, malformed JSON, and degraded
 status all fail.
 
 Credentialed CORS has exact environment allowlists: production permits only
-`https://verdaxis.exchange`, `https://app.verdaxis.exchange`, and the stable
-pre-promotion origin `https://canary.verdaxis.exchange`; staging only
+`https://verdaxis.exchange` and `https://app.verdaxis.exchange`; staging only
 `https://staging.verdaxis.exchange`; development/test only enumerated localhost
 origins. Cross-environment values, URL credentials/paths, and wildcards fail
 settings initialization.

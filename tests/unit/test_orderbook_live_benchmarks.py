@@ -1,11 +1,9 @@
-import asyncio
-
-import pytest
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
 
+import pytest
 from sqlalchemy import delete, event, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -14,7 +12,7 @@ from app.market_catalog import DELIVERY_POINTS_BY_NAME, PRODUCTS_BY_NAME
 from app.models.catalog import DeliveryPoint, Product
 from app.models.live_slice_benchmark import LiveSliceBenchmark
 from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide
-from app.models.user import OrgType, Organization, OrganizationProvenance
+from app.models.user import Organization, OrganizationProvenance, OrgType
 from app.routers.orderbook import get_orderbook_snapshot, list_asks, list_bids
 from app.schemas.market_activity import MarketDemoStatus, MarketScope, MarketSourceKind
 from app.services.live_benchmarks import rebuild_live_slice_benchmark
@@ -22,7 +20,6 @@ from app.services.live_benchmarks import rebuild_live_slice_benchmark
 REQUIRED_TABLES = [
     'organizations',
     'users',
-    'kyc_execution_grace',
     'products',
     'delivery_points',
     'orderbook_orders',
@@ -52,6 +49,8 @@ def async_engine():
 @pytest.fixture(scope='module')
 async def setup_tables(async_engine):
     tables = [Base.metadata.tables[name] for name in REQUIRED_TABLES]
+    from app.models.kyc_execution_grace import KYCExecutionGrace
+    tables.append(KYCExecutionGrace.__table__)
     async with async_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all, tables=tables)
     yield
@@ -162,8 +161,8 @@ class TestLiveSliceBenchmarks:
         expected_bid_prices: list[Decimal] = []
         expected_ask_prices: list[Decimal] = []
         for index in range(17):
-            bid_price = Decimal('1000') + index
-            ask_price = Decimal('1100') + index
+            bid_price = Decimal(1000) + index
+            ask_price = Decimal(1100) + index
             expected_bid_prices.append(bid_price)
             expected_ask_prices.append(ask_price)
             bid = _make_order(
@@ -244,7 +243,19 @@ class TestLiveSliceBenchmarks:
         assert all(item['unknown_count'] == 0 for item in serialized_items)
 
     @pytest.mark.asyncio
-    async def test_snapshot_rechecks_expiry_without_an_order_write(self, db: AsyncSession):
+    async def test_snapshot_rechecks_expiry_without_an_order_write(
+        self, db: AsyncSession, monkeypatch, async_engine,
+    ):
+        from app.routers import orderbook
+
+        observed_at = datetime(2030, 1, 15, 12, tzinfo=UTC)
+
+        class SnapshotClock(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return observed_at.astimezone(tz)
+
+        monkeypatch.setattr(orderbook, 'datetime', SnapshotClock)
         organization = await _make_org(db, 'Expiring Snapshot Market')
         singapore = await _make_delivery_point(db, 'Singapore', 'Asia')
         methanol = await _make_product(
@@ -261,7 +272,7 @@ class TestLiveSliceBenchmarks:
             price='1100',
         )
         expiring.provenance = OrganizationProvenance.DEMO
-        expiring.expires_at = datetime.now(UTC) + timedelta(milliseconds=50)
+        expiring.expires_at = observed_at + timedelta(hours=1)
         db.add(expiring)
         await db.commit()
 
@@ -275,12 +286,17 @@ class TestLiveSliceBenchmarks:
 
         delivery_point_id = singapore.id
         await db.rollback()
-        await asyncio.sleep(0.1)
-        expired = await get_orderbook_snapshot(
-            market_product='BIO_METHANOL',
-            delivery_point_id=delivery_point_id,
-            availability_window='SPOT',
-            db=db,
+        observed_at += timedelta(hours=2)
+        with _count_sql_statements(async_engine) as statements:
+            expired = await get_orderbook_snapshot(
+                market_product='BIO_METHANOL',
+                delivery_point_id=delivery_point_id,
+                availability_window='SPOT',
+                db=db,
+            )
+        assert not any(
+            statement.lstrip().upper().startswith(('INSERT', 'UPDATE', 'DELETE'))
+            for statement in statements
         )
         assert expired.asks == []
         assert expired.source_kind == 'NO_DATA'
@@ -519,8 +535,8 @@ class TestLiveSliceBenchmarks:
             for product in products
             for delivery_point in delivery_points
         ):
-            base_price = Decimal('700') + Decimal(index * 25)
-            expected_benchmarks[(product.market_product, str(delivery_point.id))] = base_price + Decimal('15')
+            base_price = Decimal(700) + Decimal(index * 25)
+            expected_benchmarks[(product.market_product, str(delivery_point.id))] = base_price + Decimal(15)
             for offset, (quantity, premium) in enumerate((('100', '0'), ('300', '20'))):
                 order = _make_order(
                     org_id=supplier.id,
@@ -653,3 +669,47 @@ class TestLiveSliceBenchmarks:
         assert {item.source_kind for item in demo_items} == {'DEMO_SEED'}
         assert not db.new
         assert not db.dirty
+
+
+@pytest.mark.asyncio
+async def test_b100_live_reference_uses_valid_terms_without_alcohol_metadata(db: AsyncSession):
+    from datetime import date
+
+    from app.services.fame_order import validate_fame_order_terms
+    from app.services.live_benchmarks import public_slice_order_qualified
+
+    supplier = await _make_org(db, 'B100 supplier')
+    product = await _make_product(db, name='UCOME B100', fuel_type='FAME', fuel_grade='UCOME')
+    point = await _make_delivery_point(db, 'Singapore', 'Asia')
+    order = _make_order(org_id=supplier.id, side=OrderSide.ASK, product_id=product.id,
+                        delivery_point_id=point.id, price='1100')
+    order.product = product
+    order.fame_terms = validate_fame_order_terms(product.id, 'ASK', {
+        'side': 'ASK', 'neat_fame': True, 'uco_mass_pct': 100,
+        'standard': 'EN_14214', 'standard_edition': '2012+A2:2019',
+        'sustainability_scheme': 'ISCC_EU', 'certificate_reference': 'supplier-cert',
+        'certificate_holder': 'Supplier', 'certificate_valid_until': str(date.today() + timedelta(days=365)),
+        'evidence_status': 'PENDING', 'evidence_due': 'BEFORE_LOADING',
+        'batch_reference': 'batch', 'producing_site': 'site',
+    })
+    order.carbon_intensity_gco2_mj = None
+    order.origin = None
+    order.msds_available = True
+    assert public_slice_order_qualified(order)
+
+    db.add(order)
+    await db.commit()
+    benchmark = await rebuild_live_slice_benchmark(
+        db,
+        side=OrderSide.ASK,
+        market_product='UCOME_B100',
+        delivery_point_id=point.id,
+        availability_window='SPOT',
+    )
+    assert benchmark == Decimal('1100.00')
+
+    order.delivery_point_id = DELIVERY_POINTS_BY_NAME['Rotterdam'].id
+    assert not public_slice_order_qualified(order)
+    order.delivery_point_id = point.id
+    order.fame_terms = None
+    assert not public_slice_order_qualified(order)

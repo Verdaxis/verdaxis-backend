@@ -76,22 +76,22 @@ def test_seed_trade_derives_initiating_tenant_from_side():
         buyer_id=buyer_id,
         seller_id=seller_id,
         initiated_by=Initiator.BUYER,
-        product_id=PRODUCT_IDS["B30"],
+        product_id=PRODUCT_IDS["Bio Methanol"],
         delivery_point_id=DELIVERY_POINT_IDS["Singapore"],
     )
     seller_trade = _seed_trade(
         buyer_id=buyer_id,
         seller_id=seller_id,
         initiated_by=Initiator.SELLER,
-        product_id=PRODUCT_IDS["B100"],
+        product_id=PRODUCT_IDS["Bio Ethanol"],
         delivery_point_id=DELIVERY_POINT_IDS["Rotterdam"],
     )
 
     assert buyer_trade.initiator_org_id == buyer_id
     assert seller_trade.initiator_org_id == seller_id
-    assert (buyer_trade.product_name, buyer_trade.market_product, buyer_trade.fuel_type, buyer_trade.fuel_grade) == ("B30", "B30", "Biofuel", "B30")
+    assert (buyer_trade.product_name, buyer_trade.market_product, buyer_trade.fuel_type, buyer_trade.fuel_grade) == ("Bio Methanol", "BIO_METHANOL", "Methanol", "Bio")
     assert (buyer_trade.delivery_point_name, buyer_trade.delivery_point_region) == ("Singapore", "Asia")
-    assert (seller_trade.product_name, seller_trade.market_product, seller_trade.fuel_type, seller_trade.fuel_grade) == ("B100", "B100", "Biofuel", "B100")
+    assert (seller_trade.product_name, seller_trade.market_product, seller_trade.fuel_type, seller_trade.fuel_grade) == ("Bio Ethanol", "BIO_ETHANOL", "Ethanol", "Bio")
     assert (seller_trade.delivery_point_name, seller_trade.delivery_point_region) == ("Rotterdam", "Europe")
 
 
@@ -263,3 +263,35 @@ def test_demo_reset_rejects_production_database_under_staging_label_and_inverse(
                 ),
                 current_database=database_name,
             )
+
+
+def test_partial_remaining_stays_strictly_inside_the_lot():
+    """A PARTIALLY_FILLED order must satisfy 0 < remaining < quantity.
+
+    `ck_orderbook_orders_lifecycle` rejects any partial fill whose remaining
+    quantity equals the full quantity. The smallest lots used to round to a
+    remaining of zero and then fall back to the full lot, which the database
+    refuses.
+    """
+    from app.seeds.market_seed import QUANTITIES, _partial_remaining
+
+    for quantity in QUANTITIES:
+        for _ in range(200):
+            remaining = _partial_remaining(Decimal(quantity))
+            assert Decimal(0) < remaining < Decimal(quantity), (quantity, remaining)
+
+
+def test_partial_remaining_uses_the_lot_grid_or_the_half_lot():
+    """The partial fill stays on the 500 MT grid, or is exactly half the lot.
+
+    Half the lot is the only strictly-inside value for a lot too small to hold
+    a 500 MT multiple.
+    """
+    from app.seeds.market_seed import QUANTITIES, _partial_remaining
+
+    for quantity in QUANTITIES:
+        lot = Decimal(quantity)
+        for _ in range(200):
+            remaining = _partial_remaining(lot)
+            on_grid = remaining % 500 == 0
+            assert on_grid or remaining == lot / 2, (quantity, remaining)

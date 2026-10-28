@@ -1,0 +1,6 @@
+# Recorded golden bodies are compared byte-for-byte. Never normalize line
+# endings on checkout, so a CRLF CSV export stays exact on every platform.
+tests/rust_contract/golden/**/response.body -text
+# Those same bodies legitimately carry CRLF, which reads as trailing
+# whitespace. The bytes are the contract, so exclude them from that lint.
+tests/rust_contract/golden/**/response.body whitespace=-trailing-space

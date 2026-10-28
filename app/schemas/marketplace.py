@@ -1,13 +1,18 @@
-from pydantic import BaseModel, ConfigDict, Field, field_validator
-from typing import Optional
-from enum import Enum
 from datetime import datetime
-from uuid import UUID
 from decimal import Decimal
+from enum import Enum
+from typing import Optional
+from uuid import UUID
 
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from app.schemas.fame_order import FameAskTerms
+from app.schemas.lng_order import LngAskTerms
 from app.schemas.market_integrity import finite_decimal
 
+
 class FuelType(str, Enum):
+    FAME = "FAME"
     Methanol = "Methanol"
     Ethanol = "Ethanol"
     Biofuel = "Biofuel"
@@ -22,6 +27,8 @@ class InventoryBase(BaseModel):
     port_id: str
     fuel_type: FuelType
     product_name: Optional[str] = None
+    fame_terms: FameAskTerms | None = None
+    lng_terms: LngAskTerms | None = None
     current_stock_mt: Decimal = Field(ge=0, le=100000, max_digits=10, decimal_places=2, allow_inf_nan=False)
     incoming_stock_mt: Decimal = Field(Decimal("0"), ge=0, le=100000, max_digits=10, decimal_places=2, allow_inf_nan=False)
     price_per_mt_usd: Optional[Decimal] = Field(None, gt=0, le=1000000, max_digits=10, decimal_places=2, allow_inf_nan=False)
@@ -29,14 +36,36 @@ class InventoryBase(BaseModel):
     is_certified: bool = False
     certification_declared: bool = False
     certification_scheme: Optional[str] = None
-    specification_standard: Optional[str] = Field(None, max_length=120)
+    specification_standard: Optional[str] = None
     msds_available: bool = False
     carbon_intensity_gco2_mj: Optional[Decimal] = Field(None, ge=0, le=10000, max_digits=8, decimal_places=2, allow_inf_nan=False)
-    carbon_intensity_method: Optional[str] = Field(None, max_length=120)
+    carbon_intensity_method: Optional[str] = None
     feedstock: Optional[str] = None
     origin: Optional[str] = None
     off_spec: bool = False
     off_spec_notes: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_b100_declaration(self):
+        if self.product_name == "UCOME B100":
+            if self.fuel_type != FuelType.FAME or self.fame_terms is None:
+                raise ValueError(
+                    "UCOME B100 inventory requires FAME fuel type and ASK declarations"
+                )
+            if self.is_certified:
+                raise ValueError("B100 declarations cannot create verified certification")
+        elif self.fame_terms is not None or self.fuel_type == FuelType.FAME:
+            raise ValueError(
+                "FAME declarations are only valid for UCOME B100 inventory"
+            )
+        if self.product_name == "Bio-LNG":
+            if self.fuel_type != FuelType.LNG or self.lng_terms is None:
+                raise ValueError("Bio-LNG inventory requires LNG fuel type and ASK declarations")
+            if self.is_certified:
+                raise ValueError("LNG declarations cannot create verified certification")
+        elif self.lng_terms is not None:
+            raise ValueError("LNG declarations are only valid for Bio-LNG inventory")
+        return self
 
     @field_validator("current_stock_mt", "incoming_stock_mt", "price_per_mt_usd", "energy_density_mj_kg", "carbon_intensity_gco2_mj")
     @classmethod
@@ -50,15 +79,17 @@ class InventoryItemUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     product_name: Optional[str] = None
+    fame_terms: FameAskTerms | None = None
+    lng_terms: LngAskTerms | None = None
     current_stock_mt: Optional[Decimal] = Field(None, ge=0, le=100000, max_digits=10, decimal_places=2, allow_inf_nan=False)
     incoming_stock_mt: Optional[Decimal] = Field(None, ge=0, le=100000, max_digits=10, decimal_places=2, allow_inf_nan=False)
     price_per_mt_usd: Optional[Decimal] = Field(None, gt=0, le=1000000, max_digits=10, decimal_places=2, allow_inf_nan=False)
     certification_declared: Optional[bool] = None
     certification_scheme: Optional[str] = None
-    specification_standard: Optional[str] = Field(None, max_length=120)
+    specification_standard: Optional[str] = None
     msds_available: Optional[bool] = None
     carbon_intensity_gco2_mj: Optional[Decimal] = Field(None, ge=0, le=10000, max_digits=8, decimal_places=2, allow_inf_nan=False)
-    carbon_intensity_method: Optional[str] = Field(None, max_length=120)
+    carbon_intensity_method: Optional[str] = None
     feedstock: Optional[str] = None
     origin: Optional[str] = None
     off_spec: Optional[bool] = None

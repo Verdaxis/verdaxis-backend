@@ -1,77 +1,81 @@
 import asyncio
 import os
+import re
 import time
 import uuid as _uuid
-import re
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 
+import anyio
+
+# ---------------------------------------------------------------------------
+# Structured logging
+# ---------------------------------------------------------------------------
+import structlog
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.exception_handlers import http_exception_handler as fastapi_http_exception_handler
+from fastapi.exception_handlers import (
+    http_exception_handler as fastapi_http_exception_handler,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
 from sqlalchemy.exc import DBAPIError
+from starlette.routing import Route
 
+from app.admin import setup_admin
 from app.config import settings
+from app.mcp_server import MCP_PATH, build_mcp_http_app, build_mcp_server, mcp_enabled
+from app.middleware.market_support_scope import MarketSupportScopeMiddleware
+from app.middleware.preauth_rate_limit import preauth_rate_limit_middleware
+from app.middleware.public_market_read_admission import (
+    PublicMarketReadAdmissionMiddleware,
+)
+from app.rate_limit import limiter
+from app.routers.activity import router as activity_router
+from app.routers.admin_analytics import router as admin_analytics_router
+from app.routers.admin_attention import router as admin_attention_router
+from app.routers.ai import router as ai_router
+from app.routers.alerts import router as alerts_router
+from app.routers.audit import router as audit_router
+from app.routers.auth_simple import router as auth_router
+from app.routers.availability import router as availability_router
+from app.routers.benchmarks import router as benchmarks_router
+from app.routers.catalog import router as catalog_router
+from app.routers.compliance_api import router as compliance_api_router
+from app.routers.curves import router as curves_router
+from app.routers.demand import router as demand_router
+from app.routers.feedback import router as feedback_router
+from app.routers.fleet_intelligence import router as fleet_intel_router
+from app.routers.inventory import router as inventory_router
+from app.routers.kyc import router as kyc_router
+from app.routers.market_support import router as market_support_router
+from app.routers.matchmaking import router as matchmaking_router
+from app.routers.monitor import router as monitor_router
+from app.routers.negotiations import router as negotiations_router
+from app.routers.news import router as news_router
+from app.routers.notifications import router as notifications_router
+from app.routers.orderbook import router as orderbook_router
+from app.routers.orders import router as orders_router
+from app.routers.ports import router as ports_router
+from app.routers.preferences import router as preferences_router
+from app.routers.price_discovery import router as price_discovery_router
+from app.routers.producers import router as producers_router
+from app.routers.referrals import router as referrals_router
+from app.routers.rfq import router as rfq_router
+from app.routers.stream import router as stream_router
+from app.routers.subscriptions import router as subscriptions_router
+from app.routers.supplier_offers import router as supplier_offers_router
+from app.routers.trade_tape import router as trade_tape_router
+from app.routers.trades import router as trades_router
+from app.routers.vessels import router as vessels_router
+from app.routers.watchlists import router as watchlists_router
 from app.services.db_errors import (
     database_error_log_fields,
     is_contention_error,
     is_market_path,
     is_query_canceled_error,
 )
-from app.rate_limit import limiter
-from app.middleware.market_support_scope import MarketSupportScopeMiddleware
-from app.middleware.public_market_read_admission import (
-    PublicMarketReadAdmissionMiddleware,
-)
-from app.middleware.preauth_rate_limit import preauth_rate_limit_middleware
 from app.services.request_party import MARKET_SUPPORT_CONTEXT_INVALID_HEADER
-from app.routers.auth_simple import router as auth_router
-from app.admin import setup_admin
-
-from app.routers.ports import router as ports_router
-from app.routers.vessels import router as vessels_router
-from app.routers.inventory import router as inventory_router
-from app.routers.ai import router as ai_router
-from app.routers.orders import router as orders_router
-from app.routers.notifications import router as notifications_router
-from app.routers.preferences import router as preferences_router
-from app.routers.feedback import router as feedback_router
-from app.routers.admin_attention import router as admin_attention_router
-from app.routers.orderbook import router as orderbook_router
-from app.routers.market_support import router as market_support_router
-from app.routers.trades import router as trades_router
-from app.routers.price_discovery import router as price_discovery_router
-from app.routers.matchmaking import router as matchmaking_router
-from app.routers.producers import router as producers_router
-from app.routers.availability import router as availability_router
-from app.routers.demand import router as demand_router
-from app.routers.fleet_intelligence import router as fleet_intel_router
-from app.routers.audit import router as audit_router
-from app.routers.stream import router as stream_router
-from app.routers.compliance_api import router as compliance_api_router
-from app.routers.admin_analytics import router as admin_analytics_router
-from app.routers.kyc import router as kyc_router
-from app.routers.catalog import router as catalog_router
-from app.routers.curves import router as curves_router
-from app.routers.alerts import router as alerts_router
-from app.routers.activity import router as activity_router
-from app.routers.subscriptions import router as subscriptions_router
-from app.routers.referrals import router as referrals_router
-from app.routers.trade_tape import router as trade_tape_router
-from app.routers.rfq import router as rfq_router
-from app.routers.negotiations import router as negotiations_router
-from app.routers.watchlists import router as watchlists_router
-from app.routers.news import router as news_router
-from app.routers.benchmarks import router as benchmarks_router
-from app.routers.monitor import router as monitor_router
-from app.routers.user_activity import router as user_activity_router
-
-# ---------------------------------------------------------------------------
-# Structured logging
-# ---------------------------------------------------------------------------
-import structlog
 
 structlog.configure(
     processors=[
@@ -105,10 +109,12 @@ _redoc_url = "/redoc" if os.getenv("ENVIRONMENT") != "production" else None
 async def lifespan(app: FastAPI):
     from app.database import engine, verify_database_runtime
     from app.services.event_bus import event_bus
+    from app.services.kyc_document_vault import load_runtime_keys
     from app.services.kyc_execution import kyc_execution_gate_startup_message
     from app.services.market_event_dispatch import MarketEventDispatcher
 
     logger.info(kyc_execution_gate_startup_message())
+    app.state.kyc_document_keys = load_runtime_keys(settings)
     await verify_database_runtime()
     # Stage 5: durable shared SSE dispatch (outbox sequencer + hub fan-out).
     # Self-disables on non-PostgreSQL engines (the SQLite unit harness). This
@@ -117,7 +123,11 @@ async def lifespan(app: FastAPI):
     dispatcher = MarketEventDispatcher(engine, event_bus)
     await dispatcher.start()
     try:
-        yield
+        if mcp is not None:
+            async with mcp.session_manager.run():
+                yield
+        else:
+            yield
     finally:
         await dispatcher.stop()
 
@@ -129,6 +139,26 @@ app = FastAPI(
     redoc_url=_redoc_url,
     lifespan=lifespan,
 )
+
+# Public reads and MCP database tools share one budget, leaving one pool
+# checkout for logins, commands, readiness and other request classes.
+public_market_read_capacity = max(
+    settings.DB_POOL_SIZE + settings.DB_MAX_OVERFLOW - 1,
+    0,
+)
+public_market_read_limiter = (
+    anyio.CapacityLimiter(public_market_read_capacity) if public_market_read_capacity else None
+)
+mcp = (
+    build_mcp_server(read_limiter=public_market_read_limiter)
+    if mcp_enabled(settings.ENVIRONMENT) else None
+)
+if mcp is not None:
+    # Mount redirects /mcp to /mcp/. An ASGI Route preserves the exact POST path;
+    # the SDK handles the streamable HTTP methods and protocol responses.
+    app.router.routes.append(Route(
+        MCP_PATH, endpoint=build_mcp_http_app(mcp), methods=["GET", "POST", "DELETE"],
+    ))
 
 # A context-bearing request may only reach the explicitly classified support
 # routes. The request-party dependency still performs database revalidation.
@@ -198,14 +228,9 @@ app.middleware("http")(preauth_rate_limit_middleware)
 
 # CORS wraps public-read admission, pre-auth, and support scope so browser
 # clients receive credentialed headers on early rejections and preflights.
-# Keep one pool checkout available for mutations and other request classes.
-public_market_read_capacity = max(
-    settings.DB_POOL_SIZE + settings.DB_MAX_OVERFLOW - 1,
-    0,
-)
 app.add_middleware(
     PublicMarketReadAdmissionMiddleware,
-    capacity=public_market_read_capacity,
+    read_limiter=public_market_read_limiter,
     api_prefix=settings.API_V1_STR,
 )
 app.add_middleware(
@@ -283,8 +308,8 @@ app.include_router(subscriptions_router, prefix=settings.API_V1_STR)
 app.include_router(referrals_router, prefix=settings.API_V1_STR)
 app.include_router(trade_tape_router, prefix=settings.API_V1_STR)
 app.include_router(watchlists_router, prefix=settings.API_V1_STR)
-app.include_router(user_activity_router, prefix=settings.API_V1_STR)
 app.include_router(rfq_router, prefix=settings.API_V1_STR)
+app.include_router(supplier_offers_router, prefix=settings.API_V1_STR)
 app.include_router(negotiations_router, prefix=settings.API_V1_STR)
 app.include_router(news_router, prefix=settings.API_V1_STR)
 app.include_router(fleet_intel_router, prefix=settings.API_V1_STR)
@@ -308,8 +333,9 @@ async def health_live():
 @app.get("/health/ready")
 async def health_ready():
     """Bounded readiness probe — checks DB connectivity without leaking errors."""
-    from app.database import engine
     from sqlalchemy import text
+
+    from app.database import engine
     provenance = {
         "environment": settings.ENVIRONMENT,
         "release_sha": settings.RELEASE_SHA,

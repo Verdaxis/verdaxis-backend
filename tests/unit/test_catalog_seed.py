@@ -1,20 +1,33 @@
 """Unit tests for the green-fuels catalog seed contract."""
 
+from uuid import UUID
+
 from app.seeds.catalog_seed import DELIVERY_POINT_IDS, DELIVERY_POINTS, PRODUCT_IDS, PRODUCTS
 from app.seeds.market_seed import CI_DATA, PRICING
 from app.routers.catalog import DELIVERY_POINT_DISPLAY_ORDER
 
 
-# Demo seeds price these products. Bio-LNG is catalog-only: no demo prices.
-DEMO_PRICED_PRODUCT_NAMES = {
+EXPECTED_DEMO_PRODUCT_NAMES = {
+    "B30",
+    "B100",
     "Bio Methanol",
     "e-Methanol",
     "Bio Ethanol",
     "Synthetic Ethanol",
-    "B30",
-    "B100",
 }
-EXPECTED_PRODUCT_NAMES = DEMO_PRICED_PRODUCT_NAMES | {"Bio-LNG"}
+
+EXPECTED_CATALOG_PRODUCT_NAMES = EXPECTED_DEMO_PRODUCT_NAMES | {"UCOME B100", "Bio-LNG"}
+
+EXPECTED_PRODUCT_IDS = {
+    "B30": UUID("c4cecebc-3d2d-5840-8021-57a9a11bc673"),
+    "B100": UUID("74eb9cb5-f0e3-55f1-b82c-fe29b7c45bf5"),
+    "Bio-LNG": UUID("8f6f34a5-2927-54a6-8564-cca40ae7cb8a"),
+    "UCOME B100": UUID("e561e43f-d9b2-598e-981c-f1d28d515ddc"),
+    "Bio Methanol": UUID("9510c713-6e39-5080-add3-0a7c29657b79"),
+    "e-Methanol": UUID("f9b20492-b445-59cd-b292-a386d913f488"),
+    "Bio Ethanol": UUID("c4a688be-f7c2-5edc-8f93-6b34e387609c"),
+    "Synthetic Ethanol": UUID("d186bffb-766d-5944-8825-989abbdcfc46"),
+}
 
 EXPECTED_DELIVERY_POINT_NAMES = {
     "Dalian",
@@ -40,11 +53,17 @@ EXPECTED_DELIVERY_POINT_ORDER = [
 
 
 def test_catalog_seed_only_contains_approved_market_products():
-    assert {product.name for product in PRODUCTS} == EXPECTED_PRODUCT_NAMES
+    assert {product.name for product in PRODUCTS} == EXPECTED_CATALOG_PRODUCT_NAMES
+    assert {
+        product.name for product in PRODUCTS if product.execution_mode == "ORDERBOOK"
+    } == EXPECTED_CATALOG_PRODUCT_NAMES
+    ucome = next(product for product in PRODUCTS if product.name == "UCOME B100")
+    assert ucome.execution_mode == "ORDERBOOK"
+    assert ucome.available_delivery_point_ids == (DELIVERY_POINT_IDS["Singapore"],)
 
 
 def test_catalog_seed_exposes_deterministic_ids_for_approved_products_only():
-    assert set(PRODUCT_IDS.keys()) == EXPECTED_PRODUCT_NAMES
+    assert PRODUCT_IDS == EXPECTED_PRODUCT_IDS
 
 
 def test_catalog_seed_only_contains_approved_delivery_points():
@@ -60,7 +79,7 @@ def test_catalog_seed_exposes_deterministic_ids_for_approved_delivery_points_onl
 
 
 def test_market_seed_pricing_only_references_catalog_products():
-    assert set(PRICING.keys()) == DEMO_PRICED_PRODUCT_NAMES
+    assert set(PRICING.keys()) == EXPECTED_DEMO_PRODUCT_NAMES
 
 
 def test_market_seed_pricing_only_references_catalog_delivery_points():
@@ -69,4 +88,4 @@ def test_market_seed_pricing_only_references_catalog_delivery_points():
 
 
 def test_market_seed_ci_only_references_catalog_products():
-    assert set(CI_DATA.keys()) == DEMO_PRICED_PRODUCT_NAMES
+    assert set(CI_DATA.keys()) == EXPECTED_DEMO_PRODUCT_NAMES

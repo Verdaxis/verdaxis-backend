@@ -1,0 +1,8 @@
+{
+  "method": "GET",
+  "path": "/api/curves/forward",
+  "query": "product_id=8f6f34a5-2927-54a6-8564-cca40ae7cb8a",
+  "headers": {
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  }
+}

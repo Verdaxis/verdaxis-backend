@@ -1,0 +1,8 @@
+{
+  "method": "GET",
+  "path": "/api/prices/reference/export",
+  "query": "product_id=bad&delivery_point_id=bad&from_date=x&to_date=x",
+  "headers": {
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  }
+}

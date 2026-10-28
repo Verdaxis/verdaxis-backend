@@ -12,7 +12,8 @@ import httpx
 import pytest
 from fastapi import Depends, FastAPI
 from sqlalchemy import select, text, update
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from tests.postgres.test_market_migrations import migration_database  # noqa: F401
 
 from app.core.security import decode_token, get_password_hash, hash_token_identifier
 from app.database import get_db
@@ -165,12 +166,33 @@ async def test_reject_reapprove_never_revives_old_tokens_and_fresh_login_works(
         assert old_session.revoked is True
 
 
+@pytest.fixture
+async def predecessor_session(migration_database):
+    """Build the historical vault head independently; never downgrade union."""
+    url, _ = migration_database
+    result = await asyncio.to_thread(
+        subprocess.run,
+        [sys.executable, "-m", "alembic", "upgrade", "kycd_20261015_staging"],
+        cwd=Path(__file__).resolve().parents[2],
+        env={**os.environ, "DATABASE_URL": url, "MIGRATOR_DATABASE_URL": url},
+        capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    engine = create_async_engine(url)
+    try:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+            yield engine, session, url
+    finally:
+        await engine.dispose()
+
+
 @pytest.mark.asyncio
+@pytest.mark.parametrize("locked_table", ["users", "organizations", "kyc_documents"])
 async def test_cutoff_downgrade_fails_fast_behind_concurrent_user_write(
-    pg_session,
-    analytics_pg_url,
+    predecessor_session,
+    locked_table,
 ):
-    engine, seed_session = pg_session
+    engine, seed_session, analytics_pg_url = predecessor_session
     user = User(
         id=uuid4(),
         email=f"downgrade-race-{uuid4()}@example.com",
@@ -186,12 +208,16 @@ async def test_cutoff_downgrade_fails_fast_behind_concurrent_user_write(
     cutoff = None
     async with factory() as holder:
         await holder.begin()
-        cutoff = await holder.scalar(
-            update(User)
-            .where(User.id == user.id)
-            .values(authentication_revoked_at=User.created_at)
-            .returning(User.authentication_revoked_at)
-        )
+        if locked_table == "users":
+            cutoff = await holder.scalar(
+                update(User)
+                .where(User.id == user.id)
+                .values(authentication_revoked_at=User.created_at)
+                .returning(User.authentication_revoked_at)
+            )
+
+        # Cover both FK targets and the vault itself before any DROP can wait.
+        await holder.execute(text(f"LOCK TABLE {locked_table} IN ROW EXCLUSIVE MODE"))
 
         def migrate(*arguments: str) -> subprocess.CompletedProcess[str]:
             environment = {
@@ -211,7 +237,7 @@ async def test_cutoff_downgrade_fails_fast_behind_concurrent_user_write(
             )
 
         refused = await asyncio.to_thread(
-            migrate, "downgrade", "catalog_20260926_biofuels"
+            migrate, "downgrade", "fame_20260922_b100_orderbook"
         )
         await holder.commit()
 
@@ -221,7 +247,7 @@ async def test_cutoff_downgrade_fails_fast_behind_concurrent_user_write(
         )
 
     restored = await asyncio.to_thread(
-        migrate, "upgrade", "kycg_20261014_prod"
+        migrate, "upgrade", "kycd_20261015_staging"
     )
 
     async with factory() as verification:
@@ -234,11 +260,12 @@ async def test_cutoff_downgrade_fails_fast_behind_concurrent_user_write(
 
     assert refused.returncode != 0
     assert "could not obtain lock on relation" in refused.stderr.lower()
-    assert revision_after_refusal == "kycg_20261014_prod"
+    assert revision_after_refusal == "kycd_20261015_staging"
     assert restored.returncode == 0, restored.stderr
-    assert cutoff is not None
+    if locked_table == "users":
+        assert cutoff is not None
     assert stored_cutoff == cutoff
-    assert revision == "kycg_20261014_prod"
+    assert revision == "kycd_20261015_staging"
 
 
 @pytest.mark.asyncio

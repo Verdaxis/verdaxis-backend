@@ -16,6 +16,7 @@ class PricingOverlayRequest(BaseModel):
     )
     year: int = Field(
         2026,
+        ge=2025,
         description=(
             "Compliance year, annotation-only: it selects the reported "
             "year_target but the marginal displacement math has no year term"
@@ -24,8 +25,12 @@ class PricingOverlayRequest(BaseModel):
 
 
 class ListingOverlay(BaseModel):
-    """Per-ASK overlay; all money in the currency named by the field."""
+    """Declared lifecycle comparison; legacy financial fields stay zero.
 
+    Zero here means no benefit is priced, not a verified zero entitlement.
+    """
+
+    financial_benefit_status: Literal["UNPRICED"] = "UNPRICED"
     penalty_avoided_eur_per_mt: Decimal
     penalty_avoided_usd_per_mt: Decimal
     tco2e_avoided_per_mt: Decimal

@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.orm.attributes import set_committed_value
 
 from app.database import Base
-from app.market_catalog import BIOFUEL_SPECIFICATION_STANDARDS, DELIVERY_POINTS_BY_NAME, PRODUCTS_BY_NAME
+from app.market_catalog import DELIVERY_POINTS_BY_NAME, PRODUCTS_BY_NAME
 from app.models.audit import AuditLog  # noqa: F401 — registers audit_logs on Base.metadata
 from app.models.catalog import DeliveryPoint, Product
 from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderCreationMethod, OrderSide, Trade
@@ -47,7 +47,6 @@ REQUIRED_TABLES = [
     'audit_logs',
     'organizations',
     'users',
-    'kyc_execution_grace',
     'products',
     'delivery_points',
     'orderbook_orders',
@@ -74,6 +73,8 @@ def async_engine():
 @pytest.fixture(scope='module')
 async def setup_tables(async_engine):
     tables = [Base.metadata.tables[name] for name in REQUIRED_TABLES]
+    from app.models.kyc_execution_grace import KYCExecutionGrace
+    tables.append(KYCExecutionGrace.__table__)
     async with async_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all, tables=tables)
     yield
@@ -449,63 +450,6 @@ async def test_decline_trade_restores_watchlist_state(monkeypatch, db: AsyncSess
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("product_name", ["B30", "B100"])
-async def test_biofuel_direct_bid_fill_requires_qualified_ask_but_buyers_can_fill_asks(monkeypatch, db, product_name):
-    buyer_org = await _make_org(db, "Biofuel Buyer", OrgType.SHIPPING_LINE)
-    buyer = await _make_user(db, buyer_org, UserRole.BUYER)
-    supplier_org = await _make_org(db, "Biofuel Supplier", OrgType.FUEL_SUPPLIER)
-    supplier = await _make_user(db, supplier_org, UserRole.SUPPLIER)
-    product = await _make_product(db, product_name)
-    port = await _make_delivery_point(db)
-    bid = await _make_ask(
-        db, org_id=buyer_org.id, product_id=product.id,
-        delivery_point_id=port.id, owner_user_id=buyer.id,
-    )
-    bid.side = OrderSide.BID
-    await db.commit()
-
-    with pytest.raises(HTTPException, match="Place a qualified ASK") as failure:
-        await trades_router.create_trade(
-            payload=trades_router.TradeCreate(
-                order_id=bid.id,
-                quantity_mt=Decimal("100"),
-                expected_terms_digest=order_terms_digest(bid),
-            ),
-            request=_fake_request(), db=db, current_user=supplier,
-        )
-    assert failure.value.status_code == 400
-    assert bid.remaining_quantity_mt == Decimal("1000")
-    assert (await db.execute(select(Trade))).scalars().all() == []
-
-    ask = await _make_ask(
-        db, org_id=supplier_org.id, product_id=product.id,
-        delivery_point_id=port.id, owner_user_id=supplier.id,
-    )
-    ask.specification_standard = BIOFUEL_SPECIFICATION_STANDARDS[product.id]
-    ask.carbon_intensity_gco2_mj = Decimal("70")
-    ask.carbon_intensity_method = "Lifecycle calculation for the whole supplied fuel"
-    ask.feedstock = "Used cooking oil FAME"
-    ask.origin = "Singapore"
-    await db.commit()
-
-    async def no_notification(*args, **kwargs):
-        pass
-
-    monkeypatch.setattr(trades_router, "notify_org_users", no_notification)
-    response = await trades_router.create_trade(
-        payload=trades_router.TradeCreate(
-            order_id=ask.id,
-            quantity_mt=Decimal("100"),
-            expected_terms_digest=order_terms_digest(ask),
-        ),
-        request=_fake_request(), db=db, current_user=buyer,
-    )
-    assert response.status == "PENDING_CONFIRMATION"
-    assert response.market_product == product_name
-    assert ask.remaining_quantity_mt == Decimal("900")
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize("prune_path", ["age", "cap", "linked_age", "linked_cap"])
 async def test_demo_pruning_preserves_customer_pins_and_removes_unreferenced_orders(monkeypatch, db, prune_path):
     now = datetime(2026, 9, 27, 0, tzinfo=UTC)
@@ -632,7 +576,7 @@ async def test_demo_pruning_preserves_commission_rfq_and_negotiation_trade_histo
 async def test_demo_coverage_refresh_retains_identity_and_adds_depth_only_once(monkeypatch, db):
     now = datetime(2026, 9, 29, 12, tzinfo=UTC)
     monkeypatch.setattr(demo_activity, "PRICING", {
-        "B30": {"Singapore": demo_activity.PRICING["B30"]["Singapore"]},
+        "Bio Methanol": {"Singapore": demo_activity.PRICING["Bio Methanol"]["Singapore"]},
     })
     for organization_id, name in demo_activity.DEMO_SEED_BUYERS:
         db.add(Organization(id=organization_id, name=name, type=OrgType.SHIPPING_LINE,
@@ -640,7 +584,7 @@ async def test_demo_coverage_refresh_retains_identity_and_adds_depth_only_once(m
     for organization_id, name, _tier in demo_activity.DEMO_SEED_SUPPLIERS:
         db.add(Organization(id=organization_id, name=name, type=OrgType.FUEL_SUPPLIER,
                             provenance=OrganizationProvenance.DEMO, verification_status="APPROVED"))
-    await _make_product(db, "B30")
+    await _make_product(db, "Bio Methanol")
     await _make_delivery_point(db)
     original, obsolete = demo_activity.build_demo_market_coverage(now)[:2]
     # Preserve UUID hex that looks like scientific notation across refreshes.
@@ -680,7 +624,8 @@ async def test_demo_coverage_refresh_retains_identity_and_adds_depth_only_once(m
     assert original.id == original_id
     assert original.organization_id == original_owner
     assert original.created_at == original_created
-    assert original.price_per_mt_usd == Decimal("1095")
+    expected = demo_activity.build_demo_market_coverage(now)[0]
+    assert original.price_per_mt_usd == expected.price_per_mt_usd
     assert original.status == OrderBookStatus.OPEN
     assert original.expires_at > now
     assert obsolete.status == OrderBookStatus.EXPIRED
@@ -751,3 +696,42 @@ async def test_legacy_demo_quote_expiry_preserves_pins_history_and_customer_orde
     assert (await db.execute(select(Trade.ask_order_id))).scalar_one() == orders["trade"].id
     assert (await db.execute(select(Negotiation.ask_order_id))).scalar_one() == orders["negotiation"].id
     assert (await db.execute(select(MatchSuggestion.ask_order_id))).scalar_one() == orders["match"].id
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kyc_status", ["REJECTED", "PENDING"])
+@pytest.mark.parametrize("operation", ["cancel", "assisted_decline"])
+async def test_cleanup_ignores_rejected_or_expired_kyc(db, monkeypatch, kyc_status, operation):
+    from datetime import timedelta
+    from unittest.mock import AsyncMock
+    from starlette.requests import Request
+    from app.models.kyc_execution_grace import KYCExecutionGrace
+    from app.models.orderbook import OrderCreationMethod
+    from app.routers.orderbook import cancel_order
+
+    buyer_org = await _make_org(db, "Cleanup buyer", OrgType.SHIPPING_LINE)
+    seller_org = await _make_org(db, "Cleanup seller", OrgType.FUEL_SUPPLIER)
+    seller = await _make_user(db, seller_org, UserRole.SUPPLIER)
+    seller.kyc_status = kyc_status
+    now = datetime.now(UTC)
+    db.add(KYCExecutionGrace(user_id=seller.id, organization_id=seller_org.id,
+        kyc_status_at_enrollment="PENDING", enrolled_at=now-timedelta(days=15),
+        expires_at=now-timedelta(days=1), created_by="test"))
+    product, point = await _make_product(db), await _make_delivery_point(db)
+    ask = await _make_ask(db, org_id=seller_org.id, product_id=product.id,
+                          delivery_point_id=point.id, owner_user_id=seller.id)
+    if operation == "cancel":
+        await db.commit()
+        await cancel_order(ask.id, Request({"type": "http", "method": "DELETE", "path": f"/api/orderbook/{ask.id}", "headers": [], "client": ("127.0.0.1", 1234)}), seller, db, if_match=None, body=None)
+        assert ask.status == OrderBookStatus.CANCELLED
+    else:
+        admin = await _make_user(db, buyer_org, UserRole.ADMIN)
+        ask.creation_method = OrderCreationMethod.MARKET_SUPPORT
+        ask.owner_user_id = ask.created_by_actor_user_id = admin.id
+        trade = _pending_trade(ask, buyer_id=buyer_org.id, seller_id=seller_org.id, quantity="100")
+        trade.seller_user_id = admin.id
+        db.add(trade)
+        await db.commit()
+        monkeypatch.setattr(trades_router, "notify_org_users", AsyncMock())
+        response = await trades_router.decline_trade(trade.id, _fake_request(), db, seller)
+        assert response.status == "DECLINED"

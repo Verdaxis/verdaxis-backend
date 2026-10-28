@@ -1,26 +1,35 @@
-"""Focused tests for the compact buyer-map response."""
+"""Focused staging-contract tests for the compact buyer-map response."""
 
 from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import AsyncMock
-from uuid import UUID
 
 import pytest
 
+from app.market_catalog import (
+    DELIVERY_POINTS_BY_ID,
+    DELIVERY_POINTS_BY_NAME,
+    PRODUCTS_BY_ID,
+    PRODUCT_IDS,
+)
 from app.routers import orderbook
 from app.schemas.market_activity import MarketDemoStatus, MarketScope, MarketSourceKind
 from app.schemas.orderbook import AggregatedOrderbookResponse, OrderSide
 
 
-PRODUCT_ID = UUID("10000000-0000-0000-0000-000000000001")
-OTHER_PRODUCT_ID = UUID("10000000-0000-0000-0000-000000000002")
-DELIVERY_POINT_ID = UUID("20000000-0000-0000-0000-000000000001")
-OTHER_DELIVERY_POINT_ID = UUID("20000000-0000-0000-0000-000000000002")
+UCOME = PRODUCTS_BY_ID[PRODUCT_IDS["UCOME_B100"]]
+BIO_METHANOL = PRODUCTS_BY_ID[PRODUCT_IDS["BIO_METHANOL"]]
+E_METHANOL = PRODUCTS_BY_ID[PRODUCT_IDS["E_METHANOL"]]
+assert UCOME.available_delivery_point_ids is not None
+SINGAPORE = DELIVERY_POINTS_BY_ID[UCOME.available_delivery_point_ids[0]]
+ROTTERDAM = DELIVERY_POINTS_BY_NAME["Rotterdam"]
 OBSERVED_AT = datetime(2026, 10, 2, tzinfo=UTC)
 
 
 def _group(
     *,
+    product,
+    delivery_point,
     side: OrderSide,
     window: str,
     minimum: str,
@@ -28,23 +37,18 @@ def _group(
     quantity: str,
     order_count: int,
     evidence_class: str = "REAL",
-    product_id: UUID = PRODUCT_ID,
-    delivery_point_id: UUID = DELIVERY_POINT_ID,
-    market_product: str = "UCOME_B100",
-    product_name: str = "UCOME B100",
-    delivery_point_name: str = "Singapore",
     observed_at: datetime = OBSERVED_AT,
 ) -> AggregatedOrderbookResponse:
     is_real = evidence_class == "REAL"
     return AggregatedOrderbookResponse(
-        product_id=product_id,
-        product_name=product_name,
-        market_product=market_product,
-        fuel_type="Biofuel",
-        delivery_point_id=delivery_point_id,
-        delivery_point_name=delivery_point_name,
+        product_id=product.id,
+        product_name=product.name,
+        market_product=product.market_product.value,
+        fuel_type=product.fuel_type,
+        delivery_point_id=delivery_point.id,
+        delivery_point_name=delivery_point.name,
         availability_window=window,
-        region="Asia",
+        region=delivery_point.region,
         side=side,
         min_price=Decimal(minimum),
         max_price=Decimal(maximum),
@@ -63,10 +67,12 @@ def _group(
     )
 
 
-def test_compact_groups_preserve_all_window_totals_extrema_and_spot_inputs():
+def test_compact_groups_preserve_all_window_values_and_native_demo_groups():
     later = datetime(2026, 10, 3, tzinfo=UTC)
     groups = [
         _group(
+            product=BIO_METHANOL,
+            delivery_point=SINGAPORE,
             side=OrderSide.BID,
             window="SPOT",
             minimum="900",
@@ -75,6 +81,8 @@ def test_compact_groups_preserve_all_window_totals_extrema_and_spot_inputs():
             order_count=2,
         ),
         _group(
+            product=BIO_METHANOL,
+            delivery_point=SINGAPORE,
             side=OrderSide.ASK,
             window="SPOT",
             minimum="1000",
@@ -83,6 +91,8 @@ def test_compact_groups_preserve_all_window_totals_extrema_and_spot_inputs():
             order_count=1,
         ),
         _group(
+            product=BIO_METHANOL,
+            delivery_point=SINGAPORE,
             side=OrderSide.BID,
             window="2026-11",
             minimum="880",
@@ -91,6 +101,8 @@ def test_compact_groups_preserve_all_window_totals_extrema_and_spot_inputs():
             order_count=3,
         ),
         _group(
+            product=BIO_METHANOL,
+            delivery_point=SINGAPORE,
             side=OrderSide.ASK,
             window="2027-Q1",
             minimum="1020",
@@ -99,6 +111,8 @@ def test_compact_groups_preserve_all_window_totals_extrema_and_spot_inputs():
             order_count=4,
         ),
         _group(
+            product=BIO_METHANOL,
+            delivery_point=SINGAPORE,
             side=OrderSide.BID,
             window="2028-CAL",
             minimum="800",
@@ -108,6 +122,8 @@ def test_compact_groups_preserve_all_window_totals_extrema_and_spot_inputs():
             observed_at=later,
         ),
         _group(
+            product=BIO_METHANOL,
+            delivery_point=SINGAPORE,
             side=OrderSide.BID,
             window="SPOT",
             minimum="940",
@@ -117,6 +133,8 @@ def test_compact_groups_preserve_all_window_totals_extrema_and_spot_inputs():
             evidence_class="DEMO",
         ),
         _group(
+            product=BIO_METHANOL,
+            delivery_point=SINGAPORE,
             side=OrderSide.ASK,
             window="SPOT",
             minimum="1000",
@@ -126,6 +144,8 @@ def test_compact_groups_preserve_all_window_totals_extrema_and_spot_inputs():
             evidence_class="DEMO",
         ),
         _group(
+            product=BIO_METHANOL,
+            delivery_point=SINGAPORE,
             side=OrderSide.ASK,
             window="2026-11",
             minimum="1010",
@@ -138,11 +158,9 @@ def test_compact_groups_preserve_all_window_totals_extrema_and_spot_inputs():
 
     markets, demo_groups = orderbook._compact_map_groups(groups)
 
-    assert len(markets) == 2
     real = next(market for market in markets if market.evidence_class == "REAL")
     demo = next(market for market in markets if market.evidence_class == "DEMO")
-
-    assert real.market_product == "UCOME_B100"
+    assert real.market_product == "BIO_METHANOL"
     assert real.bid_min_price == Decimal("800")
     assert real.bid_max_price == Decimal("950")
     assert real.bid_total_quantity == Decimal("17")
@@ -156,95 +174,62 @@ def test_compact_groups_preserve_all_window_totals_extrema_and_spot_inputs():
     assert real.observed_at == later
     assert real.source_kind == MarketSourceKind.LIVE_ORDER
     assert real.demo_status == MarketDemoStatus.REAL_ONLY
-
     assert demo.ask_total_quantity == Decimal("15")
     assert demo.ask_order_count == 3
     assert demo.spot_best_bid == Decimal("940")
     assert demo.spot_best_ask == Decimal("1000")
     assert demo.source_kind == MarketSourceKind.DEMO_SEED
     assert demo.demo_status == MarketDemoStatus.DEMO_ONLY
-
     assert demo_groups == [groups[6], groups[5]]
-    assert all(group.availability_window == "SPOT" for group in demo_groups)
 
 
-def test_compact_groups_keep_one_sided_values_and_nearest_forward_demo_window():
-    month_ask = _group(
-        side=OrderSide.ASK,
-        window="2027-01",
-        minimum="700",
-        maximum="710",
-        quantity="3",
-        order_count=2,
-        evidence_class="DEMO",
-        product_id=OTHER_PRODUCT_ID,
-        delivery_point_id=OTHER_DELIVERY_POINT_ID,
-        market_product="NEW_CATALOG_PRODUCT",
-        product_name="New Catalog Product",
-        delivery_point_name="Rotterdam",
-    )
-    month_bid = _group(
-        side=OrderSide.BID,
-        window="2027-01",
-        minimum="680",
-        maximum="690",
-        quantity="5",
-        order_count=1,
-        evidence_class="DEMO",
-        product_id=OTHER_PRODUCT_ID,
-        delivery_point_id=OTHER_DELIVERY_POINT_ID,
-        market_product="NEW_CATALOG_PRODUCT",
-        product_name="New Catalog Product",
-        delivery_point_name="Rotterdam",
-    )
-    quarter_ask = _group(
-        side=OrderSide.ASK,
-        window="2027-Q1",
-        minimum="720",
-        maximum="730",
-        quantity="4",
-        order_count=1,
-        evidence_class="DEMO",
-        product_id=OTHER_PRODUCT_ID,
-        delivery_point_id=OTHER_DELIVERY_POINT_ID,
-        market_product="NEW_CATALOG_PRODUCT",
-        product_name="New Catalog Product",
-        delivery_point_name="Rotterdam",
-    )
-    calendar_ask = _group(
-        side=OrderSide.ASK,
-        window="2027-CAL",
-        minimum="740",
-        maximum="750",
-        quantity="2",
-        order_count=1,
-        evidence_class="DEMO",
-        product_id=OTHER_PRODUCT_ID,
-        delivery_point_id=OTHER_DELIVERY_POINT_ID,
-        market_product="NEW_CATALOG_PRODUCT",
-        product_name="New Catalog Product",
-        delivery_point_name="Rotterdam",
-    )
-    one_sided_real = _group(
+def test_compact_groups_preserve_ucome_supported_lane_without_inventing_fallback():
+    ucome_ask = _group(
+        product=UCOME,
+        delivery_point=SINGAPORE,
         side=OrderSide.ASK,
         window="SPOT",
-        minimum="800",
-        maximum="810",
-        quantity="11",
+        minimum="1250",
+        maximum="1260",
+        quantity="50",
         order_count=2,
     )
 
-    markets, demo_groups = orderbook._compact_map_groups(
-        [quarter_ask, calendar_ask, month_bid, one_sided_real, month_ask]
-    )
+    markets, demo_groups = orderbook._compact_map_groups([ucome_ask])
 
-    real = next(market for market in markets if market.evidence_class == "REAL")
-    assert real.bid_min_price is None
-    assert real.bid_max_price is None
-    assert real.bid_total_quantity == Decimal("0")
-    assert real.bid_order_count == 0
-    assert real.spot_best_bid is None
-    assert real.spot_best_ask == Decimal("800")
+    assert UCOME.available_delivery_point_ids == (SINGAPORE.id,)
+    assert len(markets) == 1
+    assert markets[0].product_id == PRODUCTS_BY_ID[UCOME.id].id
+    assert markets[0].market_product == "UCOME_B100"
+    assert markets[0].fuel_type == "FAME"
+    assert markets[0].delivery_point_id == SINGAPORE.id
+    assert markets[0].spot_best_bid is None
+    assert markets[0].spot_best_ask == Decimal("1250")
+    assert demo_groups == []
+
+
+def test_compact_groups_select_nearest_forward_demo_window_without_spot():
+    def demo(side, window, minimum, maximum):
+        return _group(
+            product=E_METHANOL,
+            delivery_point=ROTTERDAM,
+            side=side,
+            window=window,
+            minimum=minimum,
+            maximum=maximum,
+            quantity="3",
+            order_count=1,
+            evidence_class="DEMO",
+        )
+
+    month_ask = demo(OrderSide.ASK, "2027-01", "700", "710")
+    month_bid = demo(OrderSide.BID, "2027-01", "680", "690")
+    quarter_ask = demo(OrderSide.ASK, "2027-Q1", "720", "730")
+    calendar_ask = demo(OrderSide.ASK, "2027-CAL", "740", "750")
+
+    _, demo_groups = orderbook._compact_map_groups(
+        [quarter_ask, calendar_ask, month_bid, month_ask]
+    )
 
     assert demo_groups == [month_ask, month_bid]
     assert {group.side for group in demo_groups} == {OrderSide.BID, OrderSide.ASK}

@@ -152,6 +152,7 @@ def canonical_trade_product_snapshot_clause(trade):
                 trade.market_product == spec.market_product.value,
             )
             for spec in CANONICAL_PRODUCTS
+            if spec.execution_mode == "ORDERBOOK"
         )
     )
 

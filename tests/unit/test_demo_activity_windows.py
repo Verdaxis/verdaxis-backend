@@ -10,20 +10,15 @@ from uuid import uuid4
 
 import pytest
 
-from app.market_catalog import B30_SPECIFICATION_STANDARD, B100_SPECIFICATION_STANDARD
 from app.models.orderbook import OrderBookStatus, OrderSide
 from app.seeds.catalog_seed import DELIVERY_POINT_IDS, PRODUCT_IDS
-from app.seeds.market_seed import CI_DATA, PRICING, _seed_price_for_slice, ask_seed_metadata
-from app.seeds.forward_monitoring_seed import _demo_slices
-from app.services.availability_windows import forward_monitoring_default_windows
+from app.seeds.market_seed import PRICING, _seed_price_for_slice
 from app.services.demo_activity import (
     DEMO_COVERAGE_REFRESH_FIELDS,
-    _ask_metadata,
     activity_windows,
     build_demo_market_coverage,
     generate_demo_market_activity,
 )
-from app.services.execution_policy import order_is_execution_qualified
 from app.services import demo_activity
 
 
@@ -96,14 +91,12 @@ def test_demo_market_coverage_has_ten_levels_and_contango_across_the_full_horizo
         key = (order.product_id, order.delivery_point_id, order.availability_window)
         slices.setdefault(key, []).append(order)
 
-    # Demo liquidity covers only demo-priced products; Bio-LNG has no demo data.
     assert set(slices) == {
-        (PRODUCT_IDS[product_name], port, window)
-        for product_name in PRICING
+        (product, port, window)
+        for product in (PRODUCT_IDS[name] for name in PRICING)
         for port in DELIVERY_POINT_IDS.values()
         for window in windows
     }
-    assert PRODUCT_IDS["Bio-LNG"] not in {product_id for product_id, _, _ in slices}
     top_quotes = {}
     for market_slice, slice_orders in slices.items():
         bids = [order for order in slice_orders if order.side == OrderSide.BID]
@@ -116,7 +109,7 @@ def test_demo_market_coverage_has_ten_levels_and_contango_across_the_full_horizo
         assert max(bid_prices) < min(ask_prices)
         top_quotes[market_slice] = (max(bid_prices), min(ask_prices))
 
-    for product in (PRODUCT_IDS[product_name] for product_name in PRICING):
+    for product in (PRODUCT_IDS[name] for name in PRICING):
         for port in DELIVERY_POINT_IDS.values():
             for side_index in (0, 1):
                 prices = [top_quotes[product, port, window][side_index] for window in windows]
@@ -126,7 +119,7 @@ def test_demo_market_coverage_has_ten_levels_and_contango_across_the_full_horizo
 @pytest.mark.asyncio
 async def test_demo_activity_only_creates_a_matched_pair_at_the_current_window_midpoint(monkeypatch):
     now = datetime(2026, 9, 30, 12, tzinfo=UTC)
-    product_name, port_name, window = "B30", "Singapore", "2031-Q3"
+    product_name, port_name, window = "Bio Methanol", "Singapore", "2031-Q3"
     orders = []
 
     async def assign_order_ids():
@@ -173,59 +166,3 @@ async def test_demo_activity_only_creates_a_matched_pair_at_the_current_window_m
     assert [order.acceptance_ordinal for order in orders] == [1, 2]
     assert {order.price_per_mt_usd for order in orders} == {midpoint}
     assert all(order.status == OrderBookStatus.FILLED for order in orders)
-
-
-@pytest.mark.parametrize(
-    "product_name,specification,ci_scope,feedstock_detail",
-    [
-        ("B30", B30_SPECIFICATION_STANDARD, "whole-blend", "VLSFO"),
-        ("B100", B100_SPECIFICATION_STANDARD, "whole-fuel", "100% waste-derived FAME"),
-    ],
-)
-def test_biofuel_demo_asks_use_the_contract_and_disclose_synthetic_inputs(
-    product_name, specification, ci_scope, feedstock_detail,
-):
-    now = datetime(2026, 9, 26, 12, tzinfo=UTC)
-    fuel_orders = [
-        order for order in build_demo_market_coverage(now)
-        if order.product_id == PRODUCT_IDS[product_name] and order.side == OrderSide.ASK
-    ]
-
-    assert {order.delivery_point_id for order in fuel_orders} == set(DELIVERY_POINT_IDS.values())
-    assert {order.availability_window for order in fuel_orders} == set(activity_windows(now))
-    for order in fuel_orders:
-        assert order.provenance == "DEMO"
-        assert order_is_execution_qualified(order)
-        assert order.specification_standard == specification
-        assert order.certification_declared is True
-        assert order.certifications == [order.certification_scheme]
-        assert order.msds_available is True
-        assert order.is_verdaxis_verified is False
-        assert ci_scope in order.carbon_intensity_method
-        assert "demo" in order.carbon_intensity_method
-        assert feedstock_detail in order.feedstock
-        assert CI_DATA[product_name][0] <= order.carbon_intensity_gco2_mj <= CI_DATA[product_name][1]
-        assert float(order.energy_density_mj_kg) == CI_DATA[product_name][2]
-
-    for metadata in (
-        ask_seed_metadata("ISCC EU", product_name=product_name),
-        _ask_metadata(product_name, "Singapore", "SPOT"),
-    ):
-        assert metadata["specification_standard"] == specification
-        assert ci_scope in metadata["carbon_intensity_method"]
-        assert "not certified" in metadata["carbon_intensity_method"]
-
-
-@pytest.mark.parametrize("product_name", ["B30", "B100"])
-def test_biofuel_demo_forward_monitoring_covers_spot_and_singapore_curve(product_name):
-    now = datetime(2026, 9, 26, 12, tzinfo=UTC)
-    fuel_slices = {
-        (port, window) for product, port, window in _demo_slices(now)
-        if product == product_name
-    }
-
-    assert {(port, "SPOT") for port in DELIVERY_POINT_IDS} <= fuel_slices
-    expected_windows = forward_monitoring_default_windows(
-        reference_date=now.date(),
-    )
-    assert {("Singapore", window) for window in expected_windows} <= fuel_slices

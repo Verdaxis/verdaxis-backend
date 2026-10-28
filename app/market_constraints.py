@@ -7,15 +7,93 @@ therefore provide the only reliable reject-instead-of-round contract.
 
 from sqlalchemy import CheckConstraint
 from app.demo_identities import DEMO_MARKET_ORG_IDS
-from app.market_catalog import BIO_LNG_PRODUCT_ID, MARKET_PRODUCT_CODES, PRODUCTS_BY_ID
+from app.market_catalog import ORDERBOOK_MARKET_PRODUCTS, PRODUCT_IDS, DELIVERY_POINT_IDS
 
 
 def postgresql_check(expression: str, *, name: str) -> CheckConstraint:
     """Keep production checks in metadata without emitting them on SQLite."""
     return CheckConstraint(expression, name=name).ddl_if(dialect="postgresql")
 
+FAME_RFQ_DELIVERY_LANE = (
+    f"product_id <> '{PRODUCT_IDS['UCOME_B100']}' OR "
+    f"(delivery_point_id IS NOT NULL AND delivery_point_id = '{DELIVERY_POINT_IDS['Singapore']}')"
+)
+
+
+def _fame_terms_object(column: str, side: str) -> str:
+    """Require a versioned side-specific JSON object, rejecting absent keys."""
+    return (
+        f"(json_typeof({column}) = 'object' "
+        f"AND ({column}->'schema_version')::jsonb = '1'::jsonb "
+        f"AND {column}->>'side' = {side}) IS TRUE"
+    )
+
+
+def _fame_pair_snapshot(column: str) -> str:
+    bid_shape = _fame_terms_object(f"({column}->'bid')", "'BID'")
+    ask_shape = _fame_terms_object(f"({column}->'ask')", "'ASK'")
+    return (
+        f"(json_typeof({column}) = 'object' "
+        f"AND ({column}->'schema_version')::jsonb = '1'::jsonb "
+        f"AND ({bid_shape}) AND ({ask_shape})) IS TRUE"
+    )
+
+
+def _fame_product_terms(column: str, shape: str, *, minimum_quantity: str = "1") -> str:
+    return (
+        f"(product_id IS DISTINCT FROM '{PRODUCT_IDS['UCOME_B100']}' AND {column} IS NULL) OR "
+        f"(product_id = '{PRODUCT_IDS['UCOME_B100']}' "
+        f"AND delivery_point_id = '{DELIVERY_POINT_IDS['Singapore']}' "
+        f"AND delivery_point_id IS NOT NULL AND quantity_mt >= {minimum_quantity} "
+        f"AND {column} IS NOT NULL AND ({shape})) IS TRUE"
+    )
+
+
+ORDER_FAME_TERMS = _fame_product_terms("fame_terms", _fame_terms_object("fame_terms", "side"))
+# A standing order has a 1 MT input minimum; partial fills use the shared
+# 0.01 MT execution precision, including the final remainder.
+TRADE_FAME_TERMS = _fame_product_terms(
+    "fame_terms_snapshot", _fame_pair_snapshot("fame_terms_snapshot"), minimum_quantity="0.01",
+)
+NEGOTIATION_FAME_TERMS = TRADE_FAME_TERMS
+MARKET_SUPPORT_FAME_TERMS = _fame_product_terms("fame_terms", _fame_terms_object("fame_terms", "order_side"))
+INVENTORY_FAME_TERMS = (
+    "(product_name IS DISTINCT FROM 'UCOME B100' AND fame_terms IS NULL) OR "
+    "(product_name = 'UCOME B100' AND fuel_type = 'FAME' AND fame_terms IS NOT NULL "
+    "AND (" + _fame_terms_object("fame_terms", "'ASK'") + ")) IS TRUE"
+)
+
+def _lng_terms_object(column: str, side: str) -> str:
+    return f"(json_typeof({column}) = 'object' AND {column}->>'side' = {side}) IS TRUE"
+
+
+def _lng_product_terms(column: str, shape: str, minimum_quantity: str = "1") -> str:
+    return (
+        f"(product_id IS DISTINCT FROM '{PRODUCT_IDS['BIO_LNG']}' AND {column} IS NULL) OR "
+        f"(product_id = '{PRODUCT_IDS['BIO_LNG']}' "
+        f"AND delivery_point_id = '{DELIVERY_POINT_IDS['Rotterdam']}' "
+        f"AND delivery_point_id IS NOT NULL AND quantity_mt >= {minimum_quantity} "
+        f"AND {column} IS NOT NULL AND ({shape})) IS TRUE"
+    )
+
+
+_LNG_PAIR = (
+    "json_typeof(lng_terms_snapshot) = 'object' AND "
+    + _lng_terms_object("(lng_terms_snapshot->'bid')", "'BID'") + " AND "
+    + _lng_terms_object("(lng_terms_snapshot->'ask')", "'ASK'")
+)
+ORDER_LNG_TERMS = _lng_product_terms("lng_terms", _lng_terms_object("lng_terms", "side"))
+TRADE_LNG_TERMS = _lng_product_terms("lng_terms_snapshot", _LNG_PAIR, "0.01")
+NEGOTIATION_LNG_TERMS = TRADE_LNG_TERMS
+MARKET_SUPPORT_LNG_TERMS = _lng_product_terms("lng_terms", _lng_terms_object("lng_terms", "order_side"))
+INVENTORY_LNG_TERMS = (
+    "(product_name IS DISTINCT FROM 'Bio-LNG' AND lng_terms IS NULL) OR "
+    "(product_name = 'Bio-LNG' AND fuel_type = 'LNG' AND lng_terms IS NOT NULL "
+    "AND (" + _lng_terms_object("lng_terms", "'ASK'") + ")) IS TRUE"
+)
+
 PROVENANCE_VALUES = "'UNKNOWN','REAL','DEMO','TEST','CANARY'"
-MARKET_PRODUCT_VALUES = ",".join(f"'{value}'" for value in MARKET_PRODUCT_CODES)
+MARKET_PRODUCT_VALUES = ",".join(f"'{value}'" for value in ORDERBOOK_MARKET_PRODUCTS)
 DEMO_ORG_VALUES = ",".join(f"'{organization_id}'" for organization_id in sorted(DEMO_MARKET_ORG_IDS, key=str))
 
 
@@ -118,31 +196,6 @@ TRADE_SNAPSHOT = (
     "OR availability_window ~ '^[0-9]{4}-CAL$') "
     "AND delivery_point_id IS NOT NULL AND delivery_point_name IS NOT NULL "
     "AND delivery_point_region IS NOT NULL))"
-)
-
-_BIO_LNG_DELIVERY_POINT_ID = PRODUCTS_BY_ID[BIO_LNG_PRODUCT_ID].available_delivery_point_ids[0]
-
-
-def _bio_lng_terms(column: str, shape: str) -> str:
-    """Require terms on BIO_LNG rows at its single lane, and forbid them elsewhere."""
-    return (
-        f"(product_id IS DISTINCT FROM '{BIO_LNG_PRODUCT_ID}' AND {column} IS NULL) OR "
-        f"(product_id = '{BIO_LNG_PRODUCT_ID}' "
-        f"AND delivery_point_id = '{_BIO_LNG_DELIVERY_POINT_ID}' "
-        f"AND {column} IS NOT NULL AND ({shape})) IS TRUE"
-    )
-
-
-def _lng_terms_object(column: str, side: str) -> str:
-    return f"json_typeof({column}) = 'object' AND {column}->>'side' = {side}"
-
-
-ORDER_LNG_TERMS = _bio_lng_terms("lng_terms", _lng_terms_object("lng_terms", "side"))
-TRADE_LNG_TERMS = _bio_lng_terms(
-    "lng_terms_snapshot",
-    _lng_terms_object("lng_terms_snapshot->'bid'", "'BID'")
-    + " AND "
-    + _lng_terms_object("lng_terms_snapshot->'ask'", "'ASK'"),
 )
 
 INVENTORY_NUMERIC_VALUES = " AND ".join(

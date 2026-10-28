@@ -1,0 +1,25 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": [
+    {
+      "id": "ebcc657f-f5d2-5962-8741-038c667095eb",
+      "title": "Corpus regulation",
+      "summary": null,
+      "source": "Corpus",
+      "source_url": "https://example.test",
+      "url": "https://example.test/regulation",
+      "category": "regulation",
+      "relevance": 5,
+      "published_at": "2026-10-15T12:00:00+00:00",
+      "fetched_at": "2026-10-15T12:00:00+00:00"
+    }
+  ],
+  "body_sha256": "d2b61aab92cf2bb2d088674f9dc5f8b73d8307709d31ea12629572160188c9ee",
+  "news_exact_items": [
+    "{\"id\":\"ebcc657f-f5d2-5962-8741-038c667095eb\",\"title\":\"Corpus regulation\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/regulation\",\"category\":\"regulation\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}"
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "status": 422,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "detail": [
+      {
+        "type": "date_from_datetime_parsing",
+        "loc": [
+          "query",
+          "date_from"
+        ],
+        "msg": "Input should be a valid date or datetime, input is too short",
+        "input": "2026-1-1",
+        "ctx": {
+          "error": "input is too short"
+        }
+      }
+    ]
+  },
+  "body_sha256": "2412c15701c64c3c7c85440f62ce05f7d0d89a846b45211ea4aa0b6a0a52b387"
+}

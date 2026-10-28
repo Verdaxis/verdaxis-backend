@@ -18,13 +18,28 @@ MANIFEST = MONITOR / "artifact-manifest.json"
 # one must update its pinned blob in the same reviewed commit.
 # Market Support adds feature-flag settings and one feature-flagged router.
 # Licensed Webz.io news discovery adds a backend-only token and locked endpoint.
+# B100 supplier listings add an authenticated, non-executable offer router.
+# The read-only MCP endpoint adds a non-production route and shares the public read budget.
 # The KYC execution gate switch adds one setting (app/config.py) and one
 # startup log line (app/main.py).
+# Task 12b extends scripts/deploy.sh in place with the dual-service Rust
+# staging transaction (artifact verification, runtime preparation, both
+# readiness gates). Production Phase 1 extends that same transaction with
+# environment-specific policy/unit selection and exact prod provenance.
+# The boot-enable stage adds the post-activation systemctl enable of the
+# Rust unit plus its sudoers/preflight authority; the pinned blob below
+# includes those reviewed runtime-owned changes.
+# The deploy script comment lists what the Rust runtime preparation projects
+# (the verification and invite settings), and it reads RUST_CACHE_LISTENER from
+# the backend .env, refusing values other than 0 or 1, passing
+# --cache-listener to the budget preparation.
+# The stream replay floor checkpoint enables the one stream listener connection
+# (--stream-listener 1) in that same budget preparation.
 RUNTIME_OWNED_BLOBS = {
-    "app/config.py": "e7677b7593b0e1dece099c930fac73a4c79b87a7",
+    "app/config.py": "5eac216236919ebc8c48415a619d0e70169d1154",
     "app/database.py": "43456b2c2079c07368359d4d54f5ce9629c9b57b",
-    "app/main.py": "e6e89847356a46829b7e8d1bd54abd6b07132211",
-    "scripts/deploy.sh": "56d35efa7340594e18559339786d4bddf760a768",
+    "app/main.py": "a3a73bf74d817499cccac1f6ecc9ba062cbba3ea",
+    "scripts/deploy.sh": "c040a093d1ef1217341c3cc1f52fcf25f948a63a",
     "scripts/run_demo_activity.py": "b92cee8429669c3f908a52047025acd6db804697",
 }
 

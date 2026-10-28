@@ -1,0 +1,12 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "echo": null,
+    "method": "GET"
+  },
+  "body_sha256": "2c8d4658dac73bc66f7279de6cce595cc6c58f089b707957ad11582b69f0f714"
+}

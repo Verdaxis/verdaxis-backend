@@ -2,8 +2,8 @@
 
 import fcntl
 import hashlib
-import io
 import importlib.util
+import io
 import json
 import os
 import re
@@ -16,8 +16,10 @@ from pathlib import Path
 
 import pytest
 
-from scripts.validate_health_response import HealthResponseError, validate_health_response
-
+from scripts.validate_health_response import (
+    HealthResponseError,
+    validate_health_response,
+)
 
 ROOT = Path(__file__).parents[2]
 SHA = "a" * 40
@@ -166,7 +168,7 @@ def _deployment_checkout(tmp_path: Path) -> tuple[Path, Path, str]:
     for name in ("app_acl_policy.sql", "converge_runtime_object_acls.sql"):
         shutil.copy2(ROOT / "deploy/postgres" / name, postgres_policy / name)
     (source / ".gitignore").write_text(
-        "venv/\n.runtime-release.env\n.runtime-deploy/\n"
+        "venv/\n.runtime-release.env\n.runtime-monitor.env\n.runtime-deploy/\n"
     )
     (source / "requirements.txt").write_text("deployment-test==1\n")
     (source / "constraints.txt").write_text("deployment-test==1\n")
@@ -218,6 +220,7 @@ fi
         fake_bin / "sudo",
         """#!/usr/bin/env bash
 set -euo pipefail
+if [[ "${1:-}" == "-n" && "${2:-}" != "-l" ]]; then shift; fi
 printf 'sudo:%s\\n' "$*" >> "${DEPLOY_TEST_LOG:?}"
 if [[ "${DEPLOY_BLOCK_PHASE:-}" == "systemctl-restart" ]]; then
     case "$*" in
@@ -841,7 +844,7 @@ def test_restart_authorization_is_written_after_second_lock_before_restart():
     blocked = source.index('write_deploy_state "blocked"', deployment)
     restart_lock = source.index("acquire_restart_window_lock", blocked)
     authorized = source.index('write_deploy_state "$DEPLOY_PHASE"', restart_lock)
-    restart = source.index('sudo systemctl restart "$SERVICE_NAME"', authorized)
+    restart = source.index('sudo -n systemctl restart "$SERVICE_NAME"', authorized)
     pending = source.index('DEPLOY_PHASE="readiness-pending"', restart)
 
     assert blocked < restart_lock < authorized < restart < pending
@@ -1334,7 +1337,9 @@ def test_live_deploy_uses_canonical_guard_state_and_trusted_tool_path():
     assert "PIP_CONFIG_FILE=/dev/null" in source
     assert "./venv/bin/python -m pip install -r requirements.txt -c constraints.txt" in source
     assert "./venv/bin/python -m pip check" in source
-    assert "if [[ -f requirements.txt ]]; then\n    umask 022" in source
+    assert source.index("umask 022", source.index("if [[ -f requirements.txt ]]")) < source.index(
+        "pip install", source.index("if [[ -f requirements.txt ]]")
+    )
     assert "find venv -type d ! -perm -0005 -exec chmod o+rx {} +" in source
     assert "find venv -type f ! -perm -0004 -exec chmod o+r {} +" in source
     assert 'SCRIPT_DIR="$(cd -- "${BASH_SOURCE[0]%/*}" && pwd -P)"' in source

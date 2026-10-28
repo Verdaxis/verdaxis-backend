@@ -1,0 +1,24 @@
+{
+  "status": 422,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "detail": [
+      {
+        "type": "literal_error",
+        "loc": [
+          "query",
+          "visibility"
+        ],
+        "msg": "Input should be 'internal' or 'external'",
+        "input": "private",
+        "ctx": {
+          "expected": "'internal' or 'external'"
+        }
+      }
+    ]
+  },
+  "body_sha256": "5ed8d754f4c658a3daad66c9e5844738157cc071edaaec7f9272c9cd17d56185"
+}

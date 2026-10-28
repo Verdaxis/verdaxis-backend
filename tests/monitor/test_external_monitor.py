@@ -30,7 +30,7 @@ def _restore_payload(**changes):
         "ok": True,
         "completed_at": "2026-10-04T07:00:00Z",
         "backup_id": "20261004-070000",
-        "databases": ["verdaxis", "verdaxis_staging", "umami"],
+        "databases": ["verdaxis_prod", "verdaxis_staging", "umami"],
     }
     payload.update(changes)
     return payload
@@ -532,10 +532,10 @@ def test_restore_status_requires_exact_schema(monkeypatch, tmp_path, payload):
 @pytest.mark.parametrize(
     "databases",
     [
-        ["verdaxis", "verdaxis_staging"],
-        ["verdaxis", "verdaxis", "umami"],
-        ["verdaxis", "verdaxis_staging", "umami", "other"],
-        ["verdaxis", "verdaxis_staging", {"name": "umami"}],
+        ["verdaxis_prod", "verdaxis_staging"],
+        ["verdaxis_prod", "verdaxis_prod", "umami"],
+        ["verdaxis_prod", "verdaxis_staging", "umami", "other"],
+        ["verdaxis_prod", "verdaxis_staging", {"name": "umami"}],
     ],
 )
 def test_restore_status_requires_exact_database_inventory(
@@ -668,7 +668,7 @@ def test_outbox_check_invokes_both_deployed_database_targets(monkeypatch, tmp_pa
 
     assert module.check_outbox_backlogs()[0] == []
     assert [command[0][command[0].index("--dsn") + 1] for command in commands] == [
-        "host=127.0.0.1 port=5432 dbname=verdaxis user=verdaxis_backup",
+        "host=127.0.0.1 port=5432 dbname=verdaxis_prod user=verdaxis_backup",
         "host=127.0.0.1 port=5432 dbname=verdaxis_staging "
         "user=verdaxis_backup_staging",
     ]

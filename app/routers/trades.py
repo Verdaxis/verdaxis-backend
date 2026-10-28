@@ -12,13 +12,10 @@ from sqlalchemy.orm import joinedload, selectinload
 from uuid import UUID
 
 from app.database import get_db
-from app.routing import MarketJSONBodyLimitRoute
 from app.market_catalog import BIOFUEL_SPECIFICATION_STANDARDS
+from app.routing import MarketJSONBodyLimitRoute
 from app.routers.auth_simple import get_authenticated_user, get_current_user
-from app.middleware.execution import (
-    require_execution_eligible_user,
-    require_market_cleanup_user,
-)
+from app.middleware.execution import require_execution_eligible_user
 from app.models.user import Organization, User, UserRole, UserStatus, OrganizationProvenance
 from app.models.orderbook import (
     OrderBookOrder,
@@ -34,6 +31,7 @@ from app.models.notification import NotificationType
 from app.schemas.orderbook import TradeCreate, TradeResponse, TradeDeliverPayload, TradeSummaryResponse
 from app.schemas.pagination import PaginatedResponse
 from app.services.activity import trade_activity_provenance
+from app.services.kyc_execution import kyc_execution_clause
 from app.services.market_events import enqueue_market_events, participant_market_event
 from app.services.market_data_eligibility import (
     public_inventory_is_visible,
@@ -44,20 +42,9 @@ from app.services.market_transactions import retry_market_transaction
 from app.services import market_transactions
 from app.services.watchlist_events import _best_slice_price, emit_order_updated
 from app.services.execution_policy import (
-    MarketPartyPolicy,
     execution_party_is_eligible,
-    market_party_is_eligible,
     order_owner_is_execution_eligible,
     order_is_execution_qualified,
-)
-from app.services.kyc_execution import kyc_execution_clause
-from app.services.lng_terms import (
-    is_bio_lng_product,
-    lng_terms_compatible,
-    lng_terms_incompatible_error,
-    lng_trade_snapshot,
-    trade_lng_terms_view,
-    validate_order_lng_terms,
 )
 from app.services.live_benchmarks import rebuild_live_slice_benchmarks_for_keys
 from app.services.demo_market import is_demo_market_organization
@@ -102,6 +89,17 @@ from app.services.market_admission import (
 from app.services.org_notifications import notify_org_users
 from app.services.trade_fees import resolve_seller_trade_fee
 from app.services.order_terms import order_terms_digest
+from app.services.lng_order import (
+    is_lng_product, redact_lng_trade_snapshot, require_lng_counterparty_terms,
+    validate_lng_order_terms, validate_lng_trade_snapshot,
+)
+from app.services.fame_order import (
+    is_fame_product,
+    redact_fame_trade_snapshot,
+    require_fame_counterparty_terms,
+    validate_fame_order_terms,
+    validate_fame_trade_snapshot,
+)
 
 router = APIRouter(
     prefix="/trades",
@@ -151,7 +149,6 @@ def build_trade_response(
     is_anonymous = bool(trade.is_anonymous)
     buyer_id = trade.buyer_id
     seller_id = trade.seller_id
-    seller_revealed = True
     if is_anonymous:
         viewer_is_buyer = viewer_org_id == trade.buyer_id
         viewer_is_seller = viewer_org_id == trade.seller_id
@@ -161,12 +158,10 @@ def build_trade_response(
         if not viewer_is_party:
             buyer_id = seller_id = None
             buyer_name = seller_name = "Anonymous"
-            seller_revealed = False
         elif not handoff_complete:
             if viewer_is_buyer:
                 seller_id = None
                 seller_name = "Anonymous"
-                seller_revealed = False
             else:
                 buyer_id = None
                 buyer_name = "Anonymous"
@@ -174,6 +169,10 @@ def build_trade_response(
     provenance = trade_market_provenance(trade)
     has_seller_fee_snapshot = trade.commission_fee_per_mt_usd is not None
     can_view_seller_fee = viewer_is_admin or viewer_org_id == trade.seller_id
+    can_view_supplier_fuel = viewer_org_id == trade.seller_id or (
+        viewer_org_id == trade.buyer_id
+        and (not is_anonymous or trade.status in ANONYMOUS_TRADE_HANDOFF_STATUSES)
+    )
     return TradeResponse(
         id=trade.id,
         bid_order_id=trade.bid_order_id,
@@ -222,34 +221,78 @@ def build_trade_response(
         scope=provenance["scope"],
         demo_status=provenance["demo_status"],
         unknown_count=provenance["unknown_count"],
-        # The seller's certificate and physical supplier follow party identity.
-        lng_terms_snapshot=trade_lng_terms_view(
-            trade.lng_terms_snapshot, reveal_ask=seller_revealed
+        lng_terms_snapshot=redact_lng_trade_snapshot(
+            getattr(trade, "lng_terms_snapshot", None),
+            reveal_supplier_identity=(
+                viewer_org_id in (trade.buyer_id, trade.seller_id)
+                and trade.status in ANONYMOUS_TRADE_HANDOFF_STATUSES
+            ),
+        ),
+        fame_terms_snapshot=redact_fame_trade_snapshot(
+            getattr(trade, "fame_terms_snapshot", None),
+            reveal_supplier_identity=can_view_supplier_fuel,
         ),
     )
 
 
+def _revalidate_trade_fame_terms(
+    trade: Trade, linked_order: OrderBookOrder | None
+) -> None:
+    """Recheck the frozen pair before confirmation without changing its terms."""
+    try:
+        snapshot = validate_fame_trade_snapshot(
+            trade.product_id,
+            getattr(trade, "fame_terms_snapshot", None),
+            trade.availability_window,
+        )
+        if snapshot is None:
+            return
+        if linked_order is None:
+            raise HTTPException(status_code=409, detail="Trade order no longer exists")
+        if not order_is_execution_qualified(linked_order):
+            raise HTTPException(status_code=409, detail="Trade order is no longer eligible")
+        current_terms = validate_fame_order_terms(
+            linked_order.product_id,
+            linked_order.side,
+            getattr(linked_order, "fame_terms", None),
+            linked_order.availability_window,
+        )
+    except HTTPException as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="Trade fuel terms are no longer eligible for confirmation",
+        ) from exc
+
+    snapshot_side = "bid" if linked_order.side == OrderSide.BID else "ask"
+    if current_terms != snapshot[snapshot_side]:
+        raise HTTPException(
+            status_code=409,
+            detail="Trade order fuel terms changed; create a new trade request",
+        )
+
+
+def _revalidate_trade_lng_terms(trade: Trade, linked_order: OrderBookOrder | None) -> None:
+    snapshot = validate_lng_trade_snapshot(trade.product_id, getattr(trade, "lng_terms_snapshot", None))
+    if snapshot is None:
+        return
+    if linked_order is None or not order_is_execution_qualified(linked_order):
+        raise HTTPException(409, "Trade order is no longer eligible")
+    current = validate_lng_order_terms(linked_order.product_id, linked_order.side, linked_order.lng_terms)
+    side = "bid" if linked_order.side == OrderSide.BID else "ask"
+    if current != snapshot[side]:
+        raise HTTPException(409, "Trade order fuel terms changed; create a new trade request")
+
+
 def trade_create_idempotency_payload(payload: TradeCreate) -> dict[str, object]:
-    """Keep old replay hashes while binding every new reviewed digest and term."""
+    """Preserve legacy replay hashes while binding explicit B100 declarations."""
     values = payload.model_dump(mode="json")
-    for optional_field in ("expected_terms_digest", "lng_terms"):
-        if values[optional_field] is None:
-            values.pop(optional_field)
+    for field in ("fame_terms", "lng_terms", "expected_order_version", "expected_terms_digest"):
+        if values[field] is None:
+            values.pop(field)
+    for field in ("certification_declared", "msds_available"):
+        if values[field] is False:
+            values.pop(field)
     return values
-
-
-def _direct_take_lng_snapshot(order: OrderBookOrder, taker_terms) -> dict | None:
-    """Freeze Bio-LNG terms for a buyer taking an ASK, or None for other products.
-
-    Incompatible requirements return the stable LNG_TERMS_INCOMPATIBLE code
-    with no detail about the seller's declarations.
-    """
-    bid_terms = validate_order_lng_terms(order.product_id, OrderSide.BID, taker_terms)
-    if bid_terms is None:
-        return None
-    if not lng_terms_compatible(bid_terms, order.lng_terms):
-        raise lng_terms_incompatible_error()
-    return lng_trade_snapshot(bid_terms, order.lng_terms)
 
 
 def _terms_review_conflict() -> HTTPException:
@@ -274,10 +317,7 @@ def _trade_initiator_org_expression():
 
 
 def _can_manage_assisted_trade(current_user: User, org_id: UUID) -> bool:
-    """Match the account part of the execution gate for a tenant member.
-
-    The KYC part needs the grace table, so it lives in the SQL filter below.
-    """
+    """Match the execution gate for an eligible member on a support order."""
     return (
         current_user.organization_id == org_id
         and current_user.role in {UserRole.BUYER, UserRole.SUPPLIER}
@@ -297,9 +337,7 @@ def _trade_action_required_filter(current_user: User, org_id: UUID):
         User.status == UserStatus.APPROVED,
         User.email_verified.is_(True),
         User.must_change_password.is_(False),
-        # Action required means confirmable now, so the confirm gate's KYC
-        # execution rule applies.
-        kyc_execution_clause(User, org_id),
+        kyc_execution_clause(),
         select(Organization.id)
         .where(
             Organization.id == org_id,
@@ -417,9 +455,7 @@ async def _load_trade(db: AsyncSession, trade_id: uuid.UUID, for_update: bool = 
     return trade
 
 
-async def _revalidate_trade_parties(
-    db: AsyncSession, trade: Trade, *, policy: MarketPartyPolicy
-) -> None:
+async def _revalidate_trade_parties(db: AsyncSession, trade: Trade) -> None:
     if not trade.buyer_user_id or not trade.seller_user_id:
         raise HTTPException(status_code=409, detail="Trade parties require fresh admission review")
     # The caller already serialized the market rows. Re-lock concrete users
@@ -449,14 +485,10 @@ async def _revalidate_trade_parties(
             order=buyer_order,
             user=users.get(trade.buyer_user_id),
             organization=orgs.get(trade.buyer_id),
-            policy=policy,
         )
         if buyer_order is not None
-        else await market_party_is_eligible(
-            db,
-            user=users.get(trade.buyer_user_id),
-            organization=orgs.get(trade.buyer_id),
-            policy=policy,
+        else await execution_party_is_eligible(
+            db, user=users.get(trade.buyer_user_id), organization=orgs.get(trade.buyer_id)
         )
     )
     seller_eligible = (
@@ -465,14 +497,10 @@ async def _revalidate_trade_parties(
             order=seller_order,
             user=users.get(trade.seller_user_id),
             organization=orgs.get(trade.seller_id),
-            policy=policy,
         )
         if seller_order is not None
-        else await market_party_is_eligible(
-            db,
-            user=users.get(trade.seller_user_id),
-            organization=orgs.get(trade.seller_id),
-            policy=policy,
+        else await execution_party_is_eligible(
+            db, user=users.get(trade.seller_user_id), organization=orgs.get(trade.seller_id)
         )
     )
     if not buyer_eligible or not seller_eligible:
@@ -512,8 +540,8 @@ async def _authorize_assisted_trade_actor(
     trade: Trade,
     linked_order: OrderBookOrder | None,
     current_user: User,
-    policy: MarketPartyPolicy,
     expected_side: OrderSide | None = None,
+    require_execution: bool = False,
 ) -> bool:
     """Authorize a qualified customer member for a linked support side.
 
@@ -553,9 +581,7 @@ async def _authorize_assisted_trade_actor(
         return False
     if expected_side is not None and support_side != expected_side:
         raise HTTPException(status_code=403, detail="Trade side is not authorized for this action")
-    if not await market_party_is_eligible(
-        db, user=actor, organization=organization, policy=policy
-    ):
+    if require_execution and not await execution_party_is_eligible(db, user=actor, organization=organization):
         raise HTTPException(status_code=409, detail="Trade parties are no longer execution-qualified")
     return True
 
@@ -729,7 +755,6 @@ async def create_trade(
                 viewer_is_admin=current_user.role == UserRole.ADMIN,
             )
 
-    # Only a new execution is gated; an exact replay returned above.
     await require_execution_eligible_user(current_user=current_user, db=db)
 
     # The canonical market lock is always acquired before the target row lock.
@@ -845,12 +870,8 @@ async def create_trade(
                 status_code=403,
                 detail="Only suppliers can hit a BID order",
             )
-        # Seller declarations exist only on an ASK order, so these BIDs fill by matching.
-        if is_bio_lng_product(order.product_id):
-            raise HTTPException(
-                status_code=400,
-                detail="Place a qualified Bio-LNG ASK order with lng_terms to fill this BID.",
-            )
+
+        # Scalar supplier declarations must come from a qualified resting ASK.
         if order.product_id in BIOFUEL_SPECIFICATION_STANDARDS:
             raise HTTPException(
                 status_code=400,
@@ -913,7 +934,19 @@ async def create_trade(
             status_code=400,
             detail=f"Requested quantity ({payload.quantity_mt}) exceeds remaining ({order.remaining_quantity_mt})",
         )
-    lng_terms_snapshot = _direct_take_lng_snapshot(order, payload.lng_terms)
+
+    if is_fame_product(order.product_id):
+        if order.side == OrderSide.BID and not (
+            payload.certification_declared and payload.msds_available
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="B100 suppliers must declare certification and MSDS availability",
+            )
+    if is_lng_product(order.product_id) and order.side == OrderSide.BID and not payload.msds_available:
+        raise HTTPException(422, "Bio-LNG suppliers must declare MSDS availability")
+    lng_terms_snapshot = require_lng_counterparty_terms(order, payload.lng_terms)
+    fame_terms_snapshot = require_fame_counterparty_terms(order, payload.fame_terms)
 
     public_order_before = await public_order_is_visible(db, order.id)
     before_state = await _watchlist_before_state(db, order)
@@ -950,10 +983,11 @@ async def create_trade(
         delivery_point_name=order.delivery_point_name,
         delivery_point_region=order.region,
         availability_window=order.availability_window,
+        fame_terms_snapshot=fame_terms_snapshot,
+        lng_terms_snapshot=lng_terms_snapshot,
         commission_rate_pct=Decimal("0"),
         commission_fee_per_mt_usd=commission_fee_per_mt_usd,
         commission_plan=commission_plan.value,
-        lng_terms_snapshot=lng_terms_snapshot,
     )
     db.add(trade)
 
@@ -1032,6 +1066,9 @@ async def create_trade(
             "order_id": str(order.id),
             "quantity_mt": str(payload.quantity_mt),
             "price_per_mt_usd": str(order.price_per_mt_usd),
+            "fame_terms_snapshot": fame_terms_snapshot,
+            "certification_declared": payload.certification_declared,
+            "msds_available": payload.msds_available,
         },
         **request_audit_context(request),
     )
@@ -1242,8 +1279,8 @@ async def confirm_trade(
         trade=trade,
         linked_order=confirmed_order,
         current_user=current_user,
-        policy=MarketPartyPolicy.EXECUTION,
         expected_side=(OrderSide.ASK if trade.initiated_by == Initiator.BUYER else OrderSide.BID),
+        require_execution=True,
     )
 
     # Only the counterparty (non-initiator) can confirm
@@ -1258,7 +1295,9 @@ async def confirm_trade(
             raise HTTPException(status_code=403, detail="Only the buyer can confirm this trade")
         initiator_org_id = trade.seller_id
 
-    await _revalidate_trade_parties(db, trade, policy=MarketPartyPolicy.EXECUTION)
+    await _revalidate_trade_parties(db, trade)
+    _revalidate_trade_fame_terms(trade, confirmed_order)
+    _revalidate_trade_lng_terms(trade, confirmed_order)
 
     trade.status = TradeStatus.CONFIRMED
     trade.confirmed_at = datetime.now(UTC)
@@ -1377,7 +1416,6 @@ async def decline_trade(
         and current_user.organization_id == assisted_side[1]
         and current_user.role == assisted_side[2]
     )
-    # Declining withdraws a pending commitment; KYC never blocks it.
     await lock_and_load_market_organizations(
         db,
         [trade.buyer_id, trade.seller_id],
@@ -1387,14 +1425,13 @@ async def decline_trade(
             if acting_for_assisted_side
             else ()
         ),
-        actor_policy=MarketPartyPolicy.CLEANUP,
+        require_execution_eligible=False,
     )
     assisted_actor = await _authorize_assisted_trade_actor(
         db,
         trade=trade,
         linked_order=order,
         current_user=current_user,
-        policy=MarketPartyPolicy.CLEANUP,
         expected_side=(OrderSide.ASK if trade.initiated_by == Initiator.BUYER else OrderSide.BID),
     )
 
@@ -1578,8 +1615,6 @@ async def deliver_trade(
     )
     if command is not None and command.replay is not None:
         return JSONResponse(status_code=command.replay.response_status, content=command.replay.response_body)
-    # Delivery settles a confirmed commitment; KYC never blocks it.
-    await require_market_cleanup_user(current_user=current_user, db=db)
     trade, linked_order = await _lock_trade_market_rows(
         db, trade_id, operation="trade_deliver"
     )
@@ -1595,7 +1630,7 @@ async def deliver_trade(
             ),
         ],
         actor_ownerships=(MarketActorOwnership(current_user.id, org_id),),
-        actor_policy=MarketPartyPolicy.CLEANUP,
+        require_execution_eligible=False,
     )
 
     if trade.status != TradeStatus.CONFIRMED:
@@ -1607,7 +1642,6 @@ async def deliver_trade(
         trade=trade,
         linked_order=linked_order,
         current_user=current_user,
-        policy=MarketPartyPolicy.CLEANUP,
     )
     if not assisted_actor and (
         (org_id, current_user.id)
@@ -1617,7 +1651,6 @@ async def deliver_trade(
         )
     ):
         raise HTTPException(status_code=403, detail="Not authorized for this trade")
-    await _revalidate_trade_parties(db, trade, policy=MarketPartyPolicy.CLEANUP)
     if payload.final_quantity_mt > trade.quantity_mt:
         raise HTTPException(
             status_code=400,
@@ -1727,8 +1760,6 @@ async def pay_trade(
     )
     if command is not None and command.replay is not None:
         return JSONResponse(status_code=command.replay.response_status, content=command.replay.response_body)
-    # Payment settles a delivered commitment; KYC never blocks it.
-    await require_market_cleanup_user(current_user=current_user, db=db)
     trade, linked_order = await _lock_trade_market_rows(
         db, trade_id, operation="trade_pay"
     )
@@ -1744,7 +1775,7 @@ async def pay_trade(
             ),
         ],
         actor_ownerships=(MarketActorOwnership(current_user.id, org_id),),
-        actor_policy=MarketPartyPolicy.CLEANUP,
+        require_execution_eligible=False,
     )
 
     if trade.status != TradeStatus.DELIVERED:
@@ -1756,7 +1787,6 @@ async def pay_trade(
         trade=trade,
         linked_order=linked_order,
         current_user=current_user,
-        policy=MarketPartyPolicy.CLEANUP,
         expected_side=OrderSide.ASK,
     )
     if not assisted_actor and (trade.seller_id != org_id or trade.seller_user_id != current_user.id):
@@ -1764,7 +1794,6 @@ async def pay_trade(
 
     if current_user.role != UserRole.SUPPLIER:
         raise HTTPException(status_code=403, detail="Only suppliers can mark trades as paid")
-    await _revalidate_trade_parties(db, trade, policy=MarketPartyPolicy.CLEANUP)
 
     trade.status = TradeStatus.PAID
     trade.paid_at = datetime.now(UTC)

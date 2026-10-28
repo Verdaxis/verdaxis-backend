@@ -1,0 +1,120 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "cell": {
+      "market_product": "BIO_ETHANOL",
+      "product_name": "Bio Ethanol",
+      "representative_product_id": "c4a688be-f7c2-5edc-8f93-6b34e387609c",
+      "product_count": 1,
+      "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+      "delivery_point_name": "Singapore",
+      "region": "Asia",
+      "availability_window": "2030-Q1",
+      "primary_value": null,
+      "primary_signal_type": "NO_DATA",
+      "primary_source_kind": "NO_DATA",
+      "public_source_label": "No data",
+      "label_policy": {
+        "public_label": "No data",
+        "tooltip": "No eligible public signal is available for this market slice.",
+        "allowed_terms": [
+          "no data"
+        ],
+        "forbidden_terms": [
+          "live",
+          "firm",
+          "executable",
+          "market price",
+          "clearing"
+        ],
+        "disclaimer": null
+      },
+      "staleness_status": "NO_DATA",
+      "is_executable": false,
+      "is_reference": false,
+      "demo_status": "NOT_APPLICABLE",
+      "scope": "DELIVERY_POINT",
+      "observed_at": null,
+      "generated_at": "2026-10-15T12:00:00Z",
+      "best_bid": null,
+      "best_ask": null,
+      "spread": null,
+      "volume_mt": "0",
+      "order_count": 0,
+      "real_order_count": 0,
+      "demo_order_count": 0,
+      "unknown_order_count": 0,
+      "real_best_bid": null,
+      "real_best_ask": null,
+      "demo_best_bid": null,
+      "demo_best_ask": null,
+      "benchmark_mid": null,
+      "benchmark_source_kind": "NO_DATA",
+      "benchmark_observed_at": null,
+      "indication_summary": {
+        "provenance": {
+          "signal_type": "MARKET_INDICATION",
+          "signal_source_kind": "NO_DATA",
+          "scope": "DELIVERY_POINT",
+          "demo_status": "NOT_APPLICABLE",
+          "observed_at": null,
+          "generated_at": "2026-10-15T12:00:00Z",
+          "real_count": 0,
+          "demo_count": 0,
+          "unknown_count": 0
+        },
+        "latest_bid_price_per_mt_usd": null,
+        "latest_ask_price_per_mt_usd": null,
+        "latest_mid_price_per_mt_usd": null,
+        "total_quantity_mt": null,
+        "indication_count": 0
+      },
+      "fair_price_band": null,
+      "fair_price_band_provenance": {
+        "signal_type": "FAIR_PRICE_BAND",
+        "signal_source_kind": "NO_DATA",
+        "scope": "DELIVERY_POINT",
+        "demo_status": "NOT_APPLICABLE",
+        "observed_at": null,
+        "generated_at": "2026-10-15T12:00:00Z",
+        "real_count": 0,
+        "demo_count": 0,
+        "unknown_count": 0
+      },
+      "physical_stem_summary": {
+        "provenance": {
+          "signal_type": "PHYSICAL_STEM",
+          "signal_source_kind": "NO_DATA",
+          "scope": "DELIVERY_POINT",
+          "demo_status": "NOT_APPLICABLE",
+          "observed_at": null,
+          "generated_at": "2026-10-15T12:00:00Z",
+          "real_count": 0,
+          "demo_count": 0,
+          "unknown_count": 0
+        },
+        "available_quantity_mt": null,
+        "tentative_quantity_mt": null,
+        "stem_count": 0,
+        "earliest_stem_start": null,
+        "latest_stem_end": null
+      }
+    },
+    "previous_window": "2029-Q4",
+    "next_window": "2030-Q2",
+    "depth_bids": [],
+    "depth_asks": [],
+    "trades": [],
+    "indications": [],
+    "fair_price_band": null,
+    "physical_stems": [],
+    "evidence_points": [],
+    "generated_at": "2026-10-15T12:00:00Z",
+    "disclaimer": "Indicative estimate only. Not legal, regulatory, tax, or compliance filing advice."
+  },
+  "body_sha256": "27bec872ed103d352c83a1f5e30cf394682813f1369e492d15efa21eca0cee0f"
+}

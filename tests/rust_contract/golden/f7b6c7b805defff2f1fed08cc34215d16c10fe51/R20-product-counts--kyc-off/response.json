@@ -1,0 +1,19 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "counts": {
+      "BIO_LNG": 0,
+      "UCOME_B100": 0,
+      "BIO_METHANOL": 10027,
+      "E_METHANOL": 0,
+      "BIO_ETHANOL": 0,
+      "SYNTHETIC_ETHANOL": 0
+    },
+    "total": 10027
+  },
+  "body_sha256": "91160a47217fc677e65ab1d6bedd7e3fed1c4976693c53d345155fe3866a9aea"
+}

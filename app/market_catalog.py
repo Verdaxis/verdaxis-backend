@@ -14,20 +14,14 @@ from uuid import UUID
 
 
 class MarketProduct(str, Enum):
+    B30 = "B30"
+    B100 = "B100"
+    UCOME_B100 = "UCOME_B100"
+    BIO_LNG = "BIO_LNG"
     BIO_METHANOL = "BIO_METHANOL"
     E_METHANOL = "E_METHANOL"
     BIO_ETHANOL = "BIO_ETHANOL"
     SYNTHETIC_ETHANOL = "SYNTHETIC_ETHANOL"
-    B30 = "B30"
-    B100 = "B100"
-    BIO_LNG = "BIO_LNG"
-
-
-B30_SPECIFICATION_STANDARD = "ISO 8217:2024 RF 380"
-B100_SPECIFICATION_STANDARD = "ISO 8217:2024 DFA"
-BIO_LNG_SPECIFICATION_STANDARD = "ISO 23306:2020"
-
-_ROTTERDAM_ID = UUID("1379d36c-1ca9-55b7-9c0d-5235a0ba1f36")
 
 
 @dataclass(frozen=True)
@@ -40,8 +34,7 @@ class ProductSpec:
     unit: str
     min_lot_size: Decimal
     spec_description: str
-    # None means every canonical delivery point. A tuple restricts the product
-    # to those lanes in order entry, execution and public market reads.
+    execution_mode: str = "ORDERBOOK"
     available_delivery_point_ids: tuple[UUID, ...] | None = None
 
 
@@ -53,7 +46,57 @@ class DeliveryPointSpec:
     timezone: str
 
 
+B30_SPECIFICATION_STANDARD = "ISO 8217:2024 RF 380"
+B100_SPECIFICATION_STANDARD = "ISO 8217:2024 DFA"
+
+
 CANONICAL_PRODUCTS: tuple[ProductSpec, ...] = (
+    ProductSpec(
+        UUID("c4cecebc-3d2d-5840-8021-57a9a11bc673"),
+        MarketProduct.B30,
+        "B30",
+        "Biofuel",
+        "B30",
+        "MT",
+        Decimal("200"),
+        "30% FAME by volume blended with 70% VLSFO; finished blend meets "
+        "ISO 8217:2024 RF 380 with sulphur at most 0.50% by mass",
+    ),
+    ProductSpec(
+        UUID("74eb9cb5-f0e3-55f1-b82c-fe29b7c45bf5"),
+        MarketProduct.B100,
+        "B100",
+        "Biofuel",
+        "B100",
+        "MT",
+        Decimal("200"),
+        "100% FAME, excluding HVO; finished fuel meets ISO 8217:2024 DFA "
+        "with sulphur at most 0.10% by mass",
+    ),
+    ProductSpec(
+        UUID("8f6f34a5-2927-54a6-8564-cca40ae7cb8a"),
+        MarketProduct.BIO_LNG,
+        "Bio-LNG",
+        "LNG",
+        "Bio",
+        "MT",
+        Decimal("1"),
+        "Liquefied biomethane (bio-LNG) for marine fuel use, delivered to ISO 23306:2020 "
+        "with a certified Proof of Sustainability.",
+        available_delivery_point_ids=(UUID("1379d36c-1ca9-55b7-9c0d-5235a0ba1f36"),),
+    ),
+    ProductSpec(
+        UUID("e561e43f-d9b2-598e-981c-f1d28d515ddc"),
+        MarketProduct.UCOME_B100,
+        "UCOME B100",
+        "FAME",
+        "UCOME",
+        "MT",
+        Decimal("1"),
+        "Neat B100 used cooking oil methyl ester for wholesale Singapore trading. "
+        "1 MT is the platform input minimum; orders require compatible quality and delivery terms.",
+        available_delivery_point_ids=(UUID("73835e92-820e-584b-8280-bb61c63aa28e"),),
+    ),
     ProductSpec(
         UUID("9510c713-6e39-5080-add3-0a7c29657b79"),
         MarketProduct.BIO_METHANOL,
@@ -94,41 +137,6 @@ CANONICAL_PRODUCTS: tuple[ProductSpec, ...] = (
         Decimal("200"),
         "Synthetic ethanol produced via power-to-liquids or equivalent synthetic pathways",
     ),
-    ProductSpec(
-        UUID("c4cecebc-3d2d-5840-8021-57a9a11bc673"),
-        MarketProduct.B30,
-        "B30",
-        "Biofuel",
-        "B30",
-        "MT",
-        Decimal("200"),
-        "30% FAME by volume blended with 70% VLSFO; finished blend meets "
-        "ISO 8217:2024 RF 380 with sulphur at most 0.50% by mass",
-    ),
-    ProductSpec(
-        UUID("74eb9cb5-f0e3-55f1-b82c-fe29b7c45bf5"),
-        MarketProduct.B100,
-        "B100",
-        "Biofuel",
-        "B100",
-        "MT",
-        Decimal("200"),
-        "100% FAME, excluding HVO; finished fuel meets ISO 8217:2024 DFA "
-        "with sulphur at most 0.10% by mass",
-    ),
-    ProductSpec(
-        UUID("8f6f34a5-2927-54a6-8564-cca40ae7cb8a"),
-        MarketProduct.BIO_LNG,
-        "Bio-LNG",
-        "LNG",
-        "Bio",
-        "MT",
-        # Platform input minimum only; physical bio-LNG stems are usually larger.
-        Decimal("1"),
-        "Liquefied biomethane (bio-LNG) for marine fuel use, delivered to "
-        "ISO 23306:2020 with a certified Proof of Sustainability.",
-        available_delivery_point_ids=(_ROTTERDAM_ID,),
-    ),
 )
 
 
@@ -159,7 +167,7 @@ CANONICAL_DELIVERY_POINTS: tuple[DeliveryPointSpec, ...] = (
         "Asia/Singapore",
     ),
     DeliveryPointSpec(
-        _ROTTERDAM_ID,
+        UUID("1379d36c-1ca9-55b7-9c0d-5235a0ba1f36"),
         "Rotterdam",
         "Europe",
         "Europe/Amsterdam",
@@ -207,42 +215,18 @@ DELIVERY_POINT_IDS = MappingProxyType(
     {spec.name: spec.id for spec in CANONICAL_DELIVERY_POINTS}
 )
 MARKET_PRODUCT_CODES: tuple[str, ...] = tuple(PRODUCTS_BY_CODE)
-# Single source for "which market products are publicly tradable" — router
-# and service layers must import this rather than re-deriving it.
-APPROVED_MARKET_PRODUCTS: tuple[str, ...] = MARKET_PRODUCT_CODES
+# Execution eligibility follows the catalog, while demo price seeds remain a
+# separate, explicit dataset. Adding a product does not create market evidence.
+ORDERBOOK_MARKET_PRODUCTS: tuple[str, ...] = tuple(
+    spec.market_product.value for spec in CANONICAL_PRODUCTS
+    if spec.execution_mode == "ORDERBOOK"
+)
+APPROVED_MARKET_PRODUCTS: tuple[str, ...] = ORDERBOOK_MARKET_PRODUCTS
 CANONICAL_PRODUCT_IDS: tuple[UUID, ...] = tuple(PRODUCTS_BY_ID)
 CANONICAL_DELIVERY_POINT_IDS: tuple[UUID, ...] = tuple(DELIVERY_POINTS_BY_ID)
 DELIVERY_POINT_DISPLAY_ORDER = MappingProxyType(
     {spec.name: index for index, spec in enumerate(CANONICAL_DELIVERY_POINTS, start=1)}
 )
-BIO_LNG_PRODUCT_ID: UUID = PRODUCT_IDS[MarketProduct.BIO_LNG.value]
-
-
-def product_delivery_point_ids(product_id: UUID | None) -> tuple[UUID, ...]:
-    """Return the delivery points where a canonical product may trade."""
-    spec = PRODUCTS_BY_ID.get(product_id)
-    if spec is None:
-        return ()
-    return spec.available_delivery_point_ids or CANONICAL_DELIVERY_POINT_IDS
-
-
-def product_delivery_point_allowed(product_id: UUID | None, delivery_point_id: UUID | None) -> bool:
-    """Apply the catalog lane contract; unknown products are left to identity checks."""
-    spec = PRODUCTS_BY_ID.get(product_id)
-    if spec is None or spec.available_delivery_point_ids is None:
-        return True
-    return delivery_point_id in spec.available_delivery_point_ids
-
-
-def product_delivery_point_error(product_id: UUID | None, delivery_point_id: UUID | None) -> str | None:
-    """Return a client-safe lane error, or None when the lane is allowed."""
-    if product_delivery_point_allowed(product_id, delivery_point_id):
-        return None
-    spec = PRODUCTS_BY_ID[product_id]
-    point_names = ", ".join(
-        DELIVERY_POINTS_BY_ID[point_id].name for point_id in spec.available_delivery_point_ids
-    )
-    return f"{spec.name} is available at {point_names} only"
 
 
 def derive_market_product(

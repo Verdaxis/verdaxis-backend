@@ -1,36 +1,74 @@
+import logging
+from copy import deepcopy
 from decimal import Decimal
-from typing import Any, Annotated, List
+from typing import Annotated, Any, List
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
+from pydantic import ValidationError
 from sqlalchemy import func, or_
 from sqlalchemy.exc import DBAPIError, IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
-from app.market_catalog import product_delivery_point_error
+from app.market_catalog import PRODUCT_IDS, PRODUCTS_BY_ID
+from app.services.security_market_admission import require_security_market_admission
 from app.models.catalog import DeliveryPoint, Product
-from app.models.marketplace import InventoryItem, FuelType as ModelFuelType
+from app.models.marketplace import FuelType as ModelFuelType
+from app.models.marketplace import InventoryItem
+from app.models.port import Port
 from app.models.orderbook import (
     OrderBookOrder,
     OrderBookStatus,
     OrderSide,
     Trade,
 )
-from app.schemas.marketplace import InventoryCreate, InventoryItemUpdate, InventoryResponse
 from app.models.user import Organization, User, UserRole
 from app.routers.auth_simple import get_current_user
-from app.middleware.execution import (
-    require_execution_eligible_user,
-    require_market_admitted_user,
+from app.schemas.marketplace import (
+    InventoryCreate,
+    InventoryItemUpdate,
+    InventoryResponse,
 )
-from app.services.availability_windows import SPOT_WINDOW, availability_window_expiry
-from app.services.audit_service import record_audit, request_audit_context
+from app.services import market_transactions
+from app.services.activity import order_activity_provenance
 from app.services.audit_actions import INVENTORY_PUBLISHED
-from app.services.provenance import snapshot_organization_provenance
-from app.services.market_provenance import order_market_provenance
+from app.services.audit_service import record_audit, request_audit_context
+from app.services.auto_match_side_effects import collect_auto_match_side_effects
+from app.services.availability_windows import SPOT_WINDOW, availability_window_expiry
+from app.services.behavioral_analytics import (
+    order_created_event,
+    track_analytics_event,
+    trade_created_event,
+)
+from app.services.execution_policy import (
+    execution_party_is_eligible,
+    order_is_execution_qualified,
+)
+from app.services.lng_order import lng_metadata_fields, public_lng_terms, validate_lng_order_terms
+from app.services.fame_order import (
+    fame_metadata_fields,
+    public_fame_terms,
+    validate_fame_order_terms,
+)
+from app.services.idempotency import (
+    INVENTORY_PUBLISH_OPERATION,
+    acquire_idempotency_lock,
+    idempotency_request_hash,
+    normalize_idempotency_key,
+)
+from app.services.inventory_reservations import (
+    assert_inventory_mutable,
+    reserve_inventory,
+)
+from app.services.live_benchmarks import rebuild_live_slice_benchmarks_for_keys
+from app.services.market_admission import (
+    MarketActorOwnership,
+    lock_and_load_market_organizations,
+)
+from app.services.market_catalog_validation import require_orderbook_product
 from app.services.market_data_eligibility import (
     active_market_catalog_clauses,
     canonical_delivery_point_clause,
@@ -41,46 +79,20 @@ from app.services.market_data_eligibility import (
     public_order_is_visible,
     public_trade_is_visible,
 )
-from app.services.execution_policy import (
-    MarketPartyPolicy,
-    execution_party_is_eligible,
-    order_is_execution_qualified,
-    supplier_product_metadata_error,
-)
-from app.services.lng_terms import is_bio_lng_product
+from app.services.market_events import enqueue_market_events, participant_market_event
 from app.services.market_locks import (
     acquire_market_slice_lock,
     next_order_acceptance_ordinal,
 )
-from app.services.inventory_reservations import assert_inventory_mutable, reserve_inventory
-from app.services.idempotency import (
-    INVENTORY_PUBLISH_OPERATION,
-    acquire_idempotency_lock,
-    idempotency_request_hash,
-    normalize_idempotency_key,
-)
-from app.services.order_lifecycle import expire_market_slice_orders
-from app.services.order_quantity import require_minimum_order_quantity
-from app.services.auto_match_side_effects import collect_auto_match_side_effects
-from app.services.activity import order_activity_provenance
-from app.services.behavioral_analytics import (
-    order_created_event,
-    track_analytics_event,
-    trade_created_event,
-)
-from app.services.live_benchmarks import rebuild_live_slice_benchmarks_for_keys
-from app.services.market_events import enqueue_market_events, participant_market_event
+from app.services.market_provenance import order_market_provenance
 from app.services.market_transactions import (
     is_retryable_market_transaction_error,
     retry_market_transaction,
 )
-from app.services import market_transactions
-from app.services.market_admission import (
-    MarketActorOwnership,
-    lock_and_load_market_organizations,
-)
+from app.services.order_lifecycle import expire_market_slice_orders
+from app.services.order_quantity import require_minimum_order_quantity
+from app.services.provenance import snapshot_organization_provenance
 from app.services.watchlist_events import _best_slice_price, emit_order_created
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +110,25 @@ SUPPLIER_METADATA_FIELDS = (
     "off_spec",
     "off_spec_notes",
 )
+
+
+def _inventory_write_values(item: InventoryCreate) -> dict[str, Any]:
+    """Use one declaration for storage and the existing display fields."""
+    values = item.model_dump()
+    values["fuel_type"] = ModelFuelType(item.fuel_type.value)
+    product_id = PRODUCT_IDS["UCOME_B100"] if item.product_name == "UCOME B100" else None
+    terms = validate_fame_order_terms(
+        product_id, OrderSide.ASK, item.fame_terms, SPOT_WINDOW
+    )
+    values["fame_terms"] = terms
+    if terms is not None:
+        values.update(fame_metadata_fields(terms))
+    lng_product_id = PRODUCT_IDS["BIO_LNG"] if item.product_name == "Bio-LNG" else None
+    lng_terms = validate_lng_order_terms(lng_product_id, OrderSide.ASK, item.lng_terms)
+    values["lng_terms"] = lng_terms
+    if lng_terms is not None:
+        values.update(lng_metadata_fields(lng_terms))
+    return values
 
 
 async def _resolve_catalog_product(db: AsyncSession, item: InventoryItem) -> Product | None:
@@ -156,7 +187,7 @@ async def list_inventory(
 async def add_inventory(
     item: InventoryCreate,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_market_admitted_user)]
+    current_user: Annotated[User, Depends(require_security_market_admission)]
 ):
     if current_user.role != UserRole.SUPPLIER:
         raise HTTPException(status_code=403, detail="Only suppliers can manage inventory")
@@ -170,14 +201,15 @@ async def add_inventory(
         actor_ownerships=(
             MarketActorOwnership(current_user.id, current_user.organization_id),
         ),
-        actor_policy=MarketPartyPolicy.INDICATIVE,
     )
 
+    # Match the port API's missing-reference response before attempting INSERT.
+    port = await db.scalar(select(Port.id).where(Port.id == item.port_id))
+    if port is None:
+        raise HTTPException(status_code=404, detail="Port not found")
+
     try:
-        # Convert schema data to plain dict with string enum values
-        # to avoid cross-module enum class mismatches
-        item_data = item.model_dump()
-        item_data['fuel_type'] = ModelFuelType(item.fuel_type.value)
+        item_data = _inventory_write_values(item)
 
         db_item = InventoryItem(
             **item_data,
@@ -210,6 +242,12 @@ async def add_inventory(
         if is_retryable_market_transaction_error(exc):
             raise
         await db.rollback()
+        # A reference can disappear after the SELECT-only existence check.
+        # asyncpg exposes constraint metadata on the adapter's original cause.
+        cause = getattr(exc.orig, "__cause__", None)
+        if (getattr(cause, "sqlstate", None) == "23503"
+                and getattr(cause, "constraint_name", None) == "inventory_items_port_id_fkey"):
+            raise HTTPException(status_code=404, detail="Port not found") from exc
         logger.exception(
             "inventory_create_failed",
             extra={"organization_id": str(current_user.organization_id)},
@@ -226,7 +264,7 @@ async def update_inventory(
     item_id: UUID,
     updates: InventoryItemUpdate,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_market_admitted_user)]
+    current_user: Annotated[User, Depends(require_security_market_admission)]
 ):
     if current_user.role != UserRole.SUPPLIER:
         raise HTTPException(status_code=403, detail="Only suppliers can manage inventory")
@@ -239,7 +277,6 @@ async def update_inventory(
         actor_ownerships=(
             MarketActorOwnership(current_user.id, current_user.organization_id),
         ),
-        actor_policy=MarketPartyPolicy.INDICATIVE,
     )
 
     stmt = select(InventoryItem).where(
@@ -255,13 +292,21 @@ async def update_inventory(
     update_data = updates.model_dump(exclude_unset=True)
     await assert_inventory_mutable(db, item)
     public_before = await public_inventory_is_visible(db, item.id)
+    current_values = {
+        field: getattr(item, field) for field in InventoryCreate.model_fields
+    }
+    try:
+        merged_item = InventoryCreate.model_validate(current_values | update_data)
+    except ValidationError as exc:
+        raise HTTPException(422, detail=exc.errors(include_context=False)) from exc
+    next_values = _inventory_write_values(merged_item)
     changed = any(
-        getattr(item, field) != value for field, value in update_data.items()
+        getattr(item, field) != value for field, value in next_values.items()
     )
-    for field, value in update_data.items():
+    for field, value in next_values.items():
         setattr(item, field, value)
 
-    from datetime import datetime, UTC
+    from datetime import UTC, datetime
     item.updated_at = datetime.now(UTC)
 
     await db.flush()
@@ -290,7 +335,7 @@ async def update_inventory(
 async def delete_inventory(
     item_id: UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_market_admitted_user)]
+    current_user: Annotated[User, Depends(require_security_market_admission)]
 ):
     if current_user.role != UserRole.SUPPLIER:
         raise HTTPException(status_code=403, detail="Only suppliers can manage inventory")
@@ -303,7 +348,6 @@ async def delete_inventory(
         actor_ownerships=(
             MarketActorOwnership(current_user.id, current_user.organization_id),
         ),
-        actor_policy=MarketPartyPolicy.INDICATIVE,
     )
 
     stmt = select(InventoryItem).where(
@@ -341,7 +385,7 @@ async def publish_inventory_item(
     item_id: UUID,
     request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_execution_eligible_user)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ):
     """Convert an inventory item into an ASK listing on the unified orderbook."""
     if not current_user.organization_id:
@@ -375,6 +419,9 @@ async def publish_inventory_item(
                 )
             return {"status": "published", "listing_id": str(replay.id)}
 
+    from app.services.kyc_execution import require_kyc_execution
+
+    await require_kyc_execution(db, current_user)
     if current_user.role != UserRole.SUPPLIER:
         raise HTTPException(status_code=403, detail="Only suppliers can publish inventory")
 
@@ -427,21 +474,23 @@ async def publish_inventory_item(
     if not product:
         raise HTTPException(status_code=400, detail="Unable to map inventory item to a catalog product")
 
+    if product.id == PRODUCT_IDS["BIO_LNG"]:
+        raise HTTPException(400, "Bio-LNG inventory publication is not supported; post an ASK with lng_terms")
+    require_orderbook_product(product)
+
     delivery_point = await _resolve_delivery_point(db, item)
     if delivery_point is None:
         raise HTTPException(
             status_code=400,
             detail="Inventory port is not an active canonical delivery point",
         )
-    lane_error = product_delivery_point_error(product.id, delivery_point.id)
-    if lane_error:
-        raise HTTPException(status_code=400, detail=lane_error)
-    if is_bio_lng_product(product.id):
-        # Inventory rows carry no lng_terms, which every Bio-LNG ASK requires.
-        raise HTTPException(
-            status_code=400,
-            detail="Bio-LNG listings require lng_terms; place them as order-book ASK orders",
-        )
+    product_spec = PRODUCTS_BY_ID.get(product.id)
+    if (
+        product_spec is not None
+        and product_spec.available_delivery_point_ids is not None
+        and delivery_point.id not in product_spec.available_delivery_point_ids
+    ):
+        raise HTTPException(400, detail="This product is available in Singapore only")
     await market_transactions.transaction_boundary_hook(
         "before_market_slice_lock",
         operation="order_admission",
@@ -516,6 +565,11 @@ async def publish_inventory_item(
     quantity = Decimal(str(item.current_stock_mt or 0))
     if quantity <= 0:
         raise HTTPException(status_code=400, detail="Inventory quantity must be positive")
+    if (
+        product.id == PRODUCT_IDS["UCOME_B100"]
+        and quantity < product_spec.min_lot_size
+    ):
+        raise HTTPException(400, detail="Inventory quantity is below the product minimum")
     available_stock = Decimal(str(item.current_stock_mt or 0))
     if quantity > available_stock:
         raise HTTPException(status_code=400, detail="Inventory stock is already reserved or unavailable")
@@ -526,6 +580,32 @@ async def publish_inventory_item(
 
     organization = organizations[current_user.organization_id]
     provenance = snapshot_organization_provenance(organization)
+    fame_terms = validate_fame_order_terms(
+        product.id, OrderSide.ASK, item.fame_terms, SPOT_WINDOW
+    )
+    lng_terms = validate_lng_order_terms(product.id, OrderSide.ASK, getattr(item, "lng_terms", None))
+    supplier_metadata = {
+        field: getattr(item, field) for field in SUPPLIER_METADATA_FIELDS
+    }
+    if lng_terms is not None:
+        if item.fuel_type != ModelFuelType.LNG or item.is_certified:
+            raise HTTPException(422, "Bio-LNG inventory requires an unverified LNG declaration")
+        supplier_metadata.update(lng_metadata_fields(lng_terms))
+    energy_density_mj_kg = None
+    if fame_terms is not None:
+        if item.fuel_type != ModelFuelType.FAME or item.is_certified:
+            raise HTTPException(
+                422, detail="B100 inventory requires an unverified FAME declaration"
+            )
+        derived_metadata = fame_metadata_fields(fame_terms)
+        energy_density_mj_kg = derived_metadata["energy_density_mj_kg"]
+        supplier_metadata.update(
+            {
+                field: value
+                for field, value in derived_metadata.items()
+                if field in SUPPLIER_METADATA_FIELDS
+            }
+        )
     acceptance_ordinal = await next_order_acceptance_ordinal(db)
 
     listing = OrderBookOrder(
@@ -542,7 +622,14 @@ async def publish_inventory_item(
         remaining_quantity_mt=quantity,
         price_per_mt_usd=Decimal(str(item.price_per_mt_usd)),
         availability_window=SPOT_WINDOW,
-        certifications=["INVENTORY_CERTIFIED"] if item.is_certified else [],
+        certifications=(
+            ["INVENTORY_CERTIFIED"]
+            if item.is_certified and fame_terms is None
+            else []
+        ),
+        fame_terms=deepcopy(fame_terms),
+        lng_terms=deepcopy(lng_terms),
+        energy_density_mj_kg=energy_density_mj_kg,
         status=OrderBookStatus.OPEN,
         idempotency_key=idempotency_key,
         idempotency_operation=(INVENTORY_PUBLISH_OPERATION if idempotency_key else None),
@@ -552,18 +639,11 @@ async def publish_inventory_item(
             if getattr(provenance, "value", provenance) == "DEMO"
             else None
         ),
-        **{field: getattr(item, field) for field in SUPPLIER_METADATA_FIELDS},
+        **supplier_metadata,
     )
     listing.product = product
     listing.delivery_point = delivery_point
     listing.organization = organization
-    product_error = supplier_product_metadata_error(
-        product.id,
-        specification_standard=listing.specification_standard,
-        carbon_intensity_method=listing.carbon_intensity_method,
-    )
-    if product_error:
-        raise HTTPException(status_code=400, detail=product_error)
     if not order_is_execution_qualified(listing):
         raise HTTPException(status_code=400, detail="Inventory is not execution-qualified for marketplace publication")
 
@@ -691,7 +771,9 @@ async def publish_inventory_item(
     return {"status": "published", "listing_id": str(listing.id)}
 
 
-def _listing_payload(order: OrderBookOrder, match_count: int = 0) -> dict[str, Any]:
+def _listing_payload(
+    order: OrderBookOrder, match_count: int = 0, *, include_private_terms: bool = False
+) -> dict[str, Any]:
     return {
         "id": str(order.id),
         "product_name": order.product_name,
@@ -713,6 +795,16 @@ def _listing_payload(order: OrderBookOrder, match_count: int = 0) -> dict[str, A
         "origin": order.origin,
         "off_spec": order.off_spec,
         "off_spec_notes": order.off_spec_notes,
+        "lng_terms": (
+            deepcopy(getattr(order, "lng_terms", None))
+            if include_private_terms
+            else public_lng_terms(getattr(order, "lng_terms", None))
+        ),
+        "fame_terms": (
+            deepcopy(order.fame_terms)
+            if include_private_terms
+            else public_fame_terms(order.fame_terms)
+        ),
         "status": order.status.value if hasattr(order.status, "value") else str(order.status),
         "match_count": match_count,
         "expires_at": order.expires_at.isoformat() if order.expires_at else None,
@@ -787,6 +879,6 @@ async def list_my_listings(
     )
     result = await db.execute(stmt)
     return [
-        _listing_payload(order, match_count=int(count or 0))
+        _listing_payload(order, match_count=int(count or 0), include_private_terms=True)
         for order, count in result.unique().all()
     ]

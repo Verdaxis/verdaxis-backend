@@ -197,3 +197,103 @@ async def test_reminders_cover_due_real_orders_once_and_preserve_expiry(monkeypa
             == visible_count
         )
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("environment", ["test", "staging", "development"])
+async def test_reminder_cli_refuses_nonproduction_before_database(environment, monkeypatch):
+    from app.cli import order_expiry_reminders as cli
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "ENVIRONMENT", environment)
+    verify = AsyncMock()
+    monkeypatch.setattr(cli, "verify_database_runtime", verify)
+    with pytest.raises(RuntimeError, match="production"):
+        await cli.run_once()
+    verify.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("environment", ["test", "staging", "development"])
+async def test_reminder_transport_disabled_outside_production(environment, monkeypatch):
+    from app.config import settings
+    from app.services import email
+
+    monkeypatch.setattr(settings, "ENVIRONMENT", environment)
+    send = AsyncMock(return_value=True)
+    monkeypatch.setattr(email, "_send_email_payload", send)
+    assert not await email.send_order_expiry_email({"to": ["synthetic@example.com"]}, uuid4())
+    send.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_copied_reminder_leases_keep_identity_and_do_not_requeue(monkeypatch):
+    """Load frozen source-shaped rows, including an uncertain send lease."""
+    from copy import deepcopy
+    from app.models.notification import NotificationType
+
+    send = AsyncMock(return_value=True)
+    monkeypatch.setattr("app.services.order_expiry_reminders.send_order_expiry_email", send)
+    engine = create_async_engine("sqlite+aiosqlite://")
+    tables = [Organization.__table__, User.__table__, OrderBookOrder.__table__,
+              Notification.__table__, UserPreference.__table__]
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all, tables=tables)
+    now = datetime(2026, 10, 16, 12, tzinfo=UTC)
+    async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+        org = Organization(id=uuid4(), name="Synthetic copied company", type=OrgType.FUEL_BUYER,
+                           provenance=OrganizationProvenance.REAL)
+        owner = User(id=uuid4(), email="copied@example.com", email_verified=True,
+                     password_hash="unused", organization_id=org.id, status=UserStatus.APPROVED)
+        db.add_all([org, owner])
+        await db.flush()
+        notices = {}
+        for state in ("sent", "active_lease", "reclaimed_lease", "expired_deadline"):
+            expiry = now + timedelta(hours=24)
+            order = OrderBookOrder(id=uuid4(), organization_id=org.id, owner_user_id=owner.id,
+                                  side=OrderSide.BID, product_id=uuid4(), quantity_mt=100,
+                                  remaining_quantity_mt=100, price_per_mt_usd=500,
+                                  availability_window="SPOT", status=OrderBookStatus.OPEN,
+                                  provenance=OrganizationProvenance.REAL, expires_at=expiry)
+            payload = {"to": [owner.email], "subject": "Frozen source subject", "html": "Frozen"}
+            data = {"event": "order_expiring", "order_id": str(order.id), "order_key": order.id.hex,
+                    "expiry_epoch": expiry.timestamp(), "expires_at": expiry.isoformat(),
+                    "_email_only": True, "_email_status": "sent" if state == "sent" else "pending"}
+            if state != "sent":
+                data.update(_email_payload=payload,
+                            _email_retry_at=(now + timedelta(minutes=15 if state == "active_lease" else -15)).timestamp(),
+                            _email_deadline=(now + timedelta(hours=-1 if state == "expired_deadline" else 20)).timestamp())
+            notice = Notification(id=uuid4(), recipient_id=owner.id, type=NotificationType.ORDER_UPDATE,
+                                  title="Copied", message="Synthetic", data=deepcopy(data), created_at=now)
+            db.add_all([order, notice])
+            notices[state] = (notice.id, deepcopy(payload))
+        await db.commit()
+        db.expunge_all()
+        assert await remind_expiring_orders(db, now=now) == 0
+        await db.commit()
+        assert await deliver_expiry_reminder_emails(db, now=now) == 1
+        send.assert_awaited_once_with(notices["reclaimed_lease"][1], notices["reclaimed_lease"][0])
+        assert await deliver_expiry_reminder_emails(db, now=now) == 0
+        assert await deliver_expiry_reminder_emails(db, now=now + timedelta(minutes=15)) == 1
+        assert send.call_args.args == (notices["active_lease"][1], notices["active_lease"][0])
+        assert await remind_expiring_orders(db, now=now) == 0
+        rows = (await db.scalars(select(Notification))).all()
+        assert len(rows) == 4
+        assert all(row.data["_email_status"] in {"sent", "discarded"} for row in rows)
+        assert await get_notifications(skip=0, limit=100, current_user=owner, db=db) == []
+        assert await get_unread_count(current_user=owner, db=db) == {"count": 0}
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_reminder_email_keeps_copied_payload_and_provider_key(monkeypatch):
+    from app.config import settings
+    from app.services import email
+
+    monkeypatch.setattr(settings, "ENVIRONMENT", "production")
+    transport = AsyncMock(return_value=True)
+    monkeypatch.setattr(email, "_send_email_payload", transport)
+    notice_id = uuid4()
+    payload = {"to": ["synthetic@example.com"], "subject": "Frozen", "html": "Original"}
+    assert await email.send_order_expiry_email(payload, notice_id)
+    transport.assert_awaited_once_with(payload, idempotency_key=f"order-expiry/{notice_id}")

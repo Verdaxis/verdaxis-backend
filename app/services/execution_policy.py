@@ -1,103 +1,98 @@
 from __future__ import annotations
 
-from datetime import datetime
-from enum import Enum
 from uuid import UUID
 
-from app.market_catalog import (
-    BIO_LNG_PRODUCT_ID,
-    BIOFUEL_SPECIFICATION_STANDARDS,
-    PRODUCTS_BY_ID,
-    product_delivery_point_allowed,
-)
-from app.models.orderbook import OrderBookOrder, OrderCreationMethod, OrderSide
-from app.models.user import Organization, OrganizationProvenance, User, UserRole, UserStatus
-from app.services.kyc_execution import (
-    advisory_kyc_allows,
-    customer_organization_is_execution_eligible,
-    evaluate_kyc_execution,
-)
-from app.services.lng_terms import is_bio_lng_product, lng_terms_compatible, stored_order_terms_valid
+from fastapi import HTTPException
+
 from sqlalchemy import and_, func, or_, select
 
+from app.market_catalog import BIOFUEL_SPECIFICATION_STANDARDS, PRODUCTS_BY_CODE, PRODUCTS_BY_ID
+from app.models.orderbook import OrderBookOrder, OrderCreationMethod, OrderSide
+from app.models.user import (
+    Organization,
+    OrganizationProvenance,
+    User,
+    UserRole,
+    UserStatus,
+)
+from app.services.fame_order import (
+    fame_terms_compatible,
+    is_fame_product,
+    validate_fame_order_terms,
+)
+from app.services.kyc_execution import (
+    advisory_kyc_allows,
+    kyc_execution_clause,
+    kyc_execution_eligibility,
+)
+from app.services.lng_order import (
+    is_lng_product,
+    lng_terms_compatible,
+    validate_lng_order_terms,
+)
 
-class MarketPartyPolicy(str, Enum):
-    """Which KYC condition a market action adds to account admission."""
 
-    # Creates or confirms an economic commitment: the KYC execution rule.
-    EXECUTION = "EXECUTION"
-    # Settles or withdraws an existing commitment (cancel, decline, deliver,
-    # pay): never blocked by KYC.
-    CLEANUP = "CLEANUP"
-    # Non-executable surfaces (RFQ, negotiation, inventory, suggestions): the
-    # earlier advisory KYC, in which only a rejection or a review bound to
-    # another organization revokes access. EXECUTION also falls back to this
-    # rule when the KYC execution gate is off.
-    INDICATIVE = "INDICATIVE"
+async def execution_party_is_eligible(db, *, user: User, organization: Organization | None = None) -> bool:
+    """Require admission and organization-bound KYC for new execution."""
+    return await market_party_is_admitted(db, user=user, organization=organization, check_legacy_kyc=False) and (
+        await kyc_execution_eligibility(db, user)
+    ).eligible
 
 
-def _user_account_is_admitted(user: User | None) -> bool:
-    if getattr(user, "id", None) is None or getattr(user, "organization_id", None) is None:
+async def market_party_is_admitted(db, *, user: User, organization: Organization | None = None, check_legacy_kyc: bool = True) -> bool:
+    """Retain the existing admission policy for indicative, non-executable work."""
+    user_id = getattr(user, "id", None) if user else None
+    user_org_id = getattr(user, "organization_id", None) if user else None
+    if user_id is None or user_org_id is None:
         return False
     if getattr(user, "role", None) not in {UserRole.BUYER, UserRole.SUPPLIER}:
         return False
     if getattr(user, "status", None) != UserStatus.APPROVED or not getattr(user, "email_verified", False):
         return False
-    return not getattr(user, "must_change_password", False)
-
-
-def _organization_admits(user: User, organization: Organization | None) -> bool:
-    organization_id = getattr(organization, "id", None) if organization else None
-    return (
-        organization_id is not None
-        and organization_id == user.organization_id
-        and getattr(organization, "verification_status", None) == "APPROVED"
-    )
-
-
-def account_is_admitted(user: User | None, organization: Organization | None) -> bool:
-    """Account and tenant admission, independent of KYC."""
-    return _user_account_is_admitted(user) and _organization_admits(user, organization)
-
-
-async def market_party_is_eligible(
-    db,
-    *,
-    user: User | None,
-    organization: Organization | None = None,
-    policy: MarketPartyPolicy,
-    now: datetime | None = None,
-) -> bool:
-    """Return true only for an admitted party that meets the policy's KYC rule."""
-    if not _user_account_is_admitted(user):
+    if getattr(user, "must_change_password", False):
         return False
-    if policy == MarketPartyPolicy.INDICATIVE and not advisory_kyc_allows(user):
+    if check_legacy_kyc and not advisory_kyc_allows(user):
         return False
     if organization is None and hasattr(db, "execute"):
         result = await db.execute(select(Organization).where(Organization.id == user.organization_id))
         organization = result.scalar_one_or_none()
-    if not _organization_admits(user, organization):
-        return False
-    if policy == MarketPartyPolicy.EXECUTION:
-        return (await evaluate_kyc_execution(db, user, now=now)).eligible
-    return True
-
-
-async def execution_party_is_eligible(
-    db,
-    *,
-    user: User | None,
-    organization: Organization | None = None,
-    now: datetime | None = None,
-) -> bool:
-    """Admission plus the KYC execution rule, for new economic commitments."""
-    return await market_party_is_eligible(
-        db,
-        user=user,
-        organization=organization,
-        policy=MarketPartyPolicy.EXECUTION,
-        now=now,
+    organization_id = getattr(organization, "id", None) if organization else None
+    return (
+        organization_id is not None
+        and organization_id == user_org_id
+        and getattr(organization, "verification_status", None) == "APPROVED"
     )
+
+
+async def customer_organization_is_execution_eligible(db, organization: Organization) -> bool:
+    """Assisted execution requires one admitted economic member, not admin KYC."""
+    if organization.verification_status != "APPROVED":
+        return False
+    statement = select(User.id).where(
+        User.organization_id == organization.id,
+        User.role.in_((UserRole.BUYER, UserRole.SUPPLIER)),
+        User.status == UserStatus.APPROVED,
+        User.email_verified.is_(True),
+        User.must_change_password.is_(False),
+        kyc_execution_clause(),
+    ).order_by(User.id).limit(1).with_for_update(read=True, skip_locked=True)
+    # Market rows precede UUID-ordered SHARE member locks. Concurrent
+    # executions may share authority, but KYC UPDATE writers conflict. Skip contended members:
+    # callers can already hold organizations, and waiting here would invert
+    # the KYC writer's user-before-organization lock order. A skipped member
+    # cannot authorize execution; a selected member stays locked until commit.
+    return (await db.execute(statement)).scalar_one_or_none() is not None
+
+
+async def require_customer_organization_execution(db, organization: Organization) -> None:
+    """Expose no member identity when the customer's organization is blocked."""
+    if not await customer_organization_is_execution_eligible(db, organization):
+        raise HTTPException(403, detail={
+            "code": "KYC_REQUIRED",
+            "message": "Complete KYC verification to trade.",
+            "kyc_status": "PENDING",
+            "grace_expires_at": None,
+        })
 
 
 async def order_owner_is_execution_eligible(
@@ -106,14 +101,11 @@ async def order_owner_is_execution_eligible(
     order: OrderBookOrder,
     user: User | None,
     organization: Organization | None,
-    policy: MarketPartyPolicy = MarketPartyPolicy.EXECUTION,
 ) -> bool:
     """Revalidate either a self-service principal or an assisted-order actor."""
     if order.creation_method != OrderCreationMethod.MARKET_SUPPORT:
-        return await market_party_is_eligible(
-            db, user=user, organization=organization, policy=policy
-        )
-    assisted_owner_admitted = bool(
+        return await execution_party_is_eligible(db, user=user, organization=organization)
+    return bool(
         user
         and organization
         and user.id == order.created_by_actor_user_id == order.owner_user_id
@@ -122,13 +114,7 @@ async def order_owner_is_execution_eligible(
         and organization.id == order.organization_id
         and organization.verification_status == "APPROVED"
         and organization.provenance == OrganizationProvenance.REAL
-    )
-    if not assisted_owner_admitted or policy != MarketPartyPolicy.EXECUTION:
-        return assisted_owner_admitted
-    # Assisted execution acts for the customer organization; the support
-    # administrator's own KYC is irrelevant.
-    return await customer_organization_is_execution_eligible(
-        db, order.organization_id, lock_member=True
+        and await customer_organization_is_execution_eligible(db, organization)
     )
 
 
@@ -157,19 +143,6 @@ def supplier_product_metadata_error(
     return None
 
 
-def scalar_carbon_intensity_required(product_id: UUID | None) -> bool:
-    """BIO_LNG keeps its certified GHG value in lng_terms; its scalar CI stays NULL."""
-    return not is_bio_lng_product(product_id)
-
-
-def ask_carbon_intensity_clause(record, product_id):
-    """SQL mirror of ``scalar_carbon_intensity_required`` for public ASK filters."""
-    return or_(
-        product_id == BIO_LNG_PRODUCT_ID,
-        record.carbon_intensity_gco2_mj.is_not(None),
-    )
-
-
 def biofuel_supplier_metadata_clause(record, product_id):
     """SQL mirror for fixed biofuel contracts in public market projections."""
     return or_(
@@ -195,15 +168,32 @@ def biofuel_supplier_metadata_clause(record, product_id):
 
 
 def order_is_execution_qualified(order: OrderBookOrder) -> bool:
+    spec = PRODUCTS_BY_ID.get(getattr(order, "product_id", None))
+    if spec is None:
+        spec = PRODUCTS_BY_CODE.get(getattr(order, "market_product", None))
+    if spec is not None and spec.execution_mode != "ORDERBOOK":
+        return False
     if getattr(order, "off_spec", False):
         return False
-    product_id = getattr(order, "product_id", None)
-    if not product_delivery_point_allowed(product_id, getattr(order, "delivery_point_id", None)):
-        return False
-    if is_bio_lng_product(product_id) and not stored_order_terms_valid(
-        getattr(order, "side", None), getattr(order, "lng_terms", None)
-    ):
-        return False
+    if is_lng_product(getattr(order, "product_id", None)):
+        if getattr(order, "delivery_point_id", None) not in spec.available_delivery_point_ids:
+            return False
+        if getattr(order, "side", None) == OrderSide.ASK and not getattr(order, "msds_available", False):
+            return False
+        try:
+            validate_lng_order_terms(order.product_id, order.side, getattr(order, "lng_terms", None))
+        except HTTPException:
+            return False
+    if is_fame_product(getattr(order, "product_id", None)):
+        if getattr(order, "side", None) == OrderSide.ASK and not getattr(order, "msds_available", False):
+            return False
+        try:
+            validate_fame_order_terms(
+                order.product_id, order.side, getattr(order, "fame_terms", None),
+                getattr(order, "availability_window", "SPOT"),
+            )
+        except HTTPException:
+            return False
 
     normalized_scheme = normalize_certification_scheme(getattr(order, "certification_scheme", None))
 
@@ -212,6 +202,7 @@ def order_is_execution_qualified(order: OrderBookOrder) -> bool:
             return False
         if not bool(getattr(order, "certification_declared", False)):
             return False
+
         if getattr(order, "product_id", None) in BIOFUEL_SPECIFICATION_STANDARDS:
             if supplier_product_metadata_error(
                 order.product_id,
@@ -223,8 +214,6 @@ def order_is_execution_qualified(order: OrderBookOrder) -> bool:
                 return False
             if not (order.feedstock or "").strip() or not (order.origin or "").strip():
                 return False
-        if is_bio_lng_product(product_id) and not order.msds_available:
-            return False
 
     return True
 
@@ -236,8 +225,17 @@ def orders_execution_compatible(left: OrderBookOrder, right: OrderBookOrder) -> 
     bid_order = left if getattr(left, "side", None) == OrderSide.BID else right
     ask_order = right if bid_order is left else left
 
-    if is_bio_lng_product(bid_order.product_id) or is_bio_lng_product(ask_order.product_id):
-        return lng_terms_compatible(bid_order.lng_terms, ask_order.lng_terms)
+    if is_fame_product(getattr(bid_order, "product_id", None)) or is_fame_product(getattr(ask_order, "product_id", None)):
+        if bid_order.product_id != ask_order.product_id:
+            return False
+        # B100's structured scheme and specification are the canonical terms;
+        # legacy display aliases must not introduce a second matching rule.
+        return fame_terms_compatible(getattr(bid_order, "fame_terms", None), getattr(ask_order, "fame_terms", None))
+
+    if is_lng_product(getattr(bid_order, "product_id", None)) or is_lng_product(getattr(ask_order, "product_id", None)):
+        return bid_order.product_id == ask_order.product_id and lng_terms_compatible(
+            getattr(bid_order, "lng_terms", None), getattr(ask_order, "lng_terms", None)
+        )
 
     ask_scheme = normalize_certification_scheme(ask_order.certification_scheme)
     if ask_scheme is None:

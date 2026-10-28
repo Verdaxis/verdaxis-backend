@@ -53,11 +53,11 @@ def test_main_exit_codes_and_json_shape(capsys):
     module = load_module()
 
     def healthy(dsn, timeout):
-        assert dsn == "dbname=verdaxis user=verdaxis_backup"
+        assert dsn == "dbname=verdaxis_prod user=verdaxis_backup"
         assert timeout == 20
         return "0|0\n"
 
-    assert module.main(["--dsn", "dbname=verdaxis user=verdaxis_backup"], query_runner=healthy) == 0
+    assert module.main(["--dsn", "dbname=verdaxis_prod user=verdaxis_backup"], query_runner=healthy) == 0
     status = json.loads(capsys.readouterr().out)
     assert status["ok"] is True
     assert status["pending_count"] == 0
@@ -106,7 +106,7 @@ def test_query_failure_does_not_expose_psql_diagnostics(monkeypatch):
     )
 
     with pytest.raises(module.ProbeError, match="^psql query failed$"):
-        module.run_backlog_query("dbname=verdaxis user=verdaxis_backup", 20)
+        module.run_backlog_query("dbname=verdaxis_prod user=verdaxis_backup", 20)
 
 
 def test_probe_has_no_competing_scheduler_unit():

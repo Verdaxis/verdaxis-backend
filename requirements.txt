@@ -17,10 +17,12 @@ pydantic-settings
 email-validator
 PyJWT>=2.8.0
 bcrypt>=4.0.0
+cryptography==50.0.0
 google-genai==2.23.0
 pytest
 pytest-asyncio
 httpx
+mcp==2.3.0
 python-multipart
 aiosqlite
 psutil==5.9.4

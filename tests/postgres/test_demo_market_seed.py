@@ -26,10 +26,10 @@ async def test_market_bootstrap_uses_managed_depth_and_preserves_existing_orders
 
     monkeypatch.setattr(market_seed, "datetime", FixedDatetime)
     monkeypatch.setenv("ENVIRONMENT", "test")
-    # Exercise both new contracts without duplicating the full-book resource test.
+    # Exercise two existing alcohol markets without duplicating full-book coverage checks.
     pricing = {
-        "B30": {"Singapore": market_seed.PRICING["B30"]["Singapore"]},
-        "B100": {"Rotterdam": market_seed.PRICING["B100"]["Rotterdam"]},
+        "Bio Methanol": {"Singapore": market_seed.PRICING["Bio Methanol"]["Singapore"]},
+        "Bio Ethanol": {"Rotterdam": market_seed.PRICING["Bio Ethanol"]["Rotterdam"]},
     }
     monkeypatch.setattr(market_seed, "PRICING", pricing)
     monkeypatch.setattr(demo_activity, "PRICING", pricing)
@@ -45,7 +45,7 @@ async def test_market_bootstrap_uses_managed_depth_and_preserves_existing_orders
         existing = OrderBookOrder(
             organization_id=organization_id, provenance=OrganizationProvenance.REAL,
             creation_method=OrderCreationMethod.SELF_SERVICE, side=OrderSide.BID,
-            product_id=PRODUCT_IDS["B30"], delivery_point_id=DELIVERY_POINT_IDS["Singapore"],
+            product_id=PRODUCT_IDS["Bio Methanol"], delivery_point_id=DELIVERY_POINT_IDS["Singapore"],
             quantity_mt=Decimal("1000"), remaining_quantity_mt=Decimal("1000"),
             price_per_mt_usd=Decimal("950"), availability_window="SPOT", status=OrderBookStatus.OPEN,
             expires_at=reference + timedelta(days=1),
@@ -61,6 +61,7 @@ async def test_market_bootstrap_uses_managed_depth_and_preserves_existing_orders
         trades = (await db.execute(select(Trade))).scalars().all()
         managed = [row for row in orders if row.idempotency_operation == demo_activity.DEMO_COVERAGE_OPERATION]
         assert len(managed) == 2 * 24 * 20
+        assert all(row.product_id != PRODUCT_IDS["UCOME B100"] for row in orders)
         slices = {}
         for row in managed:
             key = row.product_id, row.delivery_point_id, row.availability_window, row.side

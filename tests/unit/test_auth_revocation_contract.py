@@ -105,7 +105,7 @@ def test_authentication_revocation_migration_is_nullable_and_rollback_safe():
     migration = (
         root / "alembic/versions/auth_20261002_session_cutoff.py"
     ).read_text()
-    assert 'down_revision = "catalog_20260926_biofuels"' in migration
+    assert 'down_revision = "fame_20260922_b100_orderbook"' in migration
     lock = "LOCK TABLE users IN ACCESS EXCLUSIVE MODE NOWAIT"
     guard = "authentication_revoked_at IS NOT NULL"
     drop = "op.drop_column"
@@ -119,7 +119,7 @@ def test_authentication_revocation_migration_is_nullable_and_rollback_safe():
 
     checkpoints = (root / "deploy/migration-checkpoints.tsv").read_text().splitlines()
     assert (
-        "catalog_20260926_biofuels	auth_20261002_session_cutoff"
+        "fame_20260922_b100_orderbook	auth_20261002_session_cutoff"
         in checkpoints
     )
     assert (

@@ -1,0 +1,21 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "jsonrpc": "2.0",
+    "id": 50,
+    "result": {
+      "content": [
+        {
+          "text": "Error executing tool plan_voyage_fuel: 1 validation error for plan_voyage_fuelArguments\nrequest.vessel.speed_knots\n  Decimal input should be an integer, float, string or Decimal object [type=decimal_type, input_value=None, input_type=NoneType]\n    For further information visit https://errors.pydantic.dev/2.13/v/decimal_type",
+          "type": "text"
+        }
+      ],
+      "isError": true
+    }
+  },
+  "body_sha256": "20d1b1f0e51442b652a502c1938cdec3f3ba2684a0ace7f070a65c36a1b32543"
+}

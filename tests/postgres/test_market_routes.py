@@ -5,7 +5,7 @@ import asyncio
 from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
 from unittest.mock import AsyncMock
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import httpx
 import pytest
@@ -56,7 +56,6 @@ from app.services.audit_actions import (
 from app.services import market_transactions
 from app.services.order_terms import order_terms_digest
 from tests.postgres.market_test_support import assign_fixture_real_provenance
-from tests.unit.fixtures import bio_lng
 
 
 def _headers(user_id, key: str) -> dict[str, str]:
@@ -118,18 +117,15 @@ async def _seed_route_market(engine):
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     async with factory() as session:
         buyer_org = Organization(
-            id=uuid4(),
             name=f"Route Buyer {uuid4()}",
             type=OrgType.FUEL_BUYER,
             verification_status="APPROVED",
         )
         seller_org = Organization(
-            id=uuid4(),
             name=f"Route Seller {uuid4()}",
             type=OrgType.FUEL_SUPPLIER,
             verification_status="APPROVED",
         )
-        # Positive fixtures carry KYC approved for their own organization.
         buyer = User(
             email=f"buyer-{uuid4()}@route.test",
             password_hash="unused",
@@ -138,7 +134,6 @@ async def _seed_route_market(engine):
             organization=buyer_org,
             email_verified=True,
             kyc_status="APPROVED",
-            kyc_organization_id=buyer_org.id,
         )
         seller = User(
             email=f"seller-{uuid4()}@route.test",
@@ -148,7 +143,6 @@ async def _seed_route_market(engine):
             organization=seller_org,
             email_verified=True,
             kyc_status="APPROVED",
-            kyc_organization_id=seller_org.id,
         )
         product_spec = PRODUCTS_BY_CODE["BIO_METHANOL"]
         point_spec = DELIVERY_POINTS_BY_NAME["Singapore"]
@@ -177,6 +171,8 @@ async def _seed_route_market(engine):
         )
         session.add_all([buyer, seller, product, point, port])
         await session.flush()
+        buyer.kyc_organization_id = buyer_org.id
+        seller.kyc_organization_id = seller_org.id
         await assign_fixture_real_provenance(session, (buyer_org, seller_org))
         inventory = InventoryItem(
             supplier_id=seller_org.id,
@@ -223,9 +219,10 @@ async def route_market(market_pg):
         async with factory() as session:
             yield session
 
-    # Integration note: the market gates are not overridden. The seeded users
-    # are fully admitted (APPROVED, verified, organization-bound APPROVED
-    # KYC, APPROVED orgs) and exercise the genuine execution gate.
+    # Integration note: require_security_market_admission is now a thin
+    # re-export of security's require_execution_eligible_user, so it is not
+    # overridden — the seeded users are fully admitted (APPROVED, verified,
+    # KYC-clean, APPROVED orgs) and exercise the genuine gate.
     app.dependency_overrides[get_db] = override_db
     transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
     async with httpx.AsyncClient(
@@ -451,129 +448,6 @@ async def test_manual_trade_keeps_seller_fee_snapshot_and_hides_it_from_buyer(
 
 
 @pytest.mark.asyncio
-async def test_kyc_gate_blocks_new_executions_but_never_cleanup(route_market):
-    client, seeded = route_market
-    published = await client.post(
-        f"/api/inventory/{seeded['inventory_id']}/publish",
-        headers=_headers(seeded["seller_id"], "kyc-gate-publish"),
-    )
-    assert published.status_code == 200, published.text
-    listing_id = published.json()["listing_id"]
-
-    async def hit(key: str) -> str:
-        created = await client.post(
-            "/api/trades/",
-            json={
-                "order_id": listing_id,
-                "quantity_mt": "60.00",
-                "expected_terms_digest": await _reviewed_terms_digest(seeded, listing_id),
-            },
-            headers=_headers(seeded["buyer_id"], key),
-        )
-        assert created.status_code == 200, created.text
-        return created.json()["id"]
-
-    to_deliver, to_pay, to_decline = [await hit(f"kyc-gate-hit-{n}") for n in range(3)]
-    confirm_headers = _headers(seeded["seller_id"], "kyc-gate-confirm-deliver")
-    confirmed = await client.put(f"/api/trades/{to_deliver}/confirm", headers=confirm_headers)
-    assert confirmed.status_code == 200, confirmed.text
-    confirmed_to_pay = await client.put(
-        f"/api/trades/{to_pay}/confirm",
-        headers=_headers(seeded["seller_id"], "kyc-gate-confirm-pay"),
-    )
-    assert confirmed_to_pay.status_code == 200, confirmed_to_pay.text
-    delivered_to_pay = await client.put(
-        f"/api/trades/{to_pay}/deliver",
-        json={"final_quantity_mt": "60.00", "final_price_per_mt": "700.00"},
-        headers=_headers(seeded["seller_id"], "kyc-gate-deliver-pay"),
-    )
-    assert delivered_to_pay.status_code == 200, delivered_to_pay.text
-
-    # Both parties lose eligibility: KYC is pending again and no grace exists.
-    async with seeded["factory"]() as session:
-        await session.execute(
-            text(
-                "UPDATE users SET kyc_status = 'PENDING', kyc_organization_id = NULL "
-                "WHERE id IN (:buyer_id, :seller_id)"
-            ),
-            {"buyer_id": seeded["buyer_id"], "seller_id": seeded["seller_id"]},
-        )
-        await session.commit()
-
-    blocked = {
-        "order create": await client.post(
-            "/api/orderbook",
-            json={
-                "side": "BID",
-                "product_id": str(seeded["product_id"]),
-                "delivery_point_id": str(seeded["point_id"]),
-                "quantity_mt": "200.00",
-                "price_per_mt_usd": "600.00",
-                "availability_window": "SPOT",
-            },
-            headers=_headers(seeded["buyer_id"], "kyc-gate-blocked-create"),
-        ),
-        "order amend": await client.put(
-            f"/api/orderbook/{listing_id}",
-            json={"price_per_mt_usd": "710.00"},
-            headers=_headers(seeded["seller_id"], "kyc-gate-blocked-amend"),
-        ),
-        "inventory publish": await client.post(
-            f"/api/inventory/{seeded['inventory_id']}/publish",
-            headers=_headers(seeded["seller_id"], "kyc-gate-blocked-publish"),
-        ),
-        "take": await client.post(
-            "/api/trades/",
-            json={
-                "order_id": listing_id,
-                "quantity_mt": "60.00",
-                "expected_terms_digest": await _reviewed_terms_digest(seeded, listing_id),
-            },
-            headers=_headers(seeded["buyer_id"], "kyc-gate-blocked-take"),
-        ),
-        "confirm": await client.put(
-            f"/api/trades/{to_decline}/confirm",
-            headers=_headers(seeded["seller_id"], "kyc-gate-blocked-confirm"),
-        ),
-    }
-    for action, response in blocked.items():
-        assert response.status_code == 403, (action, response.text)
-        assert response.json()["detail"] == {
-            "code": "KYC_REQUIRED",
-            "message": "Complete KYC verification to trade.",
-            "kyc_status": "PENDING",
-            "grace_expires_at": None,
-        }, action
-
-    # An exact replay of a committed command returns its stored result.
-    replayed = await client.put(f"/api/trades/{to_deliver}/confirm", headers=confirm_headers)
-    assert replayed.status_code == 200, replayed.text
-    assert replayed.json() == confirmed.json()
-
-    cleanup = {
-        "decline": await client.put(
-            f"/api/trades/{to_decline}/decline",
-            headers=_headers(seeded["seller_id"], "kyc-gate-decline"),
-        ),
-        "deliver": await client.put(
-            f"/api/trades/{to_deliver}/deliver",
-            json={"final_quantity_mt": "60.00", "final_price_per_mt": "700.00"},
-            headers=_headers(seeded["buyer_id"], "kyc-gate-deliver"),
-        ),
-        "pay": await client.post(
-            f"/api/trades/{to_pay}/pay",
-            headers=_headers(seeded["seller_id"], "kyc-gate-pay"),
-        ),
-        "cancel": await client.delete(
-            f"/api/orderbook/{listing_id}",
-            headers=_headers(seeded["seller_id"], "kyc-gate-cancel"),
-        ),
-    }
-    for action, response in cleanup.items():
-        assert response.status_code in (200, 204), (action, response.text)
-
-
-@pytest.mark.asyncio
 async def test_six_command_results_replay_exact_snapshots_without_new_effects(
     route_market, monkeypatch
 ):
@@ -606,6 +480,13 @@ async def test_six_command_results_replay_exact_snapshots_without_new_effects(
     confirmed = await client.put(
         f"/api/trades/{lifecycle_trade_id}/confirm", headers=confirm_headers
     )
+    async def set_seller_kyc(value):
+        async with seeded["factory"]() as session:
+            seller = await session.get(User, seeded["seller_id"])
+            seller.kyc_status = value
+            await session.commit()
+
+    await set_seller_kyc("PENDING")
     delivered_payload = {
         "final_quantity_mt": "40.00",
         "final_price_per_mt": "700.00",
@@ -625,7 +506,9 @@ async def test_six_command_results_replay_exact_snapshots_without_new_effects(
     assert delivered.json()["final_quantity_mt"] == "40.00"
     assert delivered.json()["final_total_usd"] == "28000.00"
 
+    await set_seller_kyc("APPROVED")
     declined_trade_id = await create_trade("command-replay-trade-two", "25.00")
+    await set_seller_kyc("PENDING")
     decline_headers = _headers(seeded["seller_id"], "command-replay-decline")
     declined = await client.put(
         f"/api/trades/{declined_trade_id}/decline", headers=decline_headers
@@ -663,6 +546,10 @@ async def test_six_command_results_replay_exact_snapshots_without_new_effects(
     assert amended_expires_at == expires_at.astimezone(UTC).isoformat().replace(
         "+00:00", "Z"
     )
+    async with seeded["factory"]() as session:
+        buyer = await session.get(User, seeded["buyer_id"])
+        buyer.kyc_status = "PENDING"
+        await session.commit()
     cancel_headers = _headers(seeded["buyer_id"], "command-replay-cancel")
     cancelled = await client.delete(
         f"/api/orderbook/{order_id}", headers=cancel_headers
@@ -757,6 +644,12 @@ async def test_six_command_results_replay_exact_snapshots_without_new_effects(
         ),
     ]
     assert [response.status_code for response in conflicts] == [409, 409, 409, 409]
+
+    async with seeded["factory"]() as session:
+        buyer = await session.get(User, seeded["buyer_id"])
+        buyer.kyc_status = "APPROVED"
+        buyer.kyc_organization_id = buyer.organization_id
+        await session.commit()
 
     fresh_elapsed = await client.put(
         f"/api/orderbook/{order_id}",
@@ -2381,130 +2274,3 @@ async def test_bilateral_execution_is_permanently_disabled_but_one_sided_read_is
     assert rfq_accept.status_code == 409
     assert "disabled" in negotiation_accept.json()["detail"].lower()
     assert "disabled" in rfq_accept.json()["detail"].lower()
-
-
-async def _add_bio_lng_lanes(seeded) -> dict[str, object]:
-    """Add the Bio-LNG product and its Rotterdam lane to the seeded market."""
-    product_spec = PRODUCTS_BY_CODE["BIO_LNG"]
-    point_spec = DELIVERY_POINTS_BY_NAME["Rotterdam"]
-    async with seeded["factory"]() as session:
-        session.add_all([
-            Product(
-                id=product_spec.id,
-                name=product_spec.name,
-                fuel_type=product_spec.fuel_type,
-                fuel_grade=product_spec.fuel_grade,
-                unit=product_spec.unit,
-                min_lot_size=product_spec.min_lot_size,
-                is_active=True,
-            ),
-            DeliveryPoint(
-                id=point_spec.id,
-                name=point_spec.name,
-                region=point_spec.region,
-                timezone=point_spec.timezone,
-                is_active=True,
-            ),
-        ])
-        await session.commit()
-    return {"product_id": str(product_spec.id), "rotterdam_id": str(point_spec.id)}
-
-
-@pytest.mark.asyncio
-async def test_bio_lng_orders_bind_terms_lane_and_compatible_matching(route_market):
-    client, seeded = route_market
-    lanes = await _add_bio_lng_lanes(seeded)
-    order = {
-        "product_id": lanes["product_id"],
-        "delivery_point_id": lanes["rotterdam_id"],
-        "quantity_mt": "500.00",
-        "availability_window": "SPOT",
-    }
-
-    outside_lane = await client.post(
-        "/api/orderbook",
-        json={
-            **order,
-            "side": "ASK",
-            "price_per_mt_usd": "1500.00",
-            "msds_available": True,
-            "lng_terms": bio_lng.ask_terms(seller_is_physical_supplier=True),
-            "delivery_point_id": str(seeded["point_id"]),
-        },
-        headers=_headers(seeded["seller_id"], "bio-lng-singapore-ask"),
-    )
-    ask = await client.post(
-        "/api/orderbook",
-        json={
-            **order,
-            "side": "ASK",
-            "price_per_mt_usd": "1500.00",
-            "msds_available": True,
-            # A client copy of a derived scalar is replaced by the terms.
-            "certification_scheme": "Client supplied",
-            "lng_terms": bio_lng.ask_terms(seller_is_physical_supplier=True),
-        },
-        headers=_headers(seeded["seller_id"], "bio-lng-ask"),
-    )
-    reseller_payload = {
-        **order, "side": "ASK", "price_per_mt_usd": "1500.00",
-        "msds_available": True,
-        "lng_terms": bio_lng.ask_terms(seller_is_physical_supplier=False),
-    }
-    reseller_create = await client.post(
-        "/api/orderbook", json=reseller_payload,
-        headers=_headers(seeded["seller_id"], "bio-lng-reseller-ask"),
-    )
-    reseller_amend = await client.put(
-        f"/api/orderbook/{ask.json()['id']}",
-        json={"lng_terms": reseller_payload["lng_terms"], "price_per_mt_usd": "1700.00"},
-        headers=_headers(seeded["seller_id"], "bio-lng-reseller-amend"),
-    )
-    for rejected in (reseller_create, reseller_amend):
-        assert rejected.status_code == 422, rejected.text
-        assert rejected.json()["detail"] == {
-            "code": "RESELLER_ALLOCATION_REQUIRED",
-            "message": "Reseller listings need a verified supplier allocation. Contact Verdaxis to register one.",
-        }
-    incompatible = await client.post(
-        "/api/orderbook",
-        json={
-            **order,
-            "side": "BID",
-            "price_per_mt_usd": "1600.00",
-            "lng_terms": bio_lng.bid_terms(accept_resellers=False, accepted_schemes=["REDCERT_EU"]),
-        },
-        headers=_headers(seeded["buyer_id"], "bio-lng-physical-only-bid"),
-    )
-    compatible = await client.post(
-        "/api/orderbook",
-        json={
-            **order,
-            "side": "BID",
-            "quantity_mt": "200.00",
-            "price_per_mt_usd": "1600.00",
-            "lng_terms": bio_lng.bid_terms(),
-        },
-        headers=_headers(seeded["buyer_id"], "bio-lng-compatible-bid"),
-    )
-
-    assert outside_lane.status_code == 400
-    assert outside_lane.json()["detail"] == "Bio-LNG is available at Rotterdam only"
-    assert ask.status_code == 201, ask.text
-    assert "scheme_certificate_number" not in ask.json()["lng_terms"]
-    assert ask.json()["lng_terms"]["reseller"] is False
-    assert incompatible.status_code == 201, incompatible.text
-    assert incompatible.json()["status"] == "OPEN"
-    assert compatible.status_code == 201, compatible.text
-    assert compatible.json()["status"] == "FILLED"
-    async with seeded["factory"]() as session:
-        stored_ask = await session.get(OrderBookOrder, ask.json()["id"])
-        trade = (await session.execute(select(Trade))).scalar_one()
-    assert (stored_ask.certification_scheme, stored_ask.specification_standard) == (
-        "ISCC EU", "ISO 23306:2020",
-    )
-    assert stored_ask.carbon_intensity_gco2_mj is None
-    assert stored_ask.remaining_quantity_mt == Decimal("300.00")
-    assert trade.bid_order_id == UUID(compatible.json()["id"])
-    assert trade.lng_terms_snapshot["ask"] == stored_ask.lng_terms
-    assert trade.lng_terms_snapshot["bid"]["accept_resellers"] is True

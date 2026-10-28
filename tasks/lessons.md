@@ -131,10 +131,10 @@
 - **Why:** The user is prioritizing fast staging review for simple/demo-data slices, and adding tests can slow down the immediate product feedback loop.
 
 ### Synthetic Browser Checks Must Fail Closed Without Crashing
-- **Date:** 2026-10-05
-- **Trigger:** Chromium virtual time stopped near one second while the login page kept its orderbook EventSource open, so `--dump-dom` never completed and Snap-private `/tmp` profiles escaped host cleanup.
-- **Rule:** Use the installed matching ChromeDriver on wall time, require visible login controls, keep the bounded failure path, and place profiles in the host/Snap shared user-common directory. Do not use a virtual-time DOM dump on pages with persistent streams.
-- **Why:** A persistent fetch can pause Chromium virtual time indefinitely, and host cleanup cannot remove a profile created in Snap's private `/tmp`.
+- **Date:** 2026-06-22
+- **Trigger:** The Verdaxis monitor reported `rendered page checks crashed` because headless Chromium timed out while dumping the login page DOM.
+- **Rule:** Wrap browser-render timeouts as ordinary monitor failures with clear context, and set render timeouts for VPS/browser cold-start latency rather than assuming fast local Chrome startup.
+- **Why:** A synthetic UI check is useful only if it reports the failing condition; uncaught subprocess timeouts make the monitor itself look broken and obscure the actual site state.
 
 ### Treat Vercel Bot Challenges As Monitor-Client Blocks
 - **Date:** 2026-06-23
@@ -165,6 +165,8 @@
 - **Trigger:** Follow-up review found global default ACLs, delegated grants, decoded blank passwords, unbound prune units, and a verify-then-reopen systemd unit race.
 - **Rule:** Validate every scope that composes into effective authority, require destructive jobs to attest deployed identity, and materialize install candidates once from immutable commit objects before verification or copy.
 - **Why:** Exact checks at only the obvious scope and hashes followed by mutable path reuse leave inheritance and TOCTOU paths outside the claimed security boundary.
+- **Bootstrap correction (2026-10-19):** Verify units with later-created artifacts absent, using the target systemd version. A fake executable at a future `ExecStart` path conceals first-install failure. Rust units can launch through existing `/usr/bin/env` without `-i` to preserve environment/PID while allowing verification before artifact install. Keep startup checks and sandbox intact; systemd 249 does not support `verify --root`.
+- **Production rollout correction (2026-10-19):** Do not infer Caddy layout or passive monitoring from staging. Freeze the operator-confirmed complete target config; validate/adapt a fixture of its route structure, preserve proxy/client-IP options and analytics, add redacted access logging in a separate window when absent, then compare equal ordinary-traffic windows using explicit rollback criteria. Missing or sparse logs are inconclusive, not approval for load tests.
 
 ### Remove Obsolete Harnesses Identified By Audit
 - **Date:** 2026-07-20
@@ -231,12 +233,6 @@
 - **Rule:** Model each approval as its own audited operation, bind long-lived/private flows to one credential and immutable scope, and revalidate every persisted actor inside the transaction that changes executable state.
 - **Why:** Reusing adjacent approval transitions or inferred ownership creates authorization coupling that happy-path tests do not expose.
 
-### Bind Authentication Exceptions To Current Account State
-
-- **Trigger:** Review found the rejected-owner cleanup exception still accepted pre-rejection access tokens after the account was approved again.
-- **Rule:** Scope an authentication-cutoff exception to the exact account state that requires it, and test the token again after every transition out of that state.
-- **Why:** A durable exception can revive credentials after the temporary recovery or cleanup condition ends.
-
 ### Treat Auth Error Codes As A Cross-Client Contract
 - **Date:** 2026-07-20
 - **Trigger:** Frontend review found refresh failures exposed only human strings, forcing unsafe string matching to decide whether authentication was terminal.
@@ -277,6 +273,7 @@
 - **Trigger:** A review run inherited the test suite's implicit localhost API target and created a pending production registration while deploy identity, backup producer wiring, and retirement proof were still only partially integrated.
 - **Rule:** Integration and E2E tests must require an explicit disposable opt-in, loopback URL, non-live port, and matching disposable-server attestation; operational remediations must test the complete producer/deploy/cutover wiring rather than isolated consumers alone.
 - **Why:** Safe-looking defaults and source-only helpers can cross a live boundary or leave critical invariants unenforced when the caller, producer, and retirement path are not mechanically gated end to end.
+- **Runner correction (2026-10-19):** Check generated targets against the real runtime validator, not only synthetic transports. All Rust test database names, including route templates and mixed cells, must end in `_test` and use the validator's lowercase grammar. Test shared registry selection with isolated empty and populated registries; never assume the integration registry stays empty as route lanes register.
 
 ### Exercise Process and Promotion Boundaries End to End
 - **Date:** 2026-07-20
@@ -318,6 +315,7 @@
 - **Trigger:** I described the identity cutover as necessarily invalidating active verification links before checking the hash-only verifier and migration behavior.
 - **Rule:** Before claiming an auth migration invalidates links, inspect both the migration and the post-cutover verifier; distinguish link validity from old-worker and rollback compatibility guards.
 - **Why:** `sec_boundaries` retains token hashes that the hardened verifier accepts, while its expiry guard protects the plaintext-writing legacy release and rollback path rather than proving the links are unusable.
+
 ### Keep Assisted Operations In The Customer Product Context
 - **Date:** 2026-07-23
 - **Trigger:** Market Support was implemented as a separate administrative authorization console, but the requested workflow was for an administrator to enter a customer's organization and use the normal customer-facing product on its behalf.
@@ -333,42 +331,45 @@
 ### Restore Demo Coverage, Not Just Scheduler Activity
 - **Date:** 2026-07-28
 - **Trigger:** The user clarified that 17 generated listings did not restore the much broader demo book used in earlier demonstrations.
-- **Rule:** When recovering demo liquidity, verify depth per canonical product-port-window slice across the full rolling horizon. Price by delivery dates with one valuation clock; a fixed total row budget or shorter pricing lookup does not prove complete coverage. Use the same coverage builder for bootstrap and scheduled refresh. Test month, quarter and year rollover.
+- **Rule:** When recovering demo liquidity, compare against the prior visible coverage and restore canonical product-port-window depth rather than stopping at a small active count.
 - **Why:** Restarting a one-listing-per-tick generator repairs ongoing activity but does not recreate the seeded breadth users expect during a demo.
 
 ### Preserve Immutable Fields During Demo Reconciliation
 - **Date:** 2026-08-01
 - **Trigger:** The rolling Demo coverage job attempted to copy ownership and slice fields onto existing orders after the market-integrity migration made those fields immutable.
-- **Rule:** Reconciliation may insert missing Demo orders and refresh explicitly mutable presentation/lifecycle fields, but must never rewrite immutable order identity or market-slice fields. Cleanup must retain orders and trades referenced by customer or financial records, and recheck references in every delete path.
+- **Rule:** Reconciliation may insert missing Demo orders and refresh explicitly mutable presentation/lifecycle fields, but must never rewrite immutable order identity or market-slice fields.
 - **Why:** An older reconciler contract crossed a newer database trust boundary, causing the entire coverage transaction to roll back and leaving products absent.
 
-### Scope Shared-Infrastructure Evidence To Verdaxis
-- **Date:** 2026-08-08
-- **Trigger:** A diagnosis started against a healthy monitor and reported an unrelated TrekTogether Caddy route as Verdaxis configuration drift.
-- **Rule:** Skip automatic diagnosis when the current monitor status is healthy, and path-scope shared-infrastructure evidence to files owned by Verdaxis.
-- **Why:** Whole-repository status from shared infrastructure can include unrelated or unreadable project files and turn harmless cross-project state into misleading incident evidence.
+### Version All Quote State Changes
+- **Date:** 2026-09-22
+- **Trigger:** Review found that withdrawing a quote left its revision unchanged, so a previously opened form could republish it.
+- **Rule:** Increment the quote revision for every material state change, including withdrawal. Require the current revision when editing, and verify stale rejection and deliberate resubmission through real database routes.
+- **Why:** Row locks serialize requests but cannot identify a stale client without a changed version.
 
-### Verify Git Read Access Under the Scheduled Job Account
-- **Date:** 2026-09-11
-- **Trigger:** The demo refresh reported a corrupt Git object, but the object checksum was valid and only the repository owner could read it.
-- **Rule:** Reproduce Git failures as the service account before diagnosing corruption. Before refetch or repair, verify object ownership and mode, decompress its bytes, and recompute its Git object ID under the repository owner identity. Preserve the release identity check; grant only the required read access and test a newly written object under a restrictive umask.
-- **Resolution:** Production uses named read ACLs for `verdaxis-demo-production` on Git objects and refs, inherited ACLs for new entries, and `core.sharedRepository=0640` to preserve the ACL read mask. The job successfully refreshed Spot coverage without changing real-order expiry.
+### Verify The Complete PostgreSQL Test Runner
+- **Date:** 2026-09-22
+- **Trigger:** Isolated app-role RFQ tests passed after manual database setup, but CI failed because its market database never received ACL convergence after migration.
+- **Rule:** Run the repository's complete disposable PostgreSQL runner when adding app-role route tests. Migrate each test database before applying and validating its exact ACL policy; keep migration-head assertions current.
+- **Why:** Manual setup can supply permissions absent from CI and conceal a test-harness ordering defect.
 
-### Respect Notification Preferences Without Holding Customer Locks During Email
-- **Date:** 2026-09-11
-- **Rule:** Check existing channel preferences when queueing and claiming notifications. Commit a short delivery lease before provider I/O, recheck against a fresh clock per message, and remove frozen payloads after terminal delivery. Keep retries inside the provider idempotency lifetime.
+### Verify The Verdaxis Host And Login Account
+- **Date:** 2026-09-22
+- **Trigger:** The user corrected direct SSH as verdaxis-prod. The old documented IP then lacked that service account; DNS and live checks confirmed the runtime on 194.233.68.86.
+- **Rule:** Verify target DNS and live systemd `User`/`WorkingDirectory` before using a recorded IP. The 2026-09-22 verified route is `ssh jons-openclaw@194.233.68.86`, then passwordless `sudo su - verdaxis-prod`. Keep staging operations in its fixed checkout.
+- **Why:** The SSH login differs from the service owner, and a reachable historical host does not prove it serves the target environment.
 
-### Distinguish Queued Cancellation From Running Password Work
-- **Date:** 2026-09-12
-- **Trigger:** Review found a shielded password task could outlive a cancelled request while still waiting for worker capacity.
-- **Rule:** Acquire bounded capacity in the cancellable caller; shield only admitted work. Hold capacity until that work finishes, and test cancellation both before and after admission.
-- **Why:** Shielding the queue runs abandoned work later; releasing a running worker's slot early defeats the concurrency limit.
+### Bind Authentication Exceptions To Current Account State
 
-### Make Financial Constraints and Destructive Downgrades Fail Closed
-- **Date:** 2026-09-12
-- **Trigger:** Fee review found unsafe partial snapshots and destructive downgrade locks; later auth review found the same check-before-DDL race when removing a session cutoff.
-- **Rule:** Write CHECK branches with explicit `IS NOT NULL` requirements, and acquire destructive-migration locks with fail-fast semantics before data-loss checks or DDL. Prove both historical-data refusal and conflicting runtime lock orders on PostgreSQL.
-- **Why:** `UNKNOWN` can satisfy a CHECK, while count-before-lock and waiting multi-table locks can silently erase committed financial state or abort live work.
+- **Trigger:** Review found the rejected-owner cleanup exception still accepted pre-rejection access tokens after the account was approved again.
+- **Rule:** Scope an authentication-cutoff exception to the exact account state that requires it, and test the token again after every transition out of that state.
+- **Why:** A durable exception can revive credentials after the temporary recovery or cleanup condition ends.
+
+### Make Destructive Downgrades Fail Closed
+
+- **Trigger:** Auth review found a check-before-DDL race when removing a session cutoff.
+- **Rule:** Acquire destructive-migration locks with fail-fast semantics before data-loss checks or DDL, and prove conflicting runtime lock behavior on PostgreSQL.
+- **Why:** A concurrent writer can commit after an unlocked guard query and lose its security state to the following DDL.
+
 ### Keep Response Schemas Aligned With Transitional Account States
 
 - **Trigger:** Review found a nullable legacy role missing from responses, and CI later hid reserved-domain fixture validation behind generic ASGI 500 responses.
@@ -381,8 +382,20 @@
 - **Rule:** Create schemas may validate timestamp structure and timezone awareness, but mutable current-time admission belongs after committed replay lookup and under the operation's locks. Keep stricter future-time validation for updates when replay is not part of their contract.
 - **Why:** The same request body must remain parseable long enough to recover its committed result without allowing a fresh expired request to create side effects.
 
-### Test Monitor Timestamps With The Installed Interpreter
-- **Date:** 2026-10-03
-- **Trigger:** The API emitted a UTC timestamp with a trailing `Z`, which the external monitor's installed Python 3.10 interpreter rejected even though newer test runtimes accepted it.
-- **Rule:** Normalize a trailing UTC `Z` before calling `datetime.fromisoformat`, and simulate the installed parser behavior in the regression test.
-- **Why:** Monitor tests must cover compatibility with the interpreter that executes the installed artifact.
+### Separate Voyage Fuel Compatibility From Regulatory Scope
+- **Date:** 2026-10-14
+- **Trigger:** Review found green-only vessels burning VLSFO outside EU scope and unvalued FuelEU surplus producing PARTIAL results with no missing input.
+- **Rule:** For vessels without VLSFO compatibility, generate FULL strategies even when the voyage has no EU scope, use the selected green fuel on every segment and request each departure-port price subject to catalog availability. If no strategy is complete, name the missing inputs in the recommendation reason. Value surplus at zero with basis NONE and a strategy-specific warning when no pool price is supplied; do not make that surplus a missing input.
+- **Why:** Regulatory scope controls compliance exposure, not engine compatibility. An optional surplus credit must not prevent a complete conservative cost estimate.
+
+### Share Admission Budgets and Preserve Exact Voyage Costs
+- **Date:** 2026-10-14
+- **Trigger:** MCP used an independent limiter that consumed the public-read connection reserve; voyage ETS costs were rounded before currency conversion and unbounded durations reached date arithmetic.
+- **Rule:** Inject one per-worker limiter into all public database-read entry points, reserve one checkout, and test saturation in both directions. In-memory tools bypass it. Share the ETS phase-in schedule, not rounded display costs. Validate speed at 1 knot minimum and bound the full calendar voyage, including final berth, to 365 days before advancing dates.
+- **Why:** Independent limits do not compose into a shared pool budget. Intermediate rounding changes totals; input bounds and calendar-duration checks prevent overflow.
+
+### Refresh Cross-Tree Digest Pins After Every Staging Merge
+- **Date:** 2026-10-23
+- **Trigger:** The staging merge imported PR #122's `tests/rust_contract/phase2/routes.json`, pinning `deploy/migration-checkpoints.tsv` to staging's tree, while the phase-6 branch legitimately carried an extra `sse_20261021_replay_floor` checkpoint; the combined Python suite then failed only `test_source_digests_and_exact_exclusions`.
+- **Rule:** A conflict-free merge can still be semantically wrong: when one side pins a sha256 digest of a file the other side legitimately changes, re-pin the digest to the merged tree in the same change (refresh the inventory digest with it, as `3b5df58c` did) and run the affected digest tests before any batched host call.
+- **Why:** Git resolves textual conflicts, not cross-file invariants; a silently taken pin fails a full ~30-minute suite far from its cause.

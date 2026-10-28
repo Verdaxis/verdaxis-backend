@@ -1,0 +1,3731 @@
+{
+  "version": 1,
+  "oracle_sha": "573c962de8bbac857b339da49b61f4de6fff4e10",
+  "sources": {
+    "app/routers/notifications.py": "c9a64a7abb66b8681c7e2ccb64b0a974147ff610d645beb1421cd3d1f066db38",
+    "app/routers/preferences.py": "99dcc39599e5ada5c649f4d0547fee58b53cd6a4cacc7c4e225ed123df382816",
+    "app/routers/feedback.py": "32669c0eb311170e0dc850584e6dae388e1866fea37512a5f54b106dd3c2fce6",
+    "app/routers/watchlists.py": "a35c9b2ce219870ac626ab5957b7ed2a9c36f3a868efd2a3c98a4539767faf3b",
+    "app/routers/alerts.py": "898db5e873ecf55047e8bff89a01ab6b5aae7511593011314301d0f6fed84129",
+    "app/routers/referrals.py": "e6a424256b8ea4769f9f0548f8c0295273506b2c6538c69670b34d557a08ea14",
+    "app/schemas/preferences.py": "b34c9b3721bc04618ecfe2357ba5f76f16ff7b9cf7962197df70d78083fb29b8",
+    "app/schemas/watchlist.py": "1e64143344f14717f144b1bcf6b137758ef7a1f8594285b73d81ff25ef490f78",
+    "app/schemas/alerts.py": "79f4afd7d2be38ace0e03c3fbce76d0721e22155a494282dcdb1e059f1ac9296",
+    "app/schemas/referral.py": "09e61861f486167dbb1007ff6ad2da67b01482028544321723bb28d0822f7879",
+    "app/models/notification.py": "8d06ed160cbcbcc4d2d1312e8f6490dfd0c397a461a2375da8bc63741a587a35",
+    "app/models/user_preference.py": "aae7783c7607b90dde94d759be3ad4ec93a7db7cb65d7340204e192e1a047b4a",
+    "app/models/feedback.py": "172b71c0536abab77b6e6500e1261aea1a27a9ae0a6a94ec9b426624742e8bd0",
+    "app/models/watchlist.py": "8570b9da3610a5fc063a543a132080f3b9777786fd91edfe9b99f1d91a99d58f",
+    "app/models/alerts.py": "a7b2230941ee3554df0859e5f39e1cc14dc5d5c96a0bc797a55be2eeb8ec43c1",
+    "app/models/referral.py": "03c4df55fe022eae596bad07c87c1a8458557ff86cff390459e0133f018fed50",
+    "app/models/user.py": "fda40d53a1e63f61b1b3055da23df202cc8816be494194a3da26203dd0328de8",
+    "app/services/watchlists.py": "961ea191c076081809170d7b9a6dfc0d3863394be024120d07230d8dd547ffa6",
+    "app/services/watchlist_events.py": "0f127a9450f9fbdbaa3eefda6f8ab58bdd50dca0ee9499138fbc28380e9202e6",
+    "app/services/email.py": "e6b295f955cfe0c5001b694811977336bb7ca473e3625dbc07c03741b11f63fe",
+    "app/services/activity.py": "25903a35f3d31aa6731b1dcf8128e3643324ab62cbc33fc96ee5937dc4d47c4e",
+    "app/services/request_party.py": "9d9d56497242fc3dddf99cd8547094c21da8bc3a569d67fb0aa02ed208086250",
+    "app/core/security.py": "5b18535f90a62253e52dca546d23b0c048e76637a8d08a17149d8e1550ab6087",
+    "app/routers/auth_simple.py": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0",
+    "app/main.py": "76f2a03e270557cecdb8092c843baf118f1aa11c7488b927c61cf28c52309170",
+    "app/middleware/rbac.py": "2e35fb433d7885ec308390e64ba401529191586b61c220ec5b3532e76b19d584",
+    "app/middleware/market_support_scope.py": "c398d0538b878e7260427e4a2daaf26996bbc74642486f67b6523e04f0deb17f",
+    "app/middleware/preauth_rate_limit.py": "59ce20b3f01c4ea95a18da5406768012245326b9a94d8bb6cfe33daf25e51e00",
+    "app/rate_limit.py": "ba5dfc2f3d225dc651b61863581c47d64811dc2492ef005e0cc574f9dce11988",
+    "requirements.txt": "b22fac2e46173d2ed2fe020de4e7c2931b94232c13b44bd1835644f4bde1b437",
+    "deploy/migration-checkpoints.tsv": "3e9994b175ef43a1e4bab1be32ff4343cfd8091289f94a65dc0d4a6a704374d3"
+  },
+  "exclusions": {
+    "auth_issuance": "Python-owned: login, refresh, logout, password and session writes",
+    "sse": "Python-owned: event stream and outbox dispatcher",
+    "alert_triggering": "Python-owned: activity.py price-trigger writer",
+    "referral_progression": "Python-owned: signup attribution, VERIFIED and ACTIVE transitions"
+  },
+  "routes": [
+    {
+      "id": "N01",
+      "group": "notifications",
+      "method": "GET",
+      "path": "/api/notifications",
+      "auth": "U",
+      "success_status": 200,
+      "request_schema": {
+        "parameters": [
+          {
+            "name": "skip",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Skip"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "body": null
+      },
+      "response_schema": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/NotificationResponse"
+        },
+        "title": "Response Get Notifications Api Notifications Get"
+      },
+      "openapi_operation": {
+        "tags": [
+          "notifications"
+        ],
+        "summary": "Get Notifications",
+        "description": "Get current user's notifications.",
+        "operationId": "get_notifications_api_notifications_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "skip",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Skip"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/NotificationResponse"
+                  },
+                  "title": "Response Get Notifications Api Notifications Get"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "effect_class": "read",
+      "effects": {
+        "allowed_writes": [],
+        "outbox": "unchanged",
+        "notifications": "unchanged",
+        "email": "none",
+        "notification_rows": "unchanged"
+      }
+    },
+    {
+      "id": "N02",
+      "group": "notifications",
+      "method": "GET",
+      "path": "/api/notifications/unread-count",
+      "auth": "U",
+      "success_status": 200,
+      "request_schema": {
+        "parameters": [],
+        "body": null
+      },
+      "response_schema": {
+        "type": "object",
+        "required": [
+          "count"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer"
+          }
+        }
+      },
+      "openapi_operation": {
+        "tags": [
+          "notifications"
+        ],
+        "summary": "Get Unread Count",
+        "description": "Get count of unread notifications.",
+        "operationId": "get_unread_count_api_notifications_unread_count_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      },
+      "effect_class": "read",
+      "effects": {
+        "allowed_writes": [],
+        "outbox": "unchanged",
+        "notifications": "unchanged",
+        "email": "none",
+        "notification_rows": "unchanged"
+      }
+    },
+    {
+      "id": "N03",
+      "group": "notifications",
+      "method": "PATCH",
+      "path": "/api/notifications/{notification_id}/read",
+      "auth": "U",
+      "success_status": 200,
+      "request_schema": {
+        "parameters": [
+          {
+            "name": "notification_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Notification Id"
+            }
+          }
+        ],
+        "body": null
+      },
+      "response_schema": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "const": "success"
+          }
+        }
+      },
+      "openapi_operation": {
+        "tags": [
+          "notifications"
+        ],
+        "summary": "Mark As Read",
+        "description": "Mark a notification as read.",
+        "operationId": "mark_as_read_api_notifications__notification_id__read_patch",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "notification_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Notification Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "effect_class": "write",
+      "effects": {
+        "allowed_writes": [
+          "notifications.is_read"
+        ],
+        "outbox": "unchanged",
+        "notifications": "unchanged",
+        "email": "none",
+        "notification_rows": "is_read-only"
+      }
+    },
+    {
+      "id": "N04",
+      "group": "notifications",
+      "method": "PATCH",
+      "path": "/api/notifications/read-all",
+      "auth": "U",
+      "success_status": 200,
+      "request_schema": {
+        "parameters": [],
+        "body": null
+      },
+      "response_schema": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "const": "success"
+          }
+        }
+      },
+      "openapi_operation": {
+        "tags": [
+          "notifications"
+        ],
+        "summary": "Mark All As Read",
+        "description": "Mark all notifications as read for the current user.",
+        "operationId": "mark_all_as_read_api_notifications_read_all_patch",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      },
+      "effect_class": "write",
+      "effects": {
+        "allowed_writes": [
+          "notifications.is_read"
+        ],
+        "outbox": "unchanged",
+        "notifications": "unchanged",
+        "email": "none",
+        "notification_rows": "is_read-only"
+      }
+    },
+    {
+      "id": "P01",
+      "group": "preferences",
+      "method": "GET",
+      "path": "/api/users/me/preferences",
+      "auth": "U",
+      "success_status": 200,
+      "request_schema": {
+        "parameters": [],
+        "body": null
+      },
+      "response_schema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "openapi_operation": {
+        "tags": [
+          "Preferences"
+        ],
+        "summary": "Get Preferences",
+        "operationId": "get_preferences_api_users_me_preferences_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      },
+      "effect_class": "read",
+      "effects": {
+        "allowed_writes": [],
+        "outbox": "unchanged",
+        "notifications": "unchanged",
+        "email": "none",
+        "notification_rows": "unchanged"
+      }
+    },
+    {
+      "id": "P02",
+      "group": "preferences",
+      "method": "PUT",
+      "path": "/api/users/me/preferences/{namespace}",
+      "auth": "U",
+      "success_status": 200,
+      "request_schema": {
+        "parameters": [
+          {
+            "name": "namespace",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Namespace"
+            }
+          }
+        ],
+        "body": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "Value"
+              }
+            }
+          }
+        }
+      },
+      "response_schema": {
+        "type": "object",
+        "required": [
+          "value",
+          "updated_at"
+        ],
+        "properties": {
+          "value": {},
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "openapi_operation": {
+        "tags": [
+          "Preferences"
+        ],
+        "summary": "Put Preference",
+        "operationId": "put_preference_api_users_me_preferences__namespace__put",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "namespace",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Namespace"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "Value"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "effect_class": "write",
+      "effects": {
+        "allowed_writes": [
+          "user_preferences"
+        ],
+        "outbox": "unchanged",
+        "notifications": "unchanged",
+        "email": "none",
+        "notification_rows": "unchanged"
+      }
+    },
+    {
+      "id": "F01",
+      "group": "feedback",
+      "method": "POST",
+      "path": "/api/feedback",
+      "auth": "U",
+      "success_status": 201,
+      "request_schema": {
+        "parameters": [],
+        "body": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeedbackSubmission"
+              }
+            }
+          },
+          "required": true
+        }
+      },
+      "response_schema": {
+        "$ref": "#/components/schemas/FeedbackCreated"
+      },
+      "openapi_operation": {
+        "tags": [
+          "Feedback"
+        ],
+        "summary": "Submit Feedback",
+        "operationId": "submit_feedback_api_feedback_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeedbackSubmission"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedbackCreated"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      },
+      "effect_class": "write",
+      "effects": {
+        "allowed_writes": [
+          "feedback_entries"
+        ],
+        "outbox": "unchanged",
+        "notifications": "unchanged",
+        "email": "none",
+        "notification_rows": "unchanged"
+      }
+    },
+    {
+      "id": "F02",
+      "group": "feedback",
+      "method": "GET",
+      "path": "/api/admin/feedback",
+      "auth": "A",
+      "success_status": 200,
+      "request_schema": {
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "body": null
+      },
+      "response_schema": {
+        "$ref": "#/components/schemas/AdminFeedbackResponse"
+      },
+      "openapi_operation": {
+        "tags": [
+          "Feedback"
+        ],
+        "summary": "List Feedback",
+        "operationId": "list_feedback_api_admin_feedback_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminFeedbackResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "effect_class": "read",
+      "effects": {
+        "allowed_writes": [],
+        "outbox": "unchanged",
+        "notifications": "unchanged",
+        "email": "none",
+        "notification_rows": "unchanged"
+      }
+    },
+    {
+      "id": "W01",
+      "group": "watchlists",
+      "method": "GET",
+      "path": "/api/watchlists",
+      "auth": "U",
+      "success_status": 200,
+      "request_schema": {
+        "parameters": [],
+        "body": null
+      },
+      "response_schema": {
+        "items": {
+          "$ref": "#/components/schemas/WatchlistResponse"
+        },
+        "type": "array",
+        "title": "Response List Watchlists Api Watchlists Get"
+      },
+      "openapi_operation": {
+        "tags": [
+          "watchlists"
+        ],
+        "summary": "List Watchlists",
+        "description": "Legacy list endpoint retained for adapter compatibility.",
+        "operationId": "list_watchlists_api_watchlists_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/WatchlistResponse"
+                  },
+                  "type": "array",
+                  "title": "Response List Watchlists Api Watchlists Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      },
+      "effect_class": "read",
+      "effects": {
+        "allowed_writes": [],
+        "outbox": "unchanged",
+        "notifications": "unchanged",
+        "email": "none",
+        "notification_rows": "unchanged"
+      }
+    },
+    {
+      "id": "W02",
+      "group": "watchlists",
+      "method": "POST",
+      "path": "/api/watchlists/me",
+      "auth": "U",
+      "success_status": 200,
+      "request_schema": {
+        "parameters": [],
+        "body": null
+      },
+      "response_schema": {
+        "$ref": "#/components/schemas/WatchlistSummaryResponse"
+      },
+      "openapi_operation": {
+        "tags": [
+          "watchlists"
+        ],
+        "summary": "Get Market Radar",
+        "operationId": "get_market_radar_api_watchlists_me_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchlistSummaryResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      },
+      "effect_class": "write",
+      "effects": {
+        "allowed_writes": [
+          "watchlists"
+        ],
+        "outbox": "unchanged",
+        "notifications": "unchanged",
+        "email": "none",
+        "notification_rows": "unchanged"
+      }
+    },
+    {
+      "id": "W03",
+      "group": "watchlists",
+      "method": "POST",
+      "path": "/api/watchlists",
+      "auth": "U",
+      "success_status": 201,
+      "request_schema": {
+        "parameters": [],
+        "body": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WatchlistCreateRequest"
+              }
+            }
+          },
+          "required": true
+        }
+      },
+      "response_schema": {
+        "$ref": "#/components/schemas/WatchlistResponse"
+      },
+      "openapi_operation": {
+        "tags": [
+          "watchlists"
+        ],
+        "summary": "Create Watchlist",
+        "description": "Legacy custom watchlist create retained temporarily.",
+        "operationId": "create_watchlist_api_watchlists_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WatchlistCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchlistResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      },
+      "effect_class": "write",
+      "effects": {
+        "allowed_writes": [
+          "watchlists"
+        ],
+        "outbox": "unchanged",
+        "notifications": "unchanged",
+        "email": "none",
+        "notification_rows": "unchanged"
+      }
+    },
+    {
+      "id": "W04",
+      "group": "watchlists",
+      "method": "GET",
+      "path": "/api/watchlists/{watchlist_id}",
+      "auth": "U",
+      "success_status": 200,
+      "request_schema": {
+        "parameters": [
+          {
+            "name": "watchlist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Watchlist Id"
+            }
+          }
+        ],
+        "body": null
+      },
+      "response_schema": {
+        "$ref": "#/components/schemas/WatchlistDetailResponse"
+      },
+      "openapi_operation": {
+        "tags": [
+          "watchlists"
+        ],
+        "summary": "Get Watchlist Detail",
+        "operationId": "get_watchlist_detail_api_watchlists__watchlist_id__get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "watchlist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Watchlist Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchlistDetailResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "effect_class": "read",
+      "effects": {
+        "allowed_writes": [],
+        "outbox": "unchanged",
+        "notifications": "unchanged",
+        "email": "none",
+        "notification_rows": "unchanged"
+      }
+    },
+    {
+      "id": "W05",
+      "group": "watchlists",
+      "method": "POST",
+      "path": "/api/watchlists/{watchlist_id}/targets",
+      "auth": "U",
+      "success_status": 201,
+      "request_schema": {
+        "parameters": [
+          {
+            "name": "watchlist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Watchlist Id"
+            }
+          }
+        ],
+        "body": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/SliceTargetCreate"
+                  },
+                  {
+                    "$ref": "#/components/schemas/PinTargetCreate"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "target_type",
+                  "mapping": {
+                    "SLICE": "#/components/schemas/SliceTargetCreate",
+                    "PIN": "#/components/schemas/PinTargetCreate"
+                  }
+                },
+                "title": "Body"
+              }
+            }
+          }
+        }
+      },
+      "response_schema": {
+        "$ref": "#/components/schemas/WatchlistTargetResponse"
+      },
+      "openapi_operation": {
+        "tags": [
+          "watchlists"
+        ],
+        "summary": "Create Watchlist Target",
+        "operationId": "create_watchlist_target_api_watchlists__watchlist_id__targets_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "watchlist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Watchlist Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/SliceTargetCreate"
+                  },
+                  {
+                    "$ref": "#/components/schemas/PinTargetCreate"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "target_type",
+                  "mapping": {
+                    "SLICE": "#/components/schemas/SliceTargetCreate",
+                    "PIN": "#/components/schemas/PinTargetCreate"
+                  }
+                },
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchlistTargetResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "effect_class": "write",
+      "effects": {
+        "allowed_writes": [
+          "watchlist_targets"
+        ],
+        "outbox": "unchanged",
+        "notifications": "unchanged",
+        "email": "none",
+        "notification_rows": "unchanged"
+      }
+    },
+    {
+      "id": "W06",
+      "group": "watchlists",
+      "method": "DELETE",
+      "path": "/api/watchlists/{watchlist_id}/targets/{target_id}",
+      "auth": "U",
+      "success_status": 204,
+      "request_schema": {
+        "parameters": [
+          {
+            "name": "watchlist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Watchlist Id"
+            }
+          },
+          {
+            "name": "target_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Target Id"
+            }
+          }
+        ],
+        "body": null
+      },
+      "response_schema": null,
+      "openapi_operation": {
+        "tags": [
+          "watchlists"
+        ],
+        "summary": "Delete Watchlist Target",
+        "operationId": "delete_watchlist_target_api_watchlists__watchlist_id__targets__target_id__delete",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "watchlist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Watchlist Id"
+            }
+          },
+          {
+            "name": "target_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Target Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "effect_class": "write",
+      "effects": {
+        "allowed_writes": [
+          "watchlist_targets",
+          "watchlist_events"
+        ],
+        "outbox": "unchanged",
+        "notifications": "unchanged",
+        "email": "none",
+        "notification_rows": "unchanged"
+      }
+    },
+    {
+      "id": "W07",
+      "group": "watchlists",
+      "method": "GET",
+      "path": "/api/watchlists/{watchlist_id}/events",
+      "auth": "U",
+      "success_status": 200,
+      "request_schema": {
+        "parameters": [
+          {
+            "name": "watchlist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Watchlist Id"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "body": null
+      },
+      "response_schema": {
+        "$ref": "#/components/schemas/WatchlistEventsPageResponse"
+      },
+      "openapi_operation": {
+        "tags": [
+          "watchlists"
+        ],
+        "summary": "Get Watchlist Events",
+        "operationId": "get_watchlist_events_api_watchlists__watchlist_id__events_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "watchlist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Watchlist Id"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchlistEventsPageResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "effect_class": "read",
+      "effects": {
+        "allowed_writes": [],
+        "outbox": "unchanged",
+        "notifications": "unchanged",
+        "email": "none",
+        "notification_rows": "unchanged"
+      }
+    },
+    {
+      "id": "W08",
+      "group": "watchlists",
+      "method": "PATCH",
+      "path": "/api/watchlists/{watchlist_id}/events/{event_id}",
+      "auth": "U",
+      "success_status": 200,
+      "request_schema": {
+        "parameters": [
+          {
+            "name": "watchlist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Watchlist Id"
+            }
+          },
+          {
+            "name": "event_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Event Id"
+            }
+          }
+        ],
+        "body": null
+      },
+      "response_schema": {
+        "$ref": "#/components/schemas/WatchlistEventResponse"
+      },
+      "openapi_operation": {
+        "tags": [
+          "watchlists"
+        ],
+        "summary": "Mark Watchlist Event Read",
+        "operationId": "mark_watchlist_event_read_api_watchlists__watchlist_id__events__event_id__patch",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "watchlist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Watchlist Id"
+            }
+          },
+          {
+            "name": "event_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Event Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchlistEventResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "effect_class": "write",
+      "effects": {
+        "allowed_writes": [
+          "watchlist_events.is_read"
+        ],
+        "outbox": "unchanged",
+        "notifications": "unchanged",
+        "email": "none",
+        "notification_rows": "unchanged"
+      }
+    },
+    {
+      "id": "W09",
+      "group": "watchlists",
+      "method": "POST",
+      "path": "/api/watchlists/{watchlist_id}/entries",
+      "auth": "U",
+      "success_status": 201,
+      "request_schema": {
+        "parameters": [
+          {
+            "name": "watchlist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Watchlist Id"
+            }
+          }
+        ],
+        "body": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WatchlistEntryAddRequest"
+              }
+            }
+          }
+        }
+      },
+      "response_schema": {
+        "$ref": "#/components/schemas/WatchlistEntryResponse"
+      },
+      "openapi_operation": {
+        "tags": [
+          "watchlists"
+        ],
+        "summary": "Add Watchlist Entry",
+        "description": "Legacy adapter endpoint retained for one release.",
+        "operationId": "add_watchlist_entry_api_watchlists__watchlist_id__entries_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "watchlist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Watchlist Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WatchlistEntryAddRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchlistEntryResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "effect_class": "write",
+      "effects": {
+        "allowed_writes": [
+          "watchlist_entries",
+          "watchlists",
+          "watchlist_targets"
+        ],
+        "outbox": "unchanged",
+        "notifications": "unchanged",
+        "email": "none",
+        "notification_rows": "unchanged"
+      }
+    },
+    {
+      "id": "W10",
+      "group": "watchlists",
+      "method": "DELETE",
+      "path": "/api/watchlists/{watchlist_id}/entries/{entry_id}",
+      "auth": "U",
+      "success_status": 204,
+      "request_schema": {
+        "parameters": [
+          {
+            "name": "watchlist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Watchlist Id"
+            }
+          },
+          {
+            "name": "entry_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Entry Id"
+            }
+          }
+        ],
+        "body": null
+      },
+      "response_schema": null,
+      "openapi_operation": {
+        "tags": [
+          "watchlists"
+        ],
+        "summary": "Remove Watchlist Entry",
+        "operationId": "remove_watchlist_entry_api_watchlists__watchlist_id__entries__entry_id__delete",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "watchlist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Watchlist Id"
+            }
+          },
+          {
+            "name": "entry_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Entry Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "effect_class": "write",
+      "effects": {
+        "allowed_writes": [
+          "watchlist_entries",
+          "watchlists",
+          "watchlist_targets",
+          "watchlist_events"
+        ],
+        "outbox": "unchanged",
+        "notifications": "unchanged",
+        "email": "none",
+        "notification_rows": "unchanged"
+      }
+    },
+    {
+      "id": "W11",
+      "group": "watchlists",
+      "method": "DELETE",
+      "path": "/api/watchlists/{watchlist_id}",
+      "auth": "U",
+      "success_status": 204,
+      "request_schema": {
+        "parameters": [
+          {
+            "name": "watchlist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Watchlist Id"
+            }
+          }
+        ],
+        "body": null
+      },
+      "response_schema": null,
+      "openapi_operation": {
+        "tags": [
+          "watchlists"
+        ],
+        "summary": "Delete Watchlist",
+        "operationId": "delete_watchlist_api_watchlists__watchlist_id__delete",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "watchlist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Watchlist Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "effect_class": "write",
+      "effects": {
+        "allowed_writes": [
+          "watchlists",
+          "watchlist_entries",
+          "watchlist_targets",
+          "watchlist_events"
+        ],
+        "outbox": "unchanged",
+        "notifications": "unchanged",
+        "email": "none",
+        "notification_rows": "unchanged"
+      }
+    },
+    {
+      "id": "A01",
+      "group": "alerts",
+      "method": "POST",
+      "path": "/api/alerts",
+      "auth": "U",
+      "success_status": 201,
+      "request_schema": {
+        "parameters": [],
+        "body": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AlertCreate"
+              }
+            }
+          },
+          "required": true
+        }
+      },
+      "response_schema": {
+        "$ref": "#/components/schemas/AlertResponse"
+      },
+      "openapi_operation": {
+        "tags": [
+          "alerts"
+        ],
+        "summary": "Create Alert",
+        "operationId": "create_alert_api_alerts_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AlertCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      },
+      "effect_class": "write",
+      "effects": {
+        "allowed_writes": [
+          "price_alerts"
+        ],
+        "outbox": "unchanged",
+        "notifications": "unchanged",
+        "email": "none",
+        "notification_rows": "unchanged"
+      }
+    },
+    {
+      "id": "A02",
+      "group": "alerts",
+      "method": "GET",
+      "path": "/api/alerts",
+      "auth": "U",
+      "success_status": 200,
+      "request_schema": {
+        "parameters": [],
+        "body": null
+      },
+      "response_schema": {
+        "items": {
+          "$ref": "#/components/schemas/AlertResponse"
+        },
+        "type": "array",
+        "title": "Response List Alerts Api Alerts Get"
+      },
+      "openapi_operation": {
+        "tags": [
+          "alerts"
+        ],
+        "summary": "List Alerts",
+        "operationId": "list_alerts_api_alerts_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AlertResponse"
+                  },
+                  "type": "array",
+                  "title": "Response List Alerts Api Alerts Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      },
+      "effect_class": "read",
+      "effects": {
+        "allowed_writes": [],
+        "outbox": "unchanged",
+        "notifications": "unchanged",
+        "email": "none",
+        "notification_rows": "unchanged"
+      }
+    },
+    {
+      "id": "A03",
+      "group": "alerts",
+      "method": "DELETE",
+      "path": "/api/alerts/{alert_id}",
+      "auth": "U",
+      "success_status": 204,
+      "request_schema": {
+        "parameters": [
+          {
+            "name": "alert_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Alert Id"
+            }
+          }
+        ],
+        "body": null
+      },
+      "response_schema": null,
+      "openapi_operation": {
+        "tags": [
+          "alerts"
+        ],
+        "summary": "Delete Alert",
+        "operationId": "delete_alert_api_alerts__alert_id__delete",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "alert_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Alert Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "effect_class": "write",
+      "effects": {
+        "allowed_writes": [
+          "price_alerts"
+        ],
+        "outbox": "unchanged",
+        "notifications": "unchanged",
+        "email": "none",
+        "notification_rows": "unchanged"
+      }
+    },
+    {
+      "id": "R01",
+      "group": "referrals",
+      "method": "POST",
+      "path": "/api/referrals/my-code",
+      "auth": "U",
+      "success_status": 200,
+      "request_schema": {
+        "parameters": [],
+        "body": null
+      },
+      "response_schema": {
+        "$ref": "#/components/schemas/ReferralCodeResponse"
+      },
+      "openapi_operation": {
+        "tags": [
+          "referrals"
+        ],
+        "summary": "Get My Referral Code",
+        "description": "Get the current user's referral code. Generates one if missing.",
+        "operationId": "get_my_referral_code_api_referrals_my_code_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReferralCodeResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      },
+      "effect_class": "code-allocation",
+      "effects": {
+        "allowed_writes": [
+          "users.referral_code"
+        ],
+        "outbox": "unchanged",
+        "notifications": "unchanged",
+        "email": "none",
+        "notification_rows": "unchanged"
+      }
+    },
+    {
+      "id": "R02",
+      "group": "referrals",
+      "method": "GET",
+      "path": "/api/referrals/my-referrals",
+      "auth": "U",
+      "success_status": 200,
+      "request_schema": {
+        "parameters": [],
+        "body": null
+      },
+      "response_schema": {
+        "$ref": "#/components/schemas/ReferralStatsResponse"
+      },
+      "openapi_operation": {
+        "tags": [
+          "referrals"
+        ],
+        "summary": "Get My Referrals",
+        "description": "List all users referred by the current user.",
+        "operationId": "get_my_referrals_api_referrals_my_referrals_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReferralStatsResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      },
+      "effect_class": "read",
+      "effects": {
+        "allowed_writes": [],
+        "outbox": "unchanged",
+        "notifications": "unchanged",
+        "email": "none",
+        "notification_rows": "unchanged"
+      }
+    },
+    {
+      "id": "R03",
+      "group": "referrals",
+      "method": "GET",
+      "path": "/api/referrals/leaderboard",
+      "auth": "U",
+      "success_status": 200,
+      "request_schema": {
+        "parameters": [],
+        "body": null
+      },
+      "response_schema": {
+        "items": {
+          "$ref": "#/components/schemas/LeaderboardEntry"
+        },
+        "type": "array",
+        "title": "Response Get Leaderboard Api Referrals Leaderboard Get"
+      },
+      "openapi_operation": {
+        "tags": [
+          "referrals"
+        ],
+        "summary": "Get Leaderboard",
+        "description": "Top 10 referrers platform-wide.",
+        "operationId": "get_leaderboard_api_referrals_leaderboard_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LeaderboardEntry"
+                  },
+                  "type": "array",
+                  "title": "Response Get Leaderboard Api Referrals Leaderboard Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      },
+      "effect_class": "read",
+      "effects": {
+        "allowed_writes": [],
+        "outbox": "unchanged",
+        "notifications": "unchanged",
+        "email": "none",
+        "notification_rows": "unchanged"
+      }
+    },
+    {
+      "id": "R04",
+      "group": "referrals",
+      "method": "POST",
+      "path": "/api/referrals/invite",
+      "auth": "U",
+      "success_status": 200,
+      "request_schema": {
+        "parameters": [],
+        "body": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReferralInviteRequest"
+              }
+            }
+          },
+          "required": true
+        }
+      },
+      "response_schema": {
+        "type": "object",
+        "required": [
+          "message",
+          "email"
+        ],
+        "properties": {
+          "message": {
+            "const": "Invitation processed"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          }
+        }
+      },
+      "openapi_operation": {
+        "tags": [
+          "referrals"
+        ],
+        "summary": "Send Referral Invite",
+        "description": "Send a referral invite email.",
+        "operationId": "send_referral_invite_api_referrals_invite_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReferralInviteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      },
+      "effect_class": "invite",
+      "effects": {
+        "allowed_writes": [
+          "users.referral_code"
+        ],
+        "outbox": "unchanged",
+        "notifications": "unchanged",
+        "email": "attempt-if-new-recipient",
+        "notification_rows": "unchanged"
+      }
+    },
+    {
+      "id": "R05",
+      "group": "referrals",
+      "method": "GET",
+      "path": "/api/referrals/resolve/{code}",
+      "auth": "P",
+      "success_status": 200,
+      "request_schema": {
+        "parameters": [
+          {
+            "name": "code",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Code"
+            }
+          }
+        ],
+        "body": null
+      },
+      "response_schema": {
+        "$ref": "#/components/schemas/ResolveCodeResponse"
+      },
+      "openapi_operation": {
+        "tags": [
+          "referrals"
+        ],
+        "summary": "Resolve Referral Code",
+        "description": "Public endpoint \u2014 validate a referral code and return referrer info.",
+        "operationId": "resolve_referral_code_api_referrals_resolve__code__get",
+        "parameters": [
+          {
+            "name": "code",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Code"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResolveCodeResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "effect_class": "read",
+      "effects": {
+        "allowed_writes": [],
+        "outbox": "unchanged",
+        "notifications": "unchanged",
+        "email": "none",
+        "notification_rows": "unchanged"
+      }
+    }
+  ],
+  "schemas": {
+    "NotificationResponse": {
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid4",
+          "title": "Id"
+        },
+        "type": {
+          "type": "string",
+          "title": "Type"
+        },
+        "title": {
+          "type": "string",
+          "title": "Title"
+        },
+        "message": {
+          "type": "string",
+          "title": "Message"
+        },
+        "data": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Data"
+        },
+        "is_read": {
+          "type": "boolean",
+          "title": "Is Read"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "title": "Created At"
+        }
+      },
+      "type": "object",
+      "required": [
+        "id",
+        "type",
+        "title",
+        "message",
+        "data",
+        "is_read",
+        "created_at"
+      ],
+      "title": "NotificationResponse"
+    },
+    "HTTPValidationError": {
+      "properties": {
+        "detail": {
+          "items": {
+            "$ref": "#/components/schemas/ValidationError"
+          },
+          "type": "array",
+          "title": "Detail"
+        }
+      },
+      "type": "object",
+      "title": "HTTPValidationError"
+    },
+    "ValidationError": {
+      "properties": {
+        "loc": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ]
+          },
+          "type": "array",
+          "title": "Location"
+        },
+        "msg": {
+          "type": "string",
+          "title": "Message"
+        },
+        "type": {
+          "type": "string",
+          "title": "Error Type"
+        },
+        "input": {
+          "title": "Input"
+        },
+        "ctx": {
+          "type": "object",
+          "title": "Context"
+        }
+      },
+      "type": "object",
+      "required": [
+        "loc",
+        "msg",
+        "type"
+      ],
+      "title": "ValidationError"
+    },
+    "FeedbackSubmission": {
+      "properties": {
+        "message": {
+          "type": "string",
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Message"
+        },
+        "page": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 200
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Page"
+        }
+      },
+      "type": "object",
+      "required": [
+        "message"
+      ],
+      "title": "FeedbackSubmission"
+    },
+    "FeedbackCreated": {
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "title": "Id"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "title": "Created At"
+        }
+      },
+      "type": "object",
+      "required": [
+        "id",
+        "created_at"
+      ],
+      "title": "FeedbackCreated"
+    },
+    "AdminFeedbackResponse": {
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/components/schemas/AdminFeedbackEntry"
+          },
+          "type": "array",
+          "title": "Items"
+        },
+        "total": {
+          "type": "integer",
+          "title": "Total"
+        }
+      },
+      "type": "object",
+      "required": [
+        "items",
+        "total"
+      ],
+      "title": "AdminFeedbackResponse"
+    },
+    "AdminFeedbackEntry": {
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "title": "Id"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "title": "Created At"
+        },
+        "message": {
+          "type": "string",
+          "title": "Message"
+        },
+        "page": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Page"
+        },
+        "user_email": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "User Email"
+        },
+        "user_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "User Name"
+        },
+        "org_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Org Name"
+        }
+      },
+      "type": "object",
+      "required": [
+        "id",
+        "created_at",
+        "message",
+        "page",
+        "user_email",
+        "user_name",
+        "org_name"
+      ],
+      "title": "AdminFeedbackEntry"
+    },
+    "AlertCreate": {
+      "properties": {
+        "product_id": {
+          "type": "string",
+          "format": "uuid",
+          "title": "Product Id"
+        },
+        "delivery_point_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Delivery Point Id"
+        },
+        "direction": {
+          "type": "string",
+          "title": "Direction"
+        },
+        "threshold_usd": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+            }
+          ],
+          "title": "Threshold Usd"
+        }
+      },
+      "type": "object",
+      "required": [
+        "product_id",
+        "direction",
+        "threshold_usd"
+      ],
+      "title": "AlertCreate"
+    },
+    "AlertResponse": {
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "title": "Id"
+        },
+        "org_id": {
+          "type": "string",
+          "format": "uuid",
+          "title": "Org Id"
+        },
+        "product_id": {
+          "type": "string",
+          "format": "uuid",
+          "title": "Product Id"
+        },
+        "product_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Product Name"
+        },
+        "market_product": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Market Product"
+        },
+        "delivery_point_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Delivery Point Id"
+        },
+        "direction": {
+          "type": "string",
+          "title": "Direction"
+        },
+        "threshold_usd": {
+          "type": "string",
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Threshold Usd"
+        },
+        "is_active": {
+          "type": "boolean",
+          "title": "Is Active"
+        },
+        "triggered_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Triggered At"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "title": "Created At"
+        }
+      },
+      "type": "object",
+      "required": [
+        "id",
+        "org_id",
+        "product_id",
+        "delivery_point_id",
+        "direction",
+        "threshold_usd",
+        "is_active",
+        "triggered_at",
+        "created_at"
+      ],
+      "title": "AlertResponse"
+    },
+    "ReferralCodeResponse": {
+      "properties": {
+        "referral_code": {
+          "type": "string",
+          "title": "Referral Code"
+        },
+        "referral_link": {
+          "type": "string",
+          "title": "Referral Link"
+        }
+      },
+      "type": "object",
+      "required": [
+        "referral_code",
+        "referral_link"
+      ],
+      "title": "ReferralCodeResponse"
+    },
+    "ReferralStatsResponse": {
+      "properties": {
+        "total": {
+          "type": "integer",
+          "title": "Total"
+        },
+        "verified": {
+          "type": "integer",
+          "title": "Verified"
+        },
+        "active": {
+          "type": "integer",
+          "title": "Active"
+        },
+        "referrals": {
+          "items": {
+            "$ref": "#/components/schemas/ReferralListItem"
+          },
+          "type": "array",
+          "title": "Referrals"
+        }
+      },
+      "type": "object",
+      "required": [
+        "total",
+        "verified",
+        "active",
+        "referrals"
+      ],
+      "title": "ReferralStatsResponse"
+    },
+    "ReferralListItem": {
+      "properties": {
+        "organization_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Organization Name"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Role"
+        },
+        "status": {
+          "type": "string",
+          "title": "Status"
+        },
+        "signed_up_at": {
+          "type": "string",
+          "format": "date-time",
+          "title": "Signed Up At"
+        }
+      },
+      "type": "object",
+      "required": [
+        "status",
+        "signed_up_at"
+      ],
+      "title": "ReferralListItem"
+    },
+    "LeaderboardEntry": {
+      "properties": {
+        "rank": {
+          "type": "integer",
+          "title": "Rank"
+        },
+        "user_name": {
+          "type": "string",
+          "title": "User Name"
+        },
+        "organization_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Organization Name"
+        },
+        "referral_count": {
+          "type": "integer",
+          "title": "Referral Count"
+        }
+      },
+      "type": "object",
+      "required": [
+        "rank",
+        "user_name",
+        "referral_count"
+      ],
+      "title": "LeaderboardEntry"
+    },
+    "ReferralInviteRequest": {
+      "properties": {
+        "email": {
+          "type": "string",
+          "format": "email",
+          "title": "Email"
+        }
+      },
+      "type": "object",
+      "required": [
+        "email"
+      ],
+      "title": "ReferralInviteRequest"
+    },
+    "ResolveCodeResponse": {
+      "properties": {
+        "valid": {
+          "type": "boolean",
+          "title": "Valid"
+        },
+        "organization_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Organization Name"
+        },
+        "organization_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Organization Type"
+        },
+        "referrer_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Referrer Name"
+        }
+      },
+      "type": "object",
+      "required": [
+        "valid"
+      ],
+      "title": "ResolveCodeResponse"
+    },
+    "WatchlistResponse": {
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "title": "Id"
+        },
+        "name": {
+          "type": "string",
+          "title": "Name"
+        },
+        "entry_count": {
+          "type": "integer",
+          "title": "Entry Count",
+          "default": 0
+        },
+        "entries": {
+          "items": {
+            "$ref": "#/components/schemas/WatchlistEntryResponse"
+          },
+          "type": "array",
+          "title": "Entries"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "title": "Created At"
+        }
+      },
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "created_at"
+      ],
+      "title": "WatchlistResponse"
+    },
+    "WatchlistEntryResponse": {
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "title": "Id"
+        },
+        "product_id": {
+          "type": "string",
+          "format": "uuid",
+          "title": "Product Id"
+        },
+        "product_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Product Name"
+        },
+        "delivery_point_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Delivery Point Id"
+        },
+        "delivery_point_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Delivery Point Name"
+        },
+        "best_bid": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Best Bid"
+        },
+        "best_ask": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Best Ask"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "title": "Created At"
+        }
+      },
+      "type": "object",
+      "required": [
+        "id",
+        "product_id",
+        "created_at"
+      ],
+      "title": "WatchlistEntryResponse"
+    },
+    "WatchlistSummaryResponse": {
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "title": "Id"
+        },
+        "name": {
+          "type": "string",
+          "title": "Name"
+        },
+        "kind": {
+          "type": "string",
+          "title": "Kind"
+        },
+        "unread_event_count": {
+          "type": "integer",
+          "title": "Unread Event Count",
+          "default": 0
+        },
+        "latest_event_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Latest Event At"
+        },
+        "total_slice_count": {
+          "type": "integer",
+          "title": "Total Slice Count",
+          "default": 0
+        },
+        "has_more_slices": {
+          "type": "boolean",
+          "title": "Has More Slices",
+          "default": false
+        },
+        "slices": {
+          "items": {
+            "$ref": "#/components/schemas/WatchlistSliceResponse"
+          },
+          "type": "array",
+          "title": "Slices"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "title": "Created At"
+        }
+      },
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "kind",
+        "created_at"
+      ],
+      "title": "WatchlistSummaryResponse"
+    },
+    "WatchlistSliceResponse": {
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "title": "Id"
+        },
+        "target_type": {
+          "type": "string",
+          "const": "SLICE",
+          "title": "Target Type",
+          "default": "SLICE"
+        },
+        "market_product_code": {
+          "type": "string",
+          "title": "Market Product Code"
+        },
+        "delivery_point_id": {
+          "type": "string",
+          "format": "uuid",
+          "title": "Delivery Point Id"
+        },
+        "delivery_point_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Delivery Point Name"
+        },
+        "availability_window_code": {
+          "type": "string",
+          "title": "Availability Window Code"
+        },
+        "active_order_count": {
+          "type": "integer",
+          "title": "Active Order Count",
+          "default": 0
+        },
+        "unread_event_count": {
+          "type": "integer",
+          "title": "Unread Event Count",
+          "default": 0
+        },
+        "latest_event_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Latest Event At"
+        },
+        "pins": {
+          "items": {
+            "$ref": "#/components/schemas/WatchlistTargetResponse"
+          },
+          "type": "array",
+          "title": "Pins"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "title": "Created At"
+        }
+      },
+      "type": "object",
+      "required": [
+        "id",
+        "market_product_code",
+        "delivery_point_id",
+        "availability_window_code",
+        "created_at"
+      ],
+      "title": "WatchlistSliceResponse"
+    },
+    "WatchlistTargetResponse": {
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "title": "Id"
+        },
+        "target_type": {
+          "type": "string",
+          "enum": [
+            "SLICE",
+            "PIN"
+          ],
+          "title": "Target Type"
+        },
+        "market_product_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Market Product Code"
+        },
+        "delivery_point_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Delivery Point Id"
+        },
+        "delivery_point_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Delivery Point Name"
+        },
+        "availability_window_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Availability Window Code"
+        },
+        "order_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Order Id"
+        },
+        "snapshot_price_per_mt_usd": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Snapshot Price Per Mt Usd"
+        },
+        "snapshot_quantity_mt": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Snapshot Quantity Mt"
+        },
+        "snapshot_remaining_quantity_mt": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Snapshot Remaining Quantity Mt"
+        },
+        "snapshot_status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Snapshot Status"
+        },
+        "snapshot_side": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Snapshot Side"
+        },
+        "snapshot_market_product": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Snapshot Market Product"
+        },
+        "snapshot_delivery_point_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Snapshot Delivery Point Name"
+        },
+        "snapshot_availability_window": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Snapshot Availability Window"
+        },
+        "snapshot_counterparty_label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Snapshot Counterparty Label"
+        },
+        "active_order_count": {
+          "type": "integer",
+          "title": "Active Order Count",
+          "default": 0
+        },
+        "unread_event_count": {
+          "type": "integer",
+          "title": "Unread Event Count",
+          "default": 0
+        },
+        "latest_event_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Latest Event At"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "title": "Created At"
+        }
+      },
+      "type": "object",
+      "required": [
+        "id",
+        "target_type",
+        "created_at"
+      ],
+      "title": "WatchlistTargetResponse"
+    },
+    "WatchlistCreateRequest": {
+      "properties": {
+        "name": {
+          "type": "string",
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Name"
+        }
+      },
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "title": "WatchlistCreateRequest"
+    },
+    "WatchlistDetailResponse": {
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "title": "Id"
+        },
+        "name": {
+          "type": "string",
+          "title": "Name"
+        },
+        "kind": {
+          "type": "string",
+          "title": "Kind"
+        },
+        "unread_event_count": {
+          "type": "integer",
+          "title": "Unread Event Count",
+          "default": 0
+        },
+        "latest_event_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Latest Event At"
+        },
+        "total_slice_count": {
+          "type": "integer",
+          "title": "Total Slice Count",
+          "default": 0
+        },
+        "has_more_slices": {
+          "type": "boolean",
+          "title": "Has More Slices",
+          "default": false
+        },
+        "slices": {
+          "items": {
+            "$ref": "#/components/schemas/WatchlistSliceResponse"
+          },
+          "type": "array",
+          "title": "Slices"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "title": "Created At"
+        }
+      },
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "kind",
+        "created_at"
+      ],
+      "title": "WatchlistDetailResponse"
+    },
+    "SliceTargetCreate": {
+      "properties": {
+        "target_type": {
+          "type": "string",
+          "const": "SLICE",
+          "title": "Target Type"
+        },
+        "market_product_code": {
+          "type": "string",
+          "title": "Market Product Code"
+        },
+        "delivery_point_id": {
+          "type": "string",
+          "format": "uuid",
+          "title": "Delivery Point Id"
+        },
+        "availability_window_code": {
+          "type": "string",
+          "title": "Availability Window Code"
+        }
+      },
+      "type": "object",
+      "required": [
+        "target_type",
+        "market_product_code",
+        "delivery_point_id",
+        "availability_window_code"
+      ],
+      "title": "SliceTargetCreate"
+    },
+    "PinTargetCreate": {
+      "properties": {
+        "target_type": {
+          "type": "string",
+          "const": "PIN",
+          "title": "Target Type"
+        },
+        "order_id": {
+          "type": "string",
+          "format": "uuid",
+          "title": "Order Id"
+        }
+      },
+      "type": "object",
+      "required": [
+        "target_type",
+        "order_id"
+      ],
+      "title": "PinTargetCreate"
+    },
+    "WatchlistEventsPageResponse": {
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/components/schemas/WatchlistEventResponse"
+          },
+          "type": "array",
+          "title": "Items"
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Next Cursor"
+        }
+      },
+      "type": "object",
+      "title": "WatchlistEventsPageResponse"
+    },
+    "WatchlistEventResponse": {
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "title": "Id"
+        },
+        "watchlist_id": {
+          "type": "string",
+          "format": "uuid",
+          "title": "Watchlist Id"
+        },
+        "watchlist_target_id": {
+          "type": "string",
+          "format": "uuid",
+          "title": "Watchlist Target Id"
+        },
+        "target_type": {
+          "type": "string",
+          "enum": [
+            "SLICE",
+            "PIN"
+          ],
+          "title": "Target Type"
+        },
+        "event_type": {
+          "type": "string",
+          "title": "Event Type"
+        },
+        "event_payload": {
+          "additionalProperties": true,
+          "type": "object",
+          "title": "Event Payload"
+        },
+        "source_kind": {
+          "$ref": "#/components/schemas/MarketSourceKind",
+          "default": "UNKNOWN"
+        },
+        "scope": {
+          "$ref": "#/components/schemas/MarketScope",
+          "default": "UNKNOWN"
+        },
+        "demo_status": {
+          "$ref": "#/components/schemas/MarketDemoStatus",
+          "default": "UNKNOWN"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Observed At"
+        },
+        "market_product_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Market Product Code"
+        },
+        "delivery_point_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Delivery Point Id"
+        },
+        "delivery_point_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Delivery Point Name"
+        },
+        "availability_window_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Availability Window Code"
+        },
+        "order_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Order Id"
+        },
+        "is_read": {
+          "type": "boolean",
+          "title": "Is Read"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "title": "Created At"
+        }
+      },
+      "type": "object",
+      "required": [
+        "id",
+        "watchlist_id",
+        "watchlist_target_id",
+        "target_type",
+        "event_type",
+        "is_read",
+        "created_at"
+      ],
+      "title": "WatchlistEventResponse"
+    },
+    "MarketSourceKind": {
+      "type": "string",
+      "enum": [
+        "CONFIRMED_TRADE",
+        "LIVE_ORDER",
+        "LIVE_INVENTORY",
+        "DEMO_SEED",
+        "BENCHMARK_REFERENCE",
+        "MIXED_SOURCE",
+        "NO_DATA",
+        "UNKNOWN"
+      ],
+      "title": "MarketSourceKind"
+    },
+    "MarketScope": {
+      "type": "string",
+      "enum": [
+        "DELIVERY_POINT",
+        "REGION",
+        "PRODUCT",
+        "UNKNOWN"
+      ],
+      "title": "MarketScope"
+    },
+    "MarketDemoStatus": {
+      "type": "string",
+      "enum": [
+        "REAL_ONLY",
+        "DEMO_ONLY",
+        "MIXED",
+        "UNKNOWN",
+        "NOT_APPLICABLE"
+      ],
+      "title": "MarketDemoStatus"
+    },
+    "WatchlistEntryAddRequest": {
+      "properties": {
+        "product_id": {
+          "type": "string",
+          "format": "uuid",
+          "title": "Product Id"
+        },
+        "delivery_point_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Delivery Point Id"
+        }
+      },
+      "type": "object",
+      "required": [
+        "product_id"
+      ],
+      "title": "WatchlistEntryAddRequest"
+    },
+    "preference:market_watch": {
+      "$defs": {
+        "MarketProduct": {
+          "enum": [
+            "B30",
+            "B100",
+            "UCOME_B100",
+            "BIO_LNG",
+            "BIO_METHANOL",
+            "E_METHANOL",
+            "BIO_ETHANOL",
+            "SYNTHETIC_ETHANOL"
+          ],
+          "title": "MarketProduct",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "products": {
+          "items": {
+            "$ref": "#/$defs/MarketProduct"
+          },
+          "title": "Products",
+          "type": "array"
+        },
+        "portIds": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Portids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "products",
+        "portIds"
+      ],
+      "title": "MarketWatchPreferences",
+      "type": "object"
+    },
+    "preference:notifications": {
+      "additionalProperties": false,
+      "properties": {
+        "email_trade_updates": {
+          "title": "Email Trade Updates",
+          "type": "boolean"
+        },
+        "email_market_alerts": {
+          "title": "Email Market Alerts",
+          "type": "boolean"
+        },
+        "email_compliance_digest": {
+          "title": "Email Compliance Digest",
+          "type": "boolean"
+        },
+        "email_system_announcements": {
+          "title": "Email System Announcements",
+          "type": "boolean"
+        },
+        "inapp_trade_updates": {
+          "title": "Inapp Trade Updates",
+          "type": "boolean"
+        },
+        "inapp_market_alerts": {
+          "title": "Inapp Market Alerts",
+          "type": "boolean"
+        },
+        "inapp_order_matches": {
+          "title": "Inapp Order Matches",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "email_trade_updates",
+        "email_market_alerts",
+        "email_compliance_digest",
+        "email_system_announcements",
+        "inapp_trade_updates",
+        "inapp_market_alerts",
+        "inapp_order_matches"
+      ],
+      "title": "NotificationPreferences",
+      "type": "object"
+    },
+    "preference:tutorial": {
+      "additionalProperties": false,
+      "properties": {
+        "completed": {
+          "title": "Completed",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "completed"
+      ],
+      "title": "TutorialPreferences",
+      "type": "object"
+    }
+  }
+}

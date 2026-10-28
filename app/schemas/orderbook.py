@@ -5,15 +5,7 @@ from datetime import UTC, datetime, date
 from decimal import Decimal
 from enum import Enum
 
-from app.schemas.lng_terms import (
-    LngBidTerms,
-    LngOrderTerms,
-    LngPublicOrderTerms,
-    LngPublicTradeSnapshot,
-    LngTradeSnapshot,
-)
 from app.schemas.market_activity import MarketDemoStatus, MarketScope, MarketSourceKind
-from app.services.lng_terms import public_lng_terms
 from app.services.availability_windows import (
     JSON_SCHEMA_PATTERN,
     SPOT_WINDOW,
@@ -23,6 +15,9 @@ from app.schemas.market_integrity import (
     aware_datetime,
     finite_decimal,
     future_aware_datetime,
+)
+from app.schemas.fame_order import (
+    FameOrderTerms, FamePublicOrderTerms, FameTradeSnapshot, FamePublicTradeSnapshot,
 )
 
 
@@ -60,8 +55,6 @@ class FuelGrade(str, Enum):
     BIO = "Bio"
     E = "E"
     SYNTHETIC = "Synthetic"
-    B30 = "B30"
-    B100 = "B100"
 
 
 class TierLabel(str, Enum):
@@ -92,10 +85,10 @@ class AvailabilityWindowMixin(BaseModel):
 class SupplierListingMetadataMixin(BaseModel):
     certification_declared: bool = False
     certification_scheme: Optional[str] = None
-    specification_standard: Optional[str] = Field(None, max_length=120)
+    specification_standard: Optional[str] = None
     msds_available: bool = False
     carbon_intensity_gco2_mj: Optional[Decimal] = Field(None, ge=0)
-    carbon_intensity_method: Optional[str] = Field(None, max_length=120)
+    carbon_intensity_method: Optional[str] = None
     feedstock: Optional[str] = None
     origin: Optional[str] = None
     off_spec: bool = False
@@ -146,6 +139,11 @@ class MarketSupportFinalConfirmation(BaseModel):
 
 # ============== Order Schemas ==============
 
+from app.schemas.lng_order import (
+    LngOrderTerms, LngPublicOrderTerms, LngTradeSnapshot, LngPublicTradeSnapshot,
+)
+
+
 class OrderCreate(AvailabilityWindowMixin, SupplierListingMetadataMixin):
     """Used by both buyers (side=BID) and suppliers (side=ASK) to place an order."""
     side: OrderSide
@@ -160,8 +158,9 @@ class OrderCreate(AvailabilityWindowMixin, SupplierListingMetadataMixin):
     certification_scheme: Optional[str] = None
     expires_at: Optional[datetime] = None
     is_anonymous: Literal[True] = True
-    lng_terms: LngOrderTerms | None = None
     support_confirmation: MarketSupportFinalConfirmation | None = None
+    fame_terms: FameOrderTerms | None = None
+    lng_terms: LngOrderTerms | None = None
 
     @field_validator("quantity_mt", "price_per_mt_usd")
     @classmethod
@@ -197,15 +196,16 @@ class OrderUpdate(AvailabilityWindowMixin):
     certifications: Optional[list[str]] = None
     certification_declared: Optional[bool] = None
     certification_scheme: Optional[str] = None
-    specification_standard: Optional[str] = Field(None, max_length=120)
+    specification_standard: Optional[str] = None
     msds_available: Optional[bool] = None
     carbon_intensity_gco2_mj: Optional[Decimal] = Field(None, ge=0)
-    carbon_intensity_method: Optional[str] = Field(None, max_length=120)
+    carbon_intensity_method: Optional[str] = None
     feedstock: Optional[str] = None
     origin: Optional[str] = None
     off_spec: Optional[bool] = None
     off_spec_notes: Optional[str] = None
     expires_at: Optional[datetime] = None
+    fame_terms: FameOrderTerms | None = None
     lng_terms: LngOrderTerms | None = None
 
     @field_validator("quantity_mt", "price_per_mt_usd")
@@ -235,6 +235,9 @@ class OrderResponse(AvailabilityWindowMixin, SupplierListingMetadataMixin):
     """Public/anonymized order for the book. organization_id is NOT included."""
     id: UUID
     terms_digest: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    version: int = 1
+    fame_terms: FamePublicOrderTerms | None = None
+    lng_terms: LngPublicOrderTerms | None = None
     side: OrderSide
     product_id: UUID
     product_name: str = ""
@@ -264,13 +267,6 @@ class OrderResponse(AvailabilityWindowMixin, SupplierListingMetadataMixin):
     scope: MarketScope = MarketScope.UNKNOWN
     demo_status: MarketDemoStatus = MarketDemoStatus.UNKNOWN
     unknown_count: int = 0
-    lng_terms: LngPublicOrderTerms | None = None
-
-    @field_validator("lng_terms", mode="before")
-    @classmethod
-    def _redact_lng_terms(cls, value):
-        """The public book never shows the seller's certificate or physical supplier."""
-        return public_lng_terms(value)
 
     class Config:
         from_attributes = True
@@ -292,24 +288,21 @@ class OrderBookSnapshotResponse(AvailabilityWindowMixin):
 class OrderMyResponse(OrderResponse):
     """Owner view with extra detail (includes org ID and vessel)."""
     organization_id: UUID
+    fame_terms: FameOrderTerms | None = None
+    lng_terms: LngOrderTerms | None = None
     vessel_id: Optional[UUID] = None
     updated_at: datetime
     trade_count: int = 0
     creation_method: str = "LEGACY_UNKNOWN"
     version: int = 1
     etag: str | None = None
-    lng_terms: LngOrderTerms | None = None
-
-    @field_validator("lng_terms", mode="before")
-    @classmethod
-    def _redact_lng_terms(cls, value):
-        """The owner sees its own full terms; this replaces the public redaction."""
-        return value
 
 
 class SupplierListingTemplateResponse(AvailabilityWindowMixin, SupplierListingMetadataMixin):
     """Safe supplier defaults for creating the next ASK listing."""
     product_id: UUID
+    fame_terms: FameOrderTerms | None = None
+    lng_terms: LngOrderTerms | None = None
     delivery_point_id: UUID
     quantity_mt: Decimal
     price_per_mt_usd: Decimal
@@ -325,9 +318,12 @@ class TradeCreate(BaseModel):
     expected_terms_digest: str | None = Field(
         None, min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$"
     )
+    expected_order_version: int | None = Field(None, ge=1)
+    fame_terms: FameOrderTerms | None = None
+    lng_terms: LngOrderTerms | None = None
+    certification_declared: bool = False
+    msds_available: bool = False
     quantity_mt: Decimal = Field(..., gt=0, le=100000, max_digits=12, decimal_places=2, allow_inf_nan=False)
-    # A buyer taking a Bio-LNG ASK states its requirements here.
-    lng_terms: LngBidTerms | None = None
 
     @field_validator("quantity_mt")
     @classmethod
@@ -338,6 +334,8 @@ class TradeCreate(BaseModel):
 class TradeResponse(BaseModel):
     """Trade detail with viewer-aware party identity."""
     id: UUID
+    fame_terms_snapshot: FameTradeSnapshot | FamePublicTradeSnapshot | None = None
+    lng_terms_snapshot: LngTradeSnapshot | LngPublicTradeSnapshot | None = None
     bid_order_id: Optional[UUID] = None
     ask_order_id: Optional[UUID] = None
     buyer_id: Optional[UUID] = None
@@ -375,7 +373,6 @@ class TradeResponse(BaseModel):
     scope: MarketScope = MarketScope.UNKNOWN
     demo_status: MarketDemoStatus = MarketDemoStatus.UNKNOWN
     unknown_count: int = 0
-    lng_terms_snapshot: LngTradeSnapshot | LngPublicTradeSnapshot | None = None
 
     class Config:
         from_attributes = True
@@ -553,12 +550,13 @@ class ReferencePriceResponse(BaseModel):
 
 class CIAdjustedPrice(BaseModel):
     """
-    CI-adjusted effective price for an orderbook order.
+    Declared lifecycle CI comparison with the 91.16 gCO2e/MJ reference.
 
-    effective_price = base_price + compliance_cost_differential
-    where compliance_cost accounts for the carbon intensity gap
-    vs FuelEU Maritime reference value (91 gCO2eq/MJ for 2025).
+    Legacy financial fields carry no inferred regulatory benefit: compliance
+    cost is zero and effective price equals base price. CI alone cannot
+    establish maritime ETS savings or owned FuelEU pooling income.
     """
+    financial_benefit_status: Literal["UNPRICED"] = "UNPRICED"
     base_price_per_mt: Decimal
     carbon_intensity_gco2_mj: Decimal
     fueleu_ghg_intensity: Decimal

@@ -16,6 +16,11 @@ WorkingDirectory=/home/verdaxis-prod/verdaxis/prod/be
 EnvironmentFile=/home/verdaxis-prod/verdaxis/prod/be/.env
 EnvironmentFile=/home/verdaxis-prod/verdaxis/prod/be/.runtime-release.env
 Environment=UVICORN_WORKERS=4
+# A missing key file fails the unit start (243/CREDENTIALS): the approved
+# no-key-ring state is an EMPTY root:root 0400 file at this path. The
+# application treats that empty credential as absent (KYC storage disabled,
+# readiness unaffected). See the security runbook's KYC key operations.
+LoadCredential=kyc-document-keys:/etc/verdaxis/kyc-document-keys.json
 ExecStartPre=/usr/bin/test -r /home/verdaxis-prod/verdaxis/prod/be/.env
 ExecStartPre=/usr/bin/test -r /home/verdaxis-prod/verdaxis/prod/be/.runtime-release.env
 ExecStartPre=/usr/bin/env -i /usr/bin/python3 -I -S -B /home/verdaxis-prod/verdaxis/prod/be/scripts/verify_deploy_start_guard.py --environment production --expected-release-sha ${RELEASE_SHA}

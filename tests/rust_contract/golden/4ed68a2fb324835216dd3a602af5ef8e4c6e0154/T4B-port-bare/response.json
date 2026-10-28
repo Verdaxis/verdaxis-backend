@@ -1,0 +1,19 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "id": "T4B_BARE",
+    "name": "Corpus BARE",
+    "country": "Singapore",
+    "location": null,
+    "timezone": "Asia/Singapore",
+    "is_active": true,
+    "lat": "1.234567891234",
+    "lng": "103.123456789123",
+    "intelligence": null
+  },
+  "body_sha256": "0d46d3606c16a8ed9706d7add1759bdfdc8f0da670a403758352b54e94fecd6c"
+}

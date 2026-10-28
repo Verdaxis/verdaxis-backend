@@ -2,7 +2,6 @@
 import ast
 from pathlib import Path
 
-
 EXPECTED_AUDIT_CONSTANTS = {
     "ADMIN_ORGANIZATION_APPROVED": "admin.organization_approved",
     "ADMIN_ORGANIZATION_REJECTED": "admin.organization_rejected",
@@ -14,8 +13,8 @@ EXPECTED_AUDIT_CONSTANTS = {
     "KYC_APPROVED": "kyc.approved",
     "KYC_REJECTED": "kyc.rejected",
     "KYC_SUBMITTED": "kyc.submitted",
+    "KYC_DOCUMENT_VIEWED": "kyc.document_viewed",
     "KYC_MEMBERSHIP_INVALIDATED": "kyc.membership_invalidated",
-    "KYC_GRACE_NOTICE_SENT": "kyc.grace_notice_sent",
     "MARKET_ACCESS_INVALIDATED": "market.access_invalidated",
     "MARKET_SUPPORT_AUTHORIZATION_CREATED": "market_support.authorization_created",
     "MARKET_SUPPORT_AUTHORIZATION_REVOKED": "market_support.authorization_revoked",
@@ -35,9 +34,13 @@ EXPECTED_AUDIT_CONSTANTS = {
     "ORDER_UPDATED": "order.updated",
     "RFQ_CANCELLED": "rfq.cancelled",
     "RFQ_CREATED": "rfq.created",
+    "RFQ_QUOTE_REVISED": "rfq.quote_revised",
     "RFQ_QUOTE_SUBMITTED": "rfq.quote_submitted",
     "RFQ_QUOTE_WITHDRAWN": "rfq.quote_withdrawn",
     "SUBSCRIPTION_UPDATED": "subscription.updated",
+    "SUPPLIER_OFFER_CREATED": "supplier_offer.created",
+    "SUPPLIER_OFFER_UPDATED": "supplier_offer.updated",
+    "SUPPLIER_OFFER_WITHDRAWN": "supplier_offer.withdrawn",
     "TRADE_AUTO_MATCHED": "trade.auto_matched",
     "TRADE_CANCELLED": "trade.cancelled",
     "TRADE_CONFIRMED": "trade.confirmed",
@@ -45,11 +48,6 @@ EXPECTED_AUDIT_CONSTANTS = {
     "TRADE_DECLINED": "trade.declined",
     "TRADE_DELIVERED": "trade.delivered",
     "TRADE_PAID": "trade.paid",
-    "WATCHLIST_SAVED_TARGET": "watchlist.saved_target",
-    "WATCHLIST_REMOVED_TARGET": "watchlist.removed_target",
-    "WATCHLIST_PINNED": "watchlist.pinned",
-    "WATCHLIST_UNPINNED": "watchlist.unpinned",
-    "MARKET_WATCH_PREFERENCES_SAVED": "preferences.market_watch_saved",
     "USER_PASSWORD_CHANGED": "user.password_changed",
     "USER_PASSWORD_RESET_COMPLETED": "user.password_reset_completed",
     "USER_PASSWORD_RESET_REQUESTED": "user.password_reset_requested",

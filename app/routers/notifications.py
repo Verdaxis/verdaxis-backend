@@ -1,15 +1,15 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import desc, select, func, update
-from typing import List, Any
 import uuid
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import UUID4, BaseModel, field_validator
+from sqlalchemy import desc, func, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.notification import Notification
 from app.models.user import User
 from app.routers.auth_simple import get_current_user
-from pydantic import BaseModel, UUID4, field_validator
-from datetime import datetime
 
 router = APIRouter(
     prefix="/notifications",
@@ -36,7 +36,7 @@ class NotificationResponse(BaseModel):
     class Config:
         from_attributes = True
 
-@router.get("", response_model=List[NotificationResponse])
+@router.get("", response_model=list[NotificationResponse])
 async def get_notifications(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),

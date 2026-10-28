@@ -1,0 +1,32 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "prices": [
+      {
+        "product_id": "9510c713-6e39-5080-add3-0a7c29657b79",
+        "product_name": "Bio Methanol",
+        "market_product": "BIO_METHANOL",
+        "fuel_type": "Methanol",
+        "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+        "delivery_point_name": "Singapore",
+        "availability_window": "SPOT",
+        "region": "Asia",
+        "vwap_usd": "600.00",
+        "total_volume_mt": "300.00",
+        "trade_count": 3,
+        "date": "2026-10-15",
+        "visibility": "external",
+        "source_kind": "CONFIRMED_TRADE",
+        "scope": "DELIVERY_POINT",
+        "demo_status": "REAL_ONLY",
+        "is_reference": true
+      }
+    ],
+    "generated_at": "2026-10-15T12:00:00Z"
+  },
+  "body_sha256": "d50498d9a1571761b2915c042aa62977475d6cc4ac1e73dfc3c6d8d861211e84"
+}

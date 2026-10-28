@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import Organization, User
 from app.services.demo_market import DEMO_ACTIVITY_ORG_IDS
-from app.services.execution_policy import MarketPartyPolicy, market_party_is_eligible
+from app.services.execution_policy import market_party_is_admitted
 from app.services.provenance import execution_provenance_compatible
 
 
@@ -37,17 +37,20 @@ async def lock_and_load_market_organizations(
     organization_ids: Iterable[UUID],
     *,
     actor_ownerships: Iterable[MarketActorOwnership] = (),
-    actor_policy: MarketPartyPolicy = MarketPartyPolicy.EXECUTION,
     require_approved: bool = True,
     require_approved_ids: Iterable[UUID] = (),
+    require_execution_eligible: bool = True,
+    require_kyc: bool = False,
 ) -> dict[UUID, Organization]:
     """Lock users, then organizations, after every affected market row.
 
     Security owns the eligibility decision exposed at the route dependency;
     market owns this transaction-local revalidation and exact user ownership
     check.  Future security ``owner_user_id`` columns can be passed here
-    without introducing another lock namespace. ``actor_policy`` must match
-    the route gate; it defaults to the strictest policy.
+    without introducing another lock namespace.
+
+    A withdrawal may disable execution eligibility and approval checks. It
+    still revalidates the actor's current membership under the same locks.
     """
     ids = tuple(sorted(set(organization_ids), key=str))
     if not ids:
@@ -111,11 +114,15 @@ async def lock_and_load_market_organizations(
             detail="Organization is not approved for market activity",
         )
     for user_id, organization_id in ownership_by_user.items():
-        if not await market_party_is_eligible(
+        if require_kyc:
+            from app.services.kyc_execution import require_kyc_execution
+
+            await require_kyc_execution(db, users[user_id])
+        if require_execution_eligible and not await market_party_is_admitted(
             db,
             user=users[user_id],
             organization=organizations[organization_id],
-            policy=actor_policy,
+            check_legacy_kyc=not require_kyc,
         ):
             raise HTTPException(
                 status_code=409,

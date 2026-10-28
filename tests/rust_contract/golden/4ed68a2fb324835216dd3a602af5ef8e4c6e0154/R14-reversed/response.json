@@ -1,0 +1,11 @@
+{
+  "status": 422,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "detail": "from_date must be before or equal to to_date"
+  },
+  "body_sha256": "42b177f1e95c455de4dc4e6fc319158d234ec1d0d0f93e4e95eb2321c324e1c0"
+}

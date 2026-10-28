@@ -32,7 +32,14 @@ from app.models.market_support import (
     MarketSupportContext as MarketSupportContextModel,
 )
 from app.models.notification import NotificationType
-from app.market_catalog import APPROVED_MARKET_PRODUCTS, MarketProduct, product_delivery_point_error
+from app.market_catalog import APPROVED_MARKET_PRODUCTS, MarketProduct, PRODUCTS_BY_ID
+from app.services.market_catalog_validation import require_orderbook_product
+from app.services.lng_order import (
+    is_lng_product, lng_metadata_fields, validate_lng_order_admission,
+)
+from app.services.fame_order import (
+    fame_metadata_fields, is_fame_product, public_fame_terms, validate_fame_order_terms,
+)
 from app.models.catalog import Product, DeliveryPoint
 from app.schemas.orderbook import (
     OrderCreate,
@@ -57,7 +64,7 @@ from app.schemas.market_activity import (
     MarketScope,
     MarketSourceKind,
 )
-from app.services.ci_pricing import ci_adjusted_price_for_order
+from app.services.ci_pricing import calculate_ci_adjusted_price
 from app.services.activity import order_activity_provenance
 from app.services.market_events import (
     commit_market_events,
@@ -75,14 +82,7 @@ from app.services.availability_windows import (
 from pydantic import BaseModel
 from app.services.benchmarks import compute_premium_discount
 from app.services.watchlist_events import emit_order_created, emit_order_updated, _best_slice_price
-from app.services.execution_policy import (
-    MarketPartyPolicy,
-    ask_carbon_intensity_clause,
-    normalize_certification_scheme,
-    scalar_carbon_intensity_required,
-    supplier_product_metadata_error,
-)
-from app.services.lng_terms import derived_order_fields, is_bio_lng_product, validate_order_lng_terms
+from app.services.execution_policy import normalize_certification_scheme, supplier_product_metadata_error
 from app.services.market_locks import (
     acquire_market_slice_lock,
     acquire_market_slice_locks,
@@ -104,18 +104,18 @@ from app.services.inventory_reservations import release_inventory, reserve_inven
 from app.services.order_quantity import require_minimum_order_quantity
 from app.services.provenance import snapshot_organization_provenance
 from app.services.market_provenance import (
-    canonical_availability_window_clause,
     order_market_provenance,
     public_order_evidence_clause,
 )
 from app.services.market_data_eligibility import (
-    active_market_catalog_clauses,
     canonical_delivery_point_clause,
     canonical_market_product_expression,
-    current_public_order_clause,
-    public_order_collection_provenance_clause,
     public_order_is_visible,
     public_trade_is_visible,
+)
+from app.services.public_order_scope import (
+    apply_public_marketplace_scope as _apply_public_marketplace_scope,
+    public_order_scope as _public_order_scope,
 )
 from app.services.live_benchmarks import (
     LiveBenchmarkKey,
@@ -130,10 +130,6 @@ from app.services.behavioral_analytics import (
     trade_created_event,
 )
 from app.services.auto_match_side_effects import collect_auto_match_side_effects
-from app.services.kyc_execution import (
-    customer_organization_is_execution_eligible,
-    customer_organization_kyc_error,
-)
 from app.services.market_admission import (
     MarketActorOwnership,
     lock_and_load_market_organizations,
@@ -236,64 +232,6 @@ def _amendment_loses_priority(
         and bool(order.off_spec)
         and not bool(changes["off_spec"])
     )
-
-
-def _ensure_join(joins: list[tuple[object, object]], target: object, condition: object) -> None:
-    if not any(existing_target == target for existing_target, _ in joins):
-        joins.append((target, condition))
-
-
-def _apply_public_marketplace_scope(
-    filters: list[object],
-    joins: list[tuple[object, object]],
-    *,
-    include_off_spec: bool = False,
-    as_of: datetime | None = None,
-) -> None:
-    _ensure_join(joins, Product, OrderBookOrder.product_id == Product.id)
-    _ensure_join(
-        joins,
-        DeliveryPoint,
-        OrderBookOrder.delivery_point_id == DeliveryPoint.id,
-    )
-    filters.extend(active_market_catalog_clauses(Product, DeliveryPoint))
-    filters.append(
-        canonical_availability_window_clause(OrderBookOrder.availability_window)
-    )
-    filters.append(
-        current_public_order_clause(OrderBookOrder, now_expression=as_of)
-    )
-    filters.append(public_order_collection_provenance_clause(OrderBookOrder))
-    if not include_off_spec:
-        filters.append(OrderBookOrder.off_spec.is_(False))
-    filters.append(or_(OrderBookOrder.side != OrderSide.ASK, func.length(func.trim(func.coalesce(OrderBookOrder.certification_scheme, ""))) > 0))
-    filters.append(or_(OrderBookOrder.side != OrderSide.ASK, OrderBookOrder.certification_declared.is_(True)))
-    filters.append(or_(OrderBookOrder.side != OrderSide.ASK, func.length(func.trim(func.coalesce(OrderBookOrder.specification_standard, ""))) > 0))
-    filters.append(or_(OrderBookOrder.side != OrderSide.ASK, OrderBookOrder.msds_available.is_(True)))
-    filters.append(or_(OrderBookOrder.side != OrderSide.ASK, ask_carbon_intensity_clause(OrderBookOrder, OrderBookOrder.product_id)))
-    filters.append(or_(OrderBookOrder.side != OrderSide.ASK, func.length(func.trim(func.coalesce(OrderBookOrder.feedstock, ""))) > 0))
-    filters.append(or_(OrderBookOrder.side != OrderSide.ASK, func.length(func.trim(func.coalesce(OrderBookOrder.origin, ""))) > 0))
-
-
-def _public_order_scope(
-    *,
-    side: OrderSide | None = None,
-    include_off_spec: bool = False,
-    as_of: datetime | None = None,
-) -> tuple[list[object], list[tuple[object, object]]]:
-    filters: list[object] = [
-        OrderBookOrder.status.in_((OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED))
-    ]
-    if side is not None:
-        filters.append(OrderBookOrder.side == side)
-    joins: list[tuple[object, object]] = []
-    _apply_public_marketplace_scope(
-        filters,
-        joins,
-        include_off_spec=include_off_spec,
-        as_of=as_of,
-    )
-    return filters, joins
 
 
 def _normalize_market_product_query(value: MarketProduct | str | None) -> str | None:
@@ -477,7 +415,7 @@ def _require_supplier_metadata(
         missing.append('specification_standard')
     if not msds_available:
         missing.append('msds_available')
-    if carbon_intensity_gco2_mj is None and scalar_carbon_intensity_required(product_id):
+    if carbon_intensity_gco2_mj is None:
         missing.append('carbon_intensity_gco2_mj')
     if not (feedstock or '').strip():
         missing.append('feedstock')
@@ -488,6 +426,7 @@ def _require_supplier_metadata(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"ASK orders require supplier details: {', '.join(missing)}",
         )
+
     product_error = supplier_product_metadata_error(
         product_id,
         specification_standard=specification_standard,
@@ -1136,7 +1075,7 @@ async def list_orders_with_ci(
         query = query.join(join_target, join_cond)
     query = (
         query.where(*filters)
-        .order_by(OrderBookOrder.created_at.desc())
+        .order_by(OrderBookOrder.created_at.desc(), OrderBookOrder.id.desc())
         .offset(skip)
         .limit(limit)
     )
@@ -1148,9 +1087,21 @@ async def list_orders_with_ci(
 
     enriched = []
     for order in orders:
+        ci_price = None
+        if (
+            not is_lng_product(order.product_id)
+            and order.carbon_intensity_gco2_mj is not None
+            and order.energy_density_mj_kg is not None
+            and order.energy_density_mj_kg > 0
+        ):
+            ci_price = calculate_ci_adjusted_price(
+                base_price_per_mt=order.price_per_mt_usd,
+                carbon_intensity_gco2_mj=order.carbon_intensity_gco2_mj,
+                energy_density_mj_kg=order.energy_density_mj_kg,
+            )
         base_resp = await _order_response(db, order, benchmark_cache=benchmark_cache)
         resp = OrderResponseWithCI.model_validate(base_resp.model_dump())
-        resp.ci_adjusted_price = ci_adjusted_price_for_order(order)
+        resp.ci_adjusted_price = ci_price
         enriched.append(resp)
 
     return enriched
@@ -1259,6 +1210,8 @@ async def latest_supplier_listing_template(
         origin=latest_ask.origin,
         off_spec=False,
         off_spec_notes=None,
+        fame_terms=getattr(latest_ask, "fame_terms", None),
+        lng_terms=getattr(latest_ask, "lng_terms", None),
     )
     return payload
 
@@ -1846,7 +1799,7 @@ async def list_orders(
         query = query.join(join_target, join_cond)
     query = (
         query.where(*filters)
-        .order_by(OrderBookOrder.created_at.desc())
+        .order_by(OrderBookOrder.created_at.desc(), OrderBookOrder.id.desc())
         .offset(effective_skip)
         .limit(effective_limit)
     )
@@ -1868,6 +1821,9 @@ async def create_order(
     Place a new order. Self-service BID requires BUYER role and ASK requires
     SUPPLIER role; an assisted context is authorized at organization level.
     """
+    # Each transaction attempt derives display metadata independently. Keep
+    # the caller's payload unchanged so retries retain the same request hash.
+    order_data = order_data.model_copy(deep=True)
     party = await resolve_request_party(request, db, current_user, operation="create_order")
     if party.mode == RequestPartyMode.SELF_SERVICE:
         if order_data.support_confirmation is not None:
@@ -1935,13 +1891,12 @@ async def create_order(
         if existing_order is not None:
             return await _order_response(db, existing_order)
 
-    # Only a new execution is gated; an exact replay returned above.
-    if party.mode == RequestPartyMode.MARKET_SUPPORT:
-        if not await customer_organization_is_execution_eligible(db, effective_organization_id):
-            raise customer_organization_kyc_error()
-    elif isinstance(current_user, User):
-        current_user = await require_execution_eligible_user(current_user=current_user, db=db)
+    if party.mode == RequestPartyMode.SELF_SERVICE:
+        from app.services.kyc_execution import require_kyc_execution
 
+        await require_kyc_execution(db, current_user)
+        if isinstance(current_user, User):
+            current_user = await require_execution_eligible_user(current_user=current_user, db=db)
     if (
         party.mode == RequestPartyMode.SELF_SERVICE
         and order_data.side == OrderSide.BID
@@ -1968,11 +1923,23 @@ async def create_order(
             detail="Availability window is no longer open for new orders",
         )
 
-    lng_terms = validate_order_lng_terms(order_data.product_id, order_data.side, order_data.lng_terms)
+    fame_terms = validate_fame_order_terms(
+        order_data.product_id, order_data.side, order_data.fame_terms, order_data.availability_window
+    )
+    if fame_terms is not None:
+        if order_data.quantity_mt < 1:
+            raise HTTPException(422, "UCOME B100 orders require at least 1 MT")
+        for field, value in fame_metadata_fields(fame_terms).items():
+            if field in OrderCreate.model_fields:
+                setattr(order_data, field, value)
+    lng_terms = validate_lng_order_admission(order_data.product_id, order_data.side, order_data.lng_terms)
     if lng_terms is not None:
-        # Bio-LNG scalars come only from the validated terms, never from the client.
-        order_data = order_data.model_copy(update=derived_order_fields(order_data.side, lng_terms))
-
+        if order_data.quantity_mt < 1:
+            raise HTTPException(422, "Bio-LNG orders require at least 1 MT")
+        if order_data.side == OrderSide.ASK:
+            for field, value in lng_metadata_fields(lng_terms).items():
+                if field in OrderCreate.model_fields:
+                    setattr(order_data, field, value)
     normalized_certification_scheme = normalize_certification_scheme(order_data.certification_scheme)
 
     if order_data.side != OrderSide.ASK:
@@ -1987,15 +1954,19 @@ async def create_order(
             certification_declared=order_data.certification_declared,
             certification_scheme=normalized_certification_scheme,
         )
-        _require_supplier_metadata(
-            specification_standard=order_data.specification_standard,
-            msds_available=order_data.msds_available,
-            carbon_intensity_gco2_mj=order_data.carbon_intensity_gco2_mj,
-            feedstock=order_data.feedstock,
-            origin=order_data.origin,
-            product_id=order_data.product_id,
-            carbon_intensity_method=order_data.carbon_intensity_method,
-        )
+        if fame_terms is not None or lng_terms is not None:
+            if not order_data.msds_available:
+                raise HTTPException(422, "ASK orders require an available safety data sheet")
+        else:
+            _require_supplier_metadata(
+                product_id=order_data.product_id,
+                carbon_intensity_method=order_data.carbon_intensity_method,
+                specification_standard=order_data.specification_standard,
+                msds_available=order_data.msds_available,
+                carbon_intensity_gco2_mj=order_data.carbon_intensity_gco2_mj,
+                feedstock=order_data.feedstock,
+                origin=order_data.origin,
+            )
 
     # Validate product_id exists
     product_result = await db.execute(
@@ -2012,6 +1983,11 @@ async def create_order(
             detail="Invalid product_id",
         )
 
+    require_orderbook_product(product)
+    spec = PRODUCTS_BY_ID.get(product.id)
+    if spec is not None and spec.available_delivery_point_ids is not None and order_data.delivery_point_id not in spec.available_delivery_point_ids:
+        raise HTTPException(400, "This product is not available at the selected delivery point")
+
     # Validate delivery_point_id if provided
     if order_data.delivery_point_id:
         dp_result = await db.execute(
@@ -2025,9 +2001,6 @@ async def create_order(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid delivery_point_id",
             )
-    lane_error = product_delivery_point_error(order_data.product_id, order_data.delivery_point_id)
-    if lane_error:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=lane_error)
 
     # Global mutation order: idempotency lock, exact slice lock, then the
     # concrete user and organization rows. There is no existing market row
@@ -2046,11 +2019,6 @@ async def create_order(
     )
     acceptance_ordinal = await next_order_acceptance_ordinal(db)
     await lock_request_party_context(db, party)
-    if party.mode == RequestPartyMode.MARKET_SUPPORT:
-        if not await customer_organization_is_execution_eligible(
-            db, effective_organization_id, lock_member=True
-        ):
-            raise customer_organization_kyc_error()
     organizations = await lock_and_load_market_organizations(
         db,
         [effective_organization_id],
@@ -2059,8 +2027,13 @@ async def create_order(
             if party.mode == RequestPartyMode.MARKET_SUPPORT
             else (MarketActorOwnership(party.accountable_principal.id, effective_organization_id),)
         ),
+        require_kyc=party.mode == RequestPartyMode.SELF_SERVICE,
     )
     organization = organizations[effective_organization_id]
+    if party.mode == RequestPartyMode.MARKET_SUPPORT:
+        from app.services.execution_policy import require_customer_organization_execution
+
+        await require_customer_organization_execution(db, organization)
     require_minimum_order_quantity(
         quantity_mt=order_data.quantity_mt,
         product=product,
@@ -2093,6 +2066,7 @@ async def create_order(
         availability_window=order_data.availability_window,
         expires_at=order_data.expires_at,
         certification_scheme=normalized_certification_scheme,
+        fame_terms=fame_terms,
         lng_terms=lng_terms,
         idempotency_key=idempotency_key,
         idempotency_operation=(ORDER_CREATE_OPERATION if idempotency_key else None),
@@ -2103,6 +2077,13 @@ async def create_order(
 
     if order_data.side == OrderSide.ASK:
         for field, value in _supplier_metadata_payload(order_data).items():
+            setattr(new_order, field, value)
+    if fame_terms is not None:
+        for field, value in fame_metadata_fields(fame_terms).items():
+            setattr(new_order, field, value)
+
+    if lng_terms is not None:
+        for field, value in lng_metadata_fields(lng_terms).items():
             setattr(new_order, field, value)
 
     new_order.product = product
@@ -2183,6 +2164,8 @@ async def create_order(
             certifications=list(order_data.certifications),
             certification_declared=order_data.certification_declared,
             certification_scheme=normalized_certification_scheme,
+            fame_terms=fame_terms,
+            lng_terms=lng_terms,
             specification_standard=order_data.specification_standard,
             msds_available=order_data.msds_available,
             carbon_intensity_gco2_mj=order_data.carbon_intensity_gco2_mj,
@@ -2293,6 +2276,7 @@ async def create_order(
             "quantity_mt": str(new_order.quantity_mt),
             "price_per_mt_usd": str(new_order.price_per_mt_usd),
             "status": new_order.status.value,
+            "fame_terms": new_order.fame_terms,
             "actor_user_id": str(party.actor.id),
             "effective_organization_id": str(effective_organization_id),
             "accountable_user_id": str(party.accountable_principal.id),
@@ -2483,6 +2467,8 @@ async def update_order(
             detail="You can only update your own orders",
         )
 
+    require_orderbook_product(order.product)
+
     if order.creation_method == OrderCreationMethod.MARKET_SUPPORT:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -2510,16 +2496,25 @@ async def update_order(
             detail="Executable order market identity is immutable; cancel and create a new order",
         )
     update_dict.pop("availability_window", None)
-    if is_bio_lng_product(order.product_id) or "lng_terms" in update_dict:
-        requested_terms = update_dict.pop("lng_terms", order.lng_terms)
-        lng_terms = validate_order_lng_terms(order.product_id, order.side, requested_terms)
-        if lng_terms is not None:
-            derived = derived_order_fields(order.side, lng_terms)
-            # Bio-LNG scalars follow the terms; client copies are never trusted.
-            for field in derived:
-                update_dict.pop(field, None)
-            if lng_terms != order.lng_terms:
-                update_dict.update(derived, lng_terms=lng_terms)
+    fame_terms = validate_fame_order_terms(
+        order.product_id, order.side,
+        update_dict.get("fame_terms", getattr(order, "fame_terms", None)),
+        order.availability_window,
+    )
+    if fame_terms is not None:
+        if update_dict.get("quantity_mt", order.quantity_mt) < 1:
+            raise HTTPException(422, "UCOME B100 orders require at least 1 MT")
+        update_dict["fame_terms"] = fame_terms
+        update_dict.update(fame_metadata_fields(fame_terms))
+    lng_terms = validate_lng_order_admission(
+        order.product_id, order.side,
+        update_dict.get("lng_terms", getattr(order, "lng_terms", None)),
+    )
+    if lng_terms is not None:
+        if update_dict.get("quantity_mt", order.quantity_mt) < 1:
+            raise HTTPException(422, "Bio-LNG orders require at least 1 MT")
+        update_dict["lng_terms"] = lng_terms
+        update_dict.update(lng_metadata_fields(lng_terms))
     if "certification_scheme" in update_dict:
         update_dict["certification_scheme"] = normalize_certification_scheme(update_dict["certification_scheme"])
     if order.side != OrderSide.ASK:
@@ -2530,15 +2525,19 @@ async def update_order(
             certification_declared=bool(update_dict.get("certification_declared", order.certification_declared)),
             certification_scheme=update_dict.get("certification_scheme", order.certification_scheme),
         )
-        _require_supplier_metadata(
-            specification_standard=update_dict.get("specification_standard", order.specification_standard),
-            msds_available=bool(update_dict.get("msds_available", order.msds_available)),
-            carbon_intensity_gco2_mj=update_dict.get("carbon_intensity_gco2_mj", order.carbon_intensity_gco2_mj),
-            feedstock=update_dict.get("feedstock", order.feedstock),
-            origin=update_dict.get("origin", order.origin),
-            product_id=order.product_id,
-            carbon_intensity_method=update_dict.get("carbon_intensity_method", order.carbon_intensity_method),
-        )
+        if fame_terms is not None or lng_terms is not None:
+            if not update_dict.get("msds_available", order.msds_available):
+                raise HTTPException(422, "ASK orders require an available safety data sheet")
+        else:
+            _require_supplier_metadata(
+                product_id=update_dict.get("product_id", order.product_id),
+                carbon_intensity_method=update_dict.get("carbon_intensity_method", order.carbon_intensity_method),
+                specification_standard=update_dict.get("specification_standard", order.specification_standard),
+                msds_available=bool(update_dict.get("msds_available", order.msds_available)),
+                carbon_intensity_gco2_mj=update_dict.get("carbon_intensity_gco2_mj", order.carbon_intensity_gco2_mj),
+                feedstock=update_dict.get("feedstock", order.feedstock),
+                origin=update_dict.get("origin", order.origin),
+            )
 
     # Read/validate first, then serialize every affected slice, then take the
     # order row lock. This ordering is shared with match/cancel paths.
@@ -2554,6 +2553,7 @@ async def update_order(
                 "price_per_mt_usd",
                 "expires_at",
                 "certifications",
+                "fame_terms",
                 "lng_terms",
             }
         )
@@ -2611,7 +2611,29 @@ async def update_order(
         actor_ownerships=(
             MarketActorOwnership(current_user.id, current_user.organization_id),
         ),
+        require_kyc=True,
     )
+
+    # Recheck the complete effective declaration after the row lock. A partial
+    # update must not overwrite a concurrent fuel revision from its preview.
+    locked_terms = validate_fame_order_terms(
+        order.product_id, order.side,
+        update_data.fame_terms if "fame_terms" in update_data.model_fields_set else getattr(order, "fame_terms", None),
+        order.availability_window,
+    )
+    if locked_terms is not None:
+        update_dict["fame_terms"] = locked_terms
+        update_dict.update(fame_metadata_fields(locked_terms))
+
+    locked_lng_terms = validate_lng_order_admission(
+        order.product_id, order.side,
+        update_data.lng_terms if "lng_terms" in update_data.model_fields_set else getattr(order, "lng_terms", None),
+    )
+    if locked_lng_terms is not None:
+        update_dict["lng_terms"] = locked_lng_terms
+        update_dict.update(lng_metadata_fields(locked_lng_terms))
+        if order.side == OrderSide.ASK and not update_dict.get("msds_available", order.msds_available):
+            raise HTTPException(422, "ASK orders require an available safety data sheet")
 
     public_before = await public_order_is_visible(db, order.id)
 
@@ -2654,14 +2676,21 @@ async def update_order(
     )
     audit_fields = set(update_dict)
     audit_fields.update({"remaining_quantity_mt", "status"})
+    if is_fame_product(order.product_id):
+        audit_fields.add("version")
     audit_before = {
         field: getattr(order, field)
         for field in audit_fields
         if hasattr(order, field)
     }
 
+    terms_changed = any(
+        getattr(order, field) != value for field, value in update_dict.items()
+    )
     for field, value in update_dict.items():
         setattr(order, field, value)
+    if terms_changed:
+        order.bump_version()
 
     matched_trades: list = []
     resting_side_previous_best_price = None
@@ -2906,14 +2935,13 @@ async def cancel_order(
         require_matching_etag(if_match, order_id=order.id, version=order.version)
         await lock_support_order_parties(db, order)
     else:
-        # Cancellation withdraws an existing order; KYC never blocks it.
         await lock_and_load_market_organizations(
             db,
             [effective_organization_id],
             actor_ownerships=(
                 MarketActorOwnership(current_user.id, effective_organization_id),
             ),
-            actor_policy=MarketPartyPolicy.CLEANUP,
+            require_execution_eligible=False,
         )
 
     # The preview may have waited behind a fill on the same market slice.

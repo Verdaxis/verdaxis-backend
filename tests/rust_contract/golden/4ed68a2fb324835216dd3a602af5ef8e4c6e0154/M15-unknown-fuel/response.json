@@ -1,0 +1,21 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "jsonrpc": "2.0",
+    "id": 50,
+    "result": {
+      "content": [
+        {
+          "text": "Error executing tool plan_voyage_fuel: 2 validation errors for plan_voyage_fuelArguments\nrequest.vessel.compatible_fuels.0\n  Input should be 'VLSFO', 'UCOME_B100', 'BIO_METHANOL', 'E_METHANOL', 'BIO_ETHANOL' or 'SYNTHETIC_ETHANOL' [type=enum, input_value='BOGUS', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/enum\nrequest.vessel.compatible_fuels\n  Tuple should have at least 1 item after validation, not 0 [type=too_short, input_value=['BOGUS'], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.13/v/too_short",
+          "type": "text"
+        }
+      ],
+      "isError": true
+    }
+  },
+  "body_sha256": "333b2c730226302dc3fc5fc932cd3695d27b9dec748b8dcc08f5ac07e9261797"
+}

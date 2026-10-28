@@ -1,0 +1,24 @@
+{
+  "status": 422,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "detail": [
+      {
+        "type": "uuid_parsing",
+        "loc": [
+          "query",
+          "product_id"
+        ],
+        "msg": "Input should be a valid UUID, invalid character: found `n` at 1",
+        "input": "not-a-uuid",
+        "ctx": {
+          "error": "invalid character: found `n` at 1"
+        }
+      }
+    ]
+  },
+  "body_sha256": "4df8d9a49cb85d3796c3799043aa5fee8f45bfff940494d99b1335e0b6a1328e"
+}

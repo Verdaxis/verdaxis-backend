@@ -7,16 +7,21 @@ from __future__ import annotations
 
 from datetime import datetime
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
-from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy import String, and_, case, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.market_catalog import (
     CANONICAL_DELIVERY_POINTS,
     CANONICAL_PRODUCTS,
+    ORDERBOOK_MARKET_PRODUCTS,
+    PRODUCT_IDS,
     PRODUCTS_BY_CODE,
-    product_delivery_point_allowed,
 )
+from app.services.execution_policy import biofuel_supplier_metadata_clause
+from app.services.kyc_execution import kyc_execution_clause
 from app.models.catalog import DeliveryPoint, Product
 from app.models.marketplace import InventoryItem
 from app.models.orderbook import (
@@ -27,14 +32,6 @@ from app.models.orderbook import (
     Trade,
 )
 from app.models.port import Port
-from app.services.execution_policy import (
-    ask_carbon_intensity_clause,
-    biofuel_supplier_metadata_clause,
-)
-from app.services.kyc_execution import (
-    customer_organization_eligibility_clause,
-    kyc_execution_clause,
-)
 from app.services.market_provenance import (
     MarketEvidenceScope,
     canonical_availability_window_clause,
@@ -50,18 +47,18 @@ from app.models.user import (
 )
 
 
-def public_order_owner_admission_clause(order, *, now_expression=None):
+def public_order_owner_admission_clause(order):
     """Exclude orders whose recorded owner can no longer execute.
 
     Query-surface mirror of the fill-time owner policies: an order whose
-    concrete owner fails the KYC execution rule or was admin-rejected (or is
-    unverified, forced into a password change, moved to another
-    organization, or whose organization lost approval) cannot fill, so it
-    must not appear as public liquidity nor weigh in any benchmark. Assisted
-    orders use the narrower ``order_owner_is_execution_eligible`` ADMIN actor
-    policy plus the customer-organization KYC rule. Rows with no recorded
-    owner (synthetic DEMO liquidity, pre-ownership legacy rows) keep the
-    existing provenance-clause posture; they already cannot fill.
+    concrete owner was KYC- or admin-rejected (or is unverified, forced into
+    a password change, moved to another organization, or whose organization
+    lost approval) is permanently inert at fill time, so it must not appear
+    as public liquidity nor weigh in any benchmark. Assisted orders use the
+    narrower ``order_owner_is_execution_eligible`` ADMIN actor policy.
+    Rows with no recorded owner (synthetic DEMO liquidity, pre-ownership
+    legacy rows) keep the existing provenance-clause posture; they already
+    cannot fill.
     """
     eligible_owner = (
         select(User.id)
@@ -72,7 +69,7 @@ def public_order_owner_admission_clause(order, *, now_expression=None):
             User.status == UserStatus.APPROVED,
             User.email_verified.is_(True),
             User.must_change_password.is_(False),
-            kyc_execution_clause(User, order.organization_id, now=now_expression),
+            kyc_execution_clause(),
             select(Organization.id)
             .where(
                 Organization.id == order.organization_id,
@@ -83,6 +80,15 @@ def public_order_owner_admission_clause(order, *, now_expression=None):
         )
         .exists()
     )
+    member = aliased(User)
+    eligible_customer_member = select(member.id).where(
+        member.organization_id == order.organization_id,
+        member.role.in_((UserRole.BUYER, UserRole.SUPPLIER)),
+        member.status == UserStatus.APPROVED,
+        member.email_verified.is_(True),
+        member.must_change_password.is_(False),
+        kyc_execution_clause(member),
+    ).correlate(order).exists()
     assisted_owner = (
         select(User.id)
         .where(
@@ -91,6 +97,7 @@ def public_order_owner_admission_clause(order, *, now_expression=None):
             User.id == order.created_by_actor_user_id,
             User.role == UserRole.ADMIN,
             User.status == UserStatus.APPROVED,
+            eligible_customer_member,
             select(Organization.id)
             .where(
                 Organization.id == order.organization_id,
@@ -99,9 +106,6 @@ def public_order_owner_admission_clause(order, *, now_expression=None):
             )
             .correlate(order)
             .exists(),
-            customer_organization_eligibility_clause(
-                order.organization_id, now=now_expression
-            ),
         )
         .exists()
     )
@@ -126,7 +130,7 @@ def market_data_eligible_trade_clauses(buyer_organization, seller_organization):
 
 
 def canonical_market_product_expression(product):
-    """Strict SQL identity for the active canonical catalog products.
+    """Strict SQL identity for canonical catalog products.
 
     Public market queries deliberately do not infer a canonical product from
     legacy grades or inactive aliases such as ``Methanol Green``.
@@ -181,22 +185,27 @@ def canonical_delivery_point_clause(delivery_point):
     )
 
 
-def market_product_supports_delivery_point(market_product: str | None, delivery_point_id) -> bool:
+def market_product_supports_delivery_point(market_product: str, delivery_point_id) -> bool:
     """Use the catalog lane contract in reads as well as order execution."""
     spec = PRODUCTS_BY_CODE.get(market_product)
-    return spec is not None and product_delivery_point_allowed(spec.id, delivery_point_id)
+    if spec is None or spec.execution_mode != "ORDERBOOK":
+        return False
+    return (
+        spec.available_delivery_point_ids is None
+        or delivery_point_id in spec.available_delivery_point_ids
+    )
 
 
 def canonical_product_delivery_lane_clause(product, delivery_point):
-    """SQL mirror of the catalog lanes; unrestricted products pass unchanged."""
-    restricted = [spec for spec in CANONICAL_PRODUCTS if spec.available_delivery_point_ids]
-    return and_(
+    return or_(
         *(
-            or_(
-                product.id != spec.id,
-                delivery_point.id.in_(spec.available_delivery_point_ids),
+            and_(
+                product.id == spec.id,
+                delivery_point.id.in_(spec.available_delivery_point_ids)
+                if spec.available_delivery_point_ids is not None else True,
             )
-            for spec in restricted
+            for spec in CANONICAL_PRODUCTS
+            if spec.execution_mode == "ORDERBOOK"
         )
     )
 
@@ -204,6 +213,7 @@ def canonical_product_delivery_lane_clause(product, delivery_point):
 def active_market_catalog_clauses(product, delivery_point):
     return (
         canonical_product_clause(product),
+        canonical_market_product_expression(product).in_(ORDERBOOK_MARKET_PRODUCTS),
         canonical_delivery_point_clause(delivery_point),
         canonical_product_delivery_lane_clause(product, delivery_point),
     )
@@ -219,6 +229,25 @@ def current_public_order_clause(order, *, now_expression=None):
     collection, so a rejected owner's inert orders never surface.
     """
     now_value = now_expression if now_expression is not None else func.now()
+    singapore_date = datetime.now(ZoneInfo("Asia/Singapore")).date().isoformat()
+    b100 = PRODUCTS_BY_CODE["UCOME_B100"]
+    b100_declaration_is_current = or_(
+        order.product_id != b100.id,
+        and_(
+            order.delivery_point_id.in_(b100.available_delivery_point_ids),
+            order.fame_terms["side"].as_string() == cast(order.side, String),
+            order.off_spec.is_(False),
+            or_(
+                order.side != "ASK",
+                and_(
+                    order.fame_terms["certificate_valid_until"].as_string() >= singapore_date,
+                    order.msds_available.is_(True),
+                    order.certification_declared.is_(True),
+                    func.length(func.trim(func.coalesce(order.certification_scheme, ""))) > 0,
+                ),
+            ),
+        ),
+    )
     return and_(
         or_(
             order.expires_at > now_value,
@@ -232,12 +261,17 @@ def current_public_order_clause(order, *, now_expression=None):
                 ),
             ),
         ),
-        # Every public collection also refuses liquidity whose owner cannot
-        # execute, including an owner whose KYC grace has expired.
-        public_order_owner_admission_clause(order, now_expression=now_expression),
+        # Every public collection also refuses inert owner-rejected liquidity.
+        public_order_owner_admission_clause(order),
+        b100_declaration_is_current,
+        or_(order.side != OrderSide.ASK, biofuel_supplier_metadata_clause(order, order.product_id)),
         or_(
-            order.side != OrderSide.ASK,
-            biofuel_supplier_metadata_clause(order, order.product_id),
+            order.product_id != PRODUCT_IDS["BIO_LNG"],
+            and_(
+                order.delivery_point_id.in_(PRODUCTS_BY_CODE["BIO_LNG"].available_delivery_point_ids),
+                order.lng_terms["side"].as_string() == cast(order.side, String),
+                order.off_spec.is_(False),
+            ),
         ),
     )
 
@@ -266,6 +300,7 @@ def _public_order_projection_statement(*, as_of: datetime | None = None):
             canonical_availability_window_clause(OrderBookOrder.availability_window),
             current_public_order_clause(OrderBookOrder, now_expression=as_of),
             public_order_collection_provenance_clause(OrderBookOrder),
+            Product.fuel_type.in_(("Methanol", "Ethanol", "Biofuel", "FAME", "LNG")),
             or_(
                 OrderBookOrder.side != OrderSide.ASK,
                 and_(
@@ -279,10 +314,19 @@ def _public_order_projection_statement(*, as_of: datetime | None = None):
                     )
                     > 0,
                     OrderBookOrder.msds_available.is_(True),
-                    ask_carbon_intensity_clause(OrderBookOrder, OrderBookOrder.product_id),
+                    or_(
+                        OrderBookOrder.product_id.in_((PRODUCT_IDS["UCOME_B100"], PRODUCT_IDS["BIO_LNG"])),
+                        OrderBookOrder.carbon_intensity_gco2_mj.is_not(None),
+                    ),
                     func.length(func.trim(func.coalesce(OrderBookOrder.feedstock, "")))
                     > 0,
-                    func.length(func.trim(func.coalesce(OrderBookOrder.origin, ""))) > 0,
+                    or_(
+                        OrderBookOrder.product_id == PRODUCT_IDS["UCOME_B100"],
+                        func.length(
+                            func.trim(func.coalesce(OrderBookOrder.origin, ""))
+                        )
+                        > 0,
+                    ),
                 ),
             ),
         )
@@ -313,8 +357,8 @@ def _public_inventory_projection_statement():
         .where(
             Port.is_active.is_(True),
             *active_market_catalog_clauses(Product, DeliveryPoint),
-            biofuel_supplier_metadata_clause(InventoryItem, Product.id),
             or_(real_evidence, demo_evidence),
+            biofuel_supplier_metadata_clause(InventoryItem, Product.id),
         )
     )
 

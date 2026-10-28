@@ -1,0 +1,13 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": [
+    "FAME",
+    "LNG",
+    "Methanol"
+  ],
+  "body_sha256": "2fa901cd5162b1dc4c316943ae67928d4e3dae0b93391e89ba101093c05a2ed6"
+}

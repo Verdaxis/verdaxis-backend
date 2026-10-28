@@ -62,10 +62,11 @@ def _request(path: str) -> Request:
 @pytest.fixture
 async def join_db():
     engine = create_async_engine("sqlite+aiosqlite://", echo=False)
+    from app.models.kyc_execution_grace import KYCExecutionGrace
     tables = [
+        KYCExecutionGrace.__table__,
         Organization.__table__,
         User.__table__,
-        Base.metadata.tables["kyc_execution_grace"],
         RefreshSession.__table__,
         OrganizationJoinRequest.__table__,
         Product.__table__,

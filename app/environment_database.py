@@ -6,9 +6,8 @@ import re
 from hmac import compare_digest
 from urllib.parse import unquote, urlsplit
 
-
 _ENVIRONMENT_DATABASES = {
-    "production": "verdaxis",
+    "production": "verdaxis_prod",
     "staging": "verdaxis_staging",
 }
 _DISPOSABLE_TEST_DATABASE = re.compile(r"^[a-z][a-z0-9_]*_test$")

@@ -19,6 +19,24 @@ def load_module(name: str, path: Path):
     return module
 
 
+def isolate_deploy_state(recovery, tmp_path: Path) -> Path:
+    """Point the deploy-state probe at this test's private directory.
+
+    ``deployment_active()`` reads the module-level ``DEPLOY_STATE_FILES``
+    constant, whose real value is the fixed production checkout path. Reading
+    that path from a test user raises ``PermissionError`` where the directory
+    exists but is unreadable. Replace the constant only inside this test
+    process; production paths, permissions and behavior are unchanged. The
+    returned path is absent unless the test creates a state file itself.
+    """
+    state_dir = tmp_path / "runtime-deploy"
+    recovery.DEPLOY_STATE_FILES = (
+        state_dir / "production.state",
+        state_dir / "staging.state",
+    )
+    return state_dir
+
+
 def failed_status(*errors: str) -> dict:
     return {
         "ok": False,
@@ -46,6 +64,7 @@ def failed_status(*errors: str) -> dict:
 
 def test_recovery_is_allowlisted_and_hourly(tmp_path, monkeypatch):
     recovery = load_module("verdaxis_recover", RECOVERY_PATH)
+    isolate_deploy_state(recovery, tmp_path)
     status = failed_status(
         "verdaxis api returned HTTP 502, expected 200",
         "database backup is stale (51 hours old)",
@@ -100,6 +119,48 @@ def test_recovery_is_allowlisted_and_hourly(tmp_path, monkeypatch):
     assert "analytics volume" not in report
 
 
+def test_present_deploy_state_refuses_recovery(tmp_path, monkeypatch):
+    recovery = load_module("verdaxis_recover_deploy_state", RECOVERY_PATH)
+    state_dir = isolate_deploy_state(recovery, tmp_path)
+    status_file = tmp_path / "status.json"
+    status_file.write_text(
+        json.dumps(
+            failed_status("verdaxis api returned HTTP 502, expected 200")
+        ),
+        encoding="utf-8",
+    )
+    commands: list[tuple[str, ...]] = []
+    monkeypatch.setenv("RECOVERY_STATUS_FILE", str(status_file))
+    monkeypatch.setenv("RECOVERY_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setattr(
+        recovery,
+        "run_command",
+        lambda command, timeout=120: (
+            commands.append(tuple(command))
+            or subprocess.CompletedProcess(command, 0, "", "")
+        ),
+    )
+
+    # The isolated directory starts absent, so no deployment blocks recovery.
+    assert recovery.deployment_active() is False
+
+    state_dir.mkdir(parents=True, exist_ok=True)
+    (state_dir / "production.state").write_text("deploying")
+
+    assert recovery.deployment_active() is True
+    assert recovery.main() == 2
+    assert commands == []
+    report = json.loads(
+        next((tmp_path / "state").glob("recovery-*.json")).read_text(
+            encoding="utf-8"
+        )
+    )
+    assert report["outcome"] == "ineligible"
+    assert ("deployment_guard", "refused") in {
+        (action["name"], action["outcome"]) for action in report["actions"]
+    }
+
+
 def test_changing_backlog_measurements_keep_one_cooldown_fingerprint(
     tmp_path, monkeypatch
 ):
@@ -144,6 +205,7 @@ def test_changing_backlog_measurements_keep_one_cooldown_fingerprint(
 
 def test_frontend_and_capacity_fail_closed(tmp_path, monkeypatch):
     recovery = load_module("verdaxis_recover_fail_closed", RECOVERY_PATH)
+    isolate_deploy_state(recovery, tmp_path)
     status_file = tmp_path / "status.json"
     state_dir = tmp_path / "state"
     status_file.write_text(
@@ -175,6 +237,7 @@ def test_frontend_and_capacity_fail_closed(tmp_path, monkeypatch):
 
 def test_database_and_invalid_caddy_fail_closed(tmp_path, monkeypatch):
     recovery = load_module("verdaxis_recover_database", RECOVERY_PATH)
+    isolate_deploy_state(recovery, tmp_path)
     status = failed_status(
         "verdaxis api returned HTTP 503, expected 200",
         "caddy validate failed: invalid configuration",
@@ -207,6 +270,7 @@ def test_healthy_loopback_uses_one_validated_caddy_reload(
     tmp_path, monkeypatch
 ):
     recovery = load_module("verdaxis_recover_caddy", RECOVERY_PATH)
+    isolate_deploy_state(recovery, tmp_path)
     status_file = tmp_path / "status.json"
     state_dir = tmp_path / "state"
     status_file.write_text(

@@ -10,21 +10,19 @@ from sqlalchemy.engine import Row
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.market_catalog import PRODUCTS_BY_ID
 from app.models.catalog import DeliveryPoint, Product
 from app.models.live_slice_benchmark import LiveSliceBenchmark
 from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide
 from app.services.availability_windows import normalize_availability_window
-from app.services.execution_policy import (
-    normalize_certification_scheme,
-    order_is_execution_qualified,
-    scalar_carbon_intensity_required,
-)
+from app.services.execution_policy import normalize_certification_scheme, order_is_execution_qualified
 from app.services.market_data_eligibility import (
     canonical_delivery_point_clause,
     canonical_market_product_expression,
     canonical_product_clause,
     current_public_order_clause,
     public_order_collection_provenance_clause,
+    market_product_supports_delivery_point,
 )
 
 LiveBenchmarkKey = tuple[OrderSide, str | None, UUID | None, str | None]
@@ -39,7 +37,28 @@ def public_slice_order_qualified(
     *,
     as_of: datetime | None = None,
 ) -> bool:
-    if getattr(order, "market_product", None) is None:
+    spec = PRODUCTS_BY_ID.get(order.product_id)
+    product = getattr(order, "product", None)
+    if product is None:
+        product_name = getattr(order, "product_name", None)
+        product_fuel_type = getattr(order, "product_fuel_type", None)
+        product_fuel_grade = getattr(order, "product_fuel_grade", None)
+        product_is_active = getattr(order, "product_is_active", False)
+    else:
+        product_name = product.name
+        product_fuel_type = product.fuel_type
+        product_fuel_grade = product.fuel_grade
+        product_is_active = product.is_active
+
+    if spec is None or not product_is_active:
+        return False
+    if (product_name, product_fuel_type, product_fuel_grade) != (
+        spec.name,
+        spec.fuel_type,
+        spec.fuel_grade,
+    ):
+        return False
+    if not market_product_supports_delivery_point(spec.market_product, order.delivery_point_id):
         return False
     if order.status not in (OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED):
         return False
@@ -51,6 +70,10 @@ def public_slice_order_qualified(
             return False
     if order.remaining_quantity_mt <= 0 or order.off_spec:
         return False
+    if spec.market_product in {"UCOME_B100", "BIO_LNG"}:
+        # Structured declarations own qualification; LNG WTT is not scalar CI.
+        # Required LNG origin is validated inside its typed declaration.
+        return order_is_execution_qualified(order)
     if order.side != OrderSide.ASK:
         return True
     if not order_is_execution_qualified(order):
@@ -61,7 +84,7 @@ def public_slice_order_qualified(
         return False
     if not order.msds_available:
         return False
-    if order.carbon_intensity_gco2_mj is None and scalar_carbon_intensity_required(order.product_id):
+    if order.carbon_intensity_gco2_mj is None:
         return False
     if not _text_present(order.feedstock):
         return False
@@ -121,6 +144,10 @@ async def _calculate_live_slice_benchmarks(
     result = await db.execute(
         select(
             OrderBookOrder.product_id,
+            Product.name.label("product_name"),
+            Product.fuel_type.label("product_fuel_type"),
+            Product.fuel_grade.label("product_fuel_grade"),
+            Product.is_active.label("product_is_active"),
             OrderBookOrder.side,
             market_product,
             OrderBookOrder.delivery_point_id,
@@ -138,6 +165,7 @@ async def _calculate_live_slice_benchmarks(
             OrderBookOrder.carbon_intensity_method,
             OrderBookOrder.feedstock,
             OrderBookOrder.origin,
+            OrderBookOrder.fame_terms,
             OrderBookOrder.lng_terms,
         )
         .join(Product, OrderBookOrder.product_id == Product.id)

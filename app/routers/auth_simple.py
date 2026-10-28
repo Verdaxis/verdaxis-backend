@@ -26,21 +26,8 @@ from app.models.user import (
 )
 from app.models.refresh_session import RefreshSession
 from app.models.registration import PendingRegistration, OrganizationJoinRequest, JoinRequestStatus
-from app.schemas.user import (
-    CurrentUserResponse,
-    ExecutionEligibilityResponse,
-    LoginResponse,
-    PasswordChangeRequest,
-    RegistrationResponse,
-    UserCreate,
-    UserResponse,
-    UserUpdate,
-)
-from app.schemas.organization import (
-    OrganizationCreate,
-    organization_type_matches_role,
-    signup_organization_type_matches_role,
-)
+from app.schemas.user import LoginResponse, UserCreate, UserResponse, UserUpdate, RegistrationResponse, PasswordChangeRequest
+from app.schemas.organization import OrganizationCreate, SIGNUP_ORG_TYPES, organization_type_matches_role
 from app.schemas.errors import AUTH_RESPONSES
 from app.core.security import (
     verify_password_async, get_password_hash_async,
@@ -67,7 +54,6 @@ from app.services.account_approval_email import (
     deliver_account_approval_email,
 )
 from app.services.monitor_canary import is_monitor_canary_email
-from app.services.kyc_execution import evaluate_kyc_execution
 from app.services.audit_service import record_audit, request_audit_context
 from app.services.product_analytics import is_retryable_transaction_error, record_login_day
 from app.services.user_status_transition import record_initial_status, record_status_transition
@@ -636,7 +622,6 @@ AUTHENTICATED_SHARED_LOCK_PATHS = frozenset(
         "/api/watchlists",
         "/api/watchlists/{watchlist_id}",
         "/api/watchlists/{watchlist_id}/events",
-        "/api/admin/users/{user_id}/activity",
     }
 )
 
@@ -897,7 +882,7 @@ async def login(
     return {
         "access_token": access_token,
         "token_type": "bearer",
-        "profile": await current_user_profile(db, user),
+        "profile": await _user_profile(db, user),
     }
 
 # ---------------------------------------------------------------------------
@@ -1653,7 +1638,7 @@ async def register(request: _Request, user_in: UserCreate, db: AsyncSession = De
         existing_org = result_org.scalar_one_or_none()
 
     if existing_org:
-        if not signup_organization_type_matches_role(registration_role, existing_org.type):
+        if existing_org.type not in SIGNUP_ORG_TYPES or not organization_type_matches_role(registration_role, existing_org.type):
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="Organization type does not match the selected account role",
@@ -1800,7 +1785,7 @@ async def register_with_org(
                 final_role = parsed_role
         except ValueError:
             pass
-    if not signup_organization_type_matches_role(final_role, request.organization.type):
+    if not organization_type_matches_role(final_role, request.organization.type):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Organization type does not match the selected account role",
@@ -1973,28 +1958,32 @@ async def resend_verification_email_public(
 # Profile endpoints (merged from legacy auth.py)
 # ---------------------------------------------------------------------------
 
-async def current_user_profile(db: AsyncSession, user: User) -> CurrentUserResponse:
-    """The user's own profile with the KYC execution state it can act on."""
-    eligibility = await evaluate_kyc_execution(db, user)
-    return CurrentUserResponse(
-        **UserResponse.model_validate(user).model_dump(),
-        kyc_status=eligibility.kyc_status,
-        execution_eligibility=ExecutionEligibilityResponse(
-            eligible=eligibility.eligible,
-            reason=eligibility.reason,
-            grace_expires_at=eligibility.grace_expires_at,
-        ),
-    )
+async def _user_profile(db: AsyncSession, user: User) -> UserResponse:
+    from dataclasses import asdict
+    from app.services.kyc_execution import kyc_execution_eligibility
+
+    profile = UserResponse.model_validate(user)
+    # Match production: any role outside the executing pair (including an
+    # incomplete onboarding profile with role=None), or a profile with no
+    # organization, is NOT_APPLICABLE before the gate is read. Only a
+    # BUYER/SUPPLIER bound to an organization is evaluated.
+    if user.role not in (UserRole.BUYER, UserRole.SUPPLIER) or user.organization_id is None:
+        eligibility = {"eligible": False, "reason": "NOT_APPLICABLE", "grace_expires_at": None}
+    else:
+        eligibility = asdict(await kyc_execution_eligibility(db, user))
+    from app.schemas.user import ExecutionEligibilityResponse
+
+    return profile.model_copy(update={"execution_eligibility": ExecutionEligibilityResponse(**eligibility)})
 
 
-@router.get("/me", response_model=CurrentUserResponse)
+@router.get("/me", response_model=UserResponse)
 async def read_users_me(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    return await current_user_profile(db, current_user)
+    return await _user_profile(db, current_user)
 
-@router.put("/me", response_model=CurrentUserResponse)
+@router.put("/me", response_model=UserResponse)
 async def update_users_me(
     user_update: UserUpdate,
     current_user: Annotated[User, Depends(get_current_user)],
@@ -2043,7 +2032,7 @@ async def update_users_me(
 
     await db.commit()
     await db.refresh(current_user)
-    return await current_user_profile(db, current_user)
+    return await _user_profile(db, current_user)
 
 
 @router.put("/me/password")

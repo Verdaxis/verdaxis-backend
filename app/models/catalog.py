@@ -2,7 +2,9 @@ from uuid import uuid4
 from sqlalchemy import Column, String, Numeric, Boolean, DateTime, func
 from sqlalchemy.dialects.postgresql import UUID
 from app.model_base import Base
-from app.market_catalog import derive_market_product, product_delivery_point_ids
+from app.market_catalog import (
+    CANONICAL_DELIVERY_POINT_IDS, PRODUCTS_BY_CODE, derive_market_product,
+)
 
 
 class Product(Base):
@@ -24,11 +26,16 @@ class Product(Base):
         return derived.value if derived else None
 
     @property
+    def execution_mode(self) -> str:
+        spec = PRODUCTS_BY_CODE.get(self.market_product)
+        return spec.execution_mode if spec else "UNAVAILABLE"
+
+    @property
     def available_delivery_point_ids(self) -> tuple:
-        """Catalog lanes for this product; empty for non-canonical rows."""
-        if self.market_product is None:
+        spec = PRODUCTS_BY_CODE.get(self.market_product)
+        if spec is None:
             return ()
-        return product_delivery_point_ids(self.id)
+        return spec.available_delivery_point_ids or CANONICAL_DELIVERY_POINT_IDS
 
     def __repr__(self):
         return f"<Product {self.name}>"

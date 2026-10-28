@@ -1,0 +1,12 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": [
+    "Asia",
+    "Europe"
+  ],
+  "body_sha256": "c726c47ef6780cbe0250b1e18233c83372982123094862dc2d998d82dd19d4cc"
+}

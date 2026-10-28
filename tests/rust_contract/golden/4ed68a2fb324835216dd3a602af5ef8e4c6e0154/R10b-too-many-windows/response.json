@@ -1,0 +1,11 @@
+{
+  "status": 422,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "detail": "At most 24 windows may be requested"
+  },
+  "body_sha256": "f1ab8216a6d261e1da739e3f91e6bade2b07aae1055bfe23fe0fa9ee1b7cffa5"
+}

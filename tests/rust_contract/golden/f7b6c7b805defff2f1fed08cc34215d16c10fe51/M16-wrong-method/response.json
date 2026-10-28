@@ -1,0 +1,16 @@
+{
+  "status": 400,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "jsonrpc": "2.0",
+    "id": null,
+    "error": {
+      "code": -32602,
+      "message": "Validation error: 4 validation errors for union[JSONRPCRequest,JSONRPCNotification,JSONRPCResponse,JSONRPCError]\nJSONRPCRequest.method\n  Input should be a valid string [type=string_type, input_value=42, input_type=int]\n    For further information visit https://errors.pydantic.dev/2.13/v/string_type\nJSONRPCNotification.method\n  Input should be a valid string [type=string_type, input_value=42, input_type=int]\n    For further information visit https://errors.pydantic.dev/2.13/v/string_type\nJSONRPCResponse.result\n  Field required [type=missing, input_value={'jsonrpc': '2.0', 'id': ...lice', 'arguments': {}}}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/missing\nJSONRPCError.error\n  Field required [type=missing, input_value={'jsonrpc': '2.0', 'id': ...lice', 'arguments': {}}}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/missing"
+    }
+  },
+  "body_sha256": "cc719e1700cb9afde07e313589bfad7004802046f0e4117e7e141d9696e08d34"
+}

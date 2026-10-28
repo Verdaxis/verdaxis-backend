@@ -1,0 +1,39 @@
+{
+  "status": 422,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "detail": [
+      {
+        "type": "missing",
+        "loc": [
+          "query",
+          "market_product"
+        ],
+        "msg": "Field required",
+        "input": null
+      },
+      {
+        "type": "missing",
+        "loc": [
+          "query",
+          "delivery_point_id"
+        ],
+        "msg": "Field required",
+        "input": null
+      },
+      {
+        "type": "missing",
+        "loc": [
+          "query",
+          "availability_window"
+        ],
+        "msg": "Field required",
+        "input": null
+      }
+    ]
+  },
+  "body_sha256": "f7eb2032f4b8d4005ac066df212e514278df64263983c5fd895f0eb5781921a6"
+}

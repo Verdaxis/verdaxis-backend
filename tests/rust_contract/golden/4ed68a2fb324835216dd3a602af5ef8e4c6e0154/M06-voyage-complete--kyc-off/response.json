@@ -1,0 +1,133 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "jsonrpc": "2.0",
+    "id": 16,
+    "result": {
+      "content": [
+        {
+          "text": "{\n  \"disclaimer\": \"Indicative planning estimate from Verdaxis market data and the caller's assumptions. It is not a quote, an offer, or advice to trade. Only an order on the Verdaxis orderbook is executable.\",\n  \"reporting_year\": 2026,\n  \"legs\": [\n    {\n      \"from_port\": \"Singapore\",\n      \"to_port\": \"Rotterdam\",\n      \"route\": \"DEFAULT\",\n      \"via\": \"Suez Canal\",\n      \"distance_nm\": \"8380\",\n      \"distance_source\": \"VERDAXIS_TABLE\",\n      \"departure_date\": \"2026-10-15\",\n      \"arrival_date\": \"2026-11-09\",\n      \"sea_days\": \"24.9405\",\n      \"eu_scope_share\": \"0.5000\",\n      \"sea_energy_mj\": \"20451190\",\n      \"berth_days\": \"0.0000\",\n      \"berth_eu_scope_share\": \"1.0000\",\n      \"berth_energy_mj\": \"0\"\n    }\n  ],\n  \"strategies\": [\n    {\n      \"strategy_id\": \"CONVENTIONAL_PENALTY\",\n      \"label\": \"Conventional Penalty\",\n      \"completeness\": \"COMPLETE\",\n      \"fuel_uses\": [\n        {\n          \"leg_index\": 0,\n          \"segment\": \"SEA\",\n          \"fuel\": \"VLSFO\",\n          \"tonnes\": \"498.81\",\n          \"bunkering_port\": \"Singapore\",\n          \"price\": {\n            \"fuel\": \"VLSFO\",\n            \"port\": \"Singapore\",\n            \"price_usd_per_mt\": \"600.00\",\n            \"source\": \"CALLER\",\n            \"executable\": false,\n            \"availability_window\": null,\n            \"observed_at\": null,\n            \"carbon_intensity_gco2e_per_mj\": null,\n            \"energy_density_mj_per_kg\": null\n          },\n          \"cost_usd\": \"299285.71\"\n        }\n      ],\n      \"in_scope_energy_mj\": \"10225595\",\n      \"ghg_intensity_gco2e_per_mj\": \"91.1600\",\n      \"fueleu_target_gco2e_per_mj\": \"89.3368\",\n      \"fueleu_balance_tco2e\": \"-18.64\",\n      \"intensity_sources\": {\n        \"VLSFO\": \"DEFAULT_ILLUSTRATIVE\"\n      },\n      \"fuel_cost_usd\": \"299285.71\",\n      \"eu_ets_cost_eur\": \"62869.95\",\n      \"fueleu_cost_eur\": \"11971.43\",\n      \"fueleu_cost_basis\": \"PENALTY\",\n      \"total_cost_usd\": \"381611.23\",\n      \"missing_inputs\": []\n    },\n    {\n      \"strategy_id\": \"CONVENTIONAL_POOL\",\n      \"label\": \"Conventional Pool\",\n      \"completeness\": \"COMPLETE\",\n      \"fuel_uses\": [\n        {\n          \"leg_index\": 0,\n          \"segment\": \"SEA\",\n          \"fuel\": \"VLSFO\",\n          \"tonnes\": \"498.81\",\n          \"bunkering_port\": \"Singapore\",\n          \"price\": {\n            \"fuel\": \"VLSFO\",\n            \"port\": \"Singapore\",\n            \"price_usd_per_mt\": \"600.00\",\n            \"source\": \"CALLER\",\n            \"executable\": false,\n            \"availability_window\": null,\n            \"observed_at\": null,\n            \"carbon_intensity_gco2e_per_mj\": null,\n            \"energy_density_mj_per_kg\": null\n          },\n          \"cost_usd\": \"299285.71\"\n        }\n      ],\n      \"in_scope_energy_mj\": \"10225595\",\n      \"ghg_intensity_gco2e_per_mj\": \"91.1600\",\n      \"fueleu_target_gco2e_per_mj\": \"89.3368\",\n      \"fueleu_balance_tco2e\": \"-18.64\",\n      \"intensity_sources\": {\n        \"VLSFO\": \"DEFAULT_ILLUSTRATIVE\"\n      },\n      \"fuel_cost_usd\": \"299285.71\",\n      \"eu_ets_cost_eur\": \"62869.95\",\n      \"fueleu_cost_eur\": \"1864.33\",\n      \"fueleu_cost_basis\": \"POOL\",\n      \"total_cost_usd\": \"370493.43\",\n      \"missing_inputs\": []\n    }\n  ],\n  \"recommended_strategy_id\": \"CONVENTIONAL_POOL\",\n  \"recommendation_reason\": \"CONVENTIONAL_POOL has the lowest complete total: USD 370493.43.\",\n  \"assumptions\": [\n    \"Fuel for a leg and its destination berth stay is bought at the departure port on the departure date.\",\n    \"Consumption uses a 41,000 MJ/t VLSFO-equivalent energy basis.\",\n    \"FuelEU is an annual per-ship balance; this is the voyage contribution, not the annual penalty after banking, borrowing and pooling.\",\n    \"EU scope ignores outermost-region and transshipment rules.\",\n    \"ETS methane and N2O are not included.\"\n  ],\n  \"warnings\": []\n}",
+          "type": "text"
+        }
+      ],
+      "isError": false,
+      "structuredContent": {
+        "disclaimer": "Indicative planning estimate from Verdaxis market data and the caller's assumptions. It is not a quote, an offer, or advice to trade. Only an order on the Verdaxis orderbook is executable.",
+        "reporting_year": 2026,
+        "legs": [
+          {
+            "from_port": "Singapore",
+            "to_port": "Rotterdam",
+            "route": "DEFAULT",
+            "via": "Suez Canal",
+            "distance_nm": "8380",
+            "distance_source": "VERDAXIS_TABLE",
+            "departure_date": "2026-10-15",
+            "arrival_date": "2026-11-09",
+            "sea_days": "24.9405",
+            "eu_scope_share": "0.5000",
+            "sea_energy_mj": "20451190",
+            "berth_days": "0.0000",
+            "berth_eu_scope_share": "1.0000",
+            "berth_energy_mj": "0"
+          }
+        ],
+        "strategies": [
+          {
+            "strategy_id": "CONVENTIONAL_PENALTY",
+            "label": "Conventional Penalty",
+            "completeness": "COMPLETE",
+            "fuel_uses": [
+              {
+                "leg_index": 0,
+                "segment": "SEA",
+                "fuel": "VLSFO",
+                "tonnes": "498.81",
+                "bunkering_port": "Singapore",
+                "price": {
+                  "fuel": "VLSFO",
+                  "port": "Singapore",
+                  "price_usd_per_mt": "600.00",
+                  "source": "CALLER",
+                  "executable": false,
+                  "availability_window": null,
+                  "observed_at": null,
+                  "carbon_intensity_gco2e_per_mj": null,
+                  "energy_density_mj_per_kg": null
+                },
+                "cost_usd": "299285.71"
+              }
+            ],
+            "in_scope_energy_mj": "10225595",
+            "ghg_intensity_gco2e_per_mj": "91.1600",
+            "fueleu_target_gco2e_per_mj": "89.3368",
+            "fueleu_balance_tco2e": "-18.64",
+            "intensity_sources": {
+              "VLSFO": "DEFAULT_ILLUSTRATIVE"
+            },
+            "fuel_cost_usd": "299285.71",
+            "eu_ets_cost_eur": "62869.95",
+            "fueleu_cost_eur": "11971.43",
+            "fueleu_cost_basis": "PENALTY",
+            "total_cost_usd": "381611.23",
+            "missing_inputs": []
+          },
+          {
+            "strategy_id": "CONVENTIONAL_POOL",
+            "label": "Conventional Pool",
+            "completeness": "COMPLETE",
+            "fuel_uses": [
+              {
+                "leg_index": 0,
+                "segment": "SEA",
+                "fuel": "VLSFO",
+                "tonnes": "498.81",
+                "bunkering_port": "Singapore",
+                "price": {
+                  "fuel": "VLSFO",
+                  "port": "Singapore",
+                  "price_usd_per_mt": "600.00",
+                  "source": "CALLER",
+                  "executable": false,
+                  "availability_window": null,
+                  "observed_at": null,
+                  "carbon_intensity_gco2e_per_mj": null,
+                  "energy_density_mj_per_kg": null
+                },
+                "cost_usd": "299285.71"
+              }
+            ],
+            "in_scope_energy_mj": "10225595",
+            "ghg_intensity_gco2e_per_mj": "91.1600",
+            "fueleu_target_gco2e_per_mj": "89.3368",
+            "fueleu_balance_tco2e": "-18.64",
+            "intensity_sources": {
+              "VLSFO": "DEFAULT_ILLUSTRATIVE"
+            },
+            "fuel_cost_usd": "299285.71",
+            "eu_ets_cost_eur": "62869.95",
+            "fueleu_cost_eur": "1864.33",
+            "fueleu_cost_basis": "POOL",
+            "total_cost_usd": "370493.43",
+            "missing_inputs": []
+          }
+        ],
+        "recommended_strategy_id": "CONVENTIONAL_POOL",
+        "recommendation_reason": "CONVENTIONAL_POOL has the lowest complete total: USD 370493.43.",
+        "assumptions": [
+          "Fuel for a leg and its destination berth stay is bought at the departure port on the departure date.",
+          "Consumption uses a 41,000 MJ/t VLSFO-equivalent energy basis.",
+          "FuelEU is an annual per-ship balance; this is the voyage contribution, not the annual penalty after banking, borrowing and pooling.",
+          "EU scope ignores outermost-region and transshipment rules.",
+          "ETS methane and N2O are not included."
+        ],
+        "warnings": []
+      }
+    }
+  },
+  "body_sha256": "81863e0822eba778207d91589c93dd12647bb1456ec4003c046f80df6a94b54a"
+}

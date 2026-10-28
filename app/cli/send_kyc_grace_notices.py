@@ -1,104 +1,93 @@
-"""Send the one-time KYC grace notice emails. Operator-run; there is no timer.
-
-Usage on a deployed host:
-    python -m app.cli.send_kyc_grace_notices --environment production --release-sha <sha>
-
-The command is idempotent: each grace row gets at most one recorded email,
-so a repeated run sends only the notices that are still unsent.
-"""
-
-from __future__ import annotations
-
+"""Operator-only, at-most-once KYC grace notices. No worker or timer owner."""
 import argparse
 import asyncio
 import re
+from datetime import UTC, datetime
 
-from app.config import settings
-from app.database import AsyncSessionLocal, verify_database_runtime
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
+
 from app.services.kyc_execution import kyc_execution_gate_enabled
-from app.services.kyc_grace_notices import KycGraceNoticeInProgress, send_kyc_grace_notices
 
-_DEPLOYED_ENVIRONMENTS = ("production", "staging")
-_FULL_RELEASE_SHA = re.compile(r"[0-9a-f]{40}")
 _GATE_DISABLED_MESSAGE = (
     "kyc grace notices refused: the KYC execution gate is disabled"
 )
 
 
 class KycGraceNoticeGateDisabled(RuntimeError):
-    """The gate is off, so sent notices would be misleading."""
-
-
-def _release_sha(value: str) -> str:
-    if _FULL_RELEASE_SHA.fullmatch(value) is None:
-        raise argparse.ArgumentTypeError(
-            "release SHA must be a full lowercase 40-hex commit SHA"
-        )
-    return value
+    """The gate is off, so a sent notice would be misleading."""
 
 
 def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
-    """Require an explicit deployed identity; there is no development default."""
-    parser = argparse.ArgumentParser(description="Send the one-time KYC grace notices")
-    parser.add_argument("--environment", choices=_DEPLOYED_ENVIRONMENTS, required=True)
-    parser.add_argument("--release-sha", type=_release_sha, required=True)
-    return parser.parse_args(argv)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--environment", choices=("staging", "production"), required=True)
+    parser.add_argument("--release-sha", required=True)
+    args = parser.parse_args(argv)
+    if re.fullmatch(r"[0-9a-f]{40}", args.release_sha) is None:
+        parser.error("release SHA must be a full lowercase 40-hex commit SHA")
+    return args
 
 
-def assert_runtime_identity(
-    *,
-    configured_environment: str,
-    configured_release_sha: str,
-    expected_environment: str,
-    expected_release_sha: str,
-) -> None:
-    """Bind the run to the validated deployed runtime configuration."""
-    if configured_environment != expected_environment:
-        raise RuntimeError("runtime environment does not match the notice target")
-    if configured_release_sha != expected_release_sha:
-        raise RuntimeError("runtime release does not match the notice target")
+def assert_runtime_identity(settings, environment: str, release_sha: str) -> None:
+    if environment not in {"staging", "production"} or re.fullmatch(r"[0-9a-f]{40}", release_sha) is None:
+        raise RuntimeError("An explicit deployed environment and full release SHA are required")
+    if settings.ENVIRONMENT != environment or settings.RELEASE_SHA != release_sha:
+        raise RuntimeError("Runtime identity does not match the notice target")
 
 
-async def run_once(*, expected_environment: str, expected_release_sha: str) -> dict[str, int]:
-    assert_runtime_identity(
-        configured_environment=settings.ENVIRONMENT,
-        configured_release_sha=settings.RELEASE_SHA,
-        expected_environment=expected_environment,
-        expected_release_sha=expected_release_sha,
-    )
+async def send_notices(db) -> tuple[int, int]:
+    from app.models.kyc_execution_grace import KYCExecutionGrace, KYCGraceNotice
+    from app.models.user import User
+    from app.services.email import send_kyc_grace_notice
+
+    rows = (await db.execute(select(KYCExecutionGrace.id, KYCExecutionGrace.expires_at, User.email).join(
+        User, User.id == KYCExecutionGrace.user_id,
+    ).where(~select(KYCGraceNotice.grace_id).where(
+        KYCGraceNotice.grace_id == KYCExecutionGrace.id,
+    ).exists()).order_by(KYCExecutionGrace.id))).all()
+    sent = failed = 0
+    for grace_id, expires_at, email in rows:
+        claimed = (await db.execute(insert(KYCGraceNotice).values(
+            grace_id=grace_id, claimed_at=datetime.now(UTC),
+        ).on_conflict_do_nothing().returning(KYCGraceNotice.grace_id))).scalar_one_or_none()
+        # Commit before provider I/O. An interrupted or ambiguous attempt must
+        # never be sent twice, including beyond the provider's dedupe window.
+        await db.commit()
+        if claimed is None:
+            continue
+        if await send_kyc_grace_notice(email, expires_at, grace_id=grace_id):
+            notice = await db.get(KYCGraceNotice, grace_id)
+            notice.sent_at = datetime.now(UTC)
+            await db.commit()
+            sent += 1
+        else:
+            failed += 1
+    return sent, failed
+
+
+async def run_once(environment: str, release_sha: str) -> int:
+    from app.config import settings
+
+    assert_runtime_identity(settings, environment, release_sha)
     if not kyc_execution_gate_enabled():
         # With the gate off no user depends on grace, so a notice would be
-        # wrong. Refuse before contacting the database.
+        # wrong. Refuse before importing or contacting the database.
         raise KycGraceNoticeGateDisabled(_GATE_DISABLED_MESSAGE)
-    await verify_database_runtime()
+    from app.database import AsyncSessionLocal
+
     async with AsyncSessionLocal() as db:
-        try:
-            return await send_kyc_grace_notices(db)
-        except KycGraceNoticeInProgress:
-            await db.rollback()
-            raise
+        sent, failed = await send_notices(db)
+    print(f"KYC grace notices: sent={sent} uncertain_or_failed={failed}")
+    return 1 if failed else 0
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_cli_args(argv)
     try:
-        report = asyncio.run(
-            run_once(
-                expected_environment=args.environment,
-                expected_release_sha=args.release_sha,
-            )
-        )
-    except KycGraceNoticeInProgress:
-        print("kyc grace notices stopped: another run is active")
-        return 0
+        return asyncio.run(run_once(args.environment, args.release_sha))
     except KycGraceNoticeGateDisabled as refusal:
         print(str(refusal))
         return 2
-    print(
-        "kyc grace notices complete: "
-        + " ".join(f"{key}={value}" for key, value in sorted(report.items()))
-    )
-    return 0
 
 
 if __name__ == "__main__":

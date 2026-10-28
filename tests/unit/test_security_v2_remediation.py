@@ -57,21 +57,20 @@ def test_kyc_provider_result_is_review_required_not_approval():
 
 @pytest.mark.asyncio
 async def test_execution_party_requires_user_owner_and_approved_org():
-    organization_id = uuid4()
     user = SimpleNamespace(
         id=uuid4(),
-        organization_id=organization_id,
+        organization_id=uuid4(),
         role=UserRole.BUYER,
         status=UserStatus.APPROVED,
         email_verified=True,
         kyc_status="APPROVED",
-        kyc_organization_id=organization_id,
         must_change_password=False,
         kyc_external_evidence_reference="external-test-case",
         kyc_review_note="Externally retained evidence reviewed.",
         kyc_reviewed_by=uuid4(),
         kyc_reviewed_at=datetime.now(UTC),
     )
+    user.kyc_organization_id = user.organization_id
     org = SimpleNamespace(id=user.organization_id, verification_status="APPROVED")
     db = SimpleNamespace()
     assert await execution_party_is_eligible(db, user=user, organization=org) is True

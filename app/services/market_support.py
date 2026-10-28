@@ -1,9 +1,10 @@
 """Pure helpers shared by market-support routes and order ownership checks."""
+
 from __future__ import annotations
 
 import hashlib
 import json
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from enum import Enum
 from uuid import UUID
@@ -22,6 +23,8 @@ def _canonical_digest_value(value):
         return format(value.normalize(), "f")
     if isinstance(value, datetime):
         return utc(value).isoformat().replace("+00:00", "Z")
+    if isinstance(value, date):
+        return value.isoformat()
     if isinstance(value, UUID):
         return str(value)
     if isinstance(value, Enum):
@@ -33,27 +36,34 @@ def _canonical_digest_value(value):
     return value
 
 
-def _without_transient_fields(payload: dict[str, object]) -> dict[str, object]:
-    """Drop fields that must not change existing keys or digests.
-
-    ``support_confirmation`` is transient evidence, not an economic term.
-    ``lng_terms`` is an economic term, but only Bio-LNG orders carry it, so an
-    absent value is omitted to keep every earlier key and digest stable.
-    """
-    payload.pop("support_confirmation", None)
-    if payload.get("lng_terms") is None:
-        payload.pop("lng_terms", None)
-    return payload
-
-
 def economic_order_payload(order: OrderCreate) -> dict[str, object]:
-    """Return the pre-support canonical order payload."""
-    return _without_transient_fields(order.model_dump(mode="python"))
+    """Return the pre-support canonical order payload.
+
+    ``support_confirmation`` is transient evidence, not an economic term. It
+    must not invalidate existing idempotency keys or authorization digests.
+    """
+    payload = order.model_dump(mode="python")
+    payload.pop("support_confirmation", None)
+    # Adding an optional fuel contract must not change historical generic
+    # authorization digests. Present contracts remain part of exact authority.
+    for field in ("fame_terms", "lng_terms"):
+        if payload.get(field) is None:
+            payload.pop(field, None)
+    return payload
 
 
 def economic_order_idempotency_payload(order: OrderCreate) -> dict[str, object]:
     """JSON-ready equivalent used by the legacy order idempotency contract."""
-    return _without_transient_fields(order.model_dump(mode="json"))
+    payload = order.model_dump(mode="json")
+    payload.pop("support_confirmation", None)
+    economic_payload = economic_order_payload(order)
+    for field in ("fame_terms", "lng_terms"):
+        terms = economic_payload.get(field)
+        if terms is None:
+            payload.pop(field, None)
+        else:
+            payload[field] = _canonical_digest_value(terms)
+    return payload
 
 
 def authorization_terms_digest(order: OrderCreate) -> str:
@@ -81,7 +91,10 @@ def require_matching_etag(raw: str | None, *, order_id: UUID, version: int) -> N
     if value != order_etag(order_id, version):
         raise HTTPException(
             status_code=status.HTTP_412_PRECONDITION_FAILED,
-            detail={"code": "ORDER_VERSION_STALE", "message": "Listing changed; reload and retry"},
+            detail={
+                "code": "ORDER_VERSION_STALE",
+                "message": "Listing changed; reload and retry",
+            },
         )
 
 

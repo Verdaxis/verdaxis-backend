@@ -1,0 +1,17 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "error": {
+      "code": -32602,
+      "message": "Invalid request parameters",
+      "data": ""
+    }
+  },
+  "body_sha256": "ca1090c66f4d25afec0f5e0a60d98fef3280c530f2f3b43955f53aa9f9e785dc"
+}

@@ -1,0 +1,556 @@
+{
+  "version": 1,
+  "generated_by": "scripts/rust_contract/phase2_market_vectors.py",
+  "source_sha256": {
+    "app/services/market_locks.py": "76a9f6ab40bf87565cbd5cdfe25f064aa4265156e7d9fdd97d784aad0ad747fc",
+    "app/services/market_transactions.py": "fb61f2978ce43c7599d19aebac2de89e235bc1f997dc03b63eb03e7f36886a80",
+    "app/services/idempotency.py": "820a043369aaa815e720e10a0e07b0727aa049f09fbeba1839b420dd43195b12",
+    "app/services/command_results.py": "a0b014426ddabff35747ff64ea11457aa6341242e3146f91bec213000baa1479",
+    "app/models/command_result.py": "97a8fdbf9db84a3b52c8bb6d6a8c56031765f259f2d99d1ab309e546b90d89ed",
+    "app/models/market_event.py": "d87b731dda9a4d29a918ae0349a0f89d600ff5fbfcb1a9f57076e822cd8df349",
+    "app/services/db_errors.py": "3fe23bfc6792cbb58437d41b77a62fdee92ec5409792a535da2804886bd5927a",
+    "deploy/postgres/app_acl_policy.sql": "ac7dc16913fbbac5f45f806e9ac40aea16192dcb8c3c1d2c084e323497dd0f32"
+  },
+  "constants": {
+    "python_requires": "3.12",
+    "market_lock_timeout": "500ms",
+    "market_statement_timeout": "5s",
+    "idempotency_lock_timeout": "500ms",
+    "idempotency_statement_timeout": "5s",
+    "retryable_sqlstates": [
+      "40001",
+      "40P01"
+    ],
+    "market_transaction_attempts": 2,
+    "market_transaction_attempt_bounds": [
+      1,
+      3
+    ],
+    "lock_busy_sqlstate": "55P03",
+    "lock_timeout_sqlstate": "57014",
+    "idempotency_key_min": 1,
+    "idempotency_key_max": 255,
+    "messages": {
+      "key_bounds": "Idempotency-Key must be 1-255 characters",
+      "market_organization": "Market organization is required",
+      "replay_conflict": "Idempotency-Key was reused with a different request or actor context",
+      "slice_busy": "Market slice is busy; retry the request",
+      "slice_timeout": "Market slice lock timed out; retry the request",
+      "serialization_failed": "Market transaction serialization failed; retry the request",
+      "idempotency_busy": "Idempotency key is busy; retry the same request",
+      "idempotency_timeout": "Idempotency lock timed out; retry the request",
+      "order_not_found": "Order not found"
+    },
+    "receipt_operations": {
+      "order_amend": "order.amend",
+      "order_cancel": "order.cancel",
+      "trade_confirm": "trade.confirm",
+      "trade_decline": "trade.decline",
+      "trade_deliver": "trade.deliver",
+      "trade_pay": "trade.pay"
+    },
+    "idempotency_operations": {
+      "order_create": "order.create",
+      "trade_create": "trade.create",
+      "inventory_publish": "inventory.publish"
+    },
+    "lock_sql": {
+      "market_slice_set_lock_timeout": "SET LOCAL lock_timeout = '500ms'",
+      "market_slice_set_statement_timeout": "SET LOCAL statement_timeout = '5s'",
+      "market_slice_advisory_lock": "SELECT pg_advisory_xact_lock(:lock_key)"
+    }
+  },
+  "write_tables": [
+    {
+      "table": "market_command_results",
+      "grants": [
+        "SELECT",
+        "INSERT"
+      ],
+      "columns": [
+        "id",
+        "actor_user_id",
+        "effective_organization_id",
+        "support_context_id",
+        "operation",
+        "idempotency_key",
+        "request_hash",
+        "resource_type",
+        "resource_id",
+        "response_status",
+        "response_body",
+        "created_at"
+      ]
+    },
+    {
+      "table": "market_event_outbox",
+      "grants": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "columns": [
+        "id",
+        "event_type",
+        "aggregate_type",
+        "aggregate_id",
+        "participant_org_ids",
+        "payload",
+        "created_at",
+        "dispatched_at",
+        "stream_seq",
+        "delivery_attempts",
+        "last_error"
+      ]
+    }
+  ],
+  "slice_lock_keys": [
+    {
+      "label": "spot-bid",
+      "side": "BID",
+      "product_id": "10000000-0000-4000-8000-0000000000a1",
+      "delivery_point_id": null,
+      "availability_window": "SPOT",
+      "normalized_window": "SPOT",
+      "lock_key": 2915821237716152437,
+      "sort_key": [
+        "10000000-0000-4000-8000-0000000000a1",
+        "",
+        "SPOT"
+      ]
+    },
+    {
+      "label": "spot-ask-same-slice",
+      "side": "ASK",
+      "product_id": "10000000-0000-4000-8000-0000000000a1",
+      "delivery_point_id": null,
+      "availability_window": "SPOT",
+      "normalized_window": "SPOT",
+      "lock_key": 2915821237716152437,
+      "sort_key": [
+        "10000000-0000-4000-8000-0000000000a1",
+        "",
+        "SPOT"
+      ]
+    },
+    {
+      "label": "spot-alias-and-padding",
+      "side": "BID",
+      "product_id": "10000000-0000-4000-8000-0000000000a1",
+      "delivery_point_id": null,
+      "availability_window": " Spot ",
+      "normalized_window": "SPOT",
+      "lock_key": 2915821237716152437,
+      "sort_key": [
+        "10000000-0000-4000-8000-0000000000a1",
+        "",
+        "SPOT"
+      ]
+    },
+    {
+      "label": "month",
+      "side": "ASK",
+      "product_id": "10000000-0000-4000-8000-0000000000a1",
+      "delivery_point_id": "20000000-0000-4000-8000-0000000000b1",
+      "availability_window": "2027-03",
+      "normalized_window": "2027-03",
+      "lock_key": 8035539670355146862,
+      "sort_key": [
+        "10000000-0000-4000-8000-0000000000a1",
+        "20000000-0000-4000-8000-0000000000b1",
+        "2027-03"
+      ]
+    },
+    {
+      "label": "quarter",
+      "side": "BID",
+      "product_id": "10000000-0000-4000-8000-0000000000a1",
+      "delivery_point_id": "20000000-0000-4000-8000-0000000000b1",
+      "availability_window": "2026-Q1",
+      "normalized_window": "2026-Q1",
+      "lock_key": 6578191217599560742,
+      "sort_key": [
+        "10000000-0000-4000-8000-0000000000a1",
+        "20000000-0000-4000-8000-0000000000b1",
+        "2026-Q1"
+      ]
+    },
+    {
+      "label": "quarter-legacy-alias",
+      "side": "ASK",
+      "product_id": "10000000-0000-4000-8000-0000000000a1",
+      "delivery_point_id": "20000000-0000-4000-8000-0000000000b1",
+      "availability_window": "Q1_2026",
+      "normalized_window": "2026-Q1",
+      "lock_key": 6578191217599560742,
+      "sort_key": [
+        "10000000-0000-4000-8000-0000000000a1",
+        "20000000-0000-4000-8000-0000000000b1",
+        "2026-Q1"
+      ]
+    },
+    {
+      "label": "calendar",
+      "side": "ASK",
+      "product_id": "10000000-0000-4000-8000-0000000000a2",
+      "delivery_point_id": null,
+      "availability_window": "2028-CAL",
+      "normalized_window": "2028-CAL",
+      "lock_key": -3538774868475713863,
+      "sort_key": [
+        "10000000-0000-4000-8000-0000000000a2",
+        "",
+        "2028-CAL"
+      ]
+    },
+    {
+      "label": "no-delivery-point",
+      "side": "BID",
+      "product_id": "10000000-0000-4000-8000-0000000000a3",
+      "delivery_point_id": null,
+      "availability_window": "2026-12",
+      "normalized_window": "2026-12",
+      "lock_key": -1894525833335127762,
+      "sort_key": [
+        "10000000-0000-4000-8000-0000000000a3",
+        "",
+        "2026-12"
+      ]
+    }
+  ],
+  "slice_lock_sort": [
+    {
+      "label": "unsorted-with-duplicates",
+      "input": [
+        {
+          "side": "ASK",
+          "product_id": "10000000-0000-4000-8000-0000000000a2",
+          "delivery_point_id": null,
+          "availability_window": "2026-Q1"
+        },
+        {
+          "side": "BID",
+          "product_id": "10000000-0000-4000-8000-0000000000a1",
+          "delivery_point_id": "20000000-0000-4000-8000-0000000000b1",
+          "availability_window": "SPOT"
+        },
+        {
+          "side": "ASK",
+          "product_id": "10000000-0000-4000-8000-0000000000a1",
+          "delivery_point_id": "20000000-0000-4000-8000-0000000000b1",
+          "availability_window": "Spot"
+        },
+        {
+          "side": "BID",
+          "product_id": "10000000-0000-4000-8000-0000000000a1",
+          "delivery_point_id": null,
+          "availability_window": "2027-CAL"
+        }
+      ],
+      "acquired_lock_keys": [
+        1812888541097068196,
+        -5389200780100424326,
+        -3422997997968165268
+      ]
+    },
+    {
+      "label": "point-sorts-after-empty",
+      "input": [
+        {
+          "side": "BID",
+          "product_id": "10000000-0000-4000-8000-0000000000a1",
+          "delivery_point_id": "20000000-0000-4000-8000-0000000000b1",
+          "availability_window": "SPOT"
+        },
+        {
+          "side": "BID",
+          "product_id": "10000000-0000-4000-8000-0000000000a1",
+          "delivery_point_id": null,
+          "availability_window": "SPOT"
+        }
+      ],
+      "acquired_lock_keys": [
+        2915821237716152437,
+        -5389200780100424326
+      ]
+    },
+    {
+      "label": "single",
+      "input": [
+        {
+          "side": "BID",
+          "product_id": "10000000-0000-4000-8000-0000000000a9",
+          "delivery_point_id": null,
+          "availability_window": "2026-Q4"
+        }
+      ],
+      "acquired_lock_keys": [
+        4796294471254125969
+      ]
+    }
+  ],
+  "idempotency_lock_keys": [
+    {
+      "label": "tr",
+      "scope_id": "30000000-0000-4000-8000-0000000000c1",
+      "operation": "trade.confirm",
+      "key": "retry-key",
+      "lock_key": -3999096279563193085
+    },
+    {
+      "label": "order",
+      "scope_id": "30000000-0000-4000-8000-0000000000c1",
+      "operation": "order.amend",
+      "key": "retry-key",
+      "lock_key": 5485335794535520492
+    },
+    {
+      "label": "other-scope",
+      "scope_id": "30000000-0000-4000-8000-0000000000c2",
+      "operation": "order.amend",
+      "key": "retry-key",
+      "lock_key": -5846565274809264104
+    },
+    {
+      "label": "unicode-key",
+      "scope_id": "30000000-0000-4000-8000-0000000000c1",
+      "operation": "order.cancel",
+      "key": "ключ-1",
+      "lock_key": 8894893913766919318
+    },
+    {
+      "label": "padded",
+      "scope_id": "30000000-0000-4000-8000-0000000000c1",
+      "operation": "order.cancel",
+      "key": "  padded  ",
+      "lock_key": -3449305781333837118
+    }
+  ],
+  "command_request_hashes": [
+    {
+      "label": "canonical-economic-values",
+      "payload": {
+        "k": "object",
+        "v": {
+          "operation": {
+            "k": "text",
+            "v": "order.amend"
+          },
+          "order_id": {
+            "k": "uuid",
+            "v": "10000000-0000-4000-8000-0000000000a1"
+          },
+          "update": {
+            "k": "object",
+            "v": {
+              "price_per_mt_usd": {
+                "k": "decimal",
+                "v": "750.00"
+              },
+              "quantity_mt": {
+                "k": "decimal",
+                "v": "10"
+              },
+              "expires_at": {
+                "k": "timestamp",
+                "v": "2026-10-03T12:00:00+00:00"
+              },
+              "availability_window": {
+                "k": "text",
+                "v": "Q1_2026"
+              }
+            }
+          }
+        }
+      },
+      "sha256": "537ecfda89bc0e3c19c5ad23cfb252bb8840db7dd9ae85190d7c644528c870e4"
+    },
+    {
+      "label": "normalized-decimal-and-zone",
+      "payload": {
+        "k": "object",
+        "v": {
+          "update": {
+            "k": "object",
+            "v": {
+              "price_per_mt_usd": {
+                "k": "decimal",
+                "v": "750"
+              },
+              "quantity_mt": {
+                "k": "decimal",
+                "v": "10.00"
+              },
+              "expires_at": {
+                "k": "timestamp",
+                "v": "2026-10-03T20:00:00+08:00"
+              },
+              "availability_window": {
+                "k": "text",
+                "v": "Q1_2026"
+              }
+            }
+          },
+          "order_id": {
+            "k": "uuid",
+            "v": "10000000-0000-4000-8000-0000000000a1"
+          },
+          "operation": {
+            "k": "text",
+            "v": "order.amend"
+          }
+        }
+      },
+      "sha256": "537ecfda89bc0e3c19c5ad23cfb252bb8840db7dd9ae85190d7c644528c870e4"
+    },
+    {
+      "label": "absent-key-differs-from-null-key",
+      "payload": {
+        "k": "object",
+        "v": {
+          "operation": {
+            "k": "text",
+            "v": "trade.decline"
+          },
+          "reason": {
+            "k": "null"
+          }
+        }
+      },
+      "sha256": "f78af2c1280dd0c2c8cab5e476c2fc1614cf12f442045ee92bff5e5dc405ca21"
+    },
+    {
+      "label": "absent-only",
+      "payload": {
+        "k": "object",
+        "v": {
+          "operation": {
+            "k": "text",
+            "v": "trade.decline"
+          }
+        }
+      },
+      "sha256": "b3fe4aa6e1ca8eb648bb02e85905b15a076db5634aefb582e4cc7c4d2b2e6735"
+    },
+    {
+      "label": "nested-and-unicode",
+      "payload": {
+        "k": "object",
+        "v": {
+          "operation": {
+            "k": "text",
+            "v": "trade.confirm"
+          },
+          "note": {
+            "k": "text",
+            "v": "café ☕  "
+          },
+          "items": {
+            "k": "array",
+            "v": [
+              {
+                "k": "int",
+                "v": 1
+              },
+              {
+                "k": "bool",
+                "v": true
+              },
+              {
+                "k": "null"
+              },
+              {
+                "k": "object",
+                "v": {
+                  "z": {
+                    "k": "text",
+                    "v": "0"
+                  },
+                  "a": {
+                    "k": "text",
+                    "v": "1"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "sha256": "dd980cafe44910d09f84f813e04b153ec3fa4ad2eddb40739e867c9898b516f9"
+    }
+  ],
+  "idempotency_request_hashes": [
+    {
+      "label": "json-native-order-payload",
+      "payload": {
+        "k": "object",
+        "v": {
+          "side": {
+            "k": "text",
+            "v": "BID"
+          },
+          "price_per_mt_usd": {
+            "k": "text",
+            "v": "750.00"
+          },
+          "quantity_mt": {
+            "k": "int",
+            "v": 10
+          },
+          "delivery_point_id": {
+            "k": "text",
+            "v": "20000000-0000-4000-8000-0000000000b1"
+          },
+          "is_demo": {
+            "k": "bool",
+            "v": false
+          },
+          "certifications": {
+            "k": "array",
+            "v": [
+              {
+                "k": "text",
+                "v": "ISCC"
+              }
+            ]
+          }
+        }
+      },
+      "sha256": "2955e057cd820e5a4ffd9c732337a79cd0d628cd4cc6096bb25c52a72532917c"
+    },
+    {
+      "label": "nested-json",
+      "payload": {
+        "k": "object",
+        "v": {
+          "actor_id": {
+            "k": "text",
+            "v": "30000000-0000-4000-8000-0000000000c1"
+          },
+          "offer": {
+            "k": "object",
+            "v": {
+              "price": {
+                "k": "int",
+                "v": 1
+              },
+              "tags": {
+                "k": "array",
+                "v": []
+              }
+            }
+          }
+        }
+      },
+      "sha256": "7b0f2ca497957f347f7e1e2a24967d1ab5525dd34d4e881ec48d6da323d4508d"
+    },
+    {
+      "label": "empty-object",
+      "payload": {
+        "k": "object",
+        "v": {}
+      },
+      "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    }
+  ]
+}

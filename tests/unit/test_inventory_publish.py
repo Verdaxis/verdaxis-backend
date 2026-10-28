@@ -1,11 +1,13 @@
 """Unit tests for inventory publishing helpers."""
 import pytest
+from fastapi import HTTPException
 from pydantic import ValidationError
 from unittest.mock import AsyncMock, MagicMock
 from decimal import Decimal
 from types import SimpleNamespace
 from uuid import uuid4
 
+from app.market_catalog import BIOFUEL_SPECIFICATION_STANDARDS, PRODUCTS_BY_NAME
 from app.routers.inventory import (
     _listing_payload,
     _resolve_catalog_product,
@@ -25,6 +27,8 @@ def _make_user():
     user.id = uuid4()
     user.role = UserRole.SUPPLIER
     user.organization_id = uuid4()
+    user.kyc_status = "APPROVED"
+    user.kyc_organization_id = user.organization_id
     return user
 
 
@@ -55,12 +59,15 @@ def _make_inventory_item():
     item.origin = "Iceland"
     item.off_spec = False
     item.off_spec_notes = None
+    item.fame_terms = None
+    item.lng_terms = None
     return item
 
 
 class TestPublishInventoryItem:
     @pytest.mark.asyncio
-    async def test_publish_maps_exact_canonical_catalog_product_and_delivery_point(self, monkeypatch):
+    @pytest.mark.parametrize("product_name", ["Bio Methanol", "B30", "B100"])
+    async def test_publish_maps_exact_canonical_catalog_product_and_delivery_point(self, monkeypatch, product_name):
         monkeypatch.setattr("app.config.settings.AUTO_MATCHING_ENABLED", False)
         user = _make_user()
         item = _make_inventory_item()
@@ -120,12 +127,15 @@ class TestPublishInventoryItem:
 
         exact_product_result = MagicMock()
         catalog_product = MagicMock()
-        catalog_product.id = uuid4()
-        catalog_product.name = "Bio Methanol"
+        from app.market_catalog import PRODUCTS_BY_NAME, BIOFUEL_SPECIFICATION_STANDARDS
+        spec = PRODUCTS_BY_NAME[product_name]
+        catalog_product.id = spec.id
+        catalog_product.name = spec.name
         catalog_product.min_lot_size = Decimal("200.00")
         catalog_product.unit = "MT"
-        catalog_product.fuel_type = "Methanol"
-        catalog_product.fuel_grade = "Bio"
+        catalog_product.fuel_type = spec.fuel_type
+        catalog_product.fuel_grade = spec.fuel_grade
+        item.specification_standard = BIOFUEL_SPECIFICATION_STANDARDS.get(spec.id, "IMPCA")
         exact_product_result.scalar_one_or_none.return_value = catalog_product
         item.product_name = catalog_product.name
 
@@ -169,7 +179,7 @@ class TestPublishInventoryItem:
         assert listing.price_per_mt_usd == Decimal("850")
         assert listing.certification_declared is True
         assert listing.certification_scheme == "ISCC EU"
-        assert listing.specification_standard == "IMPCA"
+        assert listing.specification_standard == item.specification_standard
         assert listing.msds_available is True
         assert listing.carbon_intensity_gco2_mj == Decimal("21.5")
         assert listing.carbon_intensity_method == "ISCC EU"
@@ -191,6 +201,162 @@ class TestPublishInventoryItem:
 
         assert await _resolve_catalog_product(db, item) is None
         assert db.execute.await_count == 1
+
+
+def _mock_publish_session(monkeypatch, user, item, spec):
+    """Build a mock session that drives publication to its qualification gate.
+
+    The result sequence mirrors the successful publication fixture above. A
+    refusal that happens before the gate simply leaves the later results unused.
+    """
+    monkeypatch.setattr("app.config.settings.AUTO_MATCHING_ENABLED", False)
+    organization = MagicMock(provenance="UNKNOWN", verification_status="APPROVED")
+    organization.id = user.organization_id
+    locked_user = MagicMock()
+    locked_user.id = user.id
+    locked_user.organization_id = user.organization_id
+    locked_user.role = UserRole.SUPPLIER
+    locked_user.status = UserStatus.APPROVED
+    locked_user.email_verified = True
+    locked_user.must_change_password = False
+    locked_user.kyc_status = "APPROVED"
+    locked_user.kyc_organization_id = user.organization_id
+    monkeypatch.setattr(
+        "app.routers.inventory.expire_market_slice_orders",
+        AsyncMock(return_value=([], {user.organization_id: organization})),
+    )
+    monkeypatch.setattr("app.routers.inventory._best_slice_price", AsyncMock(return_value=None))
+    monkeypatch.setattr("app.routers.inventory.rebuild_live_slice_benchmarks_for_keys", AsyncMock())
+    monkeypatch.setattr("app.routers.inventory.emit_order_created", AsyncMock())
+    monkeypatch.setattr(
+        "app.routers.inventory.collect_auto_match_side_effects", AsyncMock(return_value=[])
+    )
+    monkeypatch.setattr("app.routers.inventory.enqueue_market_events", AsyncMock())
+    monkeypatch.setattr("app.routers.inventory.track_analytics_event", MagicMock())
+    monkeypatch.setattr(
+        "app.routers.inventory.lock_and_load_market_organizations",
+        AsyncMock(return_value={user.organization_id: organization}),
+    )
+    reserve = AsyncMock(return_value=item)
+    monkeypatch.setattr("app.routers.inventory.reserve_inventory", reserve)
+
+    catalog_product = MagicMock()
+    catalog_product.id = spec.id
+    catalog_product.name = spec.name
+    catalog_product.min_lot_size = Decimal("200.00")
+    catalog_product.unit = spec.unit
+    catalog_product.fuel_type = spec.fuel_type
+    catalog_product.fuel_grade = spec.fuel_grade
+
+    delivery_point = MagicMock()
+    delivery_point.id = uuid4()
+    delivery_point.name = "Singapore"
+
+    item_result = MagicMock()
+    item_result.scalar_one_or_none.return_value = item
+    product_result = MagicMock()
+    product_result.scalar_one_or_none.return_value = catalog_product
+    dp_result = MagicMock()
+    dp_result.scalar_one_or_none.return_value = delivery_point
+    none_result = MagicMock()
+    none_result.scalar_one_or_none.return_value = None
+
+    mock_db = AsyncMock()
+    mock_db.add = MagicMock()
+    mock_db.execute.side_effect = [
+        MagicMock(scalar_one_or_none=MagicMock(return_value=locked_user)),
+        MagicMock(scalar_one_or_none=MagicMock(return_value=organization)),
+        item_result,
+        none_result,
+        product_result,
+        dp_result,
+        item_result,
+        product_result,
+        dp_result,
+        none_result,
+        none_result,
+        MagicMock(scalar_one_or_none=MagicMock(return_value=MagicMock(provenance="UNKNOWN"))),
+    ]
+    return mock_db, reserve
+
+
+def _scalar_inventory_item(product_name, *, specification_standard):
+    item = _make_inventory_item()
+    spec = PRODUCTS_BY_NAME[product_name]
+    item.product_name = spec.name
+    item.fuel_type = ModelFuelType.Biofuel
+    item.specification_standard = specification_standard
+    item.carbon_intensity_method = "Whole supplied fuel lifecycle"
+    # Zero lifecycle CI is a valid declared value and must not excuse bad metadata.
+    item.carbon_intensity_gco2_mj = Decimal("0")
+    item.feedstock = "Used cooking oil"
+    item.origin = "Singapore"
+    return item
+
+
+class TestPublishRequiresQualifiedScalarMetadata:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "product_name,defect",
+        [
+            ("B30", {"specification_standard": "IMPCA"}),
+            ("B100", {"carbon_intensity_method": " \t"}),
+        ],
+    )
+    async def test_publication_refuses_defective_scalar_metadata(self, monkeypatch, product_name, defect):
+        user = _make_user()
+        spec = PRODUCTS_BY_NAME[product_name]
+        item = _scalar_inventory_item(
+            product_name,
+            specification_standard=BIOFUEL_SPECIFICATION_STANDARDS[spec.id],
+        )
+        for field, value in defect.items():
+            setattr(item, field, value)
+        mock_db, reserve = _mock_publish_session(monkeypatch, user, item, spec)
+
+        with pytest.raises(HTTPException) as rejected:
+            await publish_inventory_item(
+                item_id=item.id,
+                request=_fake_request(),
+                db=mock_db,
+                current_user=user,
+            )
+
+        assert rejected.value.status_code == 400
+        assert "execution-qualified" in rejected.value.detail
+        reserve.assert_not_awaited()
+        mock_db.add.assert_not_called()
+        mock_db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("product_name", ["B30", "B100"])
+    async def test_zero_ci_publication_keeps_exact_identity_and_economics(self, monkeypatch, product_name):
+        user = _make_user()
+        spec = PRODUCTS_BY_NAME[product_name]
+        item = _scalar_inventory_item(
+            product_name,
+            specification_standard=BIOFUEL_SPECIFICATION_STANDARDS[spec.id],
+        )
+        mock_db, reserve = _mock_publish_session(monkeypatch, user, item, spec)
+
+        result = await publish_inventory_item(
+            item_id=item.id,
+            request=_fake_request(),
+            db=mock_db,
+            current_user=user,
+        )
+
+        assert result["status"] == "published"
+        listing = mock_db.add.call_args_list[0].args[0]
+        assert listing.product_id == spec.id
+        assert listing.product_id == PRODUCTS_BY_NAME[product_name].id
+        assert listing.carbon_intensity_gco2_mj == Decimal("0")
+        assert listing.specification_standard == BIOFUEL_SPECIFICATION_STANDARDS[spec.id]
+        assert listing.quantity_mt == Decimal("1000")
+        assert listing.remaining_quantity_mt == Decimal("1000")
+        assert listing.price_per_mt_usd == Decimal("850")
+        reserve.assert_awaited_once()
+        mock_db.commit.assert_awaited_once()
 
 
 class TestInventoryCollectionBounds:
@@ -260,6 +426,8 @@ class TestListingPayload:
         order.origin = "Iceland"
         order.off_spec = True
         order.off_spec_notes = "Water content under review"
+        order.fame_terms = None
+        order.lng_terms = None
         order.status = OrderBookStatus.OPEN
 
         payload = _listing_payload(order, match_count=2)

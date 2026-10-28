@@ -1,0 +1,210 @@
+# Task 9 — price discovery and trade tape
+
+Scope: R06 and R12–R14, lane `feat/rust-phase-1-lane-9`, base `f1d53a9`.
+No Python application changes, live access, push, agents or skills.
+
+## Implementation
+
+- Added separate REAL/DEMO arithmetic summaries, REAL-only daily VWAP, unbounded
+  optional-date reference CSV, and anonymous seven-day tape.
+- Every query uses `run_admitted` and the shared trade binder. There are no
+  mutable catalog/owner joins in historical trade queries.
+- Existing AD-01 middleware owns the 60/30/10 buckets exactly once. Routes add
+  no counters. Workspace HTTP tests cover bursts, reset, client keys and headers.
+- Added `market/price_quarantine.rs` (registered beneath `visibility` to avoid
+  the integration-owned module registry), `sql/formal_trade_snapshots.sql` and
+  `sql/price_quarantine.sql`. The metadata relation has no economic columns.
+- Necessary shared edit: extracted the original formal snapshot core from
+  `sql/trade_evidence.sql`. `visibility::trade_evidence_sql()` composes that core
+  with the unchanged exact REAL/REAL-or-DEMO/DEMO restriction. Existing bind
+  positions and public signatures do not change. No public-order SQL changed.
+- The contract target uses the existing `prices` group, not nonexistent
+  `reference`, `reference_csv`, or `unknown_trade_quarantine` groups. The current
+  runner has no `--rust-target` flag. This follows Task 8's feature-gated test
+  file pattern without editing Cargo manifests.
+
+## Red/green evidence
+
+- `task9-csv-red.log`: unresolved `reference_csv`, before implementation.
+- `task9-red.log`: 9 cases, 31 differences against the empty Rust handlers.
+- Initial implementation: 2 CSV tests passed; 9 ordinary contract cases matched.
+- Expanded to 28 contract cases. One known difference remains: invalid tape
+  window returns the same 500 text, but shared Rust request middleware adds
+  `X-Request-ID`; Python's unhandled exception bypasses that middleware.
+  Runtime HTTP composition belongs to integration, outside this lane's edit
+  scope. Do not exclude this difference or call the expanded gate passed.
+- Added task-local guarded REAL fixtures and shared-core comparisons. Current
+  guards refuse new UNKNOWN/mixed/version-0 trades; no guard is disabled.
+  Historical quarantine acceptance remains Task 4b's populated-corpus gate.
+- First fixture attempt used three-place prices and was correctly refused by
+  `ck_trades_numeric_values`. Corrected fixtures use valid two-place prices;
+  arithmetic ties are tested separately.
+
+## Remaining acceptance and integration work
+
+- Task 4b must supply historical quarantine and the full populated corpus,
+  recorded golden bytes and the applicable assertion-ledger acceptance proof.
+- Integration must preserve Python's missing middleware headers on the tape's
+  unhandled invalid-window response. Keep the failing case in `cases.json`.
+- This lane does not edit `ARCHITECTURE.md` or `progress.md` under the explicit
+  task-local ownership rule. The implementation map above is the integration
+  owner's architecture update input.
+- Do not promote this checkpoint as final Task 9 acceptance until the above
+  gates pass. Verification results and resume point are appended below.
+
+## Verification checkpoint
+
+- Shared extraction commit: `14e581c`.
+- `cargo fmt --all -- --check`: passed.
+- `cargo clippy --workspace --all-targets -- -D warnings`: passed.
+- `cargo test --workspace`: 77 passed.
+- `RUST_TEST_PYTHON=<absolute lane venv> bash rs/read/tests/run_postgres.sh`:
+  84 passed; two market matrix tests explicitly filtered by that runner.
+- Dedicated `run_market_contract.sh`: 2 passed, covering both KYC switch states
+  and the original economic evidence matrix after the core extraction.
+- Ordinary `prices` group: **failed**, 27/28 cases matched; invalid-window
+  middleware header difference retained. The same run also passed 11 populated
+  task-local HTTP probes and compared 17 formal snapshots with Python; quarantine
+  was empty under the current guards. See `task9-populated2.log`.
+- `venv/bin/python -m pytest tests/rust_contract -q`: 42 passed, 5 warnings.
+- Required Python price/export/tape unit files: 77 passed, 11 warnings.
+- `git diff --check`: passed. All started disposable runners exited and ran
+  their own container/volume cleanup. No other lane's containers were removed.
+
+## Resume point
+
+This is an **incomplete implementation checkpoint**, not final Task 9 acceptance.
+Beyond the external header integration and Task 4b gates, finish task-local query
+validation: aggregate simultaneous FastAPI validation errors in declaration order,
+match the full Pydantic date/datetime query grammar, and add HEAD/slash/method
+contract cases. The current date parser covers the recorded date cases only.
+Expand populated tests for mutable catalog edits, zero-volume historical input,
+and DEMO/REAL separation assertions beyond comparator equality. Review Decimal
+context limits before accepting historical numeric inputs. Do not mark the
+assertion transfer complete based on the Python suite alone.
+
+## Continuation — 16 October
+
+The sections above are historical checkpoint evidence, not the current result.
+
+- Authorized deviation: `runtime/http.rs` now has an internal response-extension
+  marker for the outer Python ServerErrorMiddleware response. Only marked
+  unhandled responses omit request-id and CORS decoration; handled 500/422/429
+  responses retain their prior headers. Tests cover both paths with an Origin.
+  The original 28/28 cases now match (`task9-header-green.log`).
+- `prices_query.rs` validates all declared typed parameters before handler filter
+  validation, collecting errors in Python declaration order. Strings retain
+  last-value semantics and unknown keys remain ignored. `prices_date.rs` handles
+  calendar/date-time, midnight, timezone and Unix-timestamp date forms, with
+  Python error envelopes. UUID short-form errors need Python's older wording.
+- Evidence assertions now check arithmetic mean (not VWAP), exact hour/week
+  cutoff inclusion, beyond-end totals, short IDs and party/point privacy,
+  REAL-only reference and DEMO-only tape. The 11 probes run again after product
+  and delivery-point deactivation; immutable results still match.
+- Numeric review: current trade guards require positive quantity <=100000 and
+  price <=1000000 with bounded scale. The fixture exercises unequal quantities,
+  differing scales and half-even rounding. Current guards refuse zero-volume,
+  mixed/UNKNOWN and version-0 history. Do not disable guards to test those.
+  Historical zero-volume/extreme numeric/quarantine acceptance waits for 4b.
+- Task 13 explicitly owns method, HEAD and trailing-slash cases; skipped here
+  under the continuation instruction, not an unreported coverage omission.
+- A shell edit of the expanded cases did not persist. Earlier claims of 52
+  cases were incorrect: those logs show 28. The retained expansion is 40 cases,
+  added with the file tool; its first run exposed UUID short-form message drift.
+
+### Final continuation checks
+
+- Commit `a261d76`: header path and parameter validation.
+- Ordinary price contract: **40/40 matched**, plus **22/22 populated probes**
+  before/after catalog deactivation. Shared core: 17 rows compared; current
+  quarantine count zero. `task9-40-green.log` is the final contract evidence.
+- fmt and clippy passed; offline workspace **79 passed**; disposable PostgreSQL
+  **86 passed**. Its two intentionally filtered market matrix tests passed in
+  the dedicated runner at the earlier shared-core checkpoint.
+- Python contract meta-tests **42 passed**; price/export/tape tests **77 passed**.
+- Every requested check ran. No live access or push. Runner cleanup completed.
+- Final acceptance still waits for Task 4b's historical corpus/golden/ledger
+  gate. Task 13 owns method/HEAD/slash behavior. No threshold-count parity is
+  asserted for AD-01.
+
+Resume with Task 4b's populated price group, retaining these 40 cases and the
+current guard checks. Historical numeric values outside current guard bounds
+need explicit comparison before claiming that historical domain is accepted.
+
+Temporary logs are under `work/rust-phase1/task9-*.log` and are not committed.
+
+## Acceptance repairs — decision 21
+
+- N1–N3: `d75f550` preserves UUID invalid-character precedence, checks numeric
+  dates after microsecond conversion, and validates typed price parameters before
+  the one AD-01 bucket. Handler filter errors remain after the bucket. Three new
+  tests failed before the repair; all eight price tests passed afterwards.
+- M2: `de752db` applies Python's 28-significant-digit half-even context to the
+  exact SQL product, preserving Python wire scale rather than digest normalization.
+  Quantity and price remain unchanged. Tests cover below/at/above precision,
+  ties, carry and scientific notation; persisted trailing-zero fixtures are added.
+- **PM decision 21, amended:** SQLx 0.9 hard-codes `TimeZone=UTC` in its startup
+  packet. `.options()` cannot override it; the Singapore real-pool test failed.
+  No SQLx vendoring. The PM approved `after_connect`: each new connection sets
+  the required `DB_SESSION_TIME_ZONE` once (bound `set_config`, equivalent to
+  session SET), then checks `SHOW TimeZone` on that connection before pool use.
+  Both pools use the same hook, including error/cancellation replacements.
+- `RUST_CONFIG` requires `db_session_time_zone` (uppercase alias supported), with
+  no default. Startup compares any database-level `pg_db_role_setting` TimeZone
+  with that value and refuses a mismatch, then logs the effective zone. The
+  contract runner supplies its recorded `ORACLE_TIMEZONE=Asia/Singapore`.
+  Staging remains Singapore until Phase 0 moves both databases to UTC.
+- Real-pool tests cover eight read connections plus health, an admitted SQL error
+  followed by a distinct replacement backend, and Singapore/UTC reference JSON
+  and CSV around 16:00Z and 00:00Z, before and after replacement. The lightweight
+  runtime fixture is not a migrated historical corpus and is not claimed as one.
+- Added allowed/denied/absent-Origin header tests and persisted scale assertions.
+  The ordinary oracle also changes current organization approval and member
+  KYC/membership after confirmation, in addition to catalog activity.
+
+### Merge handoff
+
+Task 4b has landed on the build branch with oracle SHA `a127672` and
+`--seed-mode corpus`. It is not merged into this lane. After the PM merge, run
+prices against that corpus and move the lane's persisted scale, cutoff, identity
+mutation and timezone boundary cases into its fixture/ledger ownership. Retain
+historical UNKNOWN/mixed/null provenance, version-0, zero-volume/extreme values,
+and mutable linked-order cases as corpus gates through the real migration path;
+never disable guards. Same-day groups and equal-time tape/latest-price rows still
+need source-nondeterminism accounting, not global array sorting. Task 13 retains
+method/HEAD/slash integration ownership.
+
+### Repair verification record
+
+- The extended HTTP probe exposed UUID character offsets after the initial N1
+  repair: Rust used zero-based offsets and Python used one-based offsets.
+  `4f81a5b` fixes this, with exact-message red/green tests for plain, braced and
+  URN UUID inputs. The initial 40 cases passed; the expanded probe correctly
+  failed rather than suppressing that difference.
+- The first startup-options implementation failed the real Singapore test;
+  the approved after_connect implementation passed the full 93-test PostgreSQL
+  run, including replacement and JSON/CSV boundary checks.
+- A later contract rerun exhausted the disposable database readiness wait under
+  concurrent local Docker load. It did not reach contract cases and is not a
+  parity result. The runner cleaned up its container. The next retry passed
+  migrations and drift checks but hit the ordinary seed's statement timeout on
+  its large order insert, before contract cases. A fresh retry retained all
+  original timeouts and acceptance criteria.
+- Formatting and default/feature-enabled clippy passed. Offline workspace:
+  85 passed. Python contract meta-tests: 42 passed, 5 warnings. Python price
+  router/schema/export/tape suite: 80 passed, 11 warnings (existing deprecations).
+- Final PostgreSQL rerun: **93 passed**, two existing market-matrix tests
+  intentionally filtered by the runner (their migrated corpus belongs to 4b).
+  Container cleanup completed. An additional deterministic 1,000-vector local
+  product-format probe matched Python across trailing-zero scales.
+- Final ordinary contract (`task9-resumed-contract.log`): **40/40 cases matched**,
+  **34/34 populated probes matched** (17 before and 17 after catalog/activity,
+  organization approval and member KYC/membership changes), **20 formal snapshots**
+  compared. Quarantine remains empty under current guards. Persisted product
+  precision below/at/above 28 digits and the new UUID/numeric-date cases passed.
+  The runner completed migrations, drift verification and container cleanup.
+- Resumed checks on the final source: fmt and clippy passed; workspace **85**,
+  Python contract **42**, Python price/schema/export/tape **80** passed. The
+  final real-pool run above remains **93 passed**. No push or live access.
+- All five review findings are repaired. Final populated historical acceptance
+  still requires the PM's Task 4b merge and corpus run described above.

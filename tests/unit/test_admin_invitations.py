@@ -18,7 +18,6 @@ from app.models.product_analytics import UserLoginDay, UserStatusTransition
 from app.models.referral import Referral, ReferralStatus
 from app.models.refresh_session import RefreshSession
 from app.models.registration import OrganizationJoinRequest, PendingRegistration
-from app.rate_limit import limiter
 from app.models.user import (
     Organization,
     OrganizationProvenance,
@@ -120,6 +119,28 @@ def _new_organization_payload(**overrides):
 def _token(response) -> str:
     fragment = parse_qs(urlsplit(response.json()["acceptance_url"]).fragment)
     return fragment["token"][0]
+
+
+@pytest.mark.asyncio
+async def test_trader_supplier_is_invitation_only(invitation_context, invitation_db):
+    app, _admin, organization = invitation_context
+    organization.type = OrgType.FUEL_TRADER
+    await invitation_db.commit()
+    async with AsyncClient(transport=ASGITransport(app=app, client=("127.0.0.8", 123)), base_url="http://test") as client:
+        rejected = await client.post("/api/auth/register", json={
+            "email": f"signup@{organization.domain}", "password": "Supplier-password-9",
+            "first_name": "Supplier", "role": "SUPPLIER",
+        })
+        assert rejected.status_code == 422
+        invited = await client.post("/api/auth/admin/invitations", json=_payload(organization.id))
+        assert invited.status_code == 201, invited.text
+        resolved = await client.post("/api/auth/invitations/resolve", json={"token": _token(invited)})
+        assert resolved.status_code == 200, resolved.text
+        new_trader = await client.post("/api/auth/admin/invitations", json=_new_organization_payload(
+            email="trader@lngtrader.example", role="SUPPLIER",
+            new_organization={"name": "LNG Trader", "type": "FUEL_TRADER", "country_code": "NL"},
+        ))
+        assert new_trader.status_code == 201, new_trader.text
 
 
 @pytest.mark.asyncio
@@ -608,47 +629,6 @@ async def test_domain_join_rejects_opposite_side_before_creating_user(invitation
     ).scalar_one_or_none()
     assert response.status_code == 422
     assert created is None
-
-
-@pytest.mark.asyncio
-async def test_admin_invites_trader_supplier_but_public_signup_cannot_join_the_trader(
-    invitation_context,
-    invitation_db,
-    monkeypatch,
-):
-    # The registration rate limit is shared by every test in this process.
-    monkeypatch.setattr(limiter, "enabled", False)
-    app, _admin, _organization = invitation_context
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        invited = await client.post(
-            "/api/auth/admin/invitations",
-            json=_new_organization_payload(
-                email="trader@diesol.example",
-                role="SUPPLIER",
-                new_organization={"name": "Diesol", "type": "FUEL_TRADER", "country_code": "NL"},
-            ),
-        )
-        registered = await client.post(
-            "/api/auth/register",
-            json={
-                "email": "colleague@diesol.example",
-                "password": "Supplier-password-9",
-                "first_name": "Colleague",
-                "role": "SUPPLIER",
-            },
-        )
-
-    assert invited.status_code == 201, invited.text
-    trader = (
-        await invitation_db.execute(select(Organization).where(Organization.name == "Diesol"))
-    ).scalar_one()
-    invitee = (
-        await invitation_db.execute(select(User).where(User.email == "trader@diesol.example"))
-    ).scalar_one()
-    assert trader.type == OrgType.FUEL_TRADER
-    assert (invitee.role, invitee.organization_id) == (UserRole.SUPPLIER, trader.id)
-    assert registered.status_code == 422
-    assert registered.json()["detail"] == "Organization type does not match the selected account role"
 
 
 @pytest.mark.asyncio

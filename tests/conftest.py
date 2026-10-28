@@ -117,7 +117,7 @@ def sample_user_data():
     import uuid
     unique_id = str(uuid.uuid4())[:8]
     return {
-        "email": f"test_{unique_id}@disposable.invalid",
+        "email": f"test_{unique_id}@example.com",
         "password": "securepassword123",
         "first_name": "Test",
         "last_name": "User",
@@ -142,7 +142,7 @@ def admin_credentials(itest_password):
     """Dedicated staging itest admin (the old seeded admin password was
     scrubbed from history and is unrecoverable)."""
     return {
-        "email": "itest-admin@disposable.invalid",
+        "email": "itest-admin@example.com",
         "password": itest_password,
     }
 

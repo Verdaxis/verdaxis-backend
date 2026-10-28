@@ -29,6 +29,9 @@ from app.routers.trades import (
 
 
 async def _session_for(*tables):
+    from app.models.kyc_execution_grace import KYCExecutionGrace
+
+    tables = (*tables, KYCExecutionGrace.__table__)
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as connection:
         await connection.run_sync(lambda sync: Base.metadata.create_all(sync, tables=list(tables)))
@@ -140,7 +143,6 @@ async def test_trade_summary_and_action_filter_are_tenant_scoped(monkeypatch):
         OrderBookOrder.__table__,
         Organization.__table__,
         User.__table__,
-        Base.metadata.tables["kyc_execution_grace"],
     )
     try:
         buyer_org, seller_org, foreign_org = uuid4(), uuid4(), uuid4()
@@ -272,20 +274,6 @@ async def test_trade_summary_and_action_filter_are_tenant_scoped(monkeypatch):
             ).scalars().all()
             assert visible_ids == [rows[1].id]
 
-            # Action required means confirmable now: without KYC approval or
-            # grace the confirm gate refuses, so the projection shows nothing.
-            buyer_db_user.kyc_status = "PENDING"
-            await session.commit()
-            assert (
-                await session.execute(
-                    select(Trade.id).where(
-                        _trade_action_required_filter(current_user, buyer_org)
-                    )
-                )
-            ).scalars().all() == []
-            buyer_db_user.kyc_status = "APPROVED"
-            await session.commit()
-
             active_ids = (
                 await session.execute(
                     select(Trade.id).where(
@@ -338,7 +326,6 @@ async def test_assisted_action_filter_requires_side_role_and_admitted_owner():
         OrderBookOrder.__table__,
         Organization.__table__,
         User.__table__,
-        Base.metadata.tables["kyc_execution_grace"],
     )
     try:
         buyer_org, seller_org = uuid4(), uuid4()

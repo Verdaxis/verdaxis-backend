@@ -1,0 +1,1 @@
+{"detail":[{"type":"date_from_datetime_inexact","loc":["query","date_from"],"msg":"Datetimes provided to dates should have zero time - e.g. be exact dates","input":"2026-01-01T01:00:00Z"}]}

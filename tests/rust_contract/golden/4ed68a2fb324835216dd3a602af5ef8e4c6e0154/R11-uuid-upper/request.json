@@ -1,0 +1,8 @@
+{
+  "method": "GET",
+  "path": "/api/curves/forward/board",
+  "query": "focus_market_product=BIO_LNG&focus_delivery_point_id=1379D36C-1CA9-55B7-9C0D-5235A0BA1F36",
+  "headers": {
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  }
+}

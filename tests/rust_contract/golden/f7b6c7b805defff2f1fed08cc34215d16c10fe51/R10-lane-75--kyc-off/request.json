@@ -1,0 +1,8 @@
+{
+  "method": "GET",
+  "path": "/api/curves/forward/slice",
+  "query": "market_product=BIO_ETHANOL&delivery_point_id=a083db06-b050-56c2-a274-3897eac2fdae&availability_window=SPOT",
+  "headers": {
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  }
+}

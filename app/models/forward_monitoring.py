@@ -10,14 +10,17 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.model_base import Base
-from app.market_constraints import MARKET_PRODUCT_VALUES
 
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-_MARKET_PRODUCT_CHECK = f"market_product IN ({MARKET_PRODUCT_VALUES})"
+_MARKET_PRODUCT_CHECK = (
+    "market_product IN ('BIO_METHANOL', 'E_METHANOL', 'BIO_ETHANOL', 'SYNTHETIC_ETHANOL', 'B30', 'B100', 'UCOME_B100', 'BIO_LNG') "
+    "AND (market_product <> 'UCOME_B100' OR replace(CAST(delivery_point_id AS TEXT), '-', '') = '73835e92820e584b8280bb61c63aa28e') "
+    "AND (market_product <> 'BIO_LNG' OR replace(CAST(delivery_point_id AS TEXT), '-', '') = '1379d36c1ca955b79c0d5235a0ba1f36')"
+)
 _WINDOW_CHECK = (
     "availability_window = 'SPOT' "
     "OR availability_window LIKE '____-__' "

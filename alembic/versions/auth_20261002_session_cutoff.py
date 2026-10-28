@@ -1,7 +1,7 @@
 """Add a distinct administrative authentication-revocation cutoff.
 
 Revision ID: auth_20261002_session_cutoff
-Revises: catalog_20260926_biofuels
+Revises: fame_20260922_b100_orderbook
 Create Date: 2026-10-02
 """
 from __future__ import annotations
@@ -11,7 +11,7 @@ from alembic import op
 
 
 revision = "auth_20261002_session_cutoff"
-down_revision = "catalog_20260926_biofuels"
+down_revision = "fame_20260922_b100_orderbook"
 branch_labels = None
 depends_on = None
 

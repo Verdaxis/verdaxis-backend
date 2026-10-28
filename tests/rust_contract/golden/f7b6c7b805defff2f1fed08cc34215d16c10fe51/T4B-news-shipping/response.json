@@ -1,0 +1,25 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": [
+    {
+      "id": "fd5b9a55-0cef-5eed-9ae9-4a4cb575643a",
+      "title": "Corpus shipping",
+      "summary": null,
+      "source": "Corpus",
+      "source_url": "https://example.test",
+      "url": "https://example.test/shipping",
+      "category": "shipping",
+      "relevance": 5,
+      "published_at": "2026-10-15T12:00:00+00:00",
+      "fetched_at": "2026-10-15T12:00:00+00:00"
+    }
+  ],
+  "body_sha256": "fab781cd6f46bf84a78b27caaa7bcbdc20a6297bc93f28f9703b1084599b63c9",
+  "news_exact_items": [
+    "{\"id\":\"fd5b9a55-0cef-5eed-9ae9-4a4cb575643a\",\"title\":\"Corpus shipping\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/shipping\",\"category\":\"shipping\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}"
+  ]
+}

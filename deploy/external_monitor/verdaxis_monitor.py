@@ -120,7 +120,7 @@ DEFAULT_OUTBOX_BACKLOG_PROBE = (
 OUTBOX_BACKLOG_TARGETS = (
     (
         "production",
-        "host=127.0.0.1 port=5432 dbname=verdaxis user=verdaxis_backup",
+        "host=127.0.0.1 port=5432 dbname=verdaxis_prod user=verdaxis_backup",
     ),
     (
         "staging",
@@ -496,7 +496,7 @@ def check_backup_status() -> list[str]:
     if payload.get("ok") is not True:
         return ["last database backup did not complete successfully"]
 
-    expected_databases = {"verdaxis", "verdaxis_staging", "umami"}
+    expected_databases = {"verdaxis_prod", "verdaxis_staging", "umami"}
     if set(payload.get("databases", [])) != expected_databases:
         return ["last database backup did not include prod, staging, and analytics"]
 
@@ -519,7 +519,7 @@ def check_backup_status() -> list[str]:
 
     backup_dir = status_file.parent
     artifacts = (
-        backup_dir / f"verdaxis-{backup_id}.sql.gz",
+        backup_dir / f"verdaxis-prod-{backup_id}.sql.gz",
         backup_dir / f"verdaxis-staging-{backup_id}.sql.gz",
         backup_dir / f"umami-{backup_id}.sql.gz",
     )
@@ -572,7 +572,7 @@ def check_restore_status() -> list[str]:
     if payload["ok"] is not True:
         return ["last restore verification did not complete successfully"]
 
-    expected_databases = {"verdaxis", "verdaxis_staging", "umami"}
+    expected_databases = {"verdaxis_prod", "verdaxis_staging", "umami"}
     databases = payload["databases"]
     if (
         len(databases) != len(expected_databases)

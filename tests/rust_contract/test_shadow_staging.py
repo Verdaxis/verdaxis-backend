@@ -1,0 +1,481 @@
+"""Staging shadow control-loop checks; never contact deployed services."""
+import json
+from dataclasses import replace
+
+import pytest
+
+from scripts.rust_contract import shadow
+from tests.rust_contract.test_shadow import observation
+
+
+def config(tmp_path):
+    return shadow.ShadowConfig(
+        python_url="http://127.0.0.1:8001", rust_url="http://127.0.0.1:8011",
+        python_sha="a" * 40, candidate_sha="b" * 40,
+        deploy_state_path=str(tmp_path / "staging.state"),
+        output_dir=str(tmp_path / "private"), required_observations_per_route=1,
+        floor_approved=True,
+    )
+
+
+def case(identifier="R05", path="/api/news"):
+    return {"id": identifier, "case_id": identifier + "-public", "kind": "route",
+            "path": path, "method": "GET", "query": "", "group": "simple"}
+
+
+class Clock:
+    def __init__(self):
+        self.now = 0.0
+    def monotonic(self):
+        return self.now
+    def sleep(self, seconds):
+        self.now += seconds
+
+
+@pytest.mark.parametrize("changes", [
+    {"python_url": "http://localhost:8001"},
+    {"rust_url": "http://127.0.0.1:8000"},
+    {"python_url": "http://127.0.0.1:8001/?x=1"},
+    {"sampling_calls_per_ten_seconds": 4},
+    {"per_call_deadline_seconds": 2.1}, {"max_response_bytes": 1048577},
+    {"pause_seconds": 59}, {"required_observations_per_route": 0},
+    {"python_sha": ""}, {"candidate_sha": "head"},
+    {"deploy_state_path": ""},
+    {"price_minute_limits": {"export_per_minute": 11}},
+])
+def test_invalid_staging_configuration_is_refused(tmp_path, changes):
+    with pytest.raises(shadow.ShadowError):
+        shadow.validate_config(replace(config(tmp_path), **changes))
+
+
+def test_staging_host_required_before_network(tmp_path, monkeypatch):
+    monkeypatch.setattr(shadow.socket, "gethostname", lambda: "vmi3623757")
+    with pytest.raises(shadow.ShadowError, match="staging host"):
+        shadow.run(config(tmp_path), 30, cases=[case()])
+
+
+def test_private_cases_replace_fixture_defaults(tmp_path):
+    rows = [case("R01", "/api/ports"), case("R02", "/api/ports/NLRTM")]
+    path = tmp_path / "cases.json"
+    path.write_text(json.dumps(rows))
+    loaded = shadow.load_staging_cases(path, require_complete=False)
+    assert loaded[1]["path"].endswith("NLRTM")
+    for unsafe in ["/__contract__/echo", "/api/auth/me", "http://example.com", "/api/ports/T4B_ONE"]:
+        path.write_text(json.dumps([case("R02", unsafe)]))
+        with pytest.raises(shadow.ShadowError):
+            shadow.load_staging_cases(path, require_complete=False)
+    path.write_text(json.dumps(rows))
+    with pytest.raises(shadow.ShadowError, match="coverage"):
+        shadow.load_staging_cases(path)
+
+
+def test_rolling_global_and_minute_limits_count_both_python_calls():
+    clock = Clock()
+    pacer = shadow.CallPacer(clock=clock.monotonic, sleep=clock.sleep)
+    starts = []
+    for _ in range(12):
+        pacer.wait("python", "export", 2, deadline=400)
+        starts.append(clock.now)
+    for start in starts:
+        assert sum(start <= t < start + 10 for t in starts) <= 3
+        assert sum(start <= t < start + 60 for t in starts) <= 2
+    assert starts[2] >= 60
+
+
+def setup_run(tmp_path, monkeypatch, responses):
+    clock = Clock()
+    monkeypatch.setattr(shadow.time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(shadow.time, "sleep", clock.sleep)
+    monkeypatch.setattr(shadow.socket, "gethostname", lambda: "vmi1840561")
+    monkeypatch.setattr(shadow, "memory_pressure", lambda: False)
+    calls = []
+    def fetch(cfg, base, request):
+        calls.append((clock.now, base, request["id"]))
+        if request["path"] == "/health/live":
+            return observation(b'{"status":"ok"}')
+        if request["path"] in {"/health/ready", "/health"}:
+            sha = cfg.python_sha if base == cfg.python_url else cfg.candidate_sha
+            return observation(json.dumps({"status": "ok", "db": "ok", "environment": "staging", "release_sha": sha}).encode())
+        return responses.pop(0) if responses else observation(b'[{"n":1}]')
+    monkeypatch.setattr(shadow, "_one_call", fetch)
+    return config(tmp_path), calls, clock
+
+
+def test_run_forced_equal_length_content_difference_fails(tmp_path, monkeypatch):
+    cfg, calls, _ = setup_run(tmp_path, monkeypatch, [observation(), observation(b'{"n":9}'), observation()])
+    result = shadow.run(cfg, 100, cases=[case()])
+    assert result["outcome"] == "FAIL"
+    assert result["counters"]["difference"] == 1
+    assert result["pairs"]["R05"] == 0
+    assert shadow.result_exit_code(result) == 1
+    assert len([c for c in calls if c[2] == "R05"]) == 3
+    text = json.dumps(result)
+    assert '"raw"' not in text and 'sha256' not in text and '"n":9' not in text
+
+
+def test_run_data_change_is_never_coverage(tmp_path, monkeypatch):
+    cfg, _, _ = setup_run(tmp_path, monkeypatch, [observation(), observation(), observation(b'{"n":2}')])
+    result = shadow.run(cfg, 23, cases=[case()])
+    assert result["counters"]["data_changed"] == 1
+    assert result["pairs"]["R05"] == 0
+    assert shadow.result_exit_code(result) == 2
+
+
+@pytest.mark.parametrize("status", [429, 503])
+def test_busy_call_pauses_sixty_seconds_and_is_in_denominator(tmp_path, monkeypatch, status):
+    cfg, calls, _ = setup_run(tmp_path, monkeypatch, [{"status": status, "inconclusive": "busy"}])
+    result = shadow.run(cfg, 100, cases=[case()])
+    data_calls = [c for c in calls if c[2] == "R05"]
+    assert data_calls[1][0] - data_calls[0][0] >= 60
+    assert result["counters"]["busy"] == 1
+    assert result["counters"]["attempted"] >= 2
+    assert result["outcome"] == "INCONCLUSIVE"  # A later match cannot erase the busy attempt.
+
+
+def test_all_calls_including_readiness_share_one_budget(tmp_path, monkeypatch):
+    cfg, calls, _ = setup_run(tmp_path, monkeypatch, [])
+    result = shadow.run(cfg, 100, cases=[case()])
+    assert result["outcome"] == "PASS"
+    for start, _, _ in calls:
+        assert sum(start <= t < start + 10 for t, _, _ in calls) <= 3
+    assert sum(c[2] == "READY" for c in calls) >= 4
+
+
+def test_unapproved_floor_and_empty_results_cannot_pass(tmp_path, monkeypatch):
+    cfg, _, _ = setup_run(tmp_path, monkeypatch, [observation(b'[]')] * 3)
+    result = shadow.run(replace(cfg, floor_approved=False), 11, cases=[case()])
+    assert result["outcome"] == "INCONCLUSIVE"
+    assert shadow.result_exit_code(result) == 2
+
+
+def test_deploy_state_during_run_stops_before_next_call(tmp_path, monkeypatch):
+    cfg, _, _ = setup_run(tmp_path, monkeypatch, [])
+    def fetch(*args):
+        from pathlib import Path
+        Path(cfg.deploy_state_path).symlink_to("absent")
+        return observation()
+    monkeypatch.setattr(shadow, "_one_call", fetch)
+    with pytest.raises(shadow.ShadowError):
+        shadow.run(cfg, 100, cases=[case()])
+
+
+def test_wrong_readiness_identity_is_a_stop_not_normalization(tmp_path, monkeypatch):
+    cfg, _, _ = setup_run(tmp_path, monkeypatch, [])
+    monkeypatch.setattr(shadow, "_one_call", lambda *args: observation(b'{"status":"ok","db":"ok","environment":"staging","release_sha":"wrong"}'))
+    with pytest.raises(shadow.ShadowError, match="identity"):
+        shadow.run(cfg, 100, cases=[case()])
+
+
+def test_pressure_pauses_without_sending_a_call(tmp_path, monkeypatch):
+    cfg, calls, clock = setup_run(tmp_path, monkeypatch, [])
+    monkeypatch.setattr(shadow, "memory_pressure", lambda: clock.now < 60)
+    shadow.run(cfg, 100, cases=[case()])
+    assert calls[0][0] >= 60
+
+
+def test_transport_deadline_covers_streamed_body_and_refuses_redirects(tmp_path):
+    import threading
+    import time
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *_):
+            pass
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            try:
+                for _ in range(20):
+                    self.wfile.write(b" ")
+                    self.wfile.flush()
+                    time.sleep(.02)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever)
+    thread.start()
+    try:
+        cfg = replace(config(tmp_path), per_call_deadline_seconds=.1)
+        result = shadow._one_call(cfg, f"http://127.0.0.1:{server.server_port}", case())
+        assert result["inconclusive"] == "timeout"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+
+def test_transport_body_bound_and_mcp_headers(tmp_path, monkeypatch):
+    class Response:
+        status = 200
+        def read(self, size):
+            assert size == 33
+            return b"x" * size
+        def getheaders(self):
+            return [("content-type", "application/json")]
+    sent = []
+    class Connection:
+        def __init__(self, *args, **kwargs):
+            pass
+        def request(self, method, path, body=None, headers=None):
+            sent.append((method, headers))
+        def getresponse(self):
+            return Response()
+        def close(self):
+            pass
+    monkeypatch.setattr(shadow.http.client, "HTTPConnection", Connection)
+    cfg = replace(config(tmp_path), max_response_bytes=32)
+    result = shadow._one_call(cfg, cfg.rust_url, {"id": "list_markets", "method": "POST", "path": "/mcp", "body": {}})
+    assert result["inconclusive"] == "oversize"
+    assert sent[0][1]["host"] == "api-staging.verdaxis.exchange"
+    assert sent[0][1]["accept"] == "application/json, text/event-stream"
+    assert not set(sent[0][1]) & shadow.FORBIDDEN_HEADERS
+
+
+def test_three_health_contracts_are_checked_with_separate_identities(tmp_path, monkeypatch):
+    cfg, calls, _ = setup_run(tmp_path, monkeypatch, [])
+    shadow.run(cfg, 100, cases=[case()])
+    assert {c[2] for c in calls} >= {"READY", "LIVE", "HEALTH"}
+
+
+def test_groups_are_round_robin_not_weighted():
+    rows = [case("R01", "/api/ports"), case("R02", "/api/ports/NLRTM"),
+            dict(case("R12", "/api/prices"), group="prices"),
+            dict(case("R07", "/api/curves/forward"), group="curves")]
+    assert [c["id"] for c in shadow.round_robin_cases(rows)] == ["R01", "R12", "R07", "R02"]
+
+
+def test_tool_errors_are_not_economic_coverage():
+    row = {"method": "POST"}
+    for raw in (b'{"error":{"code":-32602}}', b'{"result":{"isError":true}}'):
+        assert not shadow._nonempty(observation(raw), row)
+
+
+def test_cli_forced_content_difference_has_failure_exit_and_private_output(tmp_path, monkeypatch):
+    cfg, _, _ = setup_run(tmp_path, monkeypatch, [observation(), observation(b'{"n":9}'), observation()])
+    monkeypatch.setattr(shadow, "load_config", lambda _: cfg)
+    monkeypatch.setattr(shadow, "load_staging_cases", lambda _: [case()])
+    assert shadow.main(["--config", "private.toml", "--duration-seconds", "100"]) == 1
+    path = tmp_path / "private" / "shadow-summary.json"
+    assert path.stat().st_mode & 0o777 == 0o600
+    assert json.loads(path.read_text())["outcome"] == "FAIL"
+    assert "?" not in path.read_text()
+
+
+def test_mcp_tool_error_does_not_increment_successful_pairs(tmp_path, monkeypatch):
+    cfg, _, _ = setup_run(tmp_path, monkeypatch, [observation(b'{"result":{"isError":true}}')] * 3)
+    row = dict(case("list_markets", "/mcp"), method="POST", body={})
+    result = shadow.run(cfg, 23, cases=[row])
+    assert result["pairs"]["list_markets"] == 0
+    assert result["counters"]["inconclusive"] == 1
+
+
+def test_private_output_is_checked_before_network(tmp_path, monkeypatch):
+    cfg = replace(config(tmp_path), output_dir="work/public")
+    monkeypatch.setattr(shadow, "load_config", lambda _: cfg)
+    def forbidden(*args):
+        pytest.fail("unsafe evidence path must refuse before run")
+    monkeypatch.setattr(shadow, "run", forbidden)
+    assert shadow.main(["--config", "private.toml", "--duration-seconds", "100"]) == 1
+
+
+def test_readiness_failure_pauses_before_stop(tmp_path, monkeypatch):
+    cfg, _, clock = setup_run(tmp_path, monkeypatch, [])
+    monkeypatch.setattr(shadow, "_one_call", lambda *args: {"status": 503, "inconclusive": "busy"})
+    with pytest.raises(shadow.ShadowError):
+        shadow.run(cfg, 100, cases=[case()])
+    assert clock.now >= 60
+
+
+def test_busy_status_backoff_is_required_even_for_oversize_body(tmp_path, monkeypatch):
+    cfg, calls, _ = setup_run(tmp_path, monkeypatch, [{"status": 503, "inconclusive": "oversize"}])
+    shadow.run(cfg, 130, cases=[case()])
+    data_calls = [c for c in calls if c[2] == "R05"]
+    assert data_calls[1][0] - data_calls[0][0] >= 60
+
+
+def test_minute_limit_is_enforced_in_run_loop(tmp_path, monkeypatch):
+    cfg, calls, _ = setup_run(tmp_path, monkeypatch, [])
+    cfg = replace(cfg, required_observations_per_route=2,
+                  price_minute_limits={"export_per_minute": 2})
+    row = dict(case("R14", "/api/prices/reference/export"), group="prices")
+    shadow.run(cfg, 180, cases=[row])
+    starts = [t for t, base, identifier in calls if identifier == "R14" and base == cfg.python_url]
+    assert len(starts) >= 3
+    assert starts[2] - starts[0] >= 60
+
+
+def test_response_headers_remain_part_of_content_contract():
+    same = observation()
+    other = observation(headers={"content-type": "application/json", "x-other": "different"})
+    assert shadow.classify_sandwich(same, other, same, request_path="/api/news") == "difference"
+
+
+def test_final_readiness_must_complete_before_pass(tmp_path, monkeypatch):
+    cfg, _, _ = setup_run(tmp_path, monkeypatch, [])
+    result = shadow.run(cfg, 23, cases=[case()])
+    assert result["outcome"] == "INCONCLUSIVE"
+
+
+@pytest.mark.parametrize("record", [
+    {"case_id": "private-query=value"}, {"route_id": "private-value"},
+    {"status_pair": "secret"}, {"counters": {"private-value": 1}},
+    {"byte_counts": ["private-value"]}, {"field_path": "/body/private_company"},
+])
+def test_diagnostics_accept_only_typed_schema_metadata(record):
+    with pytest.raises(shadow.ShadowError):
+        shadow.sanitize_diagnostic(record)
+
+
+@pytest.mark.parametrize("port", ["SGSIN", "sg-sin"])
+def test_port_id_forms_match_public_data(tmp_path, port):
+    path = tmp_path / "cases.json"
+    path.write_text(json.dumps([case("R02", "/api/ports/" + port)]))
+    assert shadow.load_staging_cases(path, require_complete=False)[0]["path"].endswith(port)
+
+
+@pytest.mark.parametrize("port", ["SG-SIN", "sgsin", "sg-Sin", "sg-sin/extra", "sg-sin?x=1", "../sg-sin"])
+def test_other_port_forms_are_refused(tmp_path, port):
+    path = tmp_path / "cases.json"
+    path.write_text(json.dumps([case("R02", "/api/ports/" + port)]))
+    with pytest.raises(shadow.ShadowError):
+        shadow.load_staging_cases(path, require_complete=False)
+
+
+@pytest.mark.parametrize("approved", [False, True])
+def test_empty_route_needs_explicit_approval(tmp_path, monkeypatch, approved):
+    cfg, _, _ = setup_run(tmp_path, monkeypatch, [observation(b"[]")] * 3)
+    cfg = replace(cfg, approved_empty_routes=["R07"] if approved else [])
+    result = shadow.run(cfg, 100, cases=[case("R07", "/api/curves/forward")])
+    assert result["outcome"] == ("PASS" if approved else "INCONCLUSIVE")
+    if approved:
+        assert result["coverage"]["routes"]["R07"]["reason"] == "empty-only (approved)"
+
+
+def test_approved_empty_csv_still_compares_exact_bytes(tmp_path, monkeypatch):
+    first = observation(b"a,b\n", headers={"content-type": "text/csv"})
+    other = observation(b"a,c\n", headers={"content-type": "text/csv"})
+    cfg, _, _ = setup_run(tmp_path, monkeypatch, [first, other, first])
+    cfg = replace(cfg, approved_empty_routes=["R08"])
+    assert shadow.run(cfg, 100, cases=[case("R08", "/api/curves/forward/export")])["outcome"] == "FAIL"
+
+
+@pytest.mark.parametrize("overrides", [{"R21": 16777217}, {"R99": 8388608}, {"R21": True}, {"R21": 0}])
+def test_invalid_body_overrides_refuse(tmp_path, overrides):
+    with pytest.raises(shadow.ShadowError):
+        shadow.validate_config(replace(config(tmp_path), body_limit_overrides=overrides))
+
+
+def test_r21_transport_override_and_oversize_inconclusive(tmp_path, monkeypatch):
+    cfg, _, _ = setup_run(tmp_path, monkeypatch, [])
+    cfg = replace(cfg, body_limit_overrides={"R21": 8388608})
+    # Exercise the real bounded transport under the run loop, not an oversized
+    # preclassified fixture. Every health response remains valid.
+    original = shadow._one_call
+    real_call = REAL_ONE_CALL
+    sizes = []
+    class Response:
+        status = 200
+        def read(self, size):
+            sizes.append(size)
+            return b"x" * size
+        def getheaders(self):
+            return [("content-type", "application/json")]
+    class Connection:
+        def __init__(self, *args, **kwargs): pass
+        def request(self, *args, **kwargs): pass
+        def getresponse(self): return Response()
+        def close(self): pass
+    monkeypatch.setattr(shadow.http.client, "HTTPConnection", Connection)
+    def fetch(config, base, request):
+        if request["id"] == "R21": return real_call(config, base, request)
+        return original(config, base, request)
+    monkeypatch.setattr(shadow, "_one_call", fetch)
+    result = shadow.run(cfg, 23, cases=[case("R21", "/api/orderbook/map-summary")])
+    assert sizes and all(size == 8388609 for size in sizes)
+    assert result["outcome"] == "INCONCLUSIVE"
+    assert result["counters"]["oversize"] == len(sizes)
+    assert shadow.result_exit_code(result) == 2
+    assert shadow.response_body_limit(cfg, "R05") == 1048576
+
+
+REAL_ONE_CALL = shadow._one_call
+
+
+def test_optional_staging_settings_load_without_changing_defaults(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text('python_url = "http://127.0.0.1:8001"\nrust_url = "http://127.0.0.1:8011"\n'
+                    'approved_empty_routes = ["R07", "R08"]\nbody_limit_overrides = { R21 = 8388608 }\n')
+    cfg = shadow.load_config(path)
+    assert cfg.approved_empty_routes == ["R07", "R08"]
+    assert cfg.body_limit_overrides == {"R21": 8388608}
+    assert shadow.ShadowConfig("", "").approved_empty_routes == []
+    assert shadow.ShadowConfig("", "").body_limit_overrides == {}
+
+
+def test_large_route_difference_retains_only_bounded_byte_counts():
+    record = {"route_id": "R21", "byte_counts": [8388608, 8388608, 8388608]}
+    assert shadow.sanitize_diagnostic(record) == record
+    with pytest.raises(shadow.ShadowError):
+        shadow.sanitize_diagnostic({"byte_counts": [16777217]})
+
+
+def test_board_focus_curve_request_clocks_are_compared_as_clocks():
+    def response(hour):
+        clock = f"2026-10-18T{hour}:00:00Z"
+        cell = {"fair_price_band_provenance": {"generated_at": clock},
+                "indication_summary": {"provenance": {"generated_at": clock}},
+                "physical_stem_summary": {"provenance": {"generated_at": clock}},
+                "order_observed_at": "2026-10-17T00:00:00Z"}
+        return observation(json.dumps({"focus": {"curve": [cell]}, "generated_at": clock}).encode())
+    first, later = response("00"), response("01")
+    assert shadow.classify_sandwich(first, later, later, request_path="/api/curves/forward/board") == "match"
+    changed = dict(later, raw=later["raw"].replace(b'17T00', b'17T01'))
+    assert shadow.classify_sandwich(first, changed, first, request_path="/api/curves/forward/board") == "difference"
+
+
+def test_non_success_pair_and_missing_route_produce_safe_diagnostics(tmp_path, monkeypatch):
+    denied = observation(b'Invalid Host header', status=421, headers={"content-type": "text/plain"})
+    cfg, _, _ = setup_run(tmp_path, monkeypatch, [denied] * 3)
+    result = shadow.run(cfg, 23, cases=[case("list_markets", "/mcp")])
+    assert result["pairs"]["list_markets"] == 0
+    assert {d["difference_category"] for d in result["diagnostics"]} >= {"http-status", "no-stable-pair"}
+    assert "Invalid Host" not in json.dumps(result)
+
+
+@pytest.mark.parametrize("full,expected", [(0.01, False), (0.99, False), (1.0, True), (5.0, True)])
+def test_shared_host_pressure_uses_only_meaningful_memory_full(monkeypatch, full, expected):
+    paths = []
+    def read(path, *args, **kwargs):
+        paths.append(str(path))
+        return f"some avg10=99.0 avg60=99.0 avg300=99.0 total=1\nfull avg10={full} avg60=0.0 avg300=0.0 total=1\n"
+    monkeypatch.setattr(shadow.Path, "read_text", read)
+    assert shadow.memory_pressure() is expected
+    assert paths == ["/proc/pressure/memory"]
+
+
+def test_pressure_pause_is_attributed(tmp_path, monkeypatch):
+    cfg, _, clock = setup_run(tmp_path, monkeypatch, [])
+    monkeypatch.setattr(shadow, "memory_pressure", lambda: clock.now < 60)
+    result = shadow.run(cfg, 100, cases=[case()])
+    assert result["pause_reasons"]["memory-full"] == 1
+    assert sum(result["pause_reasons"].values()) == result["counters"]["pauses"]
+
+
+def test_five_pairs_for_thirty_cases_fit_cap_without_pauses(tmp_path, monkeypatch):
+    cfg, _, _ = setup_run(tmp_path, monkeypatch, [])
+    cfg = replace(cfg, required_observations_per_route=5)
+    rows = [case(f"R{n:02}") for n in range(1, 28)]
+    rows += [dict(case(tool, "/mcp"), method="POST", group="mcp")
+             for tool in ("list_markets", "get_market_slice", "plan_voyage_fuel")]
+    def fetch(config, base, request):
+        if request["path"] == "/health/live": return observation(b'{"status":"ok"}')
+        if request["path"] in {"/health/ready", "/health"}:
+            sha = config.python_sha if base == config.python_url else config.candidate_sha
+            return observation(json.dumps({"status":"ok","db":"ok","environment":"staging","release_sha":sha}).encode())
+        return observation(b'{"result":{"isError":false,"structuredContent":{"n":1}}}')
+    monkeypatch.setattr(shadow, "_one_call", fetch)
+    result = shadow.run(cfg, 2100, cases=rows)
+    assert result["outcome"] == "PASS"
+    assert all(n >= 5 for n in result["pairs"].values())
+    print("FLOOR=5 CASES=30 CAP=2100 ZERO_PAUSE_SCHEDULE=PASS")

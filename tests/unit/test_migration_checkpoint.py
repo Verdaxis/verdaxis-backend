@@ -134,11 +134,11 @@ def test_checkpoint_executor_passes_only_literal_target_to_alembic(monkeypatch):
             settings=SimpleNamespace(
                 RELEASE_SHA=SOURCE_SHA,
                 DATABASE_URL=(
-                    "postgresql+asyncpg://verdaxis_app:app-secret@db/verdaxis"
+                    "postgresql+asyncpg://verdaxis_app:app-secret@db/verdaxis_prod"
                 ),
                 MIGRATOR_DATABASE_URL=(
                     "postgresql+asyncpg://verdaxis_migrator:"
-                    "migration-secret@db/verdaxis"
+                    "migration-secret@db/verdaxis_prod"
                 ),
             ),
             policy={(EXPECTED, TARGET)},
@@ -194,9 +194,9 @@ def test_checkpoint_cli_and_deploy_require_explicit_environment_file():
 def test_checkpoint_executor_pins_alembic_to_explicit_migrator_url(monkeypatch):
     module = _load_checkpoint_module()
     migration_url = (
-        "postgresql+asyncpg://verdaxis_migrator:migration-secret@db/verdaxis"
+        "postgresql+asyncpg://verdaxis_migrator:migration-secret@db/verdaxis_prod"
     )
-    app_url = "postgresql+asyncpg://verdaxis_app:app-secret@db/verdaxis"
+    app_url = "postgresql+asyncpg://verdaxis_app:app-secret@db/verdaxis_prod"
     settings = SimpleNamespace(
         RELEASE_SHA=SOURCE_SHA,
         DATABASE_URL=app_url,
@@ -232,7 +232,7 @@ def test_checkpoint_executor_pins_alembic_to_explicit_migrator_url(monkeypatch):
 
 def test_checkpoint_executor_refuses_app_credential_before_alembic(monkeypatch):
     module = _load_checkpoint_module()
-    app_url = "postgresql+asyncpg://verdaxis_app:app-secret@db/verdaxis"
+    app_url = "postgresql+asyncpg://verdaxis_app:app-secret@db/verdaxis_prod"
     settings = SimpleNamespace(
         RELEASE_SHA=SOURCE_SHA,
         DATABASE_URL=app_url,
@@ -292,7 +292,7 @@ def test_checkpoint_reader_never_falls_back_to_app_url(
     monkeypatch.setattr(module, "create_async_engine", forbidden_engine)
     settings = SimpleNamespace(
         ENVIRONMENT=environment,
-        DATABASE_URL="postgresql+asyncpg://verdaxis_app:app@db/verdaxis",
+        DATABASE_URL="postgresql+asyncpg://verdaxis_app:app@db/verdaxis_prod",
         MIGRATOR_DATABASE_URL=migrator_url,
     )
 
@@ -306,8 +306,8 @@ def test_checkpoint_reader_never_falls_back_to_app_url(
 @pytest.mark.parametrize(
     "migrator_url",
     [
-        "postgresql+asyncpg://verdaxis_app:app@db/verdaxis",
-        "postgresql+asyncpg://verdaxis_app:different@other-db/verdaxis",
+        "postgresql+asyncpg://verdaxis_app:app@db/verdaxis_prod",
+        "postgresql+asyncpg://verdaxis_app:different@other-db/verdaxis_prod",
     ],
 )
 def test_checkpoint_reader_requires_distinct_app_and_migrator_authority(
@@ -321,7 +321,7 @@ def test_checkpoint_reader_requires_distinct_app_and_migrator_authority(
     monkeypatch.setattr(module, "create_async_engine", forbidden_engine)
     settings = SimpleNamespace(
         ENVIRONMENT="production",
-        DATABASE_URL="postgresql+asyncpg://verdaxis_app:app@db/verdaxis",
+        DATABASE_URL="postgresql+asyncpg://verdaxis_app:app@db/verdaxis_prod",
         MIGRATOR_DATABASE_URL=migrator_url,
     )
 
@@ -341,9 +341,9 @@ def test_checkpoint_reader_requires_same_app_and_migrator_endpoint(monkeypatch):
     monkeypatch.setattr(module, "create_async_engine", forbidden_engine)
     settings = SimpleNamespace(
         ENVIRONMENT="production",
-        DATABASE_URL="postgresql+asyncpg://verdaxis_app:app@db-a/verdaxis",
+        DATABASE_URL="postgresql+asyncpg://verdaxis_app:app@db-a/verdaxis_prod",
         MIGRATOR_DATABASE_URL=(
-            "postgresql+asyncpg://verdaxis_migrator:migrator@db-b/verdaxis"
+            "postgresql+asyncpg://verdaxis_migrator:migrator@db-b/verdaxis_prod"
         ),
     )
 
@@ -372,9 +372,37 @@ def test_deploy_converges_acl_policy_after_migration_before_restart():
     convergence = source.index(
         '"$ACL_CONVERGENCE_TEMP/$ACL_CONVERGENCE_HELPER_PATH"'
     )
-    restart = source.index('sudo systemctl restart "$SERVICE_NAME"')
+    restart = source.index('sudo -n systemctl restart "$SERVICE_NAME"')
 
     assert migration < convergence < restart
     assert "deploy/postgres/converge_runtime_object_acls.sql" in source
     assert "deploy/postgres/app_acl_policy.sql" in source
     assert "bootstrap_roles.sql" not in source
+
+
+def test_b100_release_checkpoints_require_complete_execution_schema():
+    module = _load_checkpoint_module()
+    policy = module.parse_checkpoint_policy(
+        (ROOT / "deploy/migration-checkpoints.tsv").read_text()
+    )
+    script = ScriptDirectory.from_config(Config(str(ROOT / "alembic.ini")))
+    target = "fame_20260922_b100_orderbook"
+    for current in (
+        "fee_20260912_seller_per_mt", "fame_20260922_rfq_contract",
+        "fame_20260922_supplier_offers", target,
+    ):
+        module.validate_checkpoint_request(
+            policy=policy,
+            source_sha=SOURCE_SHA,
+            approved_source_sha=SOURCE_SHA,
+            expected_current=current,
+            target=target,
+            current_heads=(current,),
+            script_directory=script,
+        )
+    # This release reads B100 terms on shared order and trade rows. Earlier
+    # FAME revisions remain migration ancestors, never release targets.
+    assert not any(
+        target in {"fame_20260922_catalog", "fame_20260922_rfq_contract", "fame_20260922_supplier_offers"}
+        for _current, target in policy
+    )

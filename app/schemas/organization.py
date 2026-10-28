@@ -15,23 +15,12 @@ BUY_SIDE_ORG_TYPES = {
 SIGNUP_ORG_TYPES = BUY_SIDE_ORG_TYPES | {
     OrgType.FUEL_SUPPLIER,
 }
-# A trader may hold the ask-side SUPPLIER role. Traders are admitted by
-# administrator invitation only; public signup keeps SIGNUP_ORG_TYPES.
-SUPPLIER_ORG_TYPES = {
-    OrgType.FUEL_SUPPLIER,
-    OrgType.FUEL_TRADER,
-}
 
 
 def organization_type_matches_role(role: UserRole, org_type: OrgType) -> bool:
     if role == UserRole.SUPPLIER:
-        return org_type in SUPPLIER_ORG_TYPES
+        return org_type in {OrgType.FUEL_SUPPLIER, OrgType.FUEL_TRADER}
     return role == UserRole.BUYER and org_type in BUY_SIDE_ORG_TYPES
-
-
-def signup_organization_type_matches_role(role: UserRole, org_type: OrgType) -> bool:
-    """Public registration admits only signup organization types."""
-    return org_type in SIGNUP_ORG_TYPES and organization_type_matches_role(role, org_type)
 
 
 class OrganizationBase(BaseModel):

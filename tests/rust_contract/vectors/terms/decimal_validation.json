@@ -1,0 +1,168 @@
+[
+  {
+    "profile": "lng_v1",
+    "terms": {
+      "side": "ASK",
+      "sustainability_scheme": "ISCC_EU",
+      "chain_of_custody": "MASS_BALANCE",
+      "union_database_registered": true,
+      "bio_share_pct": "95.500",
+      "feedstock": "MANURE",
+      "feedstock_detail": "Slurry from dairy herds",
+      "production_country": "NL",
+      "wtt_ghg_gco2e_mj": "12.30",
+      "specification_standard": "ISO 23306:2020",
+      "min_methane_number": "80",
+      "delivery_method": "SHIP_TO_SHIP",
+      "seller_is_physical_supplier": false,
+      "pos_timing": "WITH_DELIVERY",
+      "scheme_certificate_number": "ISCC-EU-0001",
+      "physical_supplier_name": "Rotterdam Biofuels BV"
+    },
+    "accepted": true
+  },
+  {
+    "profile": "lng_v1",
+    "terms": {
+      "side": "ASK",
+      "sustainability_scheme": "ISCC_EU",
+      "chain_of_custody": "MASS_BALANCE",
+      "union_database_registered": true,
+      "bio_share_pct": "95.50",
+      "feedstock": "MANURE",
+      "feedstock_detail": "Slurry from dairy herds",
+      "production_country": "NL",
+      "wtt_ghg_gco2e_mj": "-0.000",
+      "specification_standard": "ISO 23306:2020",
+      "min_methane_number": "80",
+      "delivery_method": "SHIP_TO_SHIP",
+      "seller_is_physical_supplier": false,
+      "pos_timing": "WITH_DELIVERY",
+      "scheme_certificate_number": "ISCC-EU-0001",
+      "physical_supplier_name": "Rotterdam Biofuels BV"
+    },
+    "accepted": true
+  },
+  {
+    "profile": "fame_v1",
+    "terms": {
+      "schema_version": 1,
+      "neat_fame": true,
+      "batch_reference": "BATCH-9",
+      "producing_site": "Jurong Plant",
+      "production_origin": "Singapore",
+      "feedstock_origin": "Malaysia",
+      "shipping_location": "Jurong",
+      "uco_mass_pct": 100,
+      "standard": "EN_14214",
+      "standard_edition": "EN 14214:2019",
+      "astm_grade": null,
+      "en_climate_class": "B",
+      "cfpp_c": "-5",
+      "cloud_point_c": "-3",
+      "ci_gco2e_mj": "18.4000",
+      "ci_methodology": "ISCC",
+      "ci_boundary": "WELL_TO_WAKE",
+      "ci_basis": "ACTUAL",
+      "sustainability_scheme": "ISCC_EU",
+      "certificate_reference": "CERT-0001",
+      "certificate_holder": "Jurong Renewables Pte Ltd",
+      "certificate_valid_until": "2027-06-30",
+      "certificate_scope": null,
+      "evidence_status": "AVAILABLE",
+      "document_references": [
+        "DOC-1"
+      ],
+      "lhv_mj_kg": "37.20",
+      "quality_evidence": {
+        "status": "AVAILABLE",
+        "reference": "Q-1",
+        "batch_reference": "BATCH-9",
+        "laboratory": "SGS",
+        "sampled_on": "2026-09-01",
+        "tested_on": "2026-09-03",
+        "results": [
+          {
+            "property": "WATER_MG_KG",
+            "value": "120",
+            "method": "EN ISO 12937"
+          }
+        ]
+      },
+      "sustainability_evidence": {
+        "status": "AVAILABLE",
+        "document_type": "POS",
+        "reference": "S-1",
+        "issuer": "ISCC",
+        "quantity_mt": "500.00",
+        "supply_date": "2026-10-01",
+        "due": "BEFORE_LOADING"
+      },
+      "nomination_status": "IDENTIFIED",
+      "side": "ASK",
+      "evidence_due": "BEFORE_LOADING"
+    },
+    "accepted": true
+  },
+  {
+    "profile": "fame_v1",
+    "terms": {
+      "schema_version": 1,
+      "neat_fame": true,
+      "batch_reference": "BATCH-9",
+      "producing_site": "Jurong Plant",
+      "production_origin": "Singapore",
+      "feedstock_origin": "Malaysia",
+      "shipping_location": "Jurong",
+      "uco_mass_pct": 100,
+      "standard": "EN_14214",
+      "standard_edition": "EN 14214:2019",
+      "astm_grade": null,
+      "en_climate_class": "B",
+      "cfpp_c": "-5",
+      "cloud_point_c": "-3",
+      "ci_gco2e_mj": "18.40",
+      "ci_methodology": "ISCC",
+      "ci_boundary": "WELL_TO_WAKE",
+      "ci_basis": "ACTUAL",
+      "sustainability_scheme": "ISCC_EU",
+      "certificate_reference": "CERT-0001",
+      "certificate_holder": "Jurong Renewables Pte Ltd",
+      "certificate_valid_until": "2027-06-30",
+      "certificate_scope": null,
+      "evidence_status": "AVAILABLE",
+      "document_references": [
+        "DOC-1"
+      ],
+      "lhv_mj_kg": "37.2000",
+      "quality_evidence": {
+        "status": "AVAILABLE",
+        "reference": "Q-1",
+        "batch_reference": "BATCH-9",
+        "laboratory": "SGS",
+        "sampled_on": "2026-09-01",
+        "tested_on": "2026-09-03",
+        "results": [
+          {
+            "property": "WATER_MG_KG",
+            "value": "120",
+            "method": "EN ISO 12937"
+          }
+        ]
+      },
+      "sustainability_evidence": {
+        "status": "AVAILABLE",
+        "document_type": "POS",
+        "reference": "S-1",
+        "issuer": "ISCC",
+        "quantity_mt": "500.00",
+        "supply_date": "2026-10-01",
+        "due": "BEFORE_LOADING"
+      },
+      "nomination_status": "IDENTIFIED",
+      "side": "ASK",
+      "evidence_due": "BEFORE_LOADING"
+    },
+    "accepted": true
+  }
+]

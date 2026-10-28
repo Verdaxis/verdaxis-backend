@@ -1,0 +1,21 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "jsonrpc": "2.0",
+    "id": 50,
+    "result": {
+      "content": [
+        {
+          "text": "Error executing tool plan_voyage_fuel: 1 validation error for plan_voyage_fuelArguments\nrequest.assumptions.ghg_intensity_gco2e_per_mj\n  Value error, GHG intensity for VLSFO must be between 0 and 200 gCO2e/MJ [type=value_error, input_value={'VLSFO': '201'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error",
+          "type": "text"
+        }
+      ],
+      "isError": true
+    }
+  },
+  "body_sha256": "9d15e9b972922922e7c534848a3b85b27c005c62c4f4c365ed602dd5aa757dc4"
+}

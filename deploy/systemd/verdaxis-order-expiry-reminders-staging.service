@@ -11,6 +11,7 @@ WorkingDirectory=/home/verdaxis-prod/verdaxis/staging/be
 EnvironmentFile=/home/verdaxis-prod/verdaxis/staging/be/.env
 EnvironmentFile=/home/verdaxis-prod/verdaxis/staging/be/.runtime-release.env
 Environment=ENVIRONMENT=staging
+ExecStartPre=/bin/sh -c 'test ! -e /home/verdaxis-prod/verdaxis/staging/be/.runtime-deploy/staging.state && test ! -L /home/verdaxis-prod/verdaxis/staging/be/.runtime-deploy/staging.state'
 ExecStart=/home/verdaxis-prod/verdaxis/staging/be/venv/bin/python -m app.cli.order_expiry_reminders
 NoNewPrivileges=true
 PrivateTmp=true

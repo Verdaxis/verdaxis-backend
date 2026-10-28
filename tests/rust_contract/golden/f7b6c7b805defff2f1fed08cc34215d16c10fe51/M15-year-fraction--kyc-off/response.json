@@ -1,0 +1,21 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "jsonrpc": "2.0",
+    "id": 50,
+    "result": {
+      "content": [
+        {
+          "text": "Error executing tool plan_voyage_fuel: 1 validation error for plan_voyage_fuelArguments\nrequest.assumptions.reporting_year\n  Input should be a valid integer, got a number with a fractional part [type=int_from_float, input_value=2035.5, input_type=float]\n    For further information visit https://errors.pydantic.dev/2.13/v/int_from_float",
+          "type": "text"
+        }
+      ],
+      "isError": true
+    }
+  },
+  "body_sha256": "cf20471ea4de994af0b80606b127cd9c2babca83ffad98960a6d98d6a6388311"
+}

@@ -11,6 +11,7 @@ WorkingDirectory=/home/verdaxis-prod/verdaxis/prod/be
 EnvironmentFile=/home/verdaxis-prod/verdaxis/prod/be/.env
 EnvironmentFile=/home/verdaxis-prod/verdaxis/prod/be/.runtime-release.env
 Environment=ENVIRONMENT=production
+ExecStartPre=/bin/sh -c 'test ! -e /home/verdaxis-prod/verdaxis/prod/be/.runtime-deploy/production.state && test ! -L /home/verdaxis-prod/verdaxis/prod/be/.runtime-deploy/production.state'
 ExecStart=/home/verdaxis-prod/verdaxis/prod/be/venv/bin/python -m app.cli.order_expiry_reminders
 NoNewPrivileges=true
 PrivateTmp=true

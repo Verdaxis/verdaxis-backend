@@ -15,6 +15,21 @@ ENVIRONMENT=development \
   uvicorn app.main:app --host 127.0.0.1 --port <unused-ephemeral-port>
 ```
 
+## Phase 0 canonical release preparation
+
+The canonical source selects `staging` in both fixed backend paths. Production
+requires `verdaxis_prod` with the existing exact roles; the preserved old release
+still requires `verdaxis`. Neither a database-name override nor an old-database
+rename is supported. Seed paths deny both production names.
+
+Use [the one-use fenced checklist](docs/runbooks/phase0-cutover.md), not an ordinary
+deploy, for the initial complete-tuple transition. It requires final union policy,
+separate host approval, outbox drain, backup-owner changes and pre-write rollback
+proof. This repository change performs no live switch or monitor activation.
+Runtime and monitor identity publish together under blocked deploy state.
+Production credentialed CORS includes the exact canary origin
+`https://canary.verdaxis.exchange`; staging does not.
+
 ## Live Deployment
 
 The deployed backends run on separate hosts through systemd, not Docker
@@ -159,15 +174,39 @@ the no-change check with `--dry-run --environment <production|staging>
 - Rollback is a clean forward-revert release through the same health gate.
   Never downgrade the database or release metadata independently of code.
 
-This production branch is the integrated runtime, security, and market release.
-Its committed checkpoint allowlist preserves each reviewed pause through the
-production delivery-report head. Operators still approve and execute one
-literal checkpoint at a time rather than traversing to `head`. Protected seed,
-quarantine, market-evidence, and existing-organization provenance writes remain
-outside the application role; audit and status history remain append-only.
-Forward reverts must preserve the authentication cutoff, acceptance priority,
-and durable command receipts. Never perform an identity-only or database
-downgrade rollback.
+This staging branch is an integrated runtime, security, and market release. It
+keeps the staging-only FAME and UCOME B100 catalog and its literal checkpoint
+chain separate from production. Operators still approve and execute one
+allowlisted checkpoint at a time rather than traversing to `head`. Protected
+seed, quarantine, market-evidence, and existing-organization provenance writes
+remain outside the application role; audit and status history remain
+append-only. Forward reverts must preserve the authentication cutoff,
+acceptance priority, and durable command receipts. Never perform an
+identity-only or database downgrade rollback.
+
+## API contract (`openapi.json`)
+
+`openapi.json` at the repository root is the committed API contract. The
+frontend vendors this exact file by SHA and generates its API types from it, and
+the Rust read service must serve the same public contract. The backend owns the
+file, so a contract change is reviewed and versioned here.
+
+`tests/unit/test_openapi_snapshot.py` fails when the committed file differs from
+a fresh export, so drift fails the CI unit job. Regenerate the file in the same
+commit as any route or schema change:
+
+```bash
+ENVIRONMENT=test RELEASE_SHA=test \
+  JWT_SECRET=test-secret-key-for-testing-minimum-32-chars \
+  DATABASE_URL=sqlite+aiosqlite:///:memory: \
+  venv/bin/python scripts/export_openapi.py
+```
+
+The export pins that test environment, drops the deployment-specific `servers`
+field, and writes sorted keys with a two-space indent and a trailing newline, so
+the bytes never depend on the machine that generates them. Add `--stdout` to
+print the document instead of writing the file; the path and schema counts go to
+stderr.
 
 ## API Endpoints
 

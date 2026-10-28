@@ -1,6 +1,5 @@
 from datetime import UTC, datetime
 import json
-import uuid
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
@@ -14,8 +13,6 @@ from app.models.user_preference import UserPreference
 from app.rate_limit import limiter
 from app.routers.auth_simple import get_current_user
 from app.schemas.preferences import NAMESPACE_SCHEMAS
-from app.services.audit_actions import MARKET_WATCH_PREFERENCES_SAVED
-from app.services.audit_service import record_audit, request_audit_context
 
 
 MAX_PREFERENCE_BYTES = 8 * 1024
@@ -75,7 +72,6 @@ async def put_preference(
 
     if preference is None:
         preference = UserPreference(
-            id=uuid.uuid4(),
             user_id=current_user.id,
             namespace=namespace,
             value=validated_value,
@@ -83,27 +79,8 @@ async def put_preference(
         )
         db.add(preference)
     else:
-        if preference.value == validated_value:
-            return {
-                "value": preference.value,
-                "updated_at": preference.updated_at.isoformat(),
-            }
         preference.value = validated_value
         preference.updated_at = now
-
-    if namespace == "market_watch":
-        await record_audit(
-            db,
-            user_id=current_user.id,
-            action=MARKET_WATCH_PREFERENCES_SAVED,
-            resource_type="user_preference",
-            resource_id=preference.id,
-            changes={
-                "products": validated_value["products"],
-                "port_ids": validated_value["portIds"],
-            },
-            **request_audit_context(request),
-        )
 
     await db.commit()
 

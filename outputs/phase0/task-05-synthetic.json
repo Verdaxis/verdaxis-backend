@@ -1,0 +1,1307 @@
+{
+  "evidence_kind": "synthetic pinned-staging proof; not union or host acceptance",
+  "manifest_digest": "86e5c0808e17306f37da70398ff9daaf983cef2384d8a9efa5395bc9f4ea0883",
+  "sequences": {
+    "market_event_stream_seq": {
+      "is_called": true,
+      "last_value": 150,
+      "next_value": 151,
+      "source": {
+        "is_called": true,
+        "last_value": 150
+      }
+    },
+    "orderbook_acceptance_ordinal_seq": {
+      "is_called": true,
+      "last_value": 200,
+      "next_value": 201,
+      "source": {
+        "is_called": true,
+        "last_value": 200
+      }
+    }
+  },
+  "source_schema": {
+    "reference_rows_sha256": "113f73f84bb852bcb37ccdf98ddf568dda4a9e786c531a43c7d36a5b296d015e",
+    "revision": "kycg_20261014_prod",
+    "schema_sha256": "e86d6e9d2b879153553b365590f112b6975724890ebe38742d3b8baeb295a9f5",
+    "source_sha": "c08266bd6969143812dec7c5033338428cd5f159",
+    "table_count": 61
+  },
+  "source_snapshot": "800:800:",
+  "target_oid": 24178,
+  "target_schema": {
+    "reference_rows_sha256": "894ac8719498f6e9ea55bdeb79a7e78ed81babb47fc79a1ed8f15d6253e794b5",
+    "revision": "kycd_20261015_staging",
+    "schema_sha256": "6fd8ce03449cb2b98a20bfcd286fa9a1e46f8fe64cb357192a2fb7742b7e7b78",
+    "source_sha": "b218ab264b92f99007bacc05d4871413e024b72a",
+    "table_count": 62
+  },
+  "verification": {
+    "new_reference_rows": {
+      "delivery_points": {
+        "columns": {
+          "created_at": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "id": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "is_active": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "name": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "region": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "timezone": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "count": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "products": {
+        "columns": {
+          "created_at": "acccefd9bb186f988e3c7ed9931b9c1d920083803b3384eff8dbde296d237901",
+          "fuel_grade": "ae1b320af969be01cbe818f2d9ba13a09c9c59115b9b787b633a1c07d2d3c73a",
+          "fuel_type": "868db2f5a07193cc71e409ec44024802ee7ae43f54ba22502d47490c2040a6a0",
+          "id": "c65ae34d88f2d6735a377d96039000c4a140bc0260c7cf9c59ab34ef03d36bd6",
+          "is_active": "8e1c0afd75aa3339ce1291ed55def9e65a26564625981613e1c0144550e83e2f",
+          "min_lot_size": "d6171ad02a6917caae7c9e359592114e088f695ace644d7cdf3d5cb14ce4b041",
+          "name": "5931be1b7a6a7b91ede3a380542abe0978edc1ef45adb2a85ce026bece9c7de6",
+          "spec_description": "18eb0d5ee1837b50a6382c22b4a2506e4ad71ab1cb808baa3fbd9909301e4a84",
+          "unit": "20ad8e8a2960d55d415e023a4e7dd90cb9f358a3ce96d3be1fbaa31b0ae27f36"
+        },
+        "count": 1,
+        "sha256": "11553e6d7cc23d7c04c448da0e59c6e0b841b7f3a8acf6313c03bef726dfb290"
+      }
+    },
+    "notice_count": 1,
+    "numeric_totals": {
+      "audit_logs": {},
+      "benchmarks": {
+        "price_per_mt_usd": "700.00"
+      },
+      "commissions": {
+        "amount_usd": "20.00"
+      },
+      "compliance_ledger": {
+        "amount": "0",
+        "units": "0"
+      },
+      "contracts": {
+        "ci_score": "20.00",
+        "deposit_amount_usd": "0",
+        "deposit_pct": "0",
+        "price_per_mt_usd": "700.00",
+        "quantity_mt": "10.00",
+        "shortfall_fee_pct": "0"
+      },
+      "delivery_points": {},
+      "demand_profiles": {
+        "max_price_per_mt_usd": "0",
+        "min_ci_score": "20.00",
+        "quantity_mt": "10.00"
+      },
+      "direct_order_offers": {
+        "price_per_mt_usd": "700.00"
+      },
+      "direct_orders": {
+        "final_price_per_mt": "0",
+        "final_price_usd": "0",
+        "quantity_mt": "10.00"
+      },
+      "fair_price_bands": {
+        "high_price_per_mt_usd": "710.00",
+        "low_price_per_mt_usd": "690.00",
+        "mid_price_per_mt_usd": "700.00"
+      },
+      "feedback_entries": {},
+      "inventory_items": {
+        "carbon_intensity_gco2_mj": "0",
+        "current_stock_mt": "100",
+        "energy_density_mj_kg": "0",
+        "incoming_stock_mt": "0",
+        "price_per_mt_usd": "0",
+        "reserved_stock_mt": "0"
+      },
+      "kyc_execution_grace": {},
+      "live_slice_benchmarks": {
+        "benchmark_price_per_mt_usd": "700.00",
+        "total_remaining_quantity_mt": "100.00"
+      },
+      "market_command_results": {},
+      "market_event_outbox": {},
+      "market_indications": {
+        "price_per_mt_usd": "700.00",
+        "quantity_mt": "0"
+      },
+      "market_row_quarantines": {},
+      "market_signal_ingestion_runs": {},
+      "market_support_authorizations": {
+        "carbon_intensity_gco2_mj": "0",
+        "price_per_mt_usd": "700.00",
+        "quantity_mt": "100.00"
+      },
+      "market_support_contexts": {},
+      "match_suggestions": {
+        "score": "80.00"
+      },
+      "negotiation_rounds": {
+        "proposed_price": "700"
+      },
+      "negotiations": {
+        "current_price": "700",
+        "quantity_mt": "10"
+      },
+      "news_items": {},
+      "notifications": {},
+      "orderbook_orders": {
+        "carbon_intensity_gco2_mj": "0",
+        "energy_density_mj_kg": "0",
+        "price_per_mt_usd": "1400",
+        "quantity_mt": "200",
+        "remaining_quantity_mt": "200"
+      },
+      "orders": {
+        "commission_amount_usd": "0",
+        "commission_rate_pct": "0.500",
+        "final_price_per_mt": "0",
+        "final_quantity_mt": "0",
+        "final_total_usd": "0",
+        "requested_quantity_mt": "0"
+      },
+      "organization_join_requests": {},
+      "organization_market_approvals": {},
+      "organizations": {},
+      "pending_registrations": {},
+      "physical_stems": {
+        "quantity_mt": "100.00"
+      },
+      "port_intelligence": {
+        "biofuel_price_avg": "0",
+        "methanol_price_avg": "0"
+      },
+      "ports": {},
+      "price_alerts": {
+        "threshold_usd": "600.00"
+      },
+      "producer_projects": {
+        "capacity_kt_per_year": "0",
+        "carbon_intensity_gco2_mj": "0"
+      },
+      "products": {
+        "min_lot_size": "0"
+      },
+      "public_listings": {
+        "price_per_mt_usd": "700.00",
+        "quantity_mt": "10.00"
+      },
+      "referrals": {},
+      "rfq_quotes": {
+        "price_per_mt_usd": "700"
+      },
+      "rfqs": {
+        "quantity_mt": "10",
+        "target_price_per_mt": "0"
+      },
+      "seed_runs": {},
+      "staff_capability_assignments": {},
+      "subscriptions": {
+        "seller_fee_per_mt_usd": "0"
+      },
+      "supply_listings": {
+        "ci_score": "20.00",
+        "price_per_mt_usd": "700.00"
+      },
+      "traceability_events": {},
+      "trades": {
+        "commission_amount_usd": "0",
+        "commission_fee_per_mt_usd": "0",
+        "commission_rate_pct": "3.500",
+        "final_price_per_mt": "1400.00",
+        "final_quantity_mt": "20.00",
+        "final_total_usd": "14000.00",
+        "price_per_mt_usd": "4900.00",
+        "quantity_mt": "70.00"
+      },
+      "user_login_days": {},
+      "user_preferences": {},
+      "user_status_transitions": {},
+      "users": {},
+      "vessels": {
+        "dwt": "0"
+      },
+      "watchlist_entries": {},
+      "watchlist_events": {},
+      "watchlist_targets": {},
+      "watchlists": {}
+    },
+    "tables": {
+      "audit_logs": {
+        "columns": {
+          "action": "c43d62a87a0e6943d49695789566fa72c07e14a9db6a1c829db660d2fef2bd60",
+          "changes": "ef68c06e6278f041083cbe5330012f641a40867a8c23529e293e6d13bd23078d",
+          "id": "485d56ac8239cbcc6748da73661f00c5c4df781fa21558fa5cd88f0f750ffa33",
+          "ip_address": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "request_id": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "resource_id": "44d3d2f982bc7919582c01546f951f136a9ff9ce0c2fb388b551c40b949bc1a6",
+          "resource_type": "fb847b9f6ce10e56239f1f5ac0494b4836a0e3b8b46688f818b5227212421244",
+          "timestamp": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "user_id": "bb2eba38cc08979e71775a68625c8af26eca3112dbfb75b94f000592ac7eec93"
+        },
+        "count": 1,
+        "sha256": "08ae2e649566dc4d4f785af60e4e9543b79fdaf1c85213d0d37c58e95e3cead7"
+      },
+      "benchmarks": {
+        "columns": {
+          "availability_window": "37d270b96beadfa9f355bb527b8ba8acde3f79ac21637587bc277cbed45c7923",
+          "created_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "delivery_point_id": "68fbb3198d810e1bdb6b2f4fbe1e8ed29b96953d4d3459a8f55eede293c0559e",
+          "id": "74b0c6974292155455f9b4851abea7c75b3de70bd6b299dfc77fb6d74b9ac39c",
+          "market_product": "e9886ba0a19b9bf3f5c889de77276dc0cf2a4902fbdc662e2ddccc906ce59312",
+          "price_per_mt_usd": "949bc4f2065c184efe48f753f7f4ca7a1d46bd1dbe022b19c2b498a86c0fe3ba",
+          "source": "92a6ca9573e2bf04ce409089148a91503dcb8a9a2a3736eb8c183e6703149ac2",
+          "updated_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe"
+        },
+        "count": 1,
+        "sha256": "436ded8b1e5bb582dd21c1c7f2c926d8a8d64a33e187e7ef4327bed5e87e93eb"
+      },
+      "commissions": {
+        "columns": {
+          "amount_usd": "934d77147b47dd97676a5832a3b2238047b9d1207dc4c6ad4466b590899b5c7b",
+          "created_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "id": "5bc96898325760fe94f6fa0e8ddf9b741c7fe5dad295d7e7f4ba7b2525b0b081",
+          "invoice_date": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "invoice_number": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "match_id": "82254f96c7110362d9c5e5f0c5758772432458e63746b848966f8a5b04312860",
+          "notes": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "payment_date": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "status": "99ed2c66f2c7761aeaabd07700fd830caa7f0925ef9ba7041673fc19ff0b15b6",
+          "trade_id": "c4884047b8a527f515962a182897d28118f39bd99e73f650f0acfce8b34330d0",
+          "updated_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe"
+        },
+        "count": 1,
+        "sha256": "b42243b352bacf891bd282cd72978ac2fdba047839a0c4cb9e110e83532e8c18"
+      },
+      "compliance_ledger": {
+        "columns": {
+          "amount": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "created_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "currency": "d0e335ac98cd1a757a136295d5597b9fcd19bd91a7aa9ec34518edd5c4f9262b",
+          "description": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "id": "81febdea60233c2b09752c1dfb41ad60f3034169b77a664943554f1eccc0efd6",
+          "organization_id": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "reference_id": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "transaction_type": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "units": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b"
+        },
+        "count": 1,
+        "sha256": "cde3d4f3172da5cb5ec1f16fcaa4dea269fc641c45c6a0c82d5709b2023d2dc3"
+      },
+      "contracts": {
+        "columns": {
+          "availability_window": "37d270b96beadfa9f355bb527b8ba8acde3f79ac21637587bc277cbed45c7923",
+          "buyer_org_id": "08e073bd774230d605530282a06e5acdcd96aaea98b2db98f1033d5a7a03e254",
+          "certification_body": "f17f2f5fc2307e168ddd8c9d8549993746aabb7dc368ff5e6862a775267cb1f6",
+          "ci_score": "934d77147b47dd97676a5832a3b2238047b9d1207dc4c6ad4466b590899b5c7b",
+          "cii_impact_grade": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "created_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "delivery_point_id": "68fbb3198d810e1bdb6b2f4fbe1e8ed29b96953d4d3459a8f55eede293c0559e",
+          "delivery_window_end": "f7437942683c5bf1d1dcce6e78e701209f3676e4bc9a429947ee813ad87caa6b",
+          "delivery_window_start": "5372910aafef440ff8378f7bfa96264b015e4c7b93dd68dfdb7614a357e2df82",
+          "deposit_amount_usd": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "deposit_pct": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "expires_at": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "fuel_type": "373031f24335aa5eca6502a188a72a87ea1143e61f9e77ba67a25aea3b60f204",
+          "fueleu_compliant": "469edeefdb153794a14427d7f01965a7e9f97b077966004e687c7fc6d30d8248",
+          "id": "e24136d266920578779fe05ea9491df7ef523871ab196752b3a084060cd230d9",
+          "index_reference": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "instrument_type": "37d270b96beadfa9f355bb527b8ba8acde3f79ac21637587bc277cbed45c7923",
+          "lot_count": "b9d3ec4681c51e8d4a70d8c898b7be2400c9bfaed856032d65fe6f01eeabbe47",
+          "novation_eligible": "469edeefdb153794a14427d7f01965a7e9f97b077966004e687c7fc6d30d8248",
+          "price_per_mt_usd": "949bc4f2065c184efe48f753f7f4ca7a1d46bd1dbe022b19c2b498a86c0fe3ba",
+          "price_structure": "9164af686715185c99305736ac38543d8d2ccae42b77f3d3eeedc48f0fbdac65",
+          "product_id": "37afaf88b3344b6f5d29e707aae5ae68c2c717f8c3db3ae2b0f17ac96f40b567",
+          "quantity_mt": "594d5254d3d77ab3a06d6f13bdd8bf2aecc6396fdcea5b0e2d348a43960edad3",
+          "shortfall_fee_pct": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "status": "ef6c20d3e7fc07e916e3099ee72b966f1564a98a7fe9e11f5e9037184099d0ce",
+          "supplier_org_id": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "supply_tier": "d44c53ec2b62234d0ff5f8d25854e24b7ec09b4cf5e4d0349b509e805b47f6a2",
+          "term_sheet_url": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "updated_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe"
+        },
+        "count": 1,
+        "sha256": "c9e4c1b1e24fda739c1371d5cf9d6b66e142e6b83fa6b0755f55b3cf6ee4af64"
+      },
+      "delivery_points": {
+        "columns": {
+          "created_at": "169c6895a3d3d5559ea5b1844dd9763af4885c8b837a10891fdee04ed7ef6e1b",
+          "id": "9884900238f9bc25b7de44687ac28a5e6f4a5e775a7342a3627669589f67c93a",
+          "is_active": "fec4a26d5badaa09e43a38d3e0592b56637d8c9c6a61cd5cfb3ac3f2a5fb7f3a",
+          "name": "933d44be76deca7bda3117ad95670b37cb5453319580b94e298638f5f6e90c30",
+          "region": "aa6eb989804b7951892ea20ccd1ed1357771d8ff84d492ed091b56c2998bcfdc",
+          "timezone": "91740ac28f666c8981edb1223f05f52cafb7ab1e8cc17eddce0922e37c99e55d"
+        },
+        "count": 2,
+        "sha256": "85ec70b128d8344c9a69710f1e9ccaaa71ba124b40f569df85564bbe774f8e9d"
+      },
+      "demand_profiles": {
+        "columns": {
+          "alert_enabled": "8e1c0afd75aa3339ce1291ed55def9e65a26564625981613e1c0144550e83e2f",
+          "buyer_org_id": "08e073bd774230d605530282a06e5acdcd96aaea98b2db98f1033d5a7a03e254",
+          "created_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "delivery_window": "37d270b96beadfa9f355bb527b8ba8acde3f79ac21637587bc277cbed45c7923",
+          "fuel_type": "373031f24335aa5eca6502a188a72a87ea1143e61f9e77ba67a25aea3b60f204",
+          "id": "65af28559bed87c6612f5ea26123c901001b964ac9158a151e6cdcd8c2316ad0",
+          "max_price_per_mt_usd": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "min_ci_score": "934d77147b47dd97676a5832a3b2238047b9d1207dc4c6ad4466b590899b5c7b",
+          "port_preference": "f17f2f5fc2307e168ddd8c9d8549993746aabb7dc368ff5e6862a775267cb1f6",
+          "quantity_mt": "594d5254d3d77ab3a06d6f13bdd8bf2aecc6396fdcea5b0e2d348a43960edad3",
+          "status": "bd31229e45d36853f2e168d7615478df950dfb17327f0c9c9a2d21cf142052dd"
+        },
+        "count": 1,
+        "sha256": "f2df3c7c62eb66e34932fd71c2d34915d939fcce42c4ff9392fea2e9a86280a2"
+      },
+      "direct_order_offers": {
+        "columns": {
+          "created_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "direct_order_id": "899d9e03b16895e0c4edad53fd6314a7b910d3aa4dceac57f77883ba079b35e3",
+          "id": "4ed502a918057e226a27c1e2e72d60a8cff3f74ca34bc1c597b46e7641541b65",
+          "is_accepted": "469edeefdb153794a14427d7f01965a7e9f97b077966004e687c7fc6d30d8248",
+          "price_per_mt_usd": "949bc4f2065c184efe48f753f7f4ca7a1d46bd1dbe022b19c2b498a86c0fe3ba",
+          "supplier_id": "f413c937375cb3ff0f8ca85ad7d4a11f9b27760a6c6952396c7c9baed94a1a9e",
+          "terms_and_conditions": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "valid_until": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b"
+        },
+        "count": 1,
+        "sha256": "53bd4a56af48a383a5757934931e16384f5d499634d861279d867a2e822cdbc3"
+      },
+      "direct_orders": {
+        "columns": {
+          "awarded_supplier_id": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "buyer_id": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "created_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "delivery_window_end": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "delivery_window_start": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "final_price_per_mt": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "final_price_usd": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "fuel_type": "6854e437a402f9eefdcda445dfc3a60b4ca106662416168d5b346731653eba4c",
+          "id": "899d9e03b16895e0c4edad53fd6314a7b910d3aa4dceac57f77883ba079b35e3",
+          "port_id": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "quantity_mt": "594d5254d3d77ab3a06d6f13bdd8bf2aecc6396fdcea5b0e2d348a43960edad3",
+          "status": "99ed2c66f2c7761aeaabd07700fd830caa7f0925ef9ba7041673fc19ff0b15b6",
+          "updated_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "vessel_id": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b"
+        },
+        "count": 1,
+        "sha256": "30a511e19c833d69d2822b8b80171b0ea5b06904ad6999ce3de772f62e329e0c"
+      },
+      "fair_price_bands": {
+        "columns": {
+          "availability_window": "37d270b96beadfa9f355bb527b8ba8acde3f79ac21637587bc277cbed45c7923",
+          "created_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "delivery_point_id": "68fbb3198d810e1bdb6b2f4fbe1e8ed29b96953d4d3459a8f55eede293c0559e",
+          "high_price_per_mt_usd": "e7cd3d748b414f51b7433401674d532e97b366a84f90cd6f760bec309172e422",
+          "id": "0c7e1f69c3abbcdd3e72b8d8c79512759fe36a3d2dd62ace5ecaf4a5d7e34d20",
+          "is_demo": "8e1c0afd75aa3339ce1291ed55def9e65a26564625981613e1c0144550e83e2f",
+          "is_verified_real": "469edeefdb153794a14427d7f01965a7e9f97b077966004e687c7fc6d30d8248",
+          "low_price_per_mt_usd": "9907560b1794ea886019afa0d4cd0e0a680a85c8cd1b1addf5cd48659ce8c164",
+          "market_product": "e9886ba0a19b9bf3f5c889de77276dc0cf2a4902fbdc662e2ddccc906ce59312",
+          "mid_price_per_mt_usd": "949bc4f2065c184efe48f753f7f4ca7a1d46bd1dbe022b19c2b498a86c0fe3ba",
+          "model_name": "8d99a55dd92695de509a4375a3d999098ba5d295b3e80c8582758181df2984c4",
+          "model_version": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "observed_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "source": "8d99a55dd92695de509a4375a3d999098ba5d295b3e80c8582758181df2984c4",
+          "source_event_id": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "trusted_ingestion_run_id": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "verified_real_at": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b"
+        },
+        "count": 1,
+        "sha256": "ed802eff9b2e5e7ca6d31444d7e12f844227c2b70dff53abaef2f92efadeb5b2"
+      },
+      "feedback_entries": {
+        "columns": {
+          "created_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "id": "0ba76bd124969aa0b741748a6f8958797ae06adf7778c60df7aed49c93a0bafe",
+          "message": "1793e281fe61245b0373ede2676f666a27f8cb18034c3941f4189314c532adac",
+          "page": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "user_id": "bb2eba38cc08979e71775a68625c8af26eca3112dbfb75b94f000592ac7eec93"
+        },
+        "count": 1,
+        "sha256": "da348d2ea29109737175073c38ab60f67ef3016d29bf9a86a3ec7e1a8dfac12d"
+      },
+      "inventory_items": {
+        "columns": {
+          "carbon_intensity_gco2_mj": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "carbon_intensity_method": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "certification_declared": "469edeefdb153794a14427d7f01965a7e9f97b077966004e687c7fc6d30d8248",
+          "certification_scheme": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "current_stock_mt": "57642a32bf61dd15eab505782722cc371f0b0c2907650c058572f0001d6c68e4",
+          "energy_density_mj_kg": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "feedstock": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "fuel_type": "373031f24335aa5eca6502a188a72a87ea1143e61f9e77ba67a25aea3b60f204",
+          "id": "07bc71951ac80205b3d43f5bc258f109c87d42559bdf22902bfaf19bc55b655a",
+          "incoming_stock_mt": "fde0036a310dd3a4de165416fdfa13950894c70d7b239647cef88c57321161a2",
+          "is_certified": "469edeefdb153794a14427d7f01965a7e9f97b077966004e687c7fc6d30d8248",
+          "msds_available": "469edeefdb153794a14427d7f01965a7e9f97b077966004e687c7fc6d30d8248",
+          "off_spec": "469edeefdb153794a14427d7f01965a7e9f97b077966004e687c7fc6d30d8248",
+          "off_spec_notes": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "origin": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "owner_user_id": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "port_id": "1693074c75e4a72649722e345c6969fe7750dc3ba1dc80ff7993b61a18406300",
+          "price_per_mt_usd": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "product_name": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "reserved_stock_mt": "fde0036a310dd3a4de165416fdfa13950894c70d7b239647cef88c57321161a2",
+          "specification_standard": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "supplier_id": "f413c937375cb3ff0f8ca85ad7d4a11f9b27760a6c6952396c7c9baed94a1a9e",
+          "updated_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe"
+        },
+        "count": 1,
+        "sha256": "7e48a415cb5eec675d05d02256370a8c11575929d794a0253f9a86612ce6078c"
+      },
+      "kyc_execution_grace": {
+        "columns": {
+          "created_by": "5f5f64f102bb76da52d28fb714d5940ea68d91722e9156b9187ae07bc7542428",
+          "enrolled_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "expires_at": "e7b097684190c1c2ea603eacea1cf8c9582eb9b5fe02670c2a5b1aabd44c7cf9",
+          "id": "44d3d2f982bc7919582c01546f951f136a9ff9ce0c2fb388b551c40b949bc1a6",
+          "kyc_status_at_enrollment": "99ed2c66f2c7761aeaabd07700fd830caa7f0925ef9ba7041673fc19ff0b15b6",
+          "organization_id": "08e073bd774230d605530282a06e5acdcd96aaea98b2db98f1033d5a7a03e254",
+          "user_id": "bb2eba38cc08979e71775a68625c8af26eca3112dbfb75b94f000592ac7eec93"
+        },
+        "count": 1,
+        "sha256": "e0c371ec3bbf92773a3576dd7fa9cca4e73510c2c96f9b5b8c8413b18912a00f"
+      },
+      "live_slice_benchmarks": {
+        "columns": {
+          "availability_window": "37d270b96beadfa9f355bb527b8ba8acde3f79ac21637587bc277cbed45c7923",
+          "benchmark_price_per_mt_usd": "949bc4f2065c184efe48f753f7f4ca7a1d46bd1dbe022b19c2b498a86c0fe3ba",
+          "created_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "delivery_point_id": "68fbb3198d810e1bdb6b2f4fbe1e8ed29b96953d4d3459a8f55eede293c0559e",
+          "id": "6f381824f80e6fe3ad7086ede9e3433be9a4c74f8285b088a4a4168c4d4370a9",
+          "market_product": "e9886ba0a19b9bf3f5c889de77276dc0cf2a4902fbdc662e2ddccc906ce59312",
+          "order_count": "fde0036a310dd3a4de165416fdfa13950894c70d7b239647cef88c57321161a2",
+          "side": "66eb12609cd84cef0dc1b5672d21707598da19cde1722909133cac4c5886afbd",
+          "source": "dff7193edd7f598f8753cb5a6cbd30969d978f982ace66dd5b09869d567b9293",
+          "total_remaining_quantity_mt": "fe19bd20785407b0a8b0cd55244a4d43bff7a057bb3f3a7d5ff0028d269ff47e",
+          "updated_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe"
+        },
+        "count": 1,
+        "sha256": "a935769b6f5f8539bcca26b67ef317d73e24e8475c694529bcfbda9c4367e4dc"
+      },
+      "market_command_results": {
+        "columns": {
+          "actor_user_id": "9da5626b848db4d05c48a390bcda40db86db671b64248a09339fb8c474009b3a",
+          "created_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "effective_organization_id": "f413c937375cb3ff0f8ca85ad7d4a11f9b27760a6c6952396c7c9baed94a1a9e",
+          "id": "44fe2fb838c0a4b4043c6017939f041e5f3de48af9a19bdb8868c1abd122abf6",
+          "idempotency_key": "e75de56177b88d4e2da28814df6c3eeaaf8874af284c8f90b13bf85a6cdd22d3",
+          "operation": "12ded40f37e8c611c7569a9d3add9bb0c7156b530357864a2217ca87fd1af221",
+          "request_hash": "c05d246d70d56e5ac179d508746b13372464ef9e8d002e8455db54130689f2d5",
+          "resource_id": "fb2639321f6a48eadc1e002172f837967669292eeccff257e64ced94cfcfaacb",
+          "resource_type": "47fab687c4ea26cc460429fc5a42b411229f8b42572621341f5c4f91119efbfe",
+          "response_body": "39744d8fd6310f3dc31f41e36cd49b5250afa69c2cf179fce1be525351348833",
+          "response_status": "aea722c2eed4ab30f855a1b2d5f02928421cb9051dd9ec1b1287d5b31196adc4",
+          "support_context_id": "f74fb54bfc0ba6e4d1708a8c824d1695c5e85c6aff32e963244614e995083b17"
+        },
+        "count": 1,
+        "sha256": "c4e6652cfa9e89b8b035c0376c8287a7aafdc87cf6b6550c416630454c17e04a"
+      },
+      "market_event_outbox": {
+        "columns": {
+          "aggregate_id": "6ea036ff3c003391ccf469ce17b151cd31adaa914117b664c8a75171bc5f0bc3",
+          "aggregate_type": "df418fe4d32026cf751ac97dc04b12346e92833fcfc89ded5b4cdc0419d0d061",
+          "created_at": "169c6895a3d3d5559ea5b1844dd9763af4885c8b837a10891fdee04ed7ef6e1b",
+          "delivery_attempts": "9344c0673f461415884a19de096a282544789f1b7911ef4b2006c62e0559e867",
+          "dispatched_at": "169c6895a3d3d5559ea5b1844dd9763af4885c8b837a10891fdee04ed7ef6e1b",
+          "event_type": "39c7a0797a1b5cbb121e4cb9eabf80b7bff9ef74876005c7239611a8e08660eb",
+          "id": "9cb2552074c5ef301f8cd20575ab8b6fe1d207a3a66f951b784042f6ca73f74b",
+          "last_error": "15c841dff8407a197a8be456d43283d973c0ba690724b24da5e5d0d6dbc70423",
+          "participant_org_ids": "e2bc31b69c4716ce081db063af5280986474a16d0b0baf19d7afd4c4ad1325a2",
+          "payload": "4b00e4d2c7dc1e24c926d743ecae443199eee6263df492ce6865de68c1c55f32",
+          "stream_seq": "dfc1b73d1466755a3f86bc7f8401ecc9deb69bf87f694cf0ec6c7e87acc38618"
+        },
+        "count": 2,
+        "sha256": "285060b1c1a98b25ccab4c0e35efa1da685358c601983e3d184e321bc2a39fc2"
+      },
+      "market_indications": {
+        "columns": {
+          "availability_window": "37d270b96beadfa9f355bb527b8ba8acde3f79ac21637587bc277cbed45c7923",
+          "created_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "delivery_point_id": "68fbb3198d810e1bdb6b2f4fbe1e8ed29b96953d4d3459a8f55eede293c0559e",
+          "id": "ea8a5a8753698065657619b4c849ac9b6ac0a294766b46bb762641826b9e4ccf",
+          "is_demo": "8e1c0afd75aa3339ce1291ed55def9e65a26564625981613e1c0144550e83e2f",
+          "is_verified_real": "469edeefdb153794a14427d7f01965a7e9f97b077966004e687c7fc6d30d8248",
+          "market_product": "e9886ba0a19b9bf3f5c889de77276dc0cf2a4902fbdc662e2ddccc906ce59312",
+          "observed_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "price_per_mt_usd": "949bc4f2065c184efe48f753f7f4ca7a1d46bd1dbe022b19c2b498a86c0fe3ba",
+          "quantity_mt": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "side": "66eb12609cd84cef0dc1b5672d21707598da19cde1722909133cac4c5886afbd",
+          "source": "8d99a55dd92695de509a4375a3d999098ba5d295b3e80c8582758181df2984c4",
+          "source_event_id": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "source_record_id": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "trusted_ingestion_run_id": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "verified_real_at": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b"
+        },
+        "count": 1,
+        "sha256": "1570dc05122c378f19047ca1d213f8dd4b84c8890f3a1e9e5a7ac06f8a46e83d"
+      },
+      "market_row_quarantines": {
+        "columns": {
+          "database_name": "eea4fbf851aeaa50ee27a5d8feda69f91fdc95d748098197a649607f4faf508d",
+          "dependencies": "aa463a90123c17dede6fe50e173caafc06fa038d750c7547a92c2a172bf551e6",
+          "environment": "2a2a540a3ffdad7db75500abbf8f61ffd635630f9862f8a186ab9cee9279ec36",
+          "id": "e2bf9000642d00c3aa979c98dd727015d3d51addc884fff472a84715aa85cc0a",
+          "operator": "6fcba2c44339b68dd2f1900f08661c3f06135e7af7176c0d33a1d42ca73e2fd3",
+          "original_row": "7fed0a8bdb4773375da942cbd63be696523d61278b6a8e9ed4f1844560d0307b",
+          "quarantined_at": "d9bb449bf911fff47981ef34148aa1d259c175ccc70f569edf20e87829cf6176",
+          "reason": "96143419ce8a1540f77bfa161e545cfc9c959f2aa190292a9e317cfad278f3d2",
+          "reference": "8d99a55dd92695de509a4375a3d999098ba5d295b3e80c8582758181df2984c4",
+          "source_id": "b550fbaf20f5508082203e8cbab53ce66e1b00e60264c0e600b1078a7d333142",
+          "source_table": "c9979c314373138c4a752f534ecbcde1deb9481e2996f200f7e7ff8d2cabfe78"
+        },
+        "count": 1,
+        "sha256": "1618535a6d317ad723c0eb0677e19c11ad9a9bc23347a5515920dcce08d6916e"
+      },
+      "market_signal_ingestion_runs": {
+        "columns": {
+          "created_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "id": "423e4ec62e413a044a16177c9bba67a1ad07c4eaf7c2b3f6ac5910a2ffe32834",
+          "signal_family": "9e45bdd56a1e6c834d84883bb5e34b81a31be4ed79f8898dd2d82e976459cf68",
+          "source": "8d99a55dd92695de509a4375a3d999098ba5d295b3e80c8582758181df2984c4",
+          "source_kind": "9e45bdd56a1e6c834d84883bb5e34b81a31be4ed79f8898dd2d82e976459cf68",
+          "started_at": "d9bb449bf911fff47981ef34148aa1d259c175ccc70f569edf20e87829cf6176",
+          "verified_at": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b"
+        },
+        "count": 1,
+        "sha256": "05b1520e8a0afe4f8a34fe2a83647da20104fdba225c6d1266066f139329a82a"
+      },
+      "market_support_authorizations": {
+        "columns": {
+          "accountable_user_id": "a4a1054df9873fd2243d7417ad99d6f33898a703fe0936dc98e6e83a12e4354d",
+          "acknowledge_exact_terms": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "acknowledge_executable_standing_order": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "authorization_expires_at": "e7b097684190c1c2ea603eacea1cf8c9582eb9b5fe02670c2a5b1aabd44c7cf9",
+          "availability_window": "37d270b96beadfa9f355bb527b8ba8acde3f79ac21637587bc277cbed45c7923",
+          "carbon_intensity_gco2_mj": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "carbon_intensity_method": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "certification_declared": "8e1c0afd75aa3339ce1291ed55def9e65a26564625981613e1c0144550e83e2f",
+          "certification_scheme": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "certifications": "aa463a90123c17dede6fe50e173caafc06fa038d750c7547a92c2a172bf551e6",
+          "commercial_consent_reference": "296affd3cedc510d15c2787aa082c5c734874dae2f826b730b8485beab987159",
+          "commercial_consent_version": "0dd79e168ada8964840ad5d67d129cf54722a8d819e1004e234e81150f1c6531",
+          "consumed_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "created_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "created_by_actor_user_id": "9da5626b848db4d05c48a390bcda40db86db671b64248a09339fb8c474009b3a",
+          "delivery_point_id": "68fbb3198d810e1bdb6b2f4fbe1e8ed29b96953d4d3459a8f55eede293c0559e",
+          "evidence_reference": "0efe8fb7e84481130ea6b612a816b84a18588384758da6fac61e2c60c57ecc6b",
+          "evidence_sha256": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "feedstock": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "id": "a3787aa4d7db87aee0f18eee7609ae86f092b3d5e6f1a857e8983243815960a0",
+          "idempotency_key": "e0f0b6aff813e293fdd43b5a798344fecc4674c8d30cb44028341285ce9dbec7",
+          "idempotency_request_hash": "d3d5792c238d2e65958f071e364ebeda8597229f1706b26a705394ab9a060184",
+          "instruction_at": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "is_anonymous": "8e1c0afd75aa3339ce1291ed55def9e65a26564625981613e1c0144550e83e2f",
+          "market_support_context_id": "f74fb54bfc0ba6e4d1708a8c824d1695c5e85c6aff32e963244614e995083b17",
+          "msds_available": "8e1c0afd75aa3339ce1291ed55def9e65a26564625981613e1c0144550e83e2f",
+          "off_spec": "469edeefdb153794a14427d7f01965a7e9f97b077966004e687c7fc6d30d8248",
+          "off_spec_notes": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "order_expires_at": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "order_side": "66eb12609cd84cef0dc1b5672d21707598da19cde1722909133cac4c5886afbd",
+          "organization_id": "f413c937375cb3ff0f8ca85ad7d4a11f9b27760a6c6952396c7c9baed94a1a9e",
+          "origin": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "price_per_mt_usd": "949bc4f2065c184efe48f753f7f4ca7a1d46bd1dbe022b19c2b498a86c0fe3ba",
+          "product_id": "37afaf88b3344b6f5d29e707aae5ae68c2c717f8c3db3ae2b0f17ac96f40b567",
+          "quantity_mt": "fe19bd20785407b0a8b0cd55244a4d43bff7a057bb3f3a7d5ff0028d269ff47e",
+          "revocation_reason": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "revoked_at": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "revoked_by_actor_user_id": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "specification_standard": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "status": "ac65827034eb600b804d6bc1dbb1371b715310d6b81e9b1972af90da6d4a3428",
+          "support_case_reference": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "terms_digest": "d1607b631816635608261e484ff390fccb66d0ba249739d22876bc5a4352a67f"
+        },
+        "count": 1,
+        "sha256": "03364ad4c861802cec21b4332bc85c059ce04f7a979a7febd51ebb3b25464bd2"
+      },
+      "market_support_contexts": {
+        "columns": {
+          "accountable_user_id": "a4a1054df9873fd2243d7417ad99d6f33898a703fe0936dc98e6e83a12e4354d",
+          "actor_user_id": "9da5626b848db4d05c48a390bcda40db86db671b64248a09339fb8c474009b3a",
+          "ended_at": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "expires_at": "e7b097684190c1c2ea603eacea1cf8c9582eb9b5fe02670c2a5b1aabd44c7cf9",
+          "id": "f74fb54bfc0ba6e4d1708a8c824d1695c5e85c6aff32e963244614e995083b17",
+          "organization_id": "f413c937375cb3ff0f8ca85ad7d4a11f9b27760a6c6952396c7c9baed94a1a9e",
+          "scope": "f7923436b06df2f46682ac7ea5d00959ea483be1da75591e4f7011513f3dfa68",
+          "started_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "status": "bd31229e45d36853f2e168d7615478df950dfb17327f0c9c9a2d21cf142052dd",
+          "support_reference": "9543d9f99607f05a9980b526d6ffedba141418255f7b7abcac75122e19ca2c71",
+          "version": "b9d3ec4681c51e8d4a70d8c898b7be2400c9bfaed856032d65fe6f01eeabbe47"
+        },
+        "count": 1,
+        "sha256": "fab2ca3c5664c7e4d6173bad69bf45ea3548cae0bdb6f36900bede48c1ffeb0d"
+      },
+      "match_suggestions": {
+        "columns": {
+          "ask_order_id": "fb2639321f6a48eadc1e002172f837967669292eeccff257e64ced94cfcfaacb",
+          "bid_order_id": "b3eb954bcbdbd00a40e90259b4dd4cbddd383ef3ac82b58543e0806b4ac1c691",
+          "created_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "id": "89f879e72431c2974454e3d015c7c6ba16f567e97eed5656345b473620a5500d",
+          "match_reasons": "aa463a90123c17dede6fe50e173caafc06fa038d750c7547a92c2a172bf551e6",
+          "recipient_org_id": "08e073bd774230d605530282a06e5acdcd96aaea98b2db98f1033d5a7a03e254",
+          "score": "69d698f88a6e3d116a7c3d39131f84f2089b2cc85cc86b05b060901ff4cb0dfa",
+          "status": "a827dc68e56de257ac0c9a93d4bd2984ef2356d960a52aea0b6202c04c36409d"
+        },
+        "count": 1,
+        "sha256": "43c305abb31b12005328db763d2a63b5a355125f5fdf0d7494f5e81fe9595d3f"
+      },
+      "negotiation_rounds": {
+        "columns": {
+          "created_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "id": "23c0ba259275c8919e8f9a51638ea9da220e59408ef77292643dd17d0e78be51",
+          "negotiation_id": "1ad55e0913c2357a0c71e08dbdc30b852c19193a1d847c4fefe4eff243ff7d6d",
+          "notes": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "proposed_price": "156391b8669f33694b3243d15ab489a39f242b08fa8fad211b4d74db52a8f795",
+          "proposer_org_id": "08e073bd774230d605530282a06e5acdcd96aaea98b2db98f1033d5a7a03e254",
+          "proposer_user_id": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "round_number": "b9d3ec4681c51e8d4a70d8c898b7be2400c9bfaed856032d65fe6f01eeabbe47"
+        },
+        "count": 1,
+        "sha256": "c4429eb65c754ae9149d5555e45a86b8784160c43a34596c629067328fbe7fa7"
+      },
+      "negotiations": {
+        "columns": {
+          "accepted_by_user_id": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "ask_order_id": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "availability_window": "37d270b96beadfa9f355bb527b8ba8acde3f79ac21637587bc277cbed45c7923",
+          "bid_order_id": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "counterparty_org_id": "f413c937375cb3ff0f8ca85ad7d4a11f9b27760a6c6952396c7c9baed94a1a9e",
+          "counterparty_user_id": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "created_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "current_price": "156391b8669f33694b3243d15ab489a39f242b08fa8fad211b4d74db52a8f795",
+          "delivery_point_id": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "expires_at": "e7b097684190c1c2ea603eacea1cf8c9582eb9b5fe02670c2a5b1aabd44c7cf9",
+          "id": "1ad55e0913c2357a0c71e08dbdc30b852c19193a1d847c4fefe4eff243ff7d6d",
+          "initiator_org_id": "08e073bd774230d605530282a06e5acdcd96aaea98b2db98f1033d5a7a03e254",
+          "initiator_side": "6ed337466cd07a9cab15d03678be3978bf1413a65d8fb60b47ca9aa2d948466f",
+          "initiator_user_id": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "last_actor_org_id": "08e073bd774230d605530282a06e5acdcd96aaea98b2db98f1033d5a7a03e254",
+          "product_id": "37afaf88b3344b6f5d29e707aae5ae68c2c717f8c3db3ae2b0f17ac96f40b567",
+          "quantity_mt": "22d7f8bab925ba18b1592adc6874238584139971db78cd7c4798ea011a1df406",
+          "status": "84fbb71c04dda36a51b6b82d9f5ffb2a249a13b0ba6fe8cb6e4dc7acb88630bc",
+          "trade_id": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "updated_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe"
+        },
+        "count": 1,
+        "sha256": "cfe5742870346744d3b4466fbb49a82d310c98eae9aa74f5902fd3c1e6b191f7"
+      },
+      "news_items": {
+        "columns": {
+          "category": "901bcda4bc522ce1fc7c3027f8d7b7900dae373cfe1f67e438fa0cb469ca5dec",
+          "fetched_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "id": "74cca69a82065e99979e7f3c273ec6e466de910191a284db59bf35802c92f8cf",
+          "published_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "relevance": "8fa8e1f4726c417480da1d6507f1c6ae71267bd769264a3025e2cdbf4ee080e9",
+          "source": "8d99a55dd92695de509a4375a3d999098ba5d295b3e80c8582758181df2984c4",
+          "source_url": "41a803fd38d468d0f925de82a23e66b913f3177ef92b92eebdd0d5d721d0604b",
+          "summary": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "title": "5461ef7169492f7bf4238893c1ca3897c20db4dcb1f45dc5750ea57ef34e7896",
+          "url": "6072576ca8a54f43d78d5fb6b3d78af0b5ce665de6ca610a6c70fb0c2de1a805"
+        },
+        "count": 1,
+        "sha256": "995c774eef0373175ad13b08d2c43425ea0284e5c44b2b120de802b8a4fbd23a"
+      },
+      "notifications": {
+        "columns": {
+          "created_at": "0033af3d01cbc5232e46585aa6e84bf36a34c5f647eeb160b3e09470990a6611",
+          "data": "40a091f4a1a7d8ec5f88fd194d1eaed1e123812a6f029953abdde085e03c9617",
+          "id": "ae45b6d976a79512688c3465b193deb124454c1e19dfca1f8b109e227419868f",
+          "is_read": "dbc02d98f66713eb16744fe29c06b40ecb587e22b522490745e260dfd42dbe75",
+          "message": "aa5e6cc21b5afdeca011fccc3b014f8fb86191e3feaf40a729ae4a0ba2f82e6c",
+          "recipient_id": "9f40a2dfcb20d6af9f5c629d4f5612a3d6f2ee51ba17bf85a3f23dc442830003",
+          "title": "0a7e312c64c3773cc56f972bcd2e93ca6de987f5b89f5c3707c4dca9d94d9774",
+          "type": "424ffe8b43f973e9b8f6ddd26c237e1c5668241875ecdf18d04dbaac7a006e0e"
+        },
+        "count": 4,
+        "sha256": "fd127b10812559eed2d2fc0672605fbc46cc3f5cf0fac1370e646c1997493544"
+      },
+      "orderbook_orders": {
+        "columns": {
+          "acceptance_ordinal": "444cffb24568f3213c87e41e71fd398bdc663ee4d0f08bdaedeea58bc0d154f7",
+          "availability_window": "1670c2efeb8e1e821ef2d01d155fc452ca2f242998bf157ef510b0316a2c99ad",
+          "carbon_intensity_gco2_mj": "15c841dff8407a197a8be456d43283d973c0ba690724b24da5e5d0d6dbc70423",
+          "carbon_intensity_method": "15c841dff8407a197a8be456d43283d973c0ba690724b24da5e5d0d6dbc70423",
+          "certification_declared": "feaeedc91ae1287c7be2840532967731a6912a974654daaa3c7dcab87f83c2a1",
+          "certification_scheme": "15c841dff8407a197a8be456d43283d973c0ba690724b24da5e5d0d6dbc70423",
+          "certifications": "8112c7419ed1d3b87ad6a3f7b0b201899220f1e085eb2c5dec18105ae114845c",
+          "created_at": "169c6895a3d3d5559ea5b1844dd9763af4885c8b837a10891fdee04ed7ef6e1b",
+          "created_by_actor_user_id": "68eec1fe07c0a7faff32a71db3376ced0bedcf5108c5e4b7ffe27574ba2f667f",
+          "creation_method": "09b1218d2028ec74783c33a56e733e71fe27fd0306a3faf761f1145a7d3a564d",
+          "delivery_point_id": "38e16bd3be074523d3dff4da323dd19b54f93e7a28e8c13d11b114a7213f47a8",
+          "delivery_window_end": "15c841dff8407a197a8be456d43283d973c0ba690724b24da5e5d0d6dbc70423",
+          "delivery_window_start": "15c841dff8407a197a8be456d43283d973c0ba690724b24da5e5d0d6dbc70423",
+          "energy_density_mj_kg": "15c841dff8407a197a8be456d43283d973c0ba690724b24da5e5d0d6dbc70423",
+          "expires_at": "15c841dff8407a197a8be456d43283d973c0ba690724b24da5e5d0d6dbc70423",
+          "feedstock": "15c841dff8407a197a8be456d43283d973c0ba690724b24da5e5d0d6dbc70423",
+          "id": "6b36f03713fbfcf7d0491184880621b596eddd70998cde0488e5ad8acab6267c",
+          "idempotency_key": "15c841dff8407a197a8be456d43283d973c0ba690724b24da5e5d0d6dbc70423",
+          "idempotency_operation": "15c841dff8407a197a8be456d43283d973c0ba690724b24da5e5d0d6dbc70423",
+          "idempotency_request_hash": "15c841dff8407a197a8be456d43283d973c0ba690724b24da5e5d0d6dbc70423",
+          "inventory_item_id": "15c841dff8407a197a8be456d43283d973c0ba690724b24da5e5d0d6dbc70423",
+          "is_verdaxis_verified": "feaeedc91ae1287c7be2840532967731a6912a974654daaa3c7dcab87f83c2a1",
+          "lng_terms": "15c841dff8407a197a8be456d43283d973c0ba690724b24da5e5d0d6dbc70423",
+          "msds_available": "feaeedc91ae1287c7be2840532967731a6912a974654daaa3c7dcab87f83c2a1",
+          "off_spec": "feaeedc91ae1287c7be2840532967731a6912a974654daaa3c7dcab87f83c2a1",
+          "off_spec_notes": "15c841dff8407a197a8be456d43283d973c0ba690724b24da5e5d0d6dbc70423",
+          "organization_id": "9684771aec61b5331e9e178e844c0d12f9194dc1e6ff24b9411dee5e5b08e3f5",
+          "origin": "15c841dff8407a197a8be456d43283d973c0ba690724b24da5e5d0d6dbc70423",
+          "owner_user_id": "9740f043e5ec0b141eb4d53daf5c1b394a09d35531b74680fde9a881a04da0fb",
+          "port_id": "15c841dff8407a197a8be456d43283d973c0ba690724b24da5e5d0d6dbc70423",
+          "price_per_mt_usd": "c14d414505338f24a9055e33636460eaec2589bd87e5e98dffe526f64d1137dd",
+          "product_id": "01e83001a6fe4b771ce30618c0cbb2ea6ac141b7c7b3e1c316ffb8dcc43a3667",
+          "provenance": "c0f35c3eb60638e9cf6223230c1424ad14ebfaa2d5a0dba29201f974f5cc03f2",
+          "quantity_mt": "506abeab0533f88e9e3d4fd255326ec940b891762cc9cde485530aad590f8bb5",
+          "remaining_quantity_mt": "506abeab0533f88e9e3d4fd255326ec940b891762cc9cde485530aad590f8bb5",
+          "side": "d8f3598f47de3f0c547ea816cd68f31059febe0134c57fbf4d43973ba095fbf0",
+          "specification_standard": "15c841dff8407a197a8be456d43283d973c0ba690724b24da5e5d0d6dbc70423",
+          "status": "b8e60cb67752ae4f1aad12061c4534f58221647564f8d03390f25367419d57c2",
+          "support_authorization_id": "78aaf21055151c32d6939b53ce327acf4f0ac7854658d2d9985f17843b296ca5",
+          "updated_at": "169c6895a3d3d5559ea5b1844dd9763af4885c8b837a10891fdee04ed7ef6e1b",
+          "version": "8dde34beef84bba1a73bf608aa34143e442b3f46bbbf93dbb7507b5e554c4af1",
+          "vessel_id": "15c841dff8407a197a8be456d43283d973c0ba690724b24da5e5d0d6dbc70423"
+        },
+        "count": 2,
+        "sha256": "f4b91078f8359eb8a15c5d01336ab97dc25a6423dfd7e35318acf60460a31c08"
+      },
+      "orders": {
+        "columns": {
+          "buyer_accepted_terms_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "buyer_id": "08e073bd774230d605530282a06e5acdcd96aaea98b2db98f1033d5a7a03e254",
+          "commission_amount_usd": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "commission_rate_pct": "ce9a5a8cbf0d37cda267fecb5f491ce243dcb8d4510acd95eb8d6e1292d9751d",
+          "completed_at": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "created_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "final_price_per_mt": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "final_quantity_mt": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "final_total_usd": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "id": "82254f96c7110362d9c5e5f0c5758772432458e63746b848966f8a5b04312860",
+          "listing_id": "4d5a3a4b9304643b54afc06f89f9b2b12914f99f0f455485f04a499fac51100f",
+          "requested_delivery_date": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "requested_quantity_mt": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "status": "99ed2c66f2c7761aeaabd07700fd830caa7f0925ef9ba7041673fc19ff0b15b6",
+          "supplier_notified_at": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "supplier_responded_at": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b"
+        },
+        "count": 1,
+        "sha256": "36d62ec6a79b55f5168c334a4871bda968bb25ac4d8c9a2b3574ab37d88455d7"
+      },
+      "organization_join_requests": {
+        "columns": {
+          "created_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "id": "5977e7b9e7f9516507f8d31bf0000ae5c81a0b2346c2c4439122c67083934874",
+          "organization_id": "eb65618b927c6019190054acd9d5f8dd28e49b4c5715b2fbccd39c244cba95f8",
+          "review_note": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "reviewed_at": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "reviewed_by": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "status": "99ed2c66f2c7761aeaabd07700fd830caa7f0925ef9ba7041673fc19ff0b15b6",
+          "user_id": "bb2eba38cc08979e71775a68625c8af26eca3112dbfb75b94f000592ac7eec93"
+        },
+        "count": 1,
+        "sha256": "2af4d9812ba8393e36f46e6542af5657b441d3f1f9f809aee078d2424b23627d"
+      },
+      "organization_market_approvals": {
+        "columns": {
+          "approved_at": "d9bb449bf911fff47981ef34148aa1d259c175ccc70f569edf20e87829cf6176",
+          "database_name": "eea4fbf851aeaa50ee27a5d8feda69f91fdc95d748098197a649607f4faf508d",
+          "environment": "2a2a540a3ffdad7db75500abbf8f61ffd635630f9862f8a186ab9cee9279ec36",
+          "operator": "6fcba2c44339b68dd2f1900f08661c3f06135e7af7176c0d33a1d42ca73e2fd3",
+          "organization_id": "f413c937375cb3ff0f8ca85ad7d4a11f9b27760a6c6952396c7c9baed94a1a9e",
+          "previous_verification_status": "99ed2c66f2c7761aeaabd07700fd830caa7f0925ef9ba7041673fc19ff0b15b6",
+          "reason": "1c2bdc6febc995812bab9c2943decac5c6f96fb0cab846adee7688ba6e897344",
+          "reference": "8d99a55dd92695de509a4375a3d999098ba5d295b3e80c8582758181df2984c4",
+          "reviewed_snapshot": "7fed0a8bdb4773375da942cbd63be696523d61278b6a8e9ed4f1844560d0307b"
+        },
+        "count": 1,
+        "sha256": "485521ab4dde4c45c7c028c425f765cd8311bf6a153b799e1fc8af5cc6d38f05"
+      },
+      "organizations": {
+        "columns": {
+          "country_code": "06ff7b7828c546ebf947a94cd81e3d2f89c05b5e1f70d85ed1e3da47847e33e1",
+          "created_at": "0033af3d01cbc5232e46585aa6e84bf36a34c5f647eeb160b3e09470990a6611",
+          "domain": "06ff7b7828c546ebf947a94cd81e3d2f89c05b5e1f70d85ed1e3da47847e33e1",
+          "id": "fcf51c20b9afd802f0155e8c51645b04b38410a07cf626012de38e8704970d1e",
+          "name": "dec84886c179bea02e3e54c0af033f54c11fbe732421be7d698ce3395e711b98",
+          "provenance": "18a1a19576a8041cab47cc00dd330e0ce07733effa6342a0dd69d3575cffdee1",
+          "supplier_tier": "06ff7b7828c546ebf947a94cd81e3d2f89c05b5e1f70d85ed1e3da47847e33e1",
+          "tax_id": "06ff7b7828c546ebf947a94cd81e3d2f89c05b5e1f70d85ed1e3da47847e33e1",
+          "type": "035093ed51af575422d304e13d452594c7a0079a40786ee482d7394989e4f2d0",
+          "verification_status": "0cbfcb5b8242072c74c96823faa33f45a5fb494735b0c55e88596c49355672d4"
+        },
+        "count": 4,
+        "sha256": "20bf18ae2d2f14612987d6bd490c39f4e369df827fdd380bf4086fa3152a6998"
+      },
+      "pending_registrations": {
+        "columns": {
+          "created_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "email": "7aea1aac868773c589c2a8b53764d0d7146007a5c756f21e6d5e43b65c338e7d",
+          "expires_at": "e7b097684190c1c2ea603eacea1cf8c9582eb9b5fe02670c2a5b1aabd44c7cf9",
+          "first_name": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "id": "1e971f7552cdab16b0b6f03e7cb16d98f2a34b22d0ac49d55e7e6041205bb847",
+          "last_name": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "password_hash": "4e5ad065f466899b90e868b9dcd9de13fe19a365073c8a7e2917e3a397a46d4f",
+          "referral_code": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "role": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "token_hash": "d1607b631816635608261e484ff390fccb66d0ba249739d22876bc5a4352a67f",
+          "used_at": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b"
+        },
+        "count": 1,
+        "sha256": "cde69503024f7ad44487bd0edaa9b327200c6cfefb6c03047f9416912b2b1ee2"
+      },
+      "physical_stems": {
+        "columns": {
+          "availability_window": "37d270b96beadfa9f355bb527b8ba8acde3f79ac21637587bc277cbed45c7923",
+          "created_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "delivery_point_id": "68fbb3198d810e1bdb6b2f4fbe1e8ed29b96953d4d3459a8f55eede293c0559e",
+          "id": "9cbfd94add9065ae79eb80ece76e0a7ff2f699ab0e4547559ff5a46aa4ebb6aa",
+          "is_demo": "8e1c0afd75aa3339ce1291ed55def9e65a26564625981613e1c0144550e83e2f",
+          "is_verified_real": "469edeefdb153794a14427d7f01965a7e9f97b077966004e687c7fc6d30d8248",
+          "market_product": "e9886ba0a19b9bf3f5c889de77276dc0cf2a4902fbdc662e2ddccc906ce59312",
+          "observed_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "quantity_mt": "fe19bd20785407b0a8b0cd55244a4d43bff7a057bb3f3a7d5ff0028d269ff47e",
+          "source": "8d99a55dd92695de509a4375a3d999098ba5d295b3e80c8582758181df2984c4",
+          "source_event_id": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "source_record_id": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "status": "1cdec35592be5045baa017456e13853f613701447933ee53ed9a172d50ecefcf",
+          "stem_end": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "stem_start": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "stem_uid": "8d99a55dd92695de509a4375a3d999098ba5d295b3e80c8582758181df2984c4",
+          "trusted_ingestion_run_id": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "verified_real_at": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b"
+        },
+        "count": 1,
+        "sha256": "0a6b14c81163274bebc43bc16fd443f7280469ff02df30d4d0b5a896eaf7c94b"
+      },
+      "port_intelligence": {
+        "columns": {
+          "biofuel_price_avg": "15c841dff8407a197a8be456d43283d973c0ba690724b24da5e5d0d6dbc70423",
+          "captured_at": "45af8484641bf88df5bb54ee9d0c2999f99135976df1da2875f8a60e2c3e274b",
+          "congestion_level": "15c841dff8407a197a8be456d43283d973c0ba690724b24da5e5d0d6dbc70423",
+          "id": "d63b2936c86f323367b7e65130c434a681d265b1be3a676782e3bd00403b3a18",
+          "methanol_price_avg": "15c841dff8407a197a8be456d43283d973c0ba690724b24da5e5d0d6dbc70423",
+          "port_id": "674b334be65d5462bef52382391c829d8b75785497b4596d78dd8eade3ee5702"
+        },
+        "count": 2,
+        "sha256": "cd7a4bbc8103265050554fdf90c770bd035672c2182ac037b3d4def6953f72aa"
+      },
+      "ports": {
+        "columns": {
+          "country": "c72c9f4768bc099655aa8a3c8283c1eeaed1e11956d060448beaf550d6d08733",
+          "id": "1693074c75e4a72649722e345c6969fe7750dc3ba1dc80ff7993b61a18406300",
+          "is_active": "8e1c0afd75aa3339ce1291ed55def9e65a26564625981613e1c0144550e83e2f",
+          "location": "838f5552637cf68dc3483b269f996b129af65ff877684f4ebcb296c3c14de5c8",
+          "name": "89fb4967b230d6998a472e05894af7d3d46084c0ffe7b79beaa23c3dac635432",
+          "timezone": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b"
+        },
+        "count": 1,
+        "sha256": "0284ec1670cf679c8ca3b8f2fa63f204f3538c70cc9bada5a872a7457b3d2a36"
+      },
+      "price_alerts": {
+        "columns": {
+          "created_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "delivery_point_id": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "direction": "707640376ec28895008a1dd2492707e2be27c2a0fc03640edac77613abdaff4d",
+          "id": "42b4a468de025c7a066a668f185830e15497f8220a24880987044805ffa6d118",
+          "is_active": "8e1c0afd75aa3339ce1291ed55def9e65a26564625981613e1c0144550e83e2f",
+          "org_id": "08e073bd774230d605530282a06e5acdcd96aaea98b2db98f1033d5a7a03e254",
+          "product_id": "37afaf88b3344b6f5d29e707aae5ae68c2c717f8c3db3ae2b0f17ac96f40b567",
+          "threshold_usd": "32889c2eaa53db53c468a16024916353051e329f4d334528c32bf502719cd855",
+          "triggered_at": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b"
+        },
+        "count": 1,
+        "sha256": "cadf0f52bad3489839b2708886d9dd855395108ee7067bf66500bb218eb5f5da"
+      },
+      "producer_projects": {
+        "columns": {
+          "capacity_kt_per_year": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "carbon_intensity_gco2_mj": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "cod_date": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "cod_year": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "country": "c72c9f4768bc099655aa8a3c8283c1eeaed1e11956d060448beaf550d6d08733",
+          "created_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "data_source": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "feedstock": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "fuel_type": "373031f24335aa5eca6502a188a72a87ea1143e61f9e77ba67a25aea3b60f204",
+          "gena_project_id": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "id": "be954e30aa038545090a47af7d0ac86cb44c3984b1251eabeb71b33e4b5237ed",
+          "location": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "name": "235e11d5561ae6bb5defae92e92ffa4fe3f5d21b8362541098e582db1beca000",
+          "notes": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "organization_id": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "region": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "status": "b429ca3ebd3c6f32174d6c4ff52830197a02ad3b6376abb9a6246e33ba910b7b",
+          "technology": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "updated_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe"
+        },
+        "count": 1,
+        "sha256": "c102939b2752324c6d580a1cb2d727961dc03753c1c58dca7d4ed015a0dc6759"
+      },
+      "products": {
+        "columns": {
+          "created_at": "a151a1d19f640ff0075fe865b06441fa7b9999f91f94ebc6c0ef3d4c13655016",
+          "fuel_grade": "a9f3f1101a6036c947ec1f33a7e63334f9345a14bf73e2519a69fb32446e7c60",
+          "fuel_type": "3847d044cc604fdce2fb2a258a801b1a3ca81e8e6bc1aeec29b3d607aefc212a",
+          "id": "f4dac1cda286e407e1344ba3ad10dd30726c6dd921f5c1f9ffea124d88ab6f04",
+          "is_active": "eca13333905dd2a68cfb3db44766b07f0f895c7eeec56116f7756029b2b6cac5",
+          "min_lot_size": "21358d3e604eb36dcab4783185f14057ad534a8dc950e167e7703a5e9977e6d9",
+          "name": "597670ac86c30ac355328388a209aa924216a8b4892a846e68ad0daaf5ab7c40",
+          "spec_description": "f910afeb2c7195f09cb145374683352885dabf3990b00b97f57e6d113df4284c",
+          "unit": "c454ebc2e74a3b53ea279727c51dfd12d5bca11147986358beadae4415fb11d3"
+        },
+        "count": 8,
+        "sha256": "5985fe4ab8f4705404bc21395f78f7c1c08e38f4502b6b414d9794b3ccc95cb4"
+      },
+      "public_listings": {
+        "columns": {
+          "availability_window": "37d270b96beadfa9f355bb527b8ba8acde3f79ac21637587bc277cbed45c7923",
+          "certifications": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "created_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "expires_at": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "fuel_grade": "7b6ff7426632043edb8402209806156006c6787efe94af6f0732918bfa3cd5d9",
+          "fuel_type": "373031f24335aa5eca6502a188a72a87ea1143e61f9e77ba67a25aea3b60f204",
+          "id": "4d5a3a4b9304643b54afc06f89f9b2b12914f99f0f455485f04a499fac51100f",
+          "is_verdaxis_verified": "469edeefdb153794a14427d7f01965a7e9f97b077966004e687c7fc6d30d8248",
+          "price_per_mt_usd": "949bc4f2065c184efe48f753f7f4ca7a1d46bd1dbe022b19c2b498a86c0fe3ba",
+          "quantity_mt": "594d5254d3d77ab3a06d6f13bdd8bf2aecc6396fdcea5b0e2d348a43960edad3",
+          "region": "f7ca054ba245f4047d0dff6c72536129abf7bb7130646ac35f3faa7550c16852",
+          "status": "bd31229e45d36853f2e168d7615478df950dfb17327f0c9c9a2d21cf142052dd",
+          "supplier_id": "f413c937375cb3ff0f8ca85ad7d4a11f9b27760a6c6952396c7c9baed94a1a9e",
+          "updated_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe"
+        },
+        "count": 1,
+        "sha256": "2896df3d658314dfbafe38332d2c465225852d359c0cb4e2e846d58f74cc0a21"
+      },
+      "referrals": {
+        "columns": {
+          "activated_at": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "created_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "id": "a8581bf2043c171f1278524d4fe4a52c091ad671edd9106c6e528e18350b5657",
+          "referral_code_used": "c362a1313840564d0933ba795e529237c45e404777c621bd08a307150201102c",
+          "referred_user_id": "a4a1054df9873fd2243d7417ad99d6f33898a703fe0936dc98e6e83a12e4354d",
+          "referrer_id": "bb2eba38cc08979e71775a68625c8af26eca3112dbfb75b94f000592ac7eec93",
+          "status": "b0ba2b977a4328d5dc500ddbcaed2097e684fcc97e9a8c870d805e8adcfb7c9b",
+          "verified_at": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b"
+        },
+        "count": 1,
+        "sha256": "38b18a7ff632cf7fffe4713c08c960997a0fc21dfd15670e451d4cc67e01d7ae"
+      },
+      "rfq_quotes": {
+        "columns": {
+          "created_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "id": "7d0bc61a2f2f64ddb3482045ab66d66f21ed6757b649e01aaa1c7add45251bae",
+          "notes": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "price_per_mt_usd": "156391b8669f33694b3243d15ab489a39f242b08fa8fad211b4d74db52a8f795",
+          "rfq_id": "f0b09fb8f3b60d4d3d2db8e7968098ac0b880c88b95b330288cdd8223435449c",
+          "seller_org_id": "f413c937375cb3ff0f8ca85ad7d4a11f9b27760a6c6952396c7c9baed94a1a9e",
+          "seller_user_id": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "status": "6933277fc0001aabf6a3d49a08953d12aade5f3b9701557de45ce16b4dab5869"
+        },
+        "count": 1,
+        "sha256": "9190143d4d01f6c386a9bab8fe34f9e039bdd1125f86c6da4771ee27ddc8263a"
+      },
+      "rfqs": {
+        "columns": {
+          "accepted_quote_id": "7d0bc61a2f2f64ddb3482045ab66d66f21ed6757b649e01aaa1c7add45251bae",
+          "availability_window": "37d270b96beadfa9f355bb527b8ba8acde3f79ac21637587bc277cbed45c7923",
+          "buyer_org_id": "08e073bd774230d605530282a06e5acdcd96aaea98b2db98f1033d5a7a03e254",
+          "buyer_user_id": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "created_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "delivery_point_id": "68fbb3198d810e1bdb6b2f4fbe1e8ed29b96953d4d3459a8f55eede293c0559e",
+          "expires_at": "e7b097684190c1c2ea603eacea1cf8c9582eb9b5fe02670c2a5b1aabd44c7cf9",
+          "id": "f0b09fb8f3b60d4d3d2db8e7968098ac0b880c88b95b330288cdd8223435449c",
+          "is_anonymous": "469edeefdb153794a14427d7f01965a7e9f97b077966004e687c7fc6d30d8248",
+          "notes": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "product_id": "37afaf88b3344b6f5d29e707aae5ae68c2c717f8c3db3ae2b0f17ac96f40b567",
+          "quantity_mt": "22d7f8bab925ba18b1592adc6874238584139971db78cd7c4798ea011a1df406",
+          "status": "6933277fc0001aabf6a3d49a08953d12aade5f3b9701557de45ce16b4dab5869",
+          "target_price_per_mt": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "trade_id": "c4884047b8a527f515962a182897d28118f39bd99e73f650f0acfce8b34330d0"
+        },
+        "count": 1,
+        "sha256": "26f83c35bb288254bbbc8a36228c524a7fed4b586b74737e234b2728a9e92c9b"
+      },
+      "seed_runs": {
+        "columns": {
+          "completed_at": "d9bb449bf911fff47981ef34148aa1d259c175ccc70f569edf20e87829cf6176",
+          "created_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "environment": "2a2a540a3ffdad7db75500abbf8f61ffd635630f9862f8a186ab9cee9279ec36",
+          "id": "7cf509e592176e581a00e0ecccaee161f1e1470f84d678c887a1595cf7537a91",
+          "metadata": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "seed_name": "7e717b0e7b45b67f7e9ee35002178ed4a759f1bdb8f9fb7a1c1b8323804b5859"
+        },
+        "count": 1,
+        "sha256": "2f36de54184ef941d4a7d50bd743973e37022d0aede4e2a4aba085f87ae49d43"
+      },
+      "staff_capability_assignments": {
+        "columns": {
+          "capability": "cde195f8b8331ca06c9c6708e364b3a8a0bda6183247b5010fe5ebb8a0769517",
+          "expires_at": "e7b097684190c1c2ea603eacea1cf8c9582eb9b5fe02670c2a5b1aabd44c7cf9",
+          "granted_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "granted_by_user_id": "9da5626b848db4d05c48a390bcda40db86db671b64248a09339fb8c474009b3a",
+          "id": "fc4e0006d76d6b57c5caeec19f38543e22a6524e59556b5957d0cff3c29a1d28",
+          "reason": "d95bdd2e454046cb56be789fff33a7bfbdc3296fc14bfbf9b817b26e37e7009c",
+          "revocation_reason": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "revoked_at": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "revoked_by_user_id": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "user_id": "9da5626b848db4d05c48a390bcda40db86db671b64248a09339fb8c474009b3a"
+        },
+        "count": 1,
+        "sha256": "9c80570d693d5aef5befaf51ee6e351e878b1a1b8d339808487e10a17e092070"
+      },
+      "subscriptions": {
+        "columns": {
+          "expires_at": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "id": "50f596554176647f9b3f2a2fa8bdd2b4ad315f858fc24454109e657b921fdddb",
+          "is_active": "8e1c0afd75aa3339ce1291ed55def9e65a26564625981613e1c0144550e83e2f",
+          "org_id": "f413c937375cb3ff0f8ca85ad7d4a11f9b27760a6c6952396c7c9baed94a1a9e",
+          "seller_fee_per_mt_usd": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "started_at": "d9bb449bf911fff47981ef34148aa1d259c175ccc70f569edf20e87829cf6176",
+          "tier": "92e0b435c1074ab90db7c766ab1b6d4e0055056b14a8297d93a7bdfd402c347c"
+        },
+        "count": 1,
+        "sha256": "f33527a983f5410e8fcf872391f714e467f9b4ac03e891419d1fa4f7e4f5c058"
+      },
+      "supply_listings": {
+        "columns": {
+          "availability_window": "37d270b96beadfa9f355bb527b8ba8acde3f79ac21637587bc277cbed45c7923",
+          "available_lots": "b9d3ec4681c51e8d4a70d8c898b7be2400c9bfaed856032d65fe6f01eeabbe47",
+          "certification_body": "f17f2f5fc2307e168ddd8c9d8549993746aabb7dc368ff5e6862a775267cb1f6",
+          "ci_score": "934d77147b47dd97676a5832a3b2238047b9d1207dc4c6ad4466b590899b5c7b",
+          "created_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "delivery_point_id": "68fbb3198d810e1bdb6b2f4fbe1e8ed29b96953d4d3459a8f55eede293c0559e",
+          "delivery_window_end": "f7437942683c5bf1d1dcce6e78e701209f3676e4bc9a429947ee813ad87caa6b",
+          "delivery_window_start": "5372910aafef440ff8378f7bfa96264b015e4c7b93dd68dfdb7614a357e2df82",
+          "fid_status": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "id": "ba0c002be3ec0c8a82ee898b963017b8228aeaf2589fdf3c2938427790c2cb90",
+          "is_active": "8e1c0afd75aa3339ce1291ed55def9e65a26564625981613e1c0144550e83e2f",
+          "plant_location": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "price_per_mt_usd": "949bc4f2065c184efe48f753f7f4ca7a1d46bd1dbe022b19c2b498a86c0fe3ba",
+          "price_structure": "9164af686715185c99305736ac38543d8d2ccae42b77f3d3eeedc48f0fbdac65",
+          "product_id": "37afaf88b3344b6f5d29e707aae5ae68c2c717f8c3db3ae2b0f17ac96f40b567",
+          "remaining_lots": "b9d3ec4681c51e8d4a70d8c898b7be2400c9bfaed856032d65fe6f01eeabbe47",
+          "supplier_org_id": "f413c937375cb3ff0f8ca85ad7d4a11f9b27760a6c6952396c7c9baed94a1a9e",
+          "supply_tier": "d44c53ec2b62234d0ff5f8d25854e24b7ec09b4cf5e4d0349b509e805b47f6a2",
+          "updated_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe"
+        },
+        "count": 1,
+        "sha256": "ddef6e0a04f9b37822f4cdbdabfeaf55f71cbea9b2dbefe097067d282324fd1f"
+      },
+      "traceability_events": {
+        "columns": {
+          "direct_order_id": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "id": "b6fa8b3188a5d80f041ac05802e25be3dfddfe31fca00808e2b251d4297ec900",
+          "is_verified": "469edeefdb153794a14427d7f01965a7e9f97b077966004e687c7fc6d30d8248",
+          "location_name": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "stage": "8d99a55dd92695de509a4375a3d999098ba5d295b3e80c8582758181df2984c4",
+          "timestamp": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "verification_doc_url": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "verification_hash": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "verification_type": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b"
+        },
+        "count": 1,
+        "sha256": "f0c95a069eb2c1fe7178777fe6743290c236de152d81c50334f1a282b52ba61e"
+      },
+      "trades": {
+        "columns": {
+          "ask_order_id": "a1f2843a5b3ff3bcd7d4a5ea4126565e7c1f727181ff3455bdf0c90d6ef27381",
+          "availability_window": "b1c23138b9720bb573ebf6d6f7ecdf737709df3a9829fa32944bd2570a102ad3",
+          "bid_order_id": "a1f2843a5b3ff3bcd7d4a5ea4126565e7c1f727181ff3455bdf0c90d6ef27381",
+          "buyer_id": "6980f07602c3dcd6e38805c853d6234a1174dce48bad7f8914c515991b4a849b",
+          "buyer_provenance": "15f00fc58b901e4c38ccf12e318f2fe55400680fb5bc49fb60dee2aae171f973",
+          "buyer_user_id": "a1f2843a5b3ff3bcd7d4a5ea4126565e7c1f727181ff3455bdf0c90d6ef27381",
+          "commission_amount_usd": "a1f2843a5b3ff3bcd7d4a5ea4126565e7c1f727181ff3455bdf0c90d6ef27381",
+          "commission_fee_per_mt_usd": "a1f2843a5b3ff3bcd7d4a5ea4126565e7c1f727181ff3455bdf0c90d6ef27381",
+          "commission_plan": "a1f2843a5b3ff3bcd7d4a5ea4126565e7c1f727181ff3455bdf0c90d6ef27381",
+          "commission_rate_pct": "220822694957956b2bf59e7f8616c60413a903d385f734ce4bb4c6091895d2f1",
+          "confirmed_at": "8799ee485f262334ffa17bf79c81a4e0211b2ab74def00b0ccf967ddb7c5091d",
+          "created_at": "48c4a4bd0e2d2c879c90302c8c3482bc41d06ea058a393c589b4f69c11184d73",
+          "delivered_at": "943b595530155b985fd331f8894ef092e985ccc66109faaac4a9eb4945695bf8",
+          "delivery_point_id": "744466560d56610ff02a556e2bd131a063b6227569d372d4b85124dd671b2c83",
+          "delivery_point_name": "1a060451a6e3fbb508a7a358a57adbdb3cd3e47f5604767dfd43a1eef71c0997",
+          "delivery_point_region": "965fb9e3ad2988889981d16b246ac280f057b10a99f6d127ba1fea1dc73bc967",
+          "final_price_per_mt": "72becf15ef54c73d2d5818ab25d0c067c5edcdc6014697984e64ed056e52c749",
+          "final_quantity_mt": "9cb50e96f0cb6454f70360ee53b77c7e50cb1dfbc51f85d164bac42263adefae",
+          "final_total_usd": "f487ea7defee9cb99772bb33a2380daa6a8d8fabaf857efdcc82c7155a1d2f81",
+          "fuel_grade": "ecb40f2acd60f728e93eb15d673c94da309f76157e9b8e0608ad2699ce533701",
+          "fuel_type": "6ccc775d93bf9e933220d12aba2afd0c0eb5aa8a940e7bc63b1a7521212bf7de",
+          "id": "c89ed7acac4835715906a2d8046106bdc77e1e538f1e7e83a026ce3cfc8aedc6",
+          "idempotency_key": "a1f2843a5b3ff3bcd7d4a5ea4126565e7c1f727181ff3455bdf0c90d6ef27381",
+          "idempotency_operation": "a1f2843a5b3ff3bcd7d4a5ea4126565e7c1f727181ff3455bdf0c90d6ef27381",
+          "idempotency_request_hash": "a1f2843a5b3ff3bcd7d4a5ea4126565e7c1f727181ff3455bdf0c90d6ef27381",
+          "initiated_by": "b010b07dbee1e2c17db6b827e36ebeda0d14ca1b5432c88adab82db8ff931ac1",
+          "initiator_org_id": "6980f07602c3dcd6e38805c853d6234a1174dce48bad7f8914c515991b4a849b",
+          "is_anonymous": "5c9f8e961f0cbfa950be23fe977074b08c320ebb9deda4bf6aceaf45642aef35",
+          "lng_terms_snapshot": "a1f2843a5b3ff3bcd7d4a5ea4126565e7c1f727181ff3455bdf0c90d6ef27381",
+          "market_product": "47fb6d7c558cd0e8215f3d8c209c53674c3539a838a347cc2fbb2f85d5fb966c",
+          "market_snapshot_version": "e50dd26f07a0047c76d0cdc5d74cf28bc2bdafa86327560b139d3387500d90c1",
+          "paid_at": "92153f11e9af48865dbbf9caa3d3a5f2d5fe9375abbfbe3fdb52eb7adb09d8dd",
+          "price_per_mt_usd": "44835c6a1ff2d2451522090037c1ef1cd4598f8fa815578e6f90ea42f0128e36",
+          "product_id": "e50387a8f81688e16adfc03cfb0cd813b8ac1c4569b7a21e8e649b553931f1e7",
+          "product_name": "e6f327c696d337c80853f255b9b711f1a1c2cc7ad758b8e932d4b915541e7165",
+          "quantity_mt": "ff024c957ed071ea56f16dbda46367ad383863df69b67f371e008cffe338946f",
+          "seller_id": "066b3bde5175bf8996e82bde744032f89914185ce3d5d3e945542c2ed851a7ac",
+          "seller_provenance": "15f00fc58b901e4c38ccf12e318f2fe55400680fb5bc49fb60dee2aae171f973",
+          "seller_user_id": "a1f2843a5b3ff3bcd7d4a5ea4126565e7c1f727181ff3455bdf0c90d6ef27381",
+          "status": "1bfd31fd3e4a9fda09a5da2a484f0a2dea8bf606fc9febf435f8de7a61be1786"
+        },
+        "count": 7,
+        "sha256": "336aeb9604ff46ffb2c6e6e020caf1c1cbf2916664eba9e5860e08359b50babc"
+      },
+      "user_login_days": {
+        "columns": {
+          "activity_date": "5372910aafef440ff8378f7bfa96264b015e4c7b93dd68dfdb7614a357e2df82",
+          "first_login_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "id": "a882ce0e5e48420cba252f36e76d53feaff33c97a0e0aaaeea729d77e9ddf033",
+          "last_login_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "login_count": "fa356318b5ccad9e14ab6c4e0344a218aa03139029ccf6a824a8b852dd228a66",
+          "organization_id": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "role": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "user_id": "bb2eba38cc08979e71775a68625c8af26eca3112dbfb75b94f000592ac7eec93"
+        },
+        "count": 1,
+        "sha256": "919d411af2db3ddc243b157d9021150d490249bcb962996520a70dc2e96bf2a6"
+      },
+      "user_preferences": {
+        "columns": {
+          "id": "48f7a92cdafe8062a7904f5c0e64ed25f97064892f771e1e0742294533423dd7",
+          "namespace": "ae2245590649b7307e9fbf8782d012becce5fb29ae393b0b79385ee4ed2877af",
+          "updated_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "user_id": "bb2eba38cc08979e71775a68625c8af26eca3112dbfb75b94f000592ac7eec93",
+          "value": "11551897a56b862c69c3d3d4e9d30a9b34884ab0cb50716f117ee7a7ce3b3122"
+        },
+        "count": 1,
+        "sha256": "8050c3ffdb3fdd636ecfbe42a2666b7322c952e2c605755b4ec2614bcac45a6b"
+      },
+      "user_status_transitions": {
+        "columns": {
+          "effective_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "from_status": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "id": "b3e63b450dfe7b8898d8abc42a7a29ad5cb956ce71731e77a4b5411fffe9aeb8",
+          "organization_id": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "provenance": "2e0ed6ef7d2880c74fb5a7bbe95d4b146338898f0d1d38ad743c73b3b66cf727",
+          "role": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "to_status": "b0a4419cbbb79868daba1a4eebd1205f99b5d6b876a73cedb8c09abbedd1500d",
+          "user_id": "bb2eba38cc08979e71775a68625c8af26eca3112dbfb75b94f000592ac7eec93"
+        },
+        "count": 1,
+        "sha256": "8fde92f036fe53ebb29cebe02926c5cb5a46496ef39a0c00794391f7fefa91d1"
+      },
+      "users": {
+        "columns": {
+          "authentication_revoked_at": "c6194eb92ed46a0996c1cab8662c10bc6b176ddc6599998d35c2e6eb0a357364",
+          "created_at": "304acbe0982955cfde84bdf66adf5d136ae37412b170acbd4f20f4d552c4deb3",
+          "email": "683d0d275b939bd70f6844618024e167ab92c56414091112c221de3c5fcbdaf0",
+          "email_verification_token_expires_at": "c6194eb92ed46a0996c1cab8662c10bc6b176ddc6599998d35c2e6eb0a357364",
+          "email_verification_token_hash": "c6194eb92ed46a0996c1cab8662c10bc6b176ddc6599998d35c2e6eb0a357364",
+          "email_verified": "a63ecfca02c68f659927c3ad3bf435631efd07963b2907c89616728b15ba8ae1",
+          "first_name": "c6194eb92ed46a0996c1cab8662c10bc6b176ddc6599998d35c2e6eb0a357364",
+          "id": "4fb4dd4bba1aa3b972f51b8202db561779feb0302efd0ceba52010f50be84eb4",
+          "kyc_external_evidence_reference": "c6194eb92ed46a0996c1cab8662c10bc6b176ddc6599998d35c2e6eb0a357364",
+          "kyc_organization_id": "a6bc518e1ce3ef571e15bdf3894c5ded3b6d90d6faa1d938733b52d99371871e",
+          "kyc_rejection_reason": "c6194eb92ed46a0996c1cab8662c10bc6b176ddc6599998d35c2e6eb0a357364",
+          "kyc_review_note": "a6106de114e0b2749c15f165391f6108d728be6b5792c44fe7123051f5011231",
+          "kyc_reviewed_at": "c6194eb92ed46a0996c1cab8662c10bc6b176ddc6599998d35c2e6eb0a357364",
+          "kyc_reviewed_by": "c6194eb92ed46a0996c1cab8662c10bc6b176ddc6599998d35c2e6eb0a357364",
+          "kyc_status": "a580bc75b7ccf6b8da18188eb196bc3ae8b56cfe7d785a26bfaf52190b0d023b",
+          "last_login": "c6194eb92ed46a0996c1cab8662c10bc6b176ddc6599998d35c2e6eb0a357364",
+          "last_name": "c6194eb92ed46a0996c1cab8662c10bc6b176ddc6599998d35c2e6eb0a357364",
+          "must_change_password": "905eaa71ef48582721a84b528ee630be8e442b1d3986e2c3e356d79a3b03a9af",
+          "onboarding_referral_source": "c6194eb92ed46a0996c1cab8662c10bc6b176ddc6599998d35c2e6eb0a357364",
+          "onboarding_use_case": "c6194eb92ed46a0996c1cab8662c10bc6b176ddc6599998d35c2e6eb0a357364",
+          "organization_id": "b11f5e083bcb1289976fe5675f365e530d7b7efb0921fd0b327724667844feee",
+          "password_changed_at": "c6194eb92ed46a0996c1cab8662c10bc6b176ddc6599998d35c2e6eb0a357364",
+          "password_hash": "0e4653fc09b4d248869de88e40c87b87ad1297279524e2b315adae7df8bb1b55",
+          "password_reset_expires": "c6194eb92ed46a0996c1cab8662c10bc6b176ddc6599998d35c2e6eb0a357364",
+          "password_reset_token_hash": "c6194eb92ed46a0996c1cab8662c10bc6b176ddc6599998d35c2e6eb0a357364",
+          "pending_approval_email_payload": "c6194eb92ed46a0996c1cab8662c10bc6b176ddc6599998d35c2e6eb0a357364",
+          "pending_approval_email_retry_at": "c6194eb92ed46a0996c1cab8662c10bc6b176ddc6599998d35c2e6eb0a357364",
+          "pending_approval_email_transition_id": "c6194eb92ed46a0996c1cab8662c10bc6b176ddc6599998d35c2e6eb0a357364",
+          "referral_code": "c6194eb92ed46a0996c1cab8662c10bc6b176ddc6599998d35c2e6eb0a357364",
+          "referred_by_id": "c6194eb92ed46a0996c1cab8662c10bc6b176ddc6599998d35c2e6eb0a357364",
+          "role": "b5514dbcc2dc3ebbf30a41093bec17acf15f048a5584bf58abe1126e5772cb0c",
+          "status": "4f1cc04f6a5318588717ff5283faa354224eeee3a26b1e8015a381b95f063716"
+        },
+        "count": 3,
+        "sha256": "2a665ab61da35d3a4753b2bf217a0556c5137e3f8707ccaccd2a9194a203f3b8"
+      },
+      "vessels": {
+        "columns": {
+          "cii_rating": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "current_location": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "dwt": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "eu_ets_status": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "flag_state": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "fueleu_status": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "id": "fc1087221171c7088ce1ec4274517dbb11bbf3d89e9e5dd2728f6b2c9ede71e9",
+          "imo_number": "6c7cab29128d12a578fa05e9d3bcf1283f63a0f654970d7d3a0c21ae06c16ddb",
+          "name": "9673f8277ced27bf724bbd964db59c3f43a735a8da8a11b93d4b30265845559d",
+          "organization_id": "08e073bd774230d605530282a06e5acdcd96aaea98b2db98f1033d5a7a03e254",
+          "previous_location": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "updated_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "vessel_type": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b"
+        },
+        "count": 1,
+        "sha256": "0e0ce3759b53efb2fbd50293ad430a6b24791f6c984f1587daa3b796fc0d2053"
+      },
+      "watchlist_entries": {
+        "columns": {
+          "created_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "delivery_point_id": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "id": "f970ec17ecb32f4c0db0ce7a2e54d4921b8a703261af312fcafba3a8e96a078c",
+          "product_id": "37afaf88b3344b6f5d29e707aae5ae68c2c717f8c3db3ae2b0f17ac96f40b567",
+          "watchlist_id": "d8eae99234b2ef073caeb3e893feee28a44f5274448d72d4ea166a9f6c71910e"
+        },
+        "count": 1,
+        "sha256": "66a92cd7d724d17fc41aee127c05a9d0868555f0a47022984ee1f80c073cf48f"
+      },
+      "watchlist_events": {
+        "columns": {
+          "created_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "event_payload": "14b229fc7a7b6cff6af7b85ff6de99f23cceb03d42222f687e01eb4da86085b8",
+          "event_type": "95e4950dffdb8abbeea3dc7e4af10320fb55f3e64996e875eb84b4bce47a05d4",
+          "id": "6d130a0fe59f59ee62602ce6d0bf27e76ddd2a79beb653171db6da007c618b30",
+          "is_read": "469edeefdb153794a14427d7f01965a7e9f97b077966004e687c7fc6d30d8248",
+          "watchlist_id": "d8eae99234b2ef073caeb3e893feee28a44f5274448d72d4ea166a9f6c71910e",
+          "watchlist_target_id": "2a858e25503dbd4b72d1173ca1c81bd06e6c2f98042708aa6d1769fb26f61ead"
+        },
+        "count": 1,
+        "sha256": "98b7bafc2ae96f1e04e234e23511aef4f8f70d43208e5234018a3f8bbf08b8ab"
+      },
+      "watchlist_targets": {
+        "columns": {
+          "availability_window_code": "37d270b96beadfa9f355bb527b8ba8acde3f79ac21637587bc277cbed45c7923",
+          "created_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "delivery_point_id": "68fbb3198d810e1bdb6b2f4fbe1e8ed29b96953d4d3459a8f55eede293c0559e",
+          "id": "2a858e25503dbd4b72d1173ca1c81bd06e6c2f98042708aa6d1769fb26f61ead",
+          "market_product_code": "e9886ba0a19b9bf3f5c889de77276dc0cf2a4902fbdc662e2ddccc906ce59312",
+          "order_id": "fb2639321f6a48eadc1e002172f837967669292eeccff257e64ced94cfcfaacb",
+          "snapshot_availability_window": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "snapshot_counterparty_label": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "snapshot_delivery_point_name": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "snapshot_market_product": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "snapshot_price_per_mt_usd": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "snapshot_quantity_mt": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "snapshot_remaining_quantity_mt": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "snapshot_side": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "snapshot_status": "8ce86a6ae65d3692e7305e2c58ac62eebd97d3d943e093f577da25c36988246b",
+          "target_type": "57c152c46cb4090aeff5f2dc8a7e32fdf4c23edf1b49dd0fc961b5ce286e3338",
+          "watchlist_id": "d8eae99234b2ef073caeb3e893feee28a44f5274448d72d4ea166a9f6c71910e"
+        },
+        "count": 1,
+        "sha256": "838b110e1a1c981f60f2b9c884fea4a787aad831b835a3290dc7d24baca5b8fd"
+      },
+      "watchlists": {
+        "columns": {
+          "created_at": "57124eda663df15ac9f599a2b82f7b5f4dbbcdea1782d190d455c3d49f0b01fe",
+          "id": "d8eae99234b2ef073caeb3e893feee28a44f5274448d72d4ea166a9f6c71910e",
+          "kind": "d506146eef6a2d2c8dab7e68518420e3d26d99d928777c295237e210d8f1ed05",
+          "name": "b44ae7aa558d51782a9fcf603d74692ae0a3d978eb9e7ef4ef6c6efe51596e30",
+          "user_id": "bb2eba38cc08979e71775a68625c8af26eca3112dbfb75b94f000592ac7eec93"
+        },
+        "count": 1,
+        "sha256": "8f63d006da1b4158face71d449c05a37cc8b0922c037b6bf78026401d63de5cf"
+      }
+    }
+  }
+}

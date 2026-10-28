@@ -26,13 +26,12 @@ from app.models.user import (
     UserStatus,
 )
 from app.routers.trades import _revalidate_trade_parties
-from app.services.execution_policy import MarketPartyPolicy
 from app.services.market_admission import (
     MarketActorOwnership,
     lock_and_load_market_organizations,
 )
 
-REQUIRED_TABLES = ['organizations', 'users', 'kyc_execution_grace']
+REQUIRED_TABLES = ['organizations', 'users']
 
 
 @pytest.fixture(scope='module')
@@ -42,7 +41,9 @@ def async_engine():
 
 @pytest.fixture(scope='module')
 async def setup_tables(async_engine):
+    from app.models.kyc_execution_grace import KYCExecutionGrace
     tables = [Base.metadata.tables[name] for name in REQUIRED_TABLES]
+    tables.append(KYCExecutionGrace.__table__)
     async with async_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all, tables=tables)
     yield
@@ -87,29 +88,18 @@ async def _seed_approved_pair(
 
 
 @pytest.mark.asyncio
-async def test_lock_and_load_applies_the_actor_policy_to_pending_kyc(session_factory):
+async def test_lock_and_load_keeps_pending_legacy_kyc_advisory(session_factory):
     async with session_factory() as seed_session:
         org, user = await _seed_approved_pair(seed_session, kyc_status="PENDING")
 
-    for advisory_policy in (MarketPartyPolicy.INDICATIVE, MarketPartyPolicy.CLEANUP):
-        async with session_factory() as request_session:
-            organizations = await lock_and_load_market_organizations(
-                request_session,
-                [org.id],
-                actor_ownerships=(MarketActorOwnership(user.id, org.id),),
-                actor_policy=advisory_policy,
-            )
-        assert organizations[org.id].verification_status == "APPROVED"
-
-    # The default is the strictest policy: pending KYC without grace cannot execute.
     async with session_factory() as request_session:
-        with pytest.raises(HTTPException) as exc_info:
-            await lock_and_load_market_organizations(
-                request_session,
-                [org.id],
-                actor_ownerships=(MarketActorOwnership(user.id, org.id),),
-            )
-    assert exc_info.value.status_code == 409
+        organizations = await lock_and_load_market_organizations(
+            request_session,
+            [org.id],
+            actor_ownerships=(MarketActorOwnership(user.id, org.id),),
+        )
+
+    assert organizations[org.id].verification_status == "APPROVED"
 
 
 @pytest.mark.asyncio
@@ -177,11 +167,5 @@ async def test_revalidate_trade_parties_observes_concurrent_rejection(session_fa
             seller_id=seller_org.id,
         )
         with pytest.raises(HTTPException) as exc_info:
-            await _revalidate_trade_parties(
-                request_session, trade, policy=MarketPartyPolicy.EXECUTION
-            )
+            await _revalidate_trade_parties(request_session, trade)
         assert exc_info.value.status_code == 409
-        # Settling the trade (deliver, pay) is never blocked by KYC.
-        await _revalidate_trade_parties(
-            request_session, trade, policy=MarketPartyPolicy.CLEANUP
-        )

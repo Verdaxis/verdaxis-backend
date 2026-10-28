@@ -2,26 +2,32 @@
 import uuid
 from datetime import datetime, timedelta, UTC
 from typing import Annotated, Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import select, func
+from sqlalchemy import and_, or_, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.rate_limit import limiter
 from app.routers.auth_simple import get_authenticated_user, get_current_user
-from app.models.user import User, UserRole, Organization
+from app.models.user import User, UserRole, Organization, OrganizationProvenance
 from app.models.rfq import RFQ, RFQQuote, RFQStatus, QuoteStatus
+from app.models.supplier_offer import SupplierOffer
 from app.models.catalog import Product, DeliveryPoint
 from app.models.notification import NotificationType
 from app.schemas.rfq import (
     RFQCreateRequest,
     RFQQuoteRequest,
+    RFQQuoteRevisionRequest,
     RFQQuoteResponse,
     RFQResponse,
     RFQListResponse,
 )
+from app.schemas.fame import FameContractTerms
+from app.schemas.supplier_offer import SupplierOfferSnapshot
+from app.services.fame_rfq import delivery_deadline, quote_compatibility_errors, quote_expiry
 from app.services.availability_windows import (
     is_tradable_availability_window,
     normalize_availability_window,
@@ -31,9 +37,9 @@ from app.services.audit_actions import (
     RFQ_CANCELLED,
     RFQ_CREATED,
     RFQ_QUOTE_SUBMITTED,
+    RFQ_QUOTE_REVISED,
     RFQ_QUOTE_WITHDRAWN,
 )
-from app.services.execution_policy import MarketPartyPolicy
 from app.services.market_admission import (
     MarketActorOwnership,
     assert_market_pair_provenance,
@@ -46,6 +52,7 @@ from app.services.market_events import enqueue_market_events, participant_market
 from app.services.security_market_admission import require_security_market_admission
 from app.services.market_transactions import retry_market_transaction
 from app.services.org_notifications import notify_org_users as _notify_org_users
+from app.services.supplier_offers import offer_snapshot, public_offer_snapshot
 
 router = APIRouter(prefix="/rfq", tags=["rfq"])
 
@@ -83,6 +90,67 @@ def _rfq_lock_identity(rfq: RFQ) -> tuple[object, ...]:
         rfq.product_id,
         rfq.delivery_point_id,
         str(rfq.availability_window),
+        getattr(rfq, "source_offer_id", None),
+        getattr(rfq, "target_supplier_org_id", None),
+    )
+
+
+def _validate_quote_payload(rfq: RFQ, payload: RFQQuoteRequest) -> datetime:
+    deadline = rfq.expires_at
+    if rfq.contract_terms is not None:
+        if payload.offer_terms is None:
+            raise HTTPException(status_code=422, detail="offer_terms are required for UCOME B100")
+        contract = FameContractTerms.model_validate(rfq.contract_terms)
+        errors = quote_compatibility_errors(contract, payload.offer_terms, rfq.quantity_mt)
+        if errors:
+            raise HTTPException(status_code=422, detail="; ".join(errors))
+        deadline = min(deadline, delivery_deadline(contract.delivery_end))
+    elif payload.offer_terms is not None:
+        raise HTTPException(status_code=422, detail="FAME offer terms require a structured UCOME B100 RFQ")
+    try:
+        return quote_expiry(
+            payload.expires_at,
+            deadline,
+            structured=rfq.contract_terms is not None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+def _quote_snapshot(quote: RFQQuote) -> dict:
+    """Preserve each commercial version in the append-only audit trail."""
+    return {
+        "revision": quote.revision,
+        "price_per_mt_usd": str(quote.price_per_mt_usd),
+        "notes": quote.notes,
+        "offer_terms": quote.offer_terms,
+        "expires_at": quote.expires_at.isoformat() if quote.expires_at else None,
+        "status": quote.status.value,
+    }
+
+
+def _owned_quote(rfq: RFQ, quote_id: uuid.UUID, current_user: User) -> RFQQuote:
+    quote = next((item for item in rfq.quotes if item.id == quote_id), None)
+    if quote is None or quote.seller_org_id != current_user.organization_id:
+        raise HTTPException(status_code=404, detail="Quote not found")
+    return quote
+
+
+async def _quote_response(db: AsyncSession, rfq: RFQ, quote: RFQQuote) -> RFQQuoteResponse:
+    result = await db.execute(select(Organization.name).where(Organization.id == quote.seller_org_id))
+    expires_at = quote.expires_at or rfq.expires_at
+    return RFQQuoteResponse(
+        id=quote.id,
+        seller_org_id=quote.seller_org_id,
+        seller_org_name=result.scalar_one_or_none(),
+        price_per_mt_usd=quote.price_per_mt_usd,
+        notes=quote.notes,
+        status=quote.status.value,
+        created_at=quote.created_at,
+        expires_at=expires_at,
+        is_expired=expires_at <= datetime.now(UTC),
+        revision=quote.revision,
+        offer_terms=quote.offer_terms,
     )
 
 
@@ -92,8 +160,14 @@ def _rfq_visibility_filters(current_user: User, *, now: datetime | None = None) 
     if current_user.role == UserRole.SUPPLIER:
         return (
             RFQ.buyer_org_id != current_user.organization_id,
-            RFQ.status.in_(_SUPPLIER_VISIBLE_STATUSES),
-            RFQ.expires_at > (now or datetime.now(UTC)),
+            _target_supplier_filter(current_user.organization_id),
+            or_(
+                and_(
+                    RFQ.status.in_(_SUPPLIER_VISIBLE_STATUSES),
+                    RFQ.expires_at > (now or datetime.now(UTC)),
+                ),
+                RFQ.quotes.any(RFQQuote.seller_org_id == current_user.organization_id),
+            ),
         )
     return (RFQ.buyer_org_id == current_user.organization_id,)
 
@@ -105,14 +179,165 @@ def _ensure_rfq_detail_visible(rfq: RFQ, current_user: User, *, now: datetime | 
     if current_user.role == UserRole.SUPPLIER:
         visible = (
             rfq.buyer_org_id != current_user.organization_id
-            and rfq.status in _SUPPLIER_VISIBLE_STATUSES
-            and rfq.expires_at > (now or datetime.now(UTC))
+            and getattr(rfq, "target_supplier_org_id", None) in (None, current_user.organization_id)
+            and (
+                (rfq.status in _SUPPLIER_VISIBLE_STATUSES and rfq.expires_at > (now or datetime.now(UTC)))
+                or any(q.seller_org_id == current_user.organization_id for q in getattr(rfq, "quotes", []))
+            )
         )
     if not visible:
         raise HTTPException(status_code=404, detail="RFQ not found")
 
 
-async def _build_rfq_response(db: AsyncSession, rfq: RFQ, *, viewer_org_id: uuid.UUID | None = None) -> RFQResponse:
+def _target_supplier_filter(organization_id: uuid.UUID):
+    """A previous quote never grants access to another supplier's targeted RFQ."""
+    return or_(RFQ.target_supplier_org_id.is_(None), RFQ.target_supplier_org_id == organization_id)
+
+
+async def _lock_source_offer(db: AsyncSession, offer_id: uuid.UUID) -> SupplierOffer:
+    result = await db.execute(
+        select(SupplierOffer)
+        .where(SupplierOffer.id == offer_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    offer = result.scalar_one_or_none()
+    if offer is None:
+        raise HTTPException(status_code=404, detail="Supplier offer not found")
+    return offer
+
+
+def _validate_source_offer(
+    offer: SupplierOffer, payload: RFQCreateRequest, buyer_org_id: uuid.UUID,
+) -> SupplierOfferSnapshot:
+    """Bind explicit buyer terms to one current supplier indication."""
+    if offer.supplier_org_id == buyer_org_id:
+        raise HTTPException(status_code=409, detail="Cannot request a quote from your own organization")
+    if offer.status != "OPEN" or offer.expires_at <= datetime.now(UTC):
+        raise HTTPException(status_code=409, detail="Supplier offer is no longer open")
+    if offer.revision != payload.expected_source_offer_revision:
+        raise HTTPException(status_code=409, detail="Supplier offer was revised; reload it before requesting a quote")
+    if (offer.product_id, offer.delivery_point_id, offer.availability_window) != (
+        payload.product_id, payload.delivery_point_id, payload.availability_window,
+    ):
+        raise HTTPException(status_code=422, detail="RFQ product, delivery point and availability window must match the source offer")
+    if not offer.min_fill_mt <= payload.quantity_mt <= offer.quantity_mt:
+        raise HTTPException(status_code=422, detail="RFQ quantity must be within the source offer minimum fill and available quantity")
+    contract = payload.contract_terms
+    if contract is None:
+        raise HTTPException(status_code=422, detail="contract_terms are required for a targeted supplier offer RFQ")
+    snapshot = offer_snapshot(offer)
+    fuel = snapshot.listing_terms.fuel_terms
+    if (
+        contract.standard != fuel.standard
+        or contract.standard_edition != fuel.standard_edition
+        or contract.astm_grade != fuel.astm_grade
+        or contract.en_climate_class != fuel.en_climate_class
+        or contract.sustainability_scheme != fuel.sustainability_scheme
+    ):
+        raise HTTPException(status_code=422, detail="RFQ standard, edition, grade, climate class and sustainability scheme must match the source offer")
+    return snapshot
+
+
+async def _lock_rfq_for_quote_change(
+    db: AsyncSession,
+    rfq_id: uuid.UUID,
+    current_user: User,
+    *,
+    require_quotable: bool = True,
+) -> RFQ:
+    """Serialize quotes and cancellation, then revalidate current actor ownership."""
+    if not current_user.organization_id:
+        raise HTTPException(status_code=403, detail="User must belong to an organization")
+
+    if require_quotable and current_user.role != UserRole.SUPPLIER:
+        raise HTTPException(status_code=403, detail="Only suppliers can submit quotes")
+
+    visibility_filters = (
+        _rfq_visibility_filters(current_user)
+        if require_quotable
+        else (
+            _target_supplier_filter(current_user.organization_id),
+            RFQ.quotes.any(RFQQuote.seller_org_id == current_user.organization_id),
+        )
+    )
+    observed_rfq = await _load_rfq(db, rfq_id, visibility_filters=visibility_filters)
+    observed_identity = _rfq_lock_identity(observed_rfq)
+    await acquire_market_slice_lock(
+        db,
+        side="BID",
+        product_id=observed_rfq.product_id,
+        delivery_point_id=observed_rfq.delivery_point_id,
+        availability_window=str(observed_rfq.availability_window),
+    )
+    if getattr(observed_rfq, "source_offer_id", None):
+        await _lock_source_offer(db, observed_rfq.source_offer_id)
+    rfq = await _load_rfq(
+        db,
+        rfq_id,
+        with_quotes=True,
+        for_update=True,
+        visibility_filters=visibility_filters,
+    )
+    if _rfq_lock_identity(rfq) != observed_identity:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="RFQ market slice changed; retry the request",
+        )
+    # Quote rows are market rows too. Lock the current set before user/org
+    # revalidation so cancel/quote paths share one global order.
+    await db.execute(
+        select(RFQQuote)
+        .where(RFQQuote.rfq_id == rfq.id)
+        .order_by(RFQQuote.id)
+        .with_for_update()
+    )
+    organizations = await lock_and_load_market_organizations(
+        db,
+        [rfq.buyer_org_id, current_user.organization_id],
+        actor_ownerships=(
+            MarketActorOwnership(current_user.id, current_user.organization_id),
+        ),
+        require_approved=require_quotable,
+        require_execution_eligible=require_quotable,
+    )
+    if not require_quotable:
+        return rfq
+    if current_user.role != UserRole.SUPPLIER:
+        raise HTTPException(status_code=403, detail="Only suppliers can submit quotes")
+
+    assert_market_pair_provenance(
+        organizations[rfq.buyer_org_id],
+        organizations[current_user.organization_id],
+    )
+    await require_canonical_market_slice(
+        db,
+        product_id=rfq.product_id,
+        delivery_point_id=rfq.delivery_point_id,
+    )
+
+    # Validate RFQ is quotable
+    if rfq.status not in (RFQStatus.OPEN, RFQStatus.QUOTED):
+        raise HTTPException(status_code=400, detail="RFQ is not open for quoting")
+
+    if rfq.expires_at <= datetime.now(UTC):
+        raise HTTPException(status_code=400, detail="RFQ has expired")
+
+    # Cannot quote own RFQ
+    if rfq.buyer_org_id == current_user.organization_id:
+        raise HTTPException(status_code=400, detail="Cannot quote your own RFQ")
+
+    return rfq
+
+
+async def _build_rfq_response(
+    db: AsyncSession,
+    rfq: RFQ,
+    *,
+    viewer_org_id: uuid.UUID | None = None,
+    viewer_user_id: uuid.UUID | None = None,
+) -> RFQResponse:
     """Build an RFQResponse with denormalized names and quote filtering."""
     # Fetch org name
     buyer_org_name = None
@@ -147,21 +372,17 @@ async def _build_rfq_response(db: AsyncSession, rfq: RFQ, *, viewer_org_id: uuid
     if hasattr(rfq, "quotes") and rfq.quotes:
         for q in rfq.quotes:
             if is_owner or (viewer_org_id and q.seller_org_id == viewer_org_id):
-                # Fetch seller org name
-                seller_org_name = None
-                res = await db.execute(select(Organization.name).where(Organization.id == q.seller_org_id))
-                sn = res.scalar_one_or_none()
-                if sn:
-                    seller_org_name = sn
-                quotes.append(RFQQuoteResponse(
-                    id=q.id,
-                    seller_org_id=q.seller_org_id,
-                    seller_org_name=seller_org_name,
-                    price_per_mt_usd=q.price_per_mt_usd,
-                    notes=q.notes,
-                    status=q.status.value,
-                    created_at=q.created_at,
-                ))
+                quotes.append(await _quote_response(db, rfq, q))
+
+    target_supplier_org_id = getattr(rfq, "target_supplier_org_id", None)
+    is_source_supplier = target_supplier_org_id is not None and viewer_org_id == target_supplier_org_id
+    source_snapshot = None
+    if getattr(rfq, "source_offer_snapshot", None) is not None:
+        source_snapshot = SupplierOfferSnapshot.model_validate(rfq.source_offer_snapshot)
+        if not is_source_supplier:
+            # Requesting a quote must preserve the anonymous marketplace
+            # boundary. Private declarations arrive through the supplier's quote.
+            source_snapshot = public_offer_snapshot(source_snapshot)
 
     return RFQResponse(
         id=rfq.id,
@@ -181,6 +402,15 @@ async def _build_rfq_response(db: AsyncSession, rfq: RFQ, *, viewer_org_id: uuid
         created_at=rfq.created_at,
         quote_count=len(rfq.quotes) if hasattr(rfq, "quotes") and rfq.quotes else 0,
         quotes=quotes,
+        contract_terms=getattr(rfq, "contract_terms", None),
+        source_offer_id=getattr(rfq, "source_offer_id", None),
+        target_supplier_org_id=target_supplier_org_id if is_source_supplier else None,
+        source_offer_snapshot=source_snapshot,
+        can_cancel=is_owner and rfq.status in _SUPPLIER_VISIBLE_STATUSES and (
+            getattr(rfq, "buyer_user_id", None) == viewer_user_id
+            if getattr(rfq, "buyer_user_id", None) is not None
+            else is_owner
+        ),
     )
 
 
@@ -229,22 +459,54 @@ async def create_rfq(
         delivery_point_id=payload.delivery_point_id,
         availability_window=availability_window,
     )
+    source_offer = None
+    organization_ids = [current_user.organization_id]
+    actor_ownerships = [MarketActorOwnership(current_user.id, current_user.organization_id)]
+    if payload.source_offer_id is not None:
+        source_offer = await _lock_source_offer(db, payload.source_offer_id)
+        organization_ids.append(source_offer.supplier_org_id)
+        actor_ownerships.append(
+            MarketActorOwnership(source_offer.supplier_user_id, source_offer.supplier_org_id)
+        )
     organizations = await lock_and_load_market_organizations(
         db,
-        [current_user.organization_id],
-        actor_ownerships=(
-            MarketActorOwnership(current_user.id, current_user.organization_id),
-        ),
-        actor_policy=MarketPartyPolicy.INDICATIVE,
+        organization_ids,
+        actor_ownerships=actor_ownerships,
     )
     assert_market_participant_provenance(
         organizations[current_user.organization_id]
     )
-    await require_canonical_market_slice(
+    if current_user.role != UserRole.BUYER:
+        raise HTTPException(status_code=403, detail="Only buyers can create RFQs")
+    source_snapshot = None
+    if source_offer is not None:
+        supplier = await db.get(User, source_offer.supplier_user_id)
+        if supplier is None or supplier.role != UserRole.SUPPLIER:
+            raise HTTPException(status_code=409, detail="Source offer owner is no longer an admitted supplier")
+        supplier_org = organizations[source_offer.supplier_org_id]
+        if supplier_org.provenance != OrganizationProvenance.REAL:
+            raise HTTPException(status_code=409, detail="Source supplier must be a real market participant")
+        assert_market_pair_provenance(organizations[current_user.organization_id], supplier_org)
+        source_snapshot = _validate_source_offer(source_offer, payload, current_user.organization_id)
+    product, delivery_point = await require_canonical_market_slice(
         db,
         product_id=payload.product_id,
         delivery_point_id=payload.delivery_point_id,
     )
+    expires_at = datetime.now(UTC) + timedelta(hours=payload.expires_in_hours)
+    if product.market_product == "UCOME_B100":
+        if payload.contract_terms is None:
+            raise HTTPException(status_code=422, detail="contract_terms are required for UCOME B100")
+        if delivery_point.name != "Singapore":
+            raise HTTPException(status_code=422, detail="UCOME B100 pilot delivery is limited to Singapore")
+        if payload.contract_terms.delivery_start < datetime.now(ZoneInfo("Asia/Singapore")).date():
+            raise HTTPException(status_code=422, detail="Delivery start must not be in the past")
+        if payload.quantity_mt < product.min_lot_size:
+            raise HTTPException(status_code=422, detail=f"UCOME B100 RFQ quantity must be at least {product.min_lot_size} MT")
+        if expires_at > delivery_deadline(payload.contract_terms.delivery_end):
+            raise HTTPException(status_code=422, detail="RFQ deadline must be on or before the delivery end date in Singapore")
+    elif payload.contract_terms is not None:
+        raise HTTPException(status_code=422, detail="FAME contract terms require the UCOME B100 product")
 
     rfq = RFQ(
         buyer_org_id=current_user.organization_id,
@@ -253,9 +515,14 @@ async def create_rfq(
         delivery_point_id=payload.delivery_point_id,
         quantity_mt=payload.quantity_mt,
         target_price_per_mt=payload.target_price_per_mt,
+        contract_terms=payload.contract_terms.model_dump(mode="json") if payload.contract_terms else None,
+        source_offer_id=source_offer.id if source_offer else None,
+        target_supplier_org_id=source_offer.supplier_org_id if source_offer else None,
+        source_offer_snapshot=source_snapshot.model_dump(mode="json") if source_snapshot else None,
         notes=payload.notes,
         is_anonymous=payload.is_anonymous,
-        expires_at=datetime.now(UTC) + timedelta(hours=payload.expires_in_hours),
+        expires_at=expires_at,
+        quotes=[],
     )
 
     rfq.availability_window = availability_window
@@ -276,12 +543,22 @@ async def create_rfq(
             "target_price_per_mt": str(rfq.target_price_per_mt) if rfq.target_price_per_mt else None,
             "availability_window": rfq.availability_window,
             "status": rfq.status.value,
+            "contract_terms": rfq.contract_terms,
+            "source_offer_id": str(rfq.source_offer_id) if rfq.source_offer_id else None,
+            "target_supplier_org_id": str(rfq.target_supplier_org_id) if rfq.target_supplier_org_id else None,
+            "source_offer_snapshot": rfq.source_offer_snapshot,
         },
         **request_audit_context(request),
     )
 
-    # Eagerly set quotes to empty list for response building
-    rfq.quotes = []
+    participant_org_ids = [rfq.buyer_org_id]
+    if rfq.target_supplier_org_id is not None:
+        participant_org_ids.append(rfq.target_supplier_org_id)
+        await _notify_org_users(
+            db, rfq.target_supplier_org_id, NotificationType.ORDER_UPDATE,
+            "New Quote Request", "A buyer requested a quote from your supplier offer.",
+            {"rfq_id": str(rfq.id), "source_offer_id": str(rfq.source_offer_id)},
+        )
 
     await enqueue_market_events(
         db,
@@ -290,7 +567,7 @@ async def create_rfq(
                 event_type="rfq_created",
                 aggregate_type="rfq",
                 aggregate_id=rfq.id,
-                participant_org_ids=(rfq.buyer_org_id,),
+                participant_org_ids=participant_org_ids,
                 payload={
                     "rfq_id": str(rfq.id),
                     "product_id": str(rfq.product_id),
@@ -302,7 +579,7 @@ async def create_rfq(
     )
     await db.commit()
 
-    return await _build_rfq_response(db, rfq, viewer_org_id=current_user.organization_id)
+    return await _build_rfq_response(db, rfq, viewer_org_id=current_user.organization_id, viewer_user_id=current_user.id)
 
 
 # ---------------------------------------------------------------------------
@@ -349,7 +626,7 @@ async def list_rfqs(
 
     items = []
     for rfq in rfqs:
-        items.append(await _build_rfq_response(db, rfq, viewer_org_id=org_id))
+        items.append(await _build_rfq_response(db, rfq, viewer_org_id=org_id, viewer_user_id=current_user.id))
 
     return RFQListResponse(items=items, total=total)
 
@@ -375,7 +652,7 @@ async def get_rfq(
     _ensure_rfq_detail_visible(rfq, current_user)
 
     org_id = current_user.organization_id
-    return await _build_rfq_response(db, rfq, viewer_org_id=org_id)
+    return await _build_rfq_response(db, rfq, viewer_org_id=org_id, viewer_user_id=current_user.id)
 
 
 # ---------------------------------------------------------------------------
@@ -397,71 +674,8 @@ async def submit_quote(
     ],
 ):
     """Submit a quote on an RFQ. Only suppliers can quote."""
-    if not current_user.organization_id:
-        raise HTTPException(status_code=403, detail="User must belong to an organization")
-
-    if current_user.role != UserRole.SUPPLIER:
-        raise HTTPException(status_code=403, detail="Only suppliers can submit quotes")
-
-    visibility_filters = _rfq_visibility_filters(current_user)
-    observed_rfq = await _load_rfq(db, rfq_id, visibility_filters=visibility_filters)
-    observed_identity = _rfq_lock_identity(observed_rfq)
-    await acquire_market_slice_lock(
-        db,
-        side="BID",
-        product_id=observed_rfq.product_id,
-        delivery_point_id=observed_rfq.delivery_point_id,
-        availability_window=str(observed_rfq.availability_window),
-    )
-    rfq = await _load_rfq(
-        db,
-        rfq_id,
-        with_quotes=True,
-        for_update=True,
-        visibility_filters=visibility_filters,
-    )
-    if _rfq_lock_identity(rfq) != observed_identity:
-        await db.rollback()
-        raise HTTPException(
-            status_code=409,
-            detail="RFQ market slice changed; retry the request",
-        )
-    # Quote rows are market rows too. Lock the current set before user/org
-    # revalidation so cancel/quote paths share one global order.
-    await db.execute(
-        select(RFQQuote)
-        .where(RFQQuote.rfq_id == rfq.id)
-        .order_by(RFQQuote.id)
-        .with_for_update()
-    )
-    organizations = await lock_and_load_market_organizations(
-        db,
-        [rfq.buyer_org_id, current_user.organization_id],
-        actor_ownerships=(
-            MarketActorOwnership(current_user.id, current_user.organization_id),
-        ),
-        actor_policy=MarketPartyPolicy.INDICATIVE,
-    )
-    assert_market_pair_provenance(
-        organizations[rfq.buyer_org_id],
-        organizations[current_user.organization_id],
-    )
-    await require_canonical_market_slice(
-        db,
-        product_id=rfq.product_id,
-        delivery_point_id=rfq.delivery_point_id,
-    )
-
-    # Validate RFQ is quotable
-    if rfq.status not in (RFQStatus.OPEN, RFQStatus.QUOTED):
-        raise HTTPException(status_code=400, detail="RFQ is not open for quoting")
-
-    if rfq.expires_at <= datetime.now(UTC):
-        raise HTTPException(status_code=400, detail="RFQ has expired")
-
-    # Cannot quote own RFQ
-    if rfq.buyer_org_id == current_user.organization_id:
-        raise HTTPException(status_code=400, detail="Cannot quote your own RFQ")
+    rfq = await _lock_rfq_for_quote_change(db, rfq_id, current_user)
+    expires_at = _validate_quote_payload(rfq, payload)
 
     # One quote per supplier per RFQ
     existing = [q for q in rfq.quotes if q.seller_org_id == current_user.organization_id]
@@ -475,6 +689,9 @@ async def submit_quote(
         seller_user_id=current_user.id,
         price_per_mt_usd=payload.price_per_mt_usd,
         notes=payload.notes,
+        expires_at=expires_at,
+        offer_terms=payload.offer_terms.model_dump(mode="json") if payload.offer_terms else None,
+        revision=1,
     )
     db.add(quote)
 
@@ -503,6 +720,7 @@ async def submit_quote(
             "rfq_id": str(rfq.id),
             "seller_org_id": str(quote.seller_org_id),
             "price_per_mt_usd": str(quote.price_per_mt_usd),
+            "quote": _quote_snapshot(quote),
             "quote_status": quote.status.value,
             "rfq_status": {"from": previous_status.value, "to": rfq.status.value},
         },
@@ -527,22 +745,105 @@ async def submit_quote(
     )
     await db.commit()
 
-    # Fetch seller org name for response
-    seller_org_name = None
-    res = await db.execute(select(Organization.name).where(Organization.id == current_user.organization_id))
-    sn = res.scalar_one_or_none()
-    if sn:
-        seller_org_name = sn
+    return await _quote_response(db, rfq, quote)
 
-    return RFQQuoteResponse(
-        id=quote.id,
-        seller_org_id=quote.seller_org_id,
-        seller_org_name=seller_org_name,
-        price_per_mt_usd=quote.price_per_mt_usd,
-        notes=quote.notes,
-        status=quote.status.value,
-        created_at=quote.created_at,
+
+@router.put("/{rfq_id}/quotes/{quote_id}", response_model=RFQQuoteResponse)
+@limiter.limit("30/minute")
+@retry_market_transaction()
+async def revise_quote(
+    request: Request,
+    rfq_id: uuid.UUID,
+    quote_id: uuid.UUID,
+    payload: RFQQuoteRevisionRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+    _security_admission: Annotated[None, Depends(require_security_market_admission)],
+):
+    """Replace a supplier's quote, retaining the previous version in audit."""
+    rfq = await _lock_rfq_for_quote_change(db, rfq_id, current_user)
+    quote = _owned_quote(rfq, quote_id, current_user)
+    if payload.expected_revision != quote.revision:
+        raise HTTPException(status_code=409, detail="Quote was revised; reload it before making changes")
+    if quote.status not in (QuoteStatus.PENDING, QuoteStatus.WITHDRAWN):
+        raise HTTPException(status_code=409, detail="Quote cannot be revised in its current state")
+    expires_at = _validate_quote_payload(rfq, payload)
+    previous = _quote_snapshot(quote)
+    quote.price_per_mt_usd = payload.price_per_mt_usd
+    quote.notes = payload.notes
+    quote.offer_terms = payload.offer_terms.model_dump(mode="json") if payload.offer_terms else None
+    quote.expires_at = expires_at
+    quote.revision += 1
+    quote.status = QuoteStatus.PENDING
+    await record_audit(
+        db,
+        user_id=current_user.id,
+        action=RFQ_QUOTE_REVISED,
+        resource_type="rfq_quote",
+        resource_id=quote.id,
+        changes={"rfq_id": str(rfq.id), "from": previous, "to": _quote_snapshot(quote)},
+        **request_audit_context(request),
     )
+    await _notify_org_users(
+        db, rfq.buyer_org_id, NotificationType.ORDER_UPDATE,
+        "Quote Revised", "A supplier revised a quote on your RFQ.",
+        {"rfq_id": str(rfq.id), "quote_id": str(quote.id)},
+    )
+    await enqueue_market_events(db, [participant_market_event(
+        event_type="rfq_quote_revised",
+        aggregate_type="rfq_quote",
+        aggregate_id=quote.id,
+        participant_org_ids=(rfq.buyer_org_id, quote.seller_org_id),
+        payload={"rfq_id": str(rfq.id), "quote_id": str(quote.id), "revision": quote.revision},
+    )])
+    await db.commit()
+    return await _quote_response(db, rfq, quote)
+
+
+@router.post("/{rfq_id}/quotes/{quote_id}/withdraw", response_model=RFQQuoteResponse)
+@limiter.limit("30/minute")
+@retry_market_transaction()
+async def withdraw_quote(
+    request: Request,
+    rfq_id: uuid.UUID,
+    quote_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_authenticated_user)],
+):
+    """Allow an organization to retract its quote after admission or expiry changes."""
+    rfq = await _lock_rfq_for_quote_change(db, rfq_id, current_user, require_quotable=False)
+    quote = _owned_quote(rfq, quote_id, current_user)
+    if quote.status == QuoteStatus.WITHDRAWN:
+        return await _quote_response(db, rfq, quote)
+    if quote.status != QuoteStatus.PENDING:
+        raise HTTPException(status_code=409, detail="Quote cannot be withdrawn in its current state")
+    previous = _quote_snapshot(quote)
+    # A form opened before withdrawal must reload before it can reopen the quote.
+    quote.revision += 1
+    quote.status = QuoteStatus.WITHDRAWN
+    await record_audit(
+        db,
+        user_id=current_user.id,
+        action=RFQ_QUOTE_WITHDRAWN,
+        resource_type="rfq_quote",
+        resource_id=quote.id,
+        changes={"rfq_id": str(rfq.id), "from": previous, "to": _quote_snapshot(quote)},
+        **request_audit_context(request),
+    )
+    await _notify_org_users(
+        db, rfq.buyer_org_id, NotificationType.ORDER_UPDATE,
+        "Quote Withdrawn", "A supplier withdrew a quote on your RFQ.",
+        {"rfq_id": str(rfq.id), "quote_id": str(quote.id)},
+    )
+    await enqueue_market_events(db, [participant_market_event(
+        event_type="rfq_quote_withdrawn",
+        aggregate_type="rfq_quote",
+        aggregate_id=quote.id,
+        participant_org_ids=(rfq.buyer_org_id, quote.seller_org_id),
+        payload={"rfq_id": str(rfq.id), "quote_id": str(quote.id), "status": quote.status.value},
+    )])
+    await db.commit()
+    return await _quote_response(db, rfq, quote)
 
 
 # ---------------------------------------------------------------------------
@@ -583,7 +884,13 @@ async def cancel_rfq(
     current_user: Annotated[User, Depends(get_authenticated_user)],
 ):
     """Cancel an owned RFQ even after its owner's execution eligibility changes."""
-    observed_rfq = await _load_rfq(db, rfq_id)
+    observed_rfq = await _load_rfq(db, rfq_id, visibility_filters=(
+        or_(
+            RFQ.target_supplier_org_id.is_(None),
+            RFQ.buyer_org_id == current_user.organization_id,
+            RFQ.target_supplier_org_id == current_user.organization_id,
+        ),
+    ))
     observed_identity = _rfq_lock_identity(observed_rfq)
     await acquire_market_slice_lock(
         db,
@@ -592,6 +899,8 @@ async def cancel_rfq(
         delivery_point_id=observed_rfq.delivery_point_id,
         availability_window=str(observed_rfq.availability_window),
     )
+    if getattr(observed_rfq, "source_offer_id", None):
+        await _lock_source_offer(db, observed_rfq.source_offer_id)
     rfq = await _load_rfq(db, rfq_id, with_quotes=True, for_update=True)
     if _rfq_lock_identity(rfq) != observed_identity:
         await db.rollback()
@@ -611,15 +920,13 @@ async def cancel_rfq(
         actor_ownerships=(
             MarketActorOwnership(current_user.id, current_user.organization_id),
         ),
-        actor_policy=MarketPartyPolicy.INDICATIVE,
+        require_approved=False,
+        require_execution_eligible=False,
     )
 
     # Must own the RFQ
-    owns_rfq = (
-        rfq.buyer_user_id == current_user.id
-        if rfq.buyer_user_id is not None
-        else current_user.organization_id is not None
-        and rfq.buyer_org_id == current_user.organization_id
+    owns_rfq = current_user.organization_id == rfq.buyer_org_id and (
+        rfq.buyer_user_id is None or rfq.buyer_user_id == current_user.id
     )
     if not owns_rfq:
         raise HTTPException(status_code=403, detail="Only the RFQ owner can cancel")
@@ -668,8 +975,10 @@ async def cancel_rfq(
                 aggregate_type="rfq",
                 aggregate_id=rfq.id,
                 participant_org_ids={
-                    rfq.buyer_org_id,
-                    *(quote.seller_org_id for quote in rfq.quotes),
+                    org_id for org_id in (
+                        rfq.buyer_org_id, rfq.target_supplier_org_id,
+                        *(quote.seller_org_id for quote in rfq.quotes),
+                    ) if org_id is not None
                 },
                 payload={"rfq_id": str(rfq.id), "status": rfq.status.value},
             )

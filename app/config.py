@@ -1,16 +1,15 @@
-from decimal import Decimal
 import os
 import re
-from pydantic_settings import BaseSettings
-from pydantic import Field, SecretStr, model_validator, field_validator
-from typing import Optional
+from decimal import Decimal
 from urllib.parse import urlparse
-from sqlalchemy.engine import make_url
 
+from pydantic import Field, SecretStr, field_validator, model_validator
+from pydantic_settings import BaseSettings
+from sqlalchemy.engine import make_url
 
 _DEPLOYED_DATABASE_IDENTITIES = {
     "production": {
-        "database": "verdaxis",
+        "database": "verdaxis_prod",
         "app_role": "verdaxis_app",
         "migrator_role": "verdaxis_migrator",
     },
@@ -80,7 +79,7 @@ class Settings(BaseSettings):
     DATABASE_NAME: str = "verdaxis_dev"
     DATABASE_USER: str = "verdaxis_app"
     DATABASE_PASSWORD: str = ""
-    DATABASE_URL: Optional[str] = None
+    DATABASE_URL: str | None = None
 
     # SQLAlchemy pool settings are per application worker.  The aggregate
     # validator below budgets production, staging, and a maintenance reserve
@@ -97,7 +96,7 @@ class Settings(BaseSettings):
     DB_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS: int = Field(
         default=60_000, gt=0, le=3_600_000
     )
-    MIGRATOR_DATABASE_URL: Optional[str] = None
+    MIGRATOR_DATABASE_URL: str | None = None
     MIGRATOR_STATEMENT_TIMEOUT_MS: int = Field(default=300_000, gt=0, le=7_200_000)
     MIGRATOR_LOCK_TIMEOUT_MS: int = Field(default=30_000, gt=0, le=600_000)
     MIGRATOR_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS: int = Field(
@@ -284,26 +283,28 @@ class Settings(BaseSettings):
 
     # Security
     ENABLE_AUTH_BYPASS: bool = False
+    # File path only; deployed keys come exclusively from systemd credentials.
+    KYC_DOCUMENT_KEYS_PATH: str | None = None
 
     # Admin UI credentials
     ENABLE_SQLADMIN: bool = False
-    ADMIN_USERNAME: Optional[str] = None
-    ADMIN_PASSWORD: Optional[str] = None
-    ADMIN_SESSION_SECRET: Optional[str] = None
+    ADMIN_USERNAME: str | None = None
+    ADMIN_PASSWORD: str | None = None
+    ADMIN_SESSION_SECRET: str | None = None
 
     # JWT
-    JWT_SECRET: Optional[str] = None
-    JWT_SECRET_PREVIOUS: Optional[str] = None
+    JWT_SECRET: str | None = None
+    JWT_SECRET_PREVIOUS: str | None = None
     JWT_ALGORITHM: str = "HS256"
-    JWT_ISSUER: Optional[str] = None
-    JWT_AUDIENCE: Optional[str] = None
+    JWT_ISSUER: str | None = None
+    JWT_AUDIENCE: str | None = None
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15  # Short-lived access tokens
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7     # Long-lived refresh tokens
     API_AUDIENCE: str = "verdaxis-client-id"
 
     @field_validator('JWT_SECRET')
     @classmethod
-    def validate_jwt_secret(cls, v: Optional[str]) -> Optional[str]:
+    def validate_jwt_secret(cls, v: str | None) -> str | None:
         if v is not None and len(v) < 32:
             env = os.environ.get('ENVIRONMENT', 'production').lower()
             if env not in {'test', 'development'}:
@@ -406,14 +407,14 @@ class Settings(BaseSettings):
 
     # Compliance pricing overlay: EUR/USD conversion override (defaults to
     # the ASSUMED rate in app/services/compliance_pricing.py when unset)
-    COMPLIANCE_EUR_USD_RATE: Optional[Decimal] = None
+    COMPLIANCE_EUR_USD_RATE: Decimal | None = None
 
     # Gemini AI
-    GEMINI_API_KEY: Optional[str] = None
+    GEMINI_API_KEY: str | None = None
 
     # Licensed open-web news discovery. The token is consumed only by the
     # singleton news-refresh process and must never be exposed to clients.
-    WEBZ_API_TOKEN: Optional[SecretStr] = None
+    WEBZ_API_TOKEN: SecretStr | None = None
     WEBZ_API_URL: str = "https://api.webz.io/filterWebContent"
     WEBZ_API_TIMEOUT_SECONDS: float = Field(default=15.0, gt=0, le=30.0)
 
@@ -438,24 +439,24 @@ class Settings(BaseSettings):
         return normalized
 
     # Email (Resend)
-    RESEND_API_KEY: Optional[str] = None
+    RESEND_API_KEY: str | None = None
     EMAIL_FROM: str = "Verdaxis <noreply@verdaxis.exchange>"
     FRONTEND_URL: str = "https://app.verdaxis.exchange"
 
     # Internal monitoring
-    MONITOR_TOKEN: Optional[str] = None
+    MONITOR_TOKEN: str | None = None
 
     # Optional behavioral analytics (Umami, server-side credentials only)
     ANALYTICS_ENABLED: bool = False
-    UMAMI_BASE_URL: Optional[str] = None
-    UMAMI_WEBSITE_ID: Optional[str] = None
-    UMAMI_API_USERNAME: Optional[str] = None
-    UMAMI_API_PASSWORD: Optional[SecretStr] = None
+    UMAMI_BASE_URL: str | None = None
+    UMAMI_WEBSITE_ID: str | None = None
+    UMAMI_API_USERNAME: str | None = None
+    UMAMI_API_PASSWORD: SecretStr | None = None
     ANALYTICS_REQUEST_TIMEOUT_SECONDS: float = Field(default=2.0, gt=0, le=10.0)
 
     @field_validator("UMAMI_BASE_URL")
     @classmethod
-    def validate_umami_base_url(cls, value: Optional[str]) -> Optional[str]:
+    def validate_umami_base_url(cls, value: str | None) -> str | None:
         if value is None or not value.strip():
             return None
         normalized = value.strip().rstrip("/")
@@ -468,7 +469,7 @@ class Settings(BaseSettings):
 
     @field_validator("UMAMI_WEBSITE_ID", "UMAMI_API_USERNAME")
     @classmethod
-    def normalize_optional_analytics_value(cls, value: Optional[str]) -> Optional[str]:
+    def normalize_optional_analytics_value(cls, value: str | None) -> str | None:
         if value is None or not value.strip():
             return None
         normalized = value.strip()
@@ -479,7 +480,7 @@ class Settings(BaseSettings):
     # CORS: closed per-environment allowlist. Explicit input may only restate
     # (a subset of) the environment's credentialed origins; anything else —
     # wildcards, credentials, paths, or cross-environment origins — refuses.
-    BACKEND_CORS_ORIGINS: Optional[list[str]] = None
+    BACKEND_CORS_ORIGINS: list[str] | None = None
 
     @model_validator(mode="after")
     def validate_cors_origins(self) -> "Settings":

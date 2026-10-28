@@ -47,7 +47,6 @@ from app.services.market_events import PUBLIC_MARKET_INVALIDATION_KEY
 REQUIRED_TABLES = [
     'organizations',
     'users',
-    'kyc_execution_grace',
     'products',
     'delivery_points',
     'orderbook_orders',
@@ -64,6 +63,8 @@ def async_engine():
 @pytest.fixture(scope='module')
 async def setup_tables(async_engine):
     tables = [Base.metadata.tables[name] for name in REQUIRED_TABLES]
+    from app.models.kyc_execution_grace import KYCExecutionGrace
+    tables.append(KYCExecutionGrace.__table__)
     async with async_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all, tables=tables)
     yield
@@ -317,9 +318,9 @@ class TestRejectedOwnerPublicVisibility:
     @pytest.mark.asyncio
     async def test_approved_market_support_admin_owner_is_public(self, db: AsyncSession):
         target_org = await _make_org(db, 'Customer Org')
+        await _make_user(db, target_org, role=UserRole.SUPPLIER)
         staff_org = await _make_org(db, 'Support Org')
         support_admin = await _make_user(db, staff_org, role=UserRole.ADMIN)
-        pending_member = await _make_user(db, target_org, kyc_status='PENDING')
         product, delivery_point = await _make_catalog(db)
         db.add(
             _make_order(
@@ -333,14 +334,9 @@ class TestRejectedOwnerPublicVisibility:
         )
         await db.commit()
 
-        # Assisted liquidity acts for the customer organization: without a
-        # KYC-eligible member it cannot execute, so it is not public.
-        assert (await _list_asks(db)).total == 0
+        asks = await _list_asks(db)
 
-        pending_member.kyc_status = 'APPROVED'
-        await db.commit()
-
-        assert (await _list_asks(db)).total == 1
+        assert asks.total == 1
 
     @pytest.mark.asyncio
     async def test_market_support_visibility_matches_execution_admission(self, db: AsyncSession):
@@ -452,9 +448,6 @@ class TestRejectedOwnerPublicVisibility:
         staff_org = await _make_org(db, 'Support Org')
         support_admin = await _make_user(db, staff_org, role=UserRole.ADMIN)
         supplier = await _make_user(db, target_org, role=UserRole.SUPPLIER)
-        # Keeps the customer organization KYC-eligible after the supplier's
-        # rejection below, so the assisted order stays in the benchmark.
-        await _make_user(db, target_org, role=UserRole.BUYER)
         product, delivery_point = await _make_catalog(db)
         db.add_all(
             [
@@ -501,7 +494,8 @@ class TestRejectedOwnerPublicVisibility:
             availability_window='SPOT',
         )
 
-        assert fresh_price == Decimal('900.00')
+        # Rejecting the last eligible customer member also removes assisted liquidity.
+        assert fresh_price is None
         assert not db.new
         assert not db.dirty
         stored = (await db.execute(select(LiveSliceBenchmark))).scalar_one()

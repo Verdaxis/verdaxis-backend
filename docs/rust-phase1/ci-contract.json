@@ -1,0 +1,39 @@
+{
+  "source_sha": "65ec9e41f9cba9c628100ea64a03f1f960b3b2d3",
+  "group": "all",
+  "rust_target": "all",
+  "mixed_caddy": false,
+  "require_complete_ledger": true,
+  "groups": {
+    "curves_canonical": "passed",
+    "curves_legacy": "passed",
+    "echo": "passed",
+    "health": "passed",
+    "live_benchmarks": "passed",
+    "mcp": "passed",
+    "orderbook_lists": "passed",
+    "orderbook_map": "passed",
+    "orderbook_snapshot": "passed",
+    "prices": "passed",
+    "simple_reads": "passed"
+  },
+  "passed_groups": [
+    "curves_canonical",
+    "curves_legacy",
+    "echo",
+    "health",
+    "live_benchmarks",
+    "mcp",
+    "orderbook_lists",
+    "orderbook_map",
+    "orderbook_snapshot",
+    "prices",
+    "simple_reads"
+  ],
+  "failed_groups": [],
+  "assertion_ledger": {
+    "rows": 336,
+    "pending": 336
+  },
+  "assertion_ledger_error": null
+}

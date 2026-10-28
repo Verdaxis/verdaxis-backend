@@ -1,0 +1,262 @@
+{
+  "source_sha": "4ed68a2fb324835216dd3a602af5ef8e4c6e0154",
+  "market_product_enum": [
+    "B30",
+    "B100",
+    "UCOME_B100",
+    "BIO_LNG",
+    "BIO_METHANOL",
+    "E_METHANOL",
+    "BIO_ETHANOL",
+    "SYNTHETIC_ETHANOL"
+  ],
+  "default_focus_product": "BIO_METHANOL",
+  "default_focus_point": "73835e92-820e-584b-8280-bb61c63aa28e",
+  "seed_quotes": [
+    {
+      "market_product": "B30",
+      "delivery_point_id": "78281fb3-e726-5396-802e-34b01fda21e8",
+      "base_price": "1105.00"
+    },
+    {
+      "market_product": "B30",
+      "delivery_point_id": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+      "base_price": "1105.00"
+    },
+    {
+      "market_product": "B30",
+      "delivery_point_id": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+      "base_price": "1105.00"
+    },
+    {
+      "market_product": "B30",
+      "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+      "base_price": "1105.00"
+    },
+    {
+      "market_product": "B30",
+      "delivery_point_id": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+      "base_price": "869.00"
+    },
+    {
+      "market_product": "B30",
+      "delivery_point_id": "a083db06-b050-56c2-a274-3897eac2fdae",
+      "base_price": "1105.00"
+    },
+    {
+      "market_product": "B30",
+      "delivery_point_id": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+      "base_price": "1105.00"
+    },
+    {
+      "market_product": "B30",
+      "delivery_point_id": "a4762444-4e0b-5bc1-b647-a185047adae5",
+      "base_price": "1105.00"
+    },
+    {
+      "market_product": "B100",
+      "delivery_point_id": "78281fb3-e726-5396-802e-34b01fda21e8",
+      "base_price": "1362.00"
+    },
+    {
+      "market_product": "B100",
+      "delivery_point_id": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+      "base_price": "1362.00"
+    },
+    {
+      "market_product": "B100",
+      "delivery_point_id": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+      "base_price": "1362.00"
+    },
+    {
+      "market_product": "B100",
+      "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+      "base_price": "1362.00"
+    },
+    {
+      "market_product": "B100",
+      "delivery_point_id": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+      "base_price": "1362.00"
+    },
+    {
+      "market_product": "B100",
+      "delivery_point_id": "a083db06-b050-56c2-a274-3897eac2fdae",
+      "base_price": "1362.00"
+    },
+    {
+      "market_product": "B100",
+      "delivery_point_id": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+      "base_price": "1362.00"
+    },
+    {
+      "market_product": "B100",
+      "delivery_point_id": "a4762444-4e0b-5bc1-b647-a185047adae5",
+      "base_price": "1362.00"
+    },
+    {
+      "market_product": "BIO_METHANOL",
+      "delivery_point_id": "78281fb3-e726-5396-802e-34b01fda21e8",
+      "base_price": "940.00"
+    },
+    {
+      "market_product": "BIO_METHANOL",
+      "delivery_point_id": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+      "base_price": "960.00"
+    },
+    {
+      "market_product": "BIO_METHANOL",
+      "delivery_point_id": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+      "base_price": "935.00"
+    },
+    {
+      "market_product": "BIO_METHANOL",
+      "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+      "base_price": "985.00"
+    },
+    {
+      "market_product": "BIO_METHANOL",
+      "delivery_point_id": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+      "base_price": "962.50"
+    },
+    {
+      "market_product": "BIO_METHANOL",
+      "delivery_point_id": "a083db06-b050-56c2-a274-3897eac2fdae",
+      "base_price": "922.50"
+    },
+    {
+      "market_product": "BIO_METHANOL",
+      "delivery_point_id": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+      "base_price": "962.50"
+    },
+    {
+      "market_product": "BIO_METHANOL",
+      "delivery_point_id": "a4762444-4e0b-5bc1-b647-a185047adae5",
+      "base_price": "882.50"
+    },
+    {
+      "market_product": "E_METHANOL",
+      "delivery_point_id": "78281fb3-e726-5396-802e-34b01fda21e8",
+      "base_price": "1125.00"
+    },
+    {
+      "market_product": "E_METHANOL",
+      "delivery_point_id": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+      "base_price": "1155.00"
+    },
+    {
+      "market_product": "E_METHANOL",
+      "delivery_point_id": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+      "base_price": "1095.00"
+    },
+    {
+      "market_product": "E_METHANOL",
+      "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+      "base_price": "1187.50"
+    },
+    {
+      "market_product": "E_METHANOL",
+      "delivery_point_id": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+      "base_price": "1300.00"
+    },
+    {
+      "market_product": "E_METHANOL",
+      "delivery_point_id": "a083db06-b050-56c2-a274-3897eac2fdae",
+      "base_price": "1137.50"
+    },
+    {
+      "market_product": "E_METHANOL",
+      "delivery_point_id": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+      "base_price": "1207.50"
+    },
+    {
+      "market_product": "E_METHANOL",
+      "delivery_point_id": "a4762444-4e0b-5bc1-b647-a185047adae5",
+      "base_price": "1087.50"
+    },
+    {
+      "market_product": "BIO_ETHANOL",
+      "delivery_point_id": "78281fb3-e726-5396-802e-34b01fda21e8",
+      "base_price": "847.50"
+    },
+    {
+      "market_product": "BIO_ETHANOL",
+      "delivery_point_id": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+      "base_price": "857.50"
+    },
+    {
+      "market_product": "BIO_ETHANOL",
+      "delivery_point_id": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+      "base_price": "842.50"
+    },
+    {
+      "market_product": "BIO_ETHANOL",
+      "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+      "base_price": "862.50"
+    },
+    {
+      "market_product": "BIO_ETHANOL",
+      "delivery_point_id": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+      "base_price": "827.50"
+    },
+    {
+      "market_product": "BIO_ETHANOL",
+      "delivery_point_id": "a083db06-b050-56c2-a274-3897eac2fdae",
+      "base_price": "717.50"
+    },
+    {
+      "market_product": "BIO_ETHANOL",
+      "delivery_point_id": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+      "base_price": "787.50"
+    },
+    {
+      "market_product": "BIO_ETHANOL",
+      "delivery_point_id": "a4762444-4e0b-5bc1-b647-a185047adae5",
+      "base_price": "767.50"
+    },
+    {
+      "market_product": "SYNTHETIC_ETHANOL",
+      "delivery_point_id": "78281fb3-e726-5396-802e-34b01fda21e8",
+      "base_price": "1227.50"
+    },
+    {
+      "market_product": "SYNTHETIC_ETHANOL",
+      "delivery_point_id": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+      "base_price": "1257.50"
+    },
+    {
+      "market_product": "SYNTHETIC_ETHANOL",
+      "delivery_point_id": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+      "base_price": "1207.50"
+    },
+    {
+      "market_product": "SYNTHETIC_ETHANOL",
+      "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+      "base_price": "1277.50"
+    },
+    {
+      "market_product": "SYNTHETIC_ETHANOL",
+      "delivery_point_id": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+      "base_price": "1340.00"
+    },
+    {
+      "market_product": "SYNTHETIC_ETHANOL",
+      "delivery_point_id": "a083db06-b050-56c2-a274-3897eac2fdae",
+      "base_price": "1157.50"
+    },
+    {
+      "market_product": "SYNTHETIC_ETHANOL",
+      "delivery_point_id": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+      "base_price": "1217.50"
+    },
+    {
+      "market_product": "SYNTHETIC_ETHANOL",
+      "delivery_point_id": "a4762444-4e0b-5bc1-b647-a185047adae5",
+      "base_price": "1177.50"
+    }
+  ],
+  "reference_profiles": {
+    "fame_v1": {
+      "disclaimer": "B100 prices may reflect different specifications and delivery terms. Review the order terms; the aggregate price is not an executable quote."
+    }
+  }
+}

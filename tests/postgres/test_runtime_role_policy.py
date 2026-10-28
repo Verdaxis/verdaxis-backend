@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import re
 import subprocess
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -13,7 +13,6 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import create_async_engine
-
 
 ROOT = Path(__file__).parents[2]
 ROLE_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
@@ -68,6 +67,44 @@ def _psql(
         text=True,
         check=False,
     )
+
+
+@pytest.mark.asyncio
+async def test_runtime_kyc_documents_are_append_only():
+    _policy_values()
+    engine = create_async_engine(os.environ["DATABASE_URL"], hide_parameters=True)
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(text("SELECT id FROM kyc_documents LIMIT 1"))
+            await connection.execute(text("INSERT INTO kyc_documents SELECT * FROM kyc_documents WHERE false"))
+        for statement in (
+            "UPDATE kyc_documents SET ciphertext = ciphertext WHERE false",
+            "DELETE FROM kyc_documents WHERE false",
+        ):
+            with pytest.raises(DBAPIError):
+                async with engine.begin() as connection:
+                    await connection.execute(text(statement))
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_runtime_cannot_write_kyc_execution_grace():
+    _policy_values()
+    engine = create_async_engine(os.environ["DATABASE_URL"], hide_parameters=True)
+    try:
+        async with engine.connect() as connection:
+            await connection.execute(text("SELECT id FROM kyc_execution_grace LIMIT 1"))
+        for statement in (
+            "INSERT INTO kyc_execution_grace SELECT * FROM kyc_execution_grace WHERE false",
+            "UPDATE kyc_execution_grace SET expires_at = expires_at WHERE false",
+            "DELETE FROM kyc_execution_grace WHERE false",
+        ):
+            with pytest.raises(DBAPIError):
+                async with engine.begin() as connection:
+                    await connection.execute(text(statement))
+    finally:
+        await engine.dispose()
 
 
 @pytest.mark.asyncio
@@ -561,30 +598,6 @@ async def test_app_and_backup_cannot_mutate_control_or_extension_objects():
 
 
 @pytest.mark.asyncio
-async def test_runtime_role_reads_but_never_writes_kyc_grace():
-    _policy_values()
-    engine = create_async_engine(os.environ["DATABASE_URL"], hide_parameters=True)
-    try:
-        async with engine.connect() as connection:
-            await connection.execute(text("SELECT count(*) FROM public.kyc_execution_grace"))
-        # Only the migration writes grace: no request or job can create,
-        # renew, or remove it with runtime authority.
-        for statement in (
-            "INSERT INTO public.kyc_execution_grace (id, user_id, organization_id, "
-            "kyc_status_at_enrollment, enrolled_at, expires_at, created_by) VALUES "
-            "(gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), 'PENDING', "
-            "now(), now() + interval '336 hours', 'runtime')",
-            "UPDATE public.kyc_execution_grace SET expires_at = expires_at + interval '1 day'",
-            "DELETE FROM public.kyc_execution_grace",
-        ):
-            with pytest.raises(DBAPIError, match="permission denied"):
-                async with engine.begin() as connection:
-                    await connection.execute(text(statement))
-    finally:
-        await engine.dispose()
-
-
-@pytest.mark.asyncio
 async def test_raw_app_cannot_promote_rewrite_controls_set_role_or_delegate():
     values = _policy_values()
     app = values["app_role"]
@@ -923,6 +936,51 @@ async def test_raw_app_cannot_promote_rewrite_controls_set_role_or_delegate():
                     "revoked_at",
                     "revoked_by_user_id",
                     "revocation_reason",
+                },
+            }.items()
+            for column in columns
+        }
+        expected_column_acls |= {
+            (table, column, app, "INSERT", False)
+            for table, columns in {
+                "rfqs": {
+                    "id", "buyer_org_id", "buyer_user_id", "product_id", "delivery_point_id",
+                    "quantity_mt", "target_price_per_mt", "availability_window", "notes",
+                    "contract_terms", "is_anonymous", "status", "accepted_quote_id", "trade_id",
+                    "expires_at", "created_at", "source_offer_id", "target_supplier_org_id", "source_offer_snapshot",
+                },
+                "supplier_offers": {
+                    "id", "supplier_org_id", "supplier_user_id", "product_id", "delivery_point_id",
+                    "quantity_mt", "min_fill_mt", "price_per_mt_usd", "availability_window", "listing_terms",
+                    "status", "revision", "expires_at", "created_at", "updated_at",
+                    "idempotency_key", "idempotency_request_hash",
+                },
+                "rfq_quotes": {
+                    "id", "rfq_id", "seller_org_id", "seller_user_id", "price_per_mt_usd",
+                    "notes", "offer_terms", "expires_at", "revision", "status", "created_at",
+                },
+                "password_reset_tokens": {
+                    "user_id", "token_hash", "expires_at", "created_at", "used_at",
+                },
+            }.items()
+            for column in columns
+        } | {
+            (table, column, app, "UPDATE", False)
+            for table, columns in {
+                "rfqs": {"status", "accepted_quote_id", "trade_id"},
+                "negotiations": {
+                    "id", "bid_order_id", "ask_order_id", "initiator_org_id", "counterparty_org_id",
+                    "initiator_user_id", "counterparty_user_id", "accepted_by_user_id", "initiator_side",
+                    "product_id", "delivery_point_id", "availability_window", "quantity_mt", "current_price",
+                    "status", "last_actor_org_id", "trade_id", "expires_at", "created_at", "updated_at",
+                },
+                "supplier_offers": {
+                    "quantity_mt", "min_fill_mt", "price_per_mt_usd", "availability_window", "listing_terms",
+                    "status", "revision", "expires_at", "updated_at",
+                },
+                "rfq_quotes": {"price_per_mt_usd", "notes", "status", "offer_terms", "expires_at", "revision"},
+                "password_reset_tokens": {
+                    "token_hash", "expires_at", "created_at", "used_at",
                 },
             }.items()
             for column in columns
