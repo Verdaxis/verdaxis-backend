@@ -50,8 +50,8 @@ subscriber regardless of which Uvicorn worker serves the connection:
 
 ### Heartbeat and system status (all SSE streams)
 
-`/api/stream/prices`, `/api/stream/orderbook` and `/api/stream/trades` carry a
-named `heartbeat` event instead of the former `: keepalive` comment, which
+`/api/stream/prices`, `/api/stream/orderbook`, `/api/stream/trades` and
+`/api/stream/activity` carry a named `heartbeat` event instead of the former `: keepalive` comment, which
 browsers' `EventSource` never exposes:
 
 ```
@@ -69,11 +69,12 @@ data: {"status": "operational", "message": null, "server_time": "2026-10-28T12:0
   migration is involved.
 - Heartbeats never carry an `id:` line, so they cannot move the client's
   `Last-Event-ID` cursor.
-- One heartbeat is sent when a stream opens, then one after every 30 seconds
-  without another frame. Any data frame restarts that 30 second window. On the
-  private stream the 15 second authorization revalidation wake-ups do not
-  produce heartbeats (the old keepalive was sent on each such wake-up).
-- Placement on the private stream: after replay completes and after the first
+- One heartbeat is sent when a stream opens, then one every 30 seconds on a
+  fixed cadence, whether the stream is idle or busy. Data frames do not
+  postpone it, because clients mark a connection stale when heartbeats stop.
+  On the private stream the 15 second authorization revalidation wake-ups do
+  not produce heartbeats (the old keepalive was sent on each such wake-up).
+- Placement on the private and activity streams: after replay completes and after the first
   expiry/authorization check passes. Replay frames therefore keep their exact
   order and ids, and `auth_expired`, `auth_revoked`, `error` and the overflow
   `reset` are never preceded by a status frame. A very large replay backlog

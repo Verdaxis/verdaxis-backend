@@ -206,6 +206,9 @@ async def test_activity_generator_unsubscribes_all_queues_on_cancellation():
             channels=("activity", f"activity:{uuid4()}"),
             principal=None,
         )
+        # The first frame is the immediate heartbeat; cancel while the
+        # generator is blocked waiting for the next message.
+        assert (await generator.__anext__()).startswith("event: heartbeat\n")
         task = asyncio.create_task(generator.__anext__())
         await asyncio.sleep(0)
         task.cancel()

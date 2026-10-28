@@ -17,6 +17,7 @@ from app.core.security import decode_token
 from app.config import settings
 from app.database import AsyncSessionLocal
 from app.models.user import Organization, User
+from app.routers import stream as market_stream
 from app.routers.auth_simple import validate_authenticated_user_state
 from app.services.event_bus import event_bus
 
@@ -116,7 +117,10 @@ async def _activity_sse_generator(
             subscriptions.append((channel, queue))
 
         next_revalidation = 0.0
-        keepalive_at = time.monotonic() + 30.0
+        # Fixed-cadence heartbeat (same frame as the market streams). The first
+        # one is due immediately but only after the authorization checks below
+        # pass, so auth_expired/auth_revoked are never preceded by it.
+        heartbeat_at = time.monotonic()
         while True:
             if await request.is_disconnected():
                 break
@@ -139,9 +143,14 @@ async def _activity_sse_generator(
                     break
                 next_revalidation = now_loop + 15.0
 
+            if time.monotonic() >= heartbeat_at:
+                yield market_stream._format_heartbeat_event()
+                heartbeat_at = time.monotonic() + market_stream._HEARTBEAT_INTERVAL_SECONDS
+                now_loop = time.monotonic()
+
             timeout = min(
                 0.5,
-                max(0.1, keepalive_at - now_loop),
+                max(0.1, heartbeat_at - now_loop),
                 max(0.1, next_revalidation - now_loop) if principal is not None else 30.0,
                 max(0.1, expires_at - now_epoch) if expires_at is not None else 30.0,
             )
@@ -156,9 +165,6 @@ async def _activity_sse_generator(
                 try:
                     message = await asyncio.wait_for(subscriptions[0][1].get(), timeout=timeout)
                 except asyncio.TimeoutError:
-                    if time.monotonic() >= keepalive_at:
-                        yield ": keepalive\n\n"
-                        keepalive_at = time.monotonic() + 30.0
                     continue
             yield f"event: {message['event']}\ndata: {json.dumps(message['data'], default=str)}\n\n"
     finally:

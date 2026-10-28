@@ -4,8 +4,8 @@ Contract (the frontend is built against exactly this):
     event: heartbeat
     data: {"status": "...", "message": <str|null>, "server_time": "<ISO-8601 UTC>"}
 
-with no ``id:`` line, sent right after a stream opens and in place of the old
-``: keepalive`` comment every 30 idle seconds.
+with no ``id:`` line, sent right after a stream opens and then on a fixed 30 s
+cadence (busy or idle) in place of the old ``: keepalive`` comment.
 """
 
 import asyncio
@@ -19,7 +19,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.config import Settings
-from app.routers import stream
+from app.routers import activity, stream
 from app.services.event_bus import EventBus, SubscriberQueue
 
 pytestmark = pytest.mark.asyncio
@@ -262,7 +262,7 @@ async def _collect(patches, generator):
     try:
         return [frame async for frame in generator]
     finally:
-        for item in patches:
+        for item in reversed(patches):
             item.stop()
 
 
@@ -319,52 +319,181 @@ async def test_private_revoked_authorization_is_not_preceded_by_a_heartbeat():
     assert frames[-1].startswith("event: auth_revoked\n")
 
 
-async def test_private_idle_heartbeat_replaces_keepalive_on_a_30_second_cadence():
-    """Wake-ups for the 15 s revalidation must not become 15 s heartbeats."""
-    clock = {"now": 1000.0}
+def _fake_time(module, clock):
+    """Replace only ``module.time`` so the event loop keeps the real clock."""
+    return patch.object(
+        module,
+        "time",
+        SimpleNamespace(monotonic=lambda: clock["now"], time=lambda: 0.0),
+    )
+
+
+def _timed_wait_for(clock, *, step, message_factory=None):
+    """Fake ``asyncio.wait_for``: advance ``step`` simulated seconds per wait.
+
+    Returns a queue message each time, or times out when no factory is given.
+    """
+    calls = {"count": 0}
 
     async def fake_wait_for(awaitable, timeout):
         awaitable.close()
-        clock["now"] += timeout
-        raise asyncio.TimeoutError
+        calls["count"] += 1
+        clock["now"] += step
+        if message_factory is None:
+            raise asyncio.TimeoutError
+        return message_factory(calls["count"])
 
+    return fake_wait_for
+
+
+async def _collect_timed(patches, generator, clock):
+    """Like ``_collect`` but returns (simulated seconds since start, frame)."""
+    start = clock["now"]
+    for item in patches:
+        item.start()
+    try:
+        return [(clock["now"] - start, frame) async for frame in generator]
+    finally:
+        for item in reversed(patches):
+            item.stop()
+
+
+def _assert_fixed_cadence(timed_frames, *, duration):
+    times = [t for t, frame in timed_frames if _is_heartbeat(frame)]
+    assert times[0] == 0
+    gaps = [later - earlier for earlier, later in zip(times, times[1:])]
+    assert gaps and max(gaps) <= 35, gaps
+    assert len(times) >= int(duration // 30)
+
+
+async def test_private_idle_heartbeat_replaces_keepalive_on_a_30_second_cadence():
+    """Wake-ups for the 15 s revalidation must not become 15 s heartbeats."""
+    clock = {"now": 1000.0}
     queue = SubscriberQueue()
     # time.time stays 0, so revalidation wakes recur every 15 simulated seconds.
     patches, generator = _private_stream(_Request(allowed_reads=6), queue)
     patches += [
-        patch.object(stream.time, "monotonic", side_effect=lambda: clock["now"]),
-        patch.object(stream.asyncio, "wait_for", fake_wait_for),
+        _fake_time(stream, clock),
+        patch.object(stream.asyncio, "wait_for", _timed_wait_for(clock, step=15.0)),
     ]
-    frames = await _collect(patches, generator)
+    timed = await _collect_timed(patches, generator, clock)
 
+    frames = [frame for _t, frame in timed]
     assert not any("keepalive" in f for f in frames)
     # Loop iterations at t=0,15,30,45,60,75: heartbeats at 0, 30, 60 only.
-    assert sum(_is_heartbeat(f) for f in frames) == 3
-    assert clock["now"] - 1000.0 == pytest.approx(90.0)
+    assert [t for t, f in timed if _is_heartbeat(f)] == [0, 30, 60]
 
 
-async def test_private_live_event_resets_the_idle_heartbeat_deadline():
+async def test_private_busy_stream_keeps_the_fixed_heartbeat_cadence():
+    """A data frame every 5 s for 70 s must not postpone heartbeats."""
     clock = {"now": 1000.0}
     queue = SubscriberQueue()
-    waits = {"count": 0}
-
-    async def fake_wait_for(awaitable, timeout):
-        awaitable.close()
-        waits["count"] += 1
-        clock["now"] += 25.0
-        if waits["count"] == 1:
-            return {"event": "proof_marker", "data": {}, "seq": 1}
-        raise asyncio.TimeoutError
-
-    patches, generator = _private_stream(_Request(allowed_reads=3), queue)
+    patches, generator = _private_stream(_Request(allowed_reads=14), queue)
     patches += [
-        patch.object(stream.time, "monotonic", side_effect=lambda: clock["now"]),
-        patch.object(stream.asyncio, "wait_for", fake_wait_for),
+        _fake_time(stream, clock),
+        patch.object(
+            stream.asyncio,
+            "wait_for",
+            _timed_wait_for(
+                clock,
+                step=5.0,
+                message_factory=lambda n: {"event": "proof_marker", "data": {}, "seq": n},
+            ),
+        ),
     ]
-    frames = await _collect(patches, generator)
+    timed = await _collect_timed(patches, generator, clock)
 
-    # t=1000 heartbeat (next due 1030); t=1025 live row restarts the window
-    # (next due 1055); the t=1050 wake-up finds no heartbeat due. Without the
-    # reset a heartbeat would be sent at t=1050.
-    assert [_is_heartbeat(f) for f in frames[1:]] == [True, False]
-    assert _ids(frames) == [1]
+    frames = [frame for _t, frame in timed]
+    assert _ids(frames) == list(range(1, 15))  # every data frame delivered
+    _assert_fixed_cadence(timed, duration=70)
+
+
+async def test_public_idle_heartbeat_cadence_is_30_seconds():
+    clock = {"now": 1000.0}
+    patches = [
+        patch.object(stream, "event_bus", EventBus()),
+        _fake_time(stream, clock),
+        patch.object(stream.asyncio, "wait_for", _timed_wait_for(clock, step=30.0)),
+    ]
+    generator = stream._sse_generator(_Request(allowed_reads=3), "prices")
+    timed = await _collect_timed(patches, generator, clock)
+
+    assert [t for t, f in timed if _is_heartbeat(f)] == [0, 30, 60, 90]
+    assert not any("keepalive" in f for _t, f in timed)
+
+
+async def test_public_busy_stream_keeps_the_fixed_heartbeat_cadence():
+    """A data frame every 5 s for 70 s must not postpone heartbeats."""
+    clock = {"now": 1000.0}
+    patches = [
+        patch.object(stream, "event_bus", EventBus()),
+        _fake_time(stream, clock),
+        patch.object(
+            stream.asyncio,
+            "wait_for",
+            _timed_wait_for(
+                clock,
+                step=5.0,
+                message_factory=lambda n: {"event": "price_update", "data": {"n": n}, "seq": n},
+            ),
+        ),
+    ]
+    generator = stream._sse_generator(_Request(allowed_reads=14), "prices")
+    timed = await _collect_timed(patches, generator, clock)
+
+    frames = [frame for _t, frame in timed]
+    assert _ids(frames) == list(range(1, 15))
+    _assert_fixed_cadence(timed, duration=70)
+
+
+# --- activity stream ---------------------------------------------------------
+
+
+def _activity_generator(request, principal=None):
+    return activity._activity_sse_generator(request, ("activity",), principal)
+
+
+async def test_activity_stream_sends_initial_heartbeat_first():
+    generator = _activity_generator(_Request(allowed_reads=1))
+    with patch.object(activity, "event_bus", EventBus()):
+        first = await generator.__anext__()
+        await generator.aclose()
+
+    _parse_heartbeat(first)
+
+
+async def test_activity_expired_token_is_not_preceded_by_a_heartbeat():
+    principal = activity.ActivityStreamPrincipal(uuid4(), uuid4(), {"exp": -1})
+    clock = {"now": 1000.0}
+    patches = [patch.object(activity, "event_bus", EventBus()), _fake_time(activity, clock)]
+    timed = await _collect_timed(
+        patches, _activity_generator(_Request(allowed_reads=5), principal), clock
+    )
+
+    frames = [frame for _t, frame in timed]
+    assert len(frames) == 1 and frames[0].startswith("event: auth_expired\n")
+
+
+async def test_activity_busy_stream_keeps_the_fixed_heartbeat_cadence():
+    clock = {"now": 1000.0}
+    patches = [
+        patch.object(activity, "event_bus", EventBus()),
+        _fake_time(activity, clock),
+        patch.object(
+            activity.asyncio,
+            "wait_for",
+            _timed_wait_for(
+                clock,
+                step=5.0,
+                message_factory=lambda n: {"event": "activity", "data": {"n": n}},
+            ),
+        ),
+    ]
+    timed = await _collect_timed(
+        patches, _activity_generator(_Request(allowed_reads=14)), clock
+    )
+
+    frames = [frame for _t, frame in timed]
+    assert sum(f.startswith("event: activity\n") for f in frames) == 14
+    assert not any("keepalive" in f for f in frames)
+    _assert_fixed_cadence(timed, duration=70)
