@@ -4,8 +4,8 @@
 Called by the canonical deploy transaction after the verified artifact is
 staged. It reads the deployed `.env` with no-follow regular-file semantics,
 projects ONLY the app database settings, the KYC execution switch, the runtime
-identity and (Task 23) the Phase 2 verification/invite settings the Rust HTTP
-process needs, and writes `.runtime-rust/runtime.env` at mode 0600.
+identity, the optional stream status heartbeat settings and (Task 23) the Phase 2
+verification/invite settings the Rust HTTP process needs, and writes `.runtime-rust/runtime.env` at mode 0600.
 
 The migrator URL and every unrelated provider key stay out: its read pool is
 the shared app role, and the migrator-backed checks stay in the short-lived
@@ -44,6 +44,13 @@ PHASE2_REQUIRED_KEYS = (
     "RESEND_API_KEY",
 )
 PHASE2_PREVIOUS_KEY = "JWT_SECRET_PREVIOUS"
+# The status every stream heartbeat reports. Both keys are optional: an absent
+# or blank key is not projected, and the Rust runtime then reports
+# "operational" with no message.
+SYSTEM_STATUS_KEY = "SYSTEM_STATUS"
+SYSTEM_STATUS_MESSAGE_KEY = "SYSTEM_STATUS_MESSAGE"
+SYSTEM_STATUSES = frozenset({"operational", "degraded", "maintenance"})
+MAX_SYSTEM_STATUS_MESSAGE_CHARS = 280
 # Pydantic accepts these spellings for a boolean setting; the deployed file
 # decides the value, exactly as the Python service reads it. A missing key is
 # Python's default (enabled), never Rust's own choice.
@@ -222,6 +229,41 @@ def phase3_settings(values: dict) -> dict:
     return projected
 
 
+def system_status_settings(values: dict) -> dict:
+    """Return the validated stream heartbeat status and message, if set.
+
+    The Rust service refuses an unknown status or a long message at startup, so
+    the same check runs here, before a restart. The status is projected trimmed
+    and lowercase; the message is projected trimmed. A blank value is the same
+    as an absent one.
+    """
+    projected = {}
+    status = values.get(SYSTEM_STATUS_KEY)
+    if status is not None:
+        if not isinstance(status, str):
+            raise RustRuntimeError(f"{SYSTEM_STATUS_KEY} must be text")
+        normalized = status.strip().lower()
+        if normalized:
+            if normalized not in SYSTEM_STATUSES:
+                raise RustRuntimeError(
+                    f"{SYSTEM_STATUS_KEY} must be operational, degraded or maintenance"
+                )
+            projected[SYSTEM_STATUS_KEY] = normalized
+    message = values.get(SYSTEM_STATUS_MESSAGE_KEY)
+    if message is not None:
+        if not isinstance(message, str):
+            raise RustRuntimeError(f"{SYSTEM_STATUS_MESSAGE_KEY} must be text")
+        message = message.strip()
+        if len(message) > MAX_SYSTEM_STATUS_MESSAGE_CHARS:
+            raise RustRuntimeError(
+                f"{SYSTEM_STATUS_MESSAGE_KEY} must be at most "
+                f"{MAX_SYSTEM_STATUS_MESSAGE_CHARS} characters"
+            )
+        if message:
+            projected[SYSTEM_STATUS_MESSAGE_KEY] = message
+    return projected
+
+
 def project_runtime_environment(
     environment_file: Path, release_sha: str, migration_revision: str, policy: dict
 ) -> dict:
@@ -281,7 +323,7 @@ def project_runtime_environment(
         if isinstance(value, str) and value.strip():
             projected[key] = value
     projected["UMAMI_ENABLED"] = "true" if all(projected.get(key) for key in UMAMI_KEYS) else "false"
-
+    projected.update(system_status_settings(values))
     # Refuse control characters; quotes and backslashes are escaped by the
     # EnvironmentFile renderer without changing the deployed value.
     for key, value in projected.items():

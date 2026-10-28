@@ -10,7 +10,8 @@ use verdaxis_read::auth::VerificationSettings;
 use verdaxis_read::streams::{
     auth::{StreamError, StreamPrincipal, verify_stream},
     bus::{StoredEvent as LiveEvent, StreamHub, Terminal},
-    replay::{Replay, ReplayClock, ReplaySource},
+    heartbeat::HeartbeatStatus,
+    replay::{Replay, ReplayClock, ReplayFrame, ReplaySource},
     store::{PageLimits, ReplayBoundary, ReplayPage, StoreError, StoredEvent},
 };
 
@@ -143,19 +144,23 @@ async fn open(
     .await
     .unwrap()
 }
+/// The next business frame's sequence. Heartbeats are not business frames and
+/// are skipped; the heartbeat tests below check them explicitly.
 async fn id<S: ReplaySource, C: ReplayClock>(replay: &mut Replay<S, C>) -> i64 {
-    replay
-        .next()
-        .await
-        .unwrap()
-        .sequence()
-        .expect("business frame")
+    loop {
+        let frame = replay.next().await.unwrap();
+        if !matches!(frame, ReplayFrame::Heartbeat) {
+            return frame.sequence().expect("business frame");
+        }
+    }
 }
 async fn terminal<S: ReplaySource, C: ReplayClock>(replay: &mut Replay<S, C>, expected: Terminal) {
     let frame = replay.next().await.unwrap();
     assert_eq!(frame.terminal(), Some(expected));
     let response = axum::response::IntoResponse::into_response(axum::response::sse::Sse::new(
-        futures_util::stream::iter([Ok::<_, std::convert::Infallible>(frame.into_event())]),
+        futures_util::stream::iter([Ok::<_, std::convert::Infallible>(
+            frame.into_event(&HeartbeatStatus::default()),
+        )]),
     ));
     let body = axum::body::to_bytes(response.into_body(), 4096)
         .await
@@ -370,6 +375,7 @@ async fn overflow_during_live_discards_queue() {
 async fn client_cancel_releases_subscription() {
     let hub = StreamHub::default();
     let mut r = open(Source::new(0, 0, vec![]), &hub, None, Clock::new()).await;
+    assert!(matches!(r.next().await, Some(ReplayFrame::Heartbeat)));
     assert!(
         tokio::time::timeout(std::time::Duration::from_millis(5), r.next())
             .await
@@ -378,6 +384,122 @@ async fn client_cancel_releases_subscription() {
     assert_eq!(hub.subscriber_count(), 1);
     drop(r);
     assert_eq!(hub.subscriber_count(), 0);
+}
+
+// Heartbeats. These cases run on paused time: a sleep completes the moment
+// every task is idle, so a 30-second interval costs no wall time.
+
+const INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
+
+fn is_heartbeat(frame: &Option<ReplayFrame>) -> bool {
+    matches!(frame, Some(ReplayFrame::Heartbeat))
+}
+
+#[tokio::test(start_paused = true)]
+async fn first_heartbeat_follows_the_replay() {
+    let hub = StreamHub::default();
+    let mut r = open(
+        Source::new(0, 2, vec![page(0, 2, [1, 2], false)]),
+        &hub,
+        Some(0),
+        Clock::new(),
+    )
+    .await;
+    assert_eq!(r.next().await.unwrap().sequence(), Some(1));
+    assert_eq!(r.next().await.unwrap().sequence(), Some(2));
+    assert!(is_heartbeat(&r.next().await));
+}
+
+#[tokio::test(start_paused = true)]
+async fn first_heartbeat_waits_for_every_replay_page() {
+    let hub = StreamHub::default();
+    let mut r = open(
+        Source::new(
+            0,
+            4,
+            vec![page(0, 4, [1, 2], true), page(0, 4, [3, 4], false)],
+        ),
+        &hub,
+        Some(0),
+        Clock::new(),
+    )
+    .await;
+    for expected in 1..=4 {
+        assert_eq!(r.next().await.unwrap().sequence(), Some(expected));
+    }
+    assert!(is_heartbeat(&r.next().await));
+}
+
+#[tokio::test(start_paused = true)]
+async fn first_heartbeat_opens_a_stream_without_a_cursor() {
+    let hub = StreamHub::default();
+    let mut r = open(Source::new(0, 5, vec![]), &hub, None, Clock::new()).await;
+    assert!(is_heartbeat(&r.next().await));
+    publish(&hub, 6);
+    assert_eq!(r.next().await.unwrap().sequence(), Some(6));
+}
+
+#[tokio::test(start_paused = true)]
+async fn terminal_controls_come_before_any_heartbeat() {
+    let hub = StreamHub::default();
+    // A cursor below the retained floor, a cursor ahead of the table and a
+    // token that has already expired each open with their control frame.
+    let mut stale = open(Source::new(10, 20, vec![]), &hub, Some(9), Clock::new()).await;
+    terminal(&mut stale, Terminal::Retention).await;
+    let mut ahead = open(Source::new(0, 20, vec![]), &hub, Some(21), Clock::new()).await;
+    terminal(&mut ahead, Terminal::CursorAhead).await;
+    let clock = Clock::new();
+    clock.advance(60);
+    let mut expired = open(Source::new(0, 20, vec![]), &hub, None, clock).await;
+    terminal(&mut expired, Terminal::AuthExpired).await;
+    // A terminal raised after the first heartbeat is not preceded by another.
+    let clock = Clock::new();
+    let source = Source::new(0, 0, vec![]);
+    let mut live = open(source.clone(), &hub, None, clock.clone()).await;
+    assert!(is_heartbeat(&live.next().await));
+    source.state.lock().unwrap().auth = Err(StreamError::TokenInvalid);
+    clock.advance(15);
+    terminal(&mut live, Terminal::AuthRevoked).await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn heartbeats_repeat_every_interval_on_an_idle_stream() {
+    let hub = StreamHub::default();
+    let mut r = open(Source::new(0, 0, vec![]), &hub, None, Clock::new()).await;
+    assert!(is_heartbeat(&r.next().await));
+    let mut last = tokio::time::Instant::now();
+    for _ in 0..3 {
+        assert!(is_heartbeat(&r.next().await));
+        let now = tokio::time::Instant::now();
+        assert_eq!(now - last, INTERVAL);
+        last = now;
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn continuous_traffic_does_not_postpone_the_heartbeat() {
+    let hub = StreamHub::default();
+    let mut r = open(Source::new(0, 0, vec![]), &hub, None, Clock::new()).await;
+    let publisher = hub.clone();
+    // One event a second for 100 seconds: the stream is never idle for long.
+    tokio::spawn(async move {
+        for seq in 1..=100 {
+            publish(&publisher, seq);
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        }
+    });
+    let started = tokio::time::Instant::now();
+    let mut beats = Vec::new();
+    let mut events = 0;
+    while started.elapsed() < std::time::Duration::from_secs(95) {
+        match r.next().await.unwrap() {
+            ReplayFrame::Heartbeat => beats.push(started.elapsed().as_secs()),
+            ReplayFrame::Business(_) => events += 1,
+            ReplayFrame::Terminal(terminal) => panic!("unexpected terminal {terminal:?}"),
+        }
+    }
+    assert_eq!(beats, [0, 30, 60, 90]);
+    assert!(events >= 90, "{events} events");
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -592,7 +714,7 @@ async fn body_drop_mid_page_releases_registration() {
     let stream = futures_util::stream::unfold(replay, |mut replay| async move {
         replay.next().await.map(|frame| {
             (
-                Ok::<_, std::convert::Infallible>(frame.into_event()),
+                Ok::<_, std::convert::Infallible>(frame.into_event(&HeartbeatStatus::default())),
                 replay,
             )
         })

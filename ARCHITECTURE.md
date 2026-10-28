@@ -108,7 +108,11 @@ are aliases of the shared stream policy, and metadata is checked before JSON
 is decoded. `PgDispatchStore` reads global pages and the retention boundary in
 one short read-only snapshot. `Replay` remains pull-driven and owns its bounded
 page and registration; terminal-only subscription waits cancel pending reads.
-`streams/http.rs` composes the six canonical/alias GET paths. `streams/runtime.rs`
+`streams/http.rs` composes the six canonical/alias GET paths. `streams/heartbeat.rs`
+owns the status heartbeat every stream sends (a named `heartbeat` event, no `id`,
+on open and every 30 seconds regardless of traffic) and the validated
+`SYSTEM_STATUS` / `SYSTEM_STATUS_MESSAGE` settings it reports; the runtime file
+preparer projects those two optional keys. `streams/runtime.rs`
 starts the scan baseline and attested election session before admission, owns
 bounded supervision and releases its session on shutdown. The prepared
 `stream_listener` budget choice enables this component in the existing binary;
