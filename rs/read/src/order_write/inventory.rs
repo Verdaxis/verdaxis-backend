@@ -1120,12 +1120,15 @@ fn response(row: Value) -> Result<Value, MarketWriteError> {
     Ok(Value::Object(out))
 }
 /// Publication uses the same configuration inputs as ordinary order entry.
+#[derive(Clone)]
 pub(crate) struct PublishRequest {
     pub item: Uuid,
     pub raw_key: Option<String>,
     pub audit: AuditContext,
     pub settings: crate::routes::market_write::order_create::CreateSettings,
     pub now: DateTime<Utc>,
+    #[cfg(feature = "contract-tests")]
+    pub hooks: Option<std::sync::Arc<crate::routes::market_write::inventory::PublicationHooks>>,
 }
 
 pub(crate) async fn publish(
@@ -1153,6 +1156,7 @@ pub(crate) async fn publish(
     .await
 }
 
+#[derive(Clone)]
 struct PublishCommand {
     app: AppState,
     request: PublishRequest,
@@ -1178,6 +1182,11 @@ fn publication_result(id: Uuid, replayed: bool, matches: usize) -> super::Commit
     }
 }
 impl PublishCommand {
+    fn locked_now(&self) -> DateTime<Utc> {
+        #[cfg(feature = "contract-tests")]
+        if let Some(at)=self.request.hooks.as_ref().and_then(|h|h.clock) { return at; }
+        Utc::now()
+    }
     fn key(&self) -> Result<Option<String>, MarketWriteError> {
         self.request
             .raw_key
@@ -1360,7 +1369,7 @@ async fn expiry_rows(
     candidate: &super::matching::OrderRow,
     now: DateTime<Utc>,
 ) -> Result<Vec<super::matching::OrderRow>, MarketWriteError> {
-    let ids:Vec<Uuid>=sqlx::query_scalar("SELECT id FROM orderbook_orders WHERE product_id=$1 AND delivery_point_id=$2 AND availability_window='SPOT' AND side::text='ASK' AND status::text IN ('OPEN','PARTIALLY_FILLED') AND expires_at<=$3 ORDER BY id LIMIT 100").bind(candidate.product_id).bind(candidate.delivery_point_id).bind(now).fetch_all(&mut *conn).await?;
+    let ids:Vec<Uuid>=sqlx::query_scalar("SELECT id FROM orderbook_orders WHERE product_id=$1 AND delivery_point_id=$2 AND availability_window='SPOT' AND side::text='ASK' AND status::text IN ('OPEN','PARTIALLY_FILLED') AND expires_at IS NOT NULL AND $3::timestamptz IS NOT NULL ORDER BY id LIMIT 100").bind(candidate.product_id).bind(candidate.delivery_point_id).bind(now).fetch_all(&mut *conn).await?;
     let mut rows = Vec::new();
     for id in ids {
         rows.push(super::matching::load_order(conn, id).await?);
@@ -1392,7 +1401,13 @@ impl MarketCommand for PublishCommand {
     fn preview_drift_error(&self) -> MarketAttemptError {
         slice_changed().into()
     }
-    fn uses_order_create_replay(&self) -> bool {
+    fn before_publication_recovery(&self) -> BoxFuture<'_, ()> {
+        Box::pin(async move {
+            #[cfg(feature = "contract-tests")]
+            if let Some(barrier)=self.request.hooks.as_ref().and_then(|h|h.before_recovery.as_ref()) { barrier.reached.notify_one();barrier.resume.notified().await; }
+        })
+    }
+    fn recovers_publication_flush(&self) -> bool {
         self.request.raw_key.as_ref().is_some_and(|k| !k.is_empty())
     }
     fn prepare_response(&self, value: &Self::Output) -> Result<(), MarketAttemptError> {
@@ -1422,9 +1437,6 @@ impl MarketCommand for PublishCommand {
                 false
             };
             let candidate = if replay_exists
-                || live_publication(conn, self.request.item, self.request.now)
-                    .await?
-                    .is_some()
             {
                 None
             } else {
@@ -1491,7 +1503,16 @@ impl MarketCommand for PublishCommand {
         actor: &'a AuthenticatedActor,
     ) -> BoxFuture<'a, Result<Self::Output, MarketAttemptError>> {
         Box::pin(async move {
-            let (org, mut candidate, expired) = {
+            let mut command = self.clone();
+            command.request.now = command.locked_now();
+            command.execute_locked(tx, actor).await
+        })
+    }
+}
+
+impl PublishCommand {
+    async fn execute_locked(&mut self, tx: &mut LockedMarketTransaction<'_>, actor: &AuthenticatedActor) -> Result<super::CommittedCommand, MarketAttemptError> {
+            let (org, mut candidate, planned_expiry) = {
                 let mut port = tx.inventory()?;
                 let org = self.actor_org(port.conn, actor.user_id()).await?;
                 port.admit_publication(self, actor, org).await?;
@@ -1517,6 +1538,8 @@ impl MarketCommand for PublishCommand {
                 let expired = expiry_rows(port.conn, &candidate, self.request.now).await?;
                 (org, candidate, expired)
             };
+            #[cfg(feature = "contract-tests")]
+            if let Some(barrier)=self.request.hooks.as_ref().and_then(|h|h.before_resources.as_ref()) { barrier.reached.notify_one();barrier.resume.notified().await; }
             let candidates = tx
                 .publication_resources(
                     &candidate,
@@ -1524,6 +1547,14 @@ impl MarketCommand for PublishCommand {
                     self.request.settings.auto_matching_enabled,
                 )
                 .await?;
+            self.request.now = self.locked_now();
+            let expired = {
+                let port=tx.inventory()?;
+                if let Some(id)=live_publication(port.conn,self.request.item,self.request.now).await? { return Ok(publication_result(id,true,0)); }
+                let current=expiry_rows(port.conn,&candidate,self.request.now).await?;
+                if current.iter().any(|row|!planned_expiry.iter().any(|planned|planned.id==row.id)) { return Err(slice_changed().into()); }
+                current.into_iter().filter(|row|row.expires_at.is_some_and(|at|at<=self.request.now)).collect::<Vec<_>>()
+            };
             let expired_ids: Vec<_> = expired.iter().map(|r| r.id).collect();
             let ids: Vec<_> = expired_ids
                 .iter()
@@ -1554,7 +1585,7 @@ impl MarketCommand for PublishCommand {
                 .iter()
                 .filter_map(|row| row.expires_at.map(|at| (row.id, at)))
                 .collect();
-            tx.effects()?
+            let expiry_visibility = tx.effects()?
                 .capture_expiry_visibility(
                     &mut before,
                     &self.app.policy,
@@ -1612,6 +1643,8 @@ impl MarketCommand for PublishCommand {
                     .ok_or_else(slice_changed)?;
                 port.validate_publication_quantity(self, &item, &mut candidate)
                     .await?;
+                #[cfg(feature = "contract-tests")]
+                if let Some(barrier)=self.request.hooks.as_ref().and_then(|h|h.before_flush.as_ref()) { barrier.reached.notify_one();barrier.resume.notified().await; }
                 port.insert_publication(self, &candidate, &item).await?;
             }
             // The inventory is already locked; only the new row's evidence is
@@ -1646,7 +1679,7 @@ impl MarketCommand for PublishCommand {
                 None
             };
             let mut set = before.stage();
-            let descriptors=facts.iter().map(|fact|super::effects::MutationEffect{kind:MutationKind::OrderExpired,actor_id:actor.user_id(),organization_id:fact.organization_id,resource_type:"order".into(),resource_id:fact.order_id,changes:json!({"status":"EXPIRED","released_quantity_mt":fact.released_quantity_mt.value().to_string()}),event:Some(ParticipantEvent{event_type:"order_expired".into(),aggregate_type:"order".into(),aggregate_id:fact.order_id.to_string(),participant_org_ids:vec![fact.organization_id],fields:ParticipantFields::OrderExpired{id:fact.order_id},public_invalidated:true}),at:self.request.now,audit_context:AuditContext::default()}).collect();
+            let descriptors=facts.iter().map(|fact|super::effects::MutationEffect{kind:MutationKind::OrderExpired,actor_id:actor.user_id(),organization_id:fact.organization_id,resource_type:"order".into(),resource_id:fact.order_id,changes:json!({"status":"EXPIRED","released_quantity_mt":fact.released_quantity_mt.value().to_string()}),event:Some(ParticipantEvent{event_type:"order_expired".into(),aggregate_type:"order".into(),aggregate_id:fact.order_id.to_string(),participant_org_ids:vec![fact.organization_id],fields:ParticipantFields::OrderExpired{id:fact.order_id},public_invalidated:expiry_visibility.get(&fact.order_id).copied().unwrap_or(false)}),at:self.request.now,audit_context:AuditContext::default()}).collect();
             set.expired(facts, descriptors)?;
             let participants = outcome
                 .as_ref()
@@ -1692,7 +1725,6 @@ impl MarketCommand for PublishCommand {
                 false,
                 outcome.as_ref().map_or(0, |o| o.trades.len()),
             ))
-        })
     }
 }
 
@@ -1944,7 +1976,11 @@ impl InventoryPort<'_> {
         let t = &row.terms;
         let key = command.key()?;
         let payload = json!({"id":row.id,"organization_id":row.organization_id,"owner_user_id":row.owner_user_id,"created_by_actor_user_id":row.created_by_actor_user_id,"creation_method":"SELF_SERVICE","provenance":row.provenance,"inventory_item_id":command.request.item,"side":"ASK","product_id":row.product_id,"delivery_point_id":row.delivery_point_id,"port_id":item["port_id"],"quantity_mt":row.quantity_mt.to_string(),"remaining_quantity_mt":row.quantity_mt.to_string(),"price_per_mt_usd":row.price_per_mt_usd.to_string(),"availability_window":"SPOT","certifications":t.certifications,"fame_terms":t.fame_terms,"lng_terms":t.lng_terms,"energy_density_mj_kg":t.fame_terms.as_ref().map(|f|&f["lhv_mj_kg"]),"status":"OPEN","version":1,"acceptance_ordinal":ordinal,"expires_at":row.expires_at,"idempotency_key":key,"idempotency_operation":key.as_ref().map(|_|"inventory.publish"),"idempotency_request_hash":key.as_ref().map(|_|command.hash()).transpose()?,"certification_declared":t.certification_declared,"certification_scheme":t.certification_scheme,"specification_standard":t.specification_standard,"msds_available":t.msds_available,"carbon_intensity_gco2_mj":t.carbon_intensity_gco2_mj.map(|v|v.to_string()),"carbon_intensity_method":t.carbon_intensity_method,"feedstock":t.feedstock,"origin":t.origin,"off_spec":t.off_spec,"off_spec_notes":item["off_spec_notes"],"created_at":command.request.now,"updated_at":command.request.now,"is_verdaxis_verified":false});
-        sqlx::query("INSERT INTO orderbook_orders(id,organization_id,owner_user_id,created_by_actor_user_id,creation_method,provenance,inventory_item_id,side,product_id,delivery_point_id,port_id,quantity_mt,remaining_quantity_mt,price_per_mt_usd,availability_window,certifications,fame_terms,lng_terms,energy_density_mj_kg,status,version,acceptance_ordinal,expires_at,idempotency_key,idempotency_operation,idempotency_request_hash,certification_declared,certification_scheme,specification_standard,msds_available,carbon_intensity_gco2_mj,carbon_intensity_method,feedstock,origin,off_spec,off_spec_notes,created_at,updated_at,is_verdaxis_verified) SELECT id,organization_id,owner_user_id,created_by_actor_user_id,creation_method,provenance,inventory_item_id,side,product_id,delivery_point_id,port_id,quantity_mt,remaining_quantity_mt,price_per_mt_usd,availability_window,certifications,fame_terms,lng_terms,energy_density_mj_kg,status,version,acceptance_ordinal,expires_at,idempotency_key,idempotency_operation,idempotency_request_hash,certification_declared,certification_scheme,specification_standard,msds_available,carbon_intensity_gco2_mj,carbon_intensity_method,feedstock,origin,off_spec,off_spec_notes,created_at,updated_at,is_verdaxis_verified FROM jsonb_populate_record(NULL::orderbook_orders,$1::jsonb)").bind(payload).execute(&mut *self.conn).await?;
+        sqlx::query("INSERT INTO orderbook_orders(id,organization_id,owner_user_id,created_by_actor_user_id,creation_method,provenance,inventory_item_id,side,product_id,delivery_point_id,port_id,quantity_mt,remaining_quantity_mt,price_per_mt_usd,availability_window,certifications,fame_terms,lng_terms,energy_density_mj_kg,status,version,acceptance_ordinal,expires_at,idempotency_key,idempotency_operation,idempotency_request_hash,certification_declared,certification_scheme,specification_standard,msds_available,carbon_intensity_gco2_mj,carbon_intensity_method,feedstock,origin,off_spec,off_spec_notes,created_at,updated_at,is_verdaxis_verified) SELECT id,organization_id,owner_user_id,created_by_actor_user_id,creation_method,provenance,inventory_item_id,side,product_id,delivery_point_id,port_id,quantity_mt,remaining_quantity_mt,price_per_mt_usd,availability_window,certifications,fame_terms,lng_terms,energy_density_mj_kg,status,version,acceptance_ordinal,expires_at,idempotency_key,idempotency_operation,idempotency_request_hash,certification_declared,certification_scheme,specification_standard,msds_available,carbon_intensity_gco2_mj,carbon_intensity_method,feedstock,origin,off_spec,off_spec_notes,created_at,updated_at,is_verdaxis_verified FROM jsonb_populate_record(NULL::orderbook_orders,$1::jsonb)").bind(payload).execute(&mut *self.conn).await.map_err(|error| {
+            if error.as_database_error().and_then(|e|e.code()).is_some_and(|code|code.starts_with("23")) {
+                MarketAttemptError::PublicationFlush(error)
+            } else { MarketAttemptError::Database(error) }
+        })?;
         Ok(())
     }
     async fn publication_effect(

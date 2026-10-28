@@ -28,6 +28,17 @@ struct RouteState {
     app: AppState,
     verification: std::sync::Arc<VerificationSettings>,
     publication: super::order_create::CreateSettings,
+    #[cfg(feature = "contract-tests")]
+    hooks: Option<std::sync::Arc<PublicationHooks>>,
+}
+
+#[cfg(feature = "contract-tests")]
+#[derive(Default)]
+pub struct PublicationHooks {
+    pub before_resources: Option<std::sync::Arc<super::order_create::CreateBarrier>>,
+    pub before_flush: Option<std::sync::Arc<super::order_create::CreateBarrier>>,
+    pub before_recovery: Option<std::sync::Arc<super::order_create::CreateBarrier>>,
+    pub clock: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 pub fn router(app: AppState, verification: VerificationSettings) -> Router {
@@ -60,8 +71,20 @@ pub fn router_with_publication(
             app,
             verification: std::sync::Arc::new(verification),
             publication,
+            #[cfg(feature = "contract-tests")]
+            hooks: None,
         })
 }
+#[cfg(feature = "contract-tests")]
+pub fn publication_contract_hash(item: uuid::Uuid) -> String {
+    crate::market_publish::publication_hash(item)
+}
+
+#[cfg(feature = "contract-tests")]
+pub fn publication_contract_router(app: AppState, verification: VerificationSettings, settings: super::order_create::CreateSettings, hooks: std::sync::Arc<PublicationHooks>) -> Router {
+    Router::new().route("/api/inventory/{item_id}/publish",axum::routing::post(publish)).with_state(RouteState{app,verification:std::sync::Arc::new(verification),publication:settings,hooks:Some(hooks)})
+}
+
 async fn dispatch(state: RouteState, headers: HeaderMap, action: InventoryAction) -> Response {
     let access = match verify_authorization(
         headers.get("authorization").and_then(|v| v.to_str().ok()),
@@ -188,6 +211,8 @@ async fn publish(
                 audit,
                 settings: state.publication.clone(),
                 now,
+                #[cfg(feature = "contract-tests")]
+                hooks: state.hooks.clone(),
             },
         )
         .await
