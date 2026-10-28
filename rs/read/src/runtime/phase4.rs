@@ -331,11 +331,15 @@ async fn joins(State(a): State<Authority>, request: Request) -> Result<Response,
             })
             .unwrap_or(Ok(default))
     };
-    let query = business::joins::JoinListQuery::parse(
-        fields.get("status").map(String::as_str),
-        integer("limit", 100)?,
-        integer("offset", 0)?,
-    )?;
+    // Not `?`: `read` reports an invalid query only after the administrator check.
+    let query = integer("limit", 100).and_then(|limit| {
+        let offset = integer("offset", 0)?;
+        business::joins::JoinListQuery::parse(
+            fields.get("status").map(String::as_str),
+            limit,
+            offset,
+        )
+    });
     let page = business::joins::read(&a.app, access, a.limits, client, query).await?;
     let truncated = page.truncated;
     Ok((
