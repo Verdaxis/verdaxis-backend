@@ -66,6 +66,12 @@ class RustRuntimeError(RuntimeError):
     """The Rust runtime environment cannot be prepared safely."""
 
 
+# The deployed Python unit's optional second environment file and the keys the
+# Rust runtime takes from it.
+ANALYTICS_ENVIRONMENT_FILE = ".env.analytics"
+UMAMI_KEYS = ("UMAMI_BASE_URL", "UMAMI_WEBSITE_ID", "UMAMI_API_USERNAME", "UMAMI_API_PASSWORD")
+
+
 def read_regular(path: Path) -> bytes:
     try:
         descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
@@ -223,6 +229,17 @@ def project_runtime_environment(
     values = dotenv_values(
         stream=io.StringIO(raw.decode("utf-8")), interpolate=False
     )
+    # The Python unit also loads the Umami aggregate settings from an optional
+    # second file next to .env; its values win, as in the unit's file order.
+    analytics_file = environment_file.with_name(ANALYTICS_ENVIRONMENT_FILE)
+    if analytics_file.exists() or analytics_file.is_symlink():
+        analytics = dotenv_values(
+            stream=io.StringIO(read_regular(analytics_file).decode("utf-8")),
+            interpolate=False,
+        )
+        for key in UMAMI_KEYS:
+            if analytics.get(key) is not None:
+                values[key] = analytics[key]
     if any(values.get(key) is None for key in RUNTIME_KEYS):
         raise RustRuntimeError("the deployed .env must define ENVIRONMENT and RELEASE_SHA")
     environment = policy["environment"]
@@ -259,12 +276,11 @@ def project_runtime_environment(
         except (InvalidOperation, ValueError) as exc:
             raise RustRuntimeError("seller fee must be finite and nonnegative") from exc
         projected[key] = str(rate)
-    for key in ("UMAMI_BASE_URL", "UMAMI_WEBSITE_ID", "UMAMI_API_USERNAME", "UMAMI_API_PASSWORD"):
+    for key in UMAMI_KEYS:
         value = values.get(key)
         if isinstance(value, str) and value.strip():
             projected[key] = value
-    projected["UMAMI_ENABLED"] = "true" if all(projected.get(key) for key in
-        ("UMAMI_BASE_URL", "UMAMI_WEBSITE_ID", "UMAMI_API_USERNAME", "UMAMI_API_PASSWORD")) else "false"
+    projected["UMAMI_ENABLED"] = "true" if all(projected.get(key) for key in UMAMI_KEYS) else "false"
 
     # Refuse control characters; quotes and backslashes are escaped by the
     # EnvironmentFile renderer without changing the deployed value.
