@@ -12,7 +12,7 @@ DECLARE buyer uuid; remaining numeric;
 BEGIN
     SELECT organization_id INTO STRICT buyer FROM orderbook_orders WHERE id=ord;
     SELECT remaining_quantity_mt-quantity INTO remaining FROM orderbook_orders WHERE id=ord;
-    UPDATE orderbook_orders SET quantity_mt=quantity_mt+quantity WHERE id=ord;
+    UPDATE orderbook_orders SET quantity_mt=quantity_mt+quantity,status='PARTIALLY_FILLED' WHERE id=ord;
     UPDATE orderbook_orders SET remaining_quantity_mt=remaining WHERE id=ord;
 END $$;
 
@@ -57,8 +57,9 @@ $$;
 
 CREATE OR REPLACE FUNCTION amend_fixture_crossing(ord uuid, source uuid, actor uuid) RETURNS void LANGUAGE plpgsql AS $$
 BEGIN
-    UPDATE orderbook_orders SET side='BID',price_per_mt_usd=100,
-        organization_id=(SELECT organization_id FROM orderbook_orders WHERE id=source),
+    UPDATE orderbook_orders SET price_per_mt_usd=100,
         owner_user_id=actor, created_by_actor_user_id=actor
     WHERE id=ord;
+    PERFORM count(*) FROM orderbook_orders WHERE id IN (ord, source);
 END $$;
+COMMENT ON FUNCTION amend_fixture_crossing(uuid,uuid,uuid) IS 'The cloned crossing bid takes the source order''s immutable side and slice';

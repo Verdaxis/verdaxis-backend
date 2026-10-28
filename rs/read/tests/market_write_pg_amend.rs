@@ -283,7 +283,7 @@ async fn amend_reserves_or_releases_the_exact_delta() {
         .await
         .unwrap();
     // Increase: reserve the exact delta.
-    let (status, _) = send(
+    let (status, body) = send(
         &f.router,
         Some(buyer()),
         f.bid,
@@ -291,7 +291,7 @@ async fn amend_reserves_or_releases_the_exact_delta() {
         json!({"quantity_mt": "250"}),
     )
     .await;
-    assert_eq!(status.as_u16(), 200);
+    assert_eq!(status.as_u16(), 200, "{body}");
     let item_row: (Decimal, Decimal) = sqlx::query_as(
         "SELECT current_stock_mt,reserved_stock_mt FROM inventory_items WHERE id=$1",
     )
@@ -486,7 +486,7 @@ async fn newly_qualified_order_gets_a_new_ordinal_and_cannot_jump_the_queue() {
     // A later crossing BID fills the earlier executable ASK first.
     let crossing = Uuid::from_u128(0x99);
     sqlx::query("SELECT matching_fixture_second_aggressor($1,$2)")
-        .bind(executable)
+        .bind(f.bid)
         .bind(crossing)
         .execute(&mut f.admin)
         .await
