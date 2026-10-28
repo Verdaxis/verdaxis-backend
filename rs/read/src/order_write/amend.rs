@@ -504,8 +504,9 @@ impl MarketCommand for AmendCommand {
                 locks.idempotency(org, Operation::OrderAmend.as_str(), key)?;
             }
             locks.slices([row.slice()])?;
-            locks.orders([self.order])?;
-            locks.inventory(row.inventory_item_id)?;
+            // The amended row and any linked inventory row are acquired by the
+            // match planner's candidate pass, never declared before it: the
+            // plan closes candidate acquisition once it names an economic row.
             Ok(MarketPreview { parties, locks })
         })
     }
@@ -555,9 +556,10 @@ impl MarketCommand for AmendCommand {
                     self.config.kyc_execution_gate_enabled,
                 )
                 .await?;
-            let (staged, matched) = {
-                let mut port = tx.amend_port(self, &context)?;
-                port.run(&order).await?
+            let (mut staged, outcome) = {
+                let staged = tx.amend_port(self, &context)?.run(&order).await?;
+                let outcome = self.rematch(tx, &order, &mut staged.before).await?;
+                (staged, outcome)
             };
             let response = tx
                 .create_port()?
@@ -584,10 +586,21 @@ impl MarketCommand for AmendCommand {
             let StagedAmend {
                 before,
                 public_before,
-                outcome,
                 update,
-                participants,
             } = staged;
+            let matched = outcome.as_ref().map_or(0, |o| o.trades.len());
+            let participants: Vec<Uuid> = outcome
+                .as_ref()
+                .map(|outcome| {
+                    let mut organizations: BTreeSet<Uuid> = outcome
+                        .trades
+                        .iter()
+                        .flat_map(|trade| [trade.buyer_id, trade.seller_id])
+                        .collect();
+                    organizations.insert(order.organization_id);
+                    organizations.into_iter().collect()
+                })
+                .unwrap_or_else(|| vec![order.organization_id]);
             let mut set = before.stage();
             if let Some(outcome) = &outcome {
                 tx.effects()?
@@ -640,6 +653,34 @@ impl AmendCommand {
         context: &'a WriteContext,
     ) -> Result<AmendPort<'a>, MarketWriteError> {
         AmendPort::new(conn, plan, locked, self, context)
+    }
+
+    /// The optional inline rematch on the sealed transaction. The planner's
+    /// candidate pass acquires the resting rows and the linked inventory; the
+    /// completion bridge consumes their reservations on the same connection.
+    async fn rematch(
+        &self,
+        tx: &mut LockedMarketTransaction<'_>,
+        order: &OrderRow,
+        before: &mut BeforeEffects,
+    ) -> Result<Option<MatchOutcome>, MarketAttemptError> {
+        if !self.settings.auto_matching_enabled || !self.input.supplied_any(&ECONOMIC_FIELDS) {
+            return Ok(None);
+        }
+        let current = tx.matching_order(self.order).await?;
+        let plan = tx.prepare_match(&current, self.bound()).await?;
+        let resting: Vec<Uuid> = plan
+            .locked_order_ids()
+            .into_iter()
+            .filter(|id| *id != self.order)
+            .collect();
+        if !resting.is_empty() {
+            tx.effects()?
+                .include_existing(before, &self.policy, &self.config, &resting)
+                .await?;
+        }
+        let outcome = tx.complete_match(&plan, &self.settings.fees, true).await?;
+        Ok((!outcome.trades.is_empty()).then_some(outcome))
     }
 
     /// The route's own effect: one `order.updated` audit when an economic value
@@ -954,9 +995,7 @@ pub(super) struct AmendPort<'a> {
 pub(super) struct StagedAmend {
     before: BeforeEffects,
     public_before: bool,
-    outcome: Option<MatchOutcome>,
     update: Map<String, Value>,
-    participants: Vec<Uuid>,
 }
 
 impl<'a> AmendPort<'a> {
@@ -1428,12 +1467,14 @@ impl<'a> AmendPort<'a> {
             update.insert("acceptance_ordinal".into(), json!(ordinal));
         }
         // Capture the before-state before the first mutation; the matcher's
-        // resting rows join before completion.
-        let mut before = EffectPort::new(self.conn, self.plan.order_ids(), self.locked)
+        // resting rows join it before completion. The amended row is the one
+        // economic row this port names: the plan keeps candidates open.
+        let owned = [command.order];
+        let mut before = EffectPort::new(self.conn, &owned, self.locked)
             .capture_before(
                 &command.policy,
                 &command.config,
-                &[command.order],
+                &owned,
                 command.now,
             )
             .await?;
@@ -1446,72 +1487,15 @@ impl<'a> AmendPort<'a> {
         )
         .await?;
         self.write(order, &update).await?;
-        // The rematch: only an economic update runs the matcher, and the
-        // caller's anonymity flag is what the source passes.
-        let mut matched = 0usize;
-        let mut outcome: Option<MatchOutcome> = None;
-        let mut resting_ids: Vec<Uuid> = Vec::new();
-        let mut participants: Vec<Uuid> = vec![order.organization_id];
-        if command.settings.auto_matching_enabled && command.input.supplied_any(&ECONOMIC_FIELDS) {
-            let current = super::matching::load_order(self.conn, command.order).await?;
-            let plan = super::matching::MatchingPort::new(self.conn, self.plan, self.locked)?
-                .plan_match(&current, command.bound())
-                .await?;
-            resting_ids = plan
-                .locked_order_ids()
-                .into_iter()
-                .filter(|id| *id != command.order)
-                .collect();
-            let items = plan.inventory_ids();
-            for id in resting_ids.iter().chain(std::iter::once(&command.order)) {
-                self.locked
-                    .record_matching_resource(LockClass::Order, *id)?;
-            }
-            for id in &items {
-                sqlx::query("SELECT id FROM inventory_items WHERE id=$1 FOR UPDATE")
-                    .bind(id)
-                    .fetch_optional(&mut *self.conn)
-                    .await?
-                    .ok_or_else(|| MarketWriteError::new(MarketErrorCode::InventoryInconsistent))?;
-                self.locked
-                    .record_matching_resource(LockClass::Inventory, *id)?;
-            }
-            let applied = super::matching::apply_plan_with_fees(
-                self.conn,
-                &plan,
-                Some(&command.settings.fees),
-                true,
-            )
-            .await?;
-            for (item, quantity) in plan.reserved_consumption()? {
-                super::transaction::StockLedger::new(self.conn, &[item], &[])
-                    .consume_reserved(item, StockQuantity::checked(quantity)?)
-                    .await?;
-            }
-            matched = applied.trades.len();
-            let mut organizations: BTreeSet<Uuid> = applied
-                .trades
-                .iter()
-                .flat_map(|trade| [trade.buyer_id, trade.seller_id])
-                .collect();
-            organizations.insert(order.organization_id);
-            participants = organizations.into_iter().collect();
-            outcome = Some(applied);
-        }
-        // The matcher's resting rows join the captured before-state so the one
-        // terminal effect set covers their transition too.
-        if !resting_ids.is_empty() {
-            EffectPort::new(self.conn, self.plan.order_ids(), self.locked)
-                .include_existing(&mut before, &command.policy, &command.config, &resting_ids)
-                .await?;
-        }
+        // The rematch is composed by the sealed transaction after the port
+        // returns: the planner acquires the amended row and any candidates in
+        // the open candidate pass, which this plan keeps undeclared.
         let staged = StagedAmend {
             before,
             public_before,
-            outcome,
             update,
-            participants,
         };
-        Ok((staged, matched))
+        Ok(staged)
     }
+
 }

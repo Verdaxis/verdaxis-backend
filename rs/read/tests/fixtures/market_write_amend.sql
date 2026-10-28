@@ -10,15 +10,14 @@ END $$;
 CREATE OR REPLACE FUNCTION amend_fixture_fill(ord uuid, quantity numeric) RETURNS void LANGUAGE plpgsql AS $$
 DECLARE buyer uuid; seller uuid; remaining numeric;
 BEGIN
-    SELECT organization_id INTO buyer FROM orderbook_orders WHERE side='BID' AND id<>ord LIMIT 1;
+    SELECT organization_id INTO buyer FROM orderbook_orders WHERE id=ord;
     SELECT organization_id INTO seller FROM orderbook_orders WHERE side='ASK' AND id<>ord LIMIT 1;
     SELECT remaining_quantity_mt-quantity INTO remaining FROM orderbook_orders WHERE id=ord;
-    INSERT INTO trades(id,bid_order_id,ask_order_id,buyer_id,seller_id,quantity_mt,price_per_mt_usd,status,initiator_org_id,created_at,updated_at)
+    INSERT INTO trades(id,bid_order_id,ask_order_id,buyer_id,seller_id,quantity_mt,price_per_mt_usd,status,initiator_org_id,created_at)
     VALUES (gen_random_uuid(),
-            (SELECT id FROM orderbook_orders WHERE side='BID' AND id<>ord LIMIT 1),
-            ord, buyer, seller, quantity,
+            ord, ord, buyer, seller, quantity,
             (SELECT price_per_mt_usd FROM orderbook_orders WHERE id=ord),
-            'PENDING_CONFIRMATION', seller, now(), now());
+            'PENDING_CONFIRMATION', seller, now());
     UPDATE orderbook_orders SET remaining_quantity_mt=remaining WHERE id=ord;
 END $$;
 
