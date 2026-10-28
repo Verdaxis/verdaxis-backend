@@ -575,7 +575,7 @@ impl<'a> LifecyclePort<'a> {
             {
                 return Err(forbidden());
             }
-            require_assisted_presence(self.conn,actor.user_id(),order.organization_id).await?;
+            require_assisted_presence(self.conn, actor.user_id(), order.organization_id).await?;
             if Some(actor.user_id()) == order.owner_user_id {
                 return Err(forbidden());
             }
@@ -940,10 +940,24 @@ fn revalidate_terms(
     Ok(())
 }
 
-async fn require_assisted_presence(conn:&mut PgConnection,actor:Uuid,customer:Uuid)->Result<(),MarketWriteError>{
-    let actor_exists:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE id=$1)").bind(actor).fetch_one(&mut *conn).await?;
-    let customer_exists:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM organizations WHERE id=$1)").bind(customer).fetch_one(&mut *conn).await?;
-    if !actor_exists||!customer_exists{return Err(invalid_parties());}Ok(())
+async fn require_assisted_presence(
+    conn: &mut PgConnection,
+    actor: Uuid,
+    customer: Uuid,
+) -> Result<(), MarketWriteError> {
+    let actor_exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE id=$1)")
+        .bind(actor)
+        .fetch_one(&mut *conn)
+        .await?;
+    let customer_exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM organizations WHERE id=$1)")
+            .bind(customer)
+            .fetch_one(&mut *conn)
+            .await?;
+    if !actor_exists || !customer_exists {
+        return Err(invalid_parties());
+    }
+    Ok(())
 }
 #[cfg(feature = "contract-tests")]
 #[derive(Default)]
@@ -995,10 +1009,10 @@ pub async fn contract_authorize(
             "link" => trade["ask_order_id"] = Value::Null,
             "side" => order.side = Side::Bid,
             "missing_actor" => {
-                require_assisted_presence(conn,Uuid::nil(),order.organization_id).await?;
+                require_assisted_presence(conn, Uuid::nil(), order.organization_id).await?;
             }
             "missing_customer" => {
-                require_assisted_presence(conn,actor_id,Uuid::nil()).await?;
+                require_assisted_presence(conn, actor_id, Uuid::nil()).await?;
             }
             "wrong_side" => trade["initiated_by"] = json!("SELLER"),
             "wrong_role" | "wrong_member" | "valid" => {}
