@@ -22,6 +22,24 @@ def main():
     runner = Runner("all", seed=False, keep=False, seed_mode="ordinary")
     try:
         port = runner.start_database()
+        policy_dir = "/tmp/preferences-role-policy"
+        docker("exec", runner.container, "mkdir", "-p", policy_dir)
+        for name in ("app_acl_policy.sql", "converge_runtime_object_acls.sql", "bootstrap_roles.sql", "validate_roles.sql"):
+            docker("cp", str(ROOT / "deploy/postgres" / name), f"{runner.container}:{policy_dir}/{name}")
+
+        def apply_role_policy(script):
+            docker("exec", runner.container, "psql", "-X", "-U", "postgres", "-d", DB_NAME,
+                   "-v", f"database_name={DB_NAME}", "-v", f"app_role={APP_ROLE}",
+                   "-v", f"migrator_role={MIGRATOR_ROLE}", "-v", f"backup_role={BACKUP_ROLE}",
+                   "-f", f"{policy_dir}/{script}")
+
+        # As in production, the roles exist and the migrator owns the schema
+        # before the migration runs, so SECURITY DEFINER functions have the
+        # migrator as owner.
+        apply_role_policy("bootstrap_roles.sql")
+        docker("exec", runner.container, "psql", "-X", "-U", "postgres", "-d", DB_NAME,
+               "-c", f"ALTER ROLE {identifier(MIGRATOR_ROLE)} PASSWORD '{PASSWORD}'")
+        migrator_url = f"postgresql+asyncpg://{MIGRATOR_ROLE}:{PASSWORD}@127.0.0.1:{port}/{DB_NAME}"
         environment = {
             **os.environ,
             **runner.urls(port),
@@ -29,17 +47,12 @@ def main():
             "RELEASE_SHA": runner.sha,
             "RUST_TEST_PYTHON": sys.executable,
             "JWT_SECRET": "test-secret-key-for-testing-minimum-32-chars",
+            "DATABASE_URL": migrator_url,
+            "MIGRATOR_DATABASE_URL": migrator_url,
         }
         runner.migrate_and_seed(environment)
-        policy_dir = "/tmp/preferences-role-policy"
-        docker("exec", runner.container, "mkdir", "-p", policy_dir)
-        for name in ("app_acl_policy.sql", "converge_runtime_object_acls.sql", "bootstrap_roles.sql", "validate_roles.sql"):
-            docker("cp", str(ROOT / "deploy/postgres" / name), f"{runner.container}:{policy_dir}/{name}")
-        for name in ("bootstrap_roles.sql", "validate_roles.sql"):
-            docker("exec", runner.container, "psql", "-X", "-U", "postgres", "-d", DB_NAME,
-                   "-v", f"database_name={DB_NAME}", "-v", f"app_role={APP_ROLE}",
-                   "-v", f"migrator_role={MIGRATOR_ROLE}", "-v", f"backup_role={BACKUP_ROLE}",
-                   "-f", f"{policy_dir}/{name}")
+        for script in ("bootstrap_roles.sql", "validate_roles.sql"):
+            apply_role_policy(script)
         with connect(port, DB_NAME) as admin:
             admin.execute(f"ALTER ROLE {identifier(APP_ROLE)} PASSWORD '{PASSWORD}'")
         result = subprocess.run(
