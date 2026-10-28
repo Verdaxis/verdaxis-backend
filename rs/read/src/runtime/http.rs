@@ -264,10 +264,16 @@ async fn cors(State(environment): State<String>, request: Request, next: Next) -
 
 /// Exact public GET inventory. Private paths and MCP never use slash redirects.
 pub const MOUNTED_GET_PATHS: &[&str] = &[
+    "/api/benchmarks",
+    "/api/demand",
+    "/api/fleet-intelligence",
     "/health/live",
     "/health/ready",
     "/health",
     "/api/ports",
+    "/api/availability",
+    "/api/compliance/fuels",
+    "/api/producers",
     "/api/catalog/products",
     "/api/catalog/delivery-points",
     "/api/news",
@@ -466,7 +472,13 @@ async fn dispatch_boundary(
 
 pub fn public_routes() -> Router<crate::AppState> {
     Router::new()
+        .merge(crate::routes::benchmark_quotes::routes())
         .merge(crate::routes::ports::routes())
+        .merge(crate::routes::availability::routes())
+        .merge(crate::routes::compliance_fuels::routes())
+        .merge(crate::routes::producers::routes())
+        .merge(crate::routes::demand::routes())
+        .merge(crate::routes::fleet_intelligence::routes())
         .merge(crate::routes::catalog::routes())
         .merge(crate::routes::news::routes())
         .merge(crate::routes::orderbook_snapshot::routes())
@@ -605,6 +617,26 @@ pub fn router_with(extra: Router<crate::AppState>, state: crate::AppState) -> Ro
     let routes = match phase2_routes(&state, limits.clone()) {
         Some(phase2) => routes.merge(phase2),
         None => routes,
+    };
+    let routes = if let Some(settings) = state.phase2.as_ref() {
+        let scores = crate::routes::compliance_scores::routes_with_context(Arc::new(
+            crate::routes::compliance_scores::RouteContext {
+                settings: Arc::new(settings.verification.clone()),
+                limits: limits.clone(),
+                clock: crate::routes::compliance_scores::Clock::Wall,
+            },
+        ));
+        let overlay = crate::routes::compliance_overlay::routes(
+            crate::routes::compliance_overlay::OverlayAuthority::new(
+                settings.verification.clone(),
+                limits.clone(),
+            ),
+        );
+        routes
+            .merge(scores.with_state(state.clone()))
+            .merge(overlay.with_state(state.clone()))
+    } else {
+        routes
     };
     let routes = match super::phase3::routes(&state, limits.clone()) {
         Some(auth) => routes.merge(auth),

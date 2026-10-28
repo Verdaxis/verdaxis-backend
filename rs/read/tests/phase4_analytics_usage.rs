@@ -567,6 +567,8 @@ async fn p4_t17a_c10() {
             pool_max: 5,
             python_budget: 20,
             configured_max_connections: 100,
+            compliance_eur_usd_rate: None,
+            fleet_artifact_path: "data/fleet_demand.json".into(),
         },
         Pools { read, health },
         MarketPolicy {
@@ -851,6 +853,8 @@ mod postgres {
                 pool_max: 5,
                 python_budget: 20,
                 configured_max_connections: 100,
+                compliance_eur_usd_rate: None,
+                fleet_artifact_path: "data/fleet_demand.json".into(),
             },
             Pools { read: pool, health },
             MarketPolicy {

@@ -1321,9 +1321,9 @@ async def test_cache_checkpoint_follows_production_revision(migration_database):
 
     script = ScriptDirectory.from_config(Config(str(_BACKEND_ROOT / "alembic.ini")))
     assert script.get_revision("prc_20261026_changes").down_revision == "prc_20261018_cache"
-    assert script.get_current_head() == "sse_20261021_replay_floor"
     assert script.get_revision("p3_20261020_auth_tokens").down_revision == "prc_20261026_changes"
     assert script.get_revision("sse_20261021_replay_floor").down_revision == "p3_20261020_auth_tokens"
+    assert script.get_revision("p5_20261020_read_indexes").down_revision == "sse_20261021_replay_floor"
     assert script.get_revision("prc_20261018_cache").down_revision == "p0_20261016_union"
     allowlist = json.loads(
         (_BACKEND_ROOT / "deploy/rust/allowed-revisions.json").read_text()
@@ -1335,6 +1335,7 @@ async def test_cache_checkpoint_follows_production_revision(migration_database):
         "prc_20261026_changes",
         "p3_20261020_auth_tokens",
         "sse_20261021_replay_floor",
+        "p5_20261020_read_indexes",
     ]
     policy = (_BACKEND_ROOT / "deploy/migration-checkpoints.tsv").read_text()
     assert "prc_20261018_cache\tprc_20261026_changes" in policy

@@ -374,7 +374,10 @@ async def owner_engine(retention_urls):
 def test_migration_has_one_head_and_direct_parent():
     script = ScriptDirectory.from_config(Config(str(ROOT / "alembic.ini")))
 
-    assert script.get_heads() == [REVISION]
+    heads = script.get_heads()
+    assert len(heads) == 1
+    # Later checkpoints build on this one; it stays on the single migration line.
+    assert REVISION in {rev.revision for rev in script.iterate_revisions(heads[0], "base")}
     revision = script.get_revision(REVISION)
     assert revision is not None
     assert revision.down_revision == PARENT_REVISION

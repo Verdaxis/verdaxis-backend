@@ -15,7 +15,19 @@ use super::{
 };
 use crate::AppState;
 
+/// The stream tables exist from this checkpoint on; every later checkpoint keeps them.
 pub const STREAM_REVISION: &str = "sse_20261021_replay_floor";
+
+/// True when the database revision is the stream checkpoint or a later one.
+/// The reviewed allowlist lists the checkpoints in migration order.
+pub fn schema_has_streams(revision: &str) -> bool {
+    let order = crate::runtime::artifact::ALLOWED_REVISIONS;
+    let position = |wanted: &str| order.iter().position(|known| *known == wanted);
+    match (position(STREAM_REVISION), position(revision)) {
+        (Some(stream), Some(current)) => current >= stream,
+        _ => false,
+    }
+}
 const RESTART_COOLDOWN: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Copy)]
@@ -189,7 +201,7 @@ async fn initialize(
     hub: &StreamHub,
     alert_feed: &PriceAlertFeed,
 ) -> Initialized {
-    if config.migration_revision != STREAM_REVISION {
+    if !schema_has_streams(&config.migration_revision) {
         return Err(());
     }
     crate::runtime::config::validate_prepared_budget(

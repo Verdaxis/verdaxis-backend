@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Task 6: compare the shared visibility and trade-evidence SQL with the Python
-# oracle on one disposable PostgreSQL container.
+# oracle on one disposable PostgreSQL container, then run the compliance
+# overlay's populated-fixture test on that same seeded database after the
+# overlay_contract_fixture.py matrix is added.
 #
 # Docker runs locally through Colima. The container binds a Docker-assigned
 # loopback port, sets the oracle time zone, and is removed on exit. Never point
@@ -21,6 +23,7 @@ alembic="$(dirname "$RUST_TEST_PYTHON")/alembic"
 container=''
 log=''
 expected=''
+overlay_manifest=''
 cleanup() {
   # An EXIT trap replaces the script's exit status with the status of its own
   # last command. Capture the real status first and restore it after the
@@ -33,6 +36,7 @@ cleanup() {
   fi
   if [[ -n "$log" ]]; then rm -f "$log"; fi
   if [[ -n "$expected" ]]; then rm -f "$expected"; fi
+  if [[ -n "$overlay_manifest" ]]; then rm -f "$overlay_manifest"; fi
   exit "$status"
 }
 trap cleanup EXIT
@@ -97,5 +101,38 @@ if (( cargo_status != 0 )); then
 fi
 if ! grep -Eq '^test result: ok\. [1-9][0-9]* passed' "$log"; then
   echo "no Rust test ran: refusing a green result" >&2
+  exit 1
+fi
+
+# Phase 5 lane O: the compliance overlay's populated-fixture test needs the
+# oracle-seeded market database above, plus unequal tenant vessel counts and
+# explicit visible/hidden orders. Its fixture must run after the market
+# contract tests: it seeds another public ASK clone, which would change the
+# exact visibility sets those tests assert. run_postgres.sh skips this test by
+# name for the same reason.
+overlay_manifest=$(mktemp "${TMPDIR:-/tmp}/rust-overlay-cases.XXXXXX")
+export RUST_OVERLAY_TEST_CASES="$overlay_manifest"
+# This runner seeds the populated matrix, so a missing URL must refuse rather
+# than let the authenticated, timeout, snapshot and index cases pass empty.
+export RUST_OVERLAY_REQUIRED=1
+(
+  cd "$repo"
+  PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$repo" "$RUST_TEST_PYTHON" \
+    rs/read/tests/overlay_contract_fixture.py
+)
+
+rm -f "$log"
+log=$(mktemp "${TMPDIR:-/tmp}/rust-overlay-tests.XXXXXX")
+set +e
+cargo test --manifest-path "$repo/rs/Cargo.toml" --locked -p verdaxis-read \
+  --features contract-tests --test phase5_compliance_overlay -- --test-threads=1 2>&1 | tee "$log"
+cargo_status=${PIPESTATUS[0]}
+set -e
+rm -f "$overlay_manifest"
+if (( cargo_status != 0 )); then
+  exit "$cargo_status"
+fi
+if ! grep -Eq '^test result: ok\. [1-9][0-9]* passed' "$log"; then
+  echo "no Rust overlay test ran: refusing a green result" >&2
   exit 1
 fi

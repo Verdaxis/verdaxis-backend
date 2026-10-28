@@ -2,6 +2,7 @@
 pub mod analytics;
 pub mod auth;
 pub mod business;
+pub mod compliance;
 pub mod crud;
 pub mod kyc;
 pub mod market;
@@ -40,8 +41,8 @@ pub use market::windows::{
     normalize_window, window_display_label, window_sort_key, window_start_date,
 };
 pub use runtime::admission::{
-    DEFAULT_READ_ADMISSION_SLOTS, TradingFill, run_admitted, run_trading_read, selected_read,
-    try_read,
+    DEFAULT_READ_ADMISSION_SLOTS, TradingFill, run_admitted, run_market_read, run_trading_read,
+    selected_read, try_read,
 };
 pub use runtime::artifact::{
     ARTIFACT_VERSION, LIBC_MIN, verify_artifact_identity, verify_compiled_identity, version_json,
@@ -239,11 +240,23 @@ pub struct Config {
     pub pool_max: u32,
     pub python_budget: u32,
     pub configured_max_connections: u32,
+    /// Optional EUR/USD rate for the compliance pricing assumptions
+    /// (`COMPLIANCE_EUR_USD_RATE`, a decimal string). Absent means the pricing
+    /// core's published default; startup refuses a value that is not positive.
+    #[serde(default, alias = "COMPLIANCE_EUR_USD_RATE")]
+    pub compliance_eur_usd_rate: Option<rust_decimal::Decimal>,
+    /// Operator configuration only; relative paths use the unit WorkingDirectory.
+    #[serde(default = "fleet_artifact_default", alias = "FLEET_ARTIFACT_PATH")]
+    pub fleet_artifact_path: std::path::PathBuf,
     /// Phase 2 private runtime settings. The deploy transaction projects them
     /// into the Rust runtime file only. Absent in the contract harness, where
     /// the Phase 2 groups are not mounted and Caddy keeps them on Python.
     #[serde(default)]
     pub phase2: Phase2Options,
+}
+
+fn fleet_artifact_default() -> std::path::PathBuf {
+    "data/fleet_demand.json".into()
 }
 
 /// The minimal Phase 2 verification, invite and public-link settings.

@@ -19,6 +19,206 @@ fn staging() -> Config {
         configured_max_connections: 100,
         phase2: Default::default(),
         prepared_budget: None,
+        compliance_eur_usd_rate: None,
+        fleet_artifact_path: "data/fleet_demand.json".into(),
+    }
+}
+
+#[tokio::test]
+async fn fleet_config_cases() {
+    use std::path::Path;
+    use verdaxis_read::runtime::config::{
+        config_from_deployed_environment, fleet_startup_probe, resolve_fleet_artifact_path,
+    };
+    let mut input = serde_json::json!({
+        "environment": "test", "release_sha": compiled_sha(),
+        "migration_revision": "kycg_20261014_staging",
+        "database_url": "postgres://rust_app:pw@127.0.0.1:12345/verdaxis_test",
+        "bind": "127.0.0.1:0", "pool_max": 17, "python_budget": 52,
+        "configured_max_connections": 100, "db_session_time_zone": "UTC"
+    });
+    let default: Config = serde_json::from_value(input.clone()).unwrap();
+    assert_eq!(
+        default.fleet_artifact_path,
+        Path::new("data/fleet_demand.json")
+    );
+    input["FLEET_ARTIFACT_PATH"] = serde_json::json!("data/other.json");
+    let alias: Config = serde_json::from_value(input).unwrap();
+    assert_eq!(alias.fleet_artifact_path, Path::new("data/other.json"));
+    let mut environment = deployed_environment();
+    let load = |environment: &std::collections::HashMap<String, String>| {
+        config_from_deployed_environment(
+            environment,
+            "127.0.0.1:0".parse().unwrap(),
+            &budget_document(compiled_sha()),
+        )
+        .unwrap()
+    };
+    assert_eq!(
+        load(&environment).fleet_artifact_path,
+        default.fleet_artifact_path
+    );
+    environment.insert("FLEET_ARTIFACT_PATH".into(), "data/other.json".into());
+    assert_eq!(
+        load(&environment).fleet_artifact_path,
+        alias.fleet_artifact_path
+    );
+
+    let root = std::env::temp_dir().join(format!("fleet-config-{}", uuid::Uuid::new_v4()));
+    let cwd = root.join("checkout");
+    std::fs::create_dir_all(cwd.join("data")).unwrap();
+    let cwd = std::fs::canonicalize(cwd).unwrap();
+    let resolved = resolve_fleet_artifact_path(&default.fleet_artifact_path, &cwd).unwrap();
+    assert_eq!(resolved, cwd.join("data/fleet_demand.json"));
+    assert!(!fleet_startup_probe(&resolved).await);
+    for invalid in [
+        "",
+        " ",
+        "data/../other.json",
+        "../data/fleet.json",
+        "other/file.json",
+        "data/fleet.json/",
+        "data/escape/",
+    ] {
+        assert!(resolve_fleet_artifact_path(Path::new(invalid), &cwd).is_err());
+    }
+    let outside = root.join("outside");
+    std::fs::create_dir(&outside).unwrap();
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(&outside, cwd.join("data/escape")).unwrap();
+        assert!(resolve_fleet_artifact_path(Path::new("data/escape/missing.json"), &cwd).is_err());
+        std::os::unix::fs::symlink(outside.join("missing.json"), cwd.join("data/dangling.json"))
+            .unwrap();
+        assert!(resolve_fleet_artifact_path(Path::new("data/dangling.json"), &cwd).is_err());
+    }
+    assert!(resolve_fleet_artifact_path(&outside.join("fleet.json"), &cwd).is_err());
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStringExt;
+        let invalid = std::ffi::OsString::from_vec(b"data/fleet-\xff.json".to_vec());
+        assert!(resolve_fleet_artifact_path(Path::new(&invalid), &cwd).is_err());
+        assert!(resolve_fleet_artifact_path(Path::new("data/escape/"), &cwd).is_err());
+        std::fs::create_dir(cwd.join("data/feeds")).unwrap();
+        std::os::unix::fs::symlink("../fleet_demand.json", cwd.join("data/feeds/fleet.json"))
+            .unwrap();
+        let internal =
+            resolve_fleet_artifact_path(Path::new("data/feeds/fleet.json"), &cwd).unwrap();
+        assert_eq!(internal, resolved);
+        assert_eq!(
+            resolve_fleet_artifact_path(&internal, &cwd).unwrap(),
+            internal
+        );
+    }
+    assert!(resolve_fleet_artifact_path(&resolved, &cwd).is_ok());
+    std::fs::write(&resolved, b"not JSON").unwrap();
+    assert!(!fleet_startup_probe(&resolved).await);
+    std::fs::write(
+        &resolved,
+        br#"{"entries":[],"last_updated":"2026-04-03","sources":[]}"#,
+    )
+    .unwrap();
+    assert!(fleet_startup_probe(&resolved).await);
+    std::fs::write(&resolved, vec![b' '; 262_145]).unwrap();
+    assert!(!fleet_startup_probe(&resolved).await);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn fleet_config_link_order_and_probe_cases() {
+    use verdaxis_read::runtime::config::{fleet_startup_probe, resolve_fleet_artifact_path};
+    let temp = std::env::temp_dir().join(format!("fleet-links-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(temp.join("data")).unwrap();
+    let cwd = std::fs::canonicalize(&temp).unwrap();
+    let data = cwd.join("data");
+    let outside = cwd.join("outside");
+    std::fs::create_dir_all(outside.join("subdir")).unwrap();
+    let document = br#"{"entries":[],"last_updated":"2026-04-03","sources":[]}"#;
+    std::fs::write(outside.join("fleet.json"), document).unwrap();
+    std::fs::write(data.join("fleet.json"), document).unwrap();
+    std::os::unix::fs::symlink(outside.join("subdir"), data.join("hop")).unwrap();
+    for target in ["hop/../fleet.json", "hop/.."] {
+        let link = data.join("entry.json");
+        std::os::unix::fs::symlink(target, &link).unwrap();
+        assert!(
+            resolve_fleet_artifact_path(std::path::Path::new("data/entry.json"), &cwd).is_err()
+        );
+        std::fs::remove_file(link).unwrap();
+    }
+    std::os::unix::fs::symlink("hop/..", data.join("a")).unwrap();
+    std::os::unix::fs::symlink("a/fleet.json", data.join("entry.json")).unwrap();
+    assert!(resolve_fleet_artifact_path(std::path::Path::new("data/entry.json"), &cwd).is_err());
+    std::fs::create_dir(data.join("feeds")).unwrap();
+    std::fs::write(data.join("feeds/fleet.json"), document).unwrap();
+    let resolved =
+        resolve_fleet_artifact_path(std::path::Path::new("data/feeds/fleet.json"), &cwd).unwrap();
+    std::fs::rename(data.join("feeds"), data.join("old-feeds")).unwrap();
+    std::os::unix::fs::symlink(&outside, data.join("feeds")).unwrap();
+    assert!(!fleet_startup_probe(&resolved).await);
+    let direct =
+        resolve_fleet_artifact_path(std::path::Path::new("data/fleet.json"), &cwd).unwrap();
+    std::fs::remove_file(data.join("fleet.json")).unwrap();
+    assert!(
+        std::process::Command::new("mkfifo")
+            .arg(&direct)
+            .status()
+            .unwrap()
+            .success()
+    );
+    assert!(
+        !tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            fleet_startup_probe(&direct)
+        )
+        .await
+        .unwrap()
+    );
+    assert!(!fleet_startup_probe(std::path::Path::new("/dev/null")).await);
+    std::fs::remove_dir_all(temp).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn fleet_config_environment_encoding() {
+    use std::os::unix::ffi::OsStringExt;
+    let root = std::env::temp_dir().join(format!("fleet-env-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(root.join("data")).unwrap();
+    let budget = root.join("budget.json");
+    std::fs::write(&budget, budget_document(compiled_sha())).unwrap();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_verdaxis-read"))
+        .current_dir(&root)
+        .env_remove("RUST_CONFIG")
+        .envs(deployed_environment())
+        .env(
+            "FLEET_ARTIFACT_PATH",
+            std::ffi::OsString::from_vec(b"data/\xff.json".to_vec()),
+        )
+        .args([
+            "--bind",
+            "127.0.0.1:0",
+            "--budget-file",
+            budget.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let log = String::from_utf8(output.stdout).unwrap();
+    assert!(!log.contains("optional fleet artifact startup probe"));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn fleet_config_syntax_is_checked_by_runtime_validation() {
+    let mut config = staging();
+    for path in [
+        "",
+        "data/../fleet.json",
+        "../fleet.json",
+        "other/fleet.json",
+    ] {
+        config.fleet_artifact_path = path.into();
+        assert!(validate_config(&config).is_err());
     }
 }
 
@@ -103,6 +303,18 @@ fn cache_checkpoint_is_accepted_and_earlier_checkpoints_stay_accepted() {
         assert!(validate_config(&config).is_ok(), "{revision}");
     }
     config.migration_revision = "prc_20261018_other".into();
+    assert!(validate_config(&config).is_err());
+}
+
+#[test]
+fn read_index_checkpoint_is_accepted_and_the_cache_checkpoint_stays_accepted() {
+    let mut config = staging();
+    // The cache checkpoint stays accepted so one change can roll the route back.
+    for revision in ["prc_20261018_cache", "p5_20261020_read_indexes"] {
+        config.migration_revision = revision.into();
+        assert!(validate_config(&config).is_ok(), "{revision}");
+    }
+    config.migration_revision = "p5_20261020_other".into();
     assert!(validate_config(&config).is_err());
 }
 
@@ -545,6 +757,53 @@ fn deployed_environment_refuses_an_incomplete_or_foreign_contract() {
         config_from_deployed_environment(&ambiguous, bind, &budget_document(compiled_sha()))
             .is_err()
     );
+}
+
+#[test]
+fn compliance_exchange_rate_is_an_optional_positive_decimal() {
+    use verdaxis_read::runtime::config::config_from_deployed_environment;
+    let rate = |text: &str| text.parse::<rust_decimal::Decimal>().unwrap();
+
+    // The contract harness document: an absent key leaves the published
+    // default rate to the pricing core.
+    let mut input = serde_json::json!({
+        "environment": "test", "release_sha": compiled_sha(),
+        "migration_revision": "kycg_20261014_staging",
+        "database_url": "postgres://rust_app:pw@127.0.0.1:12345/verdaxis_test",
+        "bind": "127.0.0.1:0", "pool_max": 17, "python_budget": 52,
+        "configured_max_connections": 100, "db_session_time_zone": "UTC"
+    });
+    let config: Config = serde_json::from_value(input.clone()).unwrap();
+    assert_eq!(config.compliance_eur_usd_rate, None);
+    assert!(validate_config(&config).is_ok());
+    input["COMPLIANCE_EUR_USD_RATE"] = serde_json::json!("1.10");
+    let config: Config = serde_json::from_value(input.clone()).unwrap();
+    assert_eq!(config.compliance_eur_usd_rate, Some(rate("1.10")));
+    assert!(validate_config(&config).is_ok());
+    for refused in ["0", "-1.08"] {
+        input["COMPLIANCE_EUR_USD_RATE"] = serde_json::json!(refused);
+        let config: Config = serde_json::from_value(input.clone()).unwrap();
+        assert!(validate_config(&config).is_err(), "accepted rate {refused}");
+    }
+    input["COMPLIANCE_EUR_USD_RATE"] = serde_json::json!("one");
+    assert!(serde_json::from_value::<Config>(input).is_err());
+
+    // The deployed environment carries the same key.
+    let bind: std::net::SocketAddr = "127.0.0.1:8011".parse().unwrap();
+    let budget = budget_document(compiled_sha());
+    let mut environment = deployed_environment();
+    let config = config_from_deployed_environment(&environment, bind, &budget).unwrap();
+    assert_eq!(config.compliance_eur_usd_rate, None);
+    environment.insert("COMPLIANCE_EUR_USD_RATE".into(), " 1.10 ".into());
+    let config = config_from_deployed_environment(&environment, bind, &budget).unwrap();
+    assert_eq!(config.compliance_eur_usd_rate, Some(rate("1.10")));
+    assert!(validate_config(&config).is_ok());
+    for refused in ["", "one", "1,10", "0", "-1.08"] {
+        environment.insert("COMPLIANCE_EUR_USD_RATE".into(), refused.into());
+        let accepted = config_from_deployed_environment(&environment, bind, &budget)
+            .is_ok_and(|config| validate_config(&config).is_ok());
+        assert!(!accepted, "accepted rate {refused:?}");
+    }
 }
 
 #[test]

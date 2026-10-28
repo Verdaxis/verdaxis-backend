@@ -16,6 +16,140 @@ comes from each environment's `/health/ready` response, not a dated SHA in
 source documentation. The shared-host marker is
 `/home/verdaxis-prod/verdaxis/PRODUCTION_HOST.md`.
 
+## Shared FuelEU reference values
+
+`rs/read/src/market/fueleu.rs` owns the lifecycle GHG reference, the
+regulation's reduction steps and the deficit penalty per tonne; every
+reporting-year limit is derived from the reference and the steps. Voyage
+calculations use its exact-decimal adapters; order-book CI projections use the
+same reference for arithmetic and response fields. The shared schedule accepts
+2025–9999; the MCP request retains its 2025–2050 reporting-year range.
+`rs/read/tests/phase5_fueleu.rs` checks the boundaries, adapters and consumer
+sources.
+
+`rs/read/src/compliance/pricing.rs` provides the pure declared-lifecycle
+comparison and overlay assumptions. It uses the shared reference, penalty and
+reporting-year limit; missing declarations remain null, physical differences
+round to 0.001 tonnes CO2e/MT, and financial benefits remain unpriced. The
+optional `COMPLIANCE_EUR_USD_RATE` setting (`Config::compliance_eur_usd_rate`)
+replaces the default exchange rate; startup refuses a value that is not
+positive. `rs/read/tests/phase5_compliance_pricing_core.rs` covers the core and
+its serialized client fields.
+
+`rs/read/src/compliance/validation.rs` holds the pure fuel-mix and
+reporting-year rules, and `rs/read/src/compliance/scoring.rs` the pure checked
+score calculation; both use `market::fueleu` for the reference, the penalty and
+the reporting-year limits. `rs/read/src/routes/compliance_fuels.rs` serves the
+constant illustrative fuel-intensity table at `GET /api/compliance/fuels`, with
+no database read or authentication. The other compliance routes reach the pure
+cores through their authenticated adapters: `routes::compliance_scores` serves
+the fleet summary, vessel score and scenario reads, and
+`routes::compliance_overlay` the pricing-overlay POST, both built on the shared
+authenticated helper and their one-statement SQL (`sql/compliance_fleet.sql`,
+`sql/compliance_vessel.sql`, `sql/compliance_overlay.sql`), which also covers
+the organization-scoped vessel count. `rs/read/tests/phase5_compliance_scores.rs`,
+`rs/read/tests/phase5_compliance_overlay.rs` and
+`rs/read/tests/phase5_compliance_fuels.rs` cover them;
+`rs/read/tests/phase5_postgres.rs` adds the cross-group integration cases and
+`rs/read/tests/run_compliance_scores.sh` runs the migrated matrix.
+`deploy/caddy/rust-phase5.caddy` routes the ten routes of the inventory by exact
+method and path in one switch, beside the first read groups' snippet.
+`scripts/rust_phase5_candidate.py` produces the private staging or production
+site candidate, and its rollback is the original file. `rs/read/tests/phase5_routing.rs`
+checks the Rust side of the row against `tests/rust_contract/phase5/routes.json`;
+`tests/rust_contract/test_phase5_routing.py` checks the Caddy side with a real
+Caddy. Nothing is imported on any host.
+`tests/rust_contract/phase5/evidence-manifest.json`, its schema and
+`test_phase5_gate.py` carry the neutral release evidence checks.
+
+## Phase 5 public market reads
+
+`routes::benchmark_quotes` serves `GET /api/benchmarks` through the shared
+admitted read owner. `sql/benchmark_quote.sql` selects one active canonical
+product/point lane and its optional stored quote in one statement; fallback
+prices use the existing shared benchmark policy and window calculation.
+`rs/read/tests/phase5_benchmarks.rs` covers query, catalog and quote behavior.
+
+`runtime::admission::run_market_read` runs the work of one public market read
+in the shared admitted owner task: one READ ONLY transaction with a
+transaction-local five-second statement limit, committed by the owner, with the
+permit and connection held through cleanup. `routes::market_data_error`
+supplies the typed `{"detail": {"code", "message"}}` errors and the result-cap
+helpers. Saturated admission, pool, transaction and owner failures of
+`/api/availability`, `/api/benchmarks`, `/api/demand` and `/api/producers` use
+that envelope; every other admitted read keeps its string detail.
+`rs/read/tests/phase5_public_boundary.rs`, `rs/read/tests/http_contract.rs` and
+`rs/read/tests/admission_postgres.rs` check the boundary.
+
+`routes::availability` serves `GET /api/availability` through the shared
+admitted read helper. `rs/read/sql/availability.sql` selects canonical active
+inventory lanes and aggregates each evidence class in one statement snapshot.
+It prefers REAL, then disclosed DEMO evidence, retains unknown supplier counts,
+and sends exact NUMERIC totals and rounded means as decimal strings. It refuses
+more than 512 groups before omitting coordinate-less map entries; zero
+coordinates remain valid. The result is not cached.
+`rs/read/tests/phase5_availability.rs` covers the response, map coordinates,
+result bound, public admission and populated PostgreSQL cases.
+
+`rs/read/src/routes/demand.rs` serves anonymous demand groups from one SQL
+statement in `rs/read/sql/demand.sql`. The statement applies the shared current
+order policy, counts at most 32,769 candidate group identities, refuses more
+than 32,768 groups, and ranks complete aggregates before the requested output
+limit. UNKNOWN groups retain counts but no economic values. The route uses
+the shared admitted read transaction and structured market errors.
+`rs/read/tests/phase5_demand.rs` checks query limits, urgency, ordering,
+provenance, current owners and PostgreSQL group bounds.
+
+`rs/read/src/routes/producers.rs` provides the public producer read. It uses
+the shared admitted read transaction and one ordered SELECT from
+`rs/read/sql/producers.sql`. Filters validate project status and inclusive COD
+bounds. Coordinates are selected without changing geography; NUMERIC metadata
+remains exact decimal strings. The response accepts at most 5000 projects and
+refuses overflow without returning a partial list.
+`rs/read/tests/phase5_producers.rs` covers filters, fields and populated limits.
+
+## Optional fleet artifact configuration
+
+`Config.fleet_artifact_path` accepts `FLEET_ARTIFACT_PATH` and defaults to
+`data/fleet_demand.json`. Relative paths resolve under the backend unit's
+WorkingDirectory. Relative and absolute paths must stay within its trusted
+`data` directory, canonicalised once at startup. Startup preserves raw syntax
+until validation and refuses empty paths, invalid encoding, trailing separators,
+traversal and proven symlink escapes. Internal links resolve to an in-root target;
+connection and state validation retain that representation without filesystem
+resolution. Missing, inaccessible and non-directory storage remains optional. `runtime::config` provides the
+resolver and one bounded two-second, 256 KiB JSON startup probe. The binary logs
+only available/unavailable; missing or invalid optional data does not affect
+process startup or the unchanged four-field database readiness response.
+Link targets are expanded in filesystem order under held directory descriptors;
+parent steps cannot erase an unchecked link. `runtime::safe_fs` supplies the shared
+rustix no-follow descriptor walker, with nonblocking final opens and regular-file
+checks. The startup probe uses only that opener before its bounded read.
+Full document validation and the fleet route remain the fleet reader's concern.
+`rs/read/tests/runtime.rs` and `runtime_postgres.rs` cover this boundary.
+
+`routes/fleet_intelligence.rs` serves `GET /api/fleet-intelligence` through its
+route-local `market/fleet_snapshot.rs`. The reader validates bounded UTF-8
+observations with descriptor-relative no-follow opens, before/after file metadata
+checks and a two-second deadline, retaining admission through cleanup. Unavailable
+data returns structured 503 without fallback; database readiness is unchanged.
+`tests/phase5_fleet.rs` covers the contract.
+The fleet document must be published only by atomic rename; same-size in-place
+rewrites inside timestamp resolution can escape the metadata stability check.
+
+## Phase 5 read lookup indexes
+
+`alembic/versions/p5_20261020_read_indexes.py` (parent `sse_20261021_replay_floor`)
+adds three non-unique B-tree indexes for the Phase 5 reads:
+`vessels(organization_id, id)`, `producer_projects(cod_year, name, id)` and
+`producer_projects(status, cod_year, id)`. It takes SHARE locks on both tables
+with NOWAIT and builds all three in one transaction. The models declare the
+same indexes. `deploy/migration-checkpoints.tsv` adds the transition and its
+pause; the Rust allowlist accepts both `prc_20261018_cache` and the new
+revision. `tests/unit/test_phase5_indexes.py`,
+`tests/unit/test_phase5_checkpoints.py` and
+`tests/postgres/test_phase5_read_indexes.py` check it.
+
 ## Rust business serving composition
 
 `runtime/phase4.rs` assembles the 42 business, KYC, operator, vessel,

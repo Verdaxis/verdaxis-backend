@@ -11,7 +11,10 @@ ROOT = Path(__file__).resolve().parents[2]
 def test_stream_release_path_has_no_skipped_checkpoint():
     chain = ["prc_20261026_changes", "p3_20261020_auth_tokens", "sse_20261021_replay_floor"]
     script = ScriptDirectory.from_config(Config(str(ROOT / "alembic.ini")))
-    assert script.get_heads() == [chain[-1]]
+    heads = script.get_heads()
+    assert len(heads) == 1
+    # Later checkpoints build on this one; it stays on the single migration line.
+    assert chain[-1] in {rev.revision for rev in script.iterate_revisions(heads[0], "base")}
     for parent, child in zip(chain, chain[1:]):
         assert script.get_revision(child).down_revision == parent
     rows = {tuple(line.split("\t")) for line in (ROOT / "deploy/migration-checkpoints.tsv").read_text().splitlines() if line and not line.startswith("#")}

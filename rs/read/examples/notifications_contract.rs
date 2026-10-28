@@ -56,6 +56,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         pool_max: 5,
         python_budget: 20,
         configured_max_connections: 100,
+        compliance_eur_usd_rate: None,
+        fleet_artifact_path: "data/fleet_demand.json".into(),
         phase2: Default::default(),
     };
     let pools = verdaxis_read::connect(&config)

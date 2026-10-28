@@ -173,6 +173,15 @@ pub fn config_from_deployed_environment(
         pool_max: rust_pool,
         python_budget: budget.python_budget,
         configured_max_connections: budget.configured_max_connections,
+        fleet_artifact_path: environment
+            .get("FLEET_ARTIFACT_PATH")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(crate::fleet_artifact_default),
+        compliance_eur_usd_rate: environment
+            .get("COMPLIANCE_EUR_USD_RATE")
+            .map(|value| value.trim().parse::<rust_decimal::Decimal>())
+            .transpose()
+            .map_err(|_| "COMPLIANCE_EUR_USD_RATE must be a decimal number")?,
         phase2: crate::Phase2Options {
             // Task 23: the deploy transaction writes these to the Rust runtime
             // file only. A deployed start without them is refused rather than
@@ -350,6 +359,178 @@ pub(crate) fn database_target(config: &Config) -> Result<DatabaseTarget, String>
     Ok(target)
 }
 
+/// Resolve once at startup beneath WorkingDirectory/data. Storage errors leave
+/// an unavailable optional path; invalid syntax and proven escapes are fatal.
+pub fn resolve_fleet_artifact_path(
+    configured: &std::path::Path,
+    working_directory: &std::path::Path,
+) -> Result<std::path::PathBuf, String> {
+    use std::path::PathBuf;
+    let invalid = || "invalid FLEET_ARTIFACT_PATH".to_owned();
+    validate_fleet_path_syntax(configured)?;
+    if !working_directory.is_absolute() {
+        return Err(invalid());
+    }
+    let lexical_root = working_directory.join("data");
+    let path = if configured.is_absolute() {
+        configured.to_owned()
+    } else {
+        working_directory.join(configured)
+    };
+    // Check lexical confinement before observing the configured path. The one
+    // trusted root is never inferred from an absolute configured filename.
+    let suffix = path.strip_prefix(&lexical_root).map_err(|_| invalid())?;
+    if suffix.as_os_str().is_empty() {
+        return Err(invalid());
+    }
+    let root = std::fs::canonicalize(&lexical_root).unwrap_or(lexical_root);
+    let mut directories = match super::safe_fs::open_root(&root) {
+        Ok(directory) => vec![directory],
+        Err(_) => return Ok(root.join(suffix)),
+    };
+    let mut names: Vec<std::ffi::OsString> = Vec::new();
+    let mut pending: std::collections::VecDeque<_> = suffix
+        .components()
+        .map(|part| part.as_os_str().to_owned())
+        .collect();
+    let mut links = 0;
+    while let Some(part) = pending.pop_front() {
+        if part == "." {
+            continue;
+        }
+        if part == ".." {
+            if names.pop().is_none() {
+                return Err(invalid());
+            }
+            directories.pop();
+            continue;
+        }
+        let directory = directories.last().ok_or_else(invalid)?;
+        let status =
+            match rustix::fs::statat(directory, &part, rustix::fs::AtFlags::SYMLINK_NOFOLLOW) {
+                Ok(status) => status,
+                Err(_) => {
+                    return Ok(root.join(
+                        names
+                            .iter()
+                            .chain(std::iter::once(&part))
+                            .chain(pending.iter())
+                            .collect::<PathBuf>(),
+                    ));
+                }
+            };
+        if rustix::fs::FileType::from_raw_mode(status.st_mode) == rustix::fs::FileType::Symlink {
+            links += 1;
+            if links > 40 {
+                return Err(invalid());
+            }
+            let target =
+                rustix::fs::readlinkat(directory, &part, Vec::new()).map_err(|_| invalid())?;
+            use std::os::unix::ffi::OsStrExt;
+            let target = std::path::Path::new(std::ffi::OsStr::from_bytes(target.to_bytes()));
+            let target = if target.is_absolute() {
+                let relative = target.strip_prefix(&root).map_err(|_| invalid())?;
+                names.clear();
+                directories.truncate(1);
+                relative
+            } else {
+                target
+            };
+            // Expand in filesystem order: a component is checked for links before
+            // a later parent step can remove it. Never lexically cancel x/.. .
+            let mut next: std::collections::VecDeque<_> = target
+                .components()
+                .map(|part| part.as_os_str().to_owned())
+                .collect();
+            next.append(&mut pending);
+            pending = next;
+        } else {
+            names.push(part.clone());
+            if !pending.is_empty() {
+                match rustix::fs::openat(
+                    directory,
+                    &part,
+                    rustix::fs::OFlags::RDONLY
+                        | rustix::fs::OFlags::DIRECTORY
+                        | rustix::fs::OFlags::NOFOLLOW
+                        | rustix::fs::OFlags::NONBLOCK
+                        | rustix::fs::OFlags::CLOEXEC,
+                    rustix::fs::Mode::empty(),
+                ) {
+                    Ok(child) => directories.push(child),
+                    Err(_) => {
+                        return Ok(
+                            root.join(names.iter().chain(pending.iter()).collect::<PathBuf>())
+                        );
+                    }
+                }
+            }
+        }
+        if pending.len() > 128 {
+            return Err(invalid());
+        }
+    }
+    Ok(names.iter().fold(root, |path, part| path.join(part)))
+}
+
+fn validate_fleet_path_syntax(path: &std::path::Path) -> Result<(), String> {
+    let text = path.to_str().ok_or("invalid FLEET_ARTIFACT_PATH")?;
+    if text.trim().is_empty()
+        || text.contains('\0')
+        || text.ends_with(std::path::MAIN_SEPARATOR)
+        || path
+            .components()
+            .any(|part| matches!(part, std::path::Component::ParentDir))
+        || path.file_name().is_none()
+        || (!path.is_absolute() && !path.starts_with("data"))
+    {
+        return Err("invalid FLEET_ARTIFACT_PATH".into());
+    }
+    Ok(())
+}
+
+/// One optional startup observation, not a readiness dependency. Full fleet
+/// document semantics belong to the fleet reader; this probe checks bounded JSON.
+pub async fn fleet_startup_probe(path: &std::path::Path) -> bool {
+    use tokio::io::AsyncReadExt;
+    const MAX_BYTES: u64 = 262_144;
+    let read = async {
+        let path = path.to_owned();
+        let file = tokio::task::spawn_blocking(move || super::safe_fs::open_regular_file(&path))
+            .await
+            .ok()?
+            .ok()?;
+        if file.metadata().ok()?.len() > MAX_BYTES {
+            return None;
+        }
+        let file = tokio::fs::File::from_std(file);
+        let mut bytes = Vec::new();
+        file.take(MAX_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .await
+            .ok()?;
+        if bytes.len() > MAX_BYTES as usize {
+            return None;
+        }
+        let document: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+        (document.get("entries")?.is_array()
+            && document.get("last_updated")?.is_string()
+            && document.get("sources")?.is_array())
+        .then_some(())
+    };
+    let available = matches!(
+        tokio::time::timeout(std::time::Duration::from_secs(2), read).await,
+        Ok(Some(()))
+    );
+    let availability = if available {
+        "available"
+    } else {
+        "unavailable"
+    };
+    tracing::info!(availability, "optional fleet artifact startup probe");
+    available
+}
+
 pub fn runtime_connection_total(config: &Config) -> Result<u32, String> {
     let extra = match config.prepared_budget.as_deref() {
         Some(json) => {
@@ -373,6 +554,8 @@ pub fn runtime_connection_total(config: &Config) -> Result<u32, String> {
 }
 
 pub fn validate_config(config: &Config) -> Result<(), String> {
+    // Filesystem resolution belongs to startup, not repeated DB/state validation.
+    validate_fleet_path_syntax(&config.fleet_artifact_path)?;
     if !matches!(
         config.environment.as_str(),
         "development" | "test" | "staging" | "production"
@@ -404,6 +587,12 @@ pub fn validate_config(config: &Config) -> Result<(), String> {
             "read admission slots must be positive and pool_max must equal slots plus one".into(),
         );
     }
+    if config
+        .compliance_eur_usd_rate
+        .is_some_and(|rate| rate <= rust_decimal::Decimal::ZERO)
+    {
+        return Err("COMPLIANCE_EUR_USD_RATE must be positive".into());
+    }
     let allowed: Vec<String> = serde_json::from_str(include_str!(
         "../../../../deploy/rust/allowed-revisions.json"
     ))
@@ -416,6 +605,7 @@ pub fn validate_config(config: &Config) -> Result<(), String> {
                 | "prc_20261026_changes"
                 | "p3_20261020_auth_tokens"
                 | "sse_20261021_replay_floor"
+                | "p5_20261020_read_indexes"
         ) {
             return Err("production requires its reviewed union checkpoint".into());
         }

@@ -158,8 +158,9 @@ def test_device_lock_key_matches_python():
 def test_phase3_migration_has_one_head_and_direct_parent():
     script = _script()
     assert PARENT == RECORD["observed_single_head_at_task_start"]
-    assert script.get_heads() == ["sse_20261021_replay_floor"]
+    assert script.get_heads() == ["p5_20261020_read_indexes"]
     assert script.get_revision("sse_20261021_replay_floor").down_revision == REVISION
+    assert script.get_revision("p5_20261020_read_indexes").down_revision == "sse_20261021_replay_floor"
     revision = script.get_revision(REVISION)
     assert revision.down_revision == PARENT
     assert revision.module.branch_labels is None

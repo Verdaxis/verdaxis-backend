@@ -66,6 +66,8 @@ fn component(pool: sqlx::PgPool, health: sqlx::PgPool) -> axum::Router {
         pool_max: 7,
         python_budget: 52,
         configured_max_connections: 100,
+        compliance_eur_usd_rate: None,
+        fleet_artifact_path: "data/fleet_demand.json".into(),
     };
     let state = AppState::new(
         config,

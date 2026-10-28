@@ -107,6 +107,14 @@ jobs:
           DATABASE_URL: "sqlite+aiosqlite:///:memory:"
         run: python3 -m pytest tests/rust_contract/test_phase2_scenarios.py tests/rust_contract/test_phase2_runner.py -q
 
+      - name: Run Phase 5 inventory and gate tests
+        env:
+          ENVIRONMENT: test
+          RELEASE_SHA: test
+          JWT_SECRET: test-secret-key-for-testing-minimum-32-characters-long
+          DATABASE_URL: "sqlite+aiosqlite:///:memory:"
+        run: venv/bin/python -m pytest tests/rust_contract/test_phase5_inventory.py tests/rust_contract/test_phase5_gate.py -q
+
       - name: Check dependency advisories
         working-directory: rs
         run: |
@@ -242,6 +250,15 @@ jobs:
           tar -xzf "caddy_${CADDY_VERSION}_linux_amd64.tar.gz" caddy
           install -D -m 0755 caddy "$RUNNER_TEMP/bin/caddy"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Run the Phase 5 routing tests against the pinned Caddy
+        if: matrix.check == 'caddy'
+        env:
+          ENVIRONMENT: test
+          RELEASE_SHA: test
+          JWT_SECRET: test-secret-key-for-testing-minimum-32-characters-long
+          DATABASE_URL: "sqlite+aiosqlite:///:memory:"
+        run: venv/bin/python -m pytest tests/rust_contract/test_phase5_routing.py tests/unit/test_rust_phase5_candidate.py -q
 
       - name: Download the release artifact
         if: matrix.check == 'combined'

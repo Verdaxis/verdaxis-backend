@@ -193,6 +193,8 @@ async fn mounted_watchlist_reads_refuse_missing_bearer_before_bad_uuid() {
         pool_max: 17,
         python_budget: 52,
         configured_max_connections: 100,
+        compliance_eur_usd_rate: None,
+        fleet_artifact_path: "data/fleet_demand.json".into(),
         phase2: Default::default(),
     };
     let state = verdaxis_read::AppState::new(

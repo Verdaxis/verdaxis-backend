@@ -16,4 +16,5 @@ pub mod phase4;
 mod phase4_adapters;
 pub mod phase4_analytics;
 pub mod policy;
+pub mod safe_fs;
 pub mod trading_routes;

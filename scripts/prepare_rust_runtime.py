@@ -299,6 +299,7 @@ def project_runtime_environment(
         "prc_20261026_changes",
         "p3_20261020_auth_tokens",
         "sse_20261021_replay_floor",
+        "p5_20261020_read_indexes",
     }:
         raise RustRuntimeError("production requires its reviewed union checkpoint")
     if values["ENVIRONMENT"] != environment or values["RELEASE_SHA"] != release_sha:
