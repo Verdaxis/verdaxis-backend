@@ -73,7 +73,11 @@ fn stream_schema_starts_at_its_checkpoint_and_stays_for_later_ones() {
     use verdaxis_read::streams::runtime::{STREAM_REVISION, schema_has_streams};
     assert!(schema_has_streams(STREAM_REVISION));
     assert!(schema_has_streams("p5_20261020_read_indexes"));
-    for earlier in ["p3_20261020_auth_tokens", "prc_20261026_changes", "kycg_20261014_staging"] {
+    for earlier in [
+        "p3_20261020_auth_tokens",
+        "prc_20261026_changes",
+        "kycg_20261014_staging",
+    ] {
         assert!(!schema_has_streams(earlier), "{earlier}");
     }
     assert!(!schema_has_streams("unlisted_stream_revision"));

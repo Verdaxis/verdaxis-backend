@@ -113,6 +113,7 @@ pub async fn load(
                 include_str!("../../sql/current_order_rule.sql"),
             ),
             "$5",
+            "$2",
         )
     });
     let policy = serde_json::to_string(state.policy.as_ref())
