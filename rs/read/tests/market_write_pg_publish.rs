@@ -846,6 +846,102 @@ async fn publication_provenance_keeps_demo_and_unknown_orders_unmatched(){
     }
 }
 
+fn fame_declaration() -> Value {
+    json!({"schema_version":1,"side":"ASK","neat_fame":true,"uco_mass_pct":100,"standard":"EN_14214","standard_edition":"2012+A2:2019","sustainability_scheme":"ISCC_EU","certificate_reference":"publication-certificate","certificate_holder":"publication-supplier","evidence_status":"PENDING","document_references":[],"certificate_valid_until":(Utc::now()+chrono::Duration::days(60)).date_naive().to_string(),"evidence_due":"BEFORE_LOADING"})
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn typed_fame_publication_matches_the_ordinary_create_fields(){
+    let mut f=Fixture::new(0,200).await;
+    let declaration=fame_declaration();
+    sqlx::query("SELECT publish_fixture_fame($1)").bind(&declaration).execute(&mut f.admin).await.unwrap();
+    let reply=f.publish(None).await;assert_eq!(reply.0,StatusCode::OK,"{reply:?}");
+    let published:Value=sqlx::query_scalar("SELECT to_jsonb(o) FROM orderbook_orders o WHERE inventory_item_id=$1").bind(item()).fetch_one(&mut f.observer).await.unwrap();
+    let create=verdaxis_read::routes::market_write::order_create::router(f.app.clone(),VerificationSettings::new(KEY.into(),None,"publish-tests".into(),"publish-tests".into()),CreateSettings{auto_matching_enabled:false,..Default::default()});
+    let now=Utc::now().timestamp();let token=jsonwebtoken::encode(&jsonwebtoken::Header::default(),&json!({"sub":seller(),"type":"access","iat":now,"exp":now+600,"iss":"publish-tests","aud":"publish-tests"}),&jsonwebtoken::EncodingKey::from_secret(KEY.as_bytes())).unwrap();
+    let body=json!({"side":"ASK","product_id":published["product_id"],"delivery_point_id":published["delivery_point_id"],"quantity_mt":"200","price_per_mt_usd":"100","fame_terms":declaration,"certification_declared":true,"certification_scheme":"ISCC_EU","msds_available":true});
+    let response=create.oneshot(Request::builder().method("POST").uri("/api/orderbook").header("authorization",format!("Bearer {token}")).header("content-type","application/json").body(Body::from(body.to_string())).unwrap()).await.unwrap();
+    let status=response.status();let bytes=axum::body::to_bytes(response.into_body(),1024*1024).await.unwrap();assert_eq!(status,StatusCode::CREATED,"{}",String::from_utf8_lossy(&bytes));
+    let ordinary:Value=sqlx::query_scalar("SELECT to_jsonb(o) FROM orderbook_orders o WHERE inventory_item_id IS NULL").fetch_one(&mut f.observer).await.unwrap();
+    for field in ["side","product_id","delivery_point_id","availability_window","quantity_mt","remaining_quantity_mt","price_per_mt_usd","fame_terms","certification_scheme","specification_standard","feedstock","origin","carbon_intensity_gco2_mj","status"]{assert_eq!(published[field],ordinary[field],"{field}");}
+    assert!(ordinary["inventory_item_id"].is_null());assert_eq!(published["inventory_item_id"],json!(item()));assert_eq!(f.stock().await,(Decimal::ZERO,Decimal::from(200)));
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn live_listing_future_and_null_expiry_reuse_without_effects(){
+    for expiry in [None,Some(Utc::now()+chrono::Duration::hours(1))]{
+        let mut f=Fixture::new(0,200).await;let first=f.publish(None).await;assert_eq!(first.0,StatusCode::OK);
+        sqlx::query("SELECT publish_fixture_expiry($1)").bind(expiry).execute(&mut f.admin).await.unwrap();
+        let before=f.counts().await;assert_eq!(f.publish(None).await,first);assert_eq!(f.counts().await,before);
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn publication_updates_pinned_resting_order_and_keeps_evidence_private(){
+    let mut f=Fixture::new(1,200).await;
+    sqlx::raw_sql(include_str!("fixtures/market_write_match_completion.sql")).execute(&mut f.admin).await.unwrap();
+    f.sql("SELECT completion_fixture_watch('00000000-0000-0000-0000-000000005001')").await;
+    let reply=f.publish(None).await;assert_eq!(reply.0,StatusCode::OK,"{reply:?}");
+    let row=sqlx::query("SELECT snapshot_status,snapshot_remaining_quantity_mt FROM watchlist_targets WHERE target_type='PIN'").fetch_one(&mut f.observer).await.unwrap();assert_eq!(row.get::<String,_>(0),"FILLED");assert_eq!(row.get::<Decimal,_>(1),Decimal::ZERO);
+    let rows=sqlx::query("SELECT payload::jsonb AS payload,producer_evidence FROM market_event_outbox").fetch_all(&mut f.observer).await.unwrap();
+    assert!(rows.iter().any(|row|row.get::<Option<Value>,_>("producer_evidence").is_some_and(|value|value.to_string().contains("target_id"))));
+    for row in rows{let payload:Value=row.get("payload");for field in ["targets","target_id","producer_evidence","watchlist_id","observer_id"]{assert!(payload.get(field).is_none(),"{payload}");}}
+}
+
+fn hooked_component(f:&Fixture,hooks:inventory::PublicationHooks)->Router {
+    inventory::publication_contract_router(f.app.clone(),VerificationSettings::new(KEY.into(),None,"publish-tests".into(),"publish-tests".into()),CreateSettings::default(),std::sync::Arc::new(hooks))
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn live_listing_equal_to_the_locked_clock_is_expired(){
+    let mut f=Fixture::new(0,200).await;let first=f.publish(None).await;assert_eq!(first.0,StatusCode::OK);
+    let at=Utc::now();sqlx::query("SELECT publish_fixture_expiry($1)").bind(at).execute(&mut f.admin).await.unwrap();
+    let router=hooked_component(&f,inventory::PublicationHooks{clock:Some(at),..Default::default()});
+    let reply=send(&router,Some(seller()),item(),None).await;assert_eq!(reply.0,StatusCode::OK,"{reply:?}");assert_ne!(reply.1["listing_id"],first.1["listing_id"]);
+    assert_eq!(f.counts().await["audit"],3);
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn second_listing_check_observes_expiry_during_resource_wait(){
+    let mut f=Fixture::new(0,200).await;f.sql("SELECT publish_fixture_expired(1,true)").await;
+    let barrier=std::sync::Arc::new(verdaxis_read::routes::market_write::order_create::CreateBarrier::default());
+    let router=hooked_component(&f,inventory::PublicationHooks{before_resources:Some(barrier.clone()),..Default::default()});
+    let task=tokio::spawn(async move{send(&router,Some(seller()),item(),None).await});
+    tokio::time::timeout(Duration::from_secs(10),barrier.reached.notified()).await.unwrap();
+    // A retained writer can refresh the existing dated row while the request
+    // is between the slice and its resource acquisition.
+    let deadline=Utc::now()+chrono::Duration::milliseconds(100);
+    sqlx::query("SELECT publish_fixture_expiry($1)").bind(deadline).execute(&mut f.admin).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(150)).await;barrier.resume.notify_one();
+    let reply=task.await.unwrap();assert_eq!(reply.0,StatusCode::OK,"{reply:?}");
+    let expired:i64=sqlx::query_scalar("SELECT count(*) FROM orderbook_orders WHERE status::text='EXPIRED'").fetch_one(&mut f.observer).await.unwrap();assert_eq!(expired,1);assert_eq!(f.stock().await,(Decimal::ZERO,Decimal::from(400)));
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn publication_flush_recovers_only_a_matching_recorded_key(){
+    use verdaxis_read::order_write::{Canonical,idempotency_request_hash};
+    for matching in [true,false] {
+        let mut f=Fixture::new(0,200).await;
+        let barrier=std::sync::Arc::new(verdaxis_read::routes::market_write::order_create::CreateBarrier::default());
+        let router=hooked_component(&f,inventory::PublicationHooks{before_recovery:Some(barrier.clone()),..Default::default()});
+        f.sql("CREATE TRIGGER publish_fixture_insert_error BEFORE INSERT ON orderbook_orders FOR EACH ROW EXECUTE FUNCTION publish_fixture_order_error()").await;
+        let task=tokio::spawn(async move{send(&router,Some(seller()),item(),Some("flush-key")).await});
+        tokio::time::timeout(Duration::from_secs(10),barrier.reached.notified()).await.unwrap();
+        let hash=if matching{idempotency_request_hash(&Canonical::from_json(&json!({"inventory_item_id":item()})).unwrap()).unwrap()}else{"a".repeat(64)};
+        f.sql("DROP TRIGGER publish_fixture_insert_error ON orderbook_orders").await;
+        let listing:Uuid=sqlx::query_scalar("SELECT publish_fixture_key_row($1,$2)").bind("flush-key").bind(hash).fetch_one(&mut f.admin).await.unwrap();
+        barrier.resume.notify_one();let reply=task.await.unwrap();
+        if matching{assert_eq!(reply.0,StatusCode::OK,"{reply:?}");assert_eq!(reply.1["listing_id"],json!(listing));}else{assert_eq!(reply.0,StatusCode::CONFLICT,"{reply:?}");assert_eq!(reply.1["detail"]["code"],"IDEMPOTENCY_CONFLICT");}
+        assert_eq!(f.counts().await,json!({"orders":1,"trades":0,"audit":0,"events":0,"notifications":0,"receipts":0}));assert_eq!(f.stock().await,(Decimal::from(200),Decimal::ZERO));
+    }
+}
+
 async fn concurrent(n: i32, stock: i64, key: Option<&str>) {
     let mut f = Fixture::new(n, stock).await;
     let mut blocker = f.pool.begin().await.unwrap();

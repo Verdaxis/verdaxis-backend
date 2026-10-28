@@ -67,6 +67,11 @@ BEGIN
     UPDATE inventory_items SET supplier_id=target;
 END $$;
 
+CREATE OR REPLACE FUNCTION publish_fixture_fame(declaration jsonb) RETURNS void LANGUAGE plpgsql AS $$ BEGIN
+    UPDATE ports SET name='Singapore' WHERE id='pub-port';
+    UPDATE inventory_items SET product_name=(SELECT name FROM products WHERE id='e561e43f-d9b2-598e-981c-f1d28d515ddc'),fuel_type='FAME',fame_terms=declaration;
+END $$;
+
 CREATE OR REPLACE FUNCTION publish_fixture_refuse_effect() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
     IF NEW.action='inventory.published' THEN RAISE EXCEPTION 'publication effect unavailable' USING ERRCODE='23514'; END IF;
     RETURN NEW;
