@@ -114,6 +114,8 @@ name = "phase4_analytics_policy"
 
 [dev-dependencies]
 verdaxis-contract = { path = "../contract" }
+# Paused time lets the stream tests cross 30-second heartbeat intervals at once.
+tokio = { version = "1.53.3", features = ["full", "test-util"] }
 
 [dependencies]
 aes-gcm = { version = "=0.11.1", features = ["zeroize"] }

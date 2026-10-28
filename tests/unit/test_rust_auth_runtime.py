@@ -76,3 +76,69 @@ def test_umami_settings_come_from_the_optional_analytics_file(tmp_path):
     (tmp_path / ".env.analytics").symlink_to(tmp_path / "elsewhere.env")
     with pytest.raises(runtime.RustRuntimeError):
         runtime.project_runtime_environment(source, sha, "sse_20261021_replay_floor", policy)
+
+
+def test_status_heartbeat_settings_are_optional_and_normalized():
+    assert runtime.system_status_settings(values()) == {}
+    assert runtime.system_status_settings(
+        {"SYSTEM_STATUS": "", "SYSTEM_STATUS_MESSAGE": "   "}
+    ) == {}
+    assert runtime.system_status_settings(
+        {"SYSTEM_STATUS": "  Degraded ", "SYSTEM_STATUS_MESSAGE": "  Slow matching  "}
+    ) == {"SYSTEM_STATUS": "degraded", "SYSTEM_STATUS_MESSAGE": "Slow matching"}
+    for status in ("operational", "degraded", "maintenance"):
+        assert runtime.system_status_settings({"SYSTEM_STATUS": status}) == {
+            "SYSTEM_STATUS": status
+        }
+
+
+@pytest.mark.parametrize("status", ["ok", "down", "operational degraded", "maintenence"])
+def test_status_heartbeat_refuses_an_unknown_status(status):
+    with pytest.raises(runtime.RustRuntimeError, match="SYSTEM_STATUS"):
+        runtime.system_status_settings({"SYSTEM_STATUS": status})
+
+
+def test_status_heartbeat_message_limit_is_280_characters():
+    at_limit = "x" * 280
+    assert runtime.system_status_settings({"SYSTEM_STATUS_MESSAGE": at_limit}) == {
+        "SYSTEM_STATUS_MESSAGE": at_limit
+    }
+    assert runtime.system_status_settings({"SYSTEM_STATUS_MESSAGE": f"  {at_limit} "}) == {
+        "SYSTEM_STATUS_MESSAGE": at_limit
+    }
+    with pytest.raises(runtime.RustRuntimeError, match="SYSTEM_STATUS_MESSAGE"):
+        runtime.system_status_settings({"SYSTEM_STATUS_MESSAGE": at_limit + "x"})
+
+
+def _prepare_with(tmp_path, extra):
+    sha = "a" * 40
+    settings = {**values(), "ENVIRONMENT": "staging", "RELEASE_SHA": sha,
+                "DATABASE_URL": "postgresql://verdaxis_app_staging:disposable"
+                                "@127.0.0.1:5432/verdaxis_staging", **extra}
+    source = tmp_path / "runtime-input.env"
+    source.write_text("".join(f"{key}={value}\n" for key, value in settings.items()))
+    return runtime.prepare(source, sha, tmp_path / "prepared", ROOT,
+                           "p3_20261020_auth_tokens", "staging")["runtime_env"]
+
+
+def test_status_heartbeat_settings_reach_the_runtime_file(tmp_path):
+    body = _prepare_with(
+        tmp_path,
+        {"SYSTEM_STATUS": "Maintenance", "SYSTEM_STATUS_MESSAGE": "Back at 14:00 UTC"},
+    ).read_text()
+    assert "SYSTEM_STATUS=maintenance\n" in body
+    assert 'SYSTEM_STATUS_MESSAGE="Back at 14:00 UTC"\n' in body
+
+
+def test_runtime_file_has_no_status_heartbeat_keys_when_unset(tmp_path):
+    body = _prepare_with(tmp_path, {"SYSTEM_STATUS": "", "SYSTEM_STATUS_MESSAGE": ""}).read_text()
+    assert "SYSTEM_STATUS" not in body
+
+
+def test_runtime_file_refuses_an_invalid_status_or_a_message_with_a_line_break(tmp_path):
+    with pytest.raises(runtime.RustRuntimeError, match="SYSTEM_STATUS"):
+        _prepare_with(tmp_path, {"SYSTEM_STATUS": "broken"})
+    # A double-quoted value with an escaped newline is a control character the
+    # runtime file cannot carry.
+    with pytest.raises(runtime.RustRuntimeError, match="SYSTEM_STATUS_MESSAGE"):
+        _prepare_with(tmp_path, {"SYSTEM_STATUS_MESSAGE": '"two\\nlines"'})

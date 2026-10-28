@@ -8,6 +8,7 @@ use super::{
     bus::{StreamHub, Terminal},
     dispatch::{Dispatch, PgDispatchStore},
     election::SessionSettings,
+    heartbeat::HeartbeatStatus,
     http::Streams,
     policy::{self, StreamPolicy},
 };
@@ -134,11 +135,17 @@ pub async fn start_streams(
             .clone()
             .filter(|value| !value.is_empty())?,
     );
+    let heartbeat = HeartbeatStatus::parse(
+        options.system_status.as_deref(),
+        options.system_status_message.as_deref(),
+    )
+    .ok()?;
     let hub = StreamHub::new(policy);
     hub.set_available(false, Terminal::Unavailable);
     state.streams = Some(Arc::new(Streams {
         hub: hub.clone(),
         verification,
+        heartbeat,
     }));
     let (stop, shutdown) = watch::channel(false);
     let task_hub = hub.clone();
