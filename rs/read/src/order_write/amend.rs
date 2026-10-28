@@ -1535,19 +1535,6 @@ impl<'a> AmendPort<'a> {
             if new_remaining == Decimal::ZERO {
                 new_status = Some("FILLED");
             }
-            // Reserve or release exactly the remainder delta against the
-            // linked inventory row, which the plan already locked.
-            if let Some(item) = order.inventory_item_id {
-                let delta = new_remaining - order.remaining_quantity_mt;
-                let mut ledger = super::transaction::StockLedger::new(self.conn, &[item], &[]);
-                if delta > Decimal::ZERO {
-                    ledger.reserve(item, StockQuantity::checked(delta)?).await?;
-                } else if delta < Decimal::ZERO {
-                    ledger
-                        .release(item, StockQuantity::checked(-delta)?, true)
-                        .await?;
-                }
-            }
         }
         if let Some(status) = new_status {
             update.insert("status".into(), json!(status));
@@ -1583,6 +1570,26 @@ impl<'a> AmendPort<'a> {
         )
         .await?;
         self.write(order, &update).await?;
+        // Reserve or release exactly the remainder delta against the linked
+        // inventory row, after the row write, exactly as the source does after
+        // its own assignment loop. The matcher's candidate pass locked the row.
+        if update.contains_key("remaining_quantity_mt")
+            && let Some(item) = order.inventory_item_id
+        {
+            let new_remaining = update["remaining_quantity_mt"]
+                .as_str()
+                .and_then(|text| Decimal::from_str_exact(text).ok())
+                .ok_or_else(internal)?;
+            let delta = new_remaining - order.remaining_quantity_mt;
+            let mut ledger = super::transaction::StockLedger::new(self.conn, &[item], &[]);
+            if delta > Decimal::ZERO {
+                ledger.reserve(item, StockQuantity::checked(delta)?).await?;
+            } else if delta < Decimal::ZERO {
+                ledger
+                    .release(item, StockQuantity::checked(-delta)?, true)
+                    .await?;
+            }
+        }
         // The rematch is composed by the sealed transaction after the port
         // returns: the planner acquires the amended row and any candidates in
         // the open candidate pass, which this plan keeps undeclared.

@@ -282,6 +282,11 @@ async fn amend_reserves_or_releases_the_exact_delta() {
         .execute(&mut f.admin)
         .await
         .unwrap();
+    sqlx::query("UPDATE inventory_items SET current_stock_mt=250 WHERE id=$1")
+        .bind(item)
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
     // Increase: reserve the exact delta.
     let (status, body) = send(
         &f.router,
@@ -498,6 +503,17 @@ async fn newly_qualified_order_gets_a_new_ordinal_and_cannot_jump_the_queue() {
         .execute(&mut f.admin)
         .await
         .unwrap();
+    // The crossing clone enters through the amendment route: its economic
+    // update runs the inline matcher against the resting book.
+    let (status, body) = send(
+        &f.router,
+        Some(buyer()),
+        crossing,
+        &[],
+        json!({"price_per_mt_usd": "101"}),
+    )
+    .await;
+    assert_eq!(status.as_u16(), 200, "{body}");
     let filled: Vec<Uuid> = sqlx::query_scalar(
         "SELECT ask_order_id FROM trades WHERE bid_order_id=$1 ORDER BY created_at",
     )
