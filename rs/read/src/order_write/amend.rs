@@ -458,26 +458,26 @@ impl AmendCommand {
             if let Some(value) = self.input.value(field) {
                 match field {
                     "quantity_mt" => {
-                        if let Some(text) = value.as_str() {
-                            if let Ok(quantity) = Decimal::from_str_exact(text) {
-                                projected.quantity_mt = quantity;
-                            }
+                        if let Some(text) = value.as_str()
+                            && let Ok(quantity) = Decimal::from_str_exact(text)
+                        {
+                            projected.quantity_mt = quantity;
                         }
                     }
                     "price_per_mt_usd" => {
-                        if let Some(text) = value.as_str() {
-                            if let Ok(price) = Decimal::from_str_exact(text) {
-                                projected.price_per_mt_usd = price;
-                            }
+                        if let Some(text) = value.as_str()
+                            && let Ok(price) = Decimal::from_str_exact(text)
+                        {
+                            projected.price_per_mt_usd = price;
                         }
                     }
                     "expires_at" => {
                         if value.is_null() {
                             projected.expires_at = None;
-                        } else if let Some(text) = value.as_str() {
-                            if let Ok(at) = text.parse::<DateTime<Utc>>() {
-                                projected.expires_at = Some(at);
-                            }
+                        } else if let Some(text) = value.as_str()
+                            && let Ok(at) = text.parse::<DateTime<Utc>>()
+                        {
+                            projected.expires_at = Some(at);
                         }
                     }
                     "certification_declared" => {
