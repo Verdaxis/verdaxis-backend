@@ -343,6 +343,35 @@ ownership. The binary accepts explicit `RUST_CONFIG` JSON and serves health;
 data routes remain unmounted. See `docs/rust-phase1/progress.md` for the local
 checks, remaining Task 3 gates, and resume point.
 
+### Rust `Host` validation (defence in depth behind Caddy)
+
+`runtime/host.rs` holds a middleware that `runtime::http::compose` adds to every
+serving router (REST, streams and MCP share it). A request whose `Host`
+authority is not allowed gets 400 `{"detail": {"code": "INVALID_HOST", "message": ...}}`
+before CORS, admission or quotas run; the request log still records it. The
+allowlist is the comma-separated `ALLOWED_HOSTS` runtime key (`phase2.allowed_hosts`
+in `RUST_CONFIG`). Rules:
+
+- Names compare case-insensitively. An entry without a port matches that host
+  on any port and when the request has none (the port says nothing about which
+  site was asked for); an entry with a port matches only that port.
+- Loopback authorities (`localhost`, `127.0.0.0/8`, `[::1]`, any port) are
+  always allowed. The deploy readiness gate (`curl http://127.0.0.1:<8010|8011>/health/ready`),
+  the shadow harness (`Host: 127.0.0.1`), the contract and measurement harnesses
+  and the runbooks reach Rust this way. Caddy passes the client's `Host` through
+  unchanged (no `header_up Host`), so proxied requests carry the public name.
+- Exactly one `Host` header is required; an absolute-form target's authority
+  must also be allowed (HTTP/2 has only the authority). No authority, user
+  information, a trailing dot or a malformed port is refused.
+- Unset or blank `ALLOWED_HOSTS` means no enforcement, so a missing key cannot
+  stop a deploy; the binary logs a warning that the check is off, or an info
+  line with the allowed hosts. A present but malformed value (wildcard, scheme,
+  path, bad port) refuses the start, like every other runtime key.
+- `scripts/prepare_rust_runtime.py` projects the key from the environment's
+  identity, not from `.env`: `api.verdaxis.exchange` (production),
+  `api-staging.verdaxis.exchange` (staging). The MCP route keeps its own stricter
+  transport check (421), which runs after this one.
+
 Task 4 adds the disposable contract harness. `scripts/rust_contract/compare.py`
 is the single authoritative comparator; `record.py` captures the Python oracle;
 `run_disposable.py` starts one disposable PostGIS container, both servers, and

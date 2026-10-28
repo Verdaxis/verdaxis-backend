@@ -49,6 +49,13 @@ loopback `/health/ready` (`127.0.0.1:8010` in production, `127.0.0.1:8011` in
 staging). The Phase 2 routes are mounted in the Rust process, but Caddy still
 sends every Phase 2 request to Python until the steps below.
 
+The Rust process also checks the request `Host` (`ALLOWED_HOSTS`, projected by
+the deploy as the environment's public API host; see `ARCHITECTURE.md`, "Rust
+`Host` validation"). Loopback hosts are always allowed, so the loopback probes
+in this runbook need no `Host` header. A probe from another machine, or through
+an SSH tunnel to a name other than the public host, gets 400 `INVALID_HOST`;
+send `-H 'Host: <public API host>'` for such a probe.
+
 ## 3. Caddy steps
 
 `scripts/rust_caddy_candidate.py --site <Caddyfile> --environment <env>
