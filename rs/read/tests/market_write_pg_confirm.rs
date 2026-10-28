@@ -1070,23 +1070,42 @@ async fn confirmation_has_no_order_mirror_effect_and_keys_are_actor_operation_sc
     assert_eq!(count, 1);
 }
 
-
 #[tokio::test]
 #[ignore = "requires an attested disposable PostgreSQL"]
-async fn a_real_serialization_abort_retries_once_without_a_committed_prefix(){
-    for action in ["confirm","decline"]{
-        let mut f=Fixture::new("BUYER",false).await;f.sql("SELECT confirm_fixture_abort_install()").await;
-        let(s,b)=f.call(action,SELLER,Some("retry")).await;f.sql("SELECT confirm_fixture_abort_remove()").await;assert_eq!(s,StatusCode::OK,"{b}");
-        let attempts:i64=sqlx::query_scalar("SELECT last_value FROM confirm_fixture_attempts").fetch_one(&mut f.admin).await.unwrap();assert_eq!(attempts,2);
-        let after=f.snapshot().await;assert_eq!(after["audit"],1);assert_eq!(after["outbox"],1);assert_eq!(after["receipts"],1);assert_eq!(f.call(action,SELLER,Some("retry")).await.0,StatusCode::OK);assert_eq!(f.snapshot().await,after);
+async fn a_real_serialization_abort_retries_once_without_a_committed_prefix() {
+    for action in ["confirm", "decline"] {
+        let mut f = Fixture::new("BUYER", false).await;
+        f.sql("SELECT confirm_fixture_abort_install()").await;
+        let (s, b) = f.call(action, SELLER, Some("retry")).await;
+        f.sql("SELECT confirm_fixture_abort_remove()").await;
+        assert_eq!(s, StatusCode::OK, "{b}");
+        let attempts: i64 = sqlx::query_scalar("SELECT last_value FROM confirm_fixture_attempts")
+            .fetch_one(&mut f.admin)
+            .await
+            .unwrap();
+        assert_eq!(attempts, 2);
+        let after = f.snapshot().await;
+        assert_eq!(after["audit"], 1);
+        assert_eq!(after["outbox"], 1);
+        assert_eq!(after["receipts"], 1);
+        assert_eq!(
+            f.call(action, SELLER, Some("retry")).await.0,
+            StatusCode::OK
+        );
+        assert_eq!(f.snapshot().await, after);
     }
 }
 
 #[tokio::test]
 #[ignore = "requires an attested disposable PostgreSQL"]
-async fn confirmation_uses_the_shared_grace_and_advisory_gate_policy(){
-    let mut f=Fixture::new("BUYER",false).await;f.sql("SELECT confirm_fixture_grace()").await;
-    let(s,b)=f.call("confirm",SELLER,None).await;assert_eq!(s,StatusCode::OK,"{b}");
-    let mut f=Fixture::new("BUYER",false).await;f.sql("UPDATE users SET kyc_status='PENDING',kyc_organization_id=NULL WHERE id='00000000-0000-0000-0000-000000002001'").await;f.router=contract_router(f.pool.clone(),KEY,false);
-    let(s,b)=f.call("confirm",SELLER,None).await;assert_eq!(s,StatusCode::OK,"{b}");
+async fn confirmation_uses_the_shared_grace_and_advisory_gate_policy() {
+    let mut f = Fixture::new("BUYER", false).await;
+    f.sql("SELECT confirm_fixture_grace()").await;
+    let (s, b) = f.call("confirm", SELLER, None).await;
+    assert_eq!(s, StatusCode::OK, "{b}");
+    let mut f = Fixture::new("BUYER", false).await;
+    f.sql("UPDATE users SET kyc_status='PENDING',kyc_organization_id=NULL WHERE id='00000000-0000-0000-0000-000000002001'").await;
+    f.router = contract_router(f.pool.clone(), KEY, false);
+    let (s, b) = f.call("confirm", SELLER, None).await;
+    assert_eq!(s, StatusCode::OK, "{b}");
 }
