@@ -133,6 +133,34 @@ async fn p4_t13_c09() {
     }
 }
 
+/// Authentication (401) comes before input validation (422).
+#[tokio::test]
+async fn invalid_input_without_a_token_is_refused_as_unauthenticated() {
+    use tower::ServiceExt;
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(6)
+        .connect_lazy("postgres://rust_app:test@127.0.0.1:54329/verdaxis_rust_test")
+        .unwrap();
+    let health = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .connect_lazy("postgres://rust_app:test@127.0.0.1:54329/verdaxis_rust_test")
+        .unwrap();
+    let app = component(pool, health);
+    for (method, path, body) in [
+        ("GET", "/api/admin/subscriptions?limit=abc", ""),
+        ("GET", "/api/admin/subscriptions/not-a-uuid", ""),
+        ("PUT", "/api/admin/subscriptions/not-a-uuid", "{"),
+    ] {
+        let request = axum::http::Request::builder()
+            .method(method)
+            .uri(path)
+            .body(axum::body::Body::from(body))
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status().as_u16(), 401, "{method} {path}");
+    }
+}
+
 #[cfg(feature = "contract-tests")]
 mod postgres {
     use super::*;
@@ -243,6 +271,54 @@ mod postgres {
             .await
             .unwrap();
         }
+    }
+
+    /// Role (403) comes before input validation (422); an administrator still
+    /// gets the validation refusal for the same input.
+    #[tokio::test]
+    async fn non_administrator_invalid_input_is_refused_before_validation() {
+        use tower::ServiceExt;
+        let mut f = Fixture::new().await;
+        let health = PgPoolOptions::new()
+            .max_connections(1)
+            .connect_lazy(&std::env::var("RUST_TEST_DATABASE_URL").unwrap())
+            .unwrap();
+        let app = component(f.pool.clone(), health.clone());
+        let key = "test-secret-key-for-testing-minimum-32-chars";
+        let now = Utc::now();
+        let token=jsonwebtoken::encode(&jsonwebtoken::Header::default(),&json!({"sub":f.actor,"iat":now.timestamp(),"exp":now.timestamp()+3600,"type":"access","iss":"test","aud":"test"}),&jsonwebtoken::EncodingKey::from_secret(key.as_bytes())).unwrap();
+        let invalid = [
+            ("GET", "/api/admin/subscriptions?limit=abc", ""),
+            ("GET", "/api/admin/subscriptions/not-a-uuid", ""),
+            ("PUT", "/api/admin/subscriptions/not-a-uuid", "{"),
+        ];
+        for (role, status) in [("BUYER", 403), ("ADMIN", 422)] {
+            sqlx::query("UPDATE users SET role=$2 WHERE id=$1")
+                .bind(f.actor)
+                .bind(role)
+                .execute(&mut f.admin)
+                .await
+                .unwrap();
+            for (method, path, body) in invalid {
+                let request = axum::http::Request::builder()
+                    .method(method)
+                    .uri(path)
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(axum::body::Body::from(body))
+                    .unwrap();
+                let response = app.clone().oneshot(request).await.unwrap();
+                assert_eq!(response.status().as_u16(), status, "{role} {method} {path}");
+                if status == 403 {
+                    let body = axum::body::to_bytes(response.into_body(), 8192)
+                        .await
+                        .unwrap();
+                    let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+                    assert_eq!(value["detail"]["code"], "ADMIN_REQUIRED");
+                }
+            }
+        }
+        health.close().await;
+        f.finish().await;
     }
 
     #[tokio::test]
