@@ -20,10 +20,14 @@ class MarketProduct(str, Enum):
     SYNTHETIC_ETHANOL = "SYNTHETIC_ETHANOL"
     B30 = "B30"
     B100 = "B100"
+    BIO_LNG = "BIO_LNG"
 
 
 B30_SPECIFICATION_STANDARD = "ISO 8217:2024 RF 380"
 B100_SPECIFICATION_STANDARD = "ISO 8217:2024 DFA"
+BIO_LNG_SPECIFICATION_STANDARD = "ISO 23306:2020"
+
+_ROTTERDAM_ID = UUID("1379d36c-1ca9-55b7-9c0d-5235a0ba1f36")
 
 
 @dataclass(frozen=True)
@@ -36,6 +40,9 @@ class ProductSpec:
     unit: str
     min_lot_size: Decimal
     spec_description: str
+    # None means every canonical delivery point. A tuple restricts the product
+    # to those lanes in order entry, execution and public market reads.
+    available_delivery_point_ids: tuple[UUID, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -109,6 +116,19 @@ CANONICAL_PRODUCTS: tuple[ProductSpec, ...] = (
         "100% FAME, excluding HVO; finished fuel meets ISO 8217:2024 DFA "
         "with sulphur at most 0.10% by mass",
     ),
+    ProductSpec(
+        UUID("8f6f34a5-2927-54a6-8564-cca40ae7cb8a"),
+        MarketProduct.BIO_LNG,
+        "Bio-LNG",
+        "LNG",
+        "Bio",
+        "MT",
+        # Platform input minimum only; physical bio-LNG stems are usually larger.
+        Decimal("1"),
+        "Liquefied biomethane (bio-LNG) for marine fuel use, delivered to "
+        "ISO 23306:2020 with a certified Proof of Sustainability.",
+        available_delivery_point_ids=(_ROTTERDAM_ID,),
+    ),
 )
 
 
@@ -139,7 +159,7 @@ CANONICAL_DELIVERY_POINTS: tuple[DeliveryPointSpec, ...] = (
         "Asia/Singapore",
     ),
     DeliveryPointSpec(
-        UUID("1379d36c-1ca9-55b7-9c0d-5235a0ba1f36"),
+        _ROTTERDAM_ID,
         "Rotterdam",
         "Europe",
         "Europe/Amsterdam",
@@ -195,6 +215,34 @@ CANONICAL_DELIVERY_POINT_IDS: tuple[UUID, ...] = tuple(DELIVERY_POINTS_BY_ID)
 DELIVERY_POINT_DISPLAY_ORDER = MappingProxyType(
     {spec.name: index for index, spec in enumerate(CANONICAL_DELIVERY_POINTS, start=1)}
 )
+BIO_LNG_PRODUCT_ID: UUID = PRODUCT_IDS[MarketProduct.BIO_LNG.value]
+
+
+def product_delivery_point_ids(product_id: UUID | None) -> tuple[UUID, ...]:
+    """Return the delivery points where a canonical product may trade."""
+    spec = PRODUCTS_BY_ID.get(product_id)
+    if spec is None:
+        return ()
+    return spec.available_delivery_point_ids or CANONICAL_DELIVERY_POINT_IDS
+
+
+def product_delivery_point_allowed(product_id: UUID | None, delivery_point_id: UUID | None) -> bool:
+    """Apply the catalog lane contract; unknown products are left to identity checks."""
+    spec = PRODUCTS_BY_ID.get(product_id)
+    if spec is None or spec.available_delivery_point_ids is None:
+        return True
+    return delivery_point_id in spec.available_delivery_point_ids
+
+
+def product_delivery_point_error(product_id: UUID | None, delivery_point_id: UUID | None) -> str | None:
+    """Return a client-safe lane error, or None when the lane is allowed."""
+    if product_delivery_point_allowed(product_id, delivery_point_id):
+        return None
+    spec = PRODUCTS_BY_ID[product_id]
+    point_names = ", ".join(
+        DELIVERY_POINTS_BY_ID[point_id].name for point_id in spec.available_delivery_point_ids
+    )
+    return f"{spec.name} is available at {point_names} only"
 
 
 def derive_market_product(

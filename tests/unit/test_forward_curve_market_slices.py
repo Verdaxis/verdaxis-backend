@@ -45,6 +45,7 @@ from app.services.provenance import execution_provenance_compatible
 REQUIRED_TABLES = [
     "organizations",
     "users",
+    "kyc_execution_grace",
     "products",
     "delivery_points",
     "orderbook_orders",

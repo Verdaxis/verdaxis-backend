@@ -7,7 +7,7 @@ therefore provide the only reliable reject-instead-of-round contract.
 
 from sqlalchemy import CheckConstraint
 from app.demo_identities import DEMO_MARKET_ORG_IDS
-from app.market_catalog import MARKET_PRODUCT_CODES
+from app.market_catalog import BIO_LNG_PRODUCT_ID, MARKET_PRODUCT_CODES, PRODUCTS_BY_ID
 
 
 def postgresql_check(expression: str, *, name: str) -> CheckConstraint:
@@ -118,6 +118,31 @@ TRADE_SNAPSHOT = (
     "OR availability_window ~ '^[0-9]{4}-CAL$') "
     "AND delivery_point_id IS NOT NULL AND delivery_point_name IS NOT NULL "
     "AND delivery_point_region IS NOT NULL))"
+)
+
+_BIO_LNG_DELIVERY_POINT_ID = PRODUCTS_BY_ID[BIO_LNG_PRODUCT_ID].available_delivery_point_ids[0]
+
+
+def _bio_lng_terms(column: str, shape: str) -> str:
+    """Require terms on BIO_LNG rows at its single lane, and forbid them elsewhere."""
+    return (
+        f"(product_id IS DISTINCT FROM '{BIO_LNG_PRODUCT_ID}' AND {column} IS NULL) OR "
+        f"(product_id = '{BIO_LNG_PRODUCT_ID}' "
+        f"AND delivery_point_id = '{_BIO_LNG_DELIVERY_POINT_ID}' "
+        f"AND {column} IS NOT NULL AND ({shape})) IS TRUE"
+    )
+
+
+def _lng_terms_object(column: str, side: str) -> str:
+    return f"json_typeof({column}) = 'object' AND {column}->>'side' = {side}"
+
+
+ORDER_LNG_TERMS = _bio_lng_terms("lng_terms", _lng_terms_object("lng_terms", "side"))
+TRADE_LNG_TERMS = _bio_lng_terms(
+    "lng_terms_snapshot",
+    _lng_terms_object("lng_terms_snapshot->'bid'", "'BID'")
+    + " AND "
+    + _lng_terms_object("lng_terms_snapshot->'ask'", "'ASK'"),
 )
 
 INVENTORY_NUMERIC_VALUES = " AND ".join(

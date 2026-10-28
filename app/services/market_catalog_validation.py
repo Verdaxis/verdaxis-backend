@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.market_catalog import product_delivery_point_error
 from app.models.catalog import DeliveryPoint, Product
 from app.services.market_data_eligibility import (
     canonical_delivery_point_clause,
@@ -42,4 +43,7 @@ async def require_canonical_market_slice(
     ).scalar_one_or_none()
     if point is None:
         raise HTTPException(status_code=400, detail="Invalid delivery_point_id")
+    lane_error = product_delivery_point_error(product_id, delivery_point_id)
+    if lane_error:
+        raise HTTPException(status_code=400, detail=lane_error)
     return product, point

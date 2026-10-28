@@ -65,6 +65,7 @@ async def join_db():
     tables = [
         Organization.__table__,
         User.__table__,
+        Base.metadata.tables["kyc_execution_grace"],
         RefreshSession.__table__,
         OrganizationJoinRequest.__table__,
         Product.__table__,

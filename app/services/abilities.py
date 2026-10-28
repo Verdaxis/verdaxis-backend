@@ -10,6 +10,7 @@ Contract: docs/user-abilities.md.
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 from app.services.action_policy import (
@@ -29,7 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.market_support import MarketSupportCapability
 from app.models.orderbook import OrderSide
 from app.models.user import Organization, User
-from app.services.execution_policy import execution_party_denial
+from app.services.execution_policy import MarketPartyPolicy, market_party_denial
 from app.services.market_admission import participant_provenance_eligible
 from app.services.market_support import (
     ASSISTED_ORDER_CAPABILITIES,
@@ -51,6 +52,7 @@ REASON_MESSAGES: dict[ReasonCode, str] = {
     ReasonCode.ACCOUNT_NOT_APPROVED: "Your account has not been approved yet.",
     ReasonCode.EMAIL_NOT_VERIFIED: "Verify your email address to continue.",
     ReasonCode.PASSWORD_CHANGE_REQUIRED: "Change your password to continue.",
+    ReasonCode.KYC_REQUIRED: "Complete KYC verification to trade.",
     ReasonCode.KYC_REJECTED: "Your identity verification was rejected.",
     ReasonCode.KYC_ORGANIZATION_MISMATCH: "Your identity verification belongs to a different organization.",
     ReasonCode.ORGANIZATION_NOT_APPROVED: "Your organization has not been approved yet.",
@@ -75,6 +77,28 @@ class Ability:
         return None if self.reason_code is None else REASON_MESSAGES[self.reason_code]
 
 
+# The market-party policy the real endpoint applies to each ability's account
+# gate. EXECUTION: new commitments (KYC execution rule, or the advisory rule
+# while KYC_EXECUTION_GATE_ENABLED is false). CLEANUP: settling or withdrawing
+# an existing commitment (admission only). INDICATIVE: non-executable surfaces
+# (advisory KYC). Abilities not listed have no market-party gate.
+POLICY_BY_ABILITY: dict[AbilityId, MarketPartyPolicy] = {
+    AbilityId.PLACE_BID_ORDER: MarketPartyPolicy.EXECUTION,
+    AbilityId.PLACE_ASK_ORDER: MarketPartyPolicy.EXECUTION,
+    AbilityId.AMEND_ORDER: MarketPartyPolicy.EXECUTION,
+    AbilityId.CANCEL_ORDER: MarketPartyPolicy.CLEANUP,
+    AbilityId.HIT_ASK_ORDER: MarketPartyPolicy.EXECUTION,
+    AbilityId.HIT_BID_ORDER: MarketPartyPolicy.EXECUTION,
+    AbilityId.CONFIRM_TRADE: MarketPartyPolicy.EXECUTION,
+    AbilityId.DELIVER_TRADE: MarketPartyPolicy.CLEANUP,
+    AbilityId.PAY_TRADE: MarketPartyPolicy.CLEANUP,
+    AbilityId.MANAGE_INVENTORY: MarketPartyPolicy.INDICATIVE,
+    AbilityId.PUBLISH_INVENTORY: MarketPartyPolicy.EXECUTION,
+    AbilityId.CREATE_RFQ: MarketPartyPolicy.INDICATIVE,
+    AbilityId.QUOTE_RFQ: MarketPartyPolicy.INDICATIVE,
+}
+
+
 def _first(*denials: ReasonCode | None) -> ReasonCode | None:
     """Return the first denial, mirroring the order an endpoint applies its checks."""
     return next((denial for denial in denials if denial is not None), None)
@@ -83,11 +107,19 @@ def _first(*denials: ReasonCode | None) -> ReasonCode | None:
 def build_abilities(
     user: User,
     organization: Organization | None,
+    party_denials: Mapping[MarketPartyPolicy, ReasonCode | None],
     active_support_capabilities: frozenset[MarketSupportCapability] = frozenset(),
 ) -> list[Ability]:
-    """Evaluate every ability for one user from already-loaded facts (no I/O)."""
+    """Evaluate every ability for one user from already-loaded facts (no I/O).
+
+    ``party_denials`` holds ``market_party_denial`` for each policy; see
+    ``POLICY_BY_ABILITY`` for which policy each ability's endpoint applies.
+    """
     role = user.role
-    execution = execution_party_denial(user, organization)
+
+    def gate(ability: AbilityId) -> ReasonCode | None:
+        return party_denials[POLICY_BY_ABILITY[ability]]
+
     own_provenance_denial = (
         None
         if provenance_may_execute(snapshot_organization_provenance(organization))
@@ -97,29 +129,29 @@ def build_abilities(
     legacy_admin = legacy_admin_workspace_mutation_denial(role, has_support_context=False)
 
     denials: dict[AbilityId, ReasonCode | None] = {
-        AbilityId.PLACE_BID_ORDER: _first(execution, place_order_role_denial(role, OrderSide.BID)),
-        AbilityId.PLACE_ASK_ORDER: _first(execution, place_order_role_denial(role, OrderSide.ASK)),
-        AbilityId.AMEND_ORDER: _first(legacy_admin, execution),
-        AbilityId.CANCEL_ORDER: legacy_admin,
+        AbilityId.PLACE_BID_ORDER: _first(gate(AbilityId.PLACE_BID_ORDER), place_order_role_denial(role, OrderSide.BID)),
+        AbilityId.PLACE_ASK_ORDER: _first(gate(AbilityId.PLACE_ASK_ORDER), place_order_role_denial(role, OrderSide.ASK)),
+        AbilityId.AMEND_ORDER: _first(legacy_admin, gate(AbilityId.AMEND_ORDER)),
+        AbilityId.CANCEL_ORDER: _first(legacy_admin, gate(AbilityId.CANCEL_ORDER)),
         AbilityId.HIT_ASK_ORDER: _first(
-            execution, hit_order_role_denial(role, OrderSide.ASK), own_provenance_denial
+            gate(AbilityId.HIT_ASK_ORDER), hit_order_role_denial(role, OrderSide.ASK), own_provenance_denial
         ),
         AbilityId.HIT_BID_ORDER: _first(
-            execution, hit_order_role_denial(role, OrderSide.BID), own_provenance_denial
+            gate(AbilityId.HIT_BID_ORDER), hit_order_role_denial(role, OrderSide.BID), own_provenance_denial
         ),
-        AbilityId.CONFIRM_TRADE: execution,
-        AbilityId.DELIVER_TRADE: execution,
-        AbilityId.PAY_TRADE: _first(execution, mark_trade_paid_role_denial(role)),
-        AbilityId.MANAGE_INVENTORY: _first(execution, inventory_role_denial(role)),
-        AbilityId.PUBLISH_INVENTORY: _first(execution, inventory_role_denial(role)),
+        AbilityId.CONFIRM_TRADE: gate(AbilityId.CONFIRM_TRADE),
+        AbilityId.DELIVER_TRADE: gate(AbilityId.DELIVER_TRADE),
+        AbilityId.PAY_TRADE: _first(gate(AbilityId.PAY_TRADE), mark_trade_paid_role_denial(role)),
+        AbilityId.MANAGE_INVENTORY: _first(gate(AbilityId.MANAGE_INVENTORY), inventory_role_denial(role)),
+        AbilityId.PUBLISH_INVENTORY: _first(gate(AbilityId.PUBLISH_INVENTORY), inventory_role_denial(role)),
         AbilityId.CREATE_RFQ: _first(
-            execution,
+            gate(AbilityId.CREATE_RFQ),
             create_rfq_role_denial(role),
             None
             if organization is not None and participant_provenance_eligible(organization)
             else ReasonCode.ORGANIZATION_PROVENANCE_UNVERIFIED,
         ),
-        AbilityId.QUOTE_RFQ: _first(execution, quote_rfq_role_denial(role), own_provenance_denial),
+        AbilityId.QUOTE_RFQ: _first(gate(AbilityId.QUOTE_RFQ), quote_rfq_role_denial(role), own_provenance_denial),
     }
     for ability in (
         AbilityId.VIEW_ADMIN_ANALYTICS,
@@ -159,4 +191,8 @@ async def compute_abilities(db: AsyncSession, user: User) -> list[Ability]:
     capabilities: frozenset[MarketSupportCapability] = frozenset()
     if market_support_staff_denial(user) is None:
         capabilities = frozenset(await active_capabilities(db, user.id))
-    return build_abilities(user, organization, capabilities)
+    party_denials = {
+        policy: await market_party_denial(db, user=user, organization=organization, policy=policy)
+        for policy in MarketPartyPolicy
+    }
+    return build_abilities(user, organization, party_denials, capabilities)

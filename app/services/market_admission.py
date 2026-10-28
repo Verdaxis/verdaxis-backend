@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import Organization, User
 from app.services.demo_market import DEMO_ACTIVITY_ORG_IDS
-from app.services.execution_policy import execution_party_is_eligible
+from app.services.execution_policy import MarketPartyPolicy, market_party_is_eligible
 from app.services.provenance import execution_provenance_compatible
 
 
@@ -37,6 +37,7 @@ async def lock_and_load_market_organizations(
     organization_ids: Iterable[UUID],
     *,
     actor_ownerships: Iterable[MarketActorOwnership] = (),
+    actor_policy: MarketPartyPolicy = MarketPartyPolicy.EXECUTION,
     require_approved: bool = True,
     require_approved_ids: Iterable[UUID] = (),
 ) -> dict[UUID, Organization]:
@@ -45,7 +46,8 @@ async def lock_and_load_market_organizations(
     Security owns the eligibility decision exposed at the route dependency;
     market owns this transaction-local revalidation and exact user ownership
     check.  Future security ``owner_user_id`` columns can be passed here
-    without introducing another lock namespace.
+    without introducing another lock namespace. ``actor_policy`` must match
+    the route gate; it defaults to the strictest policy.
     """
     ids = tuple(sorted(set(organization_ids), key=str))
     if not ids:
@@ -109,10 +111,11 @@ async def lock_and_load_market_organizations(
             detail="Organization is not approved for market activity",
         )
     for user_id, organization_id in ownership_by_user.items():
-        if not await execution_party_is_eligible(
+        if not await market_party_is_eligible(
             db,
             user=users[user_id],
             organization=organizations[organization_id],
+            policy=actor_policy,
         ):
             raise HTTPException(
                 status_code=409,

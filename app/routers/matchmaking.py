@@ -12,8 +12,9 @@ from app.models.matchmaking import MatchStatus, MatchSuggestion
 from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide
 from app.models.user import User, UserRole
 from app.routers.auth_simple import get_current_user
-from app.middleware.execution import require_execution_eligible_user
-from app.services.execution_policy import order_is_execution_qualified
+from app.middleware.execution import require_market_admitted_user
+from app.services.execution_policy import order_is_execution_qualified, orders_execution_compatible
+from app.services.lng_terms import is_bio_lng_product
 from app.services.matchmaking import compute_match_score
 
 router = APIRouter(prefix="/matchmaking", tags=["matchmaking"])
@@ -89,6 +90,11 @@ async def list_suggestions(
         if not source_order.market_product or not source_order.delivery_point_id:
             continue
         for candidate in candidate_orders:
+            # Never suggest a Bio-LNG counterparty whose terms could not match.
+            if is_bio_lng_product(source_order.product_id) and not orders_execution_compatible(
+                source_order, candidate
+            ):
+                continue
             score_points, reasons = compute_match_score(
                 target_market_product=source_order.market_product,
                 candidate_market_product=candidate.market_product,
@@ -149,7 +155,7 @@ async def list_suggestions(
 async def dismiss_suggestion(
     order_id: UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_execution_eligible_user)],
+    current_user: Annotated[User, Depends(require_market_admitted_user)],
 ):
     """Dismiss a recommendation by order ID."""
     order = (await db.execute(select(OrderBookOrder).where(OrderBookOrder.id == order_id))).scalar_one_or_none()

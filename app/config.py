@@ -129,6 +129,11 @@ class Settings(BaseSettings):
             return value.strip() or None
         return value
 
+    # The KYC execution gate. The code default is fail safe (True): if the
+    # setting is absent, new economic commitments still require KYC. Deployed
+    # environments set it false for Private Beta; public launch turns it on.
+    KYC_EXECUTION_GATE_ENABLED: bool = True
+
     @model_validator(mode='after')
     def validate_db_pool_capacity(self) -> 'Settings':
         if self.DB_RESERVED_CONNECTIONS >= self.DB_MAX_CONNECTIONS:

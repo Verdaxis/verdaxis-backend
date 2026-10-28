@@ -158,6 +158,7 @@ sudo -n -u verdaxis-prod /home/verdaxis-prod/verdaxis/staging/be/scripts/deploy.
 | `notifications`      | In-app notifications with JSON `data` payload     |
 | `producer_projects`  | Fuel production facilities for the map (GENA data) |
 | `compliance_ledger`  | EU ETS/FuelEU financial transactions               |
+| `kyc_execution_grace` | One-time 14-day KYC grace snapshot from `kycg_20261014_prod`; runtime SELECT only |
 
 ## API Routes (all prefixed with `/api`)
 
@@ -185,14 +186,17 @@ sudo -n -u verdaxis-prod /home/verdaxis-prod/verdaxis/staging/be/scripts/deploy.
 - `POST /api/auth/register-with-org` -- Complete registration with new org creation
 - `POST /api/auth/invitations/resolve` -- Resolve a valid admin-issued invitation secret
 - `POST /api/auth/invitations/accept` -- Accept a pre-approved invitation, set a password, and issue a session
-- `GET /api/auth/me` -- Current user info
+- `GET /api/auth/me` -- Current user info, including `kyc_status` and `execution_eligibility {eligible, reason, grace_expires_at}`
 
 ### Authenticated
-- `POST /api/orderbook` -- Place BID (BUYER) or ASK (SUPPLIER) order
+
+New executions (`POST /api/orderbook`, `PUT /api/orderbook/{id}`, `POST /api/inventory/{id}/publish`, `POST /api/trades/`, `PUT /api/trades/{id}/confirm`) require KYC approved for the current organization or valid grace, and otherwise return 403 `KYC_REQUIRED`. Cancel, decline, deliver and pay never apply KYC.
+
+- `POST /api/orderbook` -- Place BID (BUYER) or ASK (SUPPLIER) order; Bio-LNG orders require `lng_terms` and Rotterdam
 - `PUT /api/orderbook/{id}` -- Update own order
 - `DELETE /api/orderbook/{id}` -- Cancel own order
 - `GET /api/orderbook/my` -- Own orders with trade counts
-- `POST /api/trades/` -- Hit an order to create a trade
+- `POST /api/trades/` -- Hit an order to create a trade; taking a Bio-LNG ASK requires buyer `lng_terms` (incompatible: `LNG_TERMS_INCOMPATIBLE`)
 - `GET /api/trades/my` -- Own trades
 - `PUT /api/trades/{id}/confirm` -- Counterparty confirms
 - `PUT /api/trades/{id}/decline` -- Counterparty declines (restores order quantity)
@@ -286,6 +290,10 @@ sudo -n -u verdaxis-prod /home/verdaxis-prod/verdaxis/staging/be/scripts/deploy.
 
 17. **Production backend exposure is systemd-loopback only.** Production binds `127.0.0.1:8000` and staging binds `127.0.0.1:8001`; Caddy handles external traffic. Docker Compose remains a development/disposable topology and is not the live service manager.
 
+18. **The KYC gate has three policies.** Use `MarketPartyPolicy.EXECUTION` (the default, `require_execution_eligible_user`) for new commitments, `CLEANUP` for settling or withdrawing them, and `INDICATIVE` for RFQ, negotiation, inventory records and suggestions. Grace is written only by its migration; send the one-time email with `python -m app.cli.send_kyc_grace_notices --environment <env> --release-sha <sha>` (operator-run, no timer). Never create KYC approvals or grace for demo users.
+
+19. **The KYC execution gate has one on/off switch.** `KYC_EXECUTION_GATE_ENABLED` (default true, fail safe) lives only in `app/services/kyc_execution.py` — the one decision point — and its SQL mirrors and the `advisory_kyc_allows` helper follow it automatically. Do not add `if settings...` gate checks in routes or services; change the switch and the shared helpers. When it is false (Private Beta on prod and staging) the EXECUTION policy behaves as the pre-gate advisory rule: only `REJECTED` or a review bound to another organization blocks, and an eligible user reports `KYC_NOT_ENFORCED`. The startup log prints one line per worker with the state (four lines with four Uvicorn workers), and `python -m app.cli.send_kyc_grace_notices` refuses with a non-zero exit. The switch does not reach the availability map: `/api/availability` and `public_inventory_is_visible` still count a supplier's inventory as REAL stock only for `kyc_status == "APPROVED"` (`app/services/market_provenance.py:137`), unchanged from before the gate. Keep all KYC code and data; turning the gate back on blocks every user without approved KYC at once. See the KYC runbook (`docs/security-hardening-v2.md`).
+
 ## Environment Variables
 
 Key variables in `.env` (loaded by `pydantic-settings`):
@@ -319,6 +327,7 @@ MIGRATOR_LOCK_TIMEOUT_MS=30000
 MIGRATOR_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS=300000
 KYC_MAX_FILE_BYTES=10485760   # 10 MiB per document
 KYC_MAX_TOTAL_BYTES=20971520  # 20 MiB per KYC request
+KYC_EXECUTION_GATE_ENABLED=true  # Prod/staging set false for Private Beta; true at launch
 HEALTH_READINESS_TIMEOUT_SECONDS=2
 BACKEND_CORS_ORIGINS=          # Omit for exact environment-specific allowlist
 ```
@@ -327,8 +336,8 @@ BACKEND_CORS_ORIGINS=          # Omit for exact environment-specific allowlist
 
 - **`staging`** branch: live staging backend source at `/home/verdaxis-prod/verdaxis/staging/be`.
 - **`prod`** branch: live production backend source at `/home/verdaxis-prod/verdaxis/prod/be`.
-- **`main`** branch: legacy/default development branch in older docs and workflows.
-- Do not assume a push to `main` deploys the current live topology; verify `.github/workflows/backend-ci.yml` before relying on CI/CD.
+- **`master`** branch: GitHub default branch. CI does not run on pushes to it, and it deploys nothing.
+- The legacy `main` branch was deleted on 2026-10-14. Older docs that name `main` are historical.
 
 ## Local Development
 

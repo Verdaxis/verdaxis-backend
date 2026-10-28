@@ -5,7 +5,6 @@ import json
 import re
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 MONITOR = ROOT / "deploy/monitor"
 MANIFEST = MONITOR / "artifact-manifest.json"
@@ -19,10 +18,12 @@ MANIFEST = MONITOR / "artifact-manifest.json"
 # one must update its pinned blob in the same reviewed commit.
 # Market Support adds feature-flag settings and one feature-flagged router.
 # Licensed Webz.io news discovery adds a backend-only token and locked endpoint.
+# The KYC execution gate switch adds one setting (app/config.py) and one
+# startup log line (app/main.py).
 RUNTIME_OWNED_BLOBS = {
-    "app/config.py": "273c1d3adbb193a5391b2ba34ce798412c8e4f57",
+    "app/config.py": "e7677b7593b0e1dece099c930fac73a4c79b87a7",
     "app/database.py": "43456b2c2079c07368359d4d54f5ce9629c9b57b",
-    "app/main.py": "19505192e95a069cf192bef192611e466268100a",
+    "app/main.py": "e6e89847356a46829b7e8d1bd54abd6b07132211",
     "scripts/deploy.sh": "56d35efa7340594e18559339786d4bddf760a768",
     "scripts/run_demo_activity.py": "b92cee8429669c3f908a52047025acd6db804697",
 }

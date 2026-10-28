@@ -26,10 +26,12 @@ from app.services.execution_policy import (
     order_is_execution_qualified,
     orders_execution_compatible,
 )
+from app.services.market_data_eligibility import public_order_owner_admission_clause
 from app.services.market_locks import acquire_market_slice_lock
 from app.services.provenance import coerce_provenance, execution_provenance_compatible
 from app.models.user import OrganizationProvenance
 from app.services.inventory_reservations import lock_inventory_items
+from app.services.lng_terms import is_bio_lng_product, lng_trade_snapshot
 from app.services.market_admission import lock_and_load_market_organizations
 from app.services.org_notifications import OrgNotification, notify_org_users_batched
 from app.services.trade_fees import resolve_seller_trade_fee
@@ -154,6 +156,19 @@ async def match_order(
     else:
         match_filters.append(OrderBookOrder.delivery_point_id == new_order.delivery_point_id)
 
+    if allowed_demo_counterparty_id is None:
+        # Hidden, non-executable liquidity must not consume the fan-out budget.
+        match_filters.extend([
+            OrderBookOrder.owner_user_id.is_not(None),
+            public_order_owner_admission_clause(OrderBookOrder, now_expression=now),
+        ])
+    else:
+        # Only the exact sanctioned synthetic pair bypasses owner KYC.
+        match_filters.extend([
+            OrderBookOrder.id == allowed_demo_counterparty_id,
+            OrderBookOrder.organization_id == allowed_demo_counterparty_org_id,
+        ])
+
     # Preview a strictly bounded, already provenance/admission-filtered set.
     candidate_stmt = (
         select(OrderBookOrder.id, OrderBookOrder.organization_id)
@@ -269,12 +284,20 @@ async def match_order(
             bid_order_id = new_order.id
             ask_order_id = crossing.id
             initiated_by = Initiator.BUYER
+            bid_order, ask_order = new_order, crossing
         else:
             buyer_org = crossing.organization_id
             seller_org = new_order.organization_id
             bid_order_id = crossing.id
             ask_order_id = new_order.id
             initiated_by = Initiator.SELLER
+            bid_order, ask_order = crossing, new_order
+        # orders_execution_compatible above already required compatible terms.
+        lng_terms_snapshot = (
+            lng_trade_snapshot(bid_order.lng_terms, ask_order.lng_terms)
+            if is_bio_lng_product(new_order.product_id)
+            else None
+        )
 
         if seller_org not in seller_fee_snapshots:
             seller_fee_snapshots[seller_org] = await resolve_seller_trade_fee(
@@ -331,6 +354,7 @@ async def match_order(
             commission_rate_pct=Decimal("0"),
             commission_fee_per_mt_usd=commission_fee_per_mt_usd,
             commission_plan=commission_plan.value,
+            lng_terms_snapshot=lng_terms_snapshot,
         )
         db.add(trade)
         await db.flush()

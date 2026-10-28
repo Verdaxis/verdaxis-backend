@@ -18,6 +18,7 @@ from app.models.product_analytics import UserLoginDay, UserStatusTransition
 from app.models.referral import Referral, ReferralStatus
 from app.models.refresh_session import RefreshSession
 from app.models.registration import OrganizationJoinRequest, PendingRegistration
+from app.rate_limit import limiter
 from app.models.user import (
     Organization,
     OrganizationProvenance,
@@ -607,6 +608,47 @@ async def test_domain_join_rejects_opposite_side_before_creating_user(invitation
     ).scalar_one_or_none()
     assert response.status_code == 422
     assert created is None
+
+
+@pytest.mark.asyncio
+async def test_admin_invites_trader_supplier_but_public_signup_cannot_join_the_trader(
+    invitation_context,
+    invitation_db,
+    monkeypatch,
+):
+    # The registration rate limit is shared by every test in this process.
+    monkeypatch.setattr(limiter, "enabled", False)
+    app, _admin, _organization = invitation_context
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        invited = await client.post(
+            "/api/auth/admin/invitations",
+            json=_new_organization_payload(
+                email="trader@diesol.example",
+                role="SUPPLIER",
+                new_organization={"name": "Diesol", "type": "FUEL_TRADER", "country_code": "NL"},
+            ),
+        )
+        registered = await client.post(
+            "/api/auth/register",
+            json={
+                "email": "colleague@diesol.example",
+                "password": "Supplier-password-9",
+                "first_name": "Colleague",
+                "role": "SUPPLIER",
+            },
+        )
+
+    assert invited.status_code == 201, invited.text
+    trader = (
+        await invitation_db.execute(select(Organization).where(Organization.name == "Diesol"))
+    ).scalar_one()
+    invitee = (
+        await invitation_db.execute(select(User).where(User.email == "trader@diesol.example"))
+    ).scalar_one()
+    assert trader.type == OrgType.FUEL_TRADER
+    assert (invitee.role, invitee.organization_id) == (UserRole.SUPPLIER, trader.id)
+    assert registered.status_code == 422
+    assert registered.json()["detail"] == "Organization type does not match the selected account role"
 
 
 @pytest.mark.asyncio

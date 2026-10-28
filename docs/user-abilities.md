@@ -44,35 +44,67 @@ including `Password change required.` for a user who must change a password.
 
 ## Action ids
 
-| action | meaning | gate (first denial wins) |
-| --- | --- | --- |
-| `place_bid_order` | `POST /orderbook` with side BID | execution eligibility, BUYER |
-| `place_ask_order` | `POST /orderbook` with side ASK | execution eligibility, SUPPLIER |
-| `amend_order` | `PUT /orderbook/{id}` | legacy admin path retired, execution eligibility |
-| `cancel_order` | `POST/DELETE /orderbook/{id}` | legacy admin path retired (no admission needed; owner cleanup) |
-| `hit_ask_order` | `POST /trades/` against an ASK | execution eligibility, BUYER, provenance can execute |
-| `hit_bid_order` | `POST /trades/` against a BID | execution eligibility, SUPPLIER, provenance can execute |
-| `confirm_trade` | `PUT /trades/{id}/confirm` | execution eligibility |
-| `deliver_trade` | `PUT /trades/{id}/deliver` | execution eligibility |
-| `pay_trade` | `POST /trades/{id}/pay` | execution eligibility, SUPPLIER |
-| `manage_inventory` | add/update/delete inventory | execution eligibility, SUPPLIER |
-| `publish_inventory` | `POST /inventory/{id}/publish` | execution eligibility, SUPPLIER |
-| `create_rfq` | `POST /rfq` | execution eligibility, BUYER, organization provenance REAL (or allowlisted demo) |
-| `quote_rfq` | `POST /rfq/{id}/quote` | execution eligibility, SUPPLIER, provenance can execute |
-| `view_admin_analytics` | `/admin/analytics/*` dashboards | ADMIN |
-| `view_audit_log` | audit log pages | ADMIN |
-| `view_user_activity` | per-user activity timeline | ADMIN |
-| `view_feedback` | feedback inbox | ADMIN |
-| `manage_subscriptions` | `/admin/subscriptions*` | ADMIN |
-| `manage_accounts` | approve/reject accounts and organizations, invitations, admin user list, onboarding attention | ADMIN |
-| `review_kyc` | `PUT /kyc/admin/{id}/approve|reject` | ADMIN |
-| `manage_commissions` | `/orders/admin/commissions*` | ADMIN |
-| `market_support_access` | Market Support organization list | feature enabled, approved ADMIN, any active staff capability |
-| `market_support_assisted_orders` | start an assisted-order context and publish for a customer | feature enabled, approved ADMIN, both `MARKET_SUPPORT_LISTINGS` and `MARKET_SUPPORT_AUTHORIZATIONS` |
+The `policy` column is the market-party policy the real endpoint applies to the
+account gate (`app/services/execution_policy.py`, `MarketPartyPolicy`):
 
-"Execution eligibility" is the account gate for market actions. It is the single
-predicate `execution_party_denial` (`app/services/execution_policy.py`), also used
-by `require_execution_eligible_user`.
+- `EXECUTION`: a new economic commitment. Account admission plus the KYC
+  execution rule: KYC approved for the current organization, or a valid grace
+  row. With `KYC_EXECUTION_GATE_ENABLED=false` (Private Beta) it falls back to
+  the advisory rule: only a rejected review, or a review bound to another
+  organization, blocks.
+- `CLEANUP`: settling or withdrawing an existing commitment. Account admission
+  only; KYC never blocks it.
+- `INDICATIVE`: non-executable surfaces (RFQ, inventory records). Account
+  admission plus the advisory KYC rule.
+
+| action | meaning | policy | gate (first denial wins) |
+| --- | --- | --- | --- |
+| `place_bid_order` | `POST /orderbook` with side BID | EXECUTION | party gate, BUYER |
+| `place_ask_order` | `POST /orderbook` with side ASK | EXECUTION | party gate, SUPPLIER |
+| `amend_order` | `PUT /orderbook/{id}` | EXECUTION | legacy admin path retired, party gate |
+| `cancel_order` | `POST/DELETE /orderbook/{id}` | CLEANUP | legacy admin path retired, party gate (rechecked under row locks) |
+| `hit_ask_order` | `POST /trades/` against an ASK | EXECUTION | party gate, BUYER, provenance can execute |
+| `hit_bid_order` | `POST /trades/` against a BID | EXECUTION | party gate, SUPPLIER, provenance can execute |
+| `confirm_trade` | `PUT /trades/{id}/confirm` | EXECUTION | party gate |
+| `deliver_trade` | `PUT /trades/{id}/deliver` | CLEANUP | party gate |
+| `pay_trade` | `POST /trades/{id}/pay` | CLEANUP | party gate, SUPPLIER |
+| `manage_inventory` | add/update/delete inventory | INDICATIVE | party gate, SUPPLIER |
+| `publish_inventory` | `POST /inventory/{id}/publish` | EXECUTION | party gate, SUPPLIER |
+| `create_rfq` | `POST /rfq` | INDICATIVE | party gate, BUYER, organization provenance REAL (or allowlisted demo) |
+| `quote_rfq` | `POST /rfq/{id}/quote` | INDICATIVE | party gate, SUPPLIER, provenance can execute |
+| `view_admin_analytics` | `/admin/analytics/*` dashboards | none | ADMIN |
+| `view_audit_log` | audit log pages | none | ADMIN |
+| `view_user_activity` | per-user activity timeline | none | ADMIN |
+| `view_feedback` | feedback inbox | none | ADMIN |
+| `manage_subscriptions` | `/admin/subscriptions*` | none | ADMIN |
+| `manage_accounts` | approve/reject accounts and organizations, invitations, admin user list, onboarding attention | none | ADMIN |
+| `review_kyc` | `PUT /kyc/admin/{id}/approve|reject` | none | ADMIN |
+| `manage_commissions` | `/orders/admin/commissions*` | none | ADMIN |
+| `market_support_access` | Market Support organization list | none | feature enabled, approved ADMIN, any active staff capability |
+| `market_support_assisted_orders` | start an assisted-order context and publish for a customer | none | feature enabled, approved ADMIN, both `MARKET_SUPPORT_LISTINGS` and `MARKET_SUPPORT_AUTHORIZATIONS` |
+
+"Party gate" is the single predicate `market_party_denial` for the policy in
+the row. `market_party_is_eligible` and the route dependencies
+(`require_execution_eligible_user`, `require_market_cleanup_user`,
+`require_market_admitted_user`) are exactly `denial is None`, so the endpoint
+and this payload cannot disagree.
+
+KYC details for the UI:
+
+- A user inside the one-time KYC grace window (`kyc_execution_grace`, expires
+  28 Oct 2026) is **allowed** with `reason_code: null`. The payload does not
+  carry the deadline; `GET /api/auth/me` reports
+  `execution_eligibility {eligible, reason, grace_expires_at}`.
+- Once grace has expired (gate on), every `EXECUTION` ability reports
+  `KYC_REQUIRED` for a user without approved KYC; `CLEANUP` abilities stay
+  allowed, so a user can still cancel, deliver and pay.
+- With the gate off, a user whose KYC is PENDING or SUBMITTED is allowed to
+  execute; turning the gate on later flips those abilities without a code change.
+- Per-order rules are not reported: Bio-LNG orders need `lng_terms` and the
+  Rotterdam lane, a Bio-LNG ASK cannot be published from inventory, and a
+  Bio-LNG ASK can only be taken with compatible buyer terms
+  (`LNG_TERMS_INCOMPATIBLE`). `FUEL_TRADER` organizations may hold the
+  SUPPLIER role (invitation only), so they get the supplier abilities.
 
 ## Reason codes
 
@@ -84,8 +116,9 @@ by `require_execution_eligible_user`.
 | `ACCOUNT_NOT_APPROVED` | Account status is not APPROVED. |
 | `EMAIL_NOT_VERIFIED` | Email address not verified. |
 | `PASSWORD_CHANGE_REQUIRED` | Account is flagged to change its password. |
+| `KYC_REQUIRED` | KYC is not approved for the current organization and no valid grace applies. Same code as the 403 `KYC_REQUIRED` the execution gate returns. |
 | `KYC_REJECTED` | A human reviewer rejected the user's KYC. |
-| `KYC_ORGANIZATION_MISMATCH` | KYC state belongs to a different organization. |
+| `KYC_ORGANIZATION_MISMATCH` | The KYC review is bound to a different organization (advisory rule, `INDICATIVE`). Under `EXECUTION` this case reports `KYC_REQUIRED`. |
 | `ORGANIZATION_NOT_APPROVED` | The organization's verification status is not APPROVED. |
 | `BUYER_ROLE_REQUIRED` | Action is for buyer accounts. |
 | `SUPPLIER_ROLE_REQUIRED` | Action is for supplier accounts. |
@@ -115,7 +148,7 @@ re-implements none of them. Role rules and the vocabulary live in
 
 | rule | shared predicate | enforced in |
 | --- | --- | --- |
-| execution eligibility | `execution_party_denial` / `execution_user_denial` / `execution_party_is_eligible` | `middleware/execution.py`, trades, inventory, matching, market admission |
+| market-party eligibility (all three policies) | `market_party_denial`, with `market_party_is_eligible` = `denial is None`; built from `user_account_denial`, `organization_denial`, `advisory_kyc_denial` and `evaluate_kyc_execution` (`services/kyc_execution.py`) | `middleware/execution.py`, trades, inventory, orderbook, matching, `market_admission.lock_and_load_market_organizations` |
 | place BID/ASK role | `place_order_role_denial` | `routers/orderbook.py` create_order |
 | hit ASK/BID role | `hit_order_role_denial` | `routers/trades.py` create_trade |
 | mark paid role | `mark_trade_paid_role_denial` | `routers/trades.py` pay_trade |
@@ -127,6 +160,9 @@ re-implements none of them. Role rules and the vocabulary live in
 | RFQ participant provenance | `participant_provenance_eligible` | `assert_market_participant_provenance` |
 | Market Support staff gate | `market_support_staff_denial` | `require_market_support_admin` |
 | capability active | `capability_assignment_is_active`, `active_capabilities`, `ASSISTED_ORDER_CAPABILITIES` | Market Support routes, `request_party.py` |
+
+`POLICY_BY_ABILITY` (`services/abilities.py`) records which policy each endpoint
+applies. A unit test reads the real endpoints and fails if the table drifts.
 
 Change a rule in its predicate and both the endpoint and this payload change.
 `tests/unit/test_user_abilities.py` drives each real endpoint or dependency and

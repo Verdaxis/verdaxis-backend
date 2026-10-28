@@ -8,7 +8,7 @@ on:
   push:
     branches: [staging, prod]
   pull_request:
-    branches: [staging, prod, main]
+    branches: [staging, prod]
 
 permissions:
   contents: read

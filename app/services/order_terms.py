@@ -57,7 +57,7 @@ def executable_order_terms(order: Any) -> dict[str, Any]:
         str(value)
         for value in (getattr(order, "certifications", None) or [])
     ]
-    return {
+    terms = {
         "order_id": str(order.id),
         "side": _enum_value(order.side),
         "organization_id": str(order.organization_id),
@@ -109,6 +109,11 @@ def executable_order_terms(order: Any) -> dict[str, Any]:
         "is_verdaxis_verified": bool(getattr(order, "is_verdaxis_verified", False)),
         "fame_terms": _canonical_json_value(getattr(order, "fame_terms", None)),
     }
+    lng_terms = getattr(order, "lng_terms", None)
+    if lng_terms is not None:
+        # Only Bio-LNG orders carry this key, so earlier digests stay stable.
+        terms["lng_terms"] = _canonical_json_value(lng_terms)
+    return terms
 
 
 def order_terms_digest(order: Any) -> str:

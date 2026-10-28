@@ -1,8 +1,10 @@
+from datetime import datetime
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from uuid import UUID
 from typing import Optional
 from enum import Enum
 from app.core.security import validate_password_bytes
+from app.services.kyc_execution import ExecutionEligibilityReason
 
 class UserStatus(str, Enum):
     PENDING = "PENDING"
@@ -46,6 +48,21 @@ class UserResponse(UserBase):
     class Config:
         from_attributes = True
 
+
+class ExecutionEligibilityResponse(BaseModel):
+    """The KYC condition for new executions; account admission is separate."""
+
+    eligible: bool
+    reason: ExecutionEligibilityReason
+    grace_expires_at: Optional[datetime] = None
+
+
+class CurrentUserResponse(UserResponse):
+    """The signed-in user's own profile (login and /api/auth/me)."""
+
+    kyc_status: str
+    execution_eligibility: ExecutionEligibilityResponse
+
 class UserUpdate(BaseModel):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
@@ -57,7 +74,7 @@ class Token(BaseModel):
 
 
 class LoginResponse(Token):
-    profile: UserResponse
+    profile: CurrentUserResponse
 
 
 class LoginRequest(BaseModel):

@@ -10,6 +10,7 @@ from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
+from app.market_catalog import product_delivery_point_error
 from app.models.catalog import DeliveryPoint, Product
 from app.models.marketplace import InventoryItem, FuelType as ModelFuelType
 from app.models.orderbook import (
@@ -21,7 +22,10 @@ from app.models.orderbook import (
 from app.schemas.marketplace import InventoryCreate, InventoryItemUpdate, InventoryResponse
 from app.models.user import Organization, User, UserRole
 from app.routers.auth_simple import get_current_user
-from app.middleware.execution import require_execution_eligible_user
+from app.middleware.execution import (
+    require_execution_eligible_user,
+    require_market_admitted_user,
+)
 from app.services.action_policy import inventory_role_denial
 from app.services.availability_windows import SPOT_WINDOW, availability_window_expiry
 from app.services.audit_service import record_audit, request_audit_context
@@ -39,10 +43,12 @@ from app.services.market_data_eligibility import (
     public_trade_is_visible,
 )
 from app.services.execution_policy import (
+    MarketPartyPolicy,
     execution_party_is_eligible,
     order_is_execution_qualified,
     supplier_product_metadata_error,
 )
+from app.services.lng_terms import is_bio_lng_product
 from app.services.market_locks import (
     acquire_market_slice_lock,
     next_order_acceptance_ordinal,
@@ -152,7 +158,7 @@ async def list_inventory(
 async def add_inventory(
     item: InventoryCreate,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_execution_eligible_user)]
+    current_user: Annotated[User, Depends(require_market_admitted_user)]
 ):
     if inventory_role_denial(current_user.role) is not None:
         raise HTTPException(status_code=403, detail="Only suppliers can manage inventory")
@@ -166,6 +172,7 @@ async def add_inventory(
         actor_ownerships=(
             MarketActorOwnership(current_user.id, current_user.organization_id),
         ),
+        actor_policy=MarketPartyPolicy.INDICATIVE,
     )
 
     try:
@@ -221,7 +228,7 @@ async def update_inventory(
     item_id: UUID,
     updates: InventoryItemUpdate,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_execution_eligible_user)]
+    current_user: Annotated[User, Depends(require_market_admitted_user)]
 ):
     if inventory_role_denial(current_user.role) is not None:
         raise HTTPException(status_code=403, detail="Only suppliers can manage inventory")
@@ -234,6 +241,7 @@ async def update_inventory(
         actor_ownerships=(
             MarketActorOwnership(current_user.id, current_user.organization_id),
         ),
+        actor_policy=MarketPartyPolicy.INDICATIVE,
     )
 
     stmt = select(InventoryItem).where(
@@ -284,7 +292,7 @@ async def update_inventory(
 async def delete_inventory(
     item_id: UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_execution_eligible_user)]
+    current_user: Annotated[User, Depends(require_market_admitted_user)]
 ):
     if inventory_role_denial(current_user.role) is not None:
         raise HTTPException(status_code=403, detail="Only suppliers can manage inventory")
@@ -297,6 +305,7 @@ async def delete_inventory(
         actor_ownerships=(
             MarketActorOwnership(current_user.id, current_user.organization_id),
         ),
+        actor_policy=MarketPartyPolicy.INDICATIVE,
     )
 
     stmt = select(InventoryItem).where(
@@ -425,6 +434,15 @@ async def publish_inventory_item(
         raise HTTPException(
             status_code=400,
             detail="Inventory port is not an active canonical delivery point",
+        )
+    lane_error = product_delivery_point_error(product.id, delivery_point.id)
+    if lane_error:
+        raise HTTPException(status_code=400, detail=lane_error)
+    if is_bio_lng_product(product.id):
+        # Inventory rows carry no lng_terms, which every Bio-LNG ASK requires.
+        raise HTTPException(
+            status_code=400,
+            detail="Bio-LNG listings require lng_terms; place them as order-book ASK orders",
         )
     # Fat-finger guard on the listing this publication will create. Read-only
     # and ahead of the slice lock so a rejected listing never contends for it.

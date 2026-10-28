@@ -116,6 +116,13 @@ class TestRefreshCookieMigration:
             "organization_id": None,
             "referral_code": None,
             "must_change_password": False,
+            "kyc_status": "PENDING",
+            # A user without an organization never trades as a party.
+            "execution_eligibility": {
+                "eligible": False,
+                "reason": "NOT_APPLICABLE",
+                "grace_expires_at": None,
+            },
         }
         assert "password_hash" not in response.text
         # The refresh token must travel ONLY in the HttpOnly cookie.

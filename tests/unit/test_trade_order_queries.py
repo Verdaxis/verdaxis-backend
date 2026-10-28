@@ -62,7 +62,8 @@ def _eligible_user(user_id, organization_id, role):
         status=UserStatus.APPROVED,
         email_verified=True,
         must_change_password=False,
-        kyc_status="PENDING",
+        kyc_status="APPROVED",
+        kyc_organization_id=organization_id,
     )
 
 
@@ -139,6 +140,7 @@ async def test_trade_summary_and_action_filter_are_tenant_scoped(monkeypatch):
         OrderBookOrder.__table__,
         Organization.__table__,
         User.__table__,
+        Base.metadata.tables["kyc_execution_grace"],
     )
     try:
         buyer_org, seller_org, foreign_org = uuid4(), uuid4(), uuid4()
@@ -270,6 +272,20 @@ async def test_trade_summary_and_action_filter_are_tenant_scoped(monkeypatch):
             ).scalars().all()
             assert visible_ids == [rows[1].id]
 
+            # Action required means confirmable now: without KYC approval or
+            # grace the confirm gate refuses, so the projection shows nothing.
+            buyer_db_user.kyc_status = "PENDING"
+            await session.commit()
+            assert (
+                await session.execute(
+                    select(Trade.id).where(
+                        _trade_action_required_filter(current_user, buyer_org)
+                    )
+                )
+            ).scalars().all() == []
+            buyer_db_user.kyc_status = "APPROVED"
+            await session.commit()
+
             active_ids = (
                 await session.execute(
                     select(Trade.id).where(
@@ -322,6 +338,7 @@ async def test_assisted_action_filter_requires_side_role_and_admitted_owner():
         OrderBookOrder.__table__,
         Organization.__table__,
         User.__table__,
+        Base.metadata.tables["kyc_execution_grace"],
     )
     try:
         buyer_org, seller_org = uuid4(), uuid4()

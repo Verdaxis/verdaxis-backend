@@ -13,7 +13,12 @@ from uuid import uuid4
 
 import pytest
 from app.routers.abilities import router as abilities_router
-from app.services.abilities import REASON_MESSAGES, SCHEMA_VERSION, build_abilities
+from app.services.abilities import (
+    POLICY_BY_ABILITY,
+    REASON_MESSAGES,
+    SCHEMA_VERSION,
+    build_abilities,
+)
 from app.services.action_policy import (
     AbilityId,
     ReasonCode,
@@ -47,9 +52,22 @@ from app.routers import orderbook as orderbook_module
 from app.routers import trades as trades_module
 from app.routers.auth_simple import AUTHENTICATED_SHARED_LOCK_PATHS, get_current_user
 from app.routers.rfq import router as rfq_router
+from app.middleware.execution import (
+    require_market_admitted_user,
+    require_market_cleanup_user,
+)
 from app.services.execution_policy import (
-    execution_party_denial,
-    execution_party_is_eligible,
+    MarketPartyPolicy,
+    market_party_denial,
+    market_party_is_eligible,
+)
+from app.services.market_admission import (
+    MarketActorOwnership,
+    lock_and_load_market_organizations,
+)
+from app.services.kyc_execution import (
+    advisory_kyc_allows,
+    evaluate_kyc_execution,
 )
 from app.services.market_admission import (
     assert_market_participant_provenance,
@@ -79,11 +97,17 @@ MARKET_SUPPORT_ABILITIES = (A.MARKET_SUPPORT_ACCESS, A.MARKET_SUPPORT_ASSISTED_O
 SUPPLIER_ONLY = (A.PLACE_ASK_ORDER, A.HIT_BID_ORDER, A.PAY_TRADE, A.MANAGE_INVENTORY, A.PUBLISH_INVENTORY, A.QUOTE_RFQ)
 BUYER_ONLY = (A.PLACE_BID_ORDER, A.HIT_ASK_ORDER, A.CREATE_RFQ)
 ANY_PARTICIPANT = (A.AMEND_ORDER, A.CONFIRM_TRADE, A.DELIVER_TRADE)
-EXECUTION_GATED = tuple(
-    ability
-    for ability in A
-    if ability not in ADMIN_ABILITIES + MARKET_SUPPORT_ABILITIES + (A.CANCEL_ORDER,)
-)
+# Every ability whose endpoint applies a market-party policy.
+PARTY_GATED = tuple(POLICY_BY_ABILITY)
+EXECUTION_GATED = PARTY_GATED
+GATE_SWITCH = "app.config.settings.KYC_EXECUTION_GATE_ENABLED"
+
+
+@pytest.fixture(autouse=True, params=[True, False], ids=["gate-on", "gate-off"])
+def kyc_gate(request, monkeypatch):
+    """Run every test with the KYC execution gate on and off."""
+    monkeypatch.setattr(GATE_SWITCH, request.param)
+    return request.param
 
 
 # ---------------------------------------------------------------------------
@@ -106,7 +130,7 @@ def make_profile(kind: str) -> tuple[User, Organization | None]:
         email_verified=True,
         must_change_password=False,
         kyc_status="APPROVED",
-        kyc_organization_id=None,
+        kyc_organization_id=organization_id,
     )
     organization = Organization(
         id=organization_id,
@@ -121,6 +145,13 @@ def make_profile(kind: str) -> tuple[User, Organization | None]:
         user.kyc_status = "REJECTED"
     elif kind == "kyc_other_org":
         user.kyc_organization_id = uuid4()
+    elif kind in {"kyc_pending", "kyc_grace", "kyc_grace_expired"}:
+        user.kyc_status = "PENDING"
+        user.kyc_organization_id = None
+        if kind == "kyc_grace":
+            GRACE_BY_USER[user.id] = datetime.now(UTC) + timedelta(days=3)
+        elif kind == "kyc_grace_expired":
+            GRACE_BY_USER[user.id] = datetime.now(UTC) - timedelta(days=1)
     elif kind in {"unknown_provenance", "supplier_unknown_provenance"}:
         organization.provenance = OrganizationProvenance.UNKNOWN
     elif kind == "email_unverified":
@@ -135,6 +166,8 @@ def make_profile(kind: str) -> tuple[User, Organization | None]:
     return user, organization
 
 
+GRACE_BY_USER: dict = {}  # user id -> kyc_execution_grace.expires_at
+
 PROFILE_KINDS = (
     "buyer",
     "supplier",
@@ -142,6 +175,9 @@ PROFILE_KINDS = (
     "org_pending",
     "kyc_rejected",
     "kyc_other_org",
+    "kyc_pending",
+    "kyc_grace",
+    "kyc_grace_expired",
     "unknown_provenance",
     "supplier_unknown_provenance",
     "email_unverified",
@@ -151,8 +187,33 @@ PROFILE_KINDS = (
 )
 
 
-def by_action(user, organization, capabilities=frozenset()):
-    return {a.action: a for a in build_abilities(user, organization, capabilities)}
+async def party_denials(user, organization):
+    """The market-party denial for each policy, from the real predicate."""
+    return {
+        policy: await market_party_denial(
+            FakeDb(organization), user=user, organization=organization, policy=policy
+        )
+        for policy in MarketPartyPolicy
+    }
+
+
+async def abilities_for(user, organization, capabilities=frozenset()):
+    return build_abilities(user, organization, await party_denials(user, organization), capabilities)
+
+
+async def by_action(user, organization, capabilities=frozenset()):
+    return {a.action: a for a in await abilities_for(user, organization, capabilities)}
+
+
+async def party_allows(user, organization, ability):
+    """Does the policy this ability's endpoint applies admit the user?"""
+    denial = await market_party_denial(
+        FakeDb(organization),
+        user=user,
+        organization=organization,
+        policy=POLICY_BY_ABILITY[ability],
+    )
+    return denial is None
 
 
 class FakeResult:
@@ -173,6 +234,21 @@ class FakeResult:
         return None
 
 
+def grace_result(statement):
+    """Answer the KYC grace lookup, or return None for any other statement."""
+    if "kyc_execution_grace" not in str(statement):
+        return None
+    expires_at = next(
+        (
+            GRACE_BY_USER[value]
+            for value in statement.compile().params.values()
+            if value in GRACE_BY_USER
+        ),
+        None,
+    )
+    return SimpleNamespace(scalar_one_or_none=lambda: expires_at)
+
+
 class FakeDb:
     """Answers every select with the user's organization (or no rows)."""
 
@@ -180,8 +256,8 @@ class FakeDb:
         self._organization = organization
         self._assignments = assignments
 
-    async def execute(self, *_args, **_kwargs):
-        return FakeResult(self._organization, self._assignments)
+    async def execute(self, statement, *_args, **_kwargs):
+        return grace_result(statement) or FakeResult(self._organization, self._assignments)
 
     async def rollback(self):
         return None
@@ -209,9 +285,9 @@ async def gate_outcome(coro) -> str:
 # ---------------------------------------------------------------------------
 
 
-def test_every_ability_is_reported_once_in_declaration_order():
+async def test_every_ability_is_reported_once_in_declaration_order():
     user, organization = make_profile("buyer")
-    abilities = build_abilities(user, organization)
+    abilities = await abilities_for(user, organization)
     assert [a.action for a in abilities] == list(AbilityId)
     assert len({a.action for a in abilities}) == len(abilities)
 
@@ -222,10 +298,10 @@ def test_ids_and_codes_are_snake_case_and_upper_case_and_every_code_has_a_messag
     assert set(REASON_MESSAGES) == set(ReasonCode)
 
 
-def test_allowed_abilities_carry_no_reason_and_denied_abilities_always_do():
+async def test_allowed_abilities_carry_no_reason_and_denied_abilities_always_do():
     for kind in PROFILE_KINDS:
         user, organization = make_profile(kind)
-        for ability in build_abilities(user, organization):
+        for ability in await abilities_for(user, organization):
             if ability.allowed:
                 assert ability.reason_code is None and ability.reason is None
             else:
@@ -233,12 +309,10 @@ def test_allowed_abilities_carry_no_reason_and_denied_abilities_always_do():
                 assert ability.reason == REASON_MESSAGES[ability.reason_code]
 
 
-def verdicts(kind, capabilities=frozenset()):
+async def verdicts(kind, capabilities=frozenset()):
     user, organization = make_profile(kind)
-    return {
-        action: ability.reason_code
-        for action, ability in by_action(user, organization, capabilities).items()
-    }
+    abilities = await by_action(user, organization, capabilities)
+    return {action: ability.reason_code for action, ability in abilities.items()}
 
 
 def expected(allowed, denied_with, default_denial=None):
@@ -254,36 +328,36 @@ def expected(allowed, denied_with, default_denial=None):
     return result
 
 
-def test_buyer_payload():
+async def test_buyer_payload():
     market_support_off = {a: R.MARKET_SUPPORT_DISABLED for a in MARKET_SUPPORT_ABILITIES}
     admin_denied = {a: R.ADMIN_ROLE_REQUIRED for a in ADMIN_ABILITIES}
     supplier_denied = {a: R.SUPPLIER_ROLE_REQUIRED for a in SUPPLIER_ONLY}
-    assert verdicts("buyer") == expected(
+    assert await verdicts("buyer") == expected(
         allowed=set(BUYER_ONLY + ANY_PARTICIPANT + (A.CANCEL_ORDER,)),
         denied_with={**market_support_off, **admin_denied, **supplier_denied},
     )
 
 
-def test_supplier_payload():
+async def test_supplier_payload():
     market_support_off = {a: R.MARKET_SUPPORT_DISABLED for a in MARKET_SUPPORT_ABILITIES}
     admin_denied = {a: R.ADMIN_ROLE_REQUIRED for a in ADMIN_ABILITIES}
     buyer_denied = {a: R.BUYER_ROLE_REQUIRED for a in BUYER_ONLY}
-    assert verdicts("supplier") == expected(
+    assert await verdicts("supplier") == expected(
         allowed=set(SUPPLIER_ONLY + ANY_PARTICIPANT + (A.CANCEL_ORDER,)),
         denied_with={**market_support_off, **admin_denied, **buyer_denied},
     )
 
 
-def test_admin_payload_with_market_support_disabled():
+async def test_admin_payload_with_market_support_disabled():
     market_support_off = {a: R.MARKET_SUPPORT_DISABLED for a in MARKET_SUPPORT_ABILITIES}
     execution_denied = {a: R.ADMIN_CANNOT_EXECUTE for a in EXECUTION_GATED}
-    assert verdicts("admin") == expected(
-        allowed=set(ADMIN_ABILITIES + (A.CANCEL_ORDER,)),
+    assert await verdicts("admin") == expected(
+        allowed=set(ADMIN_ABILITIES),
         denied_with={**market_support_off, **execution_denied},
     )
 
 
-def test_admin_payload_with_market_support_enabled(monkeypatch):
+async def test_admin_payload_with_market_support_enabled(monkeypatch):
     monkeypatch.setattr("app.config.settings.MARKET_SUPPORT_ENABLED", True)
     both = frozenset(MarketSupportCapability)
     one = frozenset({MarketSupportCapability.MARKET_SUPPORT_LISTINGS})
@@ -291,21 +365,21 @@ def test_admin_payload_with_market_support_enabled(monkeypatch):
     retired = {a: R.LEGACY_ADMIN_MUTATION_RETIRED for a in (A.AMEND_ORDER, A.CANCEL_ORDER)}
     base = {**execution_denied, **retired}
 
-    assert verdicts("admin", both) == expected(
+    assert await verdicts("admin", both) == expected(
         allowed=set(ADMIN_ABILITIES + MARKET_SUPPORT_ABILITIES), denied_with=base
     )
-    assert verdicts("admin", one) == expected(
+    assert await verdicts("admin", one) == expected(
         allowed=set(ADMIN_ABILITIES + (A.MARKET_SUPPORT_ACCESS,)),
         denied_with={**base, A.MARKET_SUPPORT_ASSISTED_ORDERS: R.MARKET_SUPPORT_CAPABILITY_REQUIRED},
     )
-    none = verdicts("admin", frozenset())
+    none = await verdicts("admin", frozenset())
     assert none[A.MARKET_SUPPORT_ACCESS] == R.MARKET_SUPPORT_CAPABILITY_REQUIRED
     assert none[A.MARKET_SUPPORT_ASSISTED_ORDERS] == R.MARKET_SUPPORT_CAPABILITY_REQUIRED
 
 
-def test_non_admin_never_gets_market_support_even_when_enabled(monkeypatch):
+async def test_non_admin_never_gets_market_support_even_when_enabled(monkeypatch):
     monkeypatch.setattr("app.config.settings.MARKET_SUPPORT_ENABLED", True)
-    result = verdicts("buyer", frozenset(MarketSupportCapability))
+    result = await verdicts("buyer", frozenset(MarketSupportCapability))
     assert result[A.MARKET_SUPPORT_ACCESS] == R.ADMIN_ROLE_REQUIRED
     assert result[A.MARKET_SUPPORT_ASSISTED_ORDERS] == R.ADMIN_ROLE_REQUIRED
 
@@ -314,42 +388,99 @@ def test_non_admin_never_gets_market_support_even_when_enabled(monkeypatch):
     ("kind", "code"),
     [
         ("org_pending", R.ORGANIZATION_NOT_APPROVED),
-        ("kyc_rejected", R.KYC_REJECTED),
-        ("kyc_other_org", R.KYC_ORGANIZATION_MISMATCH),
         ("email_unverified", R.EMAIL_NOT_VERIFIED),
         ("password_change", R.PASSWORD_CHANGE_REQUIRED),
         ("role_unassigned", R.ROLE_NOT_ASSIGNED),
         ("no_organization", R.ORGANIZATION_REQUIRED),
     ],
 )
-def test_blocked_users_lose_every_execution_ability_with_the_blocking_reason(kind, code):
-    result = verdicts(kind)
-    for ability in EXECUTION_GATED:
+async def test_blocked_accounts_lose_every_market_ability_under_every_policy(kind, code):
+    result = await verdicts(kind)
+    for ability in PARTY_GATED:
         assert result[ability] == code, ability
-    # Cancelling is an owner-cleanup path that never required admission.
-    assert result[A.CANCEL_ORDER] is None
 
 
-def test_unknown_provenance_buyer_may_place_orders_but_not_execute_against_anyone():
-    result = verdicts("unknown_provenance")
+def kyc_expectation(kind: str, gate_enabled: bool) -> dict[MarketPartyPolicy, R | None]:
+    """What the KYC rule does to each policy, written out from the gate docs."""
+    cleanup = None  # KYC never blocks settling or withdrawing a commitment
+    if kind == "kyc_rejected":  # a human rejection blocks execution on every path
+        return {
+            MarketPartyPolicy.EXECUTION: R.KYC_REJECTED,
+            MarketPartyPolicy.INDICATIVE: R.KYC_REJECTED,
+            MarketPartyPolicy.CLEANUP: cleanup,
+        }
+    if kind == "kyc_other_org":  # approved for another organization
+        return {
+            MarketPartyPolicy.EXECUTION: R.KYC_REQUIRED,
+            MarketPartyPolicy.INDICATIVE: R.KYC_ORGANIZATION_MISMATCH,
+            MarketPartyPolicy.CLEANUP: cleanup,
+        }
+    if kind in {"kyc_pending", "kyc_grace_expired"}:
+        # Not approved and no valid grace: blocked only while the gate is on.
+        return {
+            MarketPartyPolicy.EXECUTION: R.KYC_REQUIRED if gate_enabled else None,
+            MarketPartyPolicy.INDICATIVE: None,
+            MarketPartyPolicy.CLEANUP: cleanup,
+        }
+    # buyer (approved for its organization) and kyc_grace (valid grace)
+    return {policy: None for policy in MarketPartyPolicy}
+
+
+@pytest.mark.parametrize(
+    "kind",
+    ["buyer", "kyc_rejected", "kyc_other_org", "kyc_pending", "kyc_grace", "kyc_grace_expired"],
+)
+async def test_kyc_gate_outcomes_per_policy_and_ability(kind, kyc_gate):
+    user, organization = make_profile(kind)
+    expected_by_policy = kyc_expectation(kind, kyc_gate)
+
+    assert await party_denials(user, organization) == expected_by_policy
+
+    # Buyer-side abilities the buyer holds role-wise: reason == the policy's code.
+    buyer_abilities = (A.PLACE_BID_ORDER, A.AMEND_ORDER, A.CANCEL_ORDER, A.HIT_ASK_ORDER)
+    buyer_abilities += (A.CONFIRM_TRADE, A.DELIVER_TRADE, A.CREATE_RFQ)
+    result = await verdicts(kind)
+    for ability in buyer_abilities:
+        assert result[ability] == expected_by_policy[POLICY_BY_ABILITY[ability]], ability
+
+
+async def test_gate_switch_changes_only_the_execution_policy(kyc_gate):
+    pending, organization = make_profile("kyc_pending")
+    denials = await party_denials(pending, organization)
+    assert (denials[MarketPartyPolicy.EXECUTION] is None) == (not kyc_gate)
+    assert denials[MarketPartyPolicy.INDICATIVE] is None
+    assert denials[MarketPartyPolicy.CLEANUP] is None
+
+
+async def test_grace_admits_execution_only_while_valid_and_the_gate_is_on(kyc_gate):
+    valid, organization = make_profile("kyc_grace")
+    expired, _ = make_profile("kyc_grace_expired")
+    assert (await evaluate_kyc_execution(FakeDb(organization), valid)).eligible
+    # Past its deadline a grace row admits nothing; with the gate off the
+    # advisory rule admits the user regardless of grace.
+    assert (await evaluate_kyc_execution(FakeDb(organization), expired)).eligible == (not kyc_gate)
+
+
+async def test_unknown_provenance_buyer_may_place_orders_but_not_execute_against_anyone():
+    result = await verdicts("unknown_provenance")
     assert result[A.PLACE_BID_ORDER] is None
     assert result[A.CONFIRM_TRADE] is None
     assert result[A.HIT_ASK_ORDER] == R.ORGANIZATION_PROVENANCE_UNVERIFIED
     assert result[A.CREATE_RFQ] == R.ORGANIZATION_PROVENANCE_UNVERIFIED
 
 
-def test_unknown_provenance_supplier_may_publish_but_not_quote_or_hit():
-    result = verdicts("supplier_unknown_provenance")
+async def test_unknown_provenance_supplier_may_publish_but_not_quote_or_hit():
+    result = await verdicts("supplier_unknown_provenance")
     assert result[A.PLACE_ASK_ORDER] is None
     assert result[A.PUBLISH_INVENTORY] is None
     assert result[A.HIT_BID_ORDER] == R.ORGANIZATION_PROVENANCE_UNVERIFIED
     assert result[A.QUOTE_RFQ] == R.ORGANIZATION_PROVENANCE_UNVERIFIED
 
 
-def test_role_gated_pages_follow_the_role_table_for_every_user_kind():
+async def test_role_gated_pages_follow_the_role_table_for_every_user_kind():
     for kind in PROFILE_KINDS:
         user, organization = make_profile(kind)
-        abilities = by_action(user, organization)
+        abilities = await by_action(user, organization)
         for ability in ADMIN_ABILITIES:
             assert abilities[ability].allowed == (user.role in allowed_roles(ability))
 
@@ -439,31 +570,164 @@ def test_route_is_mounted_and_uses_the_shared_user_lock_path():
 # ---------------------------------------------------------------------------
 
 
+DEPENDENCIES = (
+    (require_execution_eligible_user, MarketPartyPolicy.EXECUTION),
+    (require_market_cleanup_user, MarketPartyPolicy.CLEANUP),
+    (require_market_admitted_user, MarketPartyPolicy.INDICATIVE),
+)
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("kind", PROFILE_KINDS)
-async def test_execution_dependency_and_abilities_agree(kind):
+@pytest.mark.parametrize(("dependency", "policy"), DEPENDENCIES, ids=["execution", "cleanup", "indicative"])
+async def test_market_party_dependency_predicate_and_abilities_agree(kind, dependency, policy):
     user, organization = make_profile(kind)
-    abilities = by_action(user, organization)
+    abilities = await by_action(user, organization)
 
-    outcome = await gate_outcome(
-        require_execution_eligible_user(current_user=user, db=FakeDb(organization))
+    outcome = await gate_outcome(dependency(current_user=user, db=FakeDb(organization)))
+    eligible = await market_party_is_eligible(
+        FakeDb(organization), user=user, organization=organization, policy=policy
     )
-    eligible = await execution_party_is_eligible(FakeDb(organization), user=user)
+    denial = await market_party_denial(
+        FakeDb(organization), user=user, organization=organization, policy=policy
+    )
 
-    assert (outcome == "passed") == eligible
-    assert eligible == (execution_party_denial(user, organization) is None)
-    # Confirm and deliver are gated by that dependency alone.
-    assert abilities[A.CONFIRM_TRADE].allowed == eligible
-    assert abilities[A.DELIVER_TRADE].allowed == eligible
+    assert (outcome == "passed") == eligible == (denial is None)
+    # Every ability whose endpoint applies this policy is denied with the
+    # predicate's own reason whenever the predicate denies. (When it admits,
+    # role or provenance gates may still deny; those have their own tests.)
+    gated = [ability for ability, used in POLICY_BY_ABILITY.items() if used == policy]
+    assert gated
+    for ability in gated:
+        if not eligible:
+            assert abilities[ability].reason_code == denial, ability
+
+
+def _policies_an_endpoint_applies(function) -> set[MarketPartyPolicy]:
+    """Which market-party policy the endpoint applies, read from the code.
+
+    A gate is either a ``Depends(...)`` default in the signature or a call in
+    the body; cancel (no admission gate) applies CLEANUP when it re-locks the
+    actor's organization.
+    """
+    import inspect
+
+    gate_policy = {
+        require_execution_eligible_user: MarketPartyPolicy.EXECUTION,
+        require_market_cleanup_user: MarketPartyPolicy.CLEANUP,
+        require_market_admitted_user: MarketPartyPolicy.INDICATIVE,
+    }
+    found = set()
+    import typing
+
+    unwrapped = inspect.unwrap(function)
+    annotations = typing.get_type_hints(unwrapped, include_extras=True)
+    for parameter in inspect.signature(unwrapped).parameters.values():
+        candidates = [parameter.default, *getattr(annotations.get(parameter.name), "__metadata__", ())]
+        for candidate in candidates:
+            dependency = getattr(candidate, "dependency", None)
+            if dependency in gate_policy:
+                found.add(gate_policy[dependency])
+    source = inspect.getsource(inspect.unwrap(function))
+    for gate, policy in gate_policy.items():
+        if f"await {gate.__name__}(" in source:
+            found.add(policy)
+    if "actor_policy=MarketPartyPolicy.CLEANUP" in source:
+        found.add(MarketPartyPolicy.CLEANUP)
+    return found
+
+
+def test_policy_table_matches_the_policy_each_real_endpoint_applies():
+    from app.routers import rfq as rfq_module
+
+    endpoints = {
+        A.PLACE_BID_ORDER: orderbook_module.create_order,
+        A.PLACE_ASK_ORDER: orderbook_module.create_order,
+        A.AMEND_ORDER: orderbook_module.update_order,
+        A.CANCEL_ORDER: orderbook_module.cancel_order,
+        A.HIT_ASK_ORDER: trades_module.create_trade,
+        A.HIT_BID_ORDER: trades_module.create_trade,
+        A.CONFIRM_TRADE: trades_module.confirm_trade,
+        A.DELIVER_TRADE: trades_module.deliver_trade,
+        A.PAY_TRADE: trades_module.pay_trade,
+        A.MANAGE_INVENTORY: inventory_module.add_inventory,
+        A.PUBLISH_INVENTORY: inventory_module.publish_inventory_item,
+        A.CREATE_RFQ: rfq_module.create_rfq,
+        A.QUOTE_RFQ: rfq_module.submit_quote,
+    }
+    assert set(endpoints) == set(POLICY_BY_ABILITY)
+    for ability, endpoint in endpoints.items():
+        applied = _policies_an_endpoint_applies(endpoint)
+        assert POLICY_BY_ABILITY[ability] in applied, (ability, applied)
+    # Inventory add, update and delete share one gate.
+    for function in (inventory_module.update_inventory, inventory_module.delete_inventory):
+        assert _policies_an_endpoint_applies(function) == {MarketPartyPolicy.INDICATIVE}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", PROFILE_KINDS)
+@pytest.mark.parametrize("policy", list(MarketPartyPolicy))
+async def test_lock_and_load_revalidation_agrees_with_the_policy_predicate(kind, policy):
+    """The in-transaction recheck (deliver, pay, cancel, RFQ...) is the same predicate."""
+    user, organization = make_profile(kind)
+    if organization is None or user.organization_id is None:
+        return  # the router rejects an organization-less user before locking
+
+    class LockDb:
+        async def execute(self, statement, *_a, **_k):
+            grace = grace_result(statement)
+            if grace is not None:
+                return grace
+            rows = [user] if "FROM users" in str(statement) else [organization]
+            return SimpleNamespace(scalars=lambda: iter(rows))
+
+    try:
+        await lock_and_load_market_organizations(
+            LockDb(),
+            [organization.id],
+            actor_ownerships=(MarketActorOwnership(user.id, organization.id),),
+            actor_policy=policy,
+        )
+        outcome = "passed"
+    except HTTPException as error:
+        assert error.status_code == 409  # the in-transaction recheck is a conflict
+        outcome = "denied"
+    denial = await market_party_denial(
+        FakeDb(organization), user=user, organization=organization, policy=policy
+    )
+    assert (outcome == "passed") == (denial is None)
 
 
 @pytest.mark.asyncio
 async def test_admin_gets_its_own_denial_reason_from_the_dependency_predicate():
     user, organization = make_profile("admin")
-    with pytest.raises(HTTPException) as error:
+    for dependency in (
+        require_execution_eligible_user,
+        require_market_cleanup_user,
+        require_market_admitted_user,
+    ):
+        with pytest.raises(HTTPException) as error:
+            await dependency(current_user=user, db=FakeDb(organization))
+        assert error.value.detail == "Administrators cannot execute market actions"
+    assert (await by_action(user, organization))[A.CONFIRM_TRADE].reason_code == R.ADMIN_CANNOT_EXECUTE
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["kyc_pending", "kyc_rejected", "kyc_grace_expired"])
+async def test_execution_gate_http_error_and_reason_code_share_the_kyc_required_code(kind, kyc_gate):
+    user, organization = make_profile(kind)
+    denial = await market_party_denial(
+        FakeDb(organization), user=user, organization=organization,
+        policy=MarketPartyPolicy.EXECUTION,
+    )
+    try:
         await require_execution_eligible_user(current_user=user, db=FakeDb(organization))
-    assert error.value.detail == "Administrators cannot execute market actions"
-    assert by_action(user, organization)[A.CONFIRM_TRADE].reason_code == R.ADMIN_CANNOT_EXECUTE
+    except HTTPException as error:
+        assert error.status_code == 403
+        assert error.detail["code"] == "KYC_REQUIRED"
+        assert denial in (R.KYC_REQUIRED, R.KYC_REJECTED)
+    else:
+        assert denial is None
 
 
 # ---------------------------------------------------------------------------
@@ -471,8 +735,10 @@ async def test_admin_gets_its_own_denial_reason_from_the_dependency_predicate():
 # ---------------------------------------------------------------------------
 
 
+# A user without an organization is answered 400 "User must belong to an
+# organization" before the gate runs; the payload reports ORGANIZATION_REQUIRED.
 @pytest.mark.asyncio
-@pytest.mark.parametrize("kind", PROFILE_KINDS)
+@pytest.mark.parametrize("kind", [k for k in PROFILE_KINDS if k != "no_organization"])
 @pytest.mark.parametrize("side", [OrderSide.BID, OrderSide.ASK])
 async def test_create_order_and_place_order_abilities_agree(kind, side, monkeypatch):
     def stop_after_access_checks(_window):
@@ -492,20 +758,12 @@ async def test_create_order_and_place_order_abilities_agree(kind, side, monkeypa
     )
 
     ability = A.PLACE_BID_ORDER if side == OrderSide.BID else A.PLACE_ASK_ORDER
-    assert by_action(user, organization)[ability].allowed == (outcome == "passed")
+    assert (await by_action(user, organization))[ability].allowed == (outcome == "passed")
 
 
 # ---------------------------------------------------------------------------
 # Agreement: amend and cancel (legacy administrator path + admission)
 # ---------------------------------------------------------------------------
-
-
-def _amend_stub_db(organization):
-    class Db(FakeDb):
-        async def execute(self, statement, *_a, **_k):
-            return FakeResult(organization)
-
-    return Db(organization)
 
 
 @pytest.mark.asyncio
@@ -523,33 +781,36 @@ async def test_amend_order_endpoint_and_ability_agree(kind, market_support_enabl
             request=SimpleNamespace(headers={}),
             update_data=update,
             current_user=user,
-            db=_amend_stub_db(organization),
+            db=FakeDb(organization),
         )
     )
 
-    assert by_action(user, organization)[A.AMEND_ORDER].allowed == (outcome == "passed")
+    assert (await by_action(user, organization))[A.AMEND_ORDER].allowed == (outcome == "passed")
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("market_support_enabled", [False, True])
-@pytest.mark.parametrize("kind", ["buyer", "supplier", "admin", "org_pending", "kyc_rejected"])
+@pytest.mark.parametrize("kind", ["buyer", "supplier", "admin", "org_pending", "kyc_rejected", "kyc_pending"])
 async def test_cancel_order_endpoint_and_ability_agree(kind, market_support_enabled, monkeypatch):
     monkeypatch.setattr("app.config.settings.MARKET_SUPPORT_ENABLED", market_support_enabled)
     user, organization = make_profile(kind)
 
-    # The endpoint answers "Order not found" (404) once its access checks pass.
+    # Cancel has no admission dependency: the only gate before the order lookup
+    # is the retired legacy administrator path (410). The CLEANUP party check
+    # runs later under row locks and is covered by the lock-and-load test.
     outcome = await gate_outcome(
         orderbook_module.cancel_order(
             order_id=uuid4(),
             request=SimpleNamespace(headers={}, method="DELETE"),
             current_user=user,
-            db=_amend_stub_db(organization),
+            db=FakeDb(organization),
             if_match=None,
             body=None,
         )
     )
 
-    assert by_action(user, organization)[A.CANCEL_ORDER].allowed == (outcome == "passed")
+    ability = (await by_action(user, organization))[A.CANCEL_ORDER]
+    assert (outcome == "denied") == (ability.reason_code == R.LEGACY_ADMIN_MUTATION_RETIRED)
 
 
 def test_legacy_admin_predicate_is_shared_by_the_router_and_the_payload(monkeypatch):
@@ -618,6 +879,9 @@ async def test_create_trade_role_gate_and_hit_abilities_agree(kind, target_side,
         "lock_and_load_market_organizations",
         _async_return({}),
     )
+    # The in-route EXECUTION gate has its own agreement test; stub it here so
+    # this test isolates the role gate that follows it.
+    monkeypatch.setattr(trades_module, "require_execution_eligible_user", _async_return(user))
     payload = SimpleNamespace(order_id=order.id, expected_terms_digest="digest")
 
     try:
@@ -632,12 +896,11 @@ async def test_create_trade_role_gate_and_hit_abilities_agree(kind, target_side,
     else:  # pragma: no cover - the stub order always stops the endpoint
         role_denied = False
 
-    # The route's admission dependency (agreement test above) is not run when
-    # calling the function directly, so compare the role verdict only.
+    # The EXECUTION gate is stubbed (agreement test above): compare the role verdict only.
     ability = A.HIT_ASK_ORDER if target_side == OrderSide.ASK else A.HIT_BID_ORDER
-    reason = by_action(user, organization)[ability].reason_code
+    reason = (await by_action(user, organization))[ability].reason_code
     role_codes = {R.BUYER_ROLE_REQUIRED, R.SUPPLIER_ROLE_REQUIRED}
-    if execution_party_denial(user, organization) is None:
+    if await party_allows(user, organization, ability):
         assert role_denied == (reason in role_codes)
     assert role_denied == (hit_order_role_denial(user.role, target_side) is not None)
 
@@ -666,7 +929,8 @@ async def test_pay_trade_role_gate_and_ability_agree(kind, monkeypatch):
         raise PassedGate
 
     monkeypatch.setattr(trades_module, "prepare_command_attempt", _async_return(None))
-    monkeypatch.setattr(trades_module, "require_execution_eligible_user", _async_return(user))
+    # Paying settles a delivered commitment: the CLEANUP gate, never KYC.
+    monkeypatch.setattr(trades_module, "require_market_cleanup_user", _async_return(user))
     monkeypatch.setattr(trades_module, "_lock_trade_market_rows", _async_return((trade, None)))
     monkeypatch.setattr(trades_module, "lock_and_load_market_organizations", _async_return({}))
     monkeypatch.setattr(trades_module, "_authorize_assisted_trade_actor", _async_return(False))
@@ -681,10 +945,10 @@ async def test_pay_trade_role_gate_and_ability_agree(kind, monkeypatch):
         )
     )
 
-    reason = by_action(user, organization)[A.PAY_TRADE].reason_code
+    reason = (await by_action(user, organization))[A.PAY_TRADE].reason_code
     role_codes = {R.BUYER_ROLE_REQUIRED, R.SUPPLIER_ROLE_REQUIRED}
     assert (outcome == "denied") == (user.role != UserRole.SUPPLIER)
-    if execution_party_denial(user, organization) is None:
+    if await party_allows(user, organization, A.PAY_TRADE):
         assert (outcome == "denied") == (reason in role_codes)
 
 
@@ -708,8 +972,8 @@ async def test_manage_inventory_endpoint_and_ability_agree(kind, monkeypatch):
         )
     )
 
-    reason = by_action(user, organization)[A.MANAGE_INVENTORY].reason_code
-    if execution_party_denial(user, organization) is None:
+    reason = (await by_action(user, organization))[A.MANAGE_INVENTORY].reason_code
+    if await party_allows(user, organization, A.MANAGE_INVENTORY):
         assert (outcome == "denied") == (reason == R.SUPPLIER_ROLE_REQUIRED)
     assert (outcome == "denied") == (user.role != UserRole.SUPPLIER)
 
@@ -723,7 +987,10 @@ async def test_publish_inventory_endpoint_and_ability_agree(kind):
         def __init__(self):
             self.calls = 0
 
-        async def execute(self, *_a, **_k):
+        async def execute(self, statement, *_a, **_k):
+            grace = grace_result(statement)
+            if grace is not None:  # the KYC rule's grace lookup is not a gate step
+                return grace
             self.calls += 1
             if self.calls == 1:  # locked user
                 return SimpleNamespace(scalar_one_or_none=lambda: user)
@@ -744,7 +1011,7 @@ async def test_publish_inventory_endpoint_and_ability_agree(kind):
     )
 
     # Without the dependency, only the in-route role and re-admission gates run.
-    ability = by_action(user, organization)[A.PUBLISH_INVENTORY]
+    ability = (await by_action(user, organization))[A.PUBLISH_INVENTORY]
     if organization is not None and user.organization_id is not None:
         assert (outcome == "passed") == ability.allowed
 
@@ -784,7 +1051,7 @@ async def test_create_rfq_route_and_ability_agree(kind):
     user, organization = make_profile(kind)
     status = await _rfq_gate_status(user, organization, "/api/rfq", RFQ_BODY)
 
-    ability = by_action(user, organization)[A.CREATE_RFQ]
+    ability = (await by_action(user, organization))[A.CREATE_RFQ]
     # Provenance is enforced later, under row locks; every earlier gate is a 403.
     denied_before_locks = (not ability.allowed) and (
         ability.reason_code != R.ORGANIZATION_PROVENANCE_UNVERIFIED
@@ -798,7 +1065,7 @@ async def test_quote_rfq_route_and_ability_agree(kind):
     user, organization = make_profile(kind)
     status = await _rfq_gate_status(user, organization, f"/api/rfq/{uuid4()}/quote", QUOTE_BODY)
 
-    ability = by_action(user, organization)[A.QUOTE_RFQ]
+    ability = (await by_action(user, organization))[A.QUOTE_RFQ]
     denied_before_locks = (not ability.allowed) and (
         ability.reason_code != R.ORGANIZATION_PROVENANCE_UNVERIFIED
     )
@@ -855,7 +1122,7 @@ async def test_require_role_dependency_and_ability_agree(kind, ability):
 
     outcome = await gate_outcome(dependency(current_user=user))
 
-    assert by_action(user, organization)[ability].allowed == (outcome == "passed")
+    assert (await by_action(user, organization))[ability].allowed == (outcome == "passed")
     assert role_may(ability, user.role) == (outcome == "passed")
 
 
@@ -924,7 +1191,7 @@ async def test_require_market_support_admin_and_access_ability_agree(kind, enabl
         outcome = "denied"
 
     all_caps = frozenset(MarketSupportCapability)
-    ability = by_action(user, organization, all_caps)[A.MARKET_SUPPORT_ACCESS]
+    ability = (await by_action(user, organization, all_caps))[A.MARKET_SUPPORT_ACCESS]
     assert ability.allowed == (outcome == "passed")
 
 
@@ -973,7 +1240,7 @@ async def test_context_capability_requirement_and_assisted_orders_ability_agree(
         market_support_module._require_context_capabilities(LockingDb(organization), admin.id)
     )
 
-    ability = by_action(admin, organization, frozenset(granted))[A.MARKET_SUPPORT_ASSISTED_ORDERS]
+    ability = (await by_action(admin, organization, frozenset(granted)))[A.MARKET_SUPPORT_ASSISTED_ORDERS]
     assert ability.allowed == (outcome == "passed")
     if not ability.allowed:
         assert ability.reason_code == R.MARKET_SUPPORT_CAPABILITY_REQUIRED
