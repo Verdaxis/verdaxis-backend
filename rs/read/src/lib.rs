@@ -259,6 +259,11 @@ pub struct Phase2Options {
     /// The watchlist producer activation instant from the release metadata
     /// file (PD5), as written there. Absent until a release records one.
     pub watchlist_producer_activated_at: Option<String>,
+    /// The status the stream heartbeat reports (`SYSTEM_STATUS`) and its
+    /// optional message (`SYSTEM_STATUS_MESSAGE`), as configured. Both are
+    /// validated at startup by `runtime::config`; absent means operational.
+    pub system_status: Option<String>,
+    pub system_status_message: Option<String>,
 }
 
 fn read_admission_default() -> u32 {

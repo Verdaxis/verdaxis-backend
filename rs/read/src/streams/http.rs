@@ -4,10 +4,11 @@
 //! trades stream admits one short-lived stream token, replays retained rows
 //! and then follows live dispatch. Every pre-header failure is a structured
 //! HTTP error. Capacity, like every terminal condition after admission, is one
-//! in-band control frame after a 200. The routes own a stream-local method
-//! fallback, so unrelated REST behaviour is untouched.
+//! in-band control frame after a 200. Every open stream also sends the status
+//! heartbeat (see `heartbeat`). The routes own a stream-local method fallback,
+//! so unrelated REST behaviour is untouched.
 
-use std::{convert::Infallible, sync::Arc, time::Duration};
+use std::{convert::Infallible, sync::Arc};
 
 use axum::{
     Router,
@@ -16,7 +17,7 @@ use axum::{
     http::{HeaderMap, StatusCode, header},
     response::{
         IntoResponse, Response,
-        sse::{Event, KeepAlive, Sse},
+        sse::{Event, Sse},
     },
     routing::{MethodRouter, get},
 };
@@ -24,14 +25,11 @@ use futures_util::stream::{self, unfold};
 
 use super::{
     auth::{StreamError, verify_stream},
-    bus::{PublicChannel, StreamHub, Terminal},
+    bus::{Delivery, PublicChannel, StreamHub, Subscription, Terminal},
+    heartbeat::{HeartbeatSchedule, HeartbeatStatus},
     replay::{AdmissionError, PgReplaySource, Replay, WallClock},
 };
 use crate::AppState;
-
-/// The longest silence on an open stream: a keep-alive comment follows 30
-/// seconds without a frame.
-const KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(30);
 
 /// The replay cursor header a reconnecting `EventSource` sends.
 const LAST_EVENT_ID: &str = "last-event-id";
@@ -44,6 +42,8 @@ const MAX_CURSOR_DIGITS: usize = 19;
 pub struct Streams {
     pub hub: StreamHub,
     pub verification: crate::auth::VerificationSettings,
+    /// The status every heartbeat reports.
+    pub heartbeat: HeartbeatStatus,
 }
 
 /// Stream routes take the application state directly; `AppState::streams`
@@ -183,14 +183,53 @@ fn public(state: &StreamsState, channel: PublicChannel) -> Response {
     let Ok(subscription) = streams.hub.subscribe_public(channel) else {
         return capacity();
     };
-    let body = Sse::new(unfold(subscription, |mut subscription| async move {
-        subscription.recv().await.map(|delivery| {
-            let event: Result<Event, Infallible> = Ok(delivery.into_event());
-            (event, subscription)
-        })
-    }))
-    .keep_alive(KeepAlive::new().interval(KEEP_ALIVE_INTERVAL));
+    let body = Sse::new(unfold(
+        PublicBody::new(subscription, streams.heartbeat.clone()),
+        |mut body| async move {
+            body.next()
+                .await
+                .map(|event| (Ok::<_, Infallible>(event), body))
+        },
+    ));
     with_stream_headers(body.into_response())
+}
+
+/// One public stream body: deliveries from the hub, and a heartbeat on open and
+/// every interval after. It owns its subscription, so dropping the body
+/// releases the slot.
+struct PublicBody {
+    subscription: Subscription,
+    status: HeartbeatStatus,
+    schedule: HeartbeatSchedule,
+}
+
+impl PublicBody {
+    fn new(subscription: Subscription, status: HeartbeatStatus) -> Self {
+        Self {
+            subscription,
+            status,
+            schedule: HeartbeatSchedule::new(),
+        }
+    }
+
+    fn heartbeat(&mut self) -> Event {
+        self.schedule.sent();
+        self.status.event(chrono::Utc::now())
+    }
+
+    /// The next frame, or `None` once the stream has ended. A terminal control
+    /// already pending is sent before any heartbeat. Deliveries cannot postpone
+    /// a due heartbeat: it is checked before the wait for one.
+    async fn next(&mut self) -> Option<Event> {
+        if self.subscription.terminal().is_none() && self.schedule.is_due() {
+            return Some(self.heartbeat());
+        }
+        tokio::select! {
+            biased;
+            delivery = self.subscription.recv() => delivery.map(Delivery::into_event),
+            _ = tokio::time::sleep_until(self.schedule.deadline()) => Some(self.heartbeat()),
+        }
+    }
 }
 
 /// The trades admission order: cursor syntax, Authorization conflict, token
@@ -242,13 +281,16 @@ async fn trades(
     let source = PgReplaySource::new(state.state.pools.read.clone());
     match Replay::open(source, &streams.hub, principal, cursor, WallClock).await {
         Ok(replay) => {
-            let body = Sse::new(unfold(replay, |mut replay| async move {
-                replay.next().await.map(|frame| {
-                    let event: Result<Event, Infallible> = Ok(frame.into_event());
-                    (event, replay)
-                })
-            }))
-            .keep_alive(KeepAlive::new().interval(KEEP_ALIVE_INTERVAL));
+            let status = streams.heartbeat.clone();
+            let body = Sse::new(unfold(replay, move |mut replay| {
+                let status = status.clone();
+                async move {
+                    replay.next().await.map(|frame| {
+                        let event: Result<Event, Infallible> = Ok(frame.into_event(&status));
+                        (event, replay)
+                    })
+                }
+            }));
             with_stream_headers(body.into_response())
         }
         Err(AdmissionError::Authorization(error)) => authorization_error(error),

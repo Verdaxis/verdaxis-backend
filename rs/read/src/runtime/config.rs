@@ -1,3 +1,4 @@
+use crate::streams::heartbeat::HeartbeatStatus;
 use crate::{Config, DEFAULT_READ_ADMISSION_SLOTS, verify_release};
 use percent_encoding::percent_decode_str;
 use std::net::IpAddr;
@@ -158,7 +159,7 @@ pub fn config_from_deployed_environment(
     {
         return Err("the prepared budget artifact is internally inconsistent".into());
     }
-    Ok(Config {
+    let config = Config {
         kyc_execution_gate_enabled: deployed_bool(environment, "KYC_EXECUTION_GATE_ENABLED", true)?,
         environment: required("ENVIRONMENT")?,
         release_sha,
@@ -198,8 +199,17 @@ pub fn config_from_deployed_environment(
             watchlist_producer_activated_at: environment
                 .get("WATCHLIST_PRODUCER_ACTIVATED_AT")
                 .cloned(),
+            system_status: environment.get("SYSTEM_STATUS").cloned(),
+            system_status_message: environment.get("SYSTEM_STATUS_MESSAGE").cloned(),
         },
-    })
+    };
+    // Refuse an unknown status or an over-long message before serving, like
+    // every other deployed setting.
+    HeartbeatStatus::parse(
+        config.phase2.system_status.as_deref(),
+        config.phase2.system_status_message.as_deref(),
+    )?;
+    Ok(config)
 }
 
 /// Resolve a deployed boolean switch. The environment file decides, so Rust
@@ -374,6 +384,10 @@ pub fn validate_config(config: &Config) -> Result<(), String> {
         return Err("DB_SESSION_TIME_ZONE must be an IANA time zone".into());
     }
     verify_release(&config.release_sha)?;
+    HeartbeatStatus::parse(
+        config.phase2.system_status.as_deref(),
+        config.phase2.system_status_message.as_deref(),
+    )?;
     if !config.bind.ip().is_loopback() {
         return Err("HTTP bind must be loopback".into());
     }

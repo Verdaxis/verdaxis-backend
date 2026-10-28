@@ -13,11 +13,11 @@ use uuid::Uuid;
 use super::{
     auth::{StreamError, StreamPrincipal, revalidate_from_pool},
     bus::{Delivery, StreamHub, Subscription, Terminal},
+    heartbeat::{HeartbeatSchedule, HeartbeatStatus},
     store::{self, PageLimits, ReplayBoundary, ReplayPage, StoreError, StoredEvent},
 };
 
 const RECHECK: Duration = Duration::from_secs(15);
-const HEARTBEAT: Duration = Duration::from_secs(30);
 
 /// Snapshot and admission authority. Implementations return owned pages, never
 /// a transaction or connection that could cross a client yield.
@@ -93,11 +93,13 @@ impl ReplayFrame {
             _ => None,
         }
     }
-    pub fn into_event(self) -> Event {
+    /// The SSE frame for this value. A heartbeat reports `status` and carries
+    /// the time it is sent; business and terminal frames ignore both.
+    pub fn into_event(self, status: &HeartbeatStatus) -> Event {
         match self {
             Self::Business(event) => event.into_event(),
             Self::Terminal(terminal) => terminal.into_event(),
-            Self::Heartbeat => Event::default().comment("keepalive"),
+            Self::Heartbeat => status.event(Utc::now()),
         }
     }
 }
@@ -125,7 +127,10 @@ pub struct Replay<S, C = WallClock> {
     finished: bool,
     checked_at: DateTime<Utc>,
     recheck_at: Instant,
-    heartbeat_at: Instant,
+    heartbeat: HeartbeatSchedule,
+    /// Set once the first heartbeat has gone out. That one waits for the end of
+    /// the replay; later ones follow the schedule alone.
+    heartbeat_started: bool,
 }
 
 impl<S: ReplaySource, C: ReplayClock> Replay<S, C> {
@@ -191,7 +196,8 @@ impl<S: ReplaySource, C: ReplayClock> Replay<S, C> {
             finished: false,
             checked_at: now,
             recheck_at: Instant::now() + RECHECK,
-            heartbeat_at: Instant::now() + HEARTBEAT,
+            heartbeat: HeartbeatSchedule::new(),
+            heartbeat_started: false,
         })
     }
 
@@ -211,6 +217,18 @@ impl<S: ReplaySource, C: ReplayClock> Replay<S, C> {
         self.page.clear();
         self.finished = true;
         Some(ReplayFrame::Terminal(terminal))
+    }
+    /// A heartbeat is due when its schedule says so, with one exception: the
+    /// first waits until the replay is complete, so retained events precede it.
+    /// The checks that can produce a terminal control run before this one.
+    fn heartbeat_due(&self) -> bool {
+        let caught_up = !self.replaying && (self.heartbeat_started || self.page.is_empty());
+        caught_up && self.heartbeat.is_due()
+    }
+    fn send_heartbeat(&mut self) -> Option<ReplayFrame> {
+        self.heartbeat_started = true;
+        self.heartbeat.sent();
+        Some(ReplayFrame::Heartbeat)
     }
     fn check_due(&self) -> bool {
         Instant::now() >= self.recheck_at
@@ -259,12 +277,16 @@ impl<S: ReplaySource, C: ReplayClock> Replay<S, C> {
                 self.checked_at = self.clock.now();
                 self.recheck_at = Instant::now() + RECHECK;
             }
+            // Data frames never postpone the heartbeat, so this check sits ahead
+            // of them: continuous traffic cannot starve it.
+            if self.heartbeat_due() {
+                return self.send_heartbeat();
+            }
             if let Some(event) = self.page.pop_front() {
                 if event.seq() <= self.cursor {
                     continue;
                 }
                 self.cursor = event.seq();
-                self.heartbeat_at = Instant::now() + HEARTBEAT;
                 return Some(ReplayFrame::Business(event));
             }
             if self.replaying {
@@ -308,9 +330,8 @@ impl<S: ReplaySource, C: ReplayClock> Replay<S, C> {
                 _ = tokio::time::sleep_until(expiry) => return self.finish(Terminal::AuthExpired),
                 _ = tokio::time::sleep_until(self.recheck_at) => continue,
                 delivery = subscription.recv() => delivery,
-                _ = tokio::time::sleep_until(self.heartbeat_at) => {
-                    self.heartbeat_at = Instant::now() + HEARTBEAT;
-                    return Some(ReplayFrame::Heartbeat);
+                _ = tokio::time::sleep_until(self.heartbeat.deadline()) => {
+                    return self.send_heartbeat();
                 }
             };
             match delivery {

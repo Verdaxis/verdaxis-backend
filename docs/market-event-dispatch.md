@@ -68,6 +68,46 @@ queries at its deadline, while the refresh signal can be delayed until an
 existing expiry writer next commits that transition. No new expiry timer is
 part of this transport.
 
+## Status heartbeat (Rust streams)
+
+Every stream the Rust service serves (`/api/stream/prices`,
+`/api/stream/orderbook` and `/api/stream/trades`, with their trailing-slash
+aliases) sends a named `heartbeat` event. It replaces the keep-alive comment:
+
+```
+event: heartbeat
+data: {"status":"operational","message":null,"server_time":"2026-10-28T12:34:56Z"}
+```
+
+- `status` is `operational`, `degraded` or `maintenance`; `message` is a string
+  or `null`; `server_time` is UTC with second precision and a `Z`.
+- The frame has no `id:` line, so it never moves a client's `Last-Event-ID`.
+- One heartbeat is sent when the stream opens, then one every 30 seconds.
+  Data frames do not postpone the next one: a stream with continuous traffic
+  still sends a heartbeat every 30 seconds. A client may treat a connection as
+  stale after 75 seconds without one.
+- On the private trades stream the first heartbeat follows the replay and the
+  first authorization check, and never precedes a control frame. A cursor below
+  the retained floor, a cursor ahead of the table and an expired token each end
+  with their control frame and no heartbeat. Later terminal controls are not
+  preceded by a heartbeat that is not yet due. A public stream sends a control
+  frame that is already waiting before its first heartbeat.
+- The message is JSON-encoded, so a line break or quote inside it cannot end an
+  SSE line or frame.
+
+Configuration (read at start, from the Rust runtime file the deploy writes):
+
+| Key | Meaning |
+| --- | --- |
+| `SYSTEM_STATUS` | `operational` (default), `degraded` or `maintenance`. Trimmed and lowercased. Any other value, including a blank one in the runtime file, stops the service at startup. |
+| `SYSTEM_STATUS_MESSAGE` | Optional text, trimmed, at most 280 characters. Blank means no message. |
+
+Set the keys in the deployed `.env`. `scripts/prepare_rust_runtime.py` validates
+them (a blank key is the same as an absent one) and projects them into
+`.runtime-rust/runtime.env`, so a change takes effect with the next deploy
+preparation and a restart of the Rust unit. The Python service ignores both
+keys.
+
 ## Price-alert evaluation
 
 The Rust stream runtime also consumes the sequenced rows it already reads:
