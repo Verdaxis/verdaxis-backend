@@ -60,7 +60,7 @@ BEGIN
 END $$;
 
 CREATE OR REPLACE FUNCTION publish_fixture_provenance(kind text) RETURNS void LANGUAGE plpgsql AS $$
-DECLARE target uuid := '00000000-0000-0000-0000-000000009000';
+DECLARE target uuid := CASE WHEN kind='DEMO' THEN 'd1e43e55-3fb0-4b5e-9f0b-93aa10050222'::uuid ELSE '00000000-0000-0000-0000-000000009000'::uuid END;
 BEGIN
     INSERT INTO organizations(id,name,type,verification_status,provenance) VALUES(target,'Publication provenance fixture','FUEL_SUPPLIER','APPROVED',kind);
     UPDATE users SET organization_id=target,kyc_organization_id=target WHERE id='00000000-0000-0000-0000-000000002001';

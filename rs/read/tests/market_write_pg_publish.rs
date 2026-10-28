@@ -885,7 +885,7 @@ async fn publication_updates_pinned_resting_order_and_keeps_evidence_private(){
     sqlx::raw_sql(include_str!("fixtures/market_write_match_completion.sql")).execute(&mut f.admin).await.unwrap();
     f.sql("SELECT completion_fixture_watch('00000000-0000-0000-0000-000000005001')").await;
     let reply=f.publish(None).await;assert_eq!(reply.0,StatusCode::OK,"{reply:?}");
-    let row=sqlx::query("SELECT snapshot_status,snapshot_remaining_quantity_mt FROM watchlist_targets WHERE target_type='PIN'").fetch_one(&mut f.observer).await.unwrap();assert_eq!(row.get::<String,_>(0),"FILLED");assert_eq!(row.get::<Decimal,_>(1),Decimal::ZERO);
+    let row=sqlx::query("SELECT snapshot_status,snapshot_remaining_quantity_mt::numeric FROM watchlist_targets WHERE target_type='PIN'").fetch_one(&mut f.observer).await.unwrap();assert_eq!(row.get::<String,_>(0),"FILLED");assert_eq!(row.get::<Decimal,_>(1),Decimal::ZERO);
     let rows=sqlx::query("SELECT payload::jsonb AS payload,producer_evidence FROM market_event_outbox").fetch_all(&mut f.observer).await.unwrap();
     assert!(rows.iter().any(|row|row.get::<Option<Value>,_>("producer_evidence").is_some_and(|value|value.to_string().contains("target_id"))));
     for row in rows{let payload:Value=row.get("payload");for field in ["targets","target_id","producer_evidence","watchlist_id","observer_id"]{assert!(payload.get(field).is_none(),"{payload}");}}
@@ -925,7 +925,6 @@ async fn second_listing_check_observes_expiry_during_resource_wait(){
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn publication_flush_recovers_only_a_matching_recorded_key(){
-    use verdaxis_read::order_write::{Canonical,idempotency_request_hash};
     for matching in [true,false] {
         let mut f=Fixture::new(0,200).await;
         let barrier=std::sync::Arc::new(verdaxis_read::routes::market_write::order_create::CreateBarrier::default());
@@ -933,7 +932,7 @@ async fn publication_flush_recovers_only_a_matching_recorded_key(){
         f.sql("CREATE TRIGGER publish_fixture_insert_error BEFORE INSERT ON orderbook_orders FOR EACH ROW EXECUTE FUNCTION publish_fixture_order_error()").await;
         let task=tokio::spawn(async move{send(&router,Some(seller()),item(),Some("flush-key")).await});
         tokio::time::timeout(Duration::from_secs(10),barrier.reached.notified()).await.unwrap();
-        let hash=if matching{idempotency_request_hash(&Canonical::from_json(&json!({"inventory_item_id":item()})).unwrap()).unwrap()}else{"a".repeat(64)};
+        let hash=if matching{inventory::publication_contract_hash(item())}else{"a".repeat(64)};
         f.sql("DROP TRIGGER publish_fixture_insert_error ON orderbook_orders").await;
         let listing:Uuid=sqlx::query_scalar("SELECT publish_fixture_key_row($1,$2)").bind("flush-key").bind(hash).fetch_one(&mut f.admin).await.unwrap();
         barrier.resume.notify_one();let reply=task.await.unwrap();
