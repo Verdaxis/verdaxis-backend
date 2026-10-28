@@ -20,10 +20,12 @@ MANIFEST = MONITOR / "artifact-manifest.json"
 # Licensed Webz.io news discovery adds a backend-only token and locked endpoint.
 # The KYC execution gate switch adds one setting (app/config.py) and one
 # startup log line (app/main.py).
+# The fat-finger limits and the SSE heartbeat status add settings
+# (app/config.py); the user abilities endpoint adds one router (app/main.py).
 RUNTIME_OWNED_BLOBS = {
-    "app/config.py": "e7677b7593b0e1dece099c930fac73a4c79b87a7",
+    "app/config.py": "cd3b0b957c06cf6646b66be18498107e3f6a9937",
     "app/database.py": "43456b2c2079c07368359d4d54f5ce9629c9b57b",
-    "app/main.py": "e6e89847356a46829b7e8d1bd54abd6b07132211",
+    "app/main.py": "6fe6708c8ea317d3bcc03c6ba975679205f604e5",
     "scripts/deploy.sh": "56d35efa7340594e18559339786d4bddf760a768",
     "scripts/run_demo_activity.py": "b92cee8429669c3f908a52047025acd6db804697",
 }

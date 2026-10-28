@@ -201,14 +201,16 @@ class _Subscriber:
         raise RuntimeError("SSE stream ended unexpectedly")
 
     async def next_event(self, timeout: float = _EVENT_WAIT_SECONDS) -> dict:
-        """Next real event frame, skipping keepalives and comments."""
+        """Next real event frame, skipping keepalives, comments and heartbeats."""
         deadline = time.monotonic() + timeout
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise asyncio.TimeoutError("no SSE event before the deadline")
             frame = await asyncio.wait_for(self._read_frame(), timeout=remaining)
-            if "event" in frame:
+            # The status heartbeat replaced the keepalive comment; it carries
+            # no market data and no id, so it is not an event under test.
+            if "event" in frame and frame["event"] != "heartbeat":
                 return frame
 
     async def expect_no_event(self, quiet_seconds: float) -> None:
@@ -283,7 +285,8 @@ async def _next_public_event(lines, timeout: float = _EVENT_WAIT_SECONDS) -> dic
             raise asyncio.TimeoutError("no public SSE event before the deadline")
         line = await asyncio.wait_for(anext(lines), timeout=remaining)
         if line == "":
-            if "event" in frame:
+            # Skip the status heartbeat as the keepalive comment was skipped.
+            if "event" in frame and frame["event"] != "heartbeat":
                 return frame
             frame = {}
             continue
