@@ -177,10 +177,6 @@ async fn fact_tab(State(a): State<Authority>, request: Request) -> Result<Respon
         "engagement" => "/api/admin/analytics/product-analytics/engagement",
         _ => "/api/admin/analytics/product-analytics/retention",
     };
-    let query = fact_query(
-        request.uri().query().unwrap_or(""),
-        template.rsplit('/').next().unwrap_or(""),
-    )?;
     let properties = requested_properties(template.rsplit('/').next().unwrap_or(""));
     let token = format!("usr:{}", access.subject);
     let limits = a.limits.clone();
@@ -207,6 +203,12 @@ async fn fact_tab(State(a): State<Authority>, request: Request) -> Result<Respon
     )
     .await
     .map_err(map_auth)?;
+    // Parsed only after the administrator check: authentication (401), then
+    // role (403), then input validation (422).
+    let query = fact_query(
+        request.uri().query().unwrap_or(""),
+        template.rsplit('/').next().unwrap_or(""),
+    )?;
     let permit = crate::runtime::admission::try_read(&a.app)?;
     let window = a.provider.0.window(&query, properties.clone()).await;
     let previous = if let Some((start, end)) = query.previous {

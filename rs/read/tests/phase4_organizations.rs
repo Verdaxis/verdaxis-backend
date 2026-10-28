@@ -794,7 +794,7 @@ async fn join_request(
             access,
             limits,
             "fixture".into(),
-            joins::JoinListQuery::parse(Some("PENDING"), 100, 0).unwrap(),
+            Ok(joins::JoinListQuery::parse(Some("PENDING"), 100, 0).unwrap()),
         )
         .await
         {
@@ -814,6 +814,41 @@ async fn response_code(response: axum::response::Response, status: u16, code: &s
         .unwrap();
     let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(value["detail"]["code"], code);
+}
+/// Role (403) comes before input validation (422) on the join list; an
+/// administrator still gets the validation refusal for the same query.
+#[tokio::test]
+#[ignore = "requires explicit disposable PostgreSQL authority"]
+async fn join_list_checks_the_role_before_the_query() {
+    use axum::response::IntoResponse;
+    let f = Fixture::new().await;
+    let app = f.app().await;
+    let verification = auth::VerificationSettings::new(
+        "test-secret-key-for-testing-minimum-32-chars".into(),
+        None,
+        "test".into(),
+        "test".into(),
+    );
+    for (user, status, code) in [
+        (f.user, 403, "ADMIN_REQUIRED"),
+        (f.actor, 422, "VALIDATION_FAILED"),
+    ] {
+        let bearer = f.bearer(user);
+        let access = auth::verify_authorization(Some(&bearer), &verification, Utc::now()).unwrap();
+        let invalid = joins::JoinListQuery::parse(None, 0, 0);
+        assert!(invalid.is_err());
+        let error = joins::read(
+            &app,
+            access,
+            auth::limits::SharedLimits::default(),
+            "fixture".into(),
+            invalid,
+        )
+        .await
+        .unwrap_err();
+        response_code(error.into_response(), status, code).await;
+    }
+    f.finish().await;
 }
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL authority"]
@@ -904,7 +939,7 @@ async fn task_request(
             access,
             limits,
             "round2".into(),
-            joins::JoinListQuery::parse(None, 100, 0).unwrap(),
+            Ok(joins::JoinListQuery::parse(None, 100, 0).unwrap()),
         )
         .await
         {

@@ -1542,6 +1542,33 @@ mod postgres {
                 .unwrap();
             assert_eq!(response.status(), 422);
         }
+        // Role (403) comes before input validation (422).
+        sqlx::query("UPDATE users SET role='BUYER' WHERE id=$1")
+            .bind(fixture.admin_user)
+            .execute(&pool)
+            .await
+            .unwrap();
+        for tab in ["overview", "activation", "engagement", "retention"] {
+            let response = router
+                .clone()
+                .oneshot(
+                    axum::http::Request::builder()
+                        .uri(format!(
+                            "/api/admin/analytics/product-analytics/{tab}?activity=REFERENCE"
+                        ))
+                        .header("authorization", format!("Bearer {token}"))
+                        .body(axum::body::Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), 403, "{tab}");
+        }
+        sqlx::query("UPDATE users SET role='ADMIN' WHERE id=$1")
+            .bind(fixture.admin_user)
+            .execute(&pool)
+            .await
+            .unwrap();
         assert_eq!(
             calls.load(Ordering::SeqCst),
             0,
