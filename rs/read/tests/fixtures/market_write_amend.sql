@@ -39,7 +39,8 @@ $$;
 CREATE OR REPLACE FUNCTION amend_fixture_other_member(org uuid, member uuid, member_role text) RETURNS void LANGUAGE plpgsql AS $$
 BEGIN
     INSERT INTO organizations(id,name,type,verification_status,provenance)
-        VALUES(org,'Amendment other','SHIPOWNER','APPROVED','REAL');
+        VALUES(org,'Amendment other','SHIPOWNER','APPROVED','REAL')
+        ON CONFLICT (id) DO NOTHING;
     PERFORM matching_fixture_member(org,member,member_role);
 END $$;
 
