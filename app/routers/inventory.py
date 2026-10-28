@@ -22,6 +22,7 @@ from app.schemas.marketplace import InventoryCreate, InventoryItemUpdate, Invent
 from app.models.user import Organization, User, UserRole
 from app.routers.auth_simple import get_current_user
 from app.middleware.execution import require_execution_eligible_user
+from app.services.action_policy import inventory_role_denial
 from app.services.availability_windows import SPOT_WINDOW, availability_window_expiry
 from app.services.audit_service import record_audit, request_audit_context
 from app.services.audit_actions import INVENTORY_PUBLISHED
@@ -153,7 +154,7 @@ async def add_inventory(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(require_execution_eligible_user)]
 ):
-    if current_user.role != UserRole.SUPPLIER:
+    if inventory_role_denial(current_user.role) is not None:
         raise HTTPException(status_code=403, detail="Only suppliers can manage inventory")
 
     if not current_user.organization_id:
@@ -222,7 +223,7 @@ async def update_inventory(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(require_execution_eligible_user)]
 ):
-    if current_user.role != UserRole.SUPPLIER:
+    if inventory_role_denial(current_user.role) is not None:
         raise HTTPException(status_code=403, detail="Only suppliers can manage inventory")
 
     if not current_user.organization_id:
@@ -285,7 +286,7 @@ async def delete_inventory(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(require_execution_eligible_user)]
 ):
-    if current_user.role != UserRole.SUPPLIER:
+    if inventory_role_denial(current_user.role) is not None:
         raise HTTPException(status_code=403, detail="Only suppliers can manage inventory")
 
     if not current_user.organization_id:
@@ -367,7 +368,7 @@ async def publish_inventory_item(
                 )
             return {"status": "published", "listing_id": str(replay.id)}
 
-    if current_user.role != UserRole.SUPPLIER:
+    if inventory_role_denial(current_user.role) is not None:
         raise HTTPException(status_code=403, detail="Only suppliers can publish inventory")
 
     # Revalidate the concrete supplier and exact tenant under row locks in the
@@ -384,7 +385,7 @@ async def publish_inventory_item(
         db,
         user=locked_user,
         organization=locked_organization,
-    ) or locked_user.role != UserRole.SUPPLIER:
+    ) or inventory_role_denial(locked_user.role) is not None:
         raise HTTPException(status_code=403, detail="Supplier is no longer execution-qualified")
 
     stmt = select(InventoryItem).options(selectinload(InventoryItem.port)).where(

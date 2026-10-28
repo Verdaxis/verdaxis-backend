@@ -12,8 +12,11 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
+from app.models.market_support import MarketSupportCapability, StaffCapabilityAssignment
 from app.models.orderbook import OrderBookOrder
-from app.models.user import Organization, User
+from app.models.user import Organization, User, UserRole, UserStatus
+from app.services.action_policy import ReasonCode
 from app.schemas.orderbook import OrderCreate
 
 
@@ -84,6 +87,59 @@ def utc(value: datetime) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
         return value.replace(tzinfo=UTC)
     return value.astimezone(UTC)
+
+
+# Starting an assisted-order context requires both capabilities together.
+ASSISTED_ORDER_CAPABILITIES = (
+    MarketSupportCapability.MARKET_SUPPORT_LISTINGS,
+    MarketSupportCapability.MARKET_SUPPORT_AUTHORIZATIONS,
+)
+
+
+def capability_assignment_is_active(
+    assignment: StaffCapabilityAssignment | None, now: datetime
+) -> bool:
+    """Return true for an assignment that is neither revoked nor expired."""
+    return (
+        assignment is not None
+        and assignment.revoked_at is None
+        and (assignment.expires_at is None or utc(assignment.expires_at) > now)
+    )
+
+
+async def active_capabilities(
+    db: AsyncSession, user_id: UUID
+) -> list[MarketSupportCapability]:
+    """Return the user's distinct active staff capabilities."""
+    now = datetime.now(UTC)
+    assignments = (
+        await db.execute(
+            select(StaffCapabilityAssignment).where(
+                StaffCapabilityAssignment.user_id == user_id,
+                StaffCapabilityAssignment.revoked_at.is_(None),
+            )
+        )
+    ).scalars().all()
+    return list(
+        dict.fromkeys(
+            assignment.capability
+            for assignment in assignments
+            if capability_assignment_is_active(assignment, now)
+        )
+    )
+
+
+def market_support_staff_denial(user: User) -> ReasonCode | None:
+    """Return why a user may not use Market Support at all, or ``None``.
+
+    The feature flag hides the whole surface (the routes answer 404); an
+    administrator who is not approved, or any other role, is forbidden.
+    """
+    if not settings.MARKET_SUPPORT_ENABLED:
+        return ReasonCode.MARKET_SUPPORT_DISABLED
+    if user.role != UserRole.ADMIN or user.status != UserStatus.APPROVED:
+        return ReasonCode.ADMIN_ROLE_REQUIRED
+    return None
 
 
 async def lock_support_order_parties(db: AsyncSession, order: OrderBookOrder) -> None:

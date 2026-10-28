@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.middleware.rbac import require_role
+from app.services.action_policy import AbilityId, allowed_roles
 from app.models.feedback import FeedbackEntry
 from app.models.user import Organization, User, UserRole
 from app.rate_limit import limiter
@@ -95,7 +96,7 @@ async def submit_feedback(
 async def list_feedback(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_role(UserRole.ADMIN)),
+    current_user: User = Depends(require_role(*allowed_roles(AbilityId.VIEW_FEEDBACK))),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):

@@ -94,8 +94,12 @@ from app.services.market_locks import (
     acquire_market_slice_lock,
     next_order_acceptance_ordinal,
 )
+from app.services.action_policy import ReasonCode
 from app.services.market_support import (
+    active_capabilities as _active_capabilities,
     authorization_terms_digest,
+    capability_assignment_is_active,
+    market_support_staff_denial,
     lock_support_order_parties,
     order_etag,
     require_matching_etag,
@@ -131,9 +135,10 @@ def _bootstrap_ids() -> frozenset[UUID]:
 async def require_market_support_admin(
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> User:
-    if not settings.MARKET_SUPPORT_ENABLED:
+    denial = market_support_staff_denial(current_user)
+    if denial == ReasonCode.MARKET_SUPPORT_DISABLED:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-    if current_user.role != UserRole.ADMIN or current_user.status != UserStatus.APPROVED:
+    if denial is not None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     return current_user
 
@@ -153,33 +158,12 @@ async def _lock_capability(
             .execution_options(populate_existing=True)
         )
     ).scalar_one_or_none()
-    if (
-        assignment is None
-        or assignment.revoked_at is not None
-        or (assignment.expires_at is not None and utc(assignment.expires_at) <= now)
-    ):
+    if not capability_assignment_is_active(assignment, now):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=_detail("MARKET_SUPPORT_CAPABILITY_REQUIRED", "Forbidden"),
         )
     return assignment
-
-
-async def _active_capabilities(db: AsyncSession, user_id: UUID) -> list[MarketSupportCapability]:
-    now = datetime.now(UTC)
-    values = (
-        await db.execute(
-            select(StaffCapabilityAssignment.capability).where(
-                StaffCapabilityAssignment.user_id == user_id,
-                StaffCapabilityAssignment.revoked_at.is_(None),
-                or_(
-                    StaffCapabilityAssignment.expires_at.is_(None),
-                    StaffCapabilityAssignment.expires_at > now,
-                ),
-            )
-        )
-    ).scalars().all()
-    return list(dict.fromkeys(values))
 
 
 async def _require_any_capability(db: AsyncSession, user_id: UUID) -> None:

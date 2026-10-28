@@ -121,15 +121,20 @@ async def lock_and_load_market_organizations(
     return organizations
 
 
-def assert_market_participant_provenance(organization: Organization) -> None:
-    """Admit REAL or an explicitly allowlisted demo-activity participant."""
+def participant_provenance_eligible(organization: Organization) -> bool:
+    """Return true for REAL or an explicitly allowlisted demo-activity participant."""
     provenance = organization.provenance
     if str(getattr(provenance, "value", provenance)) == "REAL":
-        return
-    if (
+        return True
+    return (
         str(getattr(provenance, "value", provenance)) == "DEMO"
         and organization.id in DEMO_ACTIVITY_ORG_IDS
-    ):
+    )
+
+
+def assert_market_participant_provenance(organization: Organization) -> None:
+    """Admit REAL or an explicitly allowlisted demo-activity participant."""
+    if participant_provenance_eligible(organization):
         return
     raise HTTPException(
         status_code=409,

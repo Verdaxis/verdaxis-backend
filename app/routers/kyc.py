@@ -17,6 +17,7 @@ from app.models.user import Organization, User, UserRole, UserStatus
 from app.rate_limit import limiter
 from app.routing import BodySizeLimitRoute
 from app.routers.auth_simple import get_current_user
+from app.services.action_policy import AbilityId, role_may
 from app.services.audit_actions import KYC_APPROVED, KYC_REJECTED, KYC_SUBMITTED
 from app.services.audit_service import record_audit, request_audit_context
 from app.services.email import send_kyc_approved_email, send_kyc_rejected_email
@@ -269,7 +270,7 @@ async def admin_approve_kyc(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    if current_user.role != UserRole.ADMIN:
+    if not role_may(AbilityId.REVIEW_KYC, current_user.role):
         raise HTTPException(status_code=403, detail="Admin access required")
     target = (
         await db.execute(select(User).where(User.id == user_id).with_for_update())
@@ -331,7 +332,7 @@ async def admin_approve_kyc(
 
 @router.put("/admin/{user_id}/reject")
 async def admin_reject_kyc(user_id: uuid.UUID, request: Request, body: AdminRejectBody, current_user: Annotated[User, Depends(get_current_user)], db: Annotated[AsyncSession, Depends(get_db)]):
-    if current_user.role != UserRole.ADMIN:
+    if not role_may(AbilityId.REVIEW_KYC, current_user.role):
         raise HTTPException(status_code=403, detail="Admin access required")
     target = (
         await db.execute(select(User).where(User.id == user_id).with_for_update())

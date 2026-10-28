@@ -15,12 +15,13 @@ from typing import Annotated
 from fastapi import Depends, HTTPException, status
 from app.models.user import User, UserRole
 from app.routers.auth_simple import get_current_user
+from app.services.action_policy import role_permitted
 
 
 def require_role(*allowed_roles: UserRole):
     """Returns a FastAPI dependency that enforces role-based access."""
     async def role_checker(current_user: Annotated[User, Depends(get_current_user)]) -> User:
-        if current_user.role not in allowed_roles:
+        if not role_permitted(current_user.role, allowed_roles):
             # Deliberately generic: enumerating the allowed roles here hands
             # an attacker a map of the privilege model (Sprint 3 item 4).
             raise HTTPException(

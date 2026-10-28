@@ -28,6 +28,7 @@ from app.middleware.public_market_read_admission import (
 from app.middleware.preauth_rate_limit import preauth_rate_limit_middleware
 from app.services.request_party import MARKET_SUPPORT_CONTEXT_INVALID_HEADER
 from app.routers.auth_simple import router as auth_router
+from app.routers.abilities import router as abilities_router
 from app.admin import setup_admin
 
 from app.routers.ports import router as ports_router
@@ -251,6 +252,7 @@ async def request_logging_middleware(request: Request, call_next):
 # Routers
 # ---------------------------------------------------------------------------
 app.include_router(auth_router, prefix=settings.API_V1_STR)
+app.include_router(abilities_router, prefix=settings.API_V1_STR)
 app.include_router(ports_router, prefix=settings.API_V1_STR)
 app.include_router(vessels_router, prefix=settings.API_V1_STR)
 app.include_router(inventory_router, prefix=settings.API_V1_STR)

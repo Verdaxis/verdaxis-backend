@@ -13,6 +13,7 @@ from app.schemas.orders import (
 )
 from app.routers.auth_simple import get_current_user
 from app.schemas.errors import AUTH_RESPONSES
+from app.services.action_policy import AbilityId, role_may
 from app.services.audit_service import record_audit, request_audit_context
 from app.services.audit_actions import COMMISSION_UPDATED
 
@@ -33,7 +34,7 @@ async def list_all_commissions(
     """
     List all commissions (Admin only).
     """
-    if current_user.role != UserRole.ADMIN:
+    if not role_may(AbilityId.MANAGE_COMMISSIONS, current_user.role):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin access required"
@@ -52,7 +53,7 @@ async def get_commission_summary(
     """
     Get commission summary stats (Admin only).
     """
-    if current_user.role != UserRole.ADMIN:
+    if not role_may(AbilityId.MANAGE_COMMISSIONS, current_user.role):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin access required"
@@ -102,7 +103,7 @@ async def update_commission(
     """
     Update commission status (Admin only).
     """
-    if current_user.role != UserRole.ADMIN:
+    if not role_may(AbilityId.MANAGE_COMMISSIONS, current_user.role):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin access required"

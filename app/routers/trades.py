@@ -16,6 +16,7 @@ from app.routing import MarketJSONBodyLimitRoute
 from app.market_catalog import BIOFUEL_SPECIFICATION_STANDARDS
 from app.routers.auth_simple import get_authenticated_user, get_current_user
 from app.middleware.execution import require_execution_eligible_user
+from app.services.action_policy import hit_order_role_denial, mark_trade_paid_role_denial
 from app.models.user import Organization, User, UserRole, UserStatus, OrganizationProvenance
 from app.models.orderbook import (
     OrderBookOrder,
@@ -778,7 +779,7 @@ async def create_trade(
         bid_order_id = None
         counterparty_org_id = seller_org_id
 
-        if current_user.role != UserRole.BUYER:
+        if hit_order_role_denial(current_user.role, OrderSide.ASK) is not None:
             raise HTTPException(
                 status_code=403,
                 detail="Only buyers can hit an ASK order",
@@ -792,7 +793,7 @@ async def create_trade(
         ask_order_id = None
         counterparty_org_id = buyer_org_id
 
-        if current_user.role != UserRole.SUPPLIER:
+        if hit_order_role_denial(current_user.role, OrderSide.BID) is not None:
             raise HTTPException(
                 status_code=403,
                 detail="Only suppliers can hit a BID order",
@@ -1696,7 +1697,7 @@ async def pay_trade(
     if not assisted_actor and (trade.seller_id != org_id or trade.seller_user_id != current_user.id):
         raise HTTPException(status_code=403, detail="Only the seller can mark a trade as paid")
 
-    if current_user.role != UserRole.SUPPLIER:
+    if mark_trade_paid_role_denial(current_user.role) is not None:
         raise HTTPException(status_code=403, detail="Only suppliers can mark trades as paid")
     await _revalidate_trade_parties(db, trade)
 

@@ -52,6 +52,7 @@ app/
   routers/
     auth_simple.py              # JWT auth, registration, admin pre-approved invitations, refresh rotation, password change, /me
     orderbook.py                # Order/listing CRUD, supplier ASK template endpoint, certification guardrails
+    abilities.py                # GET /auth/me/abilities — read-only server-driven UI hints (docs/user-abilities.md)
     market_support.py           # ADMIN capability, authorization, assisted ASK publication, and ETag cancellation APIs
     trades.py                   # Trade lifecycle — create/confirm/decline/deliver/pay + SSE events
     matchmaking.py              # Match suggestions — generate, list, dismiss
@@ -79,6 +80,7 @@ app/
     user.py                     # UserCreate (min 8 chars pw), UserResponse, PasswordChangeRequest
     preferences.py              # Strict namespace schemas for user preferences
     organization.py             # OrganizationCreate/Response
+    abilities.py                # AbilitiesResponse/AbilityResponse for /auth/me/abilities
     orderbook.py                # Order/Trade schemas, price summaries, supplier metadata pack, ASK template response, canonical availability window validation
     market_support.py           # Exact authorization, capability, organization-context, and assisted-listing schemas
     market_activity.py          # Shared source/scope/demo-status provenance enums for market data
@@ -92,7 +94,9 @@ app/
     matching_engine.py          # Match-on-insert — best price, then persisted acceptance order within canonical market identity, partial fills, auto-confirm
     order_sanity_limits.py      # Fat-finger guard: price band vs published benchmark + per-order volume cap, run before the slice lock (create, amend, inventory publish)
     trade_fees.py               # Seller-only plan resolution and public per-MT fee schedule; immutable trade snapshots
-    market_support.py           # Authorization digest, ETag parsing, deterministic party locks
+    abilities.py                # Computes the abilities payload by calling the endpoints' own predicates (no rules of its own)
+    action_policy.py            # Role rules, AbilityId/ReasonCode vocabulary, role-gate table behind require_role
+    market_support.py           # Authorization digest, ETag parsing, deterministic party locks, capability activity predicate
     request_party.py            # Immutable actor/effective-party resolution and support mutation allowlist
     market_support_post_only.py # Fail-closed crossing assessment for assisted ASK publication
     benchmarks.py               # External/manual benchmark lookup keyed by market_product + delivery_point + availability_window
@@ -155,6 +159,7 @@ alembic/versions/               # Migrations incl. canonical availability-window
 ## Key Patterns
 
 - **Match-on-insert:** `POST /orderbook` → `db.flush()` → `match_order()` → `db.commit()` (atomic); executable matches now require exact `product + delivery_point + availability_window`. Order and trade create routes build responses before commit; committed replays keep separate return paths, and analytics stays after commit.
+- **User abilities:** `GET /auth/me/abilities` returns `{schema_version, abilities[{action, allowed, reason_code, reason}]}`. `services/abilities.py` only calls the predicates endpoints enforce with (`execution_policy`, `action_policy`, `provenance`, `market_admission`, `market_support`, `request_party`); to change a rule, change its predicate. Hints only; endpoints stay authoritative. Contract and action/reason ids: `docs/user-abilities.md`.
 - **Fat-finger guard:** `POST /orderbook`, `PUT /orderbook/{id}` and `POST /inventory/{id}/publish` call `enforce_order_sanity_limits()` after request validation and BEFORE `acquire_market_slice_lock`, so a rejected order never contends for the lock. Price must stay within `ORDER_MAX_PRICE_DEVIATION_PCT` (default 0 = off until real `benchmarks` rows exist; suggested 50) of `get_benchmark_quote` (operator `benchmarks` override, else seed matrix); no benchmark means the price rule is skipped. Volume must not exceed `ORDER_MAX_QUANTITY_MT` (default 50000); 0 disables a rule. Rejections are HTTP 400 with `code` `ORDER_PRICE_OUT_OF_BAND` or `ORDER_QUANTITY_LIMIT_EXCEEDED` plus the threshold; they are logged, not audited. Env-only configuration, no migration. Not yet covered: market-support authorization creation.
 - **Supplier ASK invariants:** ASK creation/update requires explicit `certification_declared=true` plus a non-empty `certification_scheme`; `GET /orderbook/my/latest-ask-template` returns safe defaults for the next listing and resets off-spec state
 - **Assisted order entry:** When explicitly enabled, separately capability-gated administrators may publish exact post-only BID and ASK orders for an approved real organization. The organization is the economic party and the administrator is the accountable actor; no customer user is selected as a proxy. Orders may be GTC or dated, customer instructions have no artificial age cutoff, and confirmation requires a reference rather than evidence text. Customer/admin cancellation requires the current ETag, support-created orders cannot be edited, and public serializers omit support attribution. See `docs/market-support-assisted-listings.md`.

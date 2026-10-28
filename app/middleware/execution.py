@@ -9,7 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.user import Organization, User, UserRole, UserStatus
 from app.routers.auth_simple import get_current_user
-from app.services.execution_policy import execution_party_is_eligible
+from app.services.action_policy import ReasonCode
+from app.services.execution_policy import execution_party_is_eligible, execution_user_denial
 
 
 async def require_execution_eligible_user(
@@ -17,7 +18,7 @@ async def require_execution_eligible_user(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> User:
     """Require a fully admitted buyer/supplier for executable mutations."""
-    if current_user.role == UserRole.ADMIN:
+    if execution_user_denial(current_user) == ReasonCode.ADMIN_CANNOT_EXECUTE:
         # There is no established acting-as contract. Admin identity must not
         # be inferred as a buyer or supplier from endpoint fall-through.
         raise HTTPException(

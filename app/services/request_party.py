@@ -21,8 +21,13 @@ from app.models.market_support import (
 )
 from app.models.orderbook import OrderCreationMethod
 from app.models.user import Organization, OrganizationProvenance, User, UserRole, UserStatus
+from app.services.action_policy import ReasonCode
 from app.services.execution_policy import execution_party_is_eligible
-from app.services.market_support import utc
+from app.services.market_support import (
+    ASSISTED_ORDER_CAPABILITIES,
+    capability_assignment_is_active,
+    utc,
+)
 
 
 MARKET_SUPPORT_CONTEXT_HEADER = "X-Verdaxis-Market-Support-Context"
@@ -57,6 +62,23 @@ class RequestParty:
     support_context_id: UUID | None = None
     support_reference: str | None = None
     creation_method: OrderCreationMethod = OrderCreationMethod.SELF_SERVICE
+
+
+def legacy_admin_workspace_mutation_denial(
+    role: UserRole | None, *, has_support_context: bool
+) -> ReasonCode | None:
+    """Return why an administrator may not amend or cancel without a context.
+
+    With Market Support enabled, the legacy path where an administrator mutates
+    orders without an active support context is retired (HTTP 410).
+    """
+    if (
+        settings.MARKET_SUPPORT_ENABLED
+        and role == UserRole.ADMIN
+        and not has_support_context
+    ):
+        return ReasonCode.LEGACY_ADMIN_MUTATION_RETIRED
+    return None
 
 
 def _context_error(code: str, message: str) -> HTTPException:
@@ -96,31 +118,16 @@ async def _require_context_capabilities(db: AsyncSession, actor_id: UUID) -> Non
     ).scalars().all()
     assignment_by_capability = {row.capability: row for row in assignments}
     now = datetime.now(UTC)
-    for capability in (
-        MarketSupportCapability.MARKET_SUPPORT_LISTINGS,
-        MarketSupportCapability.MARKET_SUPPORT_AUTHORIZATIONS,
-    ):
+    for capability in ASSISTED_ORDER_CAPABILITIES:
         assignment = assignment_by_capability.get(capability)
-        if (
-            assignment is None
-            or (
-                assignment.expires_at is not None
-                and utc(assignment.expires_at) <= now
-            )
-        ):
+        if not capability_assignment_is_active(assignment, now):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
 
 
 async def lock_request_party_capabilities(db: AsyncSession, actor_id: UUID) -> None:
     """Lock and revalidate both capabilities in one deterministic order."""
     now = datetime.now(UTC)
-    for capability in sorted(
-        (
-            MarketSupportCapability.MARKET_SUPPORT_LISTINGS,
-            MarketSupportCapability.MARKET_SUPPORT_AUTHORIZATIONS,
-        ),
-        key=lambda value: value.value,
-    ):
+    for capability in sorted(ASSISTED_ORDER_CAPABILITIES, key=lambda value: value.value):
         assignment = (
             await db.execute(
                 select(StaffCapabilityAssignment)
@@ -132,14 +139,7 @@ async def lock_request_party_capabilities(db: AsyncSession, actor_id: UUID) -> N
                 .execution_options(populate_existing=True)
             )
         ).scalar_one_or_none()
-        if (
-            assignment is None
-            or assignment.revoked_at is not None
-            or (
-                assignment.expires_at is not None
-                and utc(assignment.expires_at) <= now
-            )
-        ):
+        if not capability_assignment_is_active(assignment, now):
             raise _context_error(
                 "MARKET_SUPPORT_CONTEXT_INVALID",
                 "Market Support capability is no longer active",

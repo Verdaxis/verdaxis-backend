@@ -5,38 +5,72 @@ from uuid import UUID
 from app.market_catalog import BIOFUEL_SPECIFICATION_STANDARDS, PRODUCTS_BY_ID
 from app.models.orderbook import OrderBookOrder, OrderCreationMethod, OrderSide
 from app.models.user import Organization, OrganizationProvenance, User, UserRole, UserStatus
+from app.services.action_policy import ReasonCode
 from sqlalchemy import and_, func, or_, select
 
 
-async def execution_party_is_eligible(db, *, user: User, organization: Organization | None = None) -> bool:
-    """Return true only for a concrete admitted user and approved tenant."""
-    user_id = getattr(user, "id", None) if user else None
-    user_org_id = getattr(user, "organization_id", None) if user else None
-    if user_id is None or user_org_id is None:
-        return False
-    if getattr(user, "role", None) not in {UserRole.BUYER, UserRole.SUPPLIER}:
-        return False
-    if getattr(user, "status", None) != UserStatus.APPROVED or not getattr(user, "email_verified", False):
-        return False
+def execution_user_denial(user: User | None) -> ReasonCode | None:
+    """Return why a user may not execute market actions, or ``None``.
+
+    These are the user-only checks of the execution gate; none needs the
+    database. The first denial wins, in the order the checks are applied.
+    """
+    if user is None:
+        return ReasonCode.ACCOUNT_NOT_APPROVED
+    role = getattr(user, "role", None)
+    if role == UserRole.ADMIN:
+        # There is no established acting-as contract. Admin identity must not
+        # be inferred as a buyer or supplier from endpoint fall-through.
+        return ReasonCode.ADMIN_CANNOT_EXECUTE
+    user_id = getattr(user, "id", None)
+    user_org_id = getattr(user, "organization_id", None)
+    if user_id is None:
+        return ReasonCode.ACCOUNT_NOT_APPROVED
+    if user_org_id is None:
+        return ReasonCode.ORGANIZATION_REQUIRED
+    if role not in {UserRole.BUYER, UserRole.SUPPLIER}:
+        return ReasonCode.ROLE_NOT_ASSIGNED
+    if getattr(user, "status", None) != UserStatus.APPROVED:
+        return ReasonCode.ACCOUNT_NOT_APPROVED
+    if not getattr(user, "email_verified", False):
+        return ReasonCode.EMAIL_NOT_VERIFIED
     if getattr(user, "must_change_password", False):
-        return False
+        return ReasonCode.PASSWORD_CHANGE_REQUIRED
     # KYC remains advisory for pending/legacy users. An explicit human
     # rejection revokes execution, and any org-bound state is valid only for
     # the user's current organization.
     if getattr(user, "kyc_status", None) == "REJECTED":
-        return False
+        return ReasonCode.KYC_REJECTED
     kyc_organization_id = getattr(user, "kyc_organization_id", None)
     if kyc_organization_id is not None and kyc_organization_id != user_org_id:
+        return ReasonCode.KYC_ORGANIZATION_MISMATCH
+    return None
+
+
+def execution_organization_denial(user: User | None, organization: Organization | None) -> ReasonCode | None:
+    """Return why the user's organization blocks execution, or ``None``."""
+    user_org_id = getattr(user, "organization_id", None) if user else None
+    organization_id = getattr(organization, "id", None) if organization else None
+    if organization_id is None or organization_id != user_org_id:
+        return ReasonCode.ORGANIZATION_REQUIRED
+    if getattr(organization, "verification_status", None) != "APPROVED":
+        return ReasonCode.ORGANIZATION_NOT_APPROVED
+    return None
+
+
+def execution_party_denial(user: User | None, organization: Organization | None) -> ReasonCode | None:
+    """Return the first reason a user and loaded tenant may not execute."""
+    return execution_user_denial(user) or execution_organization_denial(user, organization)
+
+
+async def execution_party_is_eligible(db, *, user: User, organization: Organization | None = None) -> bool:
+    """Return true only for a concrete admitted user and approved tenant."""
+    if execution_user_denial(user) is not None:
         return False
     if organization is None and hasattr(db, "execute"):
         result = await db.execute(select(Organization).where(Organization.id == user.organization_id))
         organization = result.scalar_one_or_none()
-    organization_id = getattr(organization, "id", None) if organization else None
-    return (
-        organization_id is not None
-        and organization_id == user_org_id
-        and getattr(organization, "verification_status", None) == "APPROVED"
-    )
+    return execution_organization_denial(user, organization) is None
 
 
 async def order_owner_is_execution_eligible(

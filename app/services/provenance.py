@@ -51,6 +51,19 @@ def snapshot_organization_provenance(organization: Organization | None) -> Organ
     return coerce_provenance(getattr(organization, "provenance", None))
 
 
+def provenance_may_execute(value: object) -> bool:
+    """Return true when a party's provenance can ever take part in execution.
+
+    Only REAL and DEMO parties can be paired; UNKNOWN, TEST and CANARY never
+    execute against anyone. This is necessary, not sufficient: the pairing rule
+    in ``execution_provenance_compatible`` still applies to a concrete pair.
+    """
+    return coerce_provenance(value) in (
+        OrganizationProvenance.REAL,
+        OrganizationProvenance.DEMO,
+    )
+
+
 def execution_provenance_compatible(
     left: OrganizationProvenance,
     right: OrganizationProvenance,
@@ -60,6 +73,8 @@ def execution_provenance_compatible(
     allowed_demo_org_pair: Set[UUID] | None = None,
 ) -> bool:
     """Permit REAL pairs, or one explicitly supplied deterministic DEMO pair."""
+    if not (provenance_may_execute(left) and provenance_may_execute(right)):
+        return False
     normalized = (coerce_provenance(left), coerce_provenance(right))
     if normalized == (OrganizationProvenance.REAL, OrganizationProvenance.REAL):
         return True

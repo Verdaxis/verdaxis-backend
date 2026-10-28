@@ -139,9 +139,11 @@ from app.services.request_party import (
     MARKET_SUPPORT_CONTEXT_HEADER,
     RequestParty,
     RequestPartyMode,
+    legacy_admin_workspace_mutation_denial,
     lock_request_party_context,
     resolve_request_party,
 )
+from app.services.action_policy import place_order_role_denial
 from app.services.market_support_post_only import assess_locked_order
 
 router = APIRouter(
@@ -659,11 +661,10 @@ async def _load_valid_order_create_replay(
 def _reject_admin_legacy_workspace_mutation(
     request: Request, current_user: User
 ) -> None:
-    if (
-        settings.MARKET_SUPPORT_ENABLED
-        and current_user.role == UserRole.ADMIN
-        and not request.headers.get(MARKET_SUPPORT_CONTEXT_HEADER)
-    ):
+    if legacy_admin_workspace_mutation_denial(
+        current_user.role,
+        has_support_context=bool(request.headers.get(MARKET_SUPPORT_CONTEXT_HEADER)),
+    ) is not None:
         raise HTTPException(
             status_code=status.HTTP_410_GONE,
             detail={
@@ -1937,7 +1938,7 @@ async def create_order(
     if (
         party.mode == RequestPartyMode.SELF_SERVICE
         and order_data.side == OrderSide.BID
-        and party.effective_role != UserRole.BUYER
+        and place_order_role_denial(party.effective_role, OrderSide.BID) is not None
     ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -1947,7 +1948,7 @@ async def create_order(
     if (
         party.mode == RequestPartyMode.SELF_SERVICE
         and order_data.side == OrderSide.ASK
-        and party.effective_role != UserRole.SUPPLIER
+        and place_order_role_denial(party.effective_role, OrderSide.ASK) is not None
     ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

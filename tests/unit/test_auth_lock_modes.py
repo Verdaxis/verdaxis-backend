@@ -47,6 +47,7 @@ def _request(
     ("method", "path", "route_path", "market_support_context", "expected_lock"),
     (
         ("GET", "/api/auth/me", None, False, "FOR SHARE"),
+        ("GET", "/api/auth/me/abilities", None, False, "FOR SHARE"),
         (
             "GET",
             "/api/watchlists/a550c69b-2934-4b36-87f5-e4f9976d1af0/events",

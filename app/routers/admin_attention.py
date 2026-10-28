@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.middleware.rbac import require_role
+from app.services.action_policy import AbilityId, allowed_roles
 from app.models.user import User, UserRole
 from app.rate_limit import limiter
 from app.services.onboarding_attention import classify_candidate, load_candidates
@@ -39,7 +40,7 @@ class AttentionResponse(BaseModel):
 async def list_onboarding_attention(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_role(UserRole.ADMIN)),
+    current_user: User = Depends(require_role(*allowed_roles(AbilityId.MANAGE_ACCOUNTS))),
 ):
     now = datetime.now(UTC)
     items: list[AttentionItem] = []

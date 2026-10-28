@@ -41,6 +41,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, mo
 import uuid
 
 from app.models.referral import Referral, ReferralStatus, generate_referral_code
+from app.services.action_policy import AbilityId, role_may
 from app.services.email_domains import registration_organization_domain
 from app.services.email import (
     build_account_approved_email_payload,
@@ -612,6 +613,7 @@ PASSWORD_CHANGE_ALLOWED_PATHS = {
 AUTHENTICATED_SHARED_LOCK_PATHS = frozenset(
     {
         "/api/auth/me",
+        "/api/auth/me/abilities",
         "/api/notifications",
         "/api/notifications/unread-count",
         "/api/orderbook/my",
@@ -1237,7 +1239,7 @@ async def list_invitation_organizations(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    if current_user.role != UserRole.ADMIN:
+    if not role_may(AbilityId.MANAGE_ACCOUNTS, current_user.role):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     organizations = (
         await db.execute(
@@ -1279,13 +1281,13 @@ async def create_admin_invitation(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    if current_user.role != UserRole.ADMIN:
+    if not role_may(AbilityId.MANAGE_ACCOUNTS, current_user.role):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
     locked_admin = (
         await db.execute(select(User).where(User.id == current_user.id).with_for_update())
     ).scalar_one_or_none()
-    if locked_admin is None or locked_admin.role != UserRole.ADMIN:
+    if locked_admin is None or not role_may(AbilityId.MANAGE_ACCOUNTS, locked_admin.role):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
     normalized_email = str(body.email).strip().lower()
@@ -2245,7 +2247,7 @@ async def approve_user(
 ):
     # Cannot use require_role here — rbac imports get_current_user from this
     # module, creating a circular import. Keep manual check instead.
-    if current_user.role != UserRole.ADMIN:
+    if not role_may(AbilityId.MANAGE_ACCOUNTS, current_user.role):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
     stmt = select(User).where(User.id == user_id).with_for_update()
@@ -2335,7 +2337,7 @@ async def approve_organization(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    if current_user.role != UserRole.ADMIN:
+    if not role_may(AbilityId.MANAGE_ACCOUNTS, current_user.role):
         raise HTTPException(status_code=403, detail="Forbidden")
     result = await db.execute(select(Organization).where(Organization.id == organization_id).with_for_update())
     organization = result.scalar_one_or_none()
@@ -2401,7 +2403,7 @@ async def reject_organization(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    if current_user.role != UserRole.ADMIN:
+    if not role_may(AbilityId.MANAGE_ACCOUNTS, current_user.role):
         raise HTTPException(status_code=403, detail="Forbidden")
     result = await db.execute(select(Organization).where(Organization.id == organization_id).with_for_update())
     organization = result.scalar_one_or_none()
@@ -2455,7 +2457,7 @@ async def reject_user(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    if current_user.role != UserRole.ADMIN:
+    if not role_may(AbilityId.MANAGE_ACCOUNTS, current_user.role):
         raise HTTPException(status_code=403, detail="Forbidden")
     result = await db.execute(select(User).where(User.id == user_id).with_for_update())
     target = result.scalar_one_or_none()
@@ -2494,7 +2496,7 @@ async def reject_user(
 
 
 def _require_admin_user(current_user: User) -> None:
-    if current_user.role != UserRole.ADMIN:
+    if not role_may(AbilityId.MANAGE_ACCOUNTS, current_user.role):
         raise HTTPException(status_code=403, detail="Forbidden")
 
 

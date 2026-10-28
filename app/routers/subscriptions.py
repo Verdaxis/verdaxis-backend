@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.middleware.rbac import require_role
+from app.services.action_policy import AbilityId, allowed_roles
 from app.middleware.subscription import get_or_create_subscription
 from app.models.subscription import Subscription, SubscriptionTier
 from app.models.user import User, UserRole
@@ -49,7 +50,7 @@ async def get_my_subscription(
 
 @router.get("/admin/subscriptions", response_model=List[SubscriptionResponse])
 async def list_subscriptions(
-    current_user: Annotated[User, Depends(require_role(UserRole.ADMIN))],
+    current_user: Annotated[User, Depends(require_role(*allowed_roles(AbilityId.MANAGE_SUBSCRIPTIONS)))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> List[Subscription]:
     """List all subscriptions (admin only)."""
@@ -60,7 +61,7 @@ async def list_subscriptions(
 @router.get("/admin/subscriptions/{org_id}", response_model=SubscriptionResponse)
 async def get_subscription_by_org(
     org_id: uuid.UUID,
-    current_user: Annotated[User, Depends(require_role(UserRole.ADMIN))],
+    current_user: Annotated[User, Depends(require_role(*allowed_roles(AbilityId.MANAGE_SUBSCRIPTIONS)))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> Subscription:
     """Get a single organisation's subscription (admin only)."""
@@ -81,7 +82,7 @@ async def update_subscription(
     org_id: uuid.UUID,
     request: Request,
     body: SubscriptionUpdate,
-    current_user: Annotated[User, Depends(require_role(UserRole.ADMIN))],
+    current_user: Annotated[User, Depends(require_role(*allowed_roles(AbilityId.MANAGE_SUBSCRIPTIONS)))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> Subscription:
     """Create or update an organisation's subscription tier (admin only)."""

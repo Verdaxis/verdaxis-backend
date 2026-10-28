@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.middleware.rbac import require_role
+from app.services.action_policy import AbilityId, allowed_roles
 from app.models.audit import AuditLog
 from app.models.user import User, UserRole
 from pydantic import BaseModel
@@ -34,7 +35,7 @@ router = APIRouter()
 @router.get("/admin/audit-logs", response_model=list[AuditLogResponse])
 async def list_audit_logs(
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_role(UserRole.ADMIN))],
+    current_user: Annotated[User, Depends(require_role(*allowed_roles(AbilityId.VIEW_AUDIT_LOG)))],
     action: Optional[str] = Query(None),
     resource_type: Optional[str] = Query(None),
     user_id: Optional[UUID] = Query(None),

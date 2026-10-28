@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.middleware.rbac import require_role
+from app.services.action_policy import AbilityId, allowed_roles
 from app.models.orderbook import (
     OrderBookOrder, OrderBookStatus, Trade, TradeStatus,
 )
@@ -177,7 +178,7 @@ class ProductUsagePeriod(IntEnum):
 async def get_product_usage(
     request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_role(UserRole.ADMIN))],
+    current_user: Annotated[User, Depends(require_role(*allowed_roles(AbilityId.VIEW_ADMIN_ANALYTICS)))],
     analytics: Annotated[UmamiAnalyticsService, Depends(get_analytics_service)],
     days: ProductUsagePeriod = Query(ProductUsagePeriod.THIRTY_DAYS),
 ):
@@ -270,7 +271,7 @@ async def get_product_usage(
 async def get_overview(
     request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_role(UserRole.ADMIN))],
+    current_user: Annotated[User, Depends(require_role(*allowed_roles(AbilityId.VIEW_ADMIN_ANALYTICS)))],
 ):
     """Platform-wide summary metrics for the admin dashboard."""
 
@@ -390,7 +391,7 @@ async def get_overview(
 async def get_daily_stats(
     request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_role(UserRole.ADMIN))],
+    current_user: Annotated[User, Depends(require_role(*allowed_roles(AbilityId.VIEW_ADMIN_ANALYTICS)))],
     days: int = Query(30, ge=1, le=365),
 ):
     """Daily trading stats for the last N days."""
@@ -495,7 +496,7 @@ def _user_to_entry(row) -> AdminUserEntry:
 async def list_users(
     request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_role(UserRole.ADMIN))],
+    current_user: Annotated[User, Depends(require_role(*allowed_roles(AbilityId.MANAGE_ACCOUNTS)))],
     status_filter: Optional[str] = Query(None, alias="status"),
     search: Optional[str] = Query(None),
     limit: int = Query(50, ge=1, le=100),
@@ -557,7 +558,7 @@ async def reject_user(
     request: Request,
     user_id: _uuid.UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_role(UserRole.ADMIN))],
+    current_user: Annotated[User, Depends(require_role(*allowed_roles(AbilityId.MANAGE_ACCOUNTS)))],
 ):
     """Reject a pending or approved user. Admins cannot reject other admins."""
 
@@ -686,7 +687,7 @@ from app.services.behavioral_analytics import BehavioralWindowAggregate
 from app.services.product_analytics import ProductAnalyticsService
 
 _PA_RATE_LIMIT = "30/minute"
-_ADMIN_ONLY = require_role(UserRole.ADMIN)
+_ADMIN_ONLY = require_role(*allowed_roles(AbilityId.VIEW_ADMIN_ANALYTICS))
 
 _ACQUISITION_EVENTS = ("landing_cta_clicked",)
 _ENGAGEMENT_EVENTS = ("platform_navigation", "tutorial_step_completed", "tutorial_step_skipped")

@@ -42,6 +42,7 @@ from app.services.market_admission import (
 from app.services.market_catalog_validation import require_canonical_market_slice
 from app.services.market_locks import acquire_market_slice_lock
 from app.services.market_events import enqueue_market_events, participant_market_event
+from app.services.action_policy import create_rfq_role_denial, quote_rfq_role_denial
 from app.services.security_market_admission import require_security_market_admission
 from app.services.market_transactions import retry_market_transaction
 from app.services.org_notifications import notify_org_users as _notify_org_users
@@ -207,7 +208,7 @@ async def create_rfq(
             detail="User must belong to an organization",
         )
 
-    if current_user.role != UserRole.BUYER:
+    if create_rfq_role_denial(current_user.role) is not None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only buyers can create RFQs",
@@ -398,7 +399,7 @@ async def submit_quote(
     if not current_user.organization_id:
         raise HTTPException(status_code=403, detail="User must belong to an organization")
 
-    if current_user.role != UserRole.SUPPLIER:
+    if quote_rfq_role_denial(current_user.role) is not None:
         raise HTTPException(status_code=403, detail="Only suppliers can submit quotes")
 
     visibility_filters = _rfq_visibility_filters(current_user)

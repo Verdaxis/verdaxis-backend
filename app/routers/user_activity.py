@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.middleware.rbac import require_role
+from app.services.action_policy import AbilityId, allowed_roles
 from app.models.user import User, UserRole
 from app.rate_limit import limiter
 from app.routers.auth_simple import get_current_user
@@ -97,7 +98,7 @@ async def get_admin_user_activity(
     request: Request,
     user_id: UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_role(UserRole.ADMIN))],
+    current_user: Annotated[User, Depends(require_role(*allowed_roles(AbilityId.VIEW_USER_ACTIVITY)))],
     days: Annotated[ActivityDays, Query()] = ActivityDays.THIRTY,
     kind: Annotated[Literal["all", "browsing", "business", "login"], Query()] = "all",
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
