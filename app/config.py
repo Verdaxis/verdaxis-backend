@@ -365,11 +365,13 @@ class Settings(BaseSettings):
     # slice lock is taken. Set a limit to 0 to disable that rule.
     #
     # Maximum distance, in percent, between an order's limit price and the
-    # slice's published benchmark. 50 allows a normal market move but still
-    # catches the usual keying errors: a slipped decimal point or an extra zero
-    # moves the price by 90% or more.
+    # slice's published benchmark. Off (0) by default: without an operator
+    # `benchmarks` row the reference is the demo seed matrix, which can reject
+    # real orders. Enable once real benchmarks are populated. 50 is the
+    # suggested value: it allows a normal market move but still catches a
+    # slipped decimal point or an extra zero (a 90% or larger move).
     ORDER_MAX_PRICE_DEVIATION_PCT: Decimal = Field(
-        default=Decimal("50"), ge=0, le=1000
+        default=Decimal("0"), ge=0, le=1000
     )
     # Maximum single-order volume in MT. Typical demo and pilot stems are
     # 500-5,000 MT; the request schema separately hard-caps every order at
