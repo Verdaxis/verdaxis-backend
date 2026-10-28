@@ -381,7 +381,14 @@ async fn amend_keeps_a_concurrent_inventory_change() {
     let router = f.router.clone();
     let bid = f.bid;
     let amendment = tokio::spawn(async move {
-        send(&router, Some(buyer()), bid, &[], json!({"quantity_mt": "250"})).await
+        send(
+            &router,
+            Some(buyer()),
+            bid,
+            &[],
+            json!({"quantity_mt": "250"}),
+        )
+        .await
     });
     let mut blocked = false;
     for _ in 0..500 {

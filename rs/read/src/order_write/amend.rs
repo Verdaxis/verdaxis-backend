@@ -1213,14 +1213,14 @@ impl<'a> AmendPort<'a> {
                     .map_err(|_| {
                         refusal(
                             StatusCode::UNPROCESSABLE_ENTITY,
-                            "Valid Bio-LNG requirements or declarations are required",
+                            "Valid liquefied-gas requirements or declarations are required",
                         )
                     })?;
                 Some(
                     crate::market::terms::owner_response_terms("lng_v1", terms).map_err(|_| {
                         refusal(
                             StatusCode::UNPROCESSABLE_ENTITY,
-                            "Valid Bio-LNG requirements or declarations are required",
+                            "Valid liquefied-gas requirements or declarations are required",
                         )
                     })?,
                 )
