@@ -14,7 +14,7 @@ from tests.postgres.test_market_migrations import (  # noqa: F401
     migration_database,
 )
 
-PARENT = "p3_20261020_auth_tokens"
+PARENT = "sse_20261021_replay_floor"
 REVISION = "p5_20261020_read_indexes"
 # pg_get_indexdef spells out uniqueness, access method, key order and any
 # predicate, so one string pins the whole definition.

@@ -252,6 +252,7 @@ jobs:
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
       - name: Run the Phase 5 routing tests against the pinned Caddy
+        if: matrix.check == 'caddy'
         env:
           ENVIRONMENT: test
           RELEASE_SHA: test
