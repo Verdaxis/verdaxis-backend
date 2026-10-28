@@ -673,6 +673,110 @@ async fn publication_stages_private_events_until_commit() {
     }
 }
 
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn publication_analytics_runs_once_after_commit() {
+    use verdaxis_read::{
+        analytics::sender::AnalyticsSender,
+        providers::umami::{UmamiConfig, UmamiPolicy},
+    };
+    let deliveries = std::sync::Arc::new(tokio::sync::Mutex::new(Vec::<Value>::new()));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let rows = deliveries.clone();
+    let receiver = Router::new().route(
+        "/api/send",
+        axum::routing::post(move |axum::Json(value): axum::Json<Value>| {
+            let rows = rows.clone();
+            async move {
+                rows.lock().await.push(value);
+                axum::Json(json!({"ok":true}))
+            }
+        }),
+    );
+    let server = tokio::spawn(async move { axum::serve(listener, receiver).await.unwrap() });
+    let sender = AnalyticsSender::new(
+        &UmamiConfig {
+            enabled: true,
+            base_url: Some(format!("http://{address}")),
+            website_id: Some("publication-fixture".into()),
+            api_username: None,
+            api_password: None,
+            policy: UmamiPolicy {
+                timeout: Duration::from_secs(1),
+            },
+            catalog: std::sync::Arc::new(Default::default()),
+        },
+        None,
+        "https://app.example.test",
+        8,
+    )
+    .unwrap();
+    let mut f = Fixture::new(1, 200).await;
+    let router = component(
+        &f.app,
+        CreateSettings {
+            analytics: Some(sender),
+            ..Default::default()
+        },
+    );
+    let first = send(&router, Some(seller()), item(), Some("analytics")).await;
+    assert_eq!(first.0, StatusCode::OK, "{first:?}");
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if deliveries.lock().await.len() == 2 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(f.counts().await["audit"], 2);
+    assert_eq!(
+        send(&router, Some(seller()), item(), Some("analytics")).await,
+        first
+    );
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(deliveries.lock().await.len(), 2);
+    server.abort();
+    let _ = server.await;
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn publication_rebuilds_each_benchmark_side_once() {
+    let mut f = Fixture::new(1, 400).await;
+    sqlx::raw_sql(include_str!("fixtures/market_write_match_completion.sql"))
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
+    f.sql("SELECT completion_fixture_benchmark_probe()").await;
+    let reply = f.publish(None).await;
+    f.sql("SELECT completion_fixture_benchmark_probe_remove()")
+        .await;
+    assert_eq!(reply.0, StatusCode::OK, "{reply:?}");
+    let calls: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM completion_benchmark_calls WHERE operation='DELETE'",
+    )
+    .fetch_one(&mut f.admin)
+    .await
+    .unwrap();
+    assert_eq!(calls, 2);
+    let sides: Vec<String> =
+        sqlx::query_scalar("SELECT side FROM live_slice_benchmarks ORDER BY side")
+            .fetch_all(&mut f.observer)
+            .await
+            .unwrap();
+    assert_eq!(sides, vec!["ASK"]);
+    let remaining: Decimal =
+        sqlx::query_scalar("SELECT total_remaining_quantity_mt FROM live_slice_benchmarks")
+            .fetch_one(&mut f.observer)
+            .await
+            .unwrap();
+    assert_eq!(remaining, Decimal::from(200));
+}
+
 async fn concurrent(n: i32, stock: i64, key: Option<&str>) {
     let mut f = Fixture::new(n, stock).await;
     let mut blocker = f.pool.begin().await.unwrap();
