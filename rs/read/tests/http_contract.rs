@@ -578,18 +578,30 @@ async fn cors_covers_every_status_and_denied_origin() {
     use verdaxis_read::ApiError;
     use verdaxis_read::runtime::http::middleware;
     let app = middleware(
-        Router::new().route("/ok", get(|| async { "ok" })).route(
-            "/invalid",
-            get(|| async {
-                ApiError {
-                    status: axum::http::StatusCode::UNPROCESSABLE_ENTITY,
-                    detail: serde_json::json!([{"type":"missing","loc":["query","limit"],
-                            "msg":"Field required","input":null}]),
-                    retry_after: None,
-                    kind: verdaxis_read::ApiErrorKind::Expected,
-                }
-            }),
-        ),
+        Router::new()
+            .route("/ok", get(|| async { "ok" }))
+            .route(
+                "/capped",
+                get(|| async {
+                    let mut response = axum::Json(serde_json::json!({"items": []})).into_response();
+                    response
+                        .headers_mut()
+                        .insert("x-result-truncated", "false".parse().unwrap());
+                    response
+                }),
+            )
+            .route(
+                "/invalid",
+                get(|| async {
+                    ApiError {
+                        status: axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+                        detail: serde_json::json!([{"type":"missing","loc":["query","limit"],
+                                "msg":"Field required","input":null}]),
+                        retry_after: None,
+                        kind: verdaxis_read::ApiErrorKind::Expected,
+                    }
+                }),
+            ),
         "staging",
     );
     let staging = "https://staging.verdaxis.exchange";
@@ -618,11 +630,14 @@ async fn cors_covers_every_status_and_denied_origin() {
         assert_eq!(response.status(), status);
         let headers = response.headers();
         // Starlette always sends credentials and expose headers for a simple
-        // response, but mirrors the origin only when it is allowed.
+        // response, but mirrors the origin only when it is allowed.  The
+        // truncation header joins the exposed set only when the response
+        // carries it; this bare router never does, so Python's exact
+        // three-header set applies.
         assert_eq!(headers["access-control-allow-credentials"], "true");
         assert_eq!(
             headers["access-control-expose-headers"],
-            "Retry-After, X-Request-ID, X-Result-Truncated, X-Verdaxis-Market-Support-Context-Invalid"
+            "Retry-After, X-Request-ID, X-Verdaxis-Market-Support-Context-Invalid"
         );
         assert_eq!(
             headers
@@ -636,6 +651,24 @@ async fn cors_covers_every_status_and_denied_origin() {
         );
         assert!(!headers.contains_key("access-control-max-age"));
     }
+    // A response that carries the read-cap truncation header exposes it too,
+    // so a cross-origin operator UI can read the pinned header.
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/capped")
+                .header("origin", staging)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        response.headers()["access-control-expose-headers"],
+        "Retry-After, X-Request-ID, X-Result-Truncated, X-Verdaxis-Market-Support-Context-Invalid"
+    );
     // A denied origin fails the preflight with the exact Starlette text.
     let response = app
         .clone()

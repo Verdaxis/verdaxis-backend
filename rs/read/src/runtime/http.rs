@@ -218,14 +218,18 @@ async fn cors(State(environment): State<String>, request: Request, next: Next) -
         .headers_mut()
         .insert("access-control-allow-credentials", "true".parse().unwrap());
     if !preflight {
-        response.headers_mut().insert(
-            "access-control-expose-headers",
-            // The read-cap truncation header joins the exposed set so a
-            // cross-origin operator UI can read it (Task 4 review m1).
+        // The read-cap truncation header joins the exposed set only on the
+        // operator pages that can carry it, so a cross-origin operator UI
+        // can read it (Task 4 review m1); every other route keeps Python's
+        // exact three-header set.
+        let exposes = if response.headers().contains_key("x-result-truncated") {
             "Retry-After, X-Request-ID, X-Result-Truncated, X-Verdaxis-Market-Support-Context-Invalid"
-                .parse()
-                .unwrap(),
-        );
+        } else {
+            "Retry-After, X-Request-ID, X-Verdaxis-Market-Support-Context-Invalid"
+        };
+        response
+            .headers_mut()
+            .insert("access-control-expose-headers", exposes.parse().unwrap());
     }
     if allowed {
         response
