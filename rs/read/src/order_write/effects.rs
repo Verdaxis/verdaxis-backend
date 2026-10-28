@@ -26,6 +26,7 @@ pub enum MutationKind {
     AssistedOrderAuthorizationCreated,
     OrderCancelled,
     OrderExpired,
+    OrderUpdated,
     InventoryCreated,
     InventoryUpdated,
     InventoryDeleted,
@@ -53,6 +54,7 @@ impl MutationKind {
             Self::AssistedOrderAuthorizationCreated => "market_support.authorization_created",
             Self::OrderCancelled => "order.cancelled",
             Self::OrderExpired => "order.expired",
+            Self::OrderUpdated => "order.updated",
             Self::InventoryPublished => "inventory.published",
             Self::SupportContextStarted => "market_support.context_started",
             Self::SupportContextExited => "market_support.context_exited",
@@ -72,6 +74,7 @@ impl MutationKind {
             Self::OrderCreated
                 | Self::OrderCancelled
                 | Self::OrderExpired
+                | Self::OrderUpdated
                 | Self::InventoryPublished
                 | Self::TradeCreated
                 | Self::TradeAutoMatched
@@ -765,7 +768,7 @@ impl<'a> EffectPort<'a> {
     }
 }
 
-pub(super) async fn order_visible(
+pub(crate) async fn order_visible(
     conn: &mut PgConnection,
     policy: &MarketPolicy,
     config: &Config,

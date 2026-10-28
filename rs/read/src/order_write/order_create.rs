@@ -1081,7 +1081,7 @@ impl<'a> CreatePort<'a> {
             audit_context: command.audit.clone(),
         })
     }
-    async fn projection(
+    pub(super) async fn projection(
         &mut self,
         id: Uuid,
         policy: &MarketPolicy,
@@ -1131,7 +1131,7 @@ impl<'a> CreatePort<'a> {
     }
 }
 
-fn derive_metadata(
+pub(super) fn derive_metadata(
     fields: &mut serde_json::Map<String, Value>,
     field: &str,
 ) -> Result<(), MarketWriteError> {

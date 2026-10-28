@@ -1,4 +1,5 @@
 //! Component market routes; runtime activation is separate.
+pub mod amend;
 pub mod inventory;
 pub mod matchmaking;
 pub mod order_create;

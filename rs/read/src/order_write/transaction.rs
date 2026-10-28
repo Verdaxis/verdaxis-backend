@@ -2556,4 +2556,31 @@ impl LockedMarketTransaction<'_> {
             self.plan.inventory_ids(),
         )
     }
+
+    /// The amendment port on this transaction's connection, plan and locks.
+    /// Every borrowed part shares the transaction's own lifetime.
+    pub(super) fn amend_port<'a>(
+        &'a mut self,
+        command: &'a super::amend::AmendCommand,
+        context: &'a super::WriteContext,
+    ) -> Result<super::amend::AmendPort<'a>, super::MarketWriteError> {
+        command.port_on(self.conn, &self.plan, self.locked, context)
+    }
+
+    /// The connection behind this transaction, for the amendment descriptor's
+    /// own read statements. Nothing else in the boundary exposes it.
+    pub(super) fn amend_conn(&mut self) -> &mut PgConnection {
+        self.conn
+    }
+
+    /// Whether the order is public at the captured instant.
+    pub(super) async fn amend_visibility(
+        &mut self,
+        id: Uuid,
+        policy: &crate::MarketPolicy,
+        config: &crate::Config,
+        at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<bool, super::MarketWriteError> {
+        super::effects::order_visible(self.conn, policy, config, id, at).await
+    }
 }

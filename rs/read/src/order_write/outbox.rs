@@ -102,6 +102,7 @@ pub enum ParticipantFields {
         delivery_point: Option<String>,
     },
     OrderCancelled(OrderActivity),
+    OrderUpdated(OrderActivity),
     OrderCreated {
         activity: OrderActivity,
         price: String,
@@ -175,6 +176,7 @@ impl ParticipantEvent {
                 value
             }
             ParticipantFields::OrderCancelled(activity) => activity.payload(),
+            ParticipantFields::OrderUpdated(activity) => activity.payload(),
             ParticipantFields::OrderCreated {
                 activity,
                 price,

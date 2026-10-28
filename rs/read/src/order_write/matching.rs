@@ -44,7 +44,7 @@ pub enum Side {
     Ask,
 }
 impl Side {
-    pub(super) fn as_str(self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             Self::Bid => "BID",
             Self::Ask => "ASK",
@@ -69,7 +69,7 @@ impl OrderStatus {
     fn live(self) -> bool {
         matches!(self, Self::Open | Self::PartiallyFilled)
     }
-    fn as_str(self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             Self::Open => "OPEN",
             Self::PartiallyFilled => "PARTIALLY_FILLED",

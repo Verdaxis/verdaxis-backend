@@ -23,6 +23,7 @@ mod expiry;
 mod invalidation;
 mod inventory;
 pub use inventory::{InventoryAction, InventoryInput, execute_inventory};
+pub(crate) mod amend;
 pub mod locks;
 pub mod matching;
 pub(crate) mod order_create;

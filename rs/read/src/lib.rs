@@ -236,6 +236,13 @@ pub mod market_trades {
     pub use crate::order_write::{MarketErrorCode, MarketWriteError};
 }
 
+/// Narrow amendment component types; the sealed owner keeps the transaction.
+pub(crate) mod market_amend {
+    pub(crate) use crate::order_write::amend::{AmendBody, AmendRequest, dispatch};
+    pub(crate) use crate::order_write::effects::AuditContext;
+    pub(crate) use crate::order_write::{MarketErrorCode, MarketWriteError};
+}
+
 /// Sealed order-entry component interface; no raw transaction is exported.
 pub(crate) mod market_create {
     pub(crate) use crate::order_write::effects::AuditContext;
