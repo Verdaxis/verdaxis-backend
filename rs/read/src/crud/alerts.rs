@@ -1,4 +1,4 @@
-//! Organization-owned price-alert CRUD. Triggering remains Python-owned.
+//! Organization-owned price-alert CRUD. Triggering lives in `streams/price_alerts.rs`.
 #[cfg(feature = "contract-tests")]
 #[path = "alerts_contract.rs"]
 pub mod contract;

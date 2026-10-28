@@ -153,6 +153,8 @@ mod tests {
             auth_domain_datasets: None,
             monitor_token: None,
             watchlist_producer_activated_at: None,
+            system_status: None,
+            system_status_message: None,
         }
     }
 
