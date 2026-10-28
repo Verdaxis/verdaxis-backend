@@ -177,6 +177,10 @@ class TestCreateOrder:
         monkeypatch.setattr(
             "app.routers.orderbook._best_slice_price", AsyncMock(return_value=None)
         )
+        # This test covers persistence; the fat-finger guard has its own tests.
+        monkeypatch.setattr(
+            "app.routers.orderbook.enforce_order_sanity_limits", AsyncMock()
+        )
 
         captured: list[OrderBookOrder] = []
         db = AsyncMock()

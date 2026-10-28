@@ -55,6 +55,7 @@ from app.services.idempotency import (
 )
 from app.services.order_lifecycle import expire_market_slice_orders
 from app.services.order_quantity import require_minimum_order_quantity
+from app.services.order_sanity_limits import enforce_order_sanity_limits
 from app.services.auto_match_side_effects import collect_auto_match_side_effects
 from app.services.activity import order_activity_provenance
 from app.services.behavioral_analytics import (
@@ -424,6 +425,16 @@ async def publish_inventory_item(
             status_code=400,
             detail="Inventory port is not an active canonical delivery point",
         )
+    # Fat-finger guard on the listing this publication will create. Read-only
+    # and ahead of the slice lock so a rejected listing never contends for it.
+    await enforce_order_sanity_limits(
+        db,
+        market_product=product.market_product,
+        delivery_point_id=delivery_point.id,
+        availability_window=SPOT_WINDOW,
+        quantity_mt=Decimal(str(item.current_stock_mt or 0)),
+        price_per_mt_usd=Decimal(str(item.price_per_mt_usd)),
+    )
     await market_transactions.transaction_boundary_hook(
         "before_market_slice_lock",
         operation="order_admission",

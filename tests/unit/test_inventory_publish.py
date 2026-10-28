@@ -62,6 +62,8 @@ class TestPublishInventoryItem:
     @pytest.mark.asyncio
     async def test_publish_maps_exact_canonical_catalog_product_and_delivery_point(self, monkeypatch):
         monkeypatch.setattr("app.config.settings.AUTO_MATCHING_ENABLED", False)
+        # This test covers catalog mapping; the fat-finger guard has its own tests.
+        monkeypatch.setattr("app.routers.inventory.enforce_order_sanity_limits", AsyncMock())
         user = _make_user()
         item = _make_inventory_item()
         monkeypatch.setattr("app.routers.inventory.reserve_inventory", AsyncMock(return_value=item))

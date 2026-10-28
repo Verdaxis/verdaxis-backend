@@ -95,6 +95,7 @@ from app.services.idempotency import (
 )
 from app.services.inventory_reservations import release_inventory, reserve_inventory
 from app.services.order_quantity import require_minimum_order_quantity
+from app.services.order_sanity_limits import enforce_order_sanity_limits
 from app.services.provenance import snapshot_organization_provenance
 from app.services.market_provenance import (
     canonical_availability_window_clause,
@@ -2012,6 +2013,17 @@ async def create_order(
                 detail="Invalid delivery_point_id",
             )
 
+    # Fat-finger guard. Read-only and deliberately ahead of the slice lock so
+    # a rejected order never contends for it.
+    await enforce_order_sanity_limits(
+        db,
+        market_product=product.market_product,
+        delivery_point_id=order_data.delivery_point_id,
+        availability_window=order_data.availability_window,
+        quantity_mt=order_data.quantity_mt,
+        price_per_mt_usd=order_data.price_per_mt_usd,
+    )
+
     # Global mutation order: idempotency lock, exact slice lock, then the
     # concrete user and organization rows. There is no existing market row
     # to lock on create; the insert follows the revalidation.
@@ -2523,6 +2535,16 @@ async def update_order(
                 "certifications",
             }
         )
+    )
+    # Fat-finger guard on the fields this amendment sets, ahead of the slice
+    # lock. Untouched fields are not re-judged against today's reference.
+    await enforce_order_sanity_limits(
+        db,
+        market_product=order.market_product,
+        delivery_point_id=order.delivery_point_id,
+        availability_window=order.availability_window,
+        quantity_mt=update_dict.get("quantity_mt"),
+        price_per_mt_usd=update_dict.get("price_per_mt_usd"),
     )
     await market_transactions.transaction_boundary_hook(
         "after_market_preview",

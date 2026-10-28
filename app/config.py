@@ -360,6 +360,22 @@ class Settings(BaseSettings):
     # Order Matching Engine
     AUTO_MATCHING_ENABLED: bool = True  # Set to False to disable match-on-insert
 
+    # Fat-finger guard for order placement and amendment
+    # (app/services/order_sanity_limits.py). Both limits run before any market
+    # slice lock is taken. Set a limit to 0 to disable that rule.
+    #
+    # Maximum distance, in percent, between an order's limit price and the
+    # slice's published benchmark. 50 allows a normal market move but still
+    # catches the usual keying errors: a slipped decimal point or an extra zero
+    # moves the price by 90% or more.
+    ORDER_MAX_PRICE_DEVIATION_PCT: Decimal = Field(
+        default=Decimal("50"), ge=0, le=1000
+    )
+    # Maximum single-order volume in MT. Typical demo and pilot stems are
+    # 500-5,000 MT; the request schema separately hard-caps every order at
+    # 100,000 MT.
+    ORDER_MAX_QUANTITY_MT: Decimal = Field(default=Decimal("50000"), ge=0)
+
     # Seller-paid transaction fees. These rates are snapshotted onto each new
     # trade, so changing configuration affects future trades only.
     SELLER_FEE_PILOT_PER_MT_USD: Decimal = Field(
