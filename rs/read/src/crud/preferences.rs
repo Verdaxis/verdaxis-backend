@@ -22,6 +22,10 @@ use crate::auth::{
 };
 use crate::{ApiError, ApiErrorKind, AppState};
 
+mod dashboard;
+
+pub use dashboard::WIDGET_TYPES as DASHBOARD_WIDGET_TYPES;
+
 const MAX_BYTES: usize = 8192;
 const NOTIFICATION_FIELDS: &[&str] = &[
     "email_trade_updates",
@@ -47,22 +51,12 @@ fn diagnostic(kind: &str, loc: Value, message: &str, input: &Value) -> Value {
         "url":format!("https://errors.pydantic.dev/2.13/v/{kind}")})
 }
 
-/// Validate without replacing the caller's JSON with a schema projection.
-pub fn validate_value(namespace: &str, value: Value) -> Result<Value, ApiError> {
-    let (class, fields) = match namespace {
-        "market_watch" => ("MarketWatchPreferences", &["products", "portIds"][..]),
-        "notifications" => ("NotificationPreferences", NOTIFICATION_FIELDS),
-        "tutorial" => ("TutorialPreferences", &["completed"][..]),
-        _ => {
-            return Err(refusal(
-                StatusCode::NOT_FOUND,
-                json!("Unknown preference namespace"),
-            ));
-        }
-    };
-    // All schema-valid leaves are strings or booleans. serde_json uses the same
-    // compact UTF-8 escaping as Python for these leaves (including control bytes).
-    if serde_json::to_vec(&value)
+/// Refuse a payload whose compact JSON form exceeds the stored-value cap.
+fn ensure_within_size(value: &Value) -> Result<(), ApiError> {
+    // All schema-valid leaves are strings, booleans or integers. serde_json uses
+    // the same compact UTF-8 escaping as Python for these leaves (including
+    // control bytes).
+    if serde_json::to_vec(value)
         .map_err(|_| ApiError::internal())?
         .len()
         > MAX_BYTES
@@ -72,6 +66,34 @@ pub fn validate_value(namespace: &str, value: Value) -> Result<Value, ApiError> 
             json!("Preference payload too large"),
         ));
     }
+    Ok(())
+}
+
+/// Validate without replacing the caller's JSON with a schema projection.
+pub fn validate_value(namespace: &str, value: Value) -> Result<Value, ApiError> {
+    let (class, fields) = match namespace {
+        "market_watch" => ("MarketWatchPreferences", &["products", "portIds"][..]),
+        "notifications" => ("NotificationPreferences", NOTIFICATION_FIELDS),
+        "tutorial" => ("TutorialPreferences", &["completed"][..]),
+        // Rust-only namespace: Python answers 404, so the frontend keeps a
+        // default layout when this route is unavailable.
+        "dashboard" => {
+            ensure_within_size(&value)?;
+            let errors = dashboard::validate(&value);
+            return if errors.is_empty() {
+                Ok(value)
+            } else {
+                Err(refusal(StatusCode::UNPROCESSABLE_ENTITY, json!(errors)))
+            };
+        }
+        _ => {
+            return Err(refusal(
+                StatusCode::NOT_FOUND,
+                json!("Unknown preference namespace"),
+            ));
+        }
+    };
+    ensure_within_size(&value)?;
     let Some(object) = value.as_object() else {
         let mut error = diagnostic(
             "model_type",
