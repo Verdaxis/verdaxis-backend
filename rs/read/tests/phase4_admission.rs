@@ -573,6 +573,8 @@ fn build(f: &Fixture, limits: verdaxis_read::auth::limits::SharedLimits) -> axum
             pool_max: 5,
             python_budget: 20,
             configured_max_connections: 100,
+            compliance_eur_usd_rate: None,
+            fleet_artifact_path: "data/fleet_demand.json".into(),
         },
         verdaxis_read::runtime::db::Pools {
             read: f.pool.clone(),

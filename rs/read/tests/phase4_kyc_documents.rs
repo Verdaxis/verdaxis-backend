@@ -345,6 +345,8 @@ mod postgres {
                 pool_max: 4,
                 python_budget: 52,
                 configured_max_connections: 100,
+                compliance_eur_usd_rate: None,
+                fleet_artifact_path: "data/fleet_demand.json".into(),
             };
             let health = PgPoolOptions::new()
                 .max_connections(1)

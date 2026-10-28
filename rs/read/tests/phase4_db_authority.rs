@@ -315,6 +315,8 @@ async fn rust_service_credential_absence_does_not_fail_readiness() {
         pool_max: 3,
         python_budget: 52,
         configured_max_connections: 100,
+        compliance_eur_usd_rate: None,
+        fleet_artifact_path: "data/fleet_demand.json".into(),
         prepared_budget: None,
         phase2: serde_json::from_value(json!({"jwt_secret":"synthetic-authority-key-at-least-32-characters","jwt_issuer":"test","jwt_audience":"test","frontend_url":"https://app.example.test","email_from":"team@example.test","resend_api_key":"synthetic","auth_domain_datasets":"null"})).unwrap(),
     };

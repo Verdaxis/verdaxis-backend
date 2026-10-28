@@ -222,7 +222,10 @@ async fn phase5_release_identity_is_the_full_sha() {
     assert_eq!(ready.status(), StatusCode::SERVICE_UNAVAILABLE);
     let body = axum::body::to_bytes(ready.into_body(), 4096).await.unwrap();
     let body: Value = serde_json::from_slice(&body).unwrap();
-    assert!(body.get("release_sha").is_none(), "{body}");
+    assert_eq!(
+        body,
+        serde_json::json!({"status":"error","db":"unavailable","environment":"test","release_sha":sha})
+    );
 }
 
 /// The same unreachable-database state the contract tests use: a lazy pool
