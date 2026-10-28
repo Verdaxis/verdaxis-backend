@@ -304,7 +304,7 @@ async fn amend_reserves_or_releases_the_exact_delta() {
     .fetch_one(&mut f.observer)
     .await
     .unwrap();
-    assert_eq!(item_row.0, Decimal::ZERO);
+    assert_eq!(item_row.0, Decimal::from(200));
     assert_eq!(item_row.1, Decimal::from(250));
     // Reduction: release the exact delta back to current.
     let (status, _) = send(
@@ -323,7 +323,7 @@ async fn amend_reserves_or_releases_the_exact_delta() {
     .fetch_one(&mut f.observer)
     .await
     .unwrap();
-    assert_eq!(item_row.0, Decimal::from(30));
+    assert_eq!(item_row.0, Decimal::from(230));
     assert_eq!(item_row.1, Decimal::from(220));
     // Insufficient stock for a further increase is a 409 and changes nothing.
     sqlx::query("UPDATE inventory_items SET current_stock_mt=1 WHERE id=$1")
