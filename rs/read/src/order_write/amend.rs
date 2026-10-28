@@ -1572,6 +1572,14 @@ impl<'a> AmendPort<'a> {
                 .and_then(|text| Decimal::from_str_exact(text).ok())
                 .ok_or_else(internal)?;
             let delta = new_remaining - order.remaining_quantity_mt;
+            // Lock the inventory row before the ledger reads its balance, as
+            // the source's reserve does. The slice lock does not cover it:
+            // orders in other windows and the inventory routes share the row.
+            sqlx::query("SELECT id FROM inventory_items WHERE id=$1 FOR UPDATE")
+                .bind(item)
+                .fetch_optional(self.conn())
+                .await?
+                .ok_or_else(|| MarketWriteError::new(MarketErrorCode::InventoryInconsistent))?;
             let mut ledger = super::transaction::StockLedger::new(self.conn, &[item], &[]);
             if delta > Decimal::ZERO {
                 ledger.reserve(item, StockQuantity::checked(delta)?).await?;
