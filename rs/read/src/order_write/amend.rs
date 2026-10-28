@@ -448,6 +448,98 @@ impl AmendCommand {
     fn product(&self, id: Uuid) -> Option<&crate::ProductPolicy> {
         self.policy.products.iter().find(|p| p.id == id)
     }
+
+    /// The stored row with the supplied update applied, for preview discovery.
+    /// Derived metadata is not recomputed here: qualification reads only the
+    /// scalar fields an update can carry.
+    fn project_row(&self, row: &OrderRow) -> OrderRow {
+        let mut projected = row.clone();
+        for field in ECONOMIC_FIELDS {
+            if let Some(value) = self.input.value(field) {
+                match field {
+                    "quantity_mt" => {
+                        if let Some(text) = value.as_str() {
+                            if let Ok(quantity) = Decimal::from_str_exact(text) {
+                                projected.quantity_mt = quantity;
+                            }
+                        }
+                    }
+                    "price_per_mt_usd" => {
+                        if let Some(text) = value.as_str() {
+                            if let Ok(price) = Decimal::from_str_exact(text) {
+                                projected.price_per_mt_usd = price;
+                            }
+                        }
+                    }
+                    "expires_at" => {
+                        if value.is_null() {
+                            projected.expires_at = None;
+                        } else if let Some(text) = value.as_str() {
+                            if let Ok(at) = text.parse::<DateTime<Utc>>() {
+                                projected.expires_at = Some(at);
+                            }
+                        }
+                    }
+                    "certification_declared" => {
+                        if let Some(flag) = value.as_bool() {
+                            projected.terms.certification_declared = flag;
+                        }
+                    }
+                    "msds_available" => {
+                        if let Some(flag) = value.as_bool() {
+                            projected.terms.msds_available = flag;
+                        }
+                    }
+                    "off_spec" => {
+                        if let Some(flag) = value.as_bool() {
+                            projected.terms.off_spec = flag;
+                        }
+                    }
+                    "certification_scheme" => {
+                        projected.terms.certification_scheme =
+                            value.as_str().map(str::to_owned);
+                    }
+                    "specification_standard" => {
+                        projected.terms.specification_standard =
+                            value.as_str().map(str::to_owned);
+                    }
+                    "carbon_intensity_method" => {
+                        projected.terms.carbon_intensity_method =
+                            value.as_str().map(str::to_owned);
+                    }
+                    "carbon_intensity_gco2_mj" => {
+                        projected.terms.carbon_intensity_gco2_mj = value
+                            .as_str()
+                            .and_then(|text| Decimal::from_str_exact(text).ok());
+                    }
+                    "feedstock" => {
+                        projected.terms.feedstock = value.as_str().map(str::to_owned);
+                    }
+                    "origin" => {
+                        projected.terms.origin = value.as_str().map(str::to_owned);
+                    }
+                    "certifications" => {
+                        if let Some(list) = value.as_array() {
+                            projected.terms.certifications = list
+                                .iter()
+                                .filter_map(|item| item.as_str().map(str::to_owned))
+                                .collect();
+                        }
+                    }
+                    "fame_terms" => {
+                        projected.terms.fame_terms =
+                            (!value.is_null()).then(|| value.clone());
+                    }
+                    "lng_terms" => {
+                        projected.terms.lng_terms =
+                            (!value.is_null()).then(|| value.clone());
+                    }
+                    _ => {}
+                }
+            }
+        }
+        projected
+    }
 }
 
 impl MarketCommand for AmendCommand {
@@ -482,11 +574,15 @@ impl MarketCommand for AmendCommand {
             organizations.extend(actor_org);
             let mut users: Vec<Uuid> = row.owner_user_id.into_iter().collect();
             // Discovery covers every party a rematch could touch when the
-            // amendment is economic; otherwise the order's own parties only.
+            // amendment is economic. The projected row carries the effective
+            // declaration, so a qualification-changing amendment discovers the
+            // counterparties it can actually reach after the write.
             let parties = if self.settings.auto_matching_enabled
                 && self.input.supplied_any(&ECONOMIC_FIELDS)
             {
-                let discovered = super::matching::match_parties(conn, &row, self.bound()).await?;
+                let projected = self.project_row(&row);
+                let discovered =
+                    super::matching::match_parties(conn, &projected, self.bound()).await?;
                 organizations.extend(discovered.organizations);
                 users.extend(discovered.users);
                 PartyLockPreview::new(

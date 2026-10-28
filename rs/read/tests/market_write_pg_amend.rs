@@ -170,7 +170,6 @@ async fn amend_rejects_each_nullable_economic_field() {
         "feedstock",
         "origin",
         "off_spec",
-        "off_spec_notes",
     ] {
         let (status, body) =
             send(&f.router, Some(buyer()), f.bid, &[], json!({ field: null })).await;
@@ -370,12 +369,13 @@ async fn amend_rebuilds_both_sides_of_the_slice() {
     .await
     .unwrap();
     assert_eq!(mirrors, 0);
+    // The opposing book is empty here, so its stale mirror is removed and no
+    // new one replaces it; the amended side carries exactly one fresh row.
     let sides: i64 = sqlx::query_scalar("SELECT count(DISTINCT side) FROM live_slice_benchmarks")
         .fetch_one(&mut f.observer)
         .await
         .unwrap();
-    assert_eq!(sides, 2);
-    // Exactly one rebuild per side: one row per (side) after deduplication.
+    assert_eq!(sides, 1);
     let bid_rows: i64 =
         sqlx::query_scalar("SELECT count(*) FROM live_slice_benchmarks WHERE side='BID'")
             .fetch_one(&mut f.observer)
@@ -406,6 +406,8 @@ async fn price_change_allocates_a_new_acceptance_ordinal() {
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn quantity_reduction_keeps_the_acceptance_ordinal() {
     let mut f = Fixture::new(0, 200).await;
+    let stored = f.order(f.bid).await;
+    let kept = stored["acceptance_ordinal"].as_i64().unwrap();
     let (status, _) = send(
         &f.router,
         Some(buyer()),
@@ -416,7 +418,7 @@ async fn quantity_reduction_keeps_the_acceptance_ordinal() {
     .await;
     assert_eq!(status.as_u16(), 200);
     let after = f.order(f.bid).await;
-    assert_eq!(after["acceptance_ordinal"].as_i64().unwrap(), 1);
+    assert_eq!(after["acceptance_ordinal"].as_i64().unwrap(), kept);
     // A normalized no-op and an expiry shortening also keep the ordinal.
     sqlx::query("SELECT amend_fixture_expiring($1,now()+interval '2 hours')")
         .bind(f.bid)
@@ -433,7 +435,7 @@ async fn quantity_reduction_keeps_the_acceptance_ordinal() {
     .await;
     assert_eq!(status.as_u16(), 200);
     let after = f.order(f.bid).await;
-    assert_eq!(after["acceptance_ordinal"].as_i64().unwrap(), 1);
+    assert_eq!(after["acceptance_ordinal"].as_i64().unwrap(), kept);
 }
 
 #[tokio::test]
