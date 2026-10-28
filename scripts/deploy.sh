@@ -976,10 +976,13 @@ if [[ "$RUST_SELECTED" == "1" ]]; then
         fi
         RUST_CACHE_LISTENER="$listener_value"
     done < "$BACKEND_DIR/.env"
+    # The stream tables exist from the stream checkpoint on, and every later
+    # checkpoint keeps them. tests/unit/test_stream_listener_checkpoints.py
+    # keeps this list equal to that part of deploy/rust/allowed-revisions.json.
     RUST_STREAM_LISTENER="0"
-    if [[ "$MIGRATION_TARGET_REVISION" == "sse_20261021_replay_floor" ]]; then
-        RUST_STREAM_LISTENER="1"
-    fi
+    case "$MIGRATION_TARGET_REVISION" in
+        sse_20261021_replay_floor|p5_20261020_read_indexes) RUST_STREAM_LISTENER="1" ;;
+    esac
     if ! "${PYTHON_ENV[@]}" ./venv/bin/python scripts/prepare_rust_budget.py \
         --cache-listener "$RUST_CACHE_LISTENER" \
         --stream-listener "$RUST_STREAM_LISTENER" \
