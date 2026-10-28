@@ -7,7 +7,7 @@ BEGIN
     UPDATE products SET is_active=true,min_lot_size=200 WHERE id=product;
     UPDATE delivery_points SET is_active=true;
     SELECT id INTO STRICT point FROM delivery_points WHERE name='Rotterdam';
-    INSERT INTO ports(id,name,country,region,is_active) VALUES('pub-port',' Rotterdam ','Netherlands','Europe',true)
+    INSERT INTO ports(id,name,country,location,is_active) VALUES('pub-port',' Rotterdam ','Netherlands',ST_SetSRID(ST_MakePoint(4.5,51.9),4326)::geography,true)
       ON CONFLICT(id) DO UPDATE SET name=EXCLUDED.name,is_active=true;
     INSERT INTO inventory_items(id,supplier_id,owner_user_id,port_id,fuel_type,product_name,current_stock_mt,incoming_stock_mt,reserved_stock_mt,price_per_mt_usd,is_certified,certification_declared,certification_scheme,specification_standard,msds_available,carbon_intensity_gco2_mj,carbon_intensity_method,feedstock,origin,off_spec,updated_at)
       SELECT '00000000-0000-0000-0000-000000004000','00000000-0000-0000-0000-000000002000','00000000-0000-0000-0000-000000002001','pub-port','Biofuel',name,stock,0,0,100,false,true,'ISCC EU','ISO 8217:2024 RF 380',true,0,'LIFECYCLE','residue','NL',false,now() FROM products WHERE id=product;
@@ -32,6 +32,14 @@ BEGIN
       INSERT INTO orderbook_orders(id,organization_id,owner_user_id,created_by_actor_user_id,creation_method,provenance,side,product_id,delivery_point_id,inventory_item_id,quantity_mt,remaining_quantity_mt,price_per_mt_usd,availability_window,status,expires_at,version,off_spec,certification_declared,certification_scheme,specification_standard,msds_available,carbon_intensity_gco2_mj,carbon_intensity_method,feedstock,origin)
       SELECT ('00000000-0000-0000-0000-'||lpad(to_hex(24576+i),12,'0'))::uuid,source.supplier_id,source.owner_user_id,source.owner_user_id,'SELF_SERVICE','REAL','ASK',p.id,point,item,200,200,100,'SPOT','OPEN',now()-interval '1 second',1,false,true,'ISCC EU','ISO 8217:2024 RF 380',true,0,'LIFECYCLE','residue','NL' FROM products p WHERE p.name=source.product_name;
     END LOOP;
+END $$;
+
+CREATE OR REPLACE FUNCTION publish_fixture_change(change text) RETURNS void LANGUAGE plpgsql AS $$ BEGIN
+    CASE change
+    WHEN 'filled' THEN UPDATE orderbook_orders SET status='FILLED',remaining_quantity_mt=0; UPDATE inventory_items SET reserved_stock_mt=0;
+    WHEN 'incompatible' THEN UPDATE orderbook_orders SET certification_scheme='REDcert-EU',certifications='["REDcert-EU"]';
+    WHEN 'expired' THEN UPDATE orderbook_orders SET expires_at=now()-interval '1 second';
+    END CASE;
 END $$;
 
 CREATE OR REPLACE FUNCTION publish_fixture_refuse_effect() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
