@@ -33,7 +33,8 @@ CREATE OR REPLACE FUNCTION amend_fixture_owner(ord uuid, owner uuid) RETURNS voi
 $$;
 
 CREATE OR REPLACE FUNCTION amend_fixture_ownerless(ord uuid) RETURNS void LANGUAGE sql AS $$
-    UPDATE orderbook_orders SET owner_user_id=NULL, created_by_actor_user_id=NULL WHERE id=ord
+    UPDATE orderbook_orders SET owner_user_id=NULL, created_by_actor_user_id=NULL,
+        creation_method='SELF_SERVICE' WHERE id=ord
 $$;
 
 CREATE OR REPLACE FUNCTION amend_fixture_other_member(org uuid, member uuid, member_role text) RETURNS void LANGUAGE plpgsql AS $$
