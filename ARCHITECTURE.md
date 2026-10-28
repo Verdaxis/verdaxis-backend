@@ -666,6 +666,20 @@ Python/Rust databases, controlled IDs/clocks, full-state comparison, and observe
 same-user lock waits. Evidence and remaining boundaries are in
 `docs/rust-phase2-task9.md`.
 
+The `dashboard` namespace is Rust-only (the customizable home layout). Python has
+no such namespace and answers 404 on `PUT /api/users/me/preferences/dashboard`, so
+the frontend uses its default layout whenever that route answers 404 (for example
+after a Caddy rollback to Python) and keeps edits in memory. Its validator is
+`crud/preferences/dashboard.rs`; it refuses unknown keys and accepts
+`{"version": 1, "widgets": [...]}` with at most 24 widgets, each
+`{id, type, x, y, w, h}`: `id` 1-64 characters of `[A-Za-z0-9_-]` and unique,
+`type` one of the nine widget ids in `WIDGET_TYPES`, `x` 0-11, `y` 0-199, `w` and
+`h` 1-12, and `x + w <= 12`. Errors use the same pydantic-style 422 entries as the
+other namespaces. The `namespace` column has no CHECK constraint, so no migration
+is involved. Rust-only tests: `rs/read/tests/crud_preferences.rs` (validator) and
+`crud_preferences_postgres.rs` (routes on a migrated schema, run by
+`rs/read/tests/run_preferences.py`).
+
 ### Frozen Phase 1 measurement reference
 
 Decisions 86/87 freeze the Python small-workload performance reference in
