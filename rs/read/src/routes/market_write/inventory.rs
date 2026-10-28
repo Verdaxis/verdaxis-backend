@@ -31,14 +31,25 @@ struct RouteState {
 }
 
 pub fn router(app: AppState, verification: VerificationSettings) -> Router {
-    router_with_publication(app, verification, super::order_create::CreateSettings::default())
+    router_with_publication(
+        app,
+        verification,
+        super::order_create::CreateSettings::default(),
+    )
 }
 
 /// Compose publication with the order-entry configuration, without activating
 /// this component in the serving router.
-pub fn router_with_publication(app: AppState, verification: VerificationSettings, publication: super::order_create::CreateSettings) -> Router {
+pub fn router_with_publication(
+    app: AppState,
+    verification: VerificationSettings,
+    publication: super::order_create::CreateSettings,
+) -> Router {
     Router::new()
-        .route("/api/inventory/{item_id}/publish", axum::routing::post(publish))
+        .route(
+            "/api/inventory/{item_id}/publish",
+            axum::routing::post(publish),
+        )
         .route("/api/inventory", get(list).post(create))
         .route(
             "/api/inventory/{item_id}",
@@ -139,28 +150,76 @@ async fn publish(
     headers: HeaderMap,
     Path(item_id): Path<String>,
 ) -> Response {
-    use crate::order_write::{MarketErrorCode, MarketWriteError, effects::AuditContext};
+    use crate::market_publish::{AuditContext, MarketErrorCode, MarketWriteError};
     let now = chrono::Utc::now();
     let result = async {
-        let access=verify_authorization(headers.get("authorization").and_then(|v|v.to_str().ok()),&state.verification,now).map_err(|_|MarketWriteError::new(MarketErrorCode::AuthCredentialsInvalid))?;
-        let item=item_id.parse().map_err(|_|MarketWriteError::new(MarketErrorCode::ValidationFailed))?;
-        let ip=crate::runtime::http::client_ip(peer.map(|p|p.0.0.ip()),headers.get("x-forwarded-for").and_then(|v|v.to_str().ok()));
-        let audit=AuditContext::new(Some(ip),Some(crate::runtime::logging::request_id(headers.get("x-request-id").and_then(|v|v.to_str().ok()))))?;
-        crate::order_write::inventory::publish(state.app.clone(),access,crate::order_write::inventory::PublishRequest{item,raw_key:headers.get("idempotency-key").map(|v|v.to_str().map(str::to_owned).map_err(|_|MarketWriteError::new(MarketErrorCode::ValidationFailed))).transpose()?,audit,settings:state.publication.clone(),now}).await
-    }.await;
+        let access = verify_authorization(
+            headers.get("authorization").and_then(|v| v.to_str().ok()),
+            &state.verification,
+            now,
+        )
+        .map_err(|_| MarketWriteError::new(MarketErrorCode::AuthCredentialsInvalid))?;
+        let item = item_id
+            .parse()
+            .map_err(|_| MarketWriteError::new(MarketErrorCode::ValidationFailed))?;
+        let ip = crate::runtime::http::client_ip(
+            peer.map(|p| p.0.0.ip()),
+            headers.get("x-forwarded-for").and_then(|v| v.to_str().ok()),
+        );
+        let audit = AuditContext::new(
+            Some(ip),
+            Some(crate::runtime::logging::request_id(
+                headers.get("x-request-id").and_then(|v| v.to_str().ok()),
+            )),
+        )?;
+        crate::market_publish::publish(
+            state.app.clone(),
+            access,
+            crate::market_publish::PublishRequest {
+                item,
+                raw_key: headers
+                    .get("idempotency-key")
+                    .map(|v| {
+                        v.to_str()
+                            .map(str::to_owned)
+                            .map_err(|_| MarketWriteError::new(MarketErrorCode::ValidationFailed))
+                    })
+                    .transpose()?,
+                audit,
+                settings: state.publication.clone(),
+                now,
+            },
+        )
+        .await
+    }
+    .await;
     match result {
-        Ok(reply)=>{
-            if !reply.replayed && let Some(sender)=&state.publication.analytics {
-                use crate::analytics::{events::{AllowedServerEvent,ServerEvent},sender::RequestMetadata};
-                for event in std::iter::once(AllowedServerEvent::OrderCreated).chain(std::iter::repeat_n(AllowedServerEvent::TradeCreated,reply.matched_trades)) {
-                    if let Ok(event)=ServerEvent::new(event,vec![]) {
-                        sender.schedule(event,RequestMetadata::new(headers.get("user-agent").and_then(|v|v.to_str().ok()),headers.get("host").and_then(|v|v.to_str().ok())),headers.get("x-monitor-token").and_then(|v|v.to_str().ok()));
+        Ok(reply) => {
+            if !reply.replayed
+                && let Some(sender) = &state.publication.analytics
+            {
+                use crate::analytics::{
+                    events::{AllowedServerEvent, ServerEvent},
+                    sender::RequestMetadata,
+                };
+                for event in std::iter::once(AllowedServerEvent::OrderCreated).chain(
+                    std::iter::repeat_n(AllowedServerEvent::TradeCreated, reply.matched_trades),
+                ) {
+                    if let Ok(event) = ServerEvent::new(event, vec![]) {
+                        sender.schedule(
+                            event,
+                            RequestMetadata::new(
+                                headers.get("user-agent").and_then(|v| v.to_str().ok()),
+                                headers.get("host").and_then(|v| v.to_str().ok()),
+                            ),
+                            headers.get("x-monitor-token").and_then(|v| v.to_str().ok()),
+                        );
                     }
                 }
             }
             axum::Json(reply.response_body).into_response()
-        },
-        Err(error)=>error.into_response(),
+        }
+        Err(error) => error.into_response(),
     }
 }
 

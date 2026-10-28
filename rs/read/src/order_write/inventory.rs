@@ -6,12 +6,15 @@
 //! Every request checks its input only after the actor is authenticated and,
 //! for a write, admitted, so refusals keep the Python order: account,
 //! admission, input, then the supplier role.
-use std::{collections::BTreeSet, sync::Arc};
-use axum::{http::StatusCode, response::{IntoResponse, Response}};
+use axum::{
+    http::StatusCode,
+    response::{IntoResponse, Response},
+};
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde_json::{Map, Value, json};
 use sqlx::{PgConnection, Row};
+use std::collections::BTreeSet;
 use uuid::Uuid;
 
 use super::{
@@ -1130,268 +1133,891 @@ pub(crate) async fn publish(
     access: VerifiedAccess,
     request: PublishRequest,
 ) -> Result<super::CommittedCommand, MarketWriteError> {
-    run_market_command(app.pools.read.clone(), app.reads.clone(), access,
-        PublishCommand { app, request, id: Uuid::new_v4() }, super::AdmissionClass::Cleanup).await
+    let verified = std::sync::Arc::new(VerifiedAccess {
+        subject: access.subject,
+        issued_at: access.issued_at,
+        issuance_out_of_range: access.issuance_out_of_range,
+    });
+    run_market_command(
+        app.pools.read.clone(),
+        app.reads.clone(),
+        access,
+        PublishCommand {
+            app,
+            request,
+            id: Uuid::new_v4(),
+            access: verified,
+        },
+        super::AdmissionClass::Cleanup,
+    )
+    .await
 }
 
 struct PublishCommand {
     app: AppState,
     request: PublishRequest,
     id: Uuid,
+    access: std::sync::Arc<VerifiedAccess>,
 }
 fn publish_bad(message: &'static str) -> MarketWriteError {
-    super::orders::refusal(MarketErrorCode::ValidationFailed, StatusCode::BAD_REQUEST, message)
+    super::orders::refusal(
+        MarketErrorCode::ValidationFailed,
+        StatusCode::BAD_REQUEST,
+        message,
+    )
 }
-fn slice_changed() -> MarketWriteError { MarketWriteError::new(MarketErrorCode::MarketSliceChanged) }
+fn slice_changed() -> MarketWriteError {
+    MarketWriteError::new(MarketErrorCode::MarketSliceChanged)
+}
 fn publication_result(id: Uuid, replayed: bool, matches: usize) -> super::CommittedCommand {
-    super::CommittedCommand { response_status:200,response_body:json!({"status":"published","listing_id":id}),replayed,matched_trades:matches }
+    super::CommittedCommand {
+        response_status: 200,
+        response_body: json!({"status":"published","listing_id":id}),
+        replayed,
+        matched_trades: matches,
+    }
 }
 impl PublishCommand {
     fn key(&self) -> Result<Option<String>, MarketWriteError> {
-        self.request.raw_key.as_ref().filter(|k|!k.is_empty()).map(|k|
-            super::normalize_idempotency_key(k).map_err(|_|publish_bad("Idempotency-Key must have 1-255 characters"))).transpose()
+        self.request
+            .raw_key
+            .as_ref()
+            .filter(|k| !k.is_empty())
+            .map(|k| {
+                super::normalize_idempotency_key(k)
+                    .map_err(|_| publish_bad("Idempotency-Key must have 1-255 characters"))
+            })
+            .transpose()
     }
     fn hash(&self) -> Result<String, MarketWriteError> {
-        Ok(super::idempotency_request_hash(&super::Canonical::from_json(&json!({"inventory_item_id":self.request.item})).map_err(|_|invalid())?))
+        super::idempotency_request_hash(
+            &super::Canonical::from_json(&json!({"inventory_item_id":self.request.item}))
+                .map_err(|_| invalid())?,
+        )
+        .map_err(|_| invalid())
     }
     fn bound(&self) -> super::matching::MatchBound<'_> {
-        super::matching::MatchBound::new(self.request.now).with_policy(&self.app.policy).with_kyc_gate(self.request.settings.kyc_execution_gate_enabled)
+        super::matching::MatchBound::new(self.request.now)
+            .with_policy(&self.app.policy)
+            .with_kyc_gate(self.request.settings.kyc_execution_gate_enabled)
     }
-    async fn actor_org(&self, conn: &mut PgConnection, actor: Uuid) -> Result<Uuid, MarketWriteError> {
-        sqlx::query_scalar::<_,Option<Uuid>>("SELECT organization_id FROM users WHERE id=$1").bind(actor).fetch_optional(conn).await?.flatten().ok_or_else(||publish_bad("User has no organization"))
+    async fn actor_org(
+        &self,
+        conn: &mut PgConnection,
+        actor: Uuid,
+    ) -> Result<Uuid, MarketWriteError> {
+        sqlx::query_scalar::<_, Option<Uuid>>("SELECT organization_id FROM users WHERE id=$1")
+            .bind(actor)
+            .fetch_optional(conn)
+            .await?
+            .flatten()
+            .ok_or_else(|| publish_bad("User has no organization"))
     }
-    async fn candidate(&self, conn: &mut PgConnection, actor: Uuid, org: Uuid) -> Result<Option<super::matching::OrderRow>,MarketWriteError> {
-        let Some(item)=load_publish_item(conn,self.request.item,org).await? else { return Ok(None) };
-        let Some((product,point))=resolve_publish_slice(conn,&self.app.policy,&item).await? else { return Ok(None) };
-        let provenance:String=sqlx::query_scalar("SELECT provenance::text FROM organizations WHERE id=$1").bind(org).fetch_one(&mut *conn).await?;
-        let quantity=decimal_from_json(&item["current_stock_mt"])?;
-        let price=if item["price_per_mt_usd"].is_null(){Decimal::ONE}else{decimal_from_json(&item["price_per_mt_usd"])?};
-        let text=|key:&str|item[key].as_str().map(str::to_owned);
-        let mut row=super::matching::OrderRow {
-            id:self.id, organization_id:org,owner_user_id:Some(actor),created_by_actor_user_id:Some(actor),creation_method:super::matching::CreationMethod::SelfService,
-            product_id:product,delivery_point_id:Some(point),availability_window:"SPOT".into(),side:super::matching::Side::Ask,provenance:provenance.clone(),organization_approved:true,
-            price_per_mt_usd:price,quantity_mt:quantity.max(Decimal::ONE),remaining_quantity_mt:quantity.max(Decimal::ONE),acceptance_ordinal:1,version:1,status:super::matching::OrderStatus::Open,
-            expires_at:(provenance=="DEMO").then(||self.request.now+chrono::Duration::hours(24)),created_at:self.request.now,inventory_item_id:Some(self.request.item),
-            terms:super::matching::ExecutionTerms {
-                off_spec:item["off_spec"]==true,msds_available:item["msds_available"]==true,certification_declared:item["certification_declared"]==true,certification_scheme:text("certification_scheme"),
-                certifications:if item["is_certified"]==true{vec!["INVENTORY_CERTIFIED".into()]}else{vec![]},
-                fame_terms:(!item["fame_terms"].is_null()).then(||item["fame_terms"].clone()),lng_terms:(!item["lng_terms"].is_null()).then(||item["lng_terms"].clone()),
-                specification_standard:text("specification_standard"),carbon_intensity_method:text("carbon_intensity_method"),carbon_intensity_gco2_mj:if item["carbon_intensity_gco2_mj"].is_null(){None}else{Some(decimal_from_json(&item["carbon_intensity_gco2_mj"])? )},feedstock:text("feedstock"),origin:text("origin"),
-            },owner_admission:super::matching::OwnerAdmission::Admitted,
+    async fn candidate(
+        &self,
+        conn: &mut PgConnection,
+        actor: Uuid,
+        org: Uuid,
+    ) -> Result<Option<super::matching::OrderRow>, MarketWriteError> {
+        let Some(item) = load_publish_item(conn, self.request.item, org).await? else {
+            return Ok(None);
         };
-        if let Some(terms)=&row.terms.fame_terms {
-            let mut metadata=item.as_object().cloned().ok_or_else(invalid)?;
-            derive_metadata(&mut metadata,terms,"fame_v1")?;
-            row.terms.certification_scheme=metadata["certification_scheme"].as_str().map(str::to_owned);
-            row.terms.specification_standard=metadata["specification_standard"].as_str().map(str::to_owned);
-            row.terms.carbon_intensity_method=metadata["carbon_intensity_method"].as_str().map(str::to_owned);
-            row.terms.carbon_intensity_gco2_mj=if metadata["carbon_intensity_gco2_mj"].is_null(){None}else{Some(decimal_from_json(&metadata["carbon_intensity_gco2_mj"])?)};
-            row.terms.feedstock=metadata["feedstock"].as_str().map(str::to_owned);
-            row.terms.origin=metadata["origin"].as_str().map(str::to_owned);
+        let Some((product, point)) = resolve_publish_slice(conn, &self.app.policy, &item).await?
+        else {
+            return Ok(None);
+        };
+        let provenance: String =
+            sqlx::query_scalar("SELECT provenance::text FROM organizations WHERE id=$1")
+                .bind(org)
+                .fetch_one(&mut *conn)
+                .await?;
+        let quantity = decimal_from_json(&item["current_stock_mt"])?;
+        let price = if item["price_per_mt_usd"].is_null() {
+            Decimal::ONE
+        } else {
+            decimal_from_json(&item["price_per_mt_usd"])?
+        };
+        let text = |key: &str| item[key].as_str().map(str::to_owned);
+        let mut row = super::matching::OrderRow {
+            id: self.id,
+            organization_id: org,
+            owner_user_id: Some(actor),
+            created_by_actor_user_id: Some(actor),
+            creation_method: super::matching::CreationMethod::SelfService,
+            product_id: product,
+            delivery_point_id: Some(point),
+            availability_window: "SPOT".into(),
+            side: super::matching::Side::Ask,
+            provenance: provenance.clone(),
+            organization_approved: true,
+            price_per_mt_usd: price,
+            quantity_mt: quantity.max(Decimal::ONE),
+            remaining_quantity_mt: quantity.max(Decimal::ONE),
+            acceptance_ordinal: 1,
+            version: 1,
+            status: super::matching::OrderStatus::Open,
+            expires_at: (provenance == "DEMO")
+                .then(|| self.request.now + chrono::Duration::hours(24)),
+            created_at: self.request.now,
+            inventory_item_id: Some(self.request.item),
+            terms: super::matching::ExecutionTerms {
+                off_spec: item["off_spec"] == true,
+                msds_available: item["msds_available"] == true,
+                certification_declared: item["certification_declared"] == true,
+                certification_scheme: text("certification_scheme"),
+                certifications: if item["is_certified"] == true {
+                    vec!["INVENTORY_CERTIFIED".into()]
+                } else {
+                    vec![]
+                },
+                fame_terms: (!item["fame_terms"].is_null()).then(|| item["fame_terms"].clone()),
+                lng_terms: (!item["lng_terms"].is_null()).then(|| item["lng_terms"].clone()),
+                specification_standard: text("specification_standard"),
+                carbon_intensity_method: text("carbon_intensity_method"),
+                carbon_intensity_gco2_mj: if item["carbon_intensity_gco2_mj"].is_null() {
+                    None
+                } else {
+                    Some(decimal_from_json(&item["carbon_intensity_gco2_mj"])?)
+                },
+                feedstock: text("feedstock"),
+                origin: text("origin"),
+            },
+            owner_admission: super::matching::OwnerAdmission::Admitted,
+        };
+        if let Some(terms) = &row.terms.fame_terms {
+            let mut metadata = item.as_object().cloned().ok_or_else(invalid)?;
+            derive_metadata(&mut metadata, terms, "fame_v1")?;
+            row.terms.certification_scheme =
+                metadata["certification_scheme"].as_str().map(str::to_owned);
+            row.terms.specification_standard = metadata["specification_standard"]
+                .as_str()
+                .map(str::to_owned);
+            row.terms.carbon_intensity_method = metadata["carbon_intensity_method"]
+                .as_str()
+                .map(str::to_owned);
+            row.terms.carbon_intensity_gco2_mj = if metadata["carbon_intensity_gco2_mj"].is_null() {
+                None
+            } else {
+                Some(decimal_from_json(&metadata["carbon_intensity_gco2_mj"])?)
+            };
+            row.terms.feedstock = metadata["feedstock"].as_str().map(str::to_owned);
+            row.terms.origin = metadata["origin"].as_str().map(str::to_owned);
             row.terms.certifications.clear();
         }
         Ok(Some(row))
     }
 }
-async fn load_publish_item(conn:&mut PgConnection,id:Uuid,org:Uuid)->Result<Option<Value>,MarketWriteError>{
-    Ok(sqlx::query_scalar("SELECT to_jsonb(i) FROM inventory_items i WHERE id=$1 AND supplier_id=$2").bind(id).bind(org).fetch_optional(conn).await?)
+async fn load_publish_item(
+    conn: &mut PgConnection,
+    id: Uuid,
+    org: Uuid,
+) -> Result<Option<Value>, MarketWriteError> {
+    Ok(sqlx::query_scalar(
+        "SELECT to_jsonb(i) FROM inventory_items i WHERE id=$1 AND supplier_id=$2",
+    )
+    .bind(id)
+    .bind(org)
+    .fetch_optional(conn)
+    .await?)
 }
-async fn resolve_publish_slice(conn:&mut PgConnection,policy:&MarketPolicy,item:&Value)->Result<Option<(Uuid,Uuid)>,MarketWriteError>{
-    let Some(name)=item["product_name"].as_str().map(str::trim) else{return Ok(None)};
-    let Some(product)=policy.products.iter().find(|p|p.name==name) else{return Ok(None)};
+async fn resolve_publish_slice(
+    conn: &mut PgConnection,
+    policy: &MarketPolicy,
+    item: &Value,
+) -> Result<Option<(Uuid, Uuid)>, MarketWriteError> {
+    let Some(name) = item["product_name"].as_str().map(str::trim) else {
+        return Ok(None);
+    };
+    let Some(product) = policy.products.iter().find(|p| p.name == name) else {
+        return Ok(None);
+    };
     let active:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM products WHERE id=$1 AND name=$2 AND fuel_type::text=$3 AND fuel_grade=$4 AND is_active)").bind(product.id).bind(&product.name).bind(&product.fuel_type).bind(&product.fuel_grade).fetch_one(&mut *conn).await?;
-    if !active{return Ok(None)};
-    let port:Option<String>=sqlx::query_scalar("SELECT name FROM ports WHERE id=$1").bind(item["port_id"].as_str()).fetch_optional(&mut *conn).await?;
-    let Some(point)=port.as_deref().and_then(|name|policy.points.iter().find(|p|p.name==name.trim())) else{return Ok(None)};
+    if !active {
+        return Ok(None);
+    };
+    let port: Option<String> = sqlx::query_scalar("SELECT name FROM ports WHERE id=$1")
+        .bind(item["port_id"].as_str())
+        .fetch_optional(&mut *conn)
+        .await?;
+    let Some(point) = port
+        .as_deref()
+        .and_then(|name| policy.points.iter().find(|p| p.name == name.trim()))
+    else {
+        return Ok(None);
+    };
     let active:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM delivery_points WHERE id=$1 AND name=$2 AND region=$3 AND is_active)").bind(point.id).bind(&point.name).bind(&point.region).fetch_one(conn).await?;
-    Ok(active.then_some((product.id,point.id)))
+    Ok(active.then_some((product.id, point.id)))
 }
-async fn live_publication(conn:&mut PgConnection,item:Uuid,now:DateTime<Utc>)->Result<Option<Uuid>,MarketWriteError>{
+async fn live_publication(
+    conn: &mut PgConnection,
+    item: Uuid,
+    now: DateTime<Utc>,
+) -> Result<Option<Uuid>, MarketWriteError> {
     Ok(sqlx::query_scalar("SELECT id FROM orderbook_orders WHERE inventory_item_id=$1 AND status::text IN ('OPEN','PARTIALLY_FILLED') AND (expires_at IS NULL OR expires_at>$2) ORDER BY id LIMIT 1").bind(item).bind(now).fetch_optional(conn).await?)
 }
-async fn expiry_rows(conn:&mut PgConnection,candidate:&super::matching::OrderRow,now:DateTime<Utc>)->Result<Vec<super::matching::OrderRow>,MarketWriteError>{
+async fn expiry_rows(
+    conn: &mut PgConnection,
+    candidate: &super::matching::OrderRow,
+    now: DateTime<Utc>,
+) -> Result<Vec<super::matching::OrderRow>, MarketWriteError> {
     let ids:Vec<Uuid>=sqlx::query_scalar("SELECT id FROM orderbook_orders WHERE product_id=$1 AND delivery_point_id=$2 AND availability_window='SPOT' AND side::text='ASK' AND status::text IN ('OPEN','PARTIALLY_FILLED') AND expires_at<=$3 ORDER BY id LIMIT 100").bind(candidate.product_id).bind(candidate.delivery_point_id).bind(now).fetch_all(&mut *conn).await?;
-    let mut rows=Vec::new();for id in ids{rows.push(super::matching::load_order(conn,id).await?);}Ok(rows)
+    let mut rows = Vec::new();
+    for id in ids {
+        rows.push(super::matching::load_order(conn, id).await?);
+    }
+    Ok(rows)
 }
-async fn publication_candidates(conn:&mut PgConnection,candidate:&super::matching::OrderRow,bound:super::matching::MatchBound<'_>,enabled:bool)->Result<Vec<super::matching::OrderRow>,MarketWriteError>{
-    if !enabled||candidate.provenance!="REAL"||!super::matching::order_is_execution_qualified(candidate,bound){return Ok(vec![])};
-    super::matching::crossing_rows(conn,&super::matching::CrossingQuery::post_only(candidate),&bound).await
+async fn publication_candidates(
+    conn: &mut PgConnection,
+    candidate: &super::matching::OrderRow,
+    bound: super::matching::MatchBound<'_>,
+    enabled: bool,
+) -> Result<Vec<super::matching::OrderRow>, MarketWriteError> {
+    if !enabled
+        || candidate.provenance != "REAL"
+        || !super::matching::order_is_execution_qualified(candidate, bound)
+    {
+        return Ok(vec![]);
+    };
+    super::matching::crossing_rows(
+        conn,
+        &super::matching::CrossingQuery::post_only(candidate),
+        &bound,
+    )
+    .await
 }
 
 impl MarketCommand for PublishCommand {
-    type Output=super::CommittedCommand;
-    fn uses_order_create_replay(&self)->bool{self.request.raw_key.as_ref().is_some_and(|k|!k.is_empty())}
-    fn prepare_response(&self,value:&Self::Output)->Result<(),MarketAttemptError>{serde_json::to_vec(&value.response_body).map_err(|_|invalid())?;Ok(())}
-    fn preview<'a>(&'a self,conn:&'a mut PgConnection,actor:Uuid)->BoxFuture<'a,Result<MarketPreview,MarketAttemptError>>{
-        Box::pin(async move{
-            let org=self.actor_org(conn,actor).await?;
-            let mut organizations=vec![org];let mut users=vec![];
-            let candidate=self.candidate(conn,actor,org).await?;
-            let mut fingerprint=json!({"organization":org});
-            if let Some(candidate)=&candidate{
-                let expired=expiry_rows(conn,candidate,self.request.now).await?;
-                let candidates=publication_candidates(conn,candidate,self.bound(),self.request.settings.auto_matching_enabled).await?;
-                let found=super::matching::discover_parties(conn,expired.iter().chain(candidates.iter()).chain([candidate]),[]).await?;
-                organizations.extend(found.organizations);users.extend(found.users);
-                fingerprint["slice"]=json!([candidate.product_id,candidate.delivery_point_id]);
-                fingerprint["parties"]=found.fingerprint;
-            }
-            let parties=PartyLockPreview::new(organizations,users,actor,fingerprint);
-            let mut locks=OperationLockPlan::new(MarketOperation::Publish);locks.parties(&parties)?;
-            if let Some(key)=self.key()?{locks.idempotency(org,"inventory.publish",&key)?;}
-            if let Some(candidate)=candidate{locks.slices([candidate.slice()])?;}
-            Ok(MarketPreview{parties,locks})
-        })
+    type Output = super::CommittedCommand;
+    fn preview_drift_error(&self) -> MarketAttemptError {
+        slice_changed().into()
     }
-    fn replay<'a>(&'a self,tx:&'a mut LockedMarketTransaction<'_>,actor:&'a AuthenticatedActor)->BoxFuture<'a,Result<Option<Self::Output>,MarketAttemptError>>{
-        Box::pin(async move{
-            let Some(key)=self.key()? else{return Ok(None)};
-            let mut port=tx.inventory()?;let org=self.actor_org(port.conn,actor.user_id()).await?;
-            Ok(super::transaction::load_inventory_replay(port.conn,actor.user_id(),org,&key,&self.hash()?).await?.map(|id|publication_result(id,true,0)))
-        })
+    fn uses_order_create_replay(&self) -> bool {
+        self.request.raw_key.as_ref().is_some_and(|k| !k.is_empty())
     }
-    fn execute<'a>(&'a self,tx:&'a mut LockedMarketTransaction<'_>,actor:&'a AuthenticatedActor)->BoxFuture<'a,Result<Self::Output,MarketAttemptError>>{
-        Box::pin(async move{
-            let (org,mut candidate,expired)={
-                let mut port=tx.inventory()?;
-                let org=self.actor_org(port.conn,actor.user_id()).await?;
-                port.admit_publication(self,actor,org).await?;
-                if load_publish_item(port.conn,self.request.item,org).await?.is_none(){return Err(not_found().into())}
-                if let Some(id)=live_publication(port.conn,self.request.item,self.request.now).await?{return Ok(publication_result(id,true,0))}
-                let item=load_publish_item(port.conn,self.request.item,org).await?.ok_or_else(not_found)?;
-                port.validate_publication_catalog(self,&item).await?;
-                let candidate=self.candidate(port.conn,actor.user_id(),org).await?.ok_or_else(||publish_bad("Inventory port or product is not canonical"))?;
-                let expired=expiry_rows(port.conn,&candidate,self.request.now).await?;
-                (org,candidate,expired)
+    fn prepare_response(&self, value: &Self::Output) -> Result<(), MarketAttemptError> {
+        serde_json::to_vec(&value.response_body).map_err(|_| invalid())?;
+        Ok(())
+    }
+    fn preview<'a>(
+        &'a self,
+        conn: &'a mut PgConnection,
+        actor: Uuid,
+    ) -> BoxFuture<'a, Result<MarketPreview, MarketAttemptError>> {
+        Box::pin(async move {
+            super::authority::admission::authenticate_preview(
+                conn,
+                self.access.clone(),
+                super::AdmissionClass::Cleanup,
+            )
+            .await?;
+            let org = self.actor_org(conn, actor).await?;
+            let mut organizations = vec![org];
+            let mut users = vec![];
+            // Recorded replay and a live listing do not need fresh catalog,
+            // expiry or crossing discovery.
+            let replay_exists = if let Some(key) = self.key()? {
+                sqlx::query_scalar::<_,bool>("SELECT EXISTS(SELECT 1 FROM orderbook_orders WHERE organization_id=$1 AND idempotency_operation='inventory.publish' AND idempotency_key=$2)").bind(org).bind(key).fetch_one(&mut *conn).await?
+            } else {
+                false
             };
-            let candidates=tx.publication_resources(&candidate,self.bound(),self.request.settings.auto_matching_enabled).await?;
-            let expired_ids:Vec<_>=expired.iter().map(|r|r.id).collect();
-            let ids:Vec<_>=expired_ids.iter().copied().chain(candidates.iter().take(100).map(|r|r.id)).collect();
-            let new=super::effects::NewOrderEffect{order_id:self.id,organization_id:org,slice:super::effects::EffectSlice{product_id:candidate.product_id,delivery_point_id:candidate.delivery_point_id.ok_or_else(slice_changed)?,availability_window:"SPOT".into()}};
-            let before=tx.effects()?.capture_mutation(&self.app.policy,&self.app.config,&ids,&[],&[new],self.request.now).await?;
-            // All expiry and match resources were declared before the first stock movement.
-            let facts=tx.stock_ledger()?.expire_slice(&super::ExpirySlice{product_id:candidate.product_id,delivery_point_id:candidate.delivery_point_id,availability_window:"SPOT",side:"ASK"},self.request.now).await?;
+            let candidate = if replay_exists
+                || live_publication(conn, self.request.item, self.request.now)
+                    .await?
+                    .is_some()
             {
-                let mut port=tx.inventory()?;
-                port.revalidate_sweep(self,actor,org,&expired).await?;
-                let item=load_publish_item(port.conn,self.request.item,org).await?.ok_or_else(not_found)?;
-                if resolve_publish_slice(port.conn,&self.app.policy,&item).await?!=Some((candidate.product_id,candidate.delivery_point_id.ok_or_else(slice_changed)?)){return Err(slice_changed().into())}
+                None
+            } else {
+                self.candidate(conn, actor, org).await?
+            };
+            let mut fingerprint = json!({"organization":org});
+            if let Some(candidate) = &candidate {
+                let expired = expiry_rows(conn, candidate, self.request.now).await?;
+                let candidates = publication_candidates(
+                    conn,
+                    candidate,
+                    self.bound(),
+                    self.request.settings.auto_matching_enabled,
+                )
+                .await?;
+                let found = super::matching::discover_parties(
+                    conn,
+                    expired.iter().chain(candidates.iter()).chain([candidate]),
+                    [],
+                )
+                .await?;
+                organizations.extend(found.organizations);
+                users.extend(found.users);
+                fingerprint["slice"] = json!([candidate.product_id, candidate.delivery_point_id]);
+                fingerprint["parties"] = found.fingerprint;
+            }
+            let parties = PartyLockPreview::new(organizations, users, actor, fingerprint);
+            let mut locks = OperationLockPlan::new(MarketOperation::Publish);
+            locks.parties(&parties)?;
+            if let Some(key) = self.key()? {
+                locks.idempotency(org, "inventory.publish", &key)?;
+            }
+            if let Some(candidate) = candidate {
+                locks.slices([candidate.slice()])?;
+            }
+            Ok(MarketPreview { parties, locks })
+        })
+    }
+    fn replay<'a>(
+        &'a self,
+        tx: &'a mut LockedMarketTransaction<'_>,
+        actor: &'a AuthenticatedActor,
+    ) -> BoxFuture<'a, Result<Option<Self::Output>, MarketAttemptError>> {
+        Box::pin(async move {
+            let Some(key) = self.key()? else {
+                return Ok(None);
+            };
+            let port = tx.inventory()?;
+            let org = self.actor_org(port.conn, actor.user_id()).await?;
+            Ok(super::transaction::load_inventory_replay(
+                port.conn,
+                actor.user_id(),
+                org,
+                &key,
+                &self.hash()?,
+            )
+            .await?
+            .map(|id| publication_result(id, true, 0)))
+        })
+    }
+    fn execute<'a>(
+        &'a self,
+        tx: &'a mut LockedMarketTransaction<'_>,
+        actor: &'a AuthenticatedActor,
+    ) -> BoxFuture<'a, Result<Self::Output, MarketAttemptError>> {
+        Box::pin(async move {
+            let (org, mut candidate, expired) = {
+                let mut port = tx.inventory()?;
+                let org = self.actor_org(port.conn, actor.user_id()).await?;
+                port.admit_publication(self, actor, org).await?;
+                if load_publish_item(port.conn, self.request.item, org)
+                    .await?
+                    .is_none()
+                {
+                    return Err(not_found().into());
+                }
+                if let Some(id) =
+                    live_publication(port.conn, self.request.item, self.request.now).await?
+                {
+                    return Ok(publication_result(id, true, 0));
+                }
+                let item = load_publish_item(port.conn, self.request.item, org)
+                    .await?
+                    .ok_or_else(not_found)?;
+                port.validate_publication_catalog(self, &item).await?;
+                let candidate = self
+                    .candidate(port.conn, actor.user_id(), org)
+                    .await?
+                    .ok_or_else(|| publish_bad("Inventory port or product is not canonical"))?;
+                let expired = expiry_rows(port.conn, &candidate, self.request.now).await?;
+                (org, candidate, expired)
+            };
+            let candidates = tx
+                .publication_resources(
+                    &candidate,
+                    self.bound(),
+                    self.request.settings.auto_matching_enabled,
+                )
+                .await?;
+            let expired_ids: Vec<_> = expired.iter().map(|r| r.id).collect();
+            let ids: Vec<_> = expired_ids
+                .iter()
+                .copied()
+                .chain(candidates.iter().take(100).map(|r| r.id))
+                .collect();
+            let new = super::effects::NewOrderEffect {
+                order_id: self.id,
+                organization_id: org,
+                slice: super::effects::EffectSlice {
+                    product_id: candidate.product_id,
+                    delivery_point_id: candidate.delivery_point_id.ok_or_else(slice_changed)?,
+                    availability_window: "SPOT".into(),
+                },
+            };
+            let mut before = tx
+                .effects()?
+                .capture_mutation(
+                    &self.app.policy,
+                    &self.app.config,
+                    &ids,
+                    &[],
+                    &[new],
+                    self.request.now,
+                )
+                .await?;
+            let expiries: Vec<_> = expired
+                .iter()
+                .filter_map(|row| row.expires_at.map(|at| (row.id, at)))
+                .collect();
+            tx.effects()?
+                .capture_expiry_visibility(
+                    &mut before,
+                    &self.app.policy,
+                    &self.app.config,
+                    &expiries,
+                )
+                .await?;
+            // All expiry and match resources were declared before the first stock movement.
+            let facts = tx
+                .stock_ledger()?
+                .expire_slice(
+                    &super::ExpirySlice {
+                        product_id: candidate.product_id,
+                        delivery_point_id: candidate.delivery_point_id,
+                        availability_window: "SPOT",
+                        side: "ASK",
+                    },
+                    self.request.now,
+                )
+                .await?;
+            {
+                let mut port = tx.inventory()?;
+                port.revalidate_sweep(self, actor, org, &expired).await?;
+                let item = load_publish_item(port.conn, self.request.item, org)
+                    .await?
+                    .ok_or_else(not_found)?;
+                if resolve_publish_slice(port.conn, &self.app.policy, &item).await?
+                    != Some((
+                        candidate.product_id,
+                        candidate.delivery_point_id.ok_or_else(slice_changed)?,
+                    ))
+                {
+                    return Err(slice_changed().into());
+                }
                 // This early return has staged no durable effect. The complete locks
                 // make a newly appearing listing impossible for Rust peers.
-                if live_publication(port.conn,self.request.item,self.request.now).await?.is_some(){return Err(slice_changed().into())}
+                if live_publication(port.conn, self.request.item, self.request.now)
+                    .await?
+                    .is_some()
+                {
+                    return Err(slice_changed().into());
+                }
                 let backlog:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM orderbook_orders WHERE inventory_item_id=$1 AND status::text IN ('OPEN','PARTIALLY_FILLED') AND expires_at<=$2)").bind(self.request.item).bind(self.request.now).fetch_one(&mut *port.conn).await?;
-                if backlog{return Err(super::orders::refusal(MarketErrorCode::InventoryInconsistent,StatusCode::CONFLICT,"Inventory expiry backlog must be reconciled").into())}
-                candidate=self.candidate(port.conn,actor.user_id(),org).await?.ok_or_else(slice_changed)?;
-                port.validate_publication_quantity(self,&item,&mut candidate).await?;
-                port.insert_publication(self,&candidate,&item).await?;
+                if backlog {
+                    return Err(super::orders::refusal(
+                        MarketErrorCode::InventoryInconsistent,
+                        StatusCode::CONFLICT,
+                        "Inventory expiry backlog must be reconciled",
+                    )
+                    .into());
+                }
+                candidate = self
+                    .candidate(port.conn, actor.user_id(), org)
+                    .await?
+                    .ok_or_else(slice_changed)?;
+                port.validate_publication_quantity(self, &item, &mut candidate)
+                    .await?;
+                port.insert_publication(self, &candidate, &item).await?;
             }
-            tx.stock_ledger()?.reserve(self.request.item,StockQuantity::checked(candidate.quantity_mt)?).await?;
-            let outcome=if self.request.settings.auto_matching_enabled{
-                let mut owners=super::matching::OwnerRevalidation::default();
-                let mut rows=candidates;
-                {let port=tx.inventory()?;candidate.owner_admission=owners.revalidate(port.conn,port.locked,&candidate,&self.bound()).await?;
-                 for row in rows.iter_mut().take(100){row.owner_admission=owners.revalidate(port.conn,port.locked,row,&self.bound()).await?;}}
-                let plan=super::matching::plan_match(&rows,&candidate,self.bound())?;
-                Some(tx.inventory()?.complete_publication_match(self,&plan).await?)
-            }else{None};
-            let mut set=before.stage();
+            // The inventory is already locked; only the new row's evidence is
+            // added here, before any terminal target phase.
+            tx.register_publication(self.id)?;
+            tx.stock_ledger()?
+                .reserve(
+                    self.request.item,
+                    StockQuantity::checked(candidate.quantity_mt)?,
+                )
+                .await?;
+            let outcome = if self.request.settings.auto_matching_enabled {
+                let mut owners = super::matching::OwnerRevalidation::default();
+                let mut rows = candidates;
+                {
+                    let port = tx.inventory()?;
+                    candidate.owner_admission = owners
+                        .revalidate(port.conn, port.locked, &candidate, &self.bound())
+                        .await?;
+                    for row in rows.iter_mut().take(100) {
+                        row.owner_admission = owners
+                            .revalidate(port.conn, port.locked, row, &self.bound())
+                            .await?;
+                    }
+                }
+                let plan = super::matching::plan_match(&rows, &candidate, self.bound())?;
+                Some(
+                    tx.complete_match(&plan, &self.request.settings.fees, true)
+                        .await?,
+                )
+            } else {
+                None
+            };
+            let mut set = before.stage();
             let descriptors=facts.iter().map(|fact|super::effects::MutationEffect{kind:MutationKind::OrderExpired,actor_id:actor.user_id(),organization_id:fact.organization_id,resource_type:"order".into(),resource_id:fact.order_id,changes:json!({"status":"EXPIRED","released_quantity_mt":fact.released_quantity_mt.value().to_string()}),event:Some(ParticipantEvent{event_type:"order_expired".into(),aggregate_type:"order".into(),aggregate_id:fact.order_id.to_string(),participant_org_ids:vec![fact.organization_id],fields:ParticipantFields::OrderExpired{id:fact.order_id},public_invalidated:true}),at:self.request.now,audit_context:AuditContext::default()}).collect();
-            set.expired(facts,descriptors)?;
-            let participants=outcome.as_ref().into_iter().flat_map(|o|o.trades.iter()).flat_map(|t|[t.buyer_id,t.seller_id]).chain([org]).collect::<BTreeSet<_>>().into_iter().collect();
-            let descriptor=tx.inventory()?.publication_effect(self,actor,&candidate,participants,outcome.as_ref().is_some_and(|o|!o.trades.is_empty())).await?;
+            set.expired(facts, descriptors)?;
+            let participants = outcome
+                .as_ref()
+                .into_iter()
+                .flat_map(|o| o.trades.iter())
+                .flat_map(|t| [t.buyer_id, t.seller_id])
+                .chain([org])
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect();
+            let descriptor = tx
+                .inventory()?
+                .publication_effect(
+                    self,
+                    actor,
+                    &candidate,
+                    participants,
+                    outcome.as_ref().is_some_and(|o| !o.trades.is_empty()),
+                )
+                .await?;
             set.push(descriptor)?;
-            if let Some(outcome)=&outcome{tx.effects()?.matched(&mut set,outcome,&candidate,actor.user_id(),self.request.audit.clone()).await?;}
-            tx.effects()?.finish(&self.app.policy,&self.app.config,set).await?;
-            Ok(publication_result(self.id,false,outcome.as_ref().map_or(0,|o|o.trades.len())))
+            if let Some(outcome) = &outcome {
+                tx.effects()?
+                    .matched(
+                        &mut set,
+                        outcome,
+                        &candidate,
+                        actor.user_id(),
+                        self.request.audit.clone(),
+                    )
+                    .await?;
+            }
+            tx.effects()?
+                .finish(&self.app.policy, &self.app.config, set)
+                .await?;
+            #[cfg(feature = "contract-tests")]
+            if let Some(barrier) = &self.request.settings.barrier {
+                barrier.reached.notify_one();
+                barrier.resume.notified().await;
+            }
+            Ok(publication_result(
+                self.id,
+                false,
+                outcome.as_ref().map_or(0, |o| o.trades.len()),
+            ))
         })
     }
 }
 
 /// Acquire the single bounded order set, then every inventory row in UUID
 /// order. The returned look-ahead remains in the planner input but is not locked.
-pub(super) async fn lock_publication_resources(conn:&mut PgConnection,locked:&Locked,candidate:&super::matching::OrderRow,bound:super::matching::MatchBound<'_>,enabled:bool)->Result<(Vec<super::matching::OrderRow>,Vec<Uuid>,Vec<Uuid>),MarketWriteError>{
-    locked.require_economic_phase()?;locked.require_effect_slice(&candidate.slice())?;
-    if locked.has_acquired_economic_resources(){return Err(slice_changed())}
-    let expired=expiry_rows(conn,candidate,bound.now()).await?;
-    let rows=publication_candidates(conn,candidate,bound,enabled).await?;
-    super::matching::require_parties_locked(locked,expired.iter().chain(rows.iter()).chain([candidate]))?;
-    let orders:Vec<_>=expired.iter().map(|r|r.id).chain(rows.iter().take(100).map(|r|r.id)).collect();
-    for id in &orders{
-        sqlx::query("SELECT id FROM orderbook_orders WHERE id=$1 FOR UPDATE").bind(id).fetch_one(&mut *conn).await?;
-        locked.record_matching_resource(LockClass::Order,*id)?;
+pub(super) async fn lock_publication_resources(
+    conn: &mut PgConnection,
+    locked: &Locked,
+    candidate: &super::matching::OrderRow,
+    bound: super::matching::MatchBound<'_>,
+    enabled: bool,
+) -> Result<(Vec<super::matching::OrderRow>, Vec<Uuid>, Vec<Uuid>), MarketWriteError> {
+    locked.require_economic_phase()?;
+    locked.require_effect_slice(&candidate.slice())?;
+    if locked.has_acquired_economic_resources() {
+        return Err(slice_changed());
     }
-    let items:Vec<_>=expired.iter().chain(rows.iter().take(100)).chain([candidate]).filter_map(|r|r.inventory_item_id).collect::<BTreeSet<_>>().into_iter().collect();
-    for id in &items{sqlx::query("SELECT id FROM inventory_items WHERE id=$1 FOR UPDATE").bind(id).fetch_optional(&mut *conn).await?.ok_or_else(||MarketWriteError::new(MarketErrorCode::InventoryInconsistent))?;locked.record_matching_resource(LockClass::Inventory,*id)?;}
-    let current_expired=expiry_rows(conn,candidate,bound.now()).await?;
-    if current_expired.iter().map(|r|r.id).collect::<Vec<_>>()!=expired.iter().map(|r|r.id).collect::<Vec<_>>(){return Err(slice_changed())}
-    let current=publication_candidates(conn,candidate,bound,enabled).await?;
+    let expired = expiry_rows(conn, candidate, bound.now()).await?;
+    let rows = publication_candidates(conn, candidate, bound, enabled).await?;
+    super::matching::require_parties_locked(
+        locked,
+        expired.iter().chain(rows.iter()).chain([candidate]),
+    )?;
+    let orders: Vec<_> = expired
+        .iter()
+        .map(|r| r.id)
+        .chain(rows.iter().take(100).map(|r| r.id))
+        .collect();
+    for id in &orders {
+        sqlx::query("SELECT id FROM orderbook_orders WHERE id=$1 FOR UPDATE")
+            .bind(id)
+            .fetch_one(&mut *conn)
+            .await?;
+        locked.record_matching_resource(LockClass::Order, *id)?;
+    }
+    let items: Vec<_> = expired
+        .iter()
+        .chain(rows.iter().take(100))
+        .chain([candidate])
+        .filter_map(|r| r.inventory_item_id)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    for id in &items {
+        sqlx::query("SELECT id FROM inventory_items WHERE id=$1 FOR UPDATE")
+            .bind(id)
+            .fetch_optional(&mut *conn)
+            .await?
+            .ok_or_else(|| MarketWriteError::new(MarketErrorCode::InventoryInconsistent))?;
+        locked.record_matching_resource(LockClass::Inventory, *id)?;
+    }
+    let current_expired = expiry_rows(conn, candidate, bound.now()).await?;
+    if current_expired.iter().map(|r| r.id).collect::<Vec<_>>()
+        != expired.iter().map(|r| r.id).collect::<Vec<_>>()
+    {
+        return Err(slice_changed());
+    }
+    let current = publication_candidates(conn, candidate, bound, enabled).await?;
     // Re-selection retains the original SQL count. Any change aborts instead
     // of substituting rows beyond the first hundred.
-    if current.iter().map(|r|r.id).collect::<Vec<_>>()!=rows.iter().map(|r|r.id).collect::<Vec<_>>(){return Err(slice_changed())}
-    Ok((current,orders,items))
+    if current.iter().map(|r| r.id).collect::<Vec<_>>()
+        != rows.iter().map(|r| r.id).collect::<Vec<_>>()
+    {
+        return Err(slice_changed());
+    }
+    let mut declared_orders = orders;
+    declared_orders.push(candidate.id);
+    Ok((current, declared_orders, items))
 }
 
-impl InventoryPort<'_>{
-    async fn admit_publication(&mut self,command:&PublishCommand,actor:&AuthenticatedActor,org:Uuid)->Result<(),MarketWriteError>{
+impl InventoryPort<'_> {
+    async fn admit_publication(
+        &mut self,
+        command: &PublishCommand,
+        actor: &AuthenticatedActor,
+        org: Uuid,
+    ) -> Result<(), MarketWriteError> {
         let row=sqlx::query("SELECT u.kyc_status,u.kyc_organization_id,g.expires_at FROM users u LEFT JOIN kyc_execution_grace g ON g.user_id=u.id AND g.organization_id=u.organization_id WHERE u.id=$1").bind(actor.user_id()).fetch_one(&mut *self.conn).await?;
-        let status:String=row.get("kyc_status");
-        let grace=row.get::<Option<DateTime<Utc>>,_>("expires_at").map(|expires_at|crate::kyc::grace::Grace{user_id:actor.user_id(),organization_id:org,expires_at});
-        let eligibility=crate::kyc::policy::eligibility(&crate::kyc::policy::KycPolicy{execution_gate_enabled:command.request.settings.kyc_execution_gate_enabled},&crate::kyc::policy::KycParty{user_id:actor.user_id(),organization_id:Some(org),kyc_organization_id:row.get("kyc_organization_id"),kyc_status:serde_json::from_value(json!(status)).map_err(|_|invalid())?},grace.as_ref(),command.request.now);
-        if !eligibility.eligible{return Err(MarketWriteError::kyc_required(status,eligibility.grace_expires_at))}
+        let status: String = row.get("kyc_status");
+        let grace = row
+            .get::<Option<DateTime<Utc>>, _>("expires_at")
+            .map(|expires_at| crate::kyc::grace::Grace {
+                user_id: actor.user_id(),
+                organization_id: org,
+                expires_at,
+            });
+        let eligibility = crate::kyc::policy::eligibility(
+            &crate::kyc::policy::KycPolicy {
+                execution_gate_enabled: command.request.settings.kyc_execution_gate_enabled,
+            },
+            &crate::kyc::policy::KycParty {
+                user_id: actor.user_id(),
+                organization_id: Some(org),
+                kyc_organization_id: row.get("kyc_organization_id"),
+                kyc_status: serde_json::from_value(json!(status)).map_err(|_| invalid())?,
+            },
+            grace.as_ref(),
+            command.request.now,
+        );
+        if !eligibility.eligible {
+            return Err(MarketWriteError::kyc_required(
+                status,
+                eligibility.grace_expires_at,
+            ));
+        }
         // Fresh publication always revalidates the exact supplier under the prefix locks.
-        super::authority::admission::require_execution(self.conn,self.locked,&super::PartyRef{user_id:actor.user_id(),organization_id:org,role:ActorRole::Supplier},command.request.now,command.request.settings.kyc_execution_gate_enabled).await
+        super::authority::admission::require_execution(
+            self.conn,
+            self.locked,
+            &super::PartyRef {
+                user_id: actor.user_id(),
+                organization_id: org,
+                role: ActorRole::Supplier,
+            },
+            command.request.now,
+            command.request.settings.kyc_execution_gate_enabled,
+        )
+        .await
     }
-    async fn revalidate_sweep(&mut self,command:&PublishCommand,actor:&AuthenticatedActor,org:Uuid,expired:&[super::matching::OrderRow])->Result<(),MarketWriteError>{
-        self.admit_publication(command,actor,org).await.map_err(|_|slice_changed())?;
-        for row in expired{let exists:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM organizations WHERE id=$1)").bind(row.organization_id).fetch_one(&mut *self.conn).await?;if !exists{return Err(slice_changed())}}
+    async fn revalidate_sweep(
+        &mut self,
+        command: &PublishCommand,
+        actor: &AuthenticatedActor,
+        org: Uuid,
+        expired: &[super::matching::OrderRow],
+    ) -> Result<(), MarketWriteError> {
+        self.admit_publication(command, actor, org)
+            .await
+            .map_err(|_| slice_changed())?;
+        for row in expired {
+            let exists: bool =
+                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM organizations WHERE id=$1)")
+                    .bind(row.organization_id)
+                    .fetch_one(&mut *self.conn)
+                    .await?;
+            if !exists {
+                return Err(slice_changed());
+            }
+        }
         Ok(())
     }
-    async fn validate_publication_catalog(&mut self,command:&PublishCommand,item:&Value)->Result<(),MarketWriteError>{
-        if item["price_per_mt_usd"].is_null(){return Err(publish_bad("Inventory item is missing a price"))}
-        let name=item["product_name"].as_str().unwrap_or_default().trim();
-        let product=command.app.policy.products.iter().find(|p|p.name==name).ok_or_else(||publish_bad("Inventory product is not mapped"))?;
-        if product.qualification_profile=="lng_v1"{return Err(publish_bad("Inventory publication is not supported; post an ASK with lng_terms"))}
-        if product.execution_mode!="ORDERBOOK"{return Err(publish_bad("Product requires an RFQ"))}
-        let (product_id,point)=resolve_publish_slice(self.conn,&command.app.policy,item).await?.ok_or_else(||publish_bad("Inventory product or delivery point is not active and canonical"))?;
-        if product_id!=product.id||!product.lanes.contains(&point){return Err(publish_bad("Product is not available at this delivery point"))}
+    async fn validate_publication_catalog(
+        &mut self,
+        command: &PublishCommand,
+        item: &Value,
+    ) -> Result<(), MarketWriteError> {
+        if item["price_per_mt_usd"].is_null() {
+            return Err(publish_bad("Inventory item is missing a price"));
+        }
+        let name = item["product_name"].as_str().unwrap_or_default().trim();
+        let product = command
+            .app
+            .policy
+            .products
+            .iter()
+            .find(|p| p.name == name)
+            .ok_or_else(|| publish_bad("Inventory product is not mapped"))?;
+        if product.qualification_profile == "lng_v1" {
+            return Err(publish_bad(
+                "Inventory publication is not supported; post an ASK with lng_terms",
+            ));
+        }
+        if product.execution_mode != "ORDERBOOK" {
+            return Err(publish_bad("Product requires an RFQ"));
+        }
+        let (product_id, point) = resolve_publish_slice(self.conn, &command.app.policy, item)
+            .await?
+            .ok_or_else(|| {
+                publish_bad("Inventory product or delivery point is not active and canonical")
+            })?;
+        if product_id != product.id || !product.lanes.contains(&point) {
+            return Err(publish_bad(
+                "Product is not available at this delivery point",
+            ));
+        }
         Ok(())
     }
-    async fn validate_publication_quantity(&mut self,command:&PublishCommand,item:&Value,candidate:&mut super::matching::OrderRow)->Result<(),MarketWriteError>{
-        let quantity=decimal_from_json(&item["current_stock_mt"])?;
-        if quantity<=Decimal::ZERO{return Err(publish_bad("Inventory stock is unavailable"))}
-        let minimum:Option<Decimal>=sqlx::query_scalar("SELECT min_lot_size FROM products WHERE id=$1").bind(candidate.product_id).fetch_one(&mut *self.conn).await?;
-        let minimum=minimum.filter(|q|*q>Decimal::ZERO).ok_or_else(||super::orders::refusal(MarketErrorCode::ValidationFailed,StatusCode::CONFLICT,"Product minimum lot is unavailable"))?;
-        if quantity<minimum{return Err(publish_bad("Inventory quantity is below the product minimum"))}
-        candidate.quantity_mt=super::OrderQuantity::checked(quantity)?.value();candidate.remaining_quantity_mt=quantity;
-        let product=command.app.policy.products.iter().find(|p|p.id==candidate.product_id).ok_or_else(invalid)?;
-        if product.qualification_profile=="fame_v1"{
-            if item["fuel_type"]!="FAME"||item["is_certified"]==true{return Err(invalid())}
-            crate::market::terms::validate_fame_terms("ASK",candidate.terms.fame_terms.as_ref(),command.bound().today()).map_err(|_|invalid())?;
-            let normalized=crate::market::terms::owner_response_terms("fame_v1",candidate.terms.fame_terms.as_ref().ok_or_else(invalid)?).map_err(|_|invalid())?;
-            candidate.terms.fame_terms=Some(normalized);
-        }else if candidate.terms.fame_terms.is_some()||candidate.terms.lng_terms.is_some(){return Err(invalid())}
-        if !super::matching::order_is_execution_qualified(candidate,command.bound()){return Err(publish_bad("Inventory is not execution-qualified for publication"))}
+    async fn validate_publication_quantity(
+        &mut self,
+        command: &PublishCommand,
+        item: &Value,
+        candidate: &mut super::matching::OrderRow,
+    ) -> Result<(), MarketWriteError> {
+        let quantity = decimal_from_json(&item["current_stock_mt"])?;
+        if quantity <= Decimal::ZERO {
+            return Err(publish_bad("Inventory stock is unavailable"));
+        }
+        let minimum: Option<Decimal> =
+            sqlx::query_scalar("SELECT min_lot_size FROM products WHERE id=$1")
+                .bind(candidate.product_id)
+                .fetch_one(&mut *self.conn)
+                .await?;
+        let minimum = minimum.filter(|q| *q > Decimal::ZERO).ok_or_else(|| {
+            super::orders::refusal(
+                MarketErrorCode::ValidationFailed,
+                StatusCode::CONFLICT,
+                "Product minimum lot is unavailable",
+            )
+        })?;
+        if quantity < minimum {
+            return Err(publish_bad(
+                "Inventory quantity is below the product minimum",
+            ));
+        }
+        candidate.quantity_mt = super::OrderQuantity::checked(quantity)?.value();
+        candidate.remaining_quantity_mt = quantity;
+        let product = command
+            .app
+            .policy
+            .products
+            .iter()
+            .find(|p| p.id == candidate.product_id)
+            .ok_or_else(invalid)?;
+        if product.qualification_profile == "fame_v1" {
+            if item["fuel_type"] != "FAME" || item["is_certified"] == true {
+                return Err(invalid());
+            }
+            crate::market::terms::validate_fame_terms(
+                "ASK",
+                candidate.terms.fame_terms.as_ref(),
+                command.bound().today(),
+            )
+            .map_err(|_| invalid())?;
+            let normalized = crate::market::terms::owner_response_terms(
+                "fame_v1",
+                candidate.terms.fame_terms.as_ref().ok_or_else(invalid)?,
+            )
+            .map_err(|_| invalid())?;
+            candidate.terms.fame_terms = Some(normalized);
+        } else if candidate.terms.fame_terms.is_some() || candidate.terms.lng_terms.is_some() {
+            return Err(invalid());
+        }
+        if !super::matching::order_is_execution_qualified(candidate, command.bound()) {
+            return Err(publish_bad(
+                "Inventory is not execution-qualified for publication",
+            ));
+        }
         Ok(())
     }
-    async fn insert_publication(&mut self,command:&PublishCommand,row:&super::matching::OrderRow,item:&Value)->Result<(),MarketAttemptError>{
-        let ordinal:i64=sqlx::query_scalar("SELECT nextval('orderbook_acceptance_ordinal_seq')").fetch_one(&mut *self.conn).await?;
-        let t=&row.terms;let key=command.key()?;
-        let payload=json!({"id":row.id,"organization_id":row.organization_id,"owner_user_id":row.owner_user_id,"created_by_actor_user_id":row.created_by_actor_user_id,"creation_method":"SELF_SERVICE","provenance":row.provenance,"inventory_item_id":command.request.item,"side":"ASK","product_id":row.product_id,"delivery_point_id":row.delivery_point_id,"port_id":item["port_id"],"quantity_mt":row.quantity_mt.to_string(),"remaining_quantity_mt":row.quantity_mt.to_string(),"price_per_mt_usd":row.price_per_mt_usd.to_string(),"availability_window":"SPOT","certifications":t.certifications,"fame_terms":t.fame_terms,"lng_terms":t.lng_terms,"energy_density_mj_kg":t.fame_terms.as_ref().map(|f|&f["lhv_mj_kg"]),"status":"OPEN","version":1,"acceptance_ordinal":ordinal,"expires_at":row.expires_at,"idempotency_key":key,"idempotency_operation":key.as_ref().map(|_|"inventory.publish"),"idempotency_request_hash":key.as_ref().map(|_|command.hash()).transpose()?,"certification_declared":t.certification_declared,"certification_scheme":t.certification_scheme,"specification_standard":t.specification_standard,"msds_available":t.msds_available,"carbon_intensity_gco2_mj":t.carbon_intensity_gco2_mj.map(|v|v.to_string()),"carbon_intensity_method":t.carbon_intensity_method,"feedstock":t.feedstock,"origin":t.origin,"off_spec":t.off_spec,"off_spec_notes":item["off_spec_notes"],"created_at":command.request.now,"updated_at":command.request.now,"is_verdaxis_verified":false});
+    async fn insert_publication(
+        &mut self,
+        command: &PublishCommand,
+        row: &super::matching::OrderRow,
+        item: &Value,
+    ) -> Result<(), MarketAttemptError> {
+        let ordinal: i64 = sqlx::query_scalar("SELECT nextval('orderbook_acceptance_ordinal_seq')")
+            .fetch_one(&mut *self.conn)
+            .await?;
+        let t = &row.terms;
+        let key = command.key()?;
+        let payload = json!({"id":row.id,"organization_id":row.organization_id,"owner_user_id":row.owner_user_id,"created_by_actor_user_id":row.created_by_actor_user_id,"creation_method":"SELF_SERVICE","provenance":row.provenance,"inventory_item_id":command.request.item,"side":"ASK","product_id":row.product_id,"delivery_point_id":row.delivery_point_id,"port_id":item["port_id"],"quantity_mt":row.quantity_mt.to_string(),"remaining_quantity_mt":row.quantity_mt.to_string(),"price_per_mt_usd":row.price_per_mt_usd.to_string(),"availability_window":"SPOT","certifications":t.certifications,"fame_terms":t.fame_terms,"lng_terms":t.lng_terms,"energy_density_mj_kg":t.fame_terms.as_ref().map(|f|&f["lhv_mj_kg"]),"status":"OPEN","version":1,"acceptance_ordinal":ordinal,"expires_at":row.expires_at,"idempotency_key":key,"idempotency_operation":key.as_ref().map(|_|"inventory.publish"),"idempotency_request_hash":key.as_ref().map(|_|command.hash()).transpose()?,"certification_declared":t.certification_declared,"certification_scheme":t.certification_scheme,"specification_standard":t.specification_standard,"msds_available":t.msds_available,"carbon_intensity_gco2_mj":t.carbon_intensity_gco2_mj.map(|v|v.to_string()),"carbon_intensity_method":t.carbon_intensity_method,"feedstock":t.feedstock,"origin":t.origin,"off_spec":t.off_spec,"off_spec_notes":item["off_spec_notes"],"created_at":command.request.now,"updated_at":command.request.now,"is_verdaxis_verified":false});
         sqlx::query("INSERT INTO orderbook_orders(id,organization_id,owner_user_id,created_by_actor_user_id,creation_method,provenance,inventory_item_id,side,product_id,delivery_point_id,port_id,quantity_mt,remaining_quantity_mt,price_per_mt_usd,availability_window,certifications,fame_terms,lng_terms,energy_density_mj_kg,status,version,acceptance_ordinal,expires_at,idempotency_key,idempotency_operation,idempotency_request_hash,certification_declared,certification_scheme,specification_standard,msds_available,carbon_intensity_gco2_mj,carbon_intensity_method,feedstock,origin,off_spec,off_spec_notes,created_at,updated_at,is_verdaxis_verified) SELECT id,organization_id,owner_user_id,created_by_actor_user_id,creation_method,provenance,inventory_item_id,side,product_id,delivery_point_id,port_id,quantity_mt,remaining_quantity_mt,price_per_mt_usd,availability_window,certifications,fame_terms,lng_terms,energy_density_mj_kg,status,version,acceptance_ordinal,expires_at,idempotency_key,idempotency_operation,idempotency_request_hash,certification_declared,certification_scheme,specification_standard,msds_available,carbon_intensity_gco2_mj,carbon_intensity_method,feedstock,origin,off_spec,off_spec_notes,created_at,updated_at,is_verdaxis_verified FROM jsonb_populate_record(NULL::orderbook_orders,$1::jsonb)").bind(payload).execute(&mut *self.conn).await?;
         Ok(())
     }
-    async fn complete_publication_match(&mut self,command:&PublishCommand,plan:&super::matching::MatchPlan)->Result<super::matching::MatchOutcome,MarketWriteError>{
-        let outcome=super::matching::apply_plan_with_fees(self.conn,plan,Some(&command.request.settings.fees),true).await?;
-        for (item,quantity) in plan.reserved_consumption()?{super::transaction::StockLedger::new(self.conn,&[item],&[]).consume_reserved(item,StockQuantity::checked(quantity)?).await?;}
-        Ok(outcome)
-    }
-    async fn publication_effect(&mut self,command:&PublishCommand,actor:&AuthenticatedActor,row:&super::matching::OrderRow,participants:Vec<Uuid>,matched:bool)->Result<MutationEffect,MarketWriteError>{
-        let projection=super::order_create::CreatePort::new(self.conn,self.locked)?.projection(row.id,&command.app.policy,&command.app.config,command.request.now).await?;
-        let status:String=sqlx::query_scalar("SELECT status::text FROM orderbook_orders WHERE id=$1").bind(row.id).fetch_one(&mut *self.conn).await?;
-        let visible=super::effects::order_visible(self.conn,&command.app.policy,&command.app.config,row.id,command.request.now).await?;
-        let text=|key:&str|projection[key].as_str().unwrap_or_default().to_owned();
-        let activity=super::outbox::OrderActivity{id:row.id,side:"ASK".into(),product_name:text("product_name"),fuel_type:text("fuel_type"),region:text("region"),source_kind:text("source_kind"),scope:text("scope"),demo_status:text("demo_status"),is_demo_listing:row.provenance=="DEMO",unknown_count:u32::from(row.provenance=="UNKNOWN"),market_product:projection["market_product"].as_str().map(str::to_owned),delivery_point_id:row.delivery_point_id,availability_window:"SPOT".into(),observed_at:Some(command.request.now),delivery_point:projection["delivery_point_name"].as_str().map(str::to_owned)};
-        Ok(MutationEffect{kind:MutationKind::InventoryPublished,actor_id:actor.user_id(),organization_id:row.organization_id,resource_type:"inventory".into(),resource_id:command.request.item,changes:json!({"inventory_item_id":command.request.item,"listing_id":row.id,"quantity_mt":row.quantity_mt.to_string(),"price_per_mt_usd":row.price_per_mt_usd.to_string(),"status":status}),event:Some(ParticipantEvent{event_type:"order_created".into(),aggregate_type:"order".into(),aggregate_id:row.id.to_string(),participant_org_ids:participants,fields:ParticipantFields::OrderCreated{activity,price:row.price_per_mt_usd.to_string(),quantity:text("remaining_quantity_mt")},public_invalidated:visible||matched}),at:command.request.now,audit_context:command.request.audit.clone()})
+    async fn publication_effect(
+        &mut self,
+        command: &PublishCommand,
+        actor: &AuthenticatedActor,
+        row: &super::matching::OrderRow,
+        participants: Vec<Uuid>,
+        matched: bool,
+    ) -> Result<MutationEffect, MarketWriteError> {
+        let projection = super::order_create::CreatePort::new(self.conn, self.locked)?
+            .projection(
+                row.id,
+                &command.app.policy,
+                &command.app.config,
+                command.request.now,
+            )
+            .await?;
+        let status: String =
+            sqlx::query_scalar("SELECT status::text FROM orderbook_orders WHERE id=$1")
+                .bind(row.id)
+                .fetch_one(&mut *self.conn)
+                .await?;
+        let visible = super::effects::order_visible(
+            self.conn,
+            &command.app.policy,
+            &command.app.config,
+            row.id,
+            command.request.now,
+        )
+        .await?;
+        let text = |key: &str| projection[key].as_str().unwrap_or_default().to_owned();
+        let activity = super::outbox::OrderActivity {
+            id: row.id,
+            side: "ASK".into(),
+            product_name: text("product_name"),
+            fuel_type: text("fuel_type"),
+            region: text("region"),
+            source_kind: text("source_kind"),
+            scope: text("scope"),
+            demo_status: text("demo_status"),
+            is_demo_listing: row.provenance == "DEMO",
+            unknown_count: u32::from(row.provenance == "UNKNOWN"),
+            market_product: projection["market_product"].as_str().map(str::to_owned),
+            delivery_point_id: row.delivery_point_id,
+            availability_window: "SPOT".into(),
+            observed_at: Some(command.request.now),
+            delivery_point: projection["delivery_point_name"]
+                .as_str()
+                .map(str::to_owned),
+        };
+        Ok(MutationEffect {
+            kind: MutationKind::InventoryPublished,
+            actor_id: actor.user_id(),
+            organization_id: row.organization_id,
+            resource_type: "inventory".into(),
+            resource_id: command.request.item,
+            changes: json!({"inventory_item_id":command.request.item,"listing_id":row.id,"quantity_mt":row.quantity_mt.to_string(),"price_per_mt_usd":row.price_per_mt_usd.to_string(),"status":status}),
+            event: Some(ParticipantEvent {
+                event_type: "order_created".into(),
+                aggregate_type: "order".into(),
+                aggregate_id: row.id.to_string(),
+                participant_org_ids: participants,
+                fields: ParticipantFields::OrderCreated {
+                    activity,
+                    price: row.price_per_mt_usd.to_string(),
+                    quantity: text("remaining_quantity_mt"),
+                },
+                public_invalidated: visible || matched,
+            }),
+            at: command.request.now,
+            audit_context: command.request.audit.clone(),
+        })
     }
 }
 
