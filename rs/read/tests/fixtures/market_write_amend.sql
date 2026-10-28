@@ -8,12 +8,12 @@ BEGIN
 END $$;
 
 CREATE OR REPLACE FUNCTION amend_fixture_fill(ord uuid, quantity numeric) RETURNS void LANGUAGE plpgsql AS $$
-DECLARE buyer uuid; remaining numeric;
 BEGIN
-    SELECT organization_id INTO STRICT buyer FROM orderbook_orders WHERE id=ord;
-    SELECT remaining_quantity_mt-quantity INTO remaining FROM orderbook_orders WHERE id=ord;
-    UPDATE orderbook_orders SET quantity_mt=quantity_mt+quantity,status='PARTIALLY_FILLED' WHERE id=ord;
-    UPDATE orderbook_orders SET remaining_quantity_mt=remaining WHERE id=ord;
+    UPDATE orderbook_orders SET remaining_quantity_mt=remaining_quantity_mt-quantity,
+        status=CASE WHEN remaining_quantity_mt-quantity=0 THEN 'FILLED'
+                    WHEN remaining_quantity_mt-quantity<quantity_mt THEN 'PARTIALLY_FILLED'
+                    ELSE status END
+    WHERE id=ord;
 END $$;
 
 CREATE OR REPLACE FUNCTION amend_fixture_expiring(ord uuid, at timestamptz) RETURNS void LANGUAGE sql AS $$

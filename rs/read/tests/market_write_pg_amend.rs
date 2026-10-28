@@ -506,7 +506,13 @@ async fn newly_qualified_order_gets_a_new_ordinal_and_cannot_jump_the_queue() {
     .await
     .unwrap();
     let _ = earlier_ordinal;
-    assert!(!filled.is_empty());
+    let book: Vec<(Uuid, String, Decimal, Decimal, i64)> = sqlx::query_as(
+        "SELECT id,side::text,price_per_mt_usd,remaining_quantity_mt,acceptance_ordinal FROM orderbook_orders ORDER BY id",
+    )
+    .fetch_all(&f.pool)
+    .await
+    .unwrap();
+    assert!(!filled.is_empty(), "book after the crossing: {book:?}");
     assert_eq!(
         filled[0], executable,
         "the earlier executable ASK must fill first"
