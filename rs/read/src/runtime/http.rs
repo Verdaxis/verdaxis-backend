@@ -87,6 +87,10 @@ fn compose(
         .as_ref()
         .map(|state| state.config.environment.clone())
         .unwrap_or_else(|| environment.to_owned());
+    let host_policy = app_state
+        .as_ref()
+        .map(|state| state.host_policy.clone())
+        .filter(|policy| policy.is_enforced());
     let routes = routes.layer(middleware::from_fn_with_state(state, dispatch_boundary));
     let routes = if let Some(app_state) = app_state {
         routes.layer(middleware::from_fn_with_state(
@@ -96,9 +100,15 @@ fn compose(
     } else {
         routes
     };
-    routes
-        .layer(middleware::from_fn_with_state(environment, cors))
-        .layer(middleware::from_fn(log_request))
+    let routes = routes.layer(middleware::from_fn_with_state(environment, cors));
+    // The Host check sits outside CORS, admission and the quota boundary, so a
+    // refused request gets no CORS grant and spends no quota or read slot. It
+    // sits inside the request log, so the refusal is logged and carries an id.
+    let routes = match host_policy {
+        Some(policy) => routes.layer(middleware::from_fn_with_state(policy, super::host::guard)),
+        None => routes,
+    };
+    routes.layer(middleware::from_fn(log_request))
 }
 
 /// Marks Python's outer ServerErrorMiddleware response, which bypasses CORS

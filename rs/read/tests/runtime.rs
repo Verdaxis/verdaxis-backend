@@ -941,3 +941,72 @@ fn validate_config_refuses_an_invalid_status_heartbeat_setting() {
     config.phase2.system_status_message = Some("Slow matching".into());
     assert!(validate_config(&config).is_ok());
 }
+
+#[test]
+fn allowed_hosts_reach_the_configuration_and_default_to_unenforced() {
+    use verdaxis_read::runtime::config::config_from_deployed_environment;
+    let bind: std::net::SocketAddr = "127.0.0.1:8011".parse().unwrap();
+    // A deploy without the key still starts, with the Host check off.
+    let unset = config_from_deployed_environment(
+        &deployed_environment(),
+        bind,
+        &budget_document(compiled_sha()),
+    )
+    .unwrap();
+    assert_eq!(unset.phase2.allowed_hosts, None);
+    assert!(validate_config(&unset).is_ok());
+
+    let mut environment = deployed_environment();
+    environment.insert(
+        "ALLOWED_HOSTS".into(),
+        "api-staging.verdaxis.exchange".into(),
+    );
+    let set =
+        config_from_deployed_environment(&environment, bind, &budget_document(compiled_sha()))
+            .unwrap();
+    assert_eq!(
+        set.phase2.allowed_hosts.as_deref(),
+        Some("api-staging.verdaxis.exchange")
+    );
+    assert!(validate_config(&set).is_ok());
+}
+
+#[test]
+fn a_malformed_allowed_hosts_value_stops_the_start() {
+    use verdaxis_read::runtime::config::config_from_deployed_environment;
+    let bind: std::net::SocketAddr = "127.0.0.1:8011".parse().unwrap();
+    for value in [
+        "*.verdaxis.exchange",
+        "https://api.verdaxis.exchange",
+        "a b",
+    ] {
+        let mut environment = deployed_environment();
+        environment.insert("ALLOWED_HOSTS".into(), value.into());
+        let error =
+            config_from_deployed_environment(&environment, bind, &budget_document(compiled_sha()))
+                .err()
+                .unwrap_or_else(|| panic!("accepted ALLOWED_HOSTS {value:?}"));
+        assert!(error.contains("ALLOWED_HOSTS"), "{value:?}: {error}");
+
+        let mut config = staging();
+        config.phase2.allowed_hosts = Some(value.into());
+        assert!(validate_config(&config).is_err(), "{value:?}");
+    }
+}
+
+#[test]
+fn allowed_hosts_can_be_carried_in_the_contract_document() {
+    let input = serde_json::json!({
+        "environment": "test", "release_sha": compiled_sha(),
+        "migration_revision": "kycg_20261014_staging",
+        "database_url": "postgres://rust_app:pw@127.0.0.1:12345/verdaxis_test",
+        "bind": "127.0.0.1:0", "pool_max": 17, "python_budget": 52,
+        "configured_max_connections": 100, "db_session_time_zone": "UTC",
+        "phase2": {"allowed_hosts": "api.example.test"}
+    });
+    let config = serde_json::from_value::<Config>(input).unwrap();
+    assert_eq!(
+        config.phase2.allowed_hosts.as_deref(),
+        Some("api.example.test")
+    );
+}

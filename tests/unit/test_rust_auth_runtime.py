@@ -142,3 +142,50 @@ def test_runtime_file_refuses_an_invalid_status_or_a_message_with_a_line_break(t
     # runtime file cannot carry.
     with pytest.raises(runtime.RustRuntimeError, match="SYSTEM_STATUS_MESSAGE"):
         _prepare_with(tmp_path, {"SYSTEM_STATUS_MESSAGE": '"two\\nlines"'})
+
+
+def _project(tmp_path, environment, extra=None):
+    sha = "c" * 40
+    role = "verdaxis_app" + ("_staging" if environment == "staging" else "")
+    database = "verdaxis_staging" if environment == "staging" else "verdaxis_prod"
+    settings = {**values(), "ENVIRONMENT": environment, "RELEASE_SHA": sha,
+                "DATABASE_URL": f"postgresql://{role}:disposable@127.0.0.1:5432/{database}",
+                **(extra or {})}
+    source = tmp_path / ".env"
+    source.write_text("".join(f"{key}={value}\n" for key, value in settings.items()))
+    policy = runtime.load_policy(ROOT, environment)
+    return runtime.project_runtime_environment(source, sha, "sse_20261021_replay_floor", policy)
+
+
+@pytest.mark.parametrize(
+    ("environment", "host"),
+    [("production", "api.verdaxis.exchange"), ("staging", "api-staging.verdaxis.exchange")],
+)
+def test_allowed_hosts_is_the_environments_public_api_host(tmp_path, environment, host):
+    assert _project(tmp_path, environment)["ALLOWED_HOSTS"] == host
+    # Each host is the one the deploy's public readiness check calls.
+    deploy = (ROOT / "scripts/deploy.sh").read_text()
+    assert f"https://{host}/health/ready" in deploy
+
+
+def test_allowed_hosts_is_not_an_operator_input(tmp_path):
+    # A stray key in the deployed `.env` cannot widen or clear the check.
+    projected = _project(tmp_path, "production", {"ALLOWED_HOSTS": "evil.example"})
+    assert projected["ALLOWED_HOSTS"] == "api.verdaxis.exchange"
+    assert _project(tmp_path, "production", {"ALLOWED_HOSTS": ""})["ALLOWED_HOSTS"] == (
+        "api.verdaxis.exchange"
+    )
+
+
+def test_every_environment_host_is_a_plain_lowercase_name():
+    # The Rust parser refuses wildcards, ports, schemes and upper case.
+    import re
+
+    for identity in runtime._IDENTITIES.values():
+        assert re.fullmatch(r"[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+",
+                            identity["allowed_hosts"])
+
+
+def test_allowed_hosts_reaches_the_runtime_file(tmp_path):
+    body = _prepare_with(tmp_path, {}).read_text()
+    assert "ALLOWED_HOSTS=api-staging.verdaxis.exchange\n" in body

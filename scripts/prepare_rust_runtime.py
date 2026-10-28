@@ -4,8 +4,10 @@
 Called by the canonical deploy transaction after the verified artifact is
 staged. It reads the deployed `.env` with no-follow regular-file semantics,
 projects ONLY the app database settings, the KYC execution switch, the runtime
-identity, the optional stream status heartbeat settings and (Task 23) the Phase 2
-verification/invite settings the Rust HTTP process needs, and writes `.runtime-rust/runtime.env` at mode 0600.
+identity, the environment's public API host (`ALLOWED_HOSTS`, for the in-app
+Host check), the optional stream status heartbeat settings and (Task 23) the
+Phase 2 verification/invite settings the Rust HTTP process needs, and writes
+`.runtime-rust/runtime.env` at mode 0600.
 
 The migrator URL and every unrelated provider key stay out: its read pool is
 the shared app role, and the migrator-backed checks stay in the short-lived
@@ -51,6 +53,11 @@ SYSTEM_STATUS_KEY = "SYSTEM_STATUS"
 SYSTEM_STATUS_MESSAGE_KEY = "SYSTEM_STATUS_MESSAGE"
 SYSTEM_STATUSES = frozenset({"operational", "degraded", "maintenance"})
 MAX_SYSTEM_STATUS_MESSAGE_CHARS = 280
+# The in-app Host check. The public API host of each environment is part of its
+# identity, not an operator input: the Rust service always allows loopback (the
+# deploy readiness gate and the monitors use it) and, with this key, refuses
+# every other Host. Without the key the Rust service does not check the Host.
+ALLOWED_HOSTS_KEY = "ALLOWED_HOSTS"
 # Pydantic accepts these spellings for a boolean setting; the deployed file
 # decides the value, exactly as the Python service reads it. A missing key is
 # Python's default (enabled), never Rust's own choice.
@@ -61,10 +68,12 @@ _IDENTITIES = {
     "production": {
         "database_name": "verdaxis_prod",
         "app_role": "verdaxis_app",
+        "allowed_hosts": "api.verdaxis.exchange",
     },
     "staging": {
         "database_name": "verdaxis_staging",
         "app_role": "verdaxis_app_staging",
+        "allowed_hosts": "api-staging.verdaxis.exchange",
     },
 }
 
@@ -305,6 +314,7 @@ def project_runtime_environment(
         "DB_SESSION_TIME_ZONE": policy["db_session_time_zone"],
         "READ_ADMISSION_SLOTS": values.get("READ_ADMISSION_SLOTS", "16"),
         KYC_GATE_KEY: kyc_execution_gate(values),
+        ALLOWED_HOSTS_KEY: _IDENTITIES[environment]["allowed_hosts"],
     }
     projected.update(phase2_settings(values))
     projected.update(phase3_settings(values))
