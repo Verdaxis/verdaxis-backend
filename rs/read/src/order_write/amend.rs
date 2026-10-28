@@ -1389,7 +1389,7 @@ impl<'a> AmendPort<'a> {
 
     /// Run the complete amendment: revalidate, apply the update and its exact
     /// stock delta, optionally rematch, then stage one terminal effect set.
-    async fn run(&mut self, order: &OrderRow) -> Result<(StagedAmend, usize), MarketAttemptError> {
+    async fn run(&mut self, order: &OrderRow) -> Result<StagedAmend, MarketAttemptError> {
         let command = self.command;
         // The locked-row state checks the source performs after its locks.
         if order.expires_at.is_some_and(|at| at <= command.now)
@@ -1490,12 +1490,11 @@ impl<'a> AmendPort<'a> {
         // The rematch is composed by the sealed transaction after the port
         // returns: the planner acquires the amended row and any candidates in
         // the open candidate pass, which this plan keeps undeclared.
-        let staged = StagedAmend {
+        Ok(StagedAmend {
             before,
             public_before,
             update,
-        };
-        Ok(staged)
+        })
     }
 
 }
