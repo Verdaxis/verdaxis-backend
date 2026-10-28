@@ -350,6 +350,71 @@ async fn amend_reserves_or_releases_the_exact_delta() {
 
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
+async fn amend_keeps_a_concurrent_inventory_change() {
+    let mut f = Fixture::new(0, 200).await;
+    let item = Uuid::new_v4();
+    sqlx::query("SELECT matching_fixture_back_inventory($1,$2)")
+        .bind(f.bid)
+        .bind(item)
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE inventory_items SET current_stock_mt=250 WHERE id=$1")
+        .bind(item)
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
+    // Another inventory writer holds the row and adds 100 MT of stock.
+    let admin_url = std::env::var("RUST_AMEND_ADMIN_DATABASE_URL").unwrap();
+    let mut holder = PgConnection::connect(&admin_url).await.unwrap();
+    let holder_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut holder)
+        .await
+        .unwrap();
+    sqlx::query("BEGIN").execute(&mut holder).await.unwrap();
+    sqlx::query("UPDATE inventory_items SET current_stock_mt=current_stock_mt+100 WHERE id=$1")
+        .bind(item)
+        .execute(&mut holder)
+        .await
+        .unwrap();
+    // The amendment raises the remainder by 50 MT while that writer is open.
+    let router = f.router.clone();
+    let bid = f.bid;
+    let amendment = tokio::spawn(async move {
+        send(&router, Some(buyer()), bid, &[], json!({"quantity_mt": "250"})).await
+    });
+    let mut blocked = false;
+    for _ in 0..500 {
+        blocked = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid)))",
+        )
+        .bind(holder_pid)
+        .fetch_one(&mut f.observer)
+        .await
+        .unwrap();
+        if blocked {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert!(blocked, "the amendment never waited for the inventory row");
+    sqlx::query("COMMIT").execute(&mut holder).await.unwrap();
+    let (status, body) = amendment.await.unwrap();
+    assert_eq!(status.as_u16(), 200, "{body}");
+    // Both changes survive: 250 + 100 added, minus the 50 MT reserved.
+    let item_row: (Decimal, Decimal) = sqlx::query_as(
+        "SELECT current_stock_mt,reserved_stock_mt FROM inventory_items WHERE id=$1",
+    )
+    .bind(item)
+    .fetch_one(&mut f.observer)
+    .await
+    .unwrap();
+    assert_eq!(item_row.0, Decimal::from(300));
+    assert_eq!(item_row.1, Decimal::from(250));
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
 async fn amend_rebuilds_both_sides_of_the_slice() {
     let mut f = Fixture::new(0, 200).await;
     // Seed one benchmark mirror on each side, then amend the BID price.
