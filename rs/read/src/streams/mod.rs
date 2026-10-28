@@ -6,6 +6,7 @@ pub mod dispatch;
 pub mod election;
 pub mod http;
 pub mod policy;
+pub mod price_alerts;
 pub mod replay;
 pub mod runtime;
 pub mod store;
