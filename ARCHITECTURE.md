@@ -241,6 +241,24 @@ loopback adapters to prove twin state, rollback, replay, timeouts, observed
 PostgreSQL advisory-lock order, bounded retries, races and mixed dispatch. See
 `docs/rust-phase2/task20-write-boundary.md` for gate results and the resume point.
 
+## Price-alert evaluation (stream runtime)
+
+`rs/read/src/streams/price_alerts.rs` fires price alerts from committed market
+events. The stream runtime wraps its dispatch sink: each `trade_auto_matched`
+and `trade_confirmed` event offers its trade id to a bounded queue with
+`try_send`, and one task per process does the database work, so dispatch is
+never delayed. The evaluator reads the trade row, accepts only a formal
+snapshot (`market_snapshot_version = 1`, confirmed, delivered or paid) whose
+buyer and seller are both REAL (the public trade tape rule), locks the alerts
+that print crosses in id order, and deactivates them with a conditional
+`UPDATE ... WHERE is_active RETURNING`. Notification rows for the approved
+members and an organization-private `price_alert_triggered` outbox event are
+written in the same transaction, so every worker may evaluate every event and
+each alert still fires once. The evaluator ignores every event type except the
+two trade executions, so its own event never loops. It runs only where the
+Rust stream runtime is enabled (`stream_listener`). See
+`docs/market-event-dispatch.md`.
+
 ## Rust Phase 2 price-alert component
 
 Task 16 adds `rs/read/src/crud/alerts.rs` for organization-owned alert create,
@@ -249,7 +267,7 @@ composition must supply the existing verification settings and shared quota
 authority. Each request uses the shared authenticated transaction owner and
 current database organization. NUMERIC rounding remains PostgreSQL-owned;
 product codes derive from the attested exact label tuple, including inactive
-products. Python retains price triggering and participant-event production.
+products. Price triggering is Rust-owned: `streams/price_alerts.rs` (below).
 `tests/postgres/test_phase2_alert_interop.py` drives Rust storage and HTTP
 component checks against the existing disposable PostgreSQL fixture, then runs
 Python's trigger helper on the committed Rust row. The registered `alerts-crud`

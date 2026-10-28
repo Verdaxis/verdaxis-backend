@@ -102,6 +102,11 @@ required-features = ["contract-tests"]
 name = "streams_coexistence"
 required-features = ["contract-tests"]
 
+# Runs in the PostgreSQL job: it reads RUST_TEST_MIGRATOR_DATABASE_URL.
+[[test]]
+name = "price_alert_evaluation_postgres"
+required-features = ["contract-tests"]
+
 [[example]]
 name = "streams_fixture"
 required-features = ["contract-tests"]

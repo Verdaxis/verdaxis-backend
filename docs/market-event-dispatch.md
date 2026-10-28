@@ -108,6 +108,37 @@ them (a blank key is the same as an absent one) and projects them into
 preparation and a restart of the Rust unit. The Python service ignores both
 keys.
 
+## Price-alert evaluation
+
+The Rust stream runtime also consumes the sequenced rows it already reads:
+`trade_auto_matched` (auto-confirmed on creation) and `trade_confirmed` (a
+counterparty confirmation) are the two events that carry a newly executed
+price. Their payloads do not reliably name the product and delivery point, so
+the evaluator reads the trade row by id and uses only a formal snapshot with a
+REAL buyer and a REAL seller; DEMO, TEST, CANARY, unknown and mixed pairs never
+fire an alert.
+
+- **Once per alert, cluster-wide.** Every worker runs a dispatcher and sees
+  every event, so the evaluator is idempotent instead of elected. Candidate
+  alerts are locked in id order, then deactivated with
+  `UPDATE price_alerts SET is_active = false, triggered_at = $now
+  WHERE id = ANY($ids) AND is_active RETURNING ...`. A second worker waits for
+  the first commit, finds no active row and writes nothing.
+- **One transaction.** The deactivation, one `notifications` row per approved
+  member of the alert's organization (type `SYSTEM`, so Python can still read
+  it) and one organization-private `price_alert_triggered` outbox row commit
+  together. The outbox row is sequenced by the normal sequencer and reaches the
+  org-bound trades stream and replay. If the transaction fails, the alert stays
+  active.
+- **No loops.** Only the two execution event types are evaluated.
+- **Dispatch is never held up.** The dispatch sink only calls `try_send` on a
+  bounded queue. A full queue drops the offer with a warning; failed
+  evaluations are retried with the next event, or after five seconds, up to
+  three attempts. The dispatcher cursor is not involved.
+- **Limits.** A print committed while no Rust stream runtime is running is not
+  evaluated; the alert fires on the next qualifying print. The evaluator is off
+  where the Rust stream runtime is off.
+
 ## Connection budget
 
 Each worker holds **one** dedicated (non-pool) LISTEN/leadership connection;
