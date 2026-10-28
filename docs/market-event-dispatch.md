@@ -48,6 +48,39 @@ subscriber regardless of which Uvicorn worker serves the connection:
    expected; neither condition ends catch-up. Token expiry and mutable user
    and organization admission remain enforced while pages are delivered.
 
+### Heartbeat and system status (all SSE streams)
+
+`/api/stream/prices`, `/api/stream/orderbook` and `/api/stream/trades` carry a
+named `heartbeat` event instead of the former `: keepalive` comment, which
+browsers' `EventSource` never exposes:
+
+```
+event: heartbeat
+data: {"status": "operational", "message": null, "server_time": "2026-10-28T12:00:00Z"}
+
+```
+
+- `status` is `operational`, `degraded` or `maintenance`; `message` is a
+  string or `null`; `server_time` is UTC ISO-8601 with a trailing `Z`.
+- Values come from `SYSTEM_STATUS` (default `operational`, case-insensitive,
+  any other value fails startup) and `SYSTEM_STATUS_MESSAGE` (default unset,
+  at most 280 characters, blank means `null`). They are read from the service
+  environment at startup; changing them needs a restart of every worker. No
+  migration is involved.
+- Heartbeats never carry an `id:` line, so they cannot move the client's
+  `Last-Event-ID` cursor.
+- One heartbeat is sent when a stream opens, then one after every 30 seconds
+  without another frame. Any data frame restarts that 30 second window. On the
+  private stream the 15 second authorization revalidation wake-ups do not
+  produce heartbeats (the old keepalive was sent on each such wake-up).
+- Placement on the private stream: after replay completes and after the first
+  expiry/authorization check passes. Replay frames therefore keep their exact
+  order and ids, and `auth_expired`, `auth_revoked`, `error` and the overflow
+  `reset` are never preceded by a status frame. A very large replay backlog
+  delays the first heartbeat until the backlog is delivered.
+- The too-many-connections `error` frame is unchanged and is the only frame
+  on that response.
+
 Every committed market-event payload includes additive `schema_version: 1`.
 The dispatcher also supplies that field when it reads older retained rows, so
 replay and live delivery use the same compatible payload shape.

@@ -292,7 +292,11 @@ async def test_terminal_overflow_reset_closes_the_stream():
             )
         ]
 
-    assert len(frames) == 2
+    # Origin comment, the initial heartbeat (no id, so it cannot move the
+    # cursor), then the terminal reset.
+    assert frames[0].startswith(": stream-origin")
+    assert frames[1].startswith("event: heartbeat\n")
+    assert len(frames) == 3
     assert frames[-1].startswith("event: reset\n")
     assert '"resync_required": true' in frames[-1]
 

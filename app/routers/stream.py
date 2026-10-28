@@ -1,5 +1,6 @@
 """Server-Sent Events endpoints for real-time data feeds."""
 import asyncio
+from datetime import datetime, timezone
 import json
 import os
 import time
@@ -28,6 +29,29 @@ from app.services.market_event_dispatch import (
 router = APIRouter(prefix="/stream", tags=["real-time"])
 logger = logging.getLogger(__name__)
 _STREAM_REVALIDATION_SECONDS = 15.0
+# Idle interval between heartbeats; also bounds how long an idle connection
+# stays silent for reverse proxies.
+_HEARTBEAT_INTERVAL_SECONDS = 30.0
+
+
+def _format_heartbeat_event() -> str:
+    """One heartbeat frame carrying the operator-declared system status.
+
+    Deliberately has no ``id:`` line: an ``id:`` would move the client's
+    Last-Event-ID cursor, which must only ever hold a durable stream sequence.
+    ``json.dumps`` escapes newlines in the message, so it cannot break framing.
+    """
+    server_time = (
+        datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    )
+    payload = json.dumps(
+        {
+            "status": settings.SYSTEM_STATUS,
+            "message": settings.SYSTEM_STATUS_MESSAGE,
+            "server_time": server_time,
+        }
+    )
+    return f"event: heartbeat\ndata: {payload}\n\n"
 
 
 async def _sse_generator(request: Request, channel: str):
@@ -37,19 +61,23 @@ async def _sse_generator(request: Request, channel: str):
         yield 'event: error\ndata: {"error": "Too many connections"}\n\n'
         return
     try:
+        # Let the client learn the status now instead of after the first idle
+        # interval. The too-many-connections frame above stays the only frame.
+        yield _format_heartbeat_event()
         while True:
             if await request.is_disconnected():
                 break
             try:
-                message = await asyncio.wait_for(queue.get(), timeout=30.0)
+                message = await asyncio.wait_for(
+                    queue.get(), timeout=_HEARTBEAT_INTERVAL_SECONDS
+                )
                 yield _format_market_event(
                     message.get("seq"), message["event"], message["data"]
                 )
                 if message.get("terminal"):
                     break
             except asyncio.TimeoutError:
-                # Send keepalive comment every 30s
-                yield ": keepalive\n\n"
+                yield _format_heartbeat_event()
     finally:
         event_bus.unsubscribe(channel, queue)
 
@@ -237,6 +265,10 @@ async def _private_sse_messages(
         )
     )
 
+    # The first heartbeat is due immediately, but only after the authorization
+    # check below passes (so auth_expired/auth_revoked are never preceded by a
+    # status frame) and after any replay (so it cannot interleave with it).
+    heartbeat_due = time.monotonic()
     while True:
         control = await control_frame()
         if control is not None:
@@ -244,9 +276,12 @@ async def _private_sse_messages(
             return
         if await request.is_disconnected():
             return
+        if time.monotonic() >= heartbeat_due:
+            yield _format_heartbeat_event()
+            heartbeat_due = time.monotonic() + _HEARTBEAT_INTERVAL_SECONDS
         now = time.time()
         timeout = min(
-            30.0,
+            max(0.1, heartbeat_due - time.monotonic()),
             max(0.1, expires_at - now),
             max(0.1, next_revalidation - now),
         )
@@ -261,10 +296,13 @@ async def _private_sse_messages(
                     continue
                 cursor = seq
             yield _format_market_event(seq, message["event"], message["data"])
+            heartbeat_due = time.monotonic() + _HEARTBEAT_INTERVAL_SECONDS
             if message.get("terminal"):
                 return
         except asyncio.TimeoutError:
-            yield ": keepalive\n\n"
+            # Woke for the heartbeat, revalidation, or expiry; the loop top
+            # handles each.
+            continue
 
 
 @router.get("/prices")

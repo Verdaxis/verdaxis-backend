@@ -3,7 +3,7 @@ import os
 import re
 from pydantic_settings import BaseSettings
 from pydantic import Field, SecretStr, model_validator, field_validator
-from typing import Optional
+from typing import Literal, Optional
 from urllib.parse import urlparse
 from sqlalchemy.engine import make_url
 
@@ -74,6 +74,12 @@ class Settings(BaseSettings):
     UVICORN_WORKERS: int = Field(default=4, ge=1, le=100)
     HEALTH_READINESS_TIMEOUT_SECONDS: float = Field(default=2.0, gt=0, le=30)
 
+    # Operator-declared system status, broadcast to clients in the SSE
+    # `heartbeat` event (docs/market-event-dispatch.md). Set both through the
+    # service environment and restart; there is no runtime toggle.
+    SYSTEM_STATUS: Literal["operational", "degraded", "maintenance"] = "operational"
+    SYSTEM_STATUS_MESSAGE: Optional[str] = Field(default=None, max_length=280)
+
     # Database
     DATABASE_HOST: str = "localhost"
     DATABASE_PORT: int = 5432
@@ -108,6 +114,20 @@ class Settings(BaseSettings):
     # both individual and aggregate requests bounded before reading them.
     KYC_MAX_FILE_BYTES: int = Field(default=10 * 1024 * 1024, ge=1, le=100 * 1024 * 1024)
     KYC_MAX_TOTAL_BYTES: int = Field(default=20 * 1024 * 1024, ge=1, le=200 * 1024 * 1024)
+
+    @field_validator("SYSTEM_STATUS", mode="before")
+    @classmethod
+    def normalize_system_status(cls, value):
+        """Accept `Degraded ` from an env file; reject anything else loudly."""
+        return value.strip().lower() if isinstance(value, str) else value
+
+    @field_validator("SYSTEM_STATUS_MESSAGE", mode="before")
+    @classmethod
+    def normalize_system_status_message(cls, value):
+        """Treat a blank env value as no message, so clients see `null`."""
+        if isinstance(value, str):
+            return value.strip() or None
+        return value
 
     @model_validator(mode='after')
     def validate_db_pool_capacity(self) -> 'Settings':
