@@ -1184,7 +1184,9 @@ fn publication_result(id: Uuid, replayed: bool, matches: usize) -> super::Commit
 impl PublishCommand {
     fn locked_now(&self) -> DateTime<Utc> {
         #[cfg(feature = "contract-tests")]
-        if let Some(at)=self.request.hooks.as_ref().and_then(|h|h.clock) { return at; }
+        if let Some(at) = self.request.hooks.as_ref().and_then(|h| h.clock) {
+            return at;
+        }
         Utc::now()
     }
     fn key(&self) -> Result<Option<String>, MarketWriteError> {
@@ -1369,7 +1371,7 @@ async fn expiry_rows(
     candidate: &super::matching::OrderRow,
     now: DateTime<Utc>,
 ) -> Result<Vec<super::matching::OrderRow>, MarketWriteError> {
-    let ids:Vec<Uuid>=sqlx::query_scalar("SELECT id FROM orderbook_orders WHERE product_id=$1 AND delivery_point_id=$2 AND availability_window='SPOT' AND side::text='ASK' AND status::text IN ('OPEN','PARTIALLY_FILLED') AND expires_at IS NOT NULL AND $3::timestamptz IS NOT NULL ORDER BY id LIMIT 100").bind(candidate.product_id).bind(candidate.delivery_point_id).bind(now).fetch_all(&mut *conn).await?;
+    let ids:Vec<Uuid>=sqlx::query_scalar("SELECT id FROM orderbook_orders WHERE product_id=$1 AND delivery_point_id=$2 AND availability_window='SPOT' AND side::text='ASK' AND status::text IN ('OPEN','PARTIALLY_FILLED') AND expires_at IS NOT NULL ORDER BY CASE WHEN expires_at <= $3 THEN 0 ELSE 1 END,id LIMIT 100").bind(candidate.product_id).bind(candidate.delivery_point_id).bind(now).fetch_all(&mut *conn).await?;
     let mut rows = Vec::new();
     for id in ids {
         rows.push(super::matching::load_order(conn, id).await?);
@@ -1404,7 +1406,15 @@ impl MarketCommand for PublishCommand {
     fn before_publication_recovery(&self) -> BoxFuture<'_, ()> {
         Box::pin(async move {
             #[cfg(feature = "contract-tests")]
-            if let Some(barrier)=self.request.hooks.as_ref().and_then(|h|h.before_recovery.as_ref()) { barrier.reached.notify_one();barrier.resume.notified().await; }
+            if let Some(barrier) = self
+                .request
+                .hooks
+                .as_ref()
+                .and_then(|h| h.before_recovery.as_ref())
+            {
+                barrier.reached.notify_one();
+                barrier.resume.notified().await;
+            }
         })
     }
     fn recovers_publication_flush(&self) -> bool {
@@ -1436,8 +1446,7 @@ impl MarketCommand for PublishCommand {
             } else {
                 false
             };
-            let candidate = if replay_exists
-            {
+            let candidate = if replay_exists {
                 None
             } else {
                 self.candidate(conn, actor, org).await?
@@ -1511,220 +1520,248 @@ impl MarketCommand for PublishCommand {
 }
 
 impl PublishCommand {
-    async fn execute_locked(&mut self, tx: &mut LockedMarketTransaction<'_>, actor: &AuthenticatedActor) -> Result<super::CommittedCommand, MarketAttemptError> {
-            let (org, mut candidate, planned_expiry) = {
-                let mut port = tx.inventory()?;
-                let org = self.actor_org(port.conn, actor.user_id()).await?;
-                port.admit_publication(self, actor, org).await?;
-                if load_publish_item(port.conn, self.request.item, org)
-                    .await?
-                    .is_none()
-                {
-                    return Err(not_found().into());
-                }
-                if let Some(id) =
-                    live_publication(port.conn, self.request.item, self.request.now).await?
-                {
-                    return Ok(publication_result(id, true, 0));
-                }
-                let item = load_publish_item(port.conn, self.request.item, org)
-                    .await?
-                    .ok_or_else(not_found)?;
-                port.validate_publication_catalog(self, &item).await?;
-                let candidate = self
-                    .candidate(port.conn, actor.user_id(), org)
-                    .await?
-                    .ok_or_else(|| publish_bad("Inventory port or product is not canonical"))?;
-                let expired = expiry_rows(port.conn, &candidate, self.request.now).await?;
-                (org, candidate, expired)
-            };
-            #[cfg(feature = "contract-tests")]
-            if let Some(barrier)=self.request.hooks.as_ref().and_then(|h|h.before_resources.as_ref()) { barrier.reached.notify_one();barrier.resume.notified().await; }
-            let candidates = tx
-                .publication_resources(
-                    &candidate,
-                    self.bound(),
-                    self.request.settings.auto_matching_enabled,
-                )
-                .await?;
-            self.request.now = self.locked_now();
-            let expired = {
-                let port=tx.inventory()?;
-                if let Some(id)=live_publication(port.conn,self.request.item,self.request.now).await? { return Ok(publication_result(id,true,0)); }
-                let current=expiry_rows(port.conn,&candidate,self.request.now).await?;
-                if current.iter().any(|row|!planned_expiry.iter().any(|planned|planned.id==row.id)) { return Err(slice_changed().into()); }
-                current.into_iter().filter(|row|row.expires_at.is_some_and(|at|at<=self.request.now)).collect::<Vec<_>>()
-            };
-            let expired_ids: Vec<_> = expired.iter().map(|r| r.id).collect();
-            let ids: Vec<_> = expired_ids
-                .iter()
-                .copied()
-                .chain(candidates.iter().take(100).map(|r| r.id))
-                .collect();
-            let new = super::effects::NewOrderEffect {
-                order_id: self.id,
-                organization_id: org,
-                slice: super::effects::EffectSlice {
-                    product_id: candidate.product_id,
-                    delivery_point_id: candidate.delivery_point_id.ok_or_else(slice_changed)?,
-                    availability_window: "SPOT".into(),
-                },
-            };
-            let mut before = tx
-                .effects()?
-                .capture_mutation(
-                    &self.app.policy,
-                    &self.app.config,
-                    &ids,
-                    &[],
-                    &[new],
-                    self.request.now,
-                )
-                .await?;
-            let expiries: Vec<_> = expired
-                .iter()
-                .filter_map(|row| row.expires_at.map(|at| (row.id, at)))
-                .collect();
-            let expiry_visibility = tx.effects()?
-                .capture_expiry_visibility(
-                    &mut before,
-                    &self.app.policy,
-                    &self.app.config,
-                    &expiries,
-                )
-                .await?;
-            // All expiry and match resources were declared before the first stock movement.
-            let facts = tx
-                .stock_ledger()?
-                .expire_slice(
-                    &super::ExpirySlice {
-                        product_id: candidate.product_id,
-                        delivery_point_id: candidate.delivery_point_id,
-                        availability_window: "SPOT",
-                        side: "ASK",
-                    },
-                    self.request.now,
-                )
-                .await?;
+    async fn execute_locked(
+        &mut self,
+        tx: &mut LockedMarketTransaction<'_>,
+        actor: &AuthenticatedActor,
+    ) -> Result<super::CommittedCommand, MarketAttemptError> {
+        let (org, mut candidate, planned_expiry) = {
+            let mut port = tx.inventory()?;
+            let org = self.actor_org(port.conn, actor.user_id()).await?;
+            port.admit_publication(self, actor, org).await?;
+            if load_publish_item(port.conn, self.request.item, org)
+                .await?
+                .is_none()
             {
-                let mut port = tx.inventory()?;
-                port.revalidate_sweep(self, actor, org, &expired).await?;
-                let item = load_publish_item(port.conn, self.request.item, org)
-                    .await?
-                    .ok_or_else(not_found)?;
-                if resolve_publish_slice(port.conn, &self.app.policy, &item).await?
-                    != Some((
-                        candidate.product_id,
-                        candidate.delivery_point_id.ok_or_else(slice_changed)?,
-                    ))
-                {
-                    return Err(slice_changed().into());
-                }
-                // This early return has staged no durable effect. The complete locks
-                // make a newly appearing listing impossible for Rust peers.
-                if live_publication(port.conn, self.request.item, self.request.now)
-                    .await?
-                    .is_some()
-                {
-                    return Err(slice_changed().into());
-                }
-                let backlog:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM orderbook_orders WHERE inventory_item_id=$1 AND status::text IN ('OPEN','PARTIALLY_FILLED') AND expires_at<=$2)").bind(self.request.item).bind(self.request.now).fetch_one(&mut *port.conn).await?;
-                if backlog {
-                    return Err(super::orders::refusal(
-                        MarketErrorCode::InventoryInconsistent,
-                        StatusCode::CONFLICT,
-                        "Inventory expiry backlog must be reconciled",
-                    )
-                    .into());
-                }
-                candidate = self
-                    .candidate(port.conn, actor.user_id(), org)
-                    .await?
-                    .ok_or_else(slice_changed)?;
-                port.validate_publication_quantity(self, &item, &mut candidate)
-                    .await?;
-                #[cfg(feature = "contract-tests")]
-                if let Some(barrier)=self.request.hooks.as_ref().and_then(|h|h.before_flush.as_ref()) { barrier.reached.notify_one();barrier.resume.notified().await; }
-                port.insert_publication(self, &candidate, &item).await?;
+                return Err(not_found().into());
             }
-            // The inventory is already locked; only the new row's evidence is
-            // added here, before any terminal target phase.
-            tx.register_publication(self.id)?;
-            tx.stock_ledger()?
-                .reserve(
-                    self.request.item,
-                    StockQuantity::checked(candidate.quantity_mt)?,
-                )
-                .await?;
-            let outcome = if self.request.settings.auto_matching_enabled {
-                let mut owners = super::matching::OwnerRevalidation::default();
-                let mut rows = candidates;
-                {
-                    let port = tx.inventory()?;
-                    candidate.owner_admission = owners
-                        .revalidate(port.conn, port.locked, &candidate, &self.bound())
-                        .await?;
-                    for row in rows.iter_mut().take(100) {
-                        row.owner_admission = owners
-                            .revalidate(port.conn, port.locked, row, &self.bound())
-                            .await?;
-                    }
-                }
-                let plan = super::matching::plan_match(&rows, &candidate, self.bound())?;
-                Some(
-                    tx.complete_match(&plan, &self.request.settings.fees, true)
-                        .await?,
-                )
-            } else {
-                None
-            };
-            let mut set = before.stage();
-            let descriptors=facts.iter().map(|fact|super::effects::MutationEffect{kind:MutationKind::OrderExpired,actor_id:actor.user_id(),organization_id:fact.organization_id,resource_type:"order".into(),resource_id:fact.order_id,changes:json!({"status":"EXPIRED","released_quantity_mt":fact.released_quantity_mt.value().to_string()}),event:Some(ParticipantEvent{event_type:"order_expired".into(),aggregate_type:"order".into(),aggregate_id:fact.order_id.to_string(),participant_org_ids:vec![fact.organization_id],fields:ParticipantFields::OrderExpired{id:fact.order_id},public_invalidated:expiry_visibility.get(&fact.order_id).copied().unwrap_or(false)}),at:self.request.now,audit_context:AuditContext::default()}).collect();
-            set.expired(facts, descriptors)?;
-            let participants = outcome
-                .as_ref()
-                .into_iter()
-                .flat_map(|o| o.trades.iter())
-                .flat_map(|t| [t.buyer_id, t.seller_id])
-                .chain([org])
-                .collect::<BTreeSet<_>>()
-                .into_iter()
-                .collect();
-            let descriptor = tx
-                .inventory()?
-                .publication_effect(
-                    self,
-                    actor,
-                    &candidate,
-                    participants,
-                    outcome.as_ref().is_some_and(|o| !o.trades.is_empty()),
-                )
-                .await?;
-            set.push(descriptor)?;
-            if let Some(outcome) = &outcome {
-                tx.effects()?
-                    .matched(
-                        &mut set,
-                        outcome,
-                        &candidate,
-                        actor.user_id(),
-                        self.request.audit.clone(),
-                    )
-                    .await?;
+            if let Some(id) =
+                live_publication(port.conn, self.request.item, self.request.now).await?
+            {
+                return Ok(publication_result(id, true, 0));
             }
-            tx.effects()?
-                .finish(&self.app.policy, &self.app.config, set)
+            let item = load_publish_item(port.conn, self.request.item, org)
+                .await?
+                .ok_or_else(not_found)?;
+            port.validate_publication_catalog(self, &item).await?;
+            let candidate = self
+                .candidate(port.conn, actor.user_id(), org)
+                .await?
+                .ok_or_else(|| publish_bad("Inventory port or product is not canonical"))?;
+            let expired = expiry_rows(port.conn, &candidate, self.request.now).await?;
+            (org, candidate, expired)
+        };
+        #[cfg(feature = "contract-tests")]
+        if let Some(barrier) = self
+            .request
+            .hooks
+            .as_ref()
+            .and_then(|h| h.before_resources.as_ref())
+        {
+            barrier.reached.notify_one();
+            barrier.resume.notified().await;
+        }
+        let candidates = tx
+            .publication_resources(
+                &candidate,
+                self.bound(),
+                self.request.settings.auto_matching_enabled,
+            )
+            .await?;
+        self.request.now = self.locked_now();
+        let expired = {
+            let port = tx.inventory()?;
+            if let Some(id) =
+                live_publication(port.conn, self.request.item, self.request.now).await?
+            {
+                return Ok(publication_result(id, true, 0));
+            }
+            let current = expiry_rows(port.conn, &candidate, self.request.now).await?;
+            if current
+                .iter()
+                .any(|row| !planned_expiry.iter().any(|planned| planned.id == row.id))
+            {
+                return Err(slice_changed().into());
+            }
+            current
+                .into_iter()
+                .filter(|row| row.expires_at.is_some_and(|at| at <= self.request.now))
+                .collect::<Vec<_>>()
+        };
+        let expired_ids: Vec<_> = expired.iter().map(|r| r.id).collect();
+        let ids: Vec<_> = expired_ids
+            .iter()
+            .copied()
+            .chain(candidates.iter().take(100).map(|r| r.id))
+            .collect();
+        let new = super::effects::NewOrderEffect {
+            order_id: self.id,
+            organization_id: org,
+            slice: super::effects::EffectSlice {
+                product_id: candidate.product_id,
+                delivery_point_id: candidate.delivery_point_id.ok_or_else(slice_changed)?,
+                availability_window: "SPOT".into(),
+            },
+        };
+        let mut before = tx
+            .effects()?
+            .capture_mutation(
+                &self.app.policy,
+                &self.app.config,
+                &ids,
+                &[],
+                &[new],
+                self.request.now,
+            )
+            .await?;
+        let expiries: Vec<_> = expired
+            .iter()
+            .filter_map(|row| row.expires_at.map(|at| (row.id, at)))
+            .collect();
+        let expiry_visibility = tx
+            .effects()?
+            .capture_expiry_visibility(&mut before, &self.app.policy, &self.app.config, &expiries)
+            .await?;
+        // All expiry and match resources were declared before the first stock movement.
+        let facts = tx
+            .stock_ledger()?
+            .expire_slice(
+                &super::ExpirySlice {
+                    product_id: candidate.product_id,
+                    delivery_point_id: candidate.delivery_point_id,
+                    availability_window: "SPOT",
+                    side: "ASK",
+                },
+                self.request.now,
+            )
+            .await?;
+        {
+            let mut port = tx.inventory()?;
+            port.revalidate_sweep(self, actor, org, &expired).await?;
+            let item = load_publish_item(port.conn, self.request.item, org)
+                .await?
+                .ok_or_else(not_found)?;
+            if resolve_publish_slice(port.conn, &self.app.policy, &item).await?
+                != Some((
+                    candidate.product_id,
+                    candidate.delivery_point_id.ok_or_else(slice_changed)?,
+                ))
+            {
+                return Err(slice_changed().into());
+            }
+            // This early return has staged no durable effect. The complete locks
+            // make a newly appearing listing impossible for Rust peers.
+            if live_publication(port.conn, self.request.item, self.request.now)
+                .await?
+                .is_some()
+            {
+                return Err(slice_changed().into());
+            }
+            let backlog:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM orderbook_orders WHERE inventory_item_id=$1 AND status::text IN ('OPEN','PARTIALLY_FILLED') AND expires_at<=$2)").bind(self.request.item).bind(self.request.now).fetch_one(&mut *port.conn).await?;
+            if backlog {
+                return Err(super::orders::refusal(
+                    MarketErrorCode::InventoryInconsistent,
+                    StatusCode::CONFLICT,
+                    "Inventory expiry backlog must be reconciled",
+                )
+                .into());
+            }
+            candidate = self
+                .candidate(port.conn, actor.user_id(), org)
+                .await?
+                .ok_or_else(slice_changed)?;
+            port.validate_publication_quantity(self, &item, &mut candidate)
                 .await?;
             #[cfg(feature = "contract-tests")]
-            if let Some(barrier) = &self.request.settings.barrier {
+            if let Some(barrier) = self
+                .request
+                .hooks
+                .as_ref()
+                .and_then(|h| h.before_flush.as_ref())
+            {
                 barrier.reached.notify_one();
                 barrier.resume.notified().await;
             }
-            Ok(publication_result(
-                self.id,
-                false,
-                outcome.as_ref().map_or(0, |o| o.trades.len()),
-            ))
+            port.insert_publication(self, &candidate, &item).await?;
+        }
+        // The inventory is already locked; only the new row's evidence is
+        // added here, before any terminal target phase.
+        tx.register_publication(self.id)?;
+        tx.stock_ledger()?
+            .reserve(
+                self.request.item,
+                StockQuantity::checked(candidate.quantity_mt)?,
+            )
+            .await?;
+        let outcome = if self.request.settings.auto_matching_enabled {
+            let mut owners = super::matching::OwnerRevalidation::default();
+            let mut rows = candidates;
+            {
+                let port = tx.inventory()?;
+                candidate.owner_admission = owners
+                    .revalidate(port.conn, port.locked, &candidate, &self.bound())
+                    .await?;
+                for row in rows.iter_mut().take(100) {
+                    row.owner_admission = owners
+                        .revalidate(port.conn, port.locked, row, &self.bound())
+                        .await?;
+                }
+            }
+            let plan = super::matching::plan_match(&rows, &candidate, self.bound())?;
+            Some(
+                tx.complete_match(&plan, &self.request.settings.fees, true)
+                    .await?,
+            )
+        } else {
+            None
+        };
+        let mut set = before.stage();
+        let descriptors=facts.iter().map(|fact|super::effects::MutationEffect{kind:MutationKind::OrderExpired,actor_id:actor.user_id(),organization_id:fact.organization_id,resource_type:"order".into(),resource_id:fact.order_id,changes:json!({"status":"EXPIRED","released_quantity_mt":fact.released_quantity_mt.value().to_string()}),event:Some(ParticipantEvent{event_type:"order_expired".into(),aggregate_type:"order".into(),aggregate_id:fact.order_id.to_string(),participant_org_ids:vec![fact.organization_id],fields:ParticipantFields::OrderExpired{id:fact.order_id},public_invalidated:expiry_visibility.get(&fact.order_id).copied().unwrap_or(false)}),at:self.request.now,audit_context:AuditContext::default()}).collect();
+        set.expired(facts, descriptors)?;
+        let participants = outcome
+            .as_ref()
+            .into_iter()
+            .flat_map(|o| o.trades.iter())
+            .flat_map(|t| [t.buyer_id, t.seller_id])
+            .chain([org])
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        let descriptor = tx
+            .inventory()?
+            .publication_effect(
+                self,
+                actor,
+                &candidate,
+                participants,
+                outcome.as_ref().is_some_and(|o| !o.trades.is_empty()),
+            )
+            .await?;
+        set.push(descriptor)?;
+        if let Some(outcome) = &outcome {
+            tx.effects()?
+                .matched(
+                    &mut set,
+                    outcome,
+                    &candidate,
+                    actor.user_id(),
+                    self.request.audit.clone(),
+                )
+                .await?;
+        }
+        tx.effects()?
+            .finish(&self.app.policy, &self.app.config, set)
+            .await?;
+        #[cfg(feature = "contract-tests")]
+        if let Some(barrier) = &self.request.settings.barrier {
+            barrier.reached.notify_one();
+            barrier.resume.notified().await;
+        }
+        Ok(publication_result(
+            self.id,
+            false,
+            outcome.as_ref().map_or(0, |o| o.trades.len()),
+        ))
     }
 }
 

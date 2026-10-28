@@ -81,8 +81,23 @@ pub fn publication_contract_hash(item: uuid::Uuid) -> String {
 }
 
 #[cfg(feature = "contract-tests")]
-pub fn publication_contract_router(app: AppState, verification: VerificationSettings, settings: super::order_create::CreateSettings, hooks: std::sync::Arc<PublicationHooks>) -> Router {
-    Router::new().route("/api/inventory/{item_id}/publish",axum::routing::post(publish)).with_state(RouteState{app,verification:std::sync::Arc::new(verification),publication:settings,hooks:Some(hooks)})
+pub fn publication_contract_router(
+    app: AppState,
+    verification: VerificationSettings,
+    settings: super::order_create::CreateSettings,
+    hooks: std::sync::Arc<PublicationHooks>,
+) -> Router {
+    Router::new()
+        .route(
+            "/api/inventory/{item_id}/publish",
+            axum::routing::post(publish),
+        )
+        .with_state(RouteState {
+            app,
+            verification: std::sync::Arc::new(verification),
+            publication: settings,
+            hooks: Some(hooks),
+        })
 }
 
 async fn dispatch(state: RouteState, headers: HeaderMap, action: InventoryAction) -> Response {
