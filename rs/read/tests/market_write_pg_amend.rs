@@ -534,3 +534,58 @@ async fn newly_qualified_order_gets_a_new_ordinal_and_cannot_jump_the_queue() {
         "the earlier executable ASK must fill first"
     );
 }
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn amendment_ownership_and_assisted_refusals() {
+    let mut f = Fixture::new(0, 200).await;
+    // A second approved member of the owning organization is not the concrete
+    // owner: only the recorded owner may amend.
+    let other = Uuid::from_u128(0x5001);
+    sqlx::query("SELECT amend_fixture_other_member($1,$2,'BUYER')")
+        .bind(Uuid::from_u128(0x1000))
+        .bind(other)
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
+    let (status, body) = send(
+        &f.router,
+        Some(other),
+        f.bid,
+        &[],
+        json!({"price_per_mt_usd": "111"}),
+    )
+    .await;
+    assert_eq!(status.as_u16(), 403, "{body}");
+    assert_eq!(body["detail"]["code"], "ORDER_OWNER_FORBIDDEN");
+    // An assisted listing never amends.
+    sqlx::query("SELECT amend_fixture_assist($1)")
+        .bind(f.bid)
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
+    let (status, body) = send(
+        &f.router,
+        Some(buyer()),
+        f.bid,
+        &[],
+        json!({"price_per_mt_usd": "111"}),
+    )
+    .await;
+    assert_eq!(status.as_u16(), 409, "{body}");
+    // The ownerless legacy row falls back to same-organization ownership.
+    sqlx::query("SELECT amend_fixture_ownerless($1)")
+        .bind(f.bid)
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
+    let (status, _) = send(
+        &f.router,
+        Some(buyer()),
+        f.bid,
+        &[],
+        json!({"price_per_mt_usd": "111"}),
+    )
+    .await;
+    assert_eq!(status.as_u16(), 200);
+}
