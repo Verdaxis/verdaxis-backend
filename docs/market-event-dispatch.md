@@ -102,6 +102,37 @@ queries at its deadline, while the refresh signal can be delayed until an
 existing expiry writer next commits that transition. No new expiry timer is
 part of this transport.
 
+### Public stream contract (`prices`, `orderbook`)
+
+The public streams carry exactly these frames:
+
+- `market_invalidated`, the only data frame. Private order and trade events
+  (`order_created`, `order_cancelled`, `orders_matched`, ...) are published
+  to `trades:{organization_id}` only and never reach `prices` or
+  `orderbook`.
+- `heartbeat`, the terminal `reset` and the too-many-connections `error`.
+
+Contract for clients:
+
+- Public frames have **no `id:` line** and the payload carries no sequence,
+  cursor or previous-frame field. They are idempotent "refetch" signals.
+- There is **no ordering, duplicate or gap guarantee**. The number of frames
+  per committed change is not specified (a hub coalesces markers per drain,
+  and different workers may coalesce differently).
+- Clients refetch authoritative REST data on every `market_invalidated`
+  frame and on every (re)connect. A missed frame is recovered by the next
+  frame, the reconnect refetch, the overflow `reset` or bounded polling.
+- The public streams ignore `Last-Event-ID`; there is no public replay.
+- A marker whose hub drain step failed after its cursor moved past the row is
+  kept and published by the next drain, so a transient database error does
+  not swallow a refresh signal.
+
+Why ids are not exposed: the only available sequence is the global outbox
+`stream_seq`, shared with every private event of every tenant. Putting it on
+an unauthenticated stream would let anyone infer the aggregate private market
+volume from id jumps. A dense per-channel counter would need new shared
+state and a migration, and it would add nothing for a refetch signal.
+
 ## Connection budget
 
 Each worker holds **one** dedicated (non-pool) LISTEN/leadership connection;

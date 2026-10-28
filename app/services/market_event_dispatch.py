@@ -223,6 +223,11 @@ class MarketEventDispatcher:
         self._tasks: list[asyncio.Task] = []
         self._is_leader = False
         self._cursor = 0
+        # True while a drained public-marker row has not been published yet.
+        # It lives on the instance so a failed drain step cannot lose it: the
+        # next drain publishes it even though the cursor already moved past
+        # the row.
+        self._public_refresh_pending = False
         self._stopping = False
 
     @property
@@ -380,7 +385,6 @@ class MarketEventDispatcher:
                 await asyncio.sleep(self._poll_seconds)
 
     async def _drain_new_events(self) -> None:
-        public_market_invalidated = False
         while True:
             async with self._engine.connect() as conn:
                 result = await conn.execute(
@@ -392,19 +396,20 @@ class MarketEventDispatcher:
                 rows = [_as_event(row) for row in result.mappings()]
             for event in rows:
                 await self._fan_out(event)
-                public_market_invalidated = (
-                    public_market_invalidated or event.public_market_invalidation
+                self._public_refresh_pending = (
+                    self._public_refresh_pending or event.public_market_invalidation
                 )
                 self._cursor = event.stream_seq
             if len(rows) < self._batch_size:
                 break
-        if public_market_invalidated:
+        if self._public_refresh_pending:
             for channel in PUBLIC_STREAM_CHANNELS:
                 await self._bus.publish(
                     channel,
                     PUBLIC_INVALIDATION_EVENT,
                     PUBLIC_INVALIDATION_PAYLOAD,
                 )
+            self._public_refresh_pending = False
 
     async def _fan_out(self, event: _EventRow) -> None:
         for org_id in event.participant_org_ids:
