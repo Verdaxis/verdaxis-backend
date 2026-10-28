@@ -1,3 +1,4 @@
+use super::host::HostPolicy;
 use crate::streams::heartbeat::HeartbeatStatus;
 use crate::{Config, DEFAULT_READ_ADMISSION_SLOTS, verify_release};
 use percent_encoding::percent_decode_str;
@@ -201,6 +202,9 @@ pub fn config_from_deployed_environment(
                 .cloned(),
             system_status: environment.get("SYSTEM_STATUS").cloned(),
             system_status_message: environment.get("SYSTEM_STATUS_MESSAGE").cloned(),
+            // The deploy preparer projects the environment's public API host;
+            // an absent key leaves the in-app Host check off.
+            allowed_hosts: environment.get("ALLOWED_HOSTS").cloned(),
         },
     };
     // Refuse an unknown status or an over-long message before serving, like
@@ -209,6 +213,7 @@ pub fn config_from_deployed_environment(
         config.phase2.system_status.as_deref(),
         config.phase2.system_status_message.as_deref(),
     )?;
+    HostPolicy::parse(config.phase2.allowed_hosts.as_deref())?;
     Ok(config)
 }
 
@@ -388,6 +393,7 @@ pub fn validate_config(config: &Config) -> Result<(), String> {
         config.phase2.system_status.as_deref(),
         config.phase2.system_status_message.as_deref(),
     )?;
+    HostPolicy::parse(config.phase2.allowed_hosts.as_deref())?;
     if !config.bind.ip().is_loopback() {
         return Err("HTTP bind must be loopback".into());
     }

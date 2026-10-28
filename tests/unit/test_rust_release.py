@@ -1221,6 +1221,7 @@ def test_runtime_environment_carries_only_the_projected_settings(release_fixture
         "SELLER_FEE_PILOT_PER_MT_USD",
         "SELLER_FEE_PROFESSIONAL_PER_MT_USD",
         "UMAMI_ENABLED",
+        "ALLOWED_HOSTS",
     }
     # The shipped fixture `.env` carries the Private Beta switch state, so the
     # projection is proven to follow the deployed file rather than a default.
@@ -1229,6 +1230,7 @@ def test_runtime_environment_carries_only_the_projected_settings(release_fixture
         .splitlines()
     ) == sorted(
         [
+            "ALLOWED_HOSTS=api-staging.verdaxis.exchange",
             'AUTH_DOMAIN_DATASETS_FILE="' + str(release_fixture.checkout / '.runtime-rust/auth-domains.json') + '"',
             'DATABASE_URL="postgresql://verdaxis_app_staging:fixture-password'
             '@127.0.0.1:5432/verdaxis_staging"',

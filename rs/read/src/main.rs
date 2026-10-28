@@ -30,6 +30,7 @@ async fn serve() -> Result<(), ()> {
     let bind = config.bind;
     let policy = committed_policy().map_err(|_| ())?;
     let mut state = AppState::new(config, pools, policy).map_err(|_| ())?;
+    log_host_policy(&state.host_policy);
     let streams = verdaxis_read::streams::runtime::start_streams(
         &mut state,
         verdaxis_read::streams::runtime::CapacityConfig::default(),
@@ -51,6 +52,19 @@ async fn serve() -> Result<(), ()> {
     })
     .await;
     result.map_err(|_| ())
+}
+
+/// Say at startup whether the Host check is on, so a missing `ALLOWED_HOSTS`
+/// is visible in the journal instead of a silent default.
+fn log_host_policy(policy: &verdaxis_read::runtime::host::HostPolicy) {
+    if policy.is_enforced() {
+        tracing::info!(
+            allowed_hosts = policy.configured_hosts().join(","),
+            "Host validation is enforced; loopback hosts are always allowed"
+        );
+    } else {
+        tracing::warn!("Host validation is off: ALLOWED_HOSTS is not set");
+    }
 }
 
 async fn shutdown_signal() {

@@ -111,6 +111,8 @@ pub struct AppState {
     pub trading_read_observer: std::sync::Arc<dyn runtime::admission::TradingReadObserver>,
     /// Stable identity of this process's environment, release and policy.
     pub policy_identity: String,
+    /// Allowed request `Host` authorities, parsed from `ALLOWED_HOSTS`.
+    pub host_policy: std::sync::Arc<runtime::host::HostPolicy>,
 }
 
 impl AppState {
@@ -130,6 +132,7 @@ impl AppState {
         ));
         let phase2 = runtime::phase2::Phase2Settings::from_options(&config.phase2)?;
         let phase3 = runtime::phase3::Phase3Settings::from_options(&config.phase2)?;
+        let host_policy = runtime::host::HostPolicy::parse(config.phase2.allowed_hosts.as_deref())?;
         let policy_identity = market::cache_dependencies::policy_identity(&config, &policy);
         let reference_cache = std::sync::Arc::new(runtime::cache::ReferenceCache::default());
         let trading_caches = std::sync::Arc::new(runtime::cache::TradingCaches::default());
@@ -158,6 +161,7 @@ impl AppState {
             public_trading_cache: std::sync::Arc::new(runtime::cache::TradingCache::default()),
             trading_read_observer: std::sync::Arc::new(runtime::admission::RealtimeTradingRead),
             policy_identity,
+            host_policy: std::sync::Arc::new(host_policy),
         })
     }
 
@@ -264,6 +268,10 @@ pub struct Phase2Options {
     /// validated at startup by `runtime::config`; absent means operational.
     pub system_status: Option<String>,
     pub system_status_message: Option<String>,
+    /// Comma-separated `ALLOWED_HOSTS`: the `Host` authorities served besides
+    /// loopback. Unset or blank turns the check off; a malformed value stops
+    /// the start (see `runtime::host`).
+    pub allowed_hosts: Option<String>,
 }
 
 fn read_admission_default() -> u32 {
