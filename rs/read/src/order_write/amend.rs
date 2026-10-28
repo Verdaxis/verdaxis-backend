@@ -752,7 +752,7 @@ impl AmendCommand {
     async fn rematch(
         &self,
         tx: &mut LockedMarketTransaction<'_>,
-        order: &OrderRow,
+        _order: &OrderRow,
         before: &mut BeforeEffects,
     ) -> Result<Option<MatchOutcome>, MarketAttemptError> {
         if !self.settings.auto_matching_enabled || !self.input.supplied_any(&ECONOMIC_FIELDS) {
@@ -1071,6 +1071,7 @@ pub(super) struct AmendPort<'a> {
     command: &'a AmendCommand,
     #[allow(dead_code)]
     context: &'a WriteContext,
+    #[allow(dead_code)]
     plan: &'a OperationLockPlan,
     conn: &'a mut PgConnection,
     locked: &'a Locked,
