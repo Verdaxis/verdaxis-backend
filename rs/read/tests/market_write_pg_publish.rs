@@ -777,6 +777,75 @@ async fn publication_rebuilds_each_benchmark_side_once() {
     assert_eq!(remaining, Decimal::from(200));
 }
 
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn expiry_invalidation_follows_each_orders_public_visibility() {
+    for (hidden,expected) in [(false,true),(true,false)] {
+        let mut f=Fixture::new(0,200).await;
+        f.sql("SELECT publish_fixture_expired(1,false)").await;
+        if hidden { f.sql("UPDATE users SET kyc_status='REJECTED' WHERE id='00000000-0000-0000-0000-000000002001'").await; }
+        // Keep the publisher eligible while the expired row has its own owner.
+        f.sql("SELECT matching_fixture_member('00000000-0000-0000-0000-000000002000','00000000-0000-0000-0000-000000002002','SUPPLIER')").await;
+        let reply=send(&f.router,Some(Uuid::from_u128(0x2002)),item(),None).await;
+        assert_eq!(reply.0,StatusCode::OK,"{reply:?}");
+        let payload:Value=sqlx::query_scalar("SELECT payload::jsonb FROM market_event_outbox WHERE event_type='order_expired'").fetch_one(&mut f.observer).await.unwrap();
+        assert_eq!(payload["_public_market_invalidation"].as_bool().unwrap_or(false),expected,"hidden={hidden}: {payload}");
+        assert_eq!(f.counts().await["audit"],2);
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn listing_expiry_during_party_lock_wait_is_not_reused() {
+    let mut f=Fixture::new(0,200).await;
+    let first=f.publish(None).await;assert_eq!(first.0,StatusCode::OK,"{first:?}");
+    let deadline=Utc::now()+chrono::Duration::milliseconds(200);
+    sqlx::query("SELECT publish_fixture_expiry($1)").bind(deadline).execute(&mut f.admin).await.unwrap();
+    let mut lock=f.admin.begin().await.unwrap();
+    sqlx::query("SELECT id FROM organizations WHERE id='00000000-0000-0000-0000-000000002000' FOR UPDATE").execute(&mut *lock).await.unwrap();
+    let router=f.router.clone();let task=tokio::spawn(async move{send(&router,Some(seller()),item(),None).await});
+    tokio::time::sleep(Duration::from_millis(300)).await;lock.commit().await.unwrap();
+    let reply=task.await.unwrap();assert_eq!(reply.0,StatusCode::OK,"{reply:?}");assert_ne!(reply.1["listing_id"],first.1["listing_id"]);
+    let expired:i64=sqlx::query_scalar("SELECT count(*) FROM orderbook_orders WHERE status::text='EXPIRED'").fetch_one(&mut f.observer).await.unwrap();assert_eq!(expired,1);
+    assert_eq!(f.stock().await,(Decimal::ZERO,Decimal::from(200)));
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn publication_integrity_error_preserves_the_original_without_a_key_row(){
+    let mut f=Fixture::new(0,200).await;
+    f.sql("CREATE TRIGGER publish_fixture_insert_error BEFORE INSERT ON orderbook_orders FOR EACH ROW EXECUTE FUNCTION publish_fixture_order_error()").await;
+    let reply=f.publish(Some("no-row")).await;
+    f.sql("DROP TRIGGER publish_fixture_insert_error ON orderbook_orders").await;
+    assert_eq!(reply.0,StatusCode::UNPROCESSABLE_ENTITY,"{reply:?}");
+    assert_eq!(reply.1["detail"]["code"],"VALIDATION_FAILED");
+    assert_eq!(f.counts().await["orders"],0);assert_eq!(f.stock().await,(Decimal::from(200),Decimal::ZERO));
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn multiple_fills_keep_each_trade_and_notification_recipient(){
+    let mut f=Fixture::new(2,500).await;
+    f.sql("SELECT matching_fixture_member('00000000-0000-0000-0000-000000002000','00000000-0000-0000-0000-000000002002','SUPPLIER')").await;
+    let reply=f.publish(Some("multi")).await;assert_eq!(reply.0,StatusCode::OK,"{reply:?}");
+    assert_eq!(f.stock().await,(Decimal::ZERO,Decimal::from(100)));
+    assert_eq!(f.counts().await,json!({"orders":3,"trades":2,"audit":3,"events":4,"notifications":6,"receipts":0}));
+    let before=f.counts().await;assert_eq!(f.publish(Some("multi")).await,reply);assert_eq!(f.counts().await,before);
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn publication_provenance_keeps_demo_and_unknown_orders_unmatched(){
+    for kind in ["DEMO","UNKNOWN"] {
+        let mut f=Fixture::new(1,200).await;
+        sqlx::query("SELECT publish_fixture_provenance($1)").bind(kind).execute(&mut f.admin).await.unwrap();
+        let reply=f.publish(None).await;assert_eq!(reply.0,StatusCode::OK,"{kind}: {reply:?}");
+        assert_eq!(f.counts().await["trades"],0);assert_eq!(f.stock().await,(Decimal::ZERO,Decimal::from(200)));
+        let row=sqlx::query("SELECT provenance::text AS provenance,expires_at FROM orderbook_orders WHERE inventory_item_id=$1").bind(item()).fetch_one(&mut f.observer).await.unwrap();
+        assert_eq!(row.get::<String,_>("provenance"),kind);assert_eq!(row.get::<Option<chrono::DateTime<Utc>>,_>("expires_at").is_some(),kind=="DEMO");
+    }
+}
+
 async fn concurrent(n: i32, stock: i64, key: Option<&str>) {
     let mut f = Fixture::new(n, stock).await;
     let mut blocker = f.pool.begin().await.unwrap();

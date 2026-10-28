@@ -2,6 +2,7 @@
 CREATE OR REPLACE FUNCTION publish_fixture_seed(n integer, stock numeric) RETURNS void LANGUAGE plpgsql AS $$
 DECLARE product uuid := 'c4cecebc-3d2d-5840-8021-57a9a11bc673'; point uuid; i integer;
 BEGIN
+    DROP TRIGGER IF EXISTS publish_fixture_insert_error ON orderbook_orders;
     PERFORM matching_fixture_seed('00000000-0000-0000-0000-000000000001',0,200);
     DELETE FROM orderbook_orders;
     UPDATE products SET is_active=true,min_lot_size=200 WHERE id=product;
@@ -40,6 +41,30 @@ CREATE OR REPLACE FUNCTION publish_fixture_change(change text) RETURNS void LANG
     WHEN 'incompatible' THEN UPDATE orderbook_orders SET certification_scheme='REDcert-EU',certifications='["REDcert-EU"]';
     WHEN 'expired' THEN UPDATE orderbook_orders SET expires_at=now()-interval '1 second';
     END CASE;
+END $$;
+
+CREATE OR REPLACE FUNCTION publish_fixture_expiry(at_time timestamptz) RETURNS void LANGUAGE sql AS $$
+    UPDATE orderbook_orders SET expires_at=at_time WHERE side::text='ASK';
+$$;
+
+CREATE OR REPLACE FUNCTION publish_fixture_order_error() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+    RAISE EXCEPTION 'publication insertion unavailable' USING ERRCODE='23514';
+END $$;
+
+CREATE OR REPLACE FUNCTION publish_fixture_key_row(k text, h text) RETURNS uuid LANGUAGE plpgsql AS $$
+DECLARE listing uuid := gen_random_uuid();
+BEGIN
+    INSERT INTO orderbook_orders(id,organization_id,owner_user_id,created_by_actor_user_id,creation_method,provenance,side,product_id,delivery_point_id,quantity_mt,remaining_quantity_mt,price_per_mt_usd,availability_window,status,version,idempotency_key,idempotency_operation,idempotency_request_hash)
+    SELECT listing,i.supplier_id,i.owner_user_id,i.owner_user_id,'SELF_SERVICE',o.provenance,'ASK',p.id,d.id,200,0,100,'SPOT','FILLED',1,k,'inventory.publish',h FROM inventory_items i JOIN organizations o ON o.id=i.supplier_id JOIN products p ON p.name=i.product_name CROSS JOIN delivery_points d WHERE i.id='00000000-0000-0000-0000-000000004000' AND d.name='Rotterdam';
+    RETURN listing;
+END $$;
+
+CREATE OR REPLACE FUNCTION publish_fixture_provenance(kind text) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE target uuid := '00000000-0000-0000-0000-000000009000';
+BEGIN
+    INSERT INTO organizations(id,name,type,verification_status,provenance) VALUES(target,'Publication provenance fixture','FUEL_SUPPLIER','APPROVED',kind);
+    UPDATE users SET organization_id=target,kyc_organization_id=target WHERE id='00000000-0000-0000-0000-000000002001';
+    UPDATE inventory_items SET supplier_id=target;
 END $$;
 
 CREATE OR REPLACE FUNCTION publish_fixture_refuse_effect() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
