@@ -556,8 +556,8 @@ impl MarketCommand for AmendCommand {
                     self.config.kyc_execution_gate_enabled,
                 )
                 .await?;
-            let (mut staged, outcome) = {
-                let staged = tx.amend_port(self, &context)?.run(&order).await?;
+            let (staged, outcome) = {
+                let mut staged = tx.amend_port(self, &context)?.run(&order).await?;
                 let outcome = self.rematch(tx, &order, &mut staged.before).await?;
                 (staged, outcome)
             };
