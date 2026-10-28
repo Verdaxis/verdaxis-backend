@@ -20,10 +20,13 @@ use super::{
 };
 use crate::{
     ApiError, AppState,
-    auth::{CurrentActor, VerificationSettings, verify_authorization},
+    auth::{
+        AuthenticatedError, AuthenticatedRequest, CurrentActor, VerificationSettings,
+        run_authenticated, verify_authorization,
+    },
     business::{
         audit::{AuditFact, append_audit},
-        error::{authentication, refusal},
+        error::{authentication, database_failure, refusal},
         transaction::{
             AttemptError, BusinessCommand, CommandFuture, OrganizationWritePlan,
             run_organization_write,
@@ -59,6 +62,14 @@ impl SubscriptionCommand {
             now,
         }
     }
+}
+
+fn admin_required() -> ApiError {
+    refusal(
+        StatusCode::FORBIDDEN,
+        "ADMIN_REQUIRED",
+        "Administrator access required",
+    )
 }
 
 fn encode(value: impl serde::Serialize) -> Result<Value, AttemptError> {
@@ -101,12 +112,7 @@ impl BusinessCommand for SubscriptionCommand {
         Box::pin(async move {
             if !matches!(self.operation, Operation::Mine) && actor.role.as_deref() != Some("ADMIN")
             {
-                return Err(refusal(
-                    StatusCode::FORBIDDEN,
-                    "ADMIN_REQUIRED",
-                    "Administrator access required",
-                )
-                .into());
+                return Err(admin_required().into());
             }
             let mut truncated = None;
             let body = match &self.operation {
@@ -225,6 +231,44 @@ async fn dispatch(
     Ok(response)
 }
 
+/// Refuses a caller who is not an administrator before any input is parsed:
+/// authentication (401), then role (403), then input validation (422), so an
+/// unauthorized caller learns nothing about its input.
+async fn require_administrator(
+    state: &RouteState,
+    headers: &HeaderMap,
+    route_template: &str,
+) -> Result<(), ApiError> {
+    let access = verify_authorization(
+        headers
+            .get("authorization")
+            .and_then(|value| value.to_str().ok()),
+        &state.verification,
+        Utc::now(),
+    )
+    .map_err(authentication)?;
+    run_authenticated(
+        &state.app,
+        access,
+        AuthenticatedRequest::new("GET", route_template, false),
+        |tx| {
+            Box::pin(async move {
+                if tx.actor().role.as_deref() == Some("ADMIN") {
+                    Ok(())
+                } else {
+                    Err(admin_required())
+                }
+            })
+        },
+    )
+    .await
+    .map_err(|error| match error {
+        AuthenticatedError::Authentication(error) => authentication(error),
+        AuthenticatedError::Database(error) => error,
+        AuthenticatedError::AmbiguousCommit => database_failure(None),
+    })
+}
+
 async fn mine(State(state): State<RouteState>, headers: HeaderMap) -> Result<Response, ApiError> {
     dispatch(state, headers, Operation::Mine).await
 }
@@ -238,6 +282,7 @@ async fn list(
     headers: HeaderMap,
     query: Result<Query<PageQuery>, axum::extract::rejection::QueryRejection>,
 ) -> Result<Response, ApiError> {
+    require_administrator(&state, &headers, "/api/admin/subscriptions").await?;
     let Query(query) = query.map_err(|_| {
         refusal(
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -269,6 +314,7 @@ async fn read(
     headers: HeaderMap,
     Path(org): Path<String>,
 ) -> Result<Response, ApiError> {
+    require_administrator(&state, &headers, "/api/admin/subscriptions/{org_id}").await?;
     dispatch(state, headers, Operation::Get(organization(&org)?)).await
 }
 async fn write(
@@ -277,6 +323,7 @@ async fn write(
     Path(org): Path<String>,
     body: Bytes,
 ) -> Result<Response, ApiError> {
+    require_administrator(&state, &headers, "/api/admin/subscriptions/{org_id}").await?;
     let value = serde_json::from_slice(&body).map_err(|_| {
         refusal(
             StatusCode::UNPROCESSABLE_ENTITY,
