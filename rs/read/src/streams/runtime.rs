@@ -11,6 +11,7 @@ use super::{
     heartbeat::HeartbeatStatus,
     http::Streams,
     policy::{self, StreamPolicy},
+    price_alerts::{self, PriceAlertFeed, PriceAlertSink},
 };
 use crate::AppState;
 
@@ -100,6 +101,7 @@ pub fn ready(state: &AppState) -> bool {
 pub struct StreamRuntime {
     stop: watch::Sender<bool>,
     task: Option<JoinHandle<()>>,
+    alerts: Option<JoinHandle<()>>,
     hub: StreamHub,
 }
 
@@ -109,6 +111,9 @@ impl StreamRuntime {
         self.stop.send_replace(true);
         if let Some(task) = self.task.take() {
             let _ = task.await;
+        }
+        if let Some(alerts) = self.alerts.take() {
+            let _ = alerts.await;
         }
     }
 }
@@ -163,16 +168,20 @@ pub async fn start_streams(
     let task_hub = hub.clone();
     let config = state.config.clone();
     let read = state.pools.read.clone();
-    let initial = initialize(&config, &read, &hub).await;
+    // One evaluator task for the process lifetime. Dispatch cycles come and
+    // go; each one offers executed trades to this same queue.
+    let (alert_feed, alerts) = price_alerts::spawn(read.clone(), stop.subscribe());
+    let initial = initialize(&config, &read, &hub, &alert_feed).await;
     if initial.is_ok() {
         hub.set_available(true, Terminal::Unavailable);
     }
     let task = tokio::spawn(async move {
-        supervise(config, read, task_hub, shutdown, initial).await;
+        supervise(config, read, task_hub, alert_feed, shutdown, initial).await;
     });
     Some(StreamRuntime {
         stop,
         task: Some(task),
+        alerts: Some(alerts),
         hub,
     })
 }
@@ -180,13 +189,18 @@ pub async fn start_streams(
 type Initialized = Result<
     (
         SessionSettings,
-        Dispatch<StreamHub>,
+        Dispatch<PriceAlertSink<StreamHub>>,
         super::election::ElectionSession,
     ),
     (),
 >;
 
-async fn initialize(config: &crate::Config, read: &sqlx::PgPool, hub: &StreamHub) -> Initialized {
+async fn initialize(
+    config: &crate::Config,
+    read: &sqlx::PgPool,
+    hub: &StreamHub,
+    alert_feed: &PriceAlertFeed,
+) -> Initialized {
     if !schema_has_streams(&config.migration_revision) {
         return Err(());
     }
@@ -197,7 +211,8 @@ async fn initialize(config: &crate::Config, read: &sqlx::PgPool, hub: &StreamHub
     .map_err(|_| ())?;
     let settings = SessionSettings::from_config(config).map_err(|_| ())?;
     let mut store = PgDispatchStore::new(read.clone());
-    let dispatch = Dispatch::initialize(&mut store, hub.clone())
+    let sink = PriceAlertSink::new(hub.clone(), alert_feed.clone());
+    let dispatch = Dispatch::initialize(&mut store, sink)
         .await
         .map_err(|_| ())?;
     let session = super::election::ElectionSession::open(&settings)
@@ -222,6 +237,7 @@ async fn supervise(
     config: Arc<crate::Config>,
     read: sqlx::PgPool,
     hub: StreamHub,
+    alert_feed: PriceAlertFeed,
     mut shutdown: watch::Receiver<bool>,
     initial: Initialized,
 ) {
@@ -243,7 +259,7 @@ async fn supervise(
             tokio::select! {
                 biased;
                 () = stopping(&mut shutdown) => return,
-                result = initialize(&config, &read, &hub) => result,
+                result = initialize(&config, &read, &hub, &alert_feed) => result,
             }
         };
         let (settings, mut dispatch, session) = match initialized {
