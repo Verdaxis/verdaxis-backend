@@ -575,6 +575,7 @@ fn peer(mut request: Request<Body>, address: &str) -> Request<Body> {
 
 #[tokio::test]
 async fn cors_covers_every_status_and_denied_origin() {
+    use axum::response::IntoResponse;
     use verdaxis_read::ApiError;
     use verdaxis_read::runtime::http::middleware;
     let app = middleware(

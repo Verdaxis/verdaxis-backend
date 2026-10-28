@@ -188,7 +188,10 @@ fn no_producer_startup() {
     }
     production.extend(files(&root.join("rs/read/sql"), "sql"));
     assert!(production.len() > 50, "the production sources are present");
-    assert!(order_write_effects.is_file(), "the reviewed writer is present");
+    assert!(
+        order_write_effects.is_file(),
+        "the reviewed writer is present"
+    );
 
     let mut startup = vec![
         root.join("rs/read/src/main.rs"),
