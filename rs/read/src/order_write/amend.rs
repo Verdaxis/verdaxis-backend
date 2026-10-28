@@ -496,16 +496,13 @@ impl AmendCommand {
                         }
                     }
                     "certification_scheme" => {
-                        projected.terms.certification_scheme =
-                            value.as_str().map(str::to_owned);
+                        projected.terms.certification_scheme = value.as_str().map(str::to_owned);
                     }
                     "specification_standard" => {
-                        projected.terms.specification_standard =
-                            value.as_str().map(str::to_owned);
+                        projected.terms.specification_standard = value.as_str().map(str::to_owned);
                     }
                     "carbon_intensity_method" => {
-                        projected.terms.carbon_intensity_method =
-                            value.as_str().map(str::to_owned);
+                        projected.terms.carbon_intensity_method = value.as_str().map(str::to_owned);
                     }
                     "carbon_intensity_gco2_mj" => {
                         projected.terms.carbon_intensity_gco2_mj = value
@@ -527,12 +524,10 @@ impl AmendCommand {
                         }
                     }
                     "fame_terms" => {
-                        projected.terms.fame_terms =
-                            (!value.is_null()).then(|| value.clone());
+                        projected.terms.fame_terms = (!value.is_null()).then(|| value.clone());
                     }
                     "lng_terms" => {
-                        projected.terms.lng_terms =
-                            (!value.is_null()).then(|| value.clone());
+                        projected.terms.lng_terms = (!value.is_null()).then(|| value.clone());
                     }
                     _ => {}
                 }
@@ -1554,12 +1549,7 @@ impl<'a> AmendPort<'a> {
         // economic row this port names: the plan keeps candidates open.
         let owned = [command.order];
         let before = EffectPort::new(self.conn, &owned, self.locked)
-            .capture_before(
-                &command.policy,
-                &command.config,
-                &owned,
-                command.now,
-            )
+            .capture_before(&command.policy, &command.config, &owned, command.now)
             .await?;
         let public_before = super::effects::order_visible(
             self.conn,
@@ -1599,5 +1589,4 @@ impl<'a> AmendPort<'a> {
             update,
         })
     }
-
 }
