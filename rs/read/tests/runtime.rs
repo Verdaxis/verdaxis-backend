@@ -126,7 +126,11 @@ fn production_requires_its_exact_database_and_union_checkpoint() {
         config.database_url = config.database_url.replace(from, to);
         assert!(validate_config(&config).is_err());
     }
-    for revision in ["prc_20261026_changes", "p3_20261020_auth_tokens"] {
+    for revision in [
+        "prc_20261026_changes",
+        "p3_20261020_auth_tokens",
+        "sse_20261021_replay_floor",
+    ] {
         base.migration_revision = revision.into();
         assert!(validate_config(&base).is_ok());
     }

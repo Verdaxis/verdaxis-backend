@@ -45,7 +45,7 @@ async fn password_change_requires_trusted_origin_and_quota() {
     for _ in 0..3 {
         state
             .limits
-            .check_endpoint("unknown", "/api/auth/me/password", now)
+            .check_endpoint_by_address("unknown", "/api/auth/me/password", now)
             .unwrap();
     }
     let response = password_change::router(state)

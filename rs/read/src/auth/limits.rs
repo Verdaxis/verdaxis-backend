@@ -144,6 +144,20 @@ impl SharedLimits {
         }
         Ok(())
     }
+}
+
+/// The stream components share the same quota authority as ingress.
+pub type QuotaStores = Phase2Limits;
+
+impl SharedLimits {
+    pub fn check_endpoint_by_address(
+        &self,
+        client: &str,
+        path: &str,
+        now: u64,
+    ) -> Result<(), crate::ApiError> {
+        self.check_address_endpoint(client, path, now)
+    }
 
     /// One lock acquisition that recovers from poisoning instead of
     /// panicking: a caller that panicked under the lock must not take the

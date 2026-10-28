@@ -21,7 +21,9 @@ pub struct Pools {
 
 pub async fn connect(config: &Config) -> Result<Pools, ApiError> {
     validate_config(config).map_err(|_| ApiError::internal())?;
-    if matches!(config.environment.as_str(), "staging" | "production") {
+    if matches!(config.environment.as_str(), "staging" | "production")
+        || config.prepared_budget.is_some()
+    {
         // Trusted runtime preparation supplies this non-secret artifact text:
         // the deploy transaction writes `budget.json` and the unit passes its
         // path, or the harness carries the document in `RUST_CONFIG`. The
@@ -146,10 +148,7 @@ async fn attest(
         .await
         .map_err(|_| ApiError::internal())?;
     validate_budget(
-        config
-            .python_budget
-            .checked_add(config.pool_max)
-            .ok_or_else(ApiError::internal)?,
+        super::config::runtime_connection_total(config).map_err(|_| ApiError::internal())?,
         config.configured_max_connections,
         observed.parse().map_err(|_| ApiError::internal())?,
     )

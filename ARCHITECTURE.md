@@ -72,6 +72,53 @@ The integration owner supplies the real provider adapter and composes the route
 without replacing public routes, health or readiness. No serving route is
 activated by the leaf module.
 
+## Rust stream contract reservations
+
+`tests/rust_contract/phase6/` defines the three stream routes, client control
+contract and required scenario IDs. `docs/rust-phase6/interfaces.md` defines the
+shared auth, replay, hub and runtime seams. `rs/read/src/streams/` and the
+`streams_*` Cargo targets reserve component ownership only; no route or dispatcher
+is activated, and empty targets are not acceptance evidence. Token issuance
+remains authentication-owned; activity remains Python-owned. Watchlist producers
+are not part of this component.
+
+The additive `sse_20261021_replay_floor` migration owns the replay coverage
+singleton, retention ownership singleton, outbox DELETE/TRUNCATE triggers and
+participant-membership GIN index. The app and backup roles can only read the
+new tables. Pruning defaults to blocked and requires an independently authorized
+Rust ownership record. `streams/store.rs` uses short read-only repeatable-read
+snapshots for participant-scoped pages and their coverage boundary, with metadata
+checks before payload decoding. The component remains inactive; no stream route,
+sequencer or prune job is started. Schema/ACL and read-store proofs use
+`tests/postgres/test_phase6_retention.py` and `rs/read/tests/streams_store.rs`.
+
+The typed bus in `streams/bus.rs` owns bounded subscriptions and terminal
+controls; `streams/types.rs` re-exports shared event types. Admission in
+`streams/auth.rs` uses the shared token verifier and bounded read-only database
+transactions. `streams/election.rs` assigns committed outbox rows on one elected
+physical session and retries bounded assignment contention. The cache checkpoint
+remains immediately below the replay-floor migration. These components are not
+started by the serving binary. Watchlist preservation tests keep producer
+activation disabled. The neutral evidence gate in
+`scripts/rust_contract/phase6_evidence.py` binds accepted scenario metadata to
+source tests and host logs; incomplete later-task evidence still refuses acceptance.
+
+Replay now consumes the same validated envelope as live dispatch. Store page limits
+are aliases of the shared stream policy, and metadata is checked before JSON
+is decoded. `PgDispatchStore` reads global pages and the retention boundary in
+one short read-only snapshot. `Replay` remains pull-driven and owns its bounded
+page and registration; terminal-only subscription waits cancel pending reads.
+`streams/http.rs` composes the six canonical/alias GET paths. `streams/runtime.rs`
+starts the scan baseline and attested election session before admission, owns
+bounded supervision and releases its session on shutdown. The prepared
+`stream_listener` budget choice enables this component in the existing binary;
+without it the routes return unavailable. Readiness refuses a failed enabled
+component while REST liveness stays available. Python's complete worker budget,
+the Rust read/readiness pools and each enabled cache/stream listener are counted
+against configured and observed PostgreSQL limits. The production checkpoint pin
+is unchanged; the replay-floor checkpoint is allowlisted for nonproduction.
+No deployment or proxy activation is implied.
+
 ## Rust Phase 2 feedback
 
 Task 8 adds organization verification, explicit membership review and bounded

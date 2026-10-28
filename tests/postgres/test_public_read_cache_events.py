@@ -6,6 +6,7 @@ import os
 import re
 import secrets
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -43,11 +44,22 @@ REVIEWED_EXCLUSIONS = {
     "refresh_sessions": "private session rows of the credential store; never cached",
     "password_reset_tokens": "private reset-token rows of the credential store; never cached",
     "organization_join_requests": "organization-write row locks only; never cached",
+    "watchlist_targets": "private authenticated path; never cached",
+    "watchlist_events": "private authenticated path; never cached",
+    "watchlist_entries": "private authenticated path; never cached",
+    "price_alerts": "private authenticated path; never cached",
+    "user_preferences": "private authenticated path; never cached",
+    "feedback_entries": "private authenticated path; never cached",
+    "market_command_results": "order-write idempotency record; written, never a cached read",
     "audit_logs": "append-only audit rows written inside credential transactions; never cached",
     "pending_registrations": "registration token rows read and written only inside registration transactions; never cached",
     "user_login_days": "login-day upsert inside the login transaction; never cached",
     "user_status_transitions": "status history appended inside registration transactions; never cached",
     "alembic_version": "revision attestation at startup, not a response dependency",
+    "market_event_replay_state": (
+        "migration-owned stream replay barrier; read by the stream runtime, "
+        "never a cached read dependency"
+    ),
     **{table: "cache infrastructure itself" for table in CACHE_TABLES},
 }
 
@@ -205,8 +217,15 @@ async def test_empty_statements_leave_generation_and_events_unchanged(engine, ta
             await transaction.rollback()
         transaction = await connection.begin()
         before = await _generation(connection)
-        await connection.execute(text(f'TRUNCATE public."{table}" CASCADE'))
-        assert await _generation(connection) > before, table
+        if table == "market_event_outbox":
+            # The stream replay floor refuses any outbox truncation outright
+            # (SQLSTATE 42501, proven by its own retention suite). The refusal,
+            # not a generation bump, is the reviewed outcome here.
+            with pytest.raises(Exception, match="truncate is refused"):
+                await connection.execute(text(f'TRUNCATE public."{table}" CASCADE'))
+        else:
+            await connection.execute(text(f'TRUNCATE public."{table}" CASCADE'))
+            assert await _generation(connection) > before, table
         await transaction.rollback()
 
 
@@ -474,7 +493,8 @@ async def test_normal_python_economic_writers_each_advance_the_generation(route_
 def test_rust_listener_uses_migrated_disposable_database(analytics_pg_url):
     root = ROOT
     environment = {**os.environ, "PUBLIC_CACHE_TEST_DATABASE_URL": analytics_pg_url.replace("postgresql+asyncpg://", "postgres://"),
-                   "RELEASE_SHA": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip(), "SQLX_OFFLINE": "true"}
+                   "RELEASE_SHA": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip(),
+                   "RUST_TEST_PYTHON": sys.executable, "SQLX_OFFLINE": "true"}
     subprocess.run(["cargo", "test", "--manifest-path", "rs/Cargo.toml", "-p", "verdaxis-read", "--test", "cache_events_postgres"],
                    cwd=root, env=environment, check=True, timeout=900)
 
@@ -499,6 +519,7 @@ def test_rust_trading_cache_needs_every_authority_and_generation(
         "RELEASE_SHA": subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
         ).strip(),
+        "RUST_TEST_PYTHON": sys.executable,
         "SQLX_OFFLINE": "true",
     }
     subprocess.run(
@@ -535,6 +556,7 @@ async def test_rust_public_route_cache_schedules(route_market, market_pg_url):
         **os.environ,
         "ROUTE_CACHE_TEST_DATABASE_URL": market_pg_url.replace("postgresql+asyncpg://", "postgres://", 1),
         "RELEASE_SHA": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
+        "RUST_TEST_PYTHON": sys.executable,
         "SQLX_OFFLINE": "true",
     }
     subprocess.run(

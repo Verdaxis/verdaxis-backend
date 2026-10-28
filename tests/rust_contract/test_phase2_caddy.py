@@ -17,6 +17,7 @@ import pathlib
 import shutil
 import socket
 import subprocess
+import sys
 import threading
 import time
 
@@ -289,7 +290,8 @@ def test_trusted_proxy_preserves_client_for_gate_and_owner(tmp_path, feedback_ow
 
 def test_real_rust_authority_stops_mixed_caddy_at_301(tmp_path):
     environment = {**os.environ, "RELEASE_SHA": subprocess.check_output(
-        ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(), "SQLX_OFFLINE": "true"}
+        ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
+    "RUST_TEST_PYTHON": sys.executable, "SQLX_OFFLINE": "true"}
     subprocess.run([
         "cargo", "build", "--manifest-path", "rs/Cargo.toml", "--locked",
         "-p", "verdaxis-read", "--features", "contract-tests", "--example", "preauth_server",

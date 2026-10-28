@@ -13,6 +13,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 from uuid import uuid4
 
@@ -157,7 +158,8 @@ def test_device_lock_key_matches_python():
 def test_phase3_migration_has_one_head_and_direct_parent():
     script = _script()
     assert PARENT == RECORD["observed_single_head_at_task_start"]
-    assert script.get_heads() == [REVISION]
+    assert script.get_heads() == ["sse_20261021_replay_floor"]
+    assert script.get_revision("sse_20261021_replay_floor").down_revision == REVISION
     revision = script.get_revision(REVISION)
     assert revision.down_revision == PARENT
     assert revision.module.branch_labels is None
@@ -210,7 +212,7 @@ async def test_phase3_migration_is_additive_and_reversible(migration_database):
     policy = module.parse_checkpoint_policy(
         (ROOT / "deploy/migration-checkpoints.tsv").read_text()
     )
-    rows = {tuple(row) for row in RECORD["checkpoint_rows"]}
+    rows = {tuple(row) for row in RECORD["checkpoint_rows"]} | {(REVISION, "sse_20261021_replay_floor")}
     assert {row for row in policy if REVISION in row} == rows
     script = _script()
     path = [revision.revision for revision in script.iterate_revisions(REVISION, PARENT)]
@@ -337,6 +339,7 @@ def rust_store_run(analytics_pg_url):
         "RELEASE_SHA": subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
         ).strip(),
+        "RUST_TEST_PYTHON": sys.executable,
         "SQLX_OFFLINE": "true",
     }
     return subprocess.run(

@@ -97,7 +97,6 @@ async fn stream_token_uses_current_bearer_actor() {
         .unwrap();
     let config = Config {
         kyc_execution_gate_enabled: true,
-        phase2: Default::default(),
         environment: "test".into(),
         release_sha: verdaxis_read::compiled_sha().into(),
         migration_revision: "kycg_20261014_staging".into(),
@@ -109,6 +108,7 @@ async fn stream_token_uses_current_bearer_actor() {
         pool_max: 3,
         python_budget: 52,
         configured_max_connections: 100,
+        phase2: Default::default(),
     };
     let pools = verdaxis_read::connect(&config).await.unwrap();
     let state = AppState::new(

@@ -6,7 +6,7 @@ use tower::ServiceExt;
 use uuid::Uuid;
 use verdaxis_read::{Config, compiled_sha, connect, kyc::keyring::KeyRing};
 
-const REVISION: &str = "p3_20261020_auth_tokens";
+const REVISION: &str = "sse_20261021_replay_floor";
 const APP_ROLE: &str = "verdaxis_app_staging";
 const MIGRATOR_ROLE: &str = "verdaxis_migrator_staging";
 

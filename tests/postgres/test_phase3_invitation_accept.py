@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 from tests.postgres.conftest import analytics_pg_url  # noqa: F401
@@ -40,6 +41,7 @@ def test_phase3_invitation_accept(analytics_pg_url):
         "RELEASE_SHA": subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
         ).strip(),
+        "RUST_TEST_PYTHON": sys.executable,
     }
     run = subprocess.run(
         [

@@ -54,12 +54,56 @@ required-features = ["contract-tests"]
 name = "watchlist_server"
 required-features = ["contract-tests"]
 
+# Reserved stream component targets; populated evidence is required separately.
+[[test]]
+name = "streams_store"
+required-features = ["contract-tests"]
+
+[[test]]
+name = "streams_bus"
+required-features = ["contract-tests"]
+
+[[test]]
+name = "streams_auth"
+required-features = ["contract-tests"]
+
+[[test]]
+name = "streams_election"
+required-features = ["contract-tests"]
+
+[[test]]
+name = "streams_dispatch"
+required-features = ["contract-tests"]
+
+[[test]]
+name = "streams_replay"
+required-features = ["contract-tests"]
+
+[[test]]
+name = "streams_http"
+required-features = ["contract-tests"]
+
+[[test]]
+name = "streams_runtime"
+required-features = ["contract-tests"]
+
+[[test]]
+name = "streams_watchlist_guard"
+
 [[example]]
 name = "phase3_auth"
 required-features = ["contract-tests"]
 
 [[example]]
 name = "preauth_server"
+required-features = ["contract-tests"]
+
+[[test]]
+name = "streams_coexistence"
+required-features = ["contract-tests"]
+
+[[example]]
+name = "streams_fixture"
 required-features = ["contract-tests"]
 
 [features]
@@ -102,7 +146,7 @@ rust_decimal = "1.43.0"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order", "arbitrary_precision"] }
 sha2 = "0.11.1"
-sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "postgres", "rust_decimal", "chrono", "uuid", "macros"] }
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "postgres", "rust_decimal", "chrono", "uuid", "macros", "json"] }
 tokio = { version = "1.53.3", features = ["full"] }
 tower = { version = "0.5.3", features = ["util"] }
 tower-http = { version = "0.7.1", features = ["cors"] }

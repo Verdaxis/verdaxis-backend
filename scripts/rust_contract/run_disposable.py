@@ -343,7 +343,7 @@ CREATE EXTENSION IF NOT EXISTS postgis;
         subprocess.run(
             self.build_command(),
             cwd=ROOT,
-            env={**os.environ, "RELEASE_SHA": self.sha},
+            env={**os.environ, "RELEASE_SHA": self.sha, "RUST_TEST_PYTHON": sys.executable},
             check=True,
         )
         if self.rust_target == "all":
@@ -409,6 +409,9 @@ CREATE EXTENSION IF NOT EXISTS postgis;
             "JWT_SECRET": "test-secret-key-for-testing-minimum-32-chars",
             "DISPOSABLE_TEST_TOKEN": self.token,
             "RUST_CONTRACT_CLOCK": CORPUS_CLOCK,
+            # Rust cases that start Python use the interpreter that runs this
+            # harness, so a workflow venv and a test host agree.
+            "RUST_TEST_PYTHON": sys.executable,
             "KYC_EXECUTION_GATE_ENABLED": str(self.gate).lower(),
             "RUST_CORPUS_MANIFEST": str(ROOT / "work/rust-phase1/task4b-fixtures.json"),
             **self.urls(port),

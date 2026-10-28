@@ -227,7 +227,10 @@ def project_runtime_environment(
         raise RustRuntimeError("the deployed .env must define ENVIRONMENT and RELEASE_SHA")
     environment = policy["environment"]
     if environment == "production" and migration_revision not in {
-        "p0_20261016_union", "prc_20261026_changes", "p3_20261020_auth_tokens",
+        "p0_20261016_union",
+        "prc_20261026_changes",
+        "p3_20261020_auth_tokens",
+        "sse_20261021_replay_floor",
     }:
         raise RustRuntimeError("production requires its reviewed union checkpoint")
     if values["ENVIRONMENT"] != environment or values["RELEASE_SHA"] != release_sha:
