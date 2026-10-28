@@ -1,6 +1,6 @@
 use serde_json::json;
 use uuid::Uuid;
-use verdaxis_read::order_write::trade_lifecycle::{lifecycle_hash, LifecycleAction};
+use verdaxis_read::market_lifecycle::{LifecycleAction, lifecycle_hash};
 
 #[test]
 fn lifecycle_receipts_bind_the_operation_and_trade() {
@@ -23,7 +23,7 @@ fn lifecycle_receipts_bind_the_operation_and_trade() {
 
 #[test]
 fn recorded_viewer_keeps_pending_supplier_details_separate_from_handoff() {
-    use verdaxis_read::order_write::trades::project_trade;
+    use verdaxis_read::market_trades::project_trade;
     let buyer = Uuid::from_u128(1);
     let seller = Uuid::from_u128(2);
     let row = json!({"buyer_id":buyer,"seller_id":seller,"status":"DECLINED","is_anonymous":true,"commission_fee_per_mt_usd":"2","commission_plan":"FREE"});
