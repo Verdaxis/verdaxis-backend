@@ -47,6 +47,17 @@ pub fn verify_authorization(
     settings: &VerificationSettings,
     now: DateTime<Utc>,
 ) -> Result<VerifiedAccess, AuthError> {
+    verify_authorization_with_token(authorization, settings, now).map(|(access, _)| access)
+}
+
+/// Verify the header and also return the exact token bytes checked, so a
+/// caller that keys a quota bucket on the token uses the verifier's own
+/// normalization instead of re-parsing the header.
+pub fn verify_authorization_with_token(
+    authorization: Option<&str>,
+    settings: &VerificationSettings,
+    now: DateTime<Utc>,
+) -> Result<(VerifiedAccess, String), AuthError> {
     let (scheme, token) = authorization
         .unwrap_or("")
         .split_once(' ')
@@ -54,7 +65,9 @@ pub fn verify_authorization(
     if !scheme.eq_ignore_ascii_case("bearer") {
         return Err(AuthError::MissingBearer);
     }
-    verify_access(token.trim_start_matches(' '), settings, now)
+    let token = token.trim_start_matches(' ').to_owned();
+    let access = verify_access(&token, settings, now)?;
+    Ok((access, token))
 }
 
 /// The token types the shared verifier checks. A caller names the one it

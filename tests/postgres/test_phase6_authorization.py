@@ -10,6 +10,7 @@ and reported its coverage lines.
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 from uuid import uuid4
 
@@ -83,6 +84,7 @@ async def test_stream_admission_reads_current_account_and_organization(
         "RELEASE_SHA": subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
         ).strip(),
+        "RUST_TEST_PYTHON": sys.executable,
         "SQLX_OFFLINE": "true",
         "STREAM_AUTH_TEST_DATABASE_URL": _sqlx_url(os.environ["DATABASE_URL"]),
         "STREAM_AUTH_TEST_LOCK_DATABASE_URL": _sqlx_url(analytics_pg_url),

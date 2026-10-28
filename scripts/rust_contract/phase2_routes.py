@@ -29,6 +29,20 @@ from scripts.rust_contract.phase2_seed import (
 from scripts.rust_contract.phase2_state import compare_state, validate_cells
 
 
+def rust_example_path(root: Path, name: str) -> Path:
+    """Resolve a built `examples/` binary, honoring `CARGO_TARGET_DIR`.
+
+    A CI run or a test host may build into a target directory other than the
+    default `rs/target` (the hosts share one build folder per phase).  The
+    build commands go through plain cargo, which reads the same variable, so
+    this is the single place the server paths follow the build location.
+    """
+    target = Path(os.environ.get("CARGO_TARGET_DIR", root / "rs" / "target"))
+    if not target.is_absolute():
+        target = root / target
+    return target / "debug" / "examples" / name
+
+
 @dataclass
 class Context:
     root: Path
@@ -38,6 +52,10 @@ class Context:
     mail: MailStub | None = None
     race_databases: tuple[str, str] = ()
     size: object | None = None
+
+    def rust_example(self, name: str) -> Path:
+        """The `rs` example binary this run's build produced (see above)."""
+        return rust_example_path(self.root, name)
 
 
 def race_selection(selected, enabled):

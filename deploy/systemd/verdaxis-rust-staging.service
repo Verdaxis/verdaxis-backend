@@ -8,6 +8,9 @@ StartLimitIntervalSec=60
 StartLimitBurst=5
 
 [Service]
+# Empty fallback keeps optional evidence storage independent of readiness.
+SetCredential=kyc-document-keys:
+LoadCredential=kyc-document-keys:/etc/verdaxis/kyc-document-keys-staging.json
 Type=simple
 User=verdaxis-prod
 Group=verdaxis-prod

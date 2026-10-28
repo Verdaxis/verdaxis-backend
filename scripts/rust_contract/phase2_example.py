@@ -16,7 +16,7 @@ def example_scenario():
 
     def servers(context):
         return [Server((context.python_bin, "-m", "scripts.rust_contract.phase2_oracle", "--port", "{port}")),
-                Server((str(context.root / "rs/target/debug/examples/phase2_transport"),))]
+                Server((str(context.rust_example("phase2_transport")),))]
 
     def make_action(name, number, fault="none"):
         return Action(name=name, route_id="N02", method="POST", path="/__contract__/phase2/write",

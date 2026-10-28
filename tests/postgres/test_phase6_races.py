@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 from uuid import uuid4
 
@@ -83,6 +84,7 @@ async def test_three_runtime_restart_cycles(analytics_pg_url):
          "--features", "contract-tests", "--test", "streams_coexistence", "--", "--ignored", "--nocapture"],
         cwd=Path(__file__).resolve().parents[2],
         env={**os.environ, "RELEASE_SHA": _release_sha(),
+        "RUST_TEST_PYTHON": sys.executable,
              "STREAM_RUNTIME_APP_URL": os.environ["DATABASE_URL"].replace("postgresql+asyncpg", "postgresql"),
              "STREAM_RUNTIME_ADMIN_URL": os.environ["POSTGRES_ADMIN_TEST_DATABASE_URL"].replace("postgresql+asyncpg", "postgresql")},
         capture_output=True, text=True, timeout=300, check=False,

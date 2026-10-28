@@ -5,6 +5,7 @@ import asyncio
 import multiprocessing
 import os
 import subprocess
+import sys
 from pathlib import Path
 from uuid import uuid4
 
@@ -40,7 +41,8 @@ def stream_fixture_binary():
     ).strip()
     result = subprocess.run(["cargo", "build", "--manifest-path", "rs/Cargo.toml", "--locked",
         "-p", "verdaxis-read", "--features", "contract-tests", "--example", "streams_fixture"],
-        cwd=ROOT, env={**os.environ, "RELEASE_SHA": release_sha},
+        cwd=ROOT, env={**os.environ, "RELEASE_SHA": release_sha,
+                       "RUST_TEST_PYTHON": sys.executable},
         capture_output=True, text=True, timeout=1800, check=False)
     assert result.returncode == 0, result.stdout + result.stderr
 

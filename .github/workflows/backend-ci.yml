@@ -111,8 +111,9 @@ jobs:
         run: |
           python -m venv venv
           # Rust tests that start Python use this interpreter (RUST_TEST_PYTHON).
+          echo "$PWD/venv/bin" >> "$GITHUB_PATH"
           echo "RUST_TEST_PYTHON=$PWD/venv/bin/python" >> "$GITHUB_ENV"
-          venv/bin/python -m pip install --upgrade pip
+          "$PWD/venv/bin/python" -m pip install --upgrade pip
           venv/bin/pip install -r requirements.txt -c constraints.txt
 
       - name: Run Phase 0 PostgreSQL correctness tests

@@ -13,6 +13,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 from uuid import uuid4
 
@@ -338,6 +339,7 @@ def rust_store_run(analytics_pg_url):
         "RELEASE_SHA": subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
         ).strip(),
+        "RUST_TEST_PYTHON": sys.executable,
         "SQLX_OFFLINE": "true",
     }
     return subprocess.run(

@@ -4,6 +4,7 @@ import copy
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -43,7 +44,7 @@ async def prepare_cli(case, tmp_path, *, receipt_failure=False):
 
 
 async def run_cli(tmp_path, *extra):
-    command = [str(ROOT / 'venv/bin/python'), '-m', 'scripts.phase0.verify',
+    command = [sys.executable, '-m', 'scripts.phase0.verify',
                '--manifest', str(tmp_path / 'verify.json'),
                '--source-environment-file', str(tmp_path / 'verify-source.env'),
                '--target-environment-file', str(tmp_path / 'verify-target.env'),
@@ -107,6 +108,6 @@ async def test_verify_cli_refuses_corruption(copy_case, tmp_path, fault):
 
 
 def test_verify_cli_requires_inputs(tmp_path):
-    result = subprocess.run([str(ROOT / 'venv/bin/python'), '-m', 'scripts.phase0.verify'],
+    result = subprocess.run([sys.executable, '-m', 'scripts.phase0.verify'],
                             cwd=ROOT, capture_output=True, text=True)
     assert result.returncode != 0

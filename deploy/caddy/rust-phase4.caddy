@@ -1,0 +1,297 @@
+# One exact-method/path switch for the business area.
+(verdaxis_rust_phase4) {
+    @phase4_0 {
+        method GET
+        path_regexp phase4_0 ^/api/auth/me$
+    }
+    handle @phase4_0 {
+        reverse_proxy {args[0]}
+    }
+    @phase4_1 {
+        method PUT
+        path_regexp phase4_1 ^/api/auth/me$
+    }
+    handle @phase4_1 {
+        reverse_proxy {args[0]}
+    }
+    @phase4_2 {
+        method POST
+        path_regexp phase4_2 ^/api/auth/survey$
+    }
+    handle @phase4_2 {
+        reverse_proxy {args[0]}
+    }
+    @phase4_3 {
+        method GET
+        path_regexp phase4_3 ^/api/auth/admin/invitations/organizations$
+    }
+    handle @phase4_3 {
+        reverse_proxy {args[0]}
+    }
+    @phase4_4 {
+        method POST
+        path_regexp phase4_4 ^/api/auth/admin/invitations$
+    }
+    handle @phase4_4 {
+        reverse_proxy {args[0]}
+    }
+    @phase4_5 {
+        method POST
+        path_regexp phase4_5 ^/api/auth/invitations/resolve$
+    }
+    handle @phase4_5 {
+        reverse_proxy {args[0]}
+    }
+    @phase4_6 {
+        method PUT
+        path_regexp phase4_6 ^/api/auth/approve/[^/]+$
+    }
+    handle @phase4_6 {
+        reverse_proxy {args[0]}
+    }
+    @phase4_7 {
+        method PUT
+        path_regexp phase4_7 ^/api/auth/reject/[^/]+$
+    }
+    handle @phase4_7 {
+        reverse_proxy {args[0]}
+    }
+    @phase4_8 {
+        method PUT
+        path_regexp phase4_8 ^/api/auth/organization/[^/]+/approve$
+    }
+    handle @phase4_8 {
+        reverse_proxy {args[0]}
+    }
+    @phase4_9 {
+        method PUT
+        path_regexp phase4_9 ^/api/auth/organization/[^/]+/reject$
+    }
+    handle @phase4_9 {
+        reverse_proxy {args[0]}
+    }
+    @phase4_10 {
+        method GET
+        path_regexp phase4_10 ^/api/auth/admin/review-queue$
+    }
+    handle @phase4_10 {
+        reverse_proxy {args[0]}
+    }
+    @phase4_11 {
+        method GET
+        path_regexp phase4_11 ^/api/auth/admin/review-queue/[^/]+$
+    }
+    handle @phase4_11 {
+        reverse_proxy {args[0]}
+    }
+    @phase4_12 {
+        method GET
+        path_regexp phase4_12 ^/api/auth/organization-joins$
+    }
+    handle @phase4_12 {
+        reverse_proxy {args[0]}
+    }
+    @phase4_13 {
+        method PUT
+        path_regexp phase4_13 ^/api/auth/organization-joins/[^/]+/approve$
+    }
+    handle @phase4_13 {
+        reverse_proxy {args[0]}
+    }
+    @phase4_14 {
+        method PUT
+        path_regexp phase4_14 ^/api/auth/organization-joins/[^/]+/reject$
+    }
+    handle @phase4_14 {
+        reverse_proxy {args[0]}
+    }
+    @phase4_15 {
+        method POST
+        path_regexp phase4_15 ^/api/kyc/submit$
+    }
+    handle @phase4_15 {
+        reverse_proxy {args[0]}
+    }
+    @phase4_16 {
+        method GET
+        path_regexp phase4_16 ^/api/kyc/status$
+    }
+    handle @phase4_16 {
+        reverse_proxy {args[0]}
+    }
+    @phase4_17 {
+        method GET
+        path_regexp phase4_17 ^/api/kyc/admin/[^/]+/documents$
+    }
+    handle @phase4_17 {
+        reverse_proxy {args[0]}
+    }
+    @phase4_18 {
+        method GET
+        path_regexp phase4_18 ^/api/kyc/admin/documents/[^/]+$
+    }
+    handle @phase4_18 {
+        reverse_proxy {args[0]}
+    }
+    @phase4_19 {
+        method PUT
+        path_regexp phase4_19 ^/api/kyc/admin/[^/]+/approve$
+    }
+    handle @phase4_19 {
+        reverse_proxy {args[0]}
+    }
+    @phase4_20 {
+        method PUT
+        path_regexp phase4_20 ^/api/kyc/admin/[^/]+/reject$
+    }
+    handle @phase4_20 {
+        reverse_proxy {args[0]}
+    }
+    @phase4_21 {
+        method PUT
+        path_regexp phase4_21 ^/api/admin/analytics/users/[^/]+/reject$
+    }
+    handle @phase4_21 {
+        reverse_proxy {args[0]}
+    }
+    @phase4_22 {
+        method GET
+        path_regexp phase4_22 ^/api/admin/onboarding-attention$
+    }
+    handle @phase4_22 {
+        reverse_proxy {args[0]}
+    }
+    @phase4_23 {
+        method GET
+        path_regexp phase4_23 ^/api/admin/audit-logs$
+    }
+    handle @phase4_23 {
+        reverse_proxy {args[0]}
+    }
+    @phase4_24 {
+        method GET
+        path_regexp phase4_24 ^/api/vessels$
+    }
+    handle @phase4_24 {
+        reverse_proxy {args[0]}
+    }
+    @phase4_25 {
+        method GET
+        path_regexp phase4_25 ^/api/vessels/[^/]+$
+    }
+    handle @phase4_25 {
+        reverse_proxy {args[0]}
+    }
+    @phase4_26 {
+        method GET
+        path_regexp phase4_26 ^/api/subscriptions/fees$
+    }
+    handle @phase4_26 {
+        reverse_proxy {args[0]}
+    }
+    @phase4_27 {
+        method GET
+        path_regexp phase4_27 ^/api/subscriptions/me$
+    }
+    handle @phase4_27 {
+        reverse_proxy {args[0]}
+    }
+    @phase4_28 {
+        method GET
+        path_regexp phase4_28 ^/api/admin/subscriptions$
+    }
+    handle @phase4_28 {
+        reverse_proxy {args[0]}
+    }
+    @phase4_29 {
+        method GET
+        path_regexp phase4_29 ^/api/admin/subscriptions/[^/]+$
+    }
+    handle @phase4_29 {
+        reverse_proxy {args[0]}
+    }
+    @phase4_30 {
+        method PUT
+        path_regexp phase4_30 ^/api/admin/subscriptions/[^/]+$
+    }
+    handle @phase4_30 {
+        reverse_proxy {args[0]}
+    }
+    @phase4_31 {
+        method GET
+        path_regexp phase4_31 ^/api/admin/analytics/product-usage$
+    }
+    handle @phase4_31 {
+        reverse_proxy {args[0]}
+    }
+    @phase4_32 {
+        method GET
+        path_regexp phase4_32 ^/api/admin/analytics/overview$
+    }
+    handle @phase4_32 {
+        reverse_proxy {args[0]}
+    }
+    @phase4_33 {
+        method GET
+        path_regexp phase4_33 ^/api/admin/analytics/daily$
+    }
+    handle @phase4_33 {
+        reverse_proxy {args[0]}
+    }
+    @phase4_34 {
+        method GET
+        path_regexp phase4_34 ^/api/admin/analytics/users$
+    }
+    handle @phase4_34 {
+        reverse_proxy {args[0]}
+    }
+    @phase4_35 {
+        method GET
+        path_regexp phase4_35 ^/api/admin/analytics/product-analytics/overview$
+    }
+    handle @phase4_35 {
+        reverse_proxy {args[0]}
+    }
+    @phase4_36 {
+        method GET
+        path_regexp phase4_36 ^/api/admin/analytics/product-analytics/acquisition$
+    }
+    handle @phase4_36 {
+        reverse_proxy {args[0]}
+    }
+    @phase4_37 {
+        method GET
+        path_regexp phase4_37 ^/api/admin/analytics/product-analytics/activation$
+    }
+    handle @phase4_37 {
+        reverse_proxy {args[0]}
+    }
+    @phase4_38 {
+        method GET
+        path_regexp phase4_38 ^/api/admin/analytics/product-analytics/engagement$
+    }
+    handle @phase4_38 {
+        reverse_proxy {args[0]}
+    }
+    @phase4_39 {
+        method GET
+        path_regexp phase4_39 ^/api/admin/analytics/product-analytics/marketplace$
+    }
+    handle @phase4_39 {
+        reverse_proxy {args[0]}
+    }
+    @phase4_40 {
+        method GET
+        path_regexp phase4_40 ^/api/admin/analytics/product-analytics/retention$
+    }
+    handle @phase4_40 {
+        reverse_proxy {args[0]}
+    }
+    @phase4_41 {
+        method GET
+        path_regexp phase4_41 ^/api/admin/analytics/product-analytics/reliability$
+    }
+    handle @phase4_41 {
+        reverse_proxy {args[0]}
+    }
+}

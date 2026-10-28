@@ -172,15 +172,26 @@ fn source_rules_reject_each_forbidden_form() {
 /// No Rust source can start a watchlist event producer: no production
 /// statement adds watchlist event rows, and the serving entry point and its
 /// runtime composition do not name the watchlist event table.
+///
+/// The one reviewed writer is the order-write boundary's own effect module
+/// (`rs/read/src/order_write/events.rs`). It records the same withdrawal and
+/// price rows the Python order service writes, inside the caller's order
+/// transaction, and it starts no producer; the boundary scanner names that
+/// file and its exact insert targets. Every other source stays refused.
 #[test]
 fn no_producer_startup() {
     let root = repository_root();
+    let order_write_effects = root.join("rs/read/src/order_write/events.rs");
     let mut production = Vec::new();
     for directory in ["rs/read/src", "rs/contract/src"] {
         production.extend(files(&root.join(directory), "rs"));
     }
     production.extend(files(&root.join("rs/read/sql"), "sql"));
     assert!(production.len() > 50, "the production sources are present");
+    assert!(
+        order_write_effects.is_file(),
+        "the reviewed writer is present"
+    );
 
     let mut startup = vec![
         root.join("rs/read/src/main.rs"),
@@ -190,6 +201,9 @@ fn no_producer_startup() {
 
     let mut violations = Vec::new();
     for path in &production {
+        if path == &order_write_effects {
+            continue;
+        }
         if inserts_watchlist_events(&source_text(path)) {
             violations.push(format!("{}: adds watchlist event rows", path.display()));
         }

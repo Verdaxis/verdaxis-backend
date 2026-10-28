@@ -89,10 +89,10 @@ async fn credential_operations_reach_their_admission_boundary() {
             );
         }
     }
-    for path in [
-        "/api/auth/me",
-        "/api/auth/invitations/resolve",
-        "/api/auth/survey",
+    for (path, expected) in [
+        ("/api/auth/me", 405),
+        ("/api/auth/invitations/resolve", 422),
+        ("/api/auth/survey", 401),
     ] {
         let response = app
             .clone()
@@ -105,7 +105,7 @@ async fn credential_operations_reach_their_admission_boundary() {
             )
             .await
             .unwrap();
-        assert_eq!(response.status(), 404, "{path}");
+        assert_eq!(response.status(), expected, "{path}");
     }
 }
 

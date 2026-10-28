@@ -16,6 +16,24 @@ required-features = ["contract-tests"]
 name = "market_contract_postgres"
 required-features = ["contract-tests"]
 
+# Phase 4 Task 13: three offline cases run in every workspace test; the
+# PostgreSQL cases inside the file are feature-gated by contract-tests.
+[[test]]
+name = "phase4_subscriptions"
+path = "tests/phase4_subscriptions.rs"
+
+# Phase 4 Task 21: the integrated race suite; its PostgreSQL cases are
+# feature-gated by contract-tests.
+[[test]]
+name = "phase4_races"
+path = "tests/phase4_races.rs"
+required-features = ["contract-tests"]
+
+[[test]]
+name = "phase4_db_authority"
+path = "tests/phase4_db_authority.rs"
+required-features = ["contract-tests"]
+
 [[test]]
 name = "meaning_curve_queries"
 required-features = ["contract-tests"]
@@ -91,10 +109,17 @@ required-features = ["contract-tests"]
 [features]
 contract-tests = []
 
+[[test]]
+name = "phase4_analytics_policy"
+
 [dev-dependencies]
 verdaxis-contract = { path = "../contract" }
 
 [dependencies]
+aes-gcm = { version = "=0.11.1", features = ["zeroize"] }
+multer = "=3.1.0"
+zeroize = "=1.9.1"
+icu_casemap = "=2.3.0"
 # Phase 2 Task 19: bounded invite provider and EmailStr NFC normalization (start)
 reqwest = { version = "=0.13.5", features = ["json"] }
 unicode-normalization = "=0.1.25"

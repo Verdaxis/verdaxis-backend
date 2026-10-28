@@ -14,6 +14,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 from urllib.parse import urlsplit
 from uuid import uuid4
@@ -149,6 +150,7 @@ async def test_rust_watchlist_guard_component(pg_session, analytics_pg_url):
         "RELEASE_SHA": subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
         ).strip(),
+        "RUST_TEST_PYTHON": sys.executable,
         "SQLX_OFFLINE": "true",
         "WATCHLIST_GUARD_APP_URL": app_url,
         "WATCHLIST_GUARD_FIXTURE_URL": fixture_url,

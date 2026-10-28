@@ -1,0 +1,1 @@
+INSERT INTO orderbook_orders(id,organization_id,product_id,provenance,side,quantity_mt,remaining_quantity_mt,price_per_mt_usd,availability_window,status) VALUES($1,$2,$3,'UNKNOWN','BID',10,CASE WHEN $4='OPEN' THEN 10 ELSE 0 END,500,'SPOT',$4)

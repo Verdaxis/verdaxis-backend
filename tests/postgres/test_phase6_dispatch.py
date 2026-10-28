@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -52,6 +53,7 @@ def test_committed_dispatch_visibility(analytics_pg_url):
             **os.environ,
             "SQLX_OFFLINE": "true",
             "RELEASE_SHA": _release_sha(),
+            "RUST_TEST_PYTHON": sys.executable,
             "STREAM_DISPATCH_APP_URL": app_url.replace(
                 "postgresql+asyncpg://", "postgresql://", 1
             ),
@@ -77,6 +79,7 @@ def test_retention_snapshot_resets_existing_subscribers(analytics_pg_url):
         cwd=ROOT,
         env={**os.environ, "SQLX_OFFLINE": "true",
              "RELEASE_SHA": _release_sha(),
+             "RUST_TEST_PYTHON": sys.executable,
              "STREAM_DISPATCH_APP_URL": os.environ["DATABASE_URL"].replace(
                  "postgresql+asyncpg://", "postgresql://", 1),
              "STREAM_DISPATCH_OWNER_URL": analytics_pg_url.replace(
@@ -102,6 +105,7 @@ def test_legacy_byte_budget(analytics_pg_url, case):
          "streams_dispatch", f"postgres::{case}", "--", "--exact", "--ignored", "--test-threads=1"],
         cwd=ROOT, env={**os.environ, "SQLX_OFFLINE": "true",
             "RELEASE_SHA": _release_sha(),
+            "RUST_TEST_PYTHON": sys.executable,
             "STREAM_DISPATCH_APP_URL": os.environ["DATABASE_URL"].replace("postgresql+asyncpg://", "postgresql://", 1),
             "STREAM_DISPATCH_OWNER_URL": analytics_pg_url.replace("postgresql+asyncpg://", "postgresql://", 1)},
         capture_output=True, text=True, timeout=1800, check=False,

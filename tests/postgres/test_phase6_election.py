@@ -13,6 +13,7 @@ import asyncio
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -68,6 +69,7 @@ def _cargo(*selection: str, extra_env: dict[str, str] | None = None) -> set[str]
         "RELEASE_SHA": subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
         ).strip(),
+        "RUST_TEST_PYTHON": sys.executable,
         "SQLX_OFFLINE": "true",
         "STREAM_ELECTION_APP_URL": _app_url().replace(
             "postgresql+asyncpg://", "postgresql://", 1

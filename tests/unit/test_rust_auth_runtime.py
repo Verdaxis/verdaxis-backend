@@ -51,3 +51,28 @@ def test_auth_checkpoint_is_projected_for_the_exact_release(tmp_path, environmen
     domain_file = tmp_path / "prepared/auth-domains.json"
     assert json.loads(domain_file.read_text())["public"]
     assert domain_file.stat().st_mode & 0o777 == 0o600
+
+
+def test_umami_settings_come_from_the_optional_analytics_file(tmp_path):
+    sha = "b" * 40
+    settings = {**values(), "ENVIRONMENT": "staging", "RELEASE_SHA": sha,
+                "DATABASE_URL": "postgresql://verdaxis_app_staging:disposable@127.0.0.1:5432/verdaxis_staging"}
+    source = tmp_path / ".env"
+    source.write_text("".join(f"{key}={value}\n" for key, value in settings.items()))
+    policy = runtime.load_policy(ROOT, "staging")
+    # Without the second file the aggregate provider stays off.
+    projected = runtime.project_runtime_environment(source, sha, "sse_20261021_replay_floor", policy)
+    assert projected["UMAMI_ENABLED"] == "false"
+    # The deployed Python unit reads Umami settings from .env.analytics next to .env.
+    analytics = {"UMAMI_BASE_URL": "http://127.0.0.1:8700", "UMAMI_WEBSITE_ID": "website-id",
+                 "UMAMI_API_USERNAME": "reader", "UMAMI_API_PASSWORD": "disposable-reader"}
+    (tmp_path / ".env.analytics").write_text("".join(f"{key}={value}\n" for key, value in analytics.items()))
+    projected = runtime.project_runtime_environment(source, sha, "sse_20261021_replay_floor", policy)
+    assert projected["UMAMI_ENABLED"] == "true"
+    assert {key: projected[key] for key in analytics} == analytics
+    # A link in place of the file is refused, as for .env itself.
+    (tmp_path / ".env.analytics").unlink()
+    (tmp_path / "elsewhere.env").write_text("UMAMI_BASE_URL=http://127.0.0.1:8700\n")
+    (tmp_path / ".env.analytics").symlink_to(tmp_path / "elsewhere.env")
+    with pytest.raises(runtime.RustRuntimeError):
+        runtime.project_runtime_environment(source, sha, "sse_20261021_replay_floor", policy)

@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import socket
 import subprocess
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 from uuid import uuid4
@@ -41,6 +42,7 @@ def rust_auth_server(analytics_pg_url):
         **os.environ,
         "SQLX_OFFLINE": "true",
         "RELEASE_SHA": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
+        "RUST_TEST_PYTHON": sys.executable,
         "PHASE3_DATABASE_URL": os.environ["DATABASE_URL"].replace("postgresql+asyncpg://", "postgres://", 1),
         "JWT_ISSUER": settings.JWT_ISSUER,
         "JWT_AUDIENCE": settings.JWT_AUDIENCE,
