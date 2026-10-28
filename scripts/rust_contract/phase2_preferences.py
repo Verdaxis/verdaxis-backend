@@ -28,7 +28,7 @@ def setup(connection):
 def servers(context):
     return (
         Server((context.python_bin, "-m", "tests.rust_contract.phase2.preferences_server", "--port", "{port}")),
-        Server((str(context.root / "rs/target/debug/examples/preferences_server"),)),
+        Server((str(context.rust_example("preferences_server")),)),
     )
 
 
