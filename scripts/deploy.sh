@@ -976,8 +976,13 @@ if [[ "$RUST_SELECTED" == "1" ]]; then
         fi
         RUST_CACHE_LISTENER="$listener_value"
     done < "$BACKEND_DIR/.env"
+    RUST_STREAM_LISTENER="0"
+    if [[ "$MIGRATION_TARGET_REVISION" == "sse_20261021_replay_floor" ]]; then
+        RUST_STREAM_LISTENER="1"
+    fi
     if ! "${PYTHON_ENV[@]}" ./venv/bin/python scripts/prepare_rust_budget.py \
         --cache-listener "$RUST_CACHE_LISTENER" \
+        --stream-listener "$RUST_STREAM_LISTENER" \
         --environment-file "$BACKEND_DIR/.env" \
         --release-sha "$CURRENT_SHA" \
         --output "$RUST_RUNTIME_DIR/budget.json"; then

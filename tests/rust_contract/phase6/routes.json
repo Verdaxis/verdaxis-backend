@@ -1,0 +1,68 @@
+{
+  "version": 1,
+  "routes": [
+    {
+      "id": "S61",
+      "method": "GET",
+      "path": "/api/stream/prices",
+      "aliases": [
+        "/api/stream/prices/"
+      ],
+      "auth": "public",
+      "success_status": 200,
+      "content_type": "text/event-stream",
+      "cutover_group": "streams",
+      "database_effect": "short reads only; no DML",
+      "http_quota": null
+    },
+    {
+      "id": "S62",
+      "method": "GET",
+      "path": "/api/stream/orderbook",
+      "aliases": [
+        "/api/stream/orderbook/"
+      ],
+      "auth": "public",
+      "success_status": 200,
+      "content_type": "text/event-stream",
+      "cutover_group": "streams",
+      "database_effect": "short reads only; no DML",
+      "http_quota": null
+    },
+    {
+      "id": "S63",
+      "method": "GET",
+      "path": "/api/stream/trades",
+      "aliases": [
+        "/api/stream/trades/"
+      ],
+      "auth": "stream_token",
+      "success_status": 200,
+      "content_type": "text/event-stream",
+      "cutover_group": "streams",
+      "database_effect": "short reads only; no DML",
+      "http_quota": null
+    }
+  ],
+  "implicit_head": false,
+  "excluded": {
+    "/api/stream/activity": {
+      "owner": "python",
+      "rust_handler": false,
+      "rust_alias": false
+    },
+    "/api/auth/stream-token": {
+      "owner": "phase3",
+      "issued_lifetime_seconds": 60,
+      "endpoint_per_minute": 30
+    },
+    "/mcp": {
+      "owner": "existing"
+    }
+  },
+  "watchlist": {
+    "producer_owner": "phase8",
+    "producer_enabled": false,
+    "feed_and_metrics_guard": "preserved"
+  }
+}

@@ -218,12 +218,18 @@ async fn cors(State(environment): State<String>, request: Request, next: Next) -
         .headers_mut()
         .insert("access-control-allow-credentials", "true".parse().unwrap());
     if !preflight {
-        response.headers_mut().insert(
-            "access-control-expose-headers",
+        // The read-cap truncation header joins the exposed set only on the
+        // operator pages that can carry it, so a cross-origin operator UI
+        // can read it (Task 4 review m1); every other route keeps Python's
+        // exact three-header set.
+        let exposes = if response.headers().contains_key("x-result-truncated") {
+            "Retry-After, X-Request-ID, X-Result-Truncated, X-Verdaxis-Market-Support-Context-Invalid"
+        } else {
             "Retry-After, X-Request-ID, X-Verdaxis-Market-Support-Context-Invalid"
-                .parse()
-                .unwrap(),
-        );
+        };
+        response
+            .headers_mut()
+            .insert("access-control-expose-headers", exposes.parse().unwrap());
     }
     if allowed {
         response
@@ -476,6 +482,49 @@ pub fn public_routes() -> Router<crate::AppState> {
         .merge(crate::mcp::mcp_router())
 }
 
+/// Authenticated business routes. Each group receives its own verification
+/// settings, because `VerificationSettings` is not `Clone`.
+pub fn authenticated_routes(
+    verification: crate::auth::VerificationSettings,
+    limits: crate::auth::limits::SharedLimits,
+) -> Vec<Router<crate::AppState>> {
+    vec![crate::business::vessels::routes(
+        crate::business::vessels::VesselAuthority::new(verification, limits),
+    )]
+}
+
+/// Administrator analytics routes (P02–P04).
+///
+/// Component composition only: the serving binary mounts these under the P group
+/// cutover. The returned router already carries its own route state, so the
+/// caller merges it into the serving router after `router_with`; the health and
+/// readiness routes are untouched.
+pub fn analytics_routes(
+    state: crate::AppState,
+    verification: std::sync::Arc<crate::auth::VerificationSettings>,
+    limits: crate::auth::limits::SharedLimits,
+) -> Router {
+    Router::new()
+        .merge(crate::analytics::legacy_dashboard::router(
+            state.clone(),
+            verification.clone(),
+            limits.clone(),
+        ))
+        .merge(crate::analytics::users::router(state, verification, limits))
+}
+
+/// Compose P01 without replacing health, readiness or any public route.
+/// The caller supplies the accepted provider adapter and shared quota authority.
+pub fn usage_router(
+    state: crate::AppState,
+    authority: crate::analytics::usage::UsageAuthority,
+) -> Router {
+    router_with(
+        public_routes().merge(crate::analytics::usage::routes(authority)),
+        state,
+    )
+}
+
 pub fn public_router(state: crate::AppState) -> Router {
     router_with(public_routes(), state)
 }
@@ -583,11 +632,36 @@ pub fn router_with(extra: Router<crate::AppState>, state: crate::AppState) -> Ro
         Some(auth) => routes.merge(auth),
         None => routes,
     };
+    let routes = match super::phase4::routes(&state, limits.clone()) {
+        Some(business) => routes.merge(business),
+        None => routes,
+    };
     let routes = routes
         .fallback(fallback)
         .method_not_allowed_fallback(method_not_allowed);
     let environment = state.config.environment.clone();
     compose(routes, Some(state), limits, &environment)
+}
+
+/// Compose the serving router with a route group that already carries its own
+/// state (for example a component router built with `Router::with_state`).
+///
+/// Every serving route stays mounted: the three health routes and the public
+/// routes are composed exactly as `router_with` builds them, and the stated
+/// group is merged before the shared middleware and fallbacks are applied.
+/// Extra routes are only added; no serving route is replaced or removed.
+pub fn router_with_stated(stated: Router, state: crate::AppState) -> Router {
+    // The dispatch boundary overrides axum's implicit HEAD handler.
+    let routes = Router::new()
+        .route("/health/live", axum::routing::get(crate::live))
+        .route("/health/ready", axum::routing::get(crate::ready))
+        .route("/health", axum::routing::get(crate::ready))
+        .merge(public_routes())
+        .fallback(fallback)
+        .with_state(state.clone())
+        .merge(stated)
+        .method_not_allowed_fallback(method_not_allowed);
+    middleware_with_state(routes, state)
 }
 
 async fn method_not_allowed() -> Response {

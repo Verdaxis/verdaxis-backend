@@ -1,3 +1,4 @@
+use crate::streams::heartbeat::HeartbeatStatus;
 use crate::{Config, DEFAULT_READ_ADMISSION_SLOTS, verify_release};
 use percent_encoding::percent_decode_str;
 use std::net::IpAddr;
@@ -50,6 +51,8 @@ struct PreparedBudget {
     /// Absent from artifacts that predate the listener, which read as zero.
     #[serde(default)]
     cache_listener: u32,
+    #[serde(default)]
+    stream_listener: u32,
     total: u32,
     configured_max_connections: u32,
 }
@@ -59,7 +62,8 @@ impl PreparedBudget {
     fn expected_total(&self) -> Option<u32> {
         self.python_budget
             .checked_add(self.rust_pool)?
-            .checked_add(self.cache_listener)
+            .checked_add(self.cache_listener)?
+            .checked_add(self.stream_listener)
     }
 }
 
@@ -75,9 +79,12 @@ pub fn validate_prepared_budget(config: &Config, json: &str) -> Result<(), Strin
         budget.reserve,
         budget.rust_pool,
     )
-    .and_then(|total| total.checked_add(budget.cache_listener));
+    .and_then(|total| total.checked_add(budget.cache_listener))
+    .and_then(|total| total.checked_add(budget.stream_listener));
     if budget.version != 1
         || budget.cache_listener > 1
+        || budget.stream_listener > 1
+        || (budget.stream_listener == 1 && budget.workers < 4)
         || budget.release_sha != config.release_sha
         || budget.environment_digest.len() != 64
         || !budget
@@ -146,11 +153,13 @@ pub fn config_from_deployed_environment(
     }
     if budget.rust_pool != rust_pool
         || budget.cache_listener > 1
+        || budget.stream_listener > 1
+        || (budget.stream_listener == 1 && budget.workers < 4)
         || budget.expected_total() != Some(budget.total)
     {
         return Err("the prepared budget artifact is internally inconsistent".into());
     }
-    Ok(Config {
+    let config = Config {
         kyc_execution_gate_enabled: deployed_bool(environment, "KYC_EXECUTION_GATE_ENABLED", true)?,
         environment: required("ENVIRONMENT")?,
         release_sha,
@@ -199,8 +208,17 @@ pub fn config_from_deployed_environment(
             watchlist_producer_activated_at: environment
                 .get("WATCHLIST_PRODUCER_ACTIVATED_AT")
                 .cloned(),
+            system_status: environment.get("SYSTEM_STATUS").cloned(),
+            system_status_message: environment.get("SYSTEM_STATUS_MESSAGE").cloned(),
         },
-    })
+    };
+    // Refuse an unknown status or an over-long message before serving, like
+    // every other deployed setting.
+    HeartbeatStatus::parse(
+        config.phase2.system_status.as_deref(),
+        config.phase2.system_status_message.as_deref(),
+    )?;
+    Ok(config)
 }
 
 /// Resolve a deployed boolean switch. The environment file decides, so Rust
@@ -508,6 +526,28 @@ pub async fn fleet_startup_probe(path: &std::path::Path) -> bool {
     available
 }
 
+pub fn runtime_connection_total(config: &Config) -> Result<u32, String> {
+    let extra = match config.prepared_budget.as_deref() {
+        Some(json) => {
+            let budget: PreparedBudget =
+                serde_json::from_str(json).map_err(|_| "invalid prepared budget")?;
+            if budget.cache_listener > 1
+                || budget.stream_listener > 1
+                || budget.release_sha != config.release_sha
+            {
+                return Err("listener budget does not match the release".into());
+            }
+            budget.cache_listener + budget.stream_listener
+        }
+        None => 0,
+    };
+    config
+        .python_budget
+        .checked_add(config.pool_max)
+        .and_then(|total| total.checked_add(extra))
+        .ok_or_else(|| "connection budget overflow".into())
+}
+
 pub fn validate_config(config: &Config) -> Result<(), String> {
     // Filesystem resolution belongs to startup, not repeated DB/state validation.
     validate_fleet_path_syntax(&config.fleet_artifact_path)?;
@@ -527,6 +567,10 @@ pub fn validate_config(config: &Config) -> Result<(), String> {
         return Err("DB_SESSION_TIME_ZONE must be an IANA time zone".into());
     }
     verify_release(&config.release_sha)?;
+    HeartbeatStatus::parse(
+        config.phase2.system_status.as_deref(),
+        config.phase2.system_status_message.as_deref(),
+    )?;
     if !config.bind.ip().is_loopback() {
         return Err("HTTP bind must be loopback".into());
     }
@@ -554,6 +598,7 @@ pub fn validate_config(config: &Config) -> Result<(), String> {
             "p0_20261016_union"
                 | "prc_20261026_changes"
                 | "p3_20261020_auth_tokens"
+                | "sse_20261021_replay_floor"
                 | "p5_20261020_read_indexes"
         ) {
             return Err("production requires its reviewed union checkpoint".into());
@@ -563,10 +608,7 @@ pub fn validate_config(config: &Config) -> Result<(), String> {
         }
     }
     database_target(config)?;
-    let total = config
-        .python_budget
-        .checked_add(config.pool_max)
-        .ok_or("connection budget overflow")?;
+    let total = runtime_connection_total(config)?;
     validate_budget(
         total,
         config.configured_max_connections,

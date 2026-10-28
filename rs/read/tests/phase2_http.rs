@@ -438,8 +438,8 @@ fn approved_json_wording_difference_keeps_status_type_and_absolute_location() {
 
 #[test]
 fn exact_endpoint_limits_and_shared_admin_prefix_reset() {
-    use verdaxis_read::auth::limits::Phase2Limits;
-    let mut limits = Phase2Limits::default();
+    use verdaxis_read::auth::limits::QuotaStores;
+    let mut limits = QuotaStores::default();
     for index in 0..300 {
         assert!(limits.preauth(
             "client",

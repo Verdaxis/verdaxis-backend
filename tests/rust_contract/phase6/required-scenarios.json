@@ -1,0 +1,4239 @@
+{
+  "version": 1,
+  "scenarios": [
+    {
+      "id": "R01",
+      "task": "8",
+      "test": "prices_get_alias_matches_canonical",
+      "target": "streams_http",
+      "description": "prices get alias matches canonical",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_http.rs",
+      "test_name": "prices_get_alias_matches_canonical",
+      "red": [
+        "negative_control"
+      ]
+    },
+    {
+      "id": "R02",
+      "task": "8",
+      "test": "orderbook_get_alias_matches_canonical",
+      "target": "streams_http",
+      "description": "orderbook get alias matches canonical",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_http.rs",
+      "test_name": "orderbook_get_alias_matches_canonical",
+      "red": [
+        "negative_control"
+      ]
+    },
+    {
+      "id": "R03",
+      "task": "8",
+      "test": "trades_get_alias_matches_canonical",
+      "target": "streams_http",
+      "description": "trades get alias matches canonical",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_http.rs",
+      "test_name": "trades_get_alias_matches_canonical",
+      "red": [
+        "assertion"
+      ],
+      "suite": "tests/postgres/test_phase6_http.py"
+    },
+    {
+      "id": "R04",
+      "task": "8",
+      "test": "trades_rejects_bearer_400_stream_auth_conflict",
+      "target": "streams_http",
+      "description": "trades rejects bearer 400 stream auth conflict",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_http.rs",
+      "test_name": "trades_rejects_bearer_400_stream_auth_conflict",
+      "red": [
+        "negative_control"
+      ]
+    },
+    {
+      "id": "R05",
+      "task": "8",
+      "test": "trades_rejects_bad_cursor_400_stream_cursor_invalid",
+      "target": "streams_http",
+      "description": "trades rejects bad cursor 400 stream cursor invalid",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_http.rs",
+      "test_name": "trades_rejects_bad_cursor_400_stream_cursor_invalid",
+      "red": [
+        "negative_control"
+      ]
+    },
+    {
+      "id": "R06",
+      "task": "8",
+      "test": "trades_requires_token_401_stream_token_required",
+      "target": "streams_http",
+      "description": "trades requires token 401 stream token required",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_http.rs",
+      "test_name": "trades_requires_token_401_stream_token_required",
+      "red": [
+        "negative_control"
+      ]
+    },
+    {
+      "id": "R07",
+      "task": "8",
+      "test": "trades_rejects_bad_token_401_stream_token_invalid",
+      "target": "streams_http",
+      "description": "trades rejects bad token 401 stream token invalid",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_http.rs",
+      "test_name": "trades_rejects_bad_token_401_stream_token_invalid",
+      "red": [
+        "negative_control"
+      ]
+    },
+    {
+      "id": "R08",
+      "task": "8",
+      "test": "trades_auth_store_down_503_stream_auth_unavailable",
+      "target": "streams_http",
+      "description": "trades auth store down 503 stream auth unavailable",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_http.rs",
+      "test_name": "trades_auth_store_down_503_stream_auth_unavailable",
+      "red": [
+        "negative_control"
+      ]
+    },
+    {
+      "id": "R09",
+      "task": "8",
+      "test": "stream_routes_reject_head_and_post_405_envelope",
+      "target": "streams_http",
+      "description": "stream routes reject head and post 405 envelope",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_http.rs",
+      "test_name": "stream_routes_reject_head_and_post_405_envelope",
+      "red": [
+        "assertion"
+      ]
+    },
+    {
+      "id": "R10",
+      "task": "8",
+      "test": "activity_route_is_404_in_rust",
+      "target": "streams_http",
+      "description": "activity route is 404 in rust",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_http.rs",
+      "test_name": "activity_route_is_404_in_rust",
+      "red": [
+        "negative_control"
+      ]
+    },
+    {
+      "id": "R11",
+      "task": "8",
+      "test": "issuer_route_is_not_mounted",
+      "target": "streams_http",
+      "description": "issuer route is not mounted",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_http.rs",
+      "test_name": "issuer_route_is_not_mounted",
+      "red": [
+        "negative_control"
+      ]
+    },
+    {
+      "id": "R12",
+      "task": "8",
+      "test": "stream_subsystem_down_503_stream_unavailable",
+      "target": "streams_http",
+      "description": "stream subsystem down 503 stream unavailable",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_http.rs",
+      "test_name": "stream_subsystem_down_503_stream_unavailable",
+      "red": [
+        "negative_control"
+      ]
+    },
+    {
+      "id": "R13",
+      "task": "8",
+      "test": "stream_cursor_header_precedes_query",
+      "target": "streams_http",
+      "description": "stream cursor header precedes query",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_http.rs",
+      "test_name": "stream_cursor_header_precedes_query",
+      "red": [
+        "assertion"
+      ]
+    },
+    {
+      "id": "R14",
+      "task": "8",
+      "test": "no_pid_origin_comment_in_rust_stream",
+      "target": "streams_http",
+      "description": "no pid origin comment in rust stream",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_http.rs",
+      "test_name": "no_pid_origin_comment_in_rust_stream",
+      "red": [
+        "negative_control"
+      ]
+    },
+    {
+      "id": "R15",
+      "task": "8",
+      "test": "stream_error_order_and_envelope",
+      "target": "streams_http",
+      "description": "stream error order and envelope",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_http.rs",
+      "test_name": "stream_error_order_and_envelope",
+      "red": [
+        "assertion"
+      ]
+    },
+    {
+      "id": "T01",
+      "task": "3",
+      "test": "terminal_overflow_contract",
+      "target": "streams_bus",
+      "description": "terminal overflow contract",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "assertion",
+        "missing_interface"
+      ],
+      "test_path": "rs/read/tests/streams_bus.rs",
+      "test_name": "terminal_overflow_contract",
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::bus::StreamHub"
+      }
+    },
+    {
+      "id": "T02",
+      "task": "3",
+      "test": "terminal_retention_contract",
+      "target": "streams_bus",
+      "description": "terminal retention contract",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "assertion",
+        "missing_interface"
+      ],
+      "test_path": "rs/read/tests/streams_bus.rs",
+      "test_name": "terminal_retention_contract",
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::bus::StreamHub"
+      }
+    },
+    {
+      "id": "T03",
+      "task": "3",
+      "test": "terminal_cursor_ahead_contract",
+      "target": "streams_bus",
+      "description": "terminal cursor ahead contract",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "assertion",
+        "missing_interface"
+      ],
+      "test_path": "rs/read/tests/streams_bus.rs",
+      "test_name": "terminal_cursor_ahead_contract",
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::bus::StreamHub"
+      }
+    },
+    {
+      "id": "T04",
+      "task": "3",
+      "test": "terminal_expiry_contract",
+      "target": "streams_bus",
+      "description": "terminal expiry contract",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "assertion",
+        "missing_interface"
+      ],
+      "test_path": "rs/read/tests/streams_bus.rs",
+      "test_name": "terminal_expiry_contract",
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::bus::StreamHub"
+      }
+    },
+    {
+      "id": "T05",
+      "task": "3",
+      "test": "terminal_revocation_contract",
+      "target": "streams_bus",
+      "description": "terminal revocation contract",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "assertion",
+        "missing_interface"
+      ],
+      "test_path": "rs/read/tests/streams_bus.rs",
+      "test_name": "terminal_revocation_contract",
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::bus::StreamHub"
+      }
+    },
+    {
+      "id": "T06",
+      "task": "3",
+      "test": "terminal_unavailable_contract",
+      "target": "streams_bus",
+      "description": "terminal unavailable contract",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "assertion",
+        "missing_interface"
+      ],
+      "test_path": "rs/read/tests/streams_bus.rs",
+      "test_name": "terminal_unavailable_contract",
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::bus::StreamHub"
+      }
+    },
+    {
+      "id": "T07",
+      "task": "3",
+      "test": "terminal_capacity_contract",
+      "target": "streams_bus",
+      "description": "terminal capacity contract",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "assertion",
+        "missing_interface"
+      ],
+      "test_path": "rs/read/tests/streams_bus.rs",
+      "test_name": "terminal_capacity_contract",
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::bus::StreamHub"
+      }
+    },
+    {
+      "id": "T08",
+      "task": "3",
+      "test": "terminal_event_contract",
+      "target": "streams_bus",
+      "description": "terminal event contract",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "assertion",
+        "missing_interface"
+      ],
+      "test_path": "rs/read/tests/streams_bus.rs",
+      "test_name": "terminal_event_contract",
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::bus::StreamHub"
+      }
+    },
+    {
+      "id": "T09",
+      "task": "3",
+      "test": "terminal_shutdown_contract",
+      "target": "streams_bus",
+      "description": "terminal shutdown contract",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "assertion",
+        "missing_interface"
+      ],
+      "test_path": "rs/read/tests/streams_bus.rs",
+      "test_name": "terminal_shutdown_contract",
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::bus::StreamHub"
+      }
+    },
+    {
+      "id": "T10",
+      "task": "3",
+      "test": "terminal_auth_store_contract",
+      "target": "streams_bus",
+      "description": "terminal auth store contract",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "assertion",
+        "missing_interface"
+      ],
+      "test_path": "rs/read/tests/streams_bus.rs",
+      "test_name": "terminal_auth_store_contract",
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::bus::StreamHub"
+      }
+    },
+    {
+      "id": "J61",
+      "task": "12",
+      "test": "public_refresh",
+      "target": "frontend J profile",
+      "description": "public refresh",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "J62",
+      "task": "12",
+      "test": "private_trade_refresh",
+      "target": "frontend J profile",
+      "description": "private trade refresh",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "J63",
+      "task": "12",
+      "test": "expiry_reconnect",
+      "target": "frontend J profile",
+      "description": "expiry reconnect",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "J64",
+      "task": "12",
+      "test": "overflow_replay",
+      "target": "frontend J profile",
+      "description": "overflow replay",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "J65",
+      "task": "12",
+      "test": "retention_reconnect",
+      "target": "frontend J profile",
+      "description": "retention reconnect",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "J66",
+      "task": "12",
+      "test": "scope_change",
+      "target": "frontend J profile",
+      "description": "scope change",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "J67",
+      "task": "12",
+      "test": "disconnect_rollback",
+      "target": "frontend J profile",
+      "description": "disconnect rollback",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "J68",
+      "task": "12",
+      "test": "route_ownership",
+      "target": "frontend J profile",
+      "description": "route ownership",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E001",
+      "task": "1",
+      "test": "test_phase6_inventory_has_three_get_routes",
+      "target": "tests/rust_contract/test_phase6_inventory.py",
+      "description": "test phase6 inventory has three get routes",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "pytest",
+      "red": [
+        "assertion"
+      ],
+      "test_path": "tests/rust_contract/test_phase6_inventory.py",
+      "test_name": "test_phase6_inventory_has_three_get_routes"
+    },
+    {
+      "id": "E002",
+      "task": "1",
+      "test": "activity_is_not_a_rust_route",
+      "target": "tests/rust_contract/test_phase6_inventory.py",
+      "description": "activity is not a rust route",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "pytest",
+      "red": [
+        "assertion"
+      ],
+      "test_path": "tests/rust_contract/test_phase6_inventory.py",
+      "test_name": "test_activity_is_not_a_rust_route"
+    },
+    {
+      "id": "E003",
+      "task": "1",
+      "test": "issuer_is_phase3_owned",
+      "target": "tests/rust_contract/test_phase6_inventory.py",
+      "description": "issuer is phase3 owned",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "pytest",
+      "red": [
+        "assertion"
+      ],
+      "test_path": "tests/rust_contract/test_phase6_inventory.py",
+      "test_name": "test_issuer_is_phase3_owned"
+    },
+    {
+      "id": "E004",
+      "task": "1",
+      "test": "scenario_inventory_complete",
+      "target": "tests/rust_contract/test_phase6_inventory.py",
+      "description": "scenario inventory complete",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "pytest",
+      "red": [
+        "assertion"
+      ],
+      "test_path": "tests/rust_contract/test_phase6_inventory.py",
+      "test_name": "test_scenario_inventory_complete"
+    },
+    {
+      "id": "E005",
+      "task": "1",
+      "test": "required_scenarios_are_not_optional",
+      "target": "tests/rust_contract/test_phase6_inventory.py",
+      "description": "required scenarios are not optional",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "pytest",
+      "red": [
+        "assertion"
+      ],
+      "test_path": "tests/rust_contract/test_phase6_inventory.py",
+      "test_name": "test_required_scenarios_are_not_optional"
+    },
+    {
+      "id": "E006",
+      "task": "1",
+      "test": "no_trusted_producer_activation",
+      "target": "tests/rust_contract/test_phase6_inventory.py",
+      "description": "no trusted producer activation",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "pytest",
+      "red": [
+        "assertion"
+      ],
+      "test_path": "tests/rust_contract/test_phase6_inventory.py",
+      "test_name": "test_no_trusted_producer_activation"
+    },
+    {
+      "id": "E007",
+      "task": "2",
+      "test": "test_migration_has_one_head_and_direct_parent",
+      "target": "tests/postgres/test_phase6_retention.py",
+      "description": "migration has one head and direct parent",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "pytest",
+      "red": [
+        "assertion"
+      ],
+      "test_path": "tests/postgres/test_phase6_retention.py",
+      "test_name": "test_migration_has_one_head_and_direct_parent",
+      "support_paths": [
+        "tests/postgres/retention_test_support.py"
+      ]
+    },
+    {
+      "id": "E008",
+      "task": "2",
+      "test": "test_retention_bootstrap_fence",
+      "target": "tests/postgres/test_phase6_retention.py",
+      "description": "retention bootstrap fence",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "pytest",
+      "red": [
+        "assertion"
+      ],
+      "test_path": "tests/postgres/test_phase6_retention.py",
+      "test_name": "test_retention_bootstrap_fence",
+      "support_paths": [
+        "tests/postgres/retention_test_support.py"
+      ]
+    },
+    {
+      "id": "E009",
+      "task": "2",
+      "test": "test_retention_delete_rollback",
+      "target": "tests/postgres/test_phase6_retention.py",
+      "description": "retention delete rollback",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "pytest",
+      "red": [
+        "assertion"
+      ],
+      "test_path": "tests/postgres/test_phase6_retention.py",
+      "test_name": "test_retention_delete_rollback",
+      "support_paths": [
+        "tests/postgres/retention_test_support.py"
+      ]
+    },
+    {
+      "id": "E010",
+      "task": "2",
+      "test": "test_retention_deleted_maximum",
+      "target": "tests/postgres/test_phase6_retention.py",
+      "description": "retention deleted maximum",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "pytest",
+      "red": [
+        "assertion"
+      ],
+      "test_path": "tests/postgres/test_phase6_retention.py",
+      "test_name": "test_retention_deleted_maximum",
+      "support_paths": [
+        "tests/postgres/retention_test_support.py"
+      ]
+    },
+    {
+      "id": "E011",
+      "task": "2",
+      "test": "test_retention_concurrent_delete",
+      "target": "tests/postgres/test_phase6_retention.py",
+      "description": "retention concurrent delete",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "pytest",
+      "red": [
+        "assertion"
+      ],
+      "test_path": "tests/postgres/test_phase6_retention.py",
+      "test_name": "test_retention_concurrent_delete",
+      "support_paths": [
+        "tests/postgres/retention_test_support.py"
+      ]
+    },
+    {
+      "id": "E012",
+      "task": "2",
+      "test": "test_retention_pending_delete_refused",
+      "target": "tests/postgres/test_phase6_retention.py",
+      "description": "retention pending delete refused",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "pytest",
+      "red": [
+        "assertion"
+      ],
+      "test_path": "tests/postgres/test_phase6_retention.py",
+      "test_name": "test_retention_pending_delete_refused",
+      "support_paths": [
+        "tests/postgres/retention_test_support.py"
+      ]
+    },
+    {
+      "id": "E013",
+      "task": "2",
+      "test": "test_retention_truncate_refused",
+      "target": "tests/postgres/test_phase6_retention.py",
+      "description": "retention truncate refused",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "pytest",
+      "red": [
+        "assertion"
+      ],
+      "test_path": "tests/postgres/test_phase6_retention.py",
+      "test_name": "test_retention_truncate_refused",
+      "support_paths": [
+        "tests/postgres/retention_test_support.py"
+      ]
+    },
+    {
+      "id": "E014",
+      "task": "2",
+      "test": "test_retention_app_acl",
+      "target": "tests/postgres/test_phase6_retention.py",
+      "description": "retention app acl",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "pytest",
+      "red": [
+        "assertion"
+      ],
+      "test_path": "tests/postgres/test_phase6_retention.py",
+      "test_name": "test_retention_app_acl",
+      "support_paths": [
+        "tests/postgres/retention_test_support.py"
+      ]
+    },
+    {
+      "id": "E015",
+      "task": "2",
+      "test": "test_retention_backup_read",
+      "target": "tests/postgres/test_phase6_retention.py",
+      "description": "retention backup read",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "pytest",
+      "red": [
+        "assertion"
+      ],
+      "test_path": "tests/postgres/test_phase6_retention.py",
+      "test_name": "test_retention_backup_read",
+      "support_paths": [
+        "tests/postgres/retention_test_support.py"
+      ]
+    },
+    {
+      "id": "E016",
+      "task": "2",
+      "test": "test_retention_migration_atomicity",
+      "target": "tests/postgres/test_phase6_retention.py",
+      "description": "retention migration atomicity",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "pytest",
+      "red": [
+        "assertion"
+      ],
+      "test_path": "tests/postgres/test_phase6_retention.py",
+      "test_name": "test_retention_migration_atomicity",
+      "support_paths": [
+        "tests/postgres/retention_test_support.py"
+      ]
+    },
+    {
+      "id": "E017",
+      "task": "2",
+      "test": "test_retention_empty_store",
+      "target": "tests/postgres/test_phase6_retention.py",
+      "description": "retention empty store",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "pytest",
+      "red": [
+        "assertion"
+      ],
+      "test_path": "tests/postgres/test_phase6_retention.py",
+      "test_name": "test_retention_empty_store",
+      "support_paths": [
+        "tests/postgres/retention_test_support.py"
+      ]
+    },
+    {
+      "id": "E018",
+      "task": "2",
+      "test": "test_retention_sequence_holes",
+      "target": "tests/postgres/test_phase6_retention.py",
+      "description": "retention sequence holes",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "pytest",
+      "red": [
+        "assertion"
+      ],
+      "test_path": "tests/postgres/test_phase6_retention.py",
+      "test_name": "test_retention_sequence_holes",
+      "support_paths": [
+        "tests/postgres/retention_test_support.py"
+      ]
+    },
+    {
+      "id": "E019",
+      "task": "2",
+      "test": "test_replay_state_missing_is_unavailable",
+      "target": "tests/postgres/test_phase6_retention.py",
+      "description": "replay state missing is unavailable",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "pytest",
+      "red": [
+        "assertion"
+      ],
+      "test_path": "tests/postgres/test_phase6_retention.py",
+      "test_name": "test_replay_state_missing_is_unavailable",
+      "support_paths": [
+        "tests/postgres/retention_test_support.py"
+      ]
+    },
+    {
+      "id": "E020",
+      "task": "2",
+      "test": "test_replay_state_singleton_constraint",
+      "target": "tests/postgres/test_phase6_retention.py",
+      "description": "replay state singleton constraint",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "pytest",
+      "red": [
+        "assertion"
+      ],
+      "test_path": "tests/postgres/test_phase6_retention.py",
+      "test_name": "test_replay_state_singleton_constraint",
+      "support_paths": [
+        "tests/postgres/retention_test_support.py"
+      ]
+    },
+    {
+      "id": "E021",
+      "task": "2",
+      "test": "test_replay_state_negative_floor_refused",
+      "target": "tests/postgres/test_phase6_retention.py",
+      "description": "replay state negative floor refused",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "pytest",
+      "red": [
+        "assertion"
+      ],
+      "test_path": "tests/postgres/test_phase6_retention.py",
+      "test_name": "test_replay_state_negative_floor_refused",
+      "support_paths": [
+        "tests/postgres/retention_test_support.py"
+      ]
+    },
+    {
+      "id": "E022",
+      "task": "2",
+      "test": "test_non_owner_cannot_replace_retention_objects",
+      "target": "tests/postgres/test_phase6_retention.py",
+      "description": "non owner cannot replace retention objects",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "pytest",
+      "red": [
+        "assertion"
+      ],
+      "test_path": "tests/postgres/test_phase6_retention.py",
+      "test_name": "test_non_owner_cannot_replace_retention_objects",
+      "support_paths": [
+        "tests/postgres/retention_test_support.py"
+      ]
+    },
+    {
+      "id": "E023",
+      "task": "2",
+      "test": "test_retention_search_path_is_fixed",
+      "target": "tests/postgres/test_phase6_retention.py",
+      "description": "retention search path is fixed",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "pytest",
+      "red": [
+        "assertion"
+      ],
+      "test_path": "tests/postgres/test_phase6_retention.py",
+      "test_name": "test_retention_search_path_is_fixed",
+      "support_paths": [
+        "tests/postgres/retention_test_support.py"
+      ]
+    },
+    {
+      "id": "E024",
+      "task": "2",
+      "test": "test_app_cannot_execute_retention_function",
+      "target": "tests/postgres/test_phase6_retention.py",
+      "description": "app cannot execute retention function",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "pytest",
+      "red": [
+        "assertion"
+      ],
+      "test_path": "tests/postgres/test_phase6_retention.py",
+      "test_name": "test_app_cannot_execute_retention_function",
+      "support_paths": [
+        "tests/postgres/retention_test_support.py"
+      ]
+    },
+    {
+      "id": "E025",
+      "task": "2",
+      "test": "test_prune_is_refused_while_python_owns_private_streams",
+      "target": "tests/postgres/test_phase6_retention.py",
+      "description": "prune is refused while python owns private streams",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "pytest",
+      "red": [
+        "assertion"
+      ],
+      "test_path": "tests/postgres/test_phase6_retention.py",
+      "test_name": "test_prune_is_refused_while_python_owns_private_streams",
+      "support_paths": [
+        "tests/postgres/retention_test_support.py"
+      ]
+    },
+    {
+      "id": "E026",
+      "task": "2",
+      "test": "test_prune_is_refused_during_drain",
+      "target": "tests/postgres/test_phase6_retention.py",
+      "description": "prune is refused during drain",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "pytest",
+      "red": [
+        "assertion"
+      ],
+      "test_path": "tests/postgres/test_phase6_retention.py",
+      "test_name": "test_prune_is_refused_during_drain",
+      "support_paths": [
+        "tests/postgres/retention_test_support.py"
+      ]
+    },
+    {
+      "id": "E027",
+      "task": "2",
+      "test": "test_ownership_block_waits_for_inflight_prune",
+      "target": "tests/postgres/test_phase6_retention.py",
+      "description": "ownership block waits for inflight prune",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "pytest",
+      "red": [
+        "assertion"
+      ],
+      "test_path": "tests/postgres/test_phase6_retention.py",
+      "test_name": "test_ownership_block_waits_for_inflight_prune",
+      "support_paths": [
+        "tests/postgres/retention_test_support.py"
+      ]
+    },
+    {
+      "id": "E028",
+      "task": "2",
+      "test": "test_missing_owner_record_refuses_prune",
+      "target": "tests/postgres/test_phase6_retention.py",
+      "description": "missing owner record refuses prune",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "pytest",
+      "red": [
+        "assertion"
+      ],
+      "test_path": "tests/postgres/test_phase6_retention.py",
+      "test_name": "test_missing_owner_record_refuses_prune",
+      "support_paths": [
+        "tests/postgres/retention_test_support.py"
+      ]
+    },
+    {
+      "id": "E029",
+      "task": "2",
+      "test": "test_replay_membership_index_shape",
+      "target": "tests/postgres/test_phase6_retention.py",
+      "description": "replay membership index shape",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "pytest",
+      "red": [
+        "assertion"
+      ],
+      "test_path": "tests/postgres/test_phase6_retention.py",
+      "test_name": "test_replay_membership_index_shape",
+      "support_paths": [
+        "tests/postgres/retention_test_support.py"
+      ]
+    },
+    {
+      "id": "E030",
+      "task": "2",
+      "test": "test_sparse_org_replay_index_path",
+      "target": "tests/postgres/test_phase6_retention.py",
+      "description": "sparse org replay index path",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "pytest",
+      "red": [
+        "assertion"
+      ],
+      "test_path": "tests/postgres/test_phase6_retention.py",
+      "test_name": "test_sparse_org_replay_index_path",
+      "support_paths": [
+        "tests/postgres/retention_test_support.py"
+      ]
+    },
+    {
+      "id": "E031",
+      "task": "2",
+      "test": "test_deleted_prefix_advances_floor_atomically",
+      "target": "tests/postgres/test_phase6_retention.py",
+      "description": "deleted prefix advances floor atomically",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "pytest",
+      "red": [
+        "assertion"
+      ],
+      "test_path": "tests/postgres/test_phase6_retention.py",
+      "test_name": "test_deleted_prefix_advances_floor_atomically",
+      "support_paths": [
+        "tests/postgres/retention_test_support.py"
+      ]
+    },
+    {
+      "id": "E032",
+      "task": "3",
+      "test": "channel_cap_200",
+      "target": "streams_bus",
+      "description": "channel cap 200",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "assertion",
+        "missing_interface"
+      ],
+      "test_path": "rs/read/tests/streams_bus.rs",
+      "test_name": "channel_cap_200",
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::bus::StreamHub"
+      }
+    },
+    {
+      "id": "E033",
+      "task": "3",
+      "test": "process_cap_2000",
+      "target": "streams_bus",
+      "description": "process cap 2000",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "assertion",
+        "missing_interface"
+      ],
+      "test_path": "rs/read/tests/streams_bus.rs",
+      "test_name": "process_cap_2000",
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::bus::StreamHub"
+      }
+    },
+    {
+      "id": "E034",
+      "task": "3",
+      "test": "queue_cap_100",
+      "target": "streams_bus",
+      "description": "queue cap 100",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "assertion",
+        "missing_interface"
+      ],
+      "test_path": "rs/read/tests/streams_bus.rs",
+      "test_name": "queue_cap_100",
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::bus::StreamHub"
+      }
+    },
+    {
+      "id": "E035",
+      "task": "3",
+      "test": "publish_does_not_await_under_mutex",
+      "target": "streams_bus",
+      "description": "publish does not await under mutex",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "assertion",
+        "missing_interface"
+      ],
+      "test_path": "rs/read/tests/streams_bus.rs",
+      "test_name": "publish_does_not_await_under_mutex",
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::bus::StreamHub"
+      }
+    },
+    {
+      "id": "E036",
+      "task": "3",
+      "test": "private_scope_isolated",
+      "target": "streams_bus",
+      "description": "private scope isolated",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "assertion",
+        "missing_interface"
+      ],
+      "test_path": "rs/read/tests/streams_bus.rs",
+      "test_name": "private_scope_isolated",
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::bus::StreamHub"
+      }
+    },
+    {
+      "id": "E037",
+      "task": "3",
+      "test": "public_channels_sanitized",
+      "target": "streams_bus",
+      "description": "public channels sanitized",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "assertion",
+        "missing_interface"
+      ],
+      "test_path": "rs/read/tests/streams_bus.rs",
+      "test_name": "public_channels_sanitized",
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::bus::StreamHub"
+      }
+    },
+    {
+      "id": "E038",
+      "task": "3",
+      "test": "overflow_closes_once",
+      "target": "streams_bus",
+      "description": "overflow closes once",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "assertion",
+        "missing_interface"
+      ],
+      "test_path": "rs/read/tests/streams_bus.rs",
+      "test_name": "overflow_closes_once",
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::bus::StreamHub"
+      }
+    },
+    {
+      "id": "E039",
+      "task": "3",
+      "test": "subscription_drop_cleanup",
+      "target": "streams_bus",
+      "description": "subscription drop cleanup",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "assertion",
+        "missing_interface"
+      ],
+      "test_path": "rs/read/tests/streams_bus.rs",
+      "test_name": "subscription_drop_cleanup",
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::bus::StreamHub"
+      }
+    },
+    {
+      "id": "E040",
+      "task": "3",
+      "test": "cancellation_cleanup",
+      "target": "streams_bus",
+      "description": "cancellation cleanup",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "assertion",
+        "missing_interface"
+      ],
+      "test_path": "rs/read/tests/streams_bus.rs",
+      "test_name": "cancellation_cleanup",
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::bus::StreamHub"
+      }
+    },
+    {
+      "id": "E041",
+      "task": "3",
+      "test": "partial_registration_cleanup",
+      "target": "streams_bus",
+      "description": "partial registration cleanup",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "assertion",
+        "missing_interface"
+      ],
+      "test_path": "rs/read/tests/streams_bus.rs",
+      "test_name": "partial_registration_cleanup",
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::bus::StreamHub"
+      }
+    },
+    {
+      "id": "E042",
+      "task": "3",
+      "test": "terminal_precedes_buffered_data",
+      "target": "streams_bus",
+      "description": "terminal precedes buffered data",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "assertion",
+        "missing_interface"
+      ],
+      "test_path": "rs/read/tests/streams_bus.rs",
+      "test_name": "terminal_precedes_buffered_data",
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::bus::StreamHub"
+      }
+    },
+    {
+      "id": "E043",
+      "task": "4",
+      "test": "malformed_stream_claims_are_401_before_headers",
+      "target": "streams_auth",
+      "description": "malformed stream claims are 401 before headers",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "assertion",
+        "missing_interface"
+      ],
+      "test_path": "rs/read/tests/streams_auth.rs",
+      "test_name": "malformed_stream_claims_are_401_before_headers",
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::auth::StreamPrincipal"
+      }
+    },
+    {
+      "id": "E044",
+      "task": "4",
+      "test": "required_claims_are_typed",
+      "target": "streams_auth",
+      "description": "required claims are typed",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "assertion",
+        "missing_interface"
+      ],
+      "test_path": "rs/read/tests/streams_auth.rs",
+      "test_name": "required_claims_are_typed",
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::auth::StreamPrincipal"
+      }
+    },
+    {
+      "id": "E045",
+      "task": "4",
+      "test": "bounded_token_dates",
+      "target": "streams_auth",
+      "description": "bounded token dates",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "assertion",
+        "missing_interface"
+      ],
+      "test_path": "rs/read/tests/streams_auth.rs",
+      "test_name": "bounded_token_dates",
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::auth::StreamPrincipal"
+      }
+    },
+    {
+      "id": "E046",
+      "task": "4",
+      "test": "token_profile_restrictions",
+      "target": "streams_auth",
+      "description": "token profile restrictions",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "assertion",
+        "missing_interface"
+      ],
+      "test_path": "rs/read/tests/streams_auth.rs",
+      "test_name": "token_profile_restrictions",
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::auth::StreamPrincipal"
+      }
+    },
+    {
+      "id": "E047",
+      "task": "4",
+      "test": "current_and_previous_keys",
+      "target": "streams_auth",
+      "description": "current and previous keys",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "assertion",
+        "missing_interface"
+      ],
+      "test_path": "rs/read/tests/streams_auth.rs",
+      "test_name": "current_and_previous_keys",
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::auth::StreamPrincipal"
+      }
+    },
+    {
+      "id": "E048",
+      "task": "4",
+      "test": "uuid_claims_required",
+      "target": "streams_auth",
+      "description": "uuid claims required",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "assertion",
+        "missing_interface"
+      ],
+      "test_path": "rs/read/tests/streams_auth.rs",
+      "test_name": "uuid_claims_required",
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::auth::StreamPrincipal"
+      }
+    },
+    {
+      "id": "E049",
+      "task": "4",
+      "test": "cutoff_is_inclusive",
+      "target": "streams_auth",
+      "description": "cutoff is inclusive",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "assertion",
+        "missing_interface"
+      ],
+      "test_path": "rs/read/tests/streams_auth.rs",
+      "test_name": "cutoff_is_inclusive",
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::auth::StreamPrincipal"
+      }
+    },
+    {
+      "id": "E050",
+      "task": "4",
+      "test": "password_cutoff_precedes_revocation",
+      "target": "streams_auth",
+      "description": "password cutoff precedes revocation",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "assertion",
+        "missing_interface"
+      ],
+      "test_path": "rs/read/tests/streams_auth.rs",
+      "test_name": "password_cutoff_precedes_revocation",
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::auth::StreamPrincipal"
+      }
+    },
+    {
+      "id": "E051",
+      "task": "4",
+      "test": "current_account_required",
+      "target": "streams_auth",
+      "description": "current account required",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "assertion",
+        "missing_interface"
+      ],
+      "test_path": "rs/read/tests/streams_auth.rs",
+      "test_name": "current_account_required",
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::auth::StreamPrincipal"
+      }
+    },
+    {
+      "id": "E052",
+      "task": "4",
+      "test": "current_organization_required",
+      "target": "streams_auth",
+      "description": "current organization required",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "assertion",
+        "missing_interface"
+      ],
+      "test_path": "rs/read/tests/streams_auth.rs",
+      "test_name": "current_organization_required",
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::auth::StreamPrincipal"
+      }
+    },
+    {
+      "id": "E053",
+      "task": "4",
+      "test": "auth_store_unavailable_before_headers",
+      "target": "streams_auth",
+      "description": "auth store unavailable before headers",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "assertion",
+        "missing_interface"
+      ],
+      "test_path": "rs/read/tests/streams_auth.rs",
+      "test_name": "auth_store_unavailable_before_headers",
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::auth::StreamPrincipal"
+      }
+    },
+    {
+      "id": "E054",
+      "task": "4",
+      "test": "no_access_or_refresh_fallback",
+      "target": "streams_auth",
+      "description": "no access or refresh fallback",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "assertion",
+        "missing_interface"
+      ],
+      "test_path": "rs/read/tests/streams_auth.rs",
+      "test_name": "no_access_or_refresh_fallback",
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::auth::StreamPrincipal"
+      }
+    },
+    {
+      "id": "E055",
+      "task": "4",
+      "test": "no_execution_gate",
+      "target": "streams_auth",
+      "description": "no execution gate",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "assertion",
+        "missing_interface"
+      ],
+      "test_path": "rs/read/tests/streams_auth.rs",
+      "test_name": "no_execution_gate",
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::auth::StreamPrincipal"
+      }
+    },
+    {
+      "id": "E056",
+      "task": "5",
+      "test": "unlock_false_discards_session",
+      "target": "streams_election",
+      "description": "unlock false discards session",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "assertion",
+        "missing_interface"
+      ],
+      "test_path": "rs/read/tests/streams_election.rs",
+      "test_name": "unlock_false_discards_session",
+      "suite": "tests/postgres/test_phase6_election.py",
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::election::ElectionSession"
+      }
+    },
+    {
+      "id": "E057",
+      "task": "5",
+      "test": "unlock_error_discards_session",
+      "target": "streams_election",
+      "description": "unlock error discards session",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "assertion",
+        "missing_interface"
+      ],
+      "test_path": "rs/read/tests/streams_election.rs",
+      "test_name": "unlock_error_discards_session",
+      "suite": "tests/postgres/test_phase6_election.py",
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::election::ElectionSession"
+      }
+    },
+    {
+      "id": "E058",
+      "task": "5",
+      "test": "repeated_assignment_failure_stops_spinning",
+      "target": "streams_election",
+      "description": "repeated assignment failure stops spinning",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "assertion",
+        "missing_interface"
+      ],
+      "test_path": "rs/read/tests/streams_election.rs",
+      "test_name": "repeated_assignment_failure_stops_spinning",
+      "suite": "tests/postgres/test_phase6_election.py",
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::election::ElectionSession"
+      }
+    },
+    {
+      "id": "E059",
+      "task": "5",
+      "test": "shared_sequencer_key",
+      "target": "streams_election",
+      "description": "shared sequencer key",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "assertion",
+        "missing_interface"
+      ],
+      "test_path": "rs/read/tests/streams_election.rs",
+      "test_name": "shared_sequencer_key",
+      "suite": "tests/postgres/test_phase6_election.py",
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::election::ElectionSession"
+      }
+    },
+    {
+      "id": "E060",
+      "task": "5",
+      "test": "python_lock_blocks_assignment",
+      "target": "streams_election",
+      "description": "python lock blocks assignment",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "assertion",
+        "missing_interface"
+      ],
+      "test_path": "rs/read/tests/streams_election.rs",
+      "test_name": "python_lock_blocks_assignment",
+      "suite": "tests/postgres/test_phase6_election.py",
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::election::ElectionSession"
+      }
+    },
+    {
+      "id": "E061",
+      "task": "5",
+      "test": "session_lock_count_balanced",
+      "target": "streams_election",
+      "description": "session lock count balanced",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "assertion",
+        "missing_interface"
+      ],
+      "test_path": "rs/read/tests/streams_election.rs",
+      "test_name": "session_lock_count_balanced",
+      "suite": "tests/postgres/test_phase6_election.py",
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::election::ElectionSession"
+      }
+    },
+    {
+      "id": "E062",
+      "task": "5",
+      "test": "committed_rows_only",
+      "target": "streams_election",
+      "description": "committed rows only",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "assertion",
+        "missing_interface"
+      ],
+      "test_path": "rs/read/tests/streams_election.rs",
+      "test_name": "committed_rows_only",
+      "suite": "tests/postgres/test_phase6_election.py",
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::election::ElectionSession"
+      }
+    },
+    {
+      "id": "E063",
+      "task": "5",
+      "test": "lock_and_assignment_share_backend",
+      "target": "streams_election",
+      "description": "lock and assignment share backend",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "assertion",
+        "missing_interface"
+      ],
+      "test_path": "rs/read/tests/streams_election.rs",
+      "test_name": "lock_and_assignment_share_backend",
+      "suite": "tests/postgres/test_phase6_election.py",
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::election::ElectionSession"
+      }
+    },
+    {
+      "id": "E064",
+      "task": "5",
+      "test": "full_transaction_retry",
+      "target": "streams_election",
+      "description": "full transaction retry",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "assertion",
+        "missing_interface"
+      ],
+      "test_path": "rs/read/tests/streams_election.rs",
+      "test_name": "full_transaction_retry",
+      "suite": "tests/postgres/test_phase6_election.py",
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::election::ElectionSession"
+      }
+    },
+    {
+      "id": "E065",
+      "task": "5",
+      "test": "session_replacement_requires_election",
+      "target": "streams_election",
+      "description": "session replacement requires election",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "assertion",
+        "missing_interface"
+      ],
+      "test_path": "rs/read/tests/streams_election.rs",
+      "test_name": "session_replacement_requires_election",
+      "suite": "tests/postgres/test_phase6_election.py",
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::election::ElectionSession"
+      }
+    },
+    {
+      "id": "E066",
+      "task": "5",
+      "test": "unknown_commit_outcome",
+      "target": "streams_election",
+      "description": "unknown commit outcome",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "assertion",
+        "missing_interface"
+      ],
+      "test_path": "rs/read/tests/streams_election.rs",
+      "test_name": "unknown_commit_outcome",
+      "suite": "tests/postgres/test_phase6_election.py",
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::election::ElectionSession"
+      }
+    },
+    {
+      "id": "E067",
+      "task": "5",
+      "test": "connection_deadlines",
+      "target": "streams_election",
+      "description": "connection deadlines",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "assertion",
+        "missing_interface"
+      ],
+      "test_path": "rs/read/tests/streams_election.rs",
+      "test_name": "connection_deadlines",
+      "suite": "tests/postgres/test_phase6_election.py",
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::election::ElectionSession"
+      }
+    },
+    {
+      "id": "E068",
+      "task": "5",
+      "test": "session_close_releases_lock",
+      "target": "streams_election",
+      "description": "session close releases lock",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "assertion",
+        "missing_interface"
+      ],
+      "test_path": "rs/read/tests/streams_election.rs",
+      "test_name": "session_close_releases_lock",
+      "suite": "tests/postgres/test_phase6_election.py",
+      "missing_interface": {
+        "code": "E0432",
+        "symbol": "verdaxis_read::streams::election::ElectionSession"
+      }
+    },
+    {
+      "id": "E069",
+      "task": "6",
+      "test": "event_size_boundary",
+      "target": "streams_dispatch",
+      "description": "event size boundary",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_dispatch.rs",
+      "test_name": "event_size_boundary",
+      "red": [
+        "negative_control"
+      ]
+    },
+    {
+      "id": "E070",
+      "task": "6",
+      "test": "participant_count_boundary",
+      "target": "streams_dispatch",
+      "description": "participant count boundary",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_dispatch.rs",
+      "test_name": "participant_count_boundary",
+      "red": [
+        "negative_control"
+      ]
+    },
+    {
+      "id": "E071",
+      "task": "6",
+      "test": "page_byte_boundary",
+      "target": "streams_dispatch",
+      "description": "page byte boundary",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_dispatch.rs",
+      "test_name": "page_byte_boundary",
+      "red": [
+        "negative_control"
+      ]
+    },
+    {
+      "id": "E072",
+      "task": "6",
+      "test": "hub_turn_control_fairness",
+      "target": "streams_dispatch",
+      "description": "hub turn control fairness",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_dispatch.rs",
+      "test_name": "hub_turn_control_fairness",
+      "red": [
+        "negative_control"
+      ]
+    },
+    {
+      "id": "E073",
+      "task": "6",
+      "test": "sorted_org_scope",
+      "target": "streams_dispatch",
+      "description": "sorted org scope",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_dispatch.rs",
+      "test_name": "sorted_org_scope",
+      "red": [
+        "negative_control"
+      ]
+    },
+    {
+      "id": "E074",
+      "task": "6",
+      "test": "marker_removed",
+      "target": "streams_dispatch",
+      "description": "marker removed",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_dispatch.rs",
+      "test_name": "marker_removed",
+      "red": [
+        "negative_control"
+      ]
+    },
+    {
+      "id": "E075",
+      "task": "6",
+      "test": "legacy_schema_version",
+      "target": "streams_dispatch",
+      "description": "legacy schema version",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_dispatch.rs",
+      "test_name": "legacy_schema_version",
+      "red": [
+        "negative_control"
+      ]
+    },
+    {
+      "id": "E076",
+      "task": "6",
+      "test": "public_channels_without_cursor",
+      "target": "streams_dispatch",
+      "description": "public channels without cursor",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_dispatch.rs",
+      "test_name": "public_frames_have_no_cursor_or_private_fields",
+      "red": [
+        "negative_control"
+      ]
+    },
+    {
+      "id": "E077",
+      "task": "6",
+      "test": "rollback_emits_nothing",
+      "target": "streams_dispatch",
+      "description": "rollback emits nothing",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_dispatch.rs",
+      "test_name": "postgres::committed_visibility_and_rollback",
+      "red": [
+        "negative_control"
+      ],
+      "suite": "tests/postgres/test_phase6_dispatch.py"
+    },
+    {
+      "id": "E078",
+      "task": "6",
+      "test": "lost_notify_poll_recovers",
+      "target": "streams_dispatch",
+      "description": "lost notify poll recovers",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_dispatch.rs",
+      "test_name": "poll_without_notification_drains_again",
+      "red": [
+        "negative_control"
+      ]
+    },
+    {
+      "id": "E079",
+      "task": "6",
+      "test": "spurious_notify_safe",
+      "target": "streams_dispatch",
+      "description": "spurious notify safe",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_dispatch.rs",
+      "test_name": "poll_and_spurious_wakes_read_committed_state",
+      "red": [
+        "negative_control"
+      ]
+    },
+    {
+      "id": "E080",
+      "task": "6",
+      "test": "pending_public_controls_survive_drain_error",
+      "target": "streams_dispatch",
+      "description": "pending public controls survive drain error",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_dispatch.rs",
+      "test_name": "scan_failure_preserves_pending_channels",
+      "red": [
+        "negative_control"
+      ]
+    },
+    {
+      "id": "E081",
+      "task": "6",
+      "test": "pending_public_controls_survive_partial_publish",
+      "target": "streams_dispatch",
+      "description": "pending public controls survive partial publish",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_dispatch.rs",
+      "test_name": "pending_public_survives_scan_failure_and_partial_accept",
+      "red": [
+        "negative_control"
+      ]
+    },
+    {
+      "id": "E082",
+      "task": "6",
+      "test": "invalid_event_resets",
+      "target": "streams_dispatch",
+      "description": "invalid event resets",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_dispatch.rs",
+      "test_name": "invalid_row_resets_and_scan_can_continue",
+      "red": [
+        "negative_control"
+      ]
+    },
+    {
+      "id": "E083",
+      "task": "6",
+      "test": "floor_overtakes_hub",
+      "target": "streams_dispatch",
+      "description": "floor overtakes hub",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_dispatch.rs",
+      "test_name": "floor_overtaken_hub_resets_before_new_rows",
+      "red": [
+        "negative_control"
+      ]
+    },
+    {
+      "id": "E084",
+      "task": "6",
+      "test": "startup_baseline_before_subscriptions",
+      "target": "streams_dispatch",
+      "description": "startup baseline before subscriptions",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_dispatch.rs",
+      "test_name": "baseline_is_captured_before_live_scans",
+      "red": [
+        "negative_control"
+      ]
+    },
+    {
+      "id": "E085",
+      "task": "7",
+      "test": "stale_cursor_gets_terminal_reset_not_partial_replay",
+      "target": "streams_replay",
+      "description": "stale cursor gets terminal reset not partial replay",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_replay.rs",
+      "test_name": "stale_cursor_receives_terminal_reset",
+      "red": [
+        "assertion",
+        "negative_control"
+      ]
+    },
+    {
+      "id": "E086",
+      "task": "7",
+      "test": "equal_floor_replays",
+      "target": "streams_replay",
+      "description": "equal floor replays",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_replay.rs",
+      "test_name": "equal_cursor_replays_above_floor",
+      "red": [
+        "assertion",
+        "negative_control"
+      ]
+    },
+    {
+      "id": "E087",
+      "task": "7",
+      "test": "cursor_ahead_resets",
+      "target": "streams_replay",
+      "description": "cursor ahead resets",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_replay.rs",
+      "test_name": "future_cursor_receives_terminal_reset",
+      "red": [
+        "assertion",
+        "negative_control"
+      ]
+    },
+    {
+      "id": "E088",
+      "task": "7",
+      "test": "replay_601_rows_with_foreign_holes",
+      "target": "streams_replay",
+      "description": "replay 601 rows with foreign holes",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_replay.rs",
+      "test_name": "replay_601_rows_with_foreign_sequence_holes",
+      "red": [
+        "assertion",
+        "negative_control"
+      ]
+    },
+    {
+      "id": "E089",
+      "task": "7",
+      "test": "subscribe_commit_live_overlap",
+      "target": "streams_replay",
+      "description": "subscribe commit live overlap",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_replay.rs",
+      "test_name": "subscribe_before_capture_merges_live_overlap",
+      "red": [
+        "assertion",
+        "negative_control"
+      ]
+    },
+    {
+      "id": "E090",
+      "task": "7",
+      "test": "prune_before_snapshot",
+      "target": "streams_replay",
+      "description": "prune before snapshot",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_replay.rs",
+      "test_name": "prune_before_page_snapshot_resets",
+      "red": [
+        "assertion",
+        "negative_control"
+      ]
+    },
+    {
+      "id": "E091",
+      "task": "7",
+      "test": "prune_between_pages_resets",
+      "target": "streams_replay",
+      "description": "prune between pages resets",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_replay.rs",
+      "test_name": "prune_between_pages_resets",
+      "red": [
+        "assertion",
+        "negative_control"
+      ]
+    },
+    {
+      "id": "E092",
+      "task": "7",
+      "test": "prune_after_page_snapshot",
+      "target": "streams_replay",
+      "description": "prune after page snapshot",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_replay.rs",
+      "test_name": "prune_after_snapshot_keeps_captured_page",
+      "red": [
+        "assertion",
+        "negative_control"
+      ]
+    },
+    {
+      "id": "E093",
+      "task": "7",
+      "test": "empty_table_with_nonzero_floor",
+      "target": "streams_replay",
+      "description": "empty table with nonzero floor",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_replay.rs",
+      "test_name": "empty_table_preserves_nonzero_floor",
+      "red": [
+        "assertion",
+        "negative_control"
+      ]
+    },
+    {
+      "id": "E094",
+      "task": "7",
+      "test": "global_sequence_holes_do_not_reset",
+      "target": "streams_replay",
+      "description": "global sequence holes do not reset",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_replay.rs",
+      "test_name": "no_cursor_uses_post_subscription_baseline",
+      "red": [
+        "assertion",
+        "negative_control"
+      ]
+    },
+    {
+      "id": "E095",
+      "task": "7",
+      "test": "expiry_midpage",
+      "target": "streams_replay",
+      "description": "expiry midpage",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_replay.rs",
+      "test_name": "expiry_mid_page_precedes_next_business_frame",
+      "red": [
+        "assertion",
+        "negative_control"
+      ]
+    },
+    {
+      "id": "E096",
+      "task": "7",
+      "test": "revocation_midpage",
+      "target": "streams_replay",
+      "description": "revocation midpage",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_replay.rs",
+      "test_name": "authorization_mid_page_never_rebinds_scope",
+      "red": [
+        "assertion",
+        "negative_control"
+      ]
+    },
+    {
+      "id": "E097",
+      "task": "7",
+      "test": "overflow_during_replay",
+      "target": "streams_replay",
+      "description": "overflow during replay",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_replay.rs",
+      "test_name": "overflow_during_replay_discards_page",
+      "red": [
+        "assertion",
+        "negative_control"
+      ]
+    },
+    {
+      "id": "E098",
+      "task": "7",
+      "test": "overflow_during_live",
+      "target": "streams_replay",
+      "description": "overflow during live",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_replay.rs",
+      "test_name": "overflow_during_live_discards_queue",
+      "red": [
+        "assertion",
+        "negative_control"
+      ]
+    },
+    {
+      "id": "E099",
+      "task": "7",
+      "test": "client_cancel_releases_resources",
+      "target": "streams_replay",
+      "description": "client cancel releases resources",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_replay.rs",
+      "test_name": "client_cancel_releases_subscription",
+      "red": [
+        "assertion",
+        "negative_control"
+      ]
+    },
+    {
+      "id": "E100",
+      "task": "7",
+      "test": "terminal_has_no_id_or_following_business_frame",
+      "target": "streams_replay",
+      "description": "terminal has no id or following business frame",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_replay.rs",
+      "test_name": "body_drop_mid_page_releases_registration",
+      "red": [
+        "assertion",
+        "negative_control"
+      ]
+    },
+    {
+      "id": "E101",
+      "task": "7",
+      "test": "no_connection_held_during_yield",
+      "target": "streams_replay",
+      "description": "no connection held during yield",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_replay.rs",
+      "test_name": "postgres_replay_snapshots",
+      "red": [
+        "assertion",
+        "negative_control"
+      ],
+      "suite": "tests/postgres/test_phase6_replay.py"
+    },
+    {
+      "id": "E102",
+      "task": "8",
+      "test": "capacity_is_terminal_event",
+      "target": "streams_http",
+      "description": "capacity is terminal event",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_http.rs",
+      "test_name": "capacity_is_terminal_event",
+      "red": [
+        "assertion"
+      ]
+    },
+    {
+      "id": "E103",
+      "task": "8",
+      "test": "heartbeat_within_bound",
+      "target": "streams_http",
+      "description": "heartbeat within bound",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_http.rs",
+      "test_name": "heartbeat_within_bound",
+      "red": [
+        "negative_control"
+      ]
+    },
+    {
+      "id": "E104",
+      "task": "8",
+      "test": "safe_event_framing",
+      "target": "streams_http",
+      "description": "safe event framing",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_http.rs",
+      "test_name": "safe_event_framing",
+      "red": [
+        "negative_control"
+      ]
+    },
+    {
+      "id": "E105",
+      "task": "8",
+      "test": "cors_and_request_id",
+      "target": "streams_http",
+      "description": "cors and request id",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_http.rs",
+      "test_name": "cors_and_request_id",
+      "red": [
+        "negative_control"
+      ]
+    },
+    {
+      "id": "E106",
+      "task": "8",
+      "test": "query_token_not_logged",
+      "target": "streams_http",
+      "description": "query token not logged",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_http.rs",
+      "test_name": "query_token_not_logged",
+      "red": [
+        "negative_control"
+      ]
+    },
+    {
+      "id": "E107",
+      "task": "8",
+      "test": "body_drop_cleans_subscription",
+      "target": "streams_http",
+      "description": "body drop cleans subscription",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "test_path": "rs/read/tests/streams_http.rs",
+      "test_name": "body_drop_cleans_subscription",
+      "red": [
+        "negative_control"
+      ]
+    },
+    {
+      "id": "E108",
+      "task": "9",
+      "test": "stream_startup_failure_keeps_rest_available",
+      "target": "streams_runtime",
+      "description": "stream startup failure keeps rest available",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E109",
+      "task": "9",
+      "test": "stream_failure_readiness_is_not_ok",
+      "target": "streams_runtime",
+      "description": "stream failure readiness is not ok",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E110",
+      "task": "9",
+      "test": "nonproduction_new_revision_allowed",
+      "target": "streams_runtime",
+      "description": "nonproduction new revision allowed",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E111",
+      "task": "9",
+      "test": "unlisted_revision_is_refused",
+      "target": "streams_runtime",
+      "description": "unlisted revision is refused",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E112",
+      "task": "9",
+      "test": "stream_capacity_config_is_bounded",
+      "target": "streams_runtime",
+      "description": "stream capacity config is bounded",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E113",
+      "task": "9",
+      "test": "listener_budget_includes_python_workers",
+      "target": "streams_runtime",
+      "description": "listener budget includes python workers",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E114",
+      "task": "9",
+      "test": "listener_budget_includes_cache",
+      "target": "streams_runtime",
+      "description": "listener budget includes cache",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E115",
+      "task": "9",
+      "test": "observed_connection_limit",
+      "target": "streams_runtime",
+      "description": "observed connection limit",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E116",
+      "task": "9",
+      "test": "stale_artifact_refused",
+      "target": "streams_runtime",
+      "description": "stale artifact refused",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E117",
+      "task": "9",
+      "test": "absent_floor_refused",
+      "target": "streams_runtime",
+      "description": "absent floor refused",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E118",
+      "task": "9",
+      "test": "startup_failure_cleanup",
+      "target": "streams_runtime",
+      "description": "startup failure cleanup",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E119",
+      "task": "9",
+      "test": "shutdown_releases_session",
+      "target": "streams_runtime",
+      "description": "shutdown releases session",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E120",
+      "task": "9",
+      "test": "supervised_reconnect",
+      "target": "streams_runtime",
+      "description": "supervised reconnect",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E121",
+      "task": "9",
+      "test": "finite_restart_policy",
+      "target": "streams_runtime",
+      "description": "finite restart policy",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E122",
+      "task": "10",
+      "test": "watchlist_feed_metrics_contract",
+      "target": "streams_watchlist_guard",
+      "description": "watchlist feed metrics contract",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "negative_control"
+      ],
+      "test_path": "rs/read/tests/streams_watchlist_guard.rs",
+      "test_name": "watchlist_feed_metrics_contract",
+      "suite": "tests/postgres/test_phase6_watchlist_guard.py"
+    },
+    {
+      "id": "E123",
+      "task": "10",
+      "test": "dispatch_does_not_create_watchlist_rows",
+      "target": "streams_watchlist_guard",
+      "description": "dispatch does not create watchlist rows",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "negative_control"
+      ],
+      "test_path": "rs/read/tests/streams_watchlist_guard.rs",
+      "test_name": "dispatch_does_not_create_watchlist_rows",
+      "suite": "tests/postgres/test_phase6_watchlist_guard.py"
+    },
+    {
+      "id": "E124",
+      "task": "10",
+      "test": "best_price_guard_before_at_after_cutoff",
+      "target": "streams_watchlist_guard",
+      "description": "best price guard before at after cutoff",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "negative_control"
+      ],
+      "test_path": "rs/read/tests/streams_watchlist_guard.rs",
+      "test_name": "best_price_guard_before_at_after_cutoff",
+      "suite": "tests/postgres/test_phase6_watchlist_guard.py"
+    },
+    {
+      "id": "E125",
+      "task": "10",
+      "test": "guard_precedes_pagination_and_counts",
+      "target": "streams_watchlist_guard",
+      "description": "guard precedes pagination and counts",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "negative_control"
+      ],
+      "test_path": "rs/read/tests/streams_watchlist_guard.rs",
+      "test_name": "guard_precedes_pagination_and_counts",
+      "suite": "tests/postgres/test_phase6_watchlist_guard.py"
+    },
+    {
+      "id": "E126",
+      "task": "10",
+      "test": "no_producer_startup",
+      "target": "streams_watchlist_guard",
+      "description": "no producer startup",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "negative_control"
+      ],
+      "test_path": "rs/read/tests/streams_watchlist_guard.rs",
+      "test_name": "no_producer_startup",
+      "suite": "tests/postgres/test_phase6_watchlist_guard.py"
+    },
+    {
+      "id": "E127",
+      "task": "10",
+      "test": "no_default_activation_cutoff",
+      "target": "streams_watchlist_guard",
+      "description": "no default activation cutoff",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "cargo",
+      "red": [
+        "negative_control"
+      ],
+      "test_path": "rs/read/tests/streams_watchlist_guard.rs",
+      "test_name": "no_default_activation_cutoff",
+      "suite": "tests/postgres/test_phase6_watchlist_guard.py"
+    },
+    {
+      "id": "E128",
+      "task": "11",
+      "test": "python_and_rust_contend_one_sequencer",
+      "target": "tests/postgres/test_phase6_races.py",
+      "description": "python and rust contend one sequencer",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E129",
+      "task": "11",
+      "test": "python_leader_session_dies_rust_takes_over",
+      "target": "tests/postgres/test_phase6_races.py",
+      "description": "python leader session dies rust takes over",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E130",
+      "task": "11",
+      "test": "rust_leader_session_dies_mid_assignment",
+      "target": "tests/postgres/test_phase6_races.py",
+      "description": "rust leader session dies mid assignment",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E131",
+      "task": "11",
+      "test": "listener_reconnect_cannot_reuse_leader_state",
+      "target": "tests/postgres/test_phase6_races.py",
+      "description": "listener reconnect cannot reuse leader state",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E132",
+      "task": "11",
+      "test": "unknown_assignment_commit_is_reconciled",
+      "target": "tests/postgres/test_phase6_races.py",
+      "description": "unknown assignment commit is reconciled",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E133",
+      "task": "11",
+      "test": "slow_producer_commits_after_fast_producer",
+      "target": "tests/postgres/test_phase6_races.py",
+      "description": "slow producer commits after fast producer",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E134",
+      "task": "11",
+      "test": "lost_notify_poll_recovers",
+      "target": "tests/postgres/test_phase6_races.py",
+      "description": "lost notify poll recovers",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E135",
+      "task": "11",
+      "test": "subscribe_highwater_live_overlap",
+      "target": "tests/postgres/test_phase6_races.py",
+      "description": "subscribe highwater live overlap",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E136",
+      "task": "11",
+      "test": "prune_before_capture_and_between_pages",
+      "target": "tests/postgres/test_phase6_races.py",
+      "description": "prune before capture and between pages",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E137",
+      "task": "11",
+      "test": "global_holes_and_foreign_rows_are_not_prune",
+      "target": "tests/postgres/test_phase6_races.py",
+      "description": "global holes and foreign rows are not prune",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E138",
+      "task": "11",
+      "test": "overflow_during_replay_and_live",
+      "target": "tests/postgres/test_phase6_races.py",
+      "description": "overflow during replay and live",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E139",
+      "task": "11",
+      "test": "expiry_or_revocation_mid_page",
+      "target": "tests/postgres/test_phase6_races.py",
+      "description": "expiry or revocation mid page",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E140",
+      "task": "11",
+      "test": "pending_public_controls_after_failure",
+      "target": "tests/postgres/test_phase6_races.py",
+      "description": "pending public controls after failure",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E141",
+      "task": "11",
+      "test": "delete_cache_trigger_sequence_overlap",
+      "target": "tests/postgres/test_phase6_races.py",
+      "description": "delete cache trigger sequence overlap",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E142",
+      "task": "11",
+      "test": "shutdown_and_client_cancel_release_every_resource",
+      "target": "tests/postgres/test_phase6_races.py",
+      "description": "shutdown and client cancel release every resource",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E143",
+      "task": "11",
+      "test": "watchlist_event_projection_contract",
+      "target": "tests/postgres/test_phase6_races.py",
+      "description": "watchlist event projection contract",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E144",
+      "task": "11",
+      "test": "python_leader_rust_subscribers",
+      "target": "tests/postgres/test_phase6_races.py",
+      "description": "python leader rust subscribers",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E145",
+      "task": "11",
+      "test": "rust_leader_python_subscribers",
+      "target": "tests/postgres/test_phase6_races.py",
+      "description": "rust leader python subscribers",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E146",
+      "task": "11",
+      "test": "python_producer_rust_replay",
+      "target": "tests/postgres/test_phase6_races.py",
+      "description": "python producer rust replay",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E147",
+      "task": "11",
+      "test": "rust_assignment_python_replay",
+      "target": "tests/postgres/test_phase6_races.py",
+      "description": "rust assignment python replay",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E148",
+      "task": "11",
+      "test": "both_contenders_failover",
+      "target": "tests/postgres/test_phase6_races.py",
+      "description": "both contenders failover",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E149",
+      "task": "11",
+      "test": "cross_runtime_current_previous_keys",
+      "target": "tests/postgres/test_phase6_races.py",
+      "description": "cross runtime current previous keys",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E150",
+      "task": "11",
+      "test": "shared_cutoff_terminates_stream",
+      "target": "tests/postgres/test_phase6_races.py",
+      "description": "shared cutoff terminates stream",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E151",
+      "task": "11",
+      "test": "python_rollback_same_cursor",
+      "target": "tests/postgres/test_phase6_races.py",
+      "description": "python rollback same cursor",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E152",
+      "task": "11",
+      "test": "four_python_workers",
+      "target": "tests/postgres/test_phase6_races.py",
+      "description": "four python workers",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E153",
+      "task": "11",
+      "test": "settlement_events_keep_participant_scope",
+      "target": "tests/postgres/test_phase6_races.py",
+      "description": "settlement events keep participant scope",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E154",
+      "task": "11",
+      "test": "stream_revocation_does_not_mutate_trade_state",
+      "target": "tests/postgres/test_phase6_races.py",
+      "description": "stream revocation does not mutate trade state",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E155",
+      "task": "12",
+      "test": "phase6_profile_requires_exact_candidate_identity",
+      "target": "frontend contract suites",
+      "description": "phase6 profile requires exact candidate identity",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E156",
+      "task": "12",
+      "test": "phase6_profile_has_no_measurement_output",
+      "target": "frontend contract suites",
+      "description": "phase6 profile has no measurement output",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E157",
+      "task": "12",
+      "test": "terminal_reset_cursor_policy",
+      "target": "frontend contract suites",
+      "description": "terminal reset cursor policy",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E158",
+      "task": "12",
+      "test": "auth_revoked_uses_30s_backoff",
+      "target": "frontend contract suites",
+      "description": "auth revoked uses 30s backoff",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E159",
+      "task": "12",
+      "test": "support_mode_does_not_open_private_stream",
+      "target": "frontend contract suites",
+      "description": "support mode does not open private stream",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E160",
+      "task": "12",
+      "test": "cache_invalidation_precedes_callback",
+      "target": "frontend contract suites",
+      "description": "cache invalidation precedes callback",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E161",
+      "task": "12",
+      "test": "no_pending_source_after_scope_change",
+      "target": "frontend contract suites",
+      "description": "no pending source after scope change",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E162",
+      "task": "12",
+      "test": "private_notifier_fields_render",
+      "target": "frontend contract suites",
+      "description": "private notifier fields render",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E163",
+      "task": "12",
+      "test": "stream_selector_reconnect_journey",
+      "target": "frontend contract suites",
+      "description": "stream selector reconnect journey",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E164",
+      "task": "13",
+      "test": "independent_review_complete",
+      "target": "independent review",
+      "description": "independent review complete",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E165",
+      "task": "13",
+      "test": "findings_disposition_complete",
+      "target": "independent review",
+      "description": "findings disposition complete",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E166",
+      "task": "13",
+      "test": "reviewed_source_matches_candidate",
+      "target": "independent review",
+      "description": "reviewed source matches candidate",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E167",
+      "task": "14a",
+      "test": "production_revision_matches_checkpoint",
+      "target": "tests/postgres/test_phase6_cutover.py",
+      "description": "production revision matches checkpoint",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E168",
+      "task": "14a",
+      "test": "unlisted_revision_is_refused",
+      "target": "tests/postgres/test_phase6_cutover.py",
+      "description": "unlisted revision is refused",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E169",
+      "task": "14a",
+      "test": "streams_selector_moves_only_declared_get_routes",
+      "target": "tests/postgres/test_phase6_cutover.py",
+      "description": "streams selector moves only declared get routes",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E170",
+      "task": "14a",
+      "test": "activity_remains_on_python_in_both_proxy_states",
+      "target": "tests/postgres/test_phase6_cutover.py",
+      "description": "activity remains on python in both proxy states",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E171",
+      "task": "14a",
+      "test": "issuer_owner_is_unchanged_by_stream_selector",
+      "target": "tests/postgres/test_phase6_cutover.py",
+      "description": "issuer owner is unchanged by stream selector",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E172",
+      "task": "14a",
+      "test": "streams_proxy_flush_and_redaction",
+      "target": "tests/postgres/test_phase6_cutover.py",
+      "description": "streams proxy flush and redaction",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E173",
+      "task": "14a",
+      "test": "stream_alias_proxy_ownership",
+      "target": "tests/postgres/test_phase6_cutover.py",
+      "description": "stream alias proxy ownership",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E174",
+      "task": "14a",
+      "test": "rollback_records_floor_and_blocks_before_selector_change",
+      "target": "tests/postgres/test_phase6_cutover.py",
+      "description": "rollback records floor and blocks before selector change",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E175",
+      "task": "14a",
+      "test": "prune_is_refused_while_python_owns_private_streams",
+      "target": "tests/postgres/test_phase6_cutover.py",
+      "description": "prune is refused while python owns private streams",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E176",
+      "task": "14a",
+      "test": "existing_bodies_close_before_prune_enable",
+      "target": "tests/postgres/test_phase6_cutover.py",
+      "description": "existing bodies close before prune enable",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E177",
+      "task": "14b",
+      "test": "wrong_selector_digest_refused",
+      "target": "tests/postgres/test_phase6_cutover.py",
+      "description": "wrong selector digest refused",
+      "required": true,
+      "scopes": [
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E178",
+      "task": "14b",
+      "test": "unapproved_release_identity_refused",
+      "target": "tests/postgres/test_phase6_cutover.py",
+      "description": "unapproved release identity refused",
+      "required": true,
+      "scopes": [
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E179",
+      "task": "14b",
+      "test": "final_revision_pins_match",
+      "target": "tests/postgres/test_phase6_cutover.py",
+      "description": "final revision pins match",
+      "required": true,
+      "scopes": [
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E180",
+      "task": "14b",
+      "test": "caddy_validate_both_candidates",
+      "target": "tests/postgres/test_phase6_cutover.py",
+      "description": "caddy validate both candidates",
+      "required": true,
+      "scopes": [
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E181",
+      "task": "14b",
+      "test": "caddy_adapt_both_candidates",
+      "target": "tests/postgres/test_phase6_cutover.py",
+      "description": "caddy adapt both candidates",
+      "required": true,
+      "scopes": [
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E182",
+      "task": "14b",
+      "test": "single_selector_flip_and_inverse",
+      "target": "tests/postgres/test_phase6_cutover.py",
+      "description": "single selector flip and inverse",
+      "required": true,
+      "scopes": [
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E183",
+      "task": "14b",
+      "test": "existing_public_body_drains",
+      "target": "tests/postgres/test_phase6_cutover.py",
+      "description": "existing public body drains",
+      "required": true,
+      "scopes": [
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E184",
+      "task": "14b",
+      "test": "private_body_drains",
+      "target": "tests/postgres/test_phase6_cutover.py",
+      "description": "private body drains",
+      "required": true,
+      "scopes": [
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E185",
+      "task": "14b",
+      "test": "fixture_cleanup_complete",
+      "target": "tests/postgres/test_phase6_cutover.py",
+      "description": "fixture cleanup complete",
+      "required": true,
+      "scopes": [
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E186",
+      "task": "15a",
+      "test": "evidence_missing_case_refused",
+      "target": "tests/rust_contract/test_phase6_evidence.py",
+      "description": "evidence missing case refused",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "pytest",
+      "red": [
+        "assertion"
+      ],
+      "test_path": "tests/rust_contract/test_phase6_evidence.py",
+      "test_name": "test_evidence_missing_case_refused"
+    },
+    {
+      "id": "E187",
+      "task": "15a",
+      "test": "evidence_skipped_database_refused",
+      "target": "tests/rust_contract/test_phase6_evidence.py",
+      "description": "evidence skipped database refused",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "pytest",
+      "red": [
+        "assertion"
+      ],
+      "test_path": "tests/rust_contract/test_phase6_evidence.py",
+      "test_name": "test_evidence_skipped_database_refused"
+    },
+    {
+      "id": "E188",
+      "task": "15a",
+      "test": "evidence_missing_leader_direction_refused",
+      "target": "tests/rust_contract/test_phase6_evidence.py",
+      "description": "evidence missing leader direction refused",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "pytest",
+      "red": [
+        "assertion"
+      ],
+      "test_path": "tests/rust_contract/test_phase6_evidence.py",
+      "test_name": "test_evidence_missing_leader_direction_refused"
+    },
+    {
+      "id": "E189",
+      "task": "15a",
+      "test": "evidence_missing_journey_refused",
+      "target": "tests/rust_contract/test_phase6_evidence.py",
+      "description": "evidence missing journey refused",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "pytest",
+      "red": [
+        "assertion"
+      ],
+      "test_path": "tests/rust_contract/test_phase6_evidence.py",
+      "test_name": "test_evidence_missing_journey_refused"
+    },
+    {
+      "id": "E190",
+      "task": "15a",
+      "test": "evidence_missing_review_refused",
+      "target": "tests/rust_contract/test_phase6_evidence.py",
+      "description": "evidence missing review refused",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "pytest",
+      "red": [
+        "assertion"
+      ],
+      "test_path": "tests/rust_contract/test_phase6_evidence.py",
+      "test_name": "test_evidence_missing_review_refused"
+    },
+    {
+      "id": "E191",
+      "task": "15a",
+      "test": "evidence_missing_drain_refused",
+      "target": "tests/rust_contract/test_phase6_evidence.py",
+      "description": "evidence missing drain refused",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "pytest",
+      "red": [
+        "assertion"
+      ],
+      "test_path": "tests/rust_contract/test_phase6_evidence.py",
+      "test_name": "test_evidence_missing_drain_refused"
+    },
+    {
+      "id": "E192",
+      "task": "15a",
+      "test": "evidence_missing_exit_refused",
+      "target": "tests/rust_contract/test_phase6_evidence.py",
+      "description": "evidence missing exit refused",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "pytest",
+      "red": [
+        "assertion"
+      ],
+      "test_path": "tests/rust_contract/test_phase6_evidence.py",
+      "test_name": "test_evidence_missing_exit_refused"
+    },
+    {
+      "id": "E193",
+      "task": "15a",
+      "test": "evidence_identity_mismatch_refused",
+      "target": "tests/rust_contract/test_phase6_evidence.py",
+      "description": "evidence identity mismatch refused",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "pytest",
+      "red": [
+        "assertion"
+      ],
+      "test_path": "tests/rust_contract/test_phase6_evidence.py",
+      "test_name": "test_evidence_identity_mismatch_refused"
+    },
+    {
+      "id": "E194",
+      "task": "15a",
+      "test": "evidence_missing_red_refused",
+      "target": "tests/rust_contract/test_phase6_evidence.py",
+      "description": "evidence missing red refused",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "pytest",
+      "red": [
+        "assertion"
+      ],
+      "test_path": "tests/rust_contract/test_phase6_evidence.py",
+      "test_name": "test_evidence_missing_red_refused"
+    },
+    {
+      "id": "E195",
+      "task": "15a",
+      "test": "evidence_red_after_implementation_refused",
+      "target": "tests/rust_contract/test_phase6_evidence.py",
+      "description": "evidence red after implementation refused",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "pytest",
+      "red": [
+        "assertion"
+      ],
+      "test_path": "tests/rust_contract/test_phase6_evidence.py",
+      "test_name": "test_evidence_red_after_implementation_refused"
+    },
+    {
+      "id": "E196",
+      "task": "15a",
+      "test": "evidence_red_tree_mismatch_refused",
+      "target": "tests/rust_contract/test_phase6_evidence.py",
+      "description": "evidence red tree mismatch refused",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "pytest",
+      "red": [
+        "assertion"
+      ],
+      "test_path": "tests/rust_contract/test_phase6_evidence.py",
+      "test_name": "test_evidence_red_tree_mismatch_refused"
+    },
+    {
+      "id": "E197",
+      "task": "15a",
+      "test": "evidence_unreleased_push_refused",
+      "target": "tests/rust_contract/test_phase6_evidence.py",
+      "description": "evidence unreleased push refused",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ],
+      "repository": "backend",
+      "runner": "pytest",
+      "red": [
+        "assertion"
+      ],
+      "test_path": "tests/rust_contract/test_phase6_evidence.py",
+      "test_name": "test_evidence_unreleased_push_refused"
+    },
+    {
+      "id": "E198",
+      "task": "15b",
+      "test": "missing_red_bundle_refused",
+      "target": "acceptance gate",
+      "description": "missing red bundle refused",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E199",
+      "task": "15b",
+      "test": "missing_ownership_result_refused",
+      "target": "acceptance gate",
+      "description": "missing ownership result refused",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E200",
+      "task": "15b",
+      "test": "all_task_evidence_complete",
+      "target": "acceptance gate",
+      "description": "all task evidence complete",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    },
+    {
+      "id": "E201",
+      "task": "15b",
+      "test": "exact_candidate_publication_authorized",
+      "target": "acceptance gate",
+      "description": "exact candidate publication authorized",
+      "required": true,
+      "scopes": [
+        "candidate",
+        "cutover-rehearsal"
+      ]
+    }
+  ],
+  "rust_targets": [
+    "streams_store",
+    "streams_bus",
+    "streams_auth",
+    "streams_election",
+    "streams_dispatch",
+    "streams_replay",
+    "streams_http",
+    "streams_runtime",
+    "streams_watchlist_guard"
+  ],
+  "postgres_suites": [
+    "tests/postgres/test_phase6_retention.py",
+    "tests/postgres/test_phase6_authorization.py",
+    "tests/postgres/test_phase6_election.py",
+    "tests/postgres/test_phase6_dispatch.py",
+    "tests/postgres/test_phase6_replay.py",
+    "tests/postgres/test_phase6_http.py",
+    "tests/postgres/test_phase6_runtime.py",
+    "tests/postgres/test_phase6_watchlist_guard.py",
+    "tests/postgres/test_phase6_coexistence.py",
+    "tests/postgres/test_phase6_races.py",
+    "tests/postgres/test_phase6_cutover.py"
+  ],
+  "result_policy": {
+    "missing": "fail",
+    "skipped": "fail",
+    "compiled_only": "fail",
+    "missing_exit": "fail",
+    "cleanup_failure": "fail"
+  },
+  "postgres_suite_scopes": {
+    "tests/postgres/test_phase6_cutover.py": [
+      "cutover-rehearsal"
+    ]
+  }
+}

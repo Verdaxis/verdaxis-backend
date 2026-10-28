@@ -4,8 +4,8 @@
 Called by the canonical deploy transaction after the verified artifact is
 staged. It reads the deployed `.env` with no-follow regular-file semantics,
 projects ONLY the app database settings, the KYC execution switch, the runtime
-identity and (Task 23) the Phase 2 verification/invite settings the Rust HTTP
-process needs, and writes `.runtime-rust/runtime.env` at mode 0600.
+identity, the optional stream status heartbeat settings and (Task 23) the Phase 2
+verification/invite settings the Rust HTTP process needs, and writes `.runtime-rust/runtime.env` at mode 0600.
 
 The migrator URL and every unrelated provider key stay out: its read pool is
 the shared app role, and the migrator-backed checks stay in the short-lived
@@ -44,6 +44,13 @@ PHASE2_REQUIRED_KEYS = (
     "RESEND_API_KEY",
 )
 PHASE2_PREVIOUS_KEY = "JWT_SECRET_PREVIOUS"
+# The status every stream heartbeat reports. Both keys are optional: an absent
+# or blank key is not projected, and the Rust runtime then reports
+# "operational" with no message.
+SYSTEM_STATUS_KEY = "SYSTEM_STATUS"
+SYSTEM_STATUS_MESSAGE_KEY = "SYSTEM_STATUS_MESSAGE"
+SYSTEM_STATUSES = frozenset({"operational", "degraded", "maintenance"})
+MAX_SYSTEM_STATUS_MESSAGE_CHARS = 280
 # Pydantic accepts these spellings for a boolean setting; the deployed file
 # decides the value, exactly as the Python service reads it. A missing key is
 # Python's default (enabled), never Rust's own choice.
@@ -64,6 +71,12 @@ _IDENTITIES = {
 
 class RustRuntimeError(RuntimeError):
     """The Rust runtime environment cannot be prepared safely."""
+
+
+# The deployed Python unit's optional second environment file and the keys the
+# Rust runtime takes from it.
+ANALYTICS_ENVIRONMENT_FILE = ".env.analytics"
+UMAMI_KEYS = ("UMAMI_BASE_URL", "UMAMI_WEBSITE_ID", "UMAMI_API_USERNAME", "UMAMI_API_PASSWORD")
 
 
 def read_regular(path: Path) -> bytes:
@@ -216,6 +229,41 @@ def phase3_settings(values: dict) -> dict:
     return projected
 
 
+def system_status_settings(values: dict) -> dict:
+    """Return the validated stream heartbeat status and message, if set.
+
+    The Rust service refuses an unknown status or a long message at startup, so
+    the same check runs here, before a restart. The status is projected trimmed
+    and lowercase; the message is projected trimmed. A blank value is the same
+    as an absent one.
+    """
+    projected = {}
+    status = values.get(SYSTEM_STATUS_KEY)
+    if status is not None:
+        if not isinstance(status, str):
+            raise RustRuntimeError(f"{SYSTEM_STATUS_KEY} must be text")
+        normalized = status.strip().lower()
+        if normalized:
+            if normalized not in SYSTEM_STATUSES:
+                raise RustRuntimeError(
+                    f"{SYSTEM_STATUS_KEY} must be operational, degraded or maintenance"
+                )
+            projected[SYSTEM_STATUS_KEY] = normalized
+    message = values.get(SYSTEM_STATUS_MESSAGE_KEY)
+    if message is not None:
+        if not isinstance(message, str):
+            raise RustRuntimeError(f"{SYSTEM_STATUS_MESSAGE_KEY} must be text")
+        message = message.strip()
+        if len(message) > MAX_SYSTEM_STATUS_MESSAGE_CHARS:
+            raise RustRuntimeError(
+                f"{SYSTEM_STATUS_MESSAGE_KEY} must be at most "
+                f"{MAX_SYSTEM_STATUS_MESSAGE_CHARS} characters"
+            )
+        if message:
+            projected[SYSTEM_STATUS_MESSAGE_KEY] = message
+    return projected
+
+
 def project_runtime_environment(
     environment_file: Path, release_sha: str, migration_revision: str, policy: dict
 ) -> dict:
@@ -223,11 +271,26 @@ def project_runtime_environment(
     values = dotenv_values(
         stream=io.StringIO(raw.decode("utf-8")), interpolate=False
     )
+    # The Python unit also loads the Umami aggregate settings from an optional
+    # second file next to .env; its values win, as in the unit's file order.
+    analytics_file = environment_file.with_name(ANALYTICS_ENVIRONMENT_FILE)
+    if analytics_file.exists() or analytics_file.is_symlink():
+        analytics = dotenv_values(
+            stream=io.StringIO(read_regular(analytics_file).decode("utf-8")),
+            interpolate=False,
+        )
+        for key in UMAMI_KEYS:
+            if analytics.get(key) is not None:
+                values[key] = analytics[key]
     if any(values.get(key) is None for key in RUNTIME_KEYS):
         raise RustRuntimeError("the deployed .env must define ENVIRONMENT and RELEASE_SHA")
     environment = policy["environment"]
     if environment == "production" and migration_revision not in {
-        "p0_20261016_union", "prc_20261026_changes", "p3_20261020_auth_tokens", "p5_20261020_read_indexes",
+        "p0_20261016_union",
+        "prc_20261026_changes",
+        "p3_20261020_auth_tokens",
+        "sse_20261021_replay_floor",
+        "p5_20261020_read_indexes",
     }:
         raise RustRuntimeError("production requires its reviewed union checkpoint")
     if values["ENVIRONMENT"] != environment or values["RELEASE_SHA"] != release_sha:
@@ -245,6 +308,23 @@ def project_runtime_environment(
     }
     projected.update(phase2_settings(values))
     projected.update(phase3_settings(values))
+    # Read-only aggregates and seller fees are the only business additions.
+    for key, default in (("SELLER_FEE_PILOT_PER_MT_USD", "2"),
+                         ("SELLER_FEE_PROFESSIONAL_PER_MT_USD", "1.50")):
+        from decimal import Decimal, InvalidOperation
+        try:
+            rate = Decimal(values.get(key) or default)
+            if not rate.is_finite() or rate < 0 or rate > 100000 or rate.as_tuple().exponent < -2:
+                raise ValueError("invalid seller fee")
+        except (InvalidOperation, ValueError) as exc:
+            raise RustRuntimeError("seller fee must be finite and nonnegative") from exc
+        projected[key] = str(rate)
+    for key in UMAMI_KEYS:
+        value = values.get(key)
+        if isinstance(value, str) and value.strip():
+            projected[key] = value
+    projected["UMAMI_ENABLED"] = "true" if all(projected.get(key) for key in UMAMI_KEYS) else "false"
+    projected.update(system_status_settings(values))
     # Refuse control characters; quotes and backslashes are escaped by the
     # EnvironmentFile renderer without changing the deployed value.
     for key, value in projected.items():

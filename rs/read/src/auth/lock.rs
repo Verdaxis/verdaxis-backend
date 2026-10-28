@@ -11,10 +11,10 @@
 //! Python writer for one browser device wait for each other instead of
 //! deadlocking. The statements live in [`super::store`].
 //!
-//! **Organization writes** enter through authenticated admission, which locks
-//! the actor first. Then take every affected organization row, every other
-//! affected user row, and every affected join request, each in ascending id,
-//! and only then any market invalidation
+//! **Organization writes** use the business transaction owner without a
+//! preheld actor lock. Take every affected organization row, every affected
+//! user row including the actor, and every affected join request, each in
+//! ascending id, and only then any market invalidation
 //! ([`lock_organization_write`]). A whole organization write runs at most
 //! [`ORG_WRITE_ATTEMPTS`] times when PostgreSQL reports a serialization
 //! failure or a deadlock ([`retry_org_write`]).
@@ -193,9 +193,8 @@ pub struct OrganizationWriteScope {
 }
 
 impl OrganizationWriteScope {
-    /// Authenticated admission already holds the actor row. Exclude that actor
-    /// from `users`; this scope contains only the remaining affected users.
-    /// Phase 4 route races must cover this actor-first exception.
+    /// Include every affected user, including the actor when no user lock is
+    /// held. The business owner acquires this entire scope before admission.
     pub fn new(
         organizations: impl IntoIterator<Item = Uuid>,
         users: impl IntoIterator<Item = Uuid>,

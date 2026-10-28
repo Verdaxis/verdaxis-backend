@@ -338,7 +338,11 @@ fn production_requires_its_exact_database_and_union_checkpoint() {
         config.database_url = config.database_url.replace(from, to);
         assert!(validate_config(&config).is_err());
     }
-    for revision in ["prc_20261026_changes", "p3_20261020_auth_tokens"] {
+    for revision in [
+        "prc_20261026_changes",
+        "p3_20261020_auth_tokens",
+        "sse_20261021_replay_floor",
+    ] {
         base.migration_revision = revision.into();
         assert!(validate_config(&base).is_ok());
     }
@@ -860,4 +864,80 @@ fn internal_error_has_exact_contract() {
     assert_eq!(error.status, axum::http::StatusCode::INTERNAL_SERVER_ERROR);
     assert_eq!(error.detail, "Database operation failed.");
     assert_eq!(error.retry_after, None);
+}
+
+#[test]
+fn deployed_environment_reads_the_status_heartbeat_settings() {
+    use verdaxis_read::runtime::config::config_from_deployed_environment;
+    let bind: std::net::SocketAddr = "127.0.0.1:8011".parse().unwrap();
+    let build = |environment: &std::collections::HashMap<String, String>| {
+        config_from_deployed_environment(environment, bind, &budget_document(compiled_sha()))
+    };
+
+    // Absent settings mean operational with no message.
+    let config = build(&deployed_environment()).unwrap();
+    assert_eq!(config.phase2.system_status, None);
+    assert_eq!(config.phase2.system_status_message, None);
+    assert!(validate_config(&config).is_ok());
+
+    let mut environment = deployed_environment();
+    environment.insert("SYSTEM_STATUS".into(), " Maintenance ".into());
+    environment.insert("SYSTEM_STATUS_MESSAGE".into(), "Back at 14:00 UTC".into());
+    let config = build(&environment).unwrap();
+    assert!(validate_config(&config).is_ok());
+    let heartbeat = verdaxis_read::streams::heartbeat::HeartbeatStatus::parse(
+        config.phase2.system_status.as_deref(),
+        config.phase2.system_status_message.as_deref(),
+    )
+    .unwrap();
+    assert_eq!(
+        heartbeat.status(),
+        verdaxis_read::streams::heartbeat::SystemStatus::Maintenance
+    );
+    assert_eq!(heartbeat.message(), Some("Back at 14:00 UTC"));
+}
+
+#[test]
+fn deployed_environment_refuses_an_invalid_status_heartbeat_setting() {
+    use verdaxis_read::runtime::config::config_from_deployed_environment;
+    let bind: std::net::SocketAddr = "127.0.0.1:8011".parse().unwrap();
+    let too_long = "x".repeat(281);
+    let cases = [
+        ("SYSTEM_STATUS", "up"),
+        ("SYSTEM_STATUS", ""),
+        ("SYSTEM_STATUS", "   "),
+        ("SYSTEM_STATUS_MESSAGE", too_long.as_str()),
+    ];
+    for (key, value) in cases {
+        let mut environment = deployed_environment();
+        environment.insert(key.into(), value.into());
+        let error = match config_from_deployed_environment(
+            &environment,
+            bind,
+            &budget_document(compiled_sha()),
+        ) {
+            Ok(_) => panic!("{key}={value:?} was accepted"),
+            Err(error) => error,
+        };
+        assert!(error.contains(key), "{key}: {error}");
+    }
+    // A blank message is no message, not an error.
+    let mut environment = deployed_environment();
+    environment.insert("SYSTEM_STATUS_MESSAGE".into(), "  ".into());
+    assert!(
+        config_from_deployed_environment(&environment, bind, &budget_document(compiled_sha()))
+            .is_ok()
+    );
+}
+
+#[test]
+fn validate_config_refuses_an_invalid_status_heartbeat_setting() {
+    let mut config = staging();
+    config.phase2.system_status = Some("broken".into());
+    assert!(validate_config(&config).is_err());
+    config.phase2.system_status = Some("degraded".into());
+    config.phase2.system_status_message = Some("y".repeat(281));
+    assert!(validate_config(&config).is_err());
+    config.phase2.system_status_message = Some("Slow matching".into());
+    assert!(validate_config(&config).is_ok());
 }

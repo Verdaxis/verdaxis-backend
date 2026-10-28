@@ -97,7 +97,6 @@ async fn stream_token_uses_current_bearer_actor() {
         .unwrap();
     let config = Config {
         kyc_execution_gate_enabled: true,
-        phase2: Default::default(),
         environment: "test".into(),
         release_sha: verdaxis_read::compiled_sha().into(),
         migration_revision: "kycg_20261014_staging".into(),
@@ -111,6 +110,7 @@ async fn stream_token_uses_current_bearer_actor() {
         configured_max_connections: 100,
         compliance_eur_usd_rate: None,
         fleet_artifact_path: "data/fleet_demand.json".into(),
+        phase2: Default::default(),
     };
     let pools = verdaxis_read::connect(&config).await.unwrap();
     let state = AppState::new(

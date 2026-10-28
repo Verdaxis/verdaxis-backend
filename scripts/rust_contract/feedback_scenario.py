@@ -39,7 +39,7 @@ def servers(context):
     env = {"JWT_ISSUER": "verdaxis", "JWT_AUDIENCE": "verdaxis-api"}
     return (
         Server((context.python_bin, "-m", "scripts.rust_contract.feedback_oracle", "--port", "{port}"), env),
-        Server((str(context.root / "rs/target/debug/examples/feedback_contract"),), env),
+        Server((str(context.rust_example("feedback_contract")),), env),
     )
 
 

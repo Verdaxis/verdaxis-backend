@@ -221,16 +221,15 @@ async fn postgres_authentication_ownership_and_revocation() {
     tokio::time::timeout(Duration::from_secs(10), barrier.wait())
         .await
         .unwrap();
-    let python_blocked = tokio::process::Command::new(
-        std::env::var("RUST_TEST_PYTHON").unwrap_or("venv/bin/python".into()),
-    )
-    .args(["-m", "tests.rust_contract.phase2.auth_writer"])
-    .current_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
-    .env("AUTH_INTEROP_SUBJECT", subject.to_string())
-    .env("AUTH_INTEROP_EXPECT_BLOCKED", "true")
-    .output()
-    .await
-    .unwrap();
+    let python_blocked =
+        tokio::process::Command::new(std::env::var("RUST_TEST_PYTHON").unwrap_or("python3".into()))
+            .args(["-m", "tests.rust_contract.phase2.auth_writer"])
+            .current_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+            .env("AUTH_INTEROP_SUBJECT", subject.to_string())
+            .env("AUTH_INTEROP_EXPECT_BLOCKED", "true")
+            .output()
+            .await
+            .unwrap();
     assert!(python_blocked.status.success());
     assert_eq!(
         std::str::from_utf8(&python_blocked.stdout).unwrap().trim(),
@@ -257,16 +256,15 @@ async fn postgres_authentication_ownership_and_revocation() {
     }
     // Python takes the other lock order. Its explicit stdin barrier holds the
     // revocation transaction while Rust waits, then Rust reads current state.
-    let mut python = tokio::process::Command::new(
-        std::env::var("RUST_TEST_PYTHON").unwrap_or("venv/bin/python".into()),
-    )
-    .args(["-m", "tests.rust_contract.phase2.auth_writer"])
-    .current_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
-    .env("AUTH_INTEROP_SUBJECT", subject.to_string())
-    .stdin(std::process::Stdio::piped())
-    .stdout(std::process::Stdio::piped())
-    .spawn()
-    .unwrap();
+    let mut python =
+        tokio::process::Command::new(std::env::var("RUST_TEST_PYTHON").unwrap_or("python3".into()))
+            .args(["-m", "tests.rust_contract.phase2.auth_writer"])
+            .current_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+            .env("AUTH_INTEROP_SUBJECT", subject.to_string())
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
     let mut output = BufReader::new(python.stdout.take().unwrap()).lines();
     assert_eq!(output.next_line().await.unwrap().unwrap(), "LOCKED");
     let state2 = state.clone();

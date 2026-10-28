@@ -349,15 +349,21 @@ async fn reference_boundaries(
 }
 
 #[tokio::test]
-async fn readiness_failure_has_no_identity() {
+async fn readiness_failure_stays_truthful() {
     let pool = sqlx::postgres::PgPoolOptions::new()
         .connect_lazy("postgres://invalid:invalid@127.0.0.1:1/unreachable_test")
         .unwrap();
     let response = probe(&pool, "staging", &"a".repeat(40)).await;
     assert_eq!(response.0, axum::http::StatusCode::SERVICE_UNAVAILABLE);
+    // A failed probe stays truthful: the four keys are always present.
     assert_eq!(
         response.1,
-        serde_json::json!({"status":"error","db":"unavailable"})
+        serde_json::json!({
+            "status": "error",
+            "db": "unavailable",
+            "environment": "staging",
+            "release_sha": "a".repeat(40),
+        })
     );
     pool.close().await;
 }

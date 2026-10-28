@@ -23,7 +23,7 @@ use verdaxis_read::auth::cookies::{
     AuthCookies, COOKIE_MAX_AGE_SECONDS, DEVICE_COOKIE, Presented, REFRESH_COOKIE,
 };
 use verdaxis_read::auth::error::{AUTH_BODY_LIMIT_BYTES, AuthCode, AuthFailure, read_auth_body};
-use verdaxis_read::auth::limits::{Phase2Limits, Refusal, SharedLimits};
+use verdaxis_read::auth::limits::{QuotaStores, Refusal, SharedLimits};
 use verdaxis_read::auth::origin::{require_trusted_origin, trusted_origins};
 use verdaxis_read::auth::token_bytes::generate_token;
 use verdaxis_read::runtime::http::{allowed_browser_origin, middleware, middleware_with_limits};
@@ -315,7 +315,6 @@ fn cors_app(environment: &str) -> Router {
     let config = verdaxis_read::Config {
         kyc_execution_gate_enabled: true,
         db_session_time_zone: "UTC".into(),
-        phase2: Default::default(),
         environment: "test".into(),
         release_sha: verdaxis_read::compiled_sha().into(),
         migration_revision: "kycg_20261014_staging".into(),
@@ -328,6 +327,7 @@ fn cors_app(environment: &str) -> Router {
         compliance_eur_usd_rate: None,
         fleet_artifact_path: "data/fleet_demand.json".into(),
         prepared_budget: None,
+        phase2: Default::default(),
     };
     let pools = verdaxis_read::runtime::db::Pools {
         read: sqlx::postgres::PgPoolOptions::new()
@@ -569,7 +569,7 @@ fn preauth_and_endpoint_limits_share_one_counter() {
         ),
     ];
     for (paths, limit) in preauth_buckets {
-        let mut limits = Phase2Limits::default();
+        let mut limits = QuotaStores::default();
         for index in 0..limit {
             let path = paths[index % paths.len()];
             assert_eq!(
@@ -607,7 +607,7 @@ fn preauth_and_endpoint_limits_share_one_counter() {
     }
 
     // The other auth routes have no pre-auth bucket.
-    let mut limits = Phase2Limits::default();
+    let mut limits = QuotaStores::default();
     for path in [
         "/api/auth/refresh",
         "/api/auth/logout",
@@ -674,22 +674,23 @@ fn preauth_and_endpoint_limits_share_one_counter() {
     }
 
     // Registration routes share a pre-auth bucket but not an endpoint bucket.
+    // Both are address-keyed, like every unauthenticated auth route.
     let limits = SharedLimits::default();
     for _ in 0..5 {
         assert!(
             limits
-                .check_endpoint("client", "/api/auth/register", 0)
+                .check_endpoint_by_address("client", "/api/auth/register", 0)
                 .is_ok()
         );
     }
     assert!(
         limits
-            .check_endpoint("client", "/api/auth/register", 0)
+            .check_endpoint_by_address("client", "/api/auth/register", 0)
             .is_err()
     );
     assert!(
         limits
-            .check_endpoint("client", "/api/auth/register-with-org", 0)
+            .check_endpoint_by_address("client", "/api/auth/register-with-org", 0)
             .is_ok()
     );
 
@@ -697,14 +698,14 @@ fn preauth_and_endpoint_limits_share_one_counter() {
     for _ in 0..100 {
         assert!(
             limits
-                .check_endpoint("client", "/api/auth/logout", 0)
+                .check_endpoint_by_address("client", "/api/auth/logout", 0)
                 .is_ok()
         );
     }
 
     // One request counts once in each layer: five admitted logins use five of
     // the thirty pre-auth requests.
-    let mut limits = Phase2Limits::default();
+    let mut limits = QuotaStores::default();
     for _ in 0..5 {
         assert!(limits.preauth("client", "/api/auth/login", 0));
         assert!(limits.endpoint("client", "/api/auth/login", 0));

@@ -1,10 +1,17 @@
+// Phase 4 Task 15 registration: shared analytics primitives.
+pub mod analytics;
 pub mod auth;
+pub mod business;
 pub mod compliance;
 pub mod crud;
+pub mod kyc;
 pub mod market;
 pub mod mcp;
+pub mod providers;
 pub mod routes;
 pub mod runtime;
+pub mod streams;
+pub mod subscriptions;
 
 // ---------------------------------------------------------------------------
 // Phase 2 Task 20 registration block.
@@ -46,7 +53,14 @@ pub use runtime::config::{check_revision, connection_budget, validate_budget, va
 pub use runtime::db::connect;
 pub use runtime::error::{busy, database_error};
 pub use runtime::health::{live, ready};
-pub use runtime::http::router;
+pub fn router(state: AppState) -> axum::Router {
+    let routes = runtime::http::public_routes();
+    let streams = streams::http::routes().with_state(streams::http::StreamsState {
+        state: std::sync::Arc::new(state.clone()),
+    });
+    let streams = runtime::http::middleware_with_state(streams, state.clone());
+    runtime::http::router_with(routes, state).merge(streams)
+}
 pub use runtime::logging::request_id;
 
 impl ApiError {
@@ -82,6 +96,10 @@ pub struct AppState {
     /// Verified Phase 2 settings; `None` means this composition does not mount
     /// the Phase 2 groups and Caddy keeps them on Python.
     pub(crate) phase2: Option<runtime::phase2::Phase2Settings>,
+    /// The live stream subsystem: the shared hub and the verification
+    /// settings stream admission uses. `None` until the runtime starts it;
+    /// stream routes then answer the terminal 503 while REST stays available.
+    pub streams: Option<std::sync::Arc<streams::http::Streams>>,
     pub(crate) phase3: runtime::phase3::Phase3Settings,
     /// Every route family's trading cache, so an authority or listener change
     /// can clear them together.
@@ -134,6 +152,7 @@ impl AppState {
             reads,
             reference_cache,
             phase2,
+            streams: None,
             phase3,
             trading_caches,
             trading_cache,
@@ -253,6 +272,11 @@ pub struct Phase2Options {
     /// The watchlist producer activation instant from the release metadata
     /// file (PD5), as written there. Absent until a release records one.
     pub watchlist_producer_activated_at: Option<String>,
+    /// The status the stream heartbeat reports (`SYSTEM_STATUS`) and its
+    /// optional message (`SYSTEM_STATUS_MESSAGE`), as configured. Both are
+    /// validated at startup by `runtime::config`; absent means operational.
+    pub system_status: Option<String>,
+    pub system_status_message: Option<String>,
 }
 
 fn read_admission_default() -> u32 {

@@ -171,7 +171,7 @@ print(json.dumps({
 }
 
 fn run_python(script: &str, input: Option<&str>) -> String {
-    let python = std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "venv/bin/python".into());
+    let python = std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "python3".into());
     let mut child = Command::new(python)
         .current_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."))
         .env("ENVIRONMENT", "test")
@@ -186,7 +186,7 @@ fn run_python(script: &str, input: Option<&str>) -> String {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect("the project Python interpreter at venv/bin/python runs");
+        .expect("the configured Python interpreter runs");
     if let Some(input) = input {
         child
             .stdin

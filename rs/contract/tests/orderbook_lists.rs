@@ -3,10 +3,9 @@
 #[test]
 fn ask_offset_past_end_keeps_total() {
     verdaxis_contract::compare_group("orderbook_lists").unwrap();
-    let status = std::process::Command::new(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../venv/bin/python"
-    ))
+    let status = std::process::Command::new(
+        std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "python3".into()),
+    )
     .arg(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../read/tests/orderbook_lists_oracle.py"

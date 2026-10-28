@@ -22,7 +22,143 @@ impl Refusal {
 #[derive(Clone, Default)]
 pub struct SharedLimits(std::sync::Arc<std::sync::Mutex<Phase2Limits>>);
 
+#[derive(Clone, Copy)]
+pub struct BusinessLimitKeys<'a> {
+    pub client: &'a str,
+    pub user: Option<&'a str>,
+    pub organization: Option<&'a str>,
+    pub token: Option<&'a str>,
+}
+
 impl SharedLimits {
+    /// Only declared method/template pairs may consume business quota. All
+    /// keys are checked before any counter changes, including the dual AI key.
+    pub fn check_business(
+        &self,
+        method: &str,
+        template: &str,
+        keys: BusinessLimitKeys<'_>,
+        now: u64,
+    ) -> Result<(), crate::ApiError> {
+        use crate::business::error::refusal;
+        use axum::http::StatusCode;
+        static ROUTES: std::sync::LazyLock<serde_json::Value> = std::sync::LazyLock::new(|| {
+            serde_json::from_str(include_str!(
+                "../../../../tests/rust_contract/phase4/routes.json"
+            ))
+            .expect("committed route inventory")
+        });
+        let routes = &*ROUTES;
+        let route = routes["routes"]
+            .as_array()
+            .expect("route inventory")
+            .iter()
+            .find(|route| route["method"] == method && route["path"] == template)
+            .ok_or_else(|| {
+                refusal(
+                    StatusCode::NOT_FOUND,
+                    "ROUTE_NOT_OWNED",
+                    "This route has no business owner.",
+                )
+            })?;
+        let mut policies = Vec::new();
+        for policy in route["limits"].as_array().expect("route limits") {
+            let identity = match policy["key"].as_str().expect("quota key") {
+                "client" => Some(keys.client),
+                "user" => keys.user,
+                "org" => keys.organization.or(keys.user),
+                "token" => keys.token.or(Some(keys.client)),
+                _ => None,
+            }
+            .ok_or_else(|| {
+                refusal(
+                    StatusCode::UNAUTHORIZED,
+                    "LIMIT_IDENTITY_REQUIRED",
+                    "A quota identity is required.",
+                )
+            })?;
+            let bucket = format!(
+                "business:{method}:{template}:{}",
+                policy["id"].as_str().expect("quota id")
+            );
+            let limit = u32::try_from(policy["count"].as_u64().expect("quota count"))
+                .expect("bounded quota");
+            let window = if policy["window"] == "hour" { 3600 } else { 60 };
+            policies.push((identity, bucket, limit, window));
+        }
+        let mut authority = self.lock_recovering();
+        authority.business_store.remove_expired(now);
+        for (identity, bucket, limit, _) in &policies {
+            if let Some(stored) = authority
+                .business_store
+                .buckets
+                .get(&(identity.to_string(), bucket.clone()))
+                && stored.expires_at > now
+                && stored.count >= *limit
+            {
+                let mut error = refusal(
+                    StatusCode::TOO_MANY_REQUESTS,
+                    "RATE_LIMITED",
+                    "The request quota is exhausted.",
+                );
+                error.retry_after = Some(
+                    u32::try_from(stored.expires_at.saturating_sub(now).max(1))
+                        .expect("bounded quota window"),
+                );
+                return Err(error);
+            }
+        }
+        let new_buckets = policies
+            .iter()
+            .filter(|(identity, bucket, _, _)| {
+                !authority
+                    .business_store
+                    .buckets
+                    .contains_key(&(identity.to_string(), bucket.clone()))
+            })
+            .count();
+        if authority
+            .business_store
+            .buckets
+            .len()
+            .saturating_add(new_buckets)
+            > MAX_BUCKETS
+        {
+            return Err(refusal(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "QUOTA_CAPACITY",
+                "The quota authority is at capacity.",
+            ));
+        }
+        for (identity, bucket, limit, window) in policies {
+            if !authority
+                .business_store
+                .accept(identity, &bucket, limit, window, now, false)
+            {
+                return Err(refusal(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "QUOTA_CAPACITY",
+                    "The quota authority is at capacity.",
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// The stream components share the same quota authority as ingress.
+pub type QuotaStores = Phase2Limits;
+
+impl SharedLimits {
+    pub fn check_endpoint_by_address(
+        &self,
+        client: &str,
+        path: &str,
+        now: u64,
+    ) -> Result<(), crate::ApiError> {
+        self.check_address_endpoint(client, path, now)
+    }
+
     /// One lock acquisition that recovers from poisoning instead of
     /// panicking: a caller that panicked under the lock must not take the
     /// quota authority down with it. The counters are kept as they were —
@@ -123,6 +259,19 @@ struct QuotaStore {
 }
 
 impl QuotaStore {
+    fn remove_expired(&mut self, now: u64) {
+        for _ in 0..EXPIRED_CLEANUP_BUDGET {
+            let Some((expires_at, _)) = self.expiration.first() else {
+                break;
+            };
+            if *expires_at > now {
+                break;
+            }
+            let (_, expired) = self.expiration.pop_first().expect("expiration entry");
+            self.buckets.remove(&expired);
+        }
+    }
+
     fn accept(
         &mut self,
         owner: &str,
@@ -145,16 +294,7 @@ impl QuotaStore {
         // A small fixed batch bounds synchronous cleanup under the shared
         // lock: stale accounting drains faster than new identities can add
         // it, without one caller releasing every expired entry at once.
-        for _ in 0..EXPIRED_CLEANUP_BUDGET {
-            let Some((expires_at, _)) = self.expiration.first() else {
-                break;
-            };
-            if *expires_at > now {
-                break;
-            }
-            let (_, expired) = self.expiration.pop_first().expect("expiration entry");
-            self.buckets.remove(&expired);
-        }
+        self.remove_expired(now);
         if !self.buckets.contains_key(&identity) {
             if self.buckets.len() >= MAX_BUCKETS {
                 if !evict {
@@ -197,6 +337,7 @@ pub struct Phase2Limits {
     preauth_store: QuotaStore,
     address_endpoint_store: QuotaStore,
     user_store: QuotaStore,
+    business_store: QuotaStore,
 }
 
 fn network_identity(client: &str) -> String {

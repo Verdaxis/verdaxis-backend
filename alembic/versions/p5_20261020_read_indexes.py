@@ -1,7 +1,7 @@
 """Add lookup indexes for the vessel and producer reads.
 
 Revision ID: p5_20261020_read_indexes
-Revises: p3_20261020_auth_tokens
+Revises: sse_20261021_replay_floor
 Create Date: 2026-10-20
 
 Three ordinary B-tree indexes, built inside the migration transaction. A failure
@@ -12,7 +12,7 @@ from __future__ import annotations
 from alembic import op
 
 revision = "p5_20261020_read_indexes"
-down_revision = "p3_20261020_auth_tokens"
+down_revision = "sse_20261021_replay_floor"
 branch_labels = None
 depends_on = None
 

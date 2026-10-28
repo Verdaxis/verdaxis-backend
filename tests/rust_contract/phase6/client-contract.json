@@ -1,0 +1,199 @@
+{
+  "version": 1,
+  "terminals": [
+    {
+      "id": "T01",
+      "event": "reset",
+      "reason": "subscriber_overflow",
+      "resync_required": true,
+      "cursor": "keep",
+      "schema_version": 1,
+      "id_field": false,
+      "frames": 1,
+      "close": true,
+      "error_field": false
+    },
+    {
+      "id": "T02",
+      "event": "reset",
+      "reason": "replay_retention",
+      "resync_required": true,
+      "cursor": "clear",
+      "schema_version": 1,
+      "id_field": false,
+      "frames": 1,
+      "close": true,
+      "error_field": false
+    },
+    {
+      "id": "T03",
+      "event": "reset",
+      "reason": "cursor_ahead",
+      "resync_required": true,
+      "cursor": "clear",
+      "schema_version": 1,
+      "id_field": false,
+      "frames": 1,
+      "close": true,
+      "error_field": false
+    },
+    {
+      "id": "T04",
+      "event": "auth_expired",
+      "reason": "token_expired",
+      "resync_required": false,
+      "cursor": "keep",
+      "schema_version": 1,
+      "id_field": false,
+      "frames": 1,
+      "close": true,
+      "error_field": true
+    },
+    {
+      "id": "T05",
+      "event": "auth_revoked",
+      "reason": "authorization_changed",
+      "resync_required": true,
+      "cursor": "clear",
+      "schema_version": 1,
+      "id_field": false,
+      "frames": 1,
+      "close": true,
+      "error_field": true
+    },
+    {
+      "id": "T06",
+      "event": "error",
+      "reason": "stream_unavailable",
+      "resync_required": true,
+      "cursor": "keep",
+      "schema_version": 1,
+      "id_field": false,
+      "frames": 1,
+      "close": true,
+      "error_field": true
+    },
+    {
+      "id": "T07",
+      "event": "error",
+      "reason": "connection_capacity",
+      "resync_required": false,
+      "cursor": "keep",
+      "schema_version": 1,
+      "id_field": false,
+      "frames": 1,
+      "close": true,
+      "error_field": true
+    },
+    {
+      "id": "T08",
+      "event": "reset",
+      "reason": "event_unavailable",
+      "resync_required": true,
+      "cursor": "clear",
+      "schema_version": 1,
+      "id_field": false,
+      "frames": 1,
+      "close": true,
+      "error_field": false
+    },
+    {
+      "id": "T09",
+      "event": "reset",
+      "reason": "service_restarting",
+      "resync_required": true,
+      "cursor": "clear",
+      "schema_version": 1,
+      "id_field": false,
+      "frames": 1,
+      "close": true,
+      "error_field": false
+    },
+    {
+      "id": "T10",
+      "event": "auth_revoked",
+      "reason": "authorization_unavailable",
+      "resync_required": true,
+      "cursor": "clear",
+      "schema_version": 1,
+      "id_field": false,
+      "frames": 1,
+      "close": true,
+      "error_field": true
+    }
+  ],
+  "public_event": "market_invalidated",
+  "public_payload": {
+    "schema_version": 1,
+    "resync_required": true
+  },
+  "private_events": [
+    "trade_created",
+    "trade_confirmed",
+    "trade_declined",
+    "trade_delivered",
+    "trade_paid",
+    "trade_auto_matched"
+  ],
+  "private_fields": [
+    "quantity",
+    "price",
+    "fuel_type",
+    "final_quantity",
+    "final_total"
+  ],
+  "private_id": "decimal stream sequence",
+  "private_payload": "writer fields retained; transport marker removed; schema_version defaults to 1",
+  "cursor": {
+    "header": "Last-Event-ID",
+    "query": "last_event_id",
+    "header_precedes_query": true,
+    "empty_header_falls_back": true,
+    "minimum": 0,
+    "maximum": 9223372036854775807,
+    "max_ascii_digits": 19
+  },
+  "error_precedence": [
+    "cursor",
+    "authorization_conflict",
+    "token_required",
+    "token_claims",
+    "account"
+  ],
+  "http_errors": {
+    "400": [
+      "STREAM_CURSOR_INVALID",
+      "STREAM_AUTH_CONFLICT"
+    ],
+    "401": [
+      "STREAM_TOKEN_REQUIRED",
+      "STREAM_TOKEN_INVALID"
+    ],
+    "405": [
+      "STREAM_METHOD_NOT_ALLOWED"
+    ],
+    "503": [
+      "STREAM_AUTH_UNAVAILABLE",
+      "STREAM_UNAVAILABLE"
+    ]
+  },
+  "http_error_shape": {
+    "detail": {
+      "code": "UPPER_SNAKE_CODE",
+      "message": "clear text"
+    }
+  },
+  "headers": {
+    "content-type": "text/event-stream",
+    "cache-control": "no-cache",
+    "x-accel-buffering": "no"
+  },
+  "heartbeat_max_seconds": 30,
+  "authorization_recheck_seconds": 15,
+  "revocation_backoff_seconds": 30,
+  "token_max_bytes": 16384,
+  "public_debounce_ms": 500,
+  "support_mode_private_stream": false,
+  "cache_invalidation_before_callback": true,
+  "production_pid_comment": false
+}

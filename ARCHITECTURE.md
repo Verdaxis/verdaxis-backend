@@ -139,7 +139,7 @@ rewrites inside timestamp resolution can escape the metadata stability check.
 
 ## Phase 5 read lookup indexes
 
-`alembic/versions/p5_20261020_read_indexes.py` (parent `p3_20261020_auth_tokens`)
+`alembic/versions/p5_20261020_read_indexes.py` (parent `sse_20261021_replay_floor`)
 adds three non-unique B-tree indexes for the Phase 5 reads:
 `vessels(organization_id, id)`, `producer_projects(cod_year, name, id)` and
 `producer_projects(status, cod_year, id)`. It takes SHARE locks on both tables
@@ -150,7 +150,121 @@ revision. `tests/unit/test_phase5_indexes.py`,
 `tests/unit/test_phase5_checkpoints.py` and
 `tests/postgres/test_phase5_read_indexes.py` check it.
 
+## Rust business serving composition
+
+`runtime/phase4.rs` assembles the 42 business, KYC, operator, vessel,
+subscription and analytics operations when the prepared credential authority is
+present. It shares the ingress quota handle with authentication and the earlier
+CRUD groups. `phase4_adapters.rs` supplies transaction-borrowing history/mail and
+market-event adapters; no timer or dispatcher is started. `phase4_analytics.rs`
+connects the bounded aggregate provider and canonical persisted benchmark reads.
+KYC loads the optional systemd credential once at composition; missing or invalid
+keys disable evidence storage/download without changing readiness. The exact
+method/path selector is `deploy/caddy/rust-phase4.caddy`; AI chat stays on Python.
+The following component sections describe their local exports, not activation.
+
+## Rust business transaction foundation
+
+`rs/read/src/business/` supplies caller-owned audit/status appenders and an
+ordered command owner. The owner releases its read-only preview before locking
+organizations, sorted users including the actor, and join requests through the
+shared auth lock helper. It rechecks account authority and preview identity
+inside the write transaction. A detached task holds admission through caller
+cancellation; ambiguous commit outcomes are not replayed. Business quota
+adapters use exact method/template pairs from the committed route inventory.
+No business route is mounted by these modules. The foundation remains pending
+integration and database qualification before consumer acceptance.
+
+## Rust KYC policy
+
+`rs/read/src/kyc/policy.rs` owns execution eligibility and its bound SQL
+predicate. `grace.rs` owns read-only grace identity/expiry and notice-claim
+selection rules. Market visibility renders the same predicate for owners and
+assisted customer members. The runtime config remains the single switch
+source; profile-only NOT_APPLICABLE is not execution eligibility. No route,
+grace mutation, notice sender or timer is added here.
+
+## Rust subscriptions
+
+`rs/read/src/subscriptions/` provides the five subscription component routes,
+conflict-safe organization bootstrap/upsert, and seller fee policy. Commands use
+the ordered business transaction owner; subscription updates and audit append
+commit together. `resolve_seller_fee` only reads on the trade creator's borrowed
+connection. Phase 9 freezes its plan and Decimal rate on each new trade; later
+subscription changes do not reprice existing trades. Component routes are not
+activated in the serving router by this module.
+
+## Rust Phase 4 product usage
+
+`rs/read/src/analytics/usage.rs` supplies the unmounted P01 component router.
+It authenticates the account, checks administrator authority and token quota,
+then reads authoritative counts in the authenticated transaction. Optional
+behavioral I/O runs after the transaction releases its connection and locks.
+The component consumes the shared provider envelope and privacy cells;
+unavailable values stay null and suppressed counts cannot feed conversions.
+The integration owner supplies the real provider adapter and composes the route
+without replacing public routes, health or readiness. No serving route is
+activated by the leaf module.
+
+## Rust stream contract reservations
+
+`tests/rust_contract/phase6/` defines the three stream routes, client control
+contract and required scenario IDs. `docs/rust-phase6/interfaces.md` defines the
+shared auth, replay, hub and runtime seams. `rs/read/src/streams/` and the
+`streams_*` Cargo targets reserve component ownership only; no route or dispatcher
+is activated, and empty targets are not acceptance evidence. Token issuance
+remains authentication-owned; activity remains Python-owned. Watchlist producers
+are not part of this component.
+
+The additive `sse_20261021_replay_floor` migration owns the replay coverage
+singleton, retention ownership singleton, outbox DELETE/TRUNCATE triggers and
+participant-membership GIN index. The app and backup roles can only read the
+new tables. Pruning defaults to blocked and requires an independently authorized
+Rust ownership record. `streams/store.rs` uses short read-only repeatable-read
+snapshots for participant-scoped pages and their coverage boundary, with metadata
+checks before payload decoding. The component remains inactive; no stream route,
+sequencer or prune job is started. Schema/ACL and read-store proofs use
+`tests/postgres/test_phase6_retention.py` and `rs/read/tests/streams_store.rs`.
+
+The typed bus in `streams/bus.rs` owns bounded subscriptions and terminal
+controls; `streams/types.rs` re-exports shared event types. Admission in
+`streams/auth.rs` uses the shared token verifier and bounded read-only database
+transactions. `streams/election.rs` assigns committed outbox rows on one elected
+physical session and retries bounded assignment contention. The cache checkpoint
+remains immediately below the replay-floor migration. These components are not
+started by the serving binary. Watchlist preservation tests keep producer
+activation disabled. The neutral evidence gate in
+`scripts/rust_contract/phase6_evidence.py` binds accepted scenario metadata to
+source tests and host logs; incomplete later-task evidence still refuses acceptance.
+
+Replay now consumes the same validated envelope as live dispatch. Store page limits
+are aliases of the shared stream policy, and metadata is checked before JSON
+is decoded. `PgDispatchStore` reads global pages and the retention boundary in
+one short read-only snapshot. `Replay` remains pull-driven and owns its bounded
+page and registration; terminal-only subscription waits cancel pending reads.
+`streams/http.rs` composes the six canonical/alias GET paths. `streams/heartbeat.rs`
+owns the status heartbeat every stream sends (a named `heartbeat` event, no `id`,
+on open and every 30 seconds regardless of traffic) and the validated
+`SYSTEM_STATUS` / `SYSTEM_STATUS_MESSAGE` settings it reports; the runtime file
+preparer projects those two optional keys. `streams/runtime.rs`
+starts the scan baseline and attested election session before admission, owns
+bounded supervision and releases its session on shutdown. The prepared
+`stream_listener` budget choice enables this component in the existing binary;
+without it the routes return unavailable. Readiness refuses a failed enabled
+component while REST liveness stays available. Python's complete worker budget,
+the Rust read/readiness pools and each enabled cache/stream listener are counted
+against configured and observed PostgreSQL limits. The production checkpoint pin
+is unchanged; the replay-floor checkpoint is allowlisted for nonproduction.
+No deployment or proxy activation is implied.
+
 ## Rust Phase 2 feedback
+
+Task 8 adds organization verification, explicit membership review and bounded
+join projections under rs/read/src/business/{organizations,joins,membership}.rs.
+Writes use the ordered business owner and rejection calls the market invalidator
+on its borrowed connection. Retained KYC evidence and grace are not changed.
+These leaf components are not mounted; real invalidator/policy composition,
+route acceptance and dependency audit remain integration gates.
 
 `rs/read/src/crud/feedback.rs` provides the Task 10 feedback submission and
 administrator listing routers. Both use the shared authenticated transaction;
@@ -217,6 +331,15 @@ and revokes all user refresh families without committing. Missing users return
 `sqlx::Error::RowNotFound`. `auth_revocation_postgres.rs`, driven by
 `tests/postgres/test_phase3_auth_revocation.py`, covers concurrent updates and
 caller rollback on the migrated runtime role.
+
+## Rust bounded organization invalidation
+
+`order_write::{invalidation,benchmarks,reservations,events}` borrows the ordered
+business owner's connection. It withdraws bounded executable order remainder,
+preserves existing trades and settlement reservations, and appends benchmark,
+watchlist, audit and outbox effects without commit or dispatch. Read and write
+benchmark callers share `market::live_benchmarks::calculate_live_benchmarks`;
+the read wrapper retains its existing error mapping. No new route is mounted.
 
 ## Rust Phase 3 coexistence and session schedules
 

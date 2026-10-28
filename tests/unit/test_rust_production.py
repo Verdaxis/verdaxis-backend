@@ -45,7 +45,7 @@ def test_production_policy_is_the_reviewed_activation_with_the_bootstrap_unit():
     assert "venv/bin/python" not in unit
 
 
-@pytest.mark.parametrize("revision", ["p0_20261016_union", "prc_20261026_changes"])
+@pytest.mark.parametrize("revision", ["p0_20261016_union", "prc_20261026_changes", "p3_20261020_auth_tokens"])
 def test_production_runtime_projects_its_app_identity_and_phase2(tmp_path, revision):
     preparer = _load_preparer()
     env = tmp_path / ".env"

@@ -76,7 +76,7 @@ def scenario():
 
     def servers(context):
         return [Server((context.python_bin, "-m", "scripts.rust_contract.notifications_oracle", "--port", "{port}")),
-                Server((str(context.root / "rs/target/debug/examples/notifications_contract"),))]
+                Server((str(context.rust_example("notifications_contract")),))]
 
     def action(name, route, method, path, actor=A, status=200, notification=None, fault=None, check=None):
         headers = {"authorization": "Bearer " + token(actor), "x-request-id": "notification-" + name}

@@ -43,6 +43,7 @@ GRANT rust_group TO rust_member;
 CREATE ROLE rust_migrator LOGIN NOINHERIT PASSWORD 'disposable_migrator_pw';
 CREATE DATABASE verdaxis_rust_test OWNER rust_migrator;
 \connect verdaxis_rust_test
+CREATE EXTENSION postgis;
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 GRANT USAGE ON SCHEMA public TO rust_app, rust_member;
 SET ROLE rust_migrator;
@@ -67,7 +68,13 @@ set +e
 # result when the fixture is missing. `--skip` matches test function names,
 # not test file names, so every test is listed by its name.
 cargo test --manifest-path rs/Cargo.toml --locked --workspace --features contract-tests \
-  -- --test-threads=1 --skip public_visibility_matrix_matches_python \
+  -- --test-threads=1 \
+  --skip runtime_documents_and_history_are_append_only \
+  --skip runtime_cannot_write_provenance_or_grace \
+  --skip organization_approval_trigger_reads_back_real_and_vd001 \
+  --skip retained_documents_block_user_and_org_delete \
+  --skip rust_service_credential_absence_does_not_fail_readiness \
+  --skip public_visibility_matrix_matches_python \
   --skip trade_evidence_matrix_matches_python \
   --skip benchmark_key_first_matches_key_join_last \
   --skip biofuel_supplier_metadata_clause_hides_only_failing_asks \
@@ -104,3 +111,10 @@ if ! grep -Eq '^test result: ok\. [1-9][0-9]* passed' "$log"; then
   echo "no Rust test ran: refusing a green result" >&2
   exit 1
 fi
+
+# Phase 4 authority/review suites mark database cases explicitly; execute them
+# here as well as the default workspace cases, on the same disposable endpoint.
+cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read --features contract-tests \
+  --test phase4_analytics_views --test phase4_analytics_legacy \
+  --test phase4_admission --test phase4_organizations --test phase4_races \
+  -- --include-ignored --test-threads=1

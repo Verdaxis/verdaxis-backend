@@ -19,12 +19,14 @@ pub const LIBC_MIN: &str = "2.35";
 ///
 /// This is the same reviewed file `runtime::config::validate_config` reads; the
 /// unit tests below assert the two definitions cannot drift.
+/// Listed in migration order: the stream runtime accepts its checkpoint and every later one.
 pub const ALLOWED_REVISIONS: &[&str] = &[
     "kycg_20261014_staging",
     "p0_20261016_union",
     "prc_20261018_cache",
     "prc_20261026_changes",
     "p3_20261020_auth_tokens",
+    "sse_20261021_replay_floor",
     "p5_20261020_read_indexes",
 ];
 
@@ -133,6 +135,7 @@ mod tests {
                 "prc_20261018_cache",
                 "prc_20261026_changes",
                 "p3_20261020_auth_tokens",
+                "sse_20261021_replay_floor",
                 "p5_20261020_read_indexes"
             ])
         );

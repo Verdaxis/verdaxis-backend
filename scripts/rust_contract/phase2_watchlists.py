@@ -275,7 +275,7 @@ def _scenario(name, gate_enabled):
         rust_environment = {"WATCHLIST_TEST_CUTOFF": "2026-10-19T00:00:00Z",
                             "KYC_EXECUTION_GATE_ENABLED": "true" if gate_enabled else "false"}
         return [Server((context.python_bin, "-m", "scripts.rust_contract.phase2_oracle", "--port", "{port}")),
-                Server((str(context.root / "rs/target/debug/examples/watchlist_server"),), rust_environment)]
+                Server((str(context.rust_example("watchlist_server")),), rust_environment)]
     return Scenario(
         name, "watchlists", _setup, servers, lambda context: _actions(context, gate_enabled),
         build=("cargo", "build", "--manifest-path", "rs/Cargo.toml", "--locked", "-p", "verdaxis-read",
