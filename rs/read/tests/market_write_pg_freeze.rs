@@ -867,3 +867,325 @@ async fn named_unique_mapping_and_database_guard_remain_exact() {
     );
     assert_eq!(f.snapshot().await, before);
 }
+
+#[derive(Clone, Copy)]
+enum ObservedRow {
+    User,
+    Trade,
+}
+impl ObservedRow {
+    fn statement(self) -> &'static str {
+        match self {
+            Self::User => "SELECT id FROM users WHERE id=$1 FOR UPDATE",
+            Self::Trade => {
+                "SELECT status::text AS status,buyer_id,seller_id,buyer_user_id,seller_user_id FROM trades WHERE id=$1 FOR UPDATE"
+            }
+        }
+    }
+    fn name(self) -> &'static str {
+        match self {
+            Self::User => "user",
+            Self::Trade => "trade",
+        }
+    }
+}
+
+async fn route_pool(name: &'static str) -> PgPool {
+    let url = std::env::var("RUST_FREEZE_DATABASE_URL").unwrap();
+    PgPoolOptions::new()
+        .max_connections(1)
+        .after_connect(move |conn, _| {
+            Box::pin(async move {
+                sqlx::query("SELECT set_config('application_name',$1,false)")
+                    .bind(name)
+                    .execute(conn)
+                    .await?;
+                Ok(())
+            })
+        })
+        .connect(&url)
+        .await
+        .unwrap()
+}
+
+fn spawn_route(
+    router: Router,
+    trade: Uuid,
+    action: &'static str,
+    actor: u128,
+    body: Value,
+) -> tokio::task::JoinHandle<(StatusCode, Value)> {
+    tokio::spawn(async move {
+        send(
+            &router,
+            "POST",
+            &format!("/api/admin/trades/{trade}/{action}"),
+            Some(token(actor, 0, 600, "access")),
+            body,
+            &[],
+            None,
+        )
+        .await
+    })
+}
+
+async fn wait_for_named_request(
+    admin: &mut PgConnection,
+    name: &str,
+    statement: Option<&str>,
+) -> i32 {
+    // Every observer query gets a fresh activity snapshot; identify the exact
+    // waiter and its blocker rather than any lock elsewhere in the fixture.
+    for _ in 0..200 {
+        let pid: Option<i32> = sqlx::query_scalar(
+            "SELECT pid FROM pg_stat_activity WHERE datname=current_database() AND application_name=$1 AND wait_event_type='Lock' AND ($2::text IS NULL OR query=$2) AND EXISTS (SELECT 1 FROM pg_stat_activity blocker WHERE blocker.pid=ANY(pg_blocking_pids(pg_stat_activity.pid)) AND blocker.application_name=CASE WHEN $1='freeze-route-first' THEN 'freeze-route-barrier' ELSE 'freeze-route-first' END)")
+            .bind(name).bind(statement).fetch_optional(&mut *admin).await.unwrap();
+        if let Some(pid) = pid {
+            return pid;
+        }
+        tokio::task::yield_now().await;
+    }
+    panic!("request {name} did not wait on its expected blocker");
+}
+
+async fn overlap_routes(
+    f: &mut Fixture,
+    first_action: &'static str,
+    second_actor: u128,
+    second_reason: &'static str,
+    observed: ObservedRow,
+) -> ((StatusCode, Value), (StatusCode, Value)) {
+    let first_pool = route_pool("freeze-route-first").await;
+    let second_pool = route_pool("freeze-route-second").await;
+    let first_router = contract_router(first_pool.clone(), KEY);
+    let second_router = contract_router(second_pool.clone(), KEY);
+    f.sql(include_str!("fixtures/phase9_freeze.sql")).await;
+    let mut barrier = PgConnection::connect(&f.admin_url).await.unwrap();
+    sqlx::query("SELECT set_config('application_name','freeze-route-barrier',false)")
+        .execute(&mut barrier)
+        .await
+        .unwrap();
+    // This fixture lock pauses the real route at its audit INSERT, after its
+    // actor/trade/freeze locks. It never substitutes a domain writer.
+    sqlx::query("SELECT freeze_fixture_hold()")
+        .execute(&mut barrier)
+        .await
+        .unwrap();
+    let first_body = if first_action == "unfreeze" {
+        json!({"note":"clear concurrent review"})
+    } else {
+        json!({"reason_code":"OTHER","note":"first concurrent review"})
+    };
+    let first = spawn_route(first_router, f.trade, first_action, ADMIN, first_body);
+    let first_pid = wait_for_named_request(&mut f.admin, "freeze-route-first", None).await;
+    let second = spawn_route(
+        second_router,
+        f.trade,
+        "freeze",
+        second_actor,
+        json!({"reason_code":second_reason,"note":"second concurrent review"}),
+    );
+    let second_pid = wait_for_named_request(
+        &mut f.admin,
+        "freeze-route-second",
+        Some(observed.statement()),
+    )
+    .await;
+    // Release immediately after the observation; no sleeps extend the 500 ms budget.
+    sqlx::query("SELECT freeze_fixture_release()")
+        .execute(&mut barrier)
+        .await
+        .unwrap();
+    assert_ne!(first_pid, second_pid);
+    println!(
+        "OBSERVED_ROUTE_ROW_WAIT={} FIRST_PID={} SECOND_PID={}",
+        observed.name(),
+        first_pid,
+        second_pid
+    );
+    let results = (first.await.unwrap(), second.await.unwrap());
+    f.sql("DROP TRIGGER freeze_fixture_audit_barrier ON audit_logs; DROP FUNCTION freeze_fixture_audit_barrier()").await;
+    first_pool.close().await;
+    second_pool.close().await;
+    results
+}
+
+fn assert_second_outcome(result: &(StatusCode, Value), expected: StatusCode) -> bool {
+    if let Some(code) = code_if_refusal(&result.1) {
+        match code {
+            "MARKET_BUSY" => {
+                assert_eq!(result.0, StatusCode::CONFLICT);
+                return false;
+            }
+            "MARKET_TIMEOUT" => {
+                assert_eq!(result.0, StatusCode::SERVICE_UNAVAILABLE);
+                return false;
+            }
+            _ => {}
+        }
+    }
+    assert_eq!(result.0, expected, "{:?}", result.1);
+    if expected == StatusCode::CONFLICT {
+        assert_eq!(code(&result.1), "TRADE_ALREADY_FROZEN");
+    }
+    true
+}
+
+async fn assert_freeze_overlap(second_actor: u128, reason: &'static str, observed: ObservedRow) {
+    let mut f = Fixture::new("DELIVERED").await;
+    let before = f.snapshot().await;
+    let (first, second) = overlap_routes(&mut f, "freeze", second_actor, reason, observed).await;
+    assert_eq!(first.0, StatusCode::CREATED, "{:?}", first.1);
+    let replay = second_actor == ADMIN && reason == "OTHER";
+    let completed = assert_second_outcome(
+        &second,
+        if replay {
+            StatusCode::OK
+        } else {
+            StatusCode::CONFLICT
+        },
+    );
+    if replay && completed {
+        assert_eq!(second.1, first.1);
+    }
+    assert_eq!(f.counts().await, (1, 1, 1));
+    let after = f.snapshot().await;
+    assert_eq!(after["base"]["trades"], before["base"]["trades"]);
+    assert_eq!(after["base"]["orders"], before["base"]["orders"]);
+    assert_eq!(after["base"]["inventory"], before["base"]["inventory"]);
+    assert_eq!(after["freezes"].as_array().unwrap().len(), 1);
+    let row = &after["freezes"][0];
+    for field in [
+        "id",
+        "trade_id",
+        "status",
+        "reason_code",
+        "note",
+        "frozen_at",
+        "frozen_by_user_id",
+        "version",
+    ] {
+        assert_eq!(row[field], first.1[field], "{field}");
+    }
+    assert_eq!(row["status"], "ACTIVE");
+    assert!(row["cleared_at"].is_null());
+    assert_eq!(after["audit"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        f.audit("TRADE_FROZEN").await["changes"],
+        json!({"status":{"before":null,"after":"ACTIVE"},"reason_code":"OTHER","note":"first concurrent review","actor":id(ADMIN),"actor_is_party":false})
+    );
+    for key in [
+        "notifications",
+        "outbox",
+        "receipts",
+        "referrals",
+        "benchmarks",
+        "targets",
+    ] {
+        assert_eq!(after["base"][key], before["base"][key], "{key}");
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires an attested disposable PostgreSQL"]
+async fn same_actor_same_reason_waits_on_user_row() {
+    assert_freeze_overlap(ADMIN, "OTHER", ObservedRow::User).await;
+}
+
+#[tokio::test]
+#[ignore = "requires an attested disposable PostgreSQL"]
+async fn same_actor_different_reason_waits_on_user_row() {
+    assert_freeze_overlap(ADMIN, "COURT_ORDER", ObservedRow::User).await;
+}
+
+#[tokio::test]
+#[ignore = "requires an attested disposable PostgreSQL"]
+async fn different_administrator_same_reason_waits_on_trade_row() {
+    assert_freeze_overlap(OTHER_ADMIN, "OTHER", ObservedRow::Trade).await;
+}
+
+#[tokio::test]
+#[ignore = "requires an attested disposable PostgreSQL"]
+async fn different_administrator_different_reason_waits_on_trade_row() {
+    assert_freeze_overlap(OTHER_ADMIN, "COURT_ORDER", ObservedRow::Trade).await;
+}
+
+#[tokio::test]
+#[ignore = "requires an attested disposable PostgreSQL"]
+async fn clear_against_another_administrator_refreeze_waits_on_trade_row() {
+    let mut f = Fixture::new("DELIVERED").await;
+    let (status, original) = f.freeze(ADMIN, "OTHER").await;
+    assert_eq!(status, StatusCode::CREATED);
+    let before = f.snapshot().await;
+    let (clear, refreeze) = overlap_routes(
+        &mut f,
+        "unfreeze",
+        OTHER_ADMIN,
+        "COURT_ORDER",
+        ObservedRow::Trade,
+    )
+    .await;
+    assert_eq!(clear.0, StatusCode::OK, "{:?}", clear.1);
+    assert_eq!(clear.1["status"], "CLEARED");
+    let completed = assert_second_outcome(&refreeze, StatusCode::CREATED);
+    assert_eq!(
+        f.counts().await,
+        if completed { (1, 2, 3) } else { (0, 1, 2) }
+    );
+    let after = f.snapshot().await;
+    for key in [
+        "trades",
+        "orders",
+        "inventory",
+        "notifications",
+        "outbox",
+        "receipts",
+        "referrals",
+        "benchmarks",
+        "targets",
+    ] {
+        assert_eq!(after["base"][key], before["base"][key], "{key}");
+    }
+    let rows = after["freezes"].as_array().unwrap();
+    let cleared = rows.iter().find(|row| row["id"] == original["id"]).unwrap();
+    for field in [
+        "id",
+        "trade_id",
+        "reason_code",
+        "note",
+        "frozen_at",
+        "frozen_by_user_id",
+    ] {
+        assert_eq!(cleared[field], original[field], "{field}");
+    }
+    assert_eq!(cleared["status"], "CLEARED");
+    assert_eq!(cleared["version"], 2);
+    assert_eq!(cleared["clear_note"], "clear concurrent review");
+    assert_eq!(cleared["cleared_by_user_id"], id(ADMIN).to_string());
+    assert!(!cleared["cleared_at"].is_null());
+    assert_eq!(
+        f.audit("TRADE_UNFROZEN").await["changes"],
+        json!({"status":{"before":"ACTIVE","after":"CLEARED"},"reason_code":"OTHER","note":"clear concurrent review","actor":id(ADMIN),"actor_is_party":false})
+    );
+    if completed {
+        let active = rows.iter().find(|row| row["status"] == "ACTIVE").unwrap();
+        assert_ne!(active["id"], original["id"]);
+        for field in [
+            "id",
+            "trade_id",
+            "status",
+            "reason_code",
+            "note",
+            "frozen_at",
+            "frozen_by_user_id",
+            "version",
+        ] {
+            assert_eq!(active[field], refreeze.1[field], "{field}");
+        }
+        assert_eq!(active["version"], 1);
+        assert_eq!(
+            f.audit("TRADE_FROZEN").await["changes"]["actor"],
+            id(OTHER_ADMIN).to_string()
+        );
+    }
+}
