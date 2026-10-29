@@ -1,18 +1,27 @@
+pub mod availability;
+pub mod benchmark_quotes;
 pub mod catalog;
 #[path = "market_write/support.rs"]
 pub mod support;
+pub mod compliance_fuels;
+pub mod compliance_overlay;
+pub mod compliance_scores;
+pub mod demand;
+pub mod fleet_intelligence;
 // Phase 2 Task 10: feedback route registration.
 pub use crate::crud::feedback::routes as feedback_routes;
 // Phase 2 Task 10: end feedback route registration.
 pub mod curves_canonical;
 pub mod curves_legacy;
 pub mod listings;
+pub mod market_data_error;
 pub mod news;
 pub mod orderbook_lists;
 pub mod orderbook_map;
 pub mod orderbook_snapshot;
 pub mod ports;
 pub mod prices;
+pub mod producers;
 pub mod trade_tape;
 // Phase 2 Task 11: watchlist routes
 pub use crate::crud::watchlists::router as watchlist_router;
@@ -35,3 +44,9 @@ pub use crate::crud::referrals::routes as referral_routes;
 // Phase 2 Task 17: referral reads and public resolution (end)
 
 pub mod market_write;
+pub use crate::auth::logout::router as logout_router;
+pub use crate::auth::password_change::router as password_change_router;
+
+pub use crate::auth::login::router as login_router;
+
+pub use crate::auth::refresh::router as refresh_router;

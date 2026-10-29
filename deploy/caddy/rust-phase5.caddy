@@ -1,0 +1,68 @@
+# Import inside the existing site's route block, before its Python fallback,
+# beside the import of the first read groups.
+# Argument 0 is the one Rust upstream for every Phase 5 read route. Argument 1
+# is the environment's Python upstream, used only to disable the matchers when
+# both arguments are equal. A stopped Rust service returns an upstream error;
+# requests are never automatically sent to Python.
+#
+# One switch: the three matchers below move together. Rollback is removing
+# this import, or setting argument 0 to the Python upstream, which stops every
+# handle from matching so the site's Python fallback serves all of them. No
+# per-route argument exists.
+#
+# Matchers are exact method and path pairs, not prefixes, and match paths
+# case-sensitively:
+# - the six public reads take GET on the path with or without a trailing
+#   slash, because the Rust service redirects the slash form itself;
+# - the four authenticated routes take their one method on the canonical path
+#   only. The Rust service does not redirect a slash variant of an
+#   authenticated route, so that variant stays on Python, which does;
+# - a vessel id matches any non-empty segment, as Python's route converter
+#   does; a malformed id is the route's own refusal, not a routing decision;
+# - HEAD, OPTIONS, a wrong method, a longer or shorter path and every other
+#   route stay on Python.
+#
+(verdaxis_rust_phase5) {
+	@rust_phase5_public {
+		expression '{args[0]}' != '{args[1]}'
+		method GET
+		path_regexp ^/api/(benchmarks|availability|demand|fleet-intelligence|producers|compliance/fuels)/?$
+	}
+	handle @rust_phase5_public {
+		reverse_proxy {args[0]} {
+			header_up X-Forwarded-For {client_ip}
+			flush_interval -1
+			transport http {
+				keepalive off
+			}
+		}
+	}
+	@rust_phase5_compliance_get {
+		expression '{args[0]}' != '{args[1]}'
+		method GET
+		path_regexp ^/api/compliance/(fleet|vessels/[^/]+/score)$
+	}
+	handle @rust_phase5_compliance_get {
+		reverse_proxy {args[0]} {
+			header_up X-Forwarded-For {client_ip}
+			flush_interval -1
+			transport http {
+				keepalive off
+			}
+		}
+	}
+	@rust_phase5_compliance_post {
+		expression '{args[0]}' != '{args[1]}'
+		method POST
+		path_regexp ^/api/compliance/(pricing-overlay|scenario)$
+	}
+	handle @rust_phase5_compliance_post {
+		reverse_proxy {args[0]} {
+			header_up X-Forwarded-For {client_ip}
+			flush_interval -1
+			transport http {
+				keepalive off
+			}
+		}
+	}
+}

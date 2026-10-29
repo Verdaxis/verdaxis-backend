@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 from tests.postgres.test_phase3_auth_store import _libpq
@@ -25,6 +26,7 @@ def test_rust_auth_revocation_on_migrated_database(analytics_pg_url):
         "RELEASE_SHA": subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
         ).strip(),
+        "RUST_TEST_PYTHON": sys.executable,
         "SQLX_OFFLINE": "true",
     }
     run = subprocess.run(

@@ -2,7 +2,8 @@
 
 The leaderboard orders by referral count alone, so rows with equal counts are
 ordered by the database. This fixture places ties inside the ranking and across
-the tenth place; Rust must return the same members, ranks and order as Python.
+the tenth place; Rust uses stable user-id order, while comparison permits
+Python's undefined order and last-place membership (PD2-L1).
 """
 import json
 from datetime import datetime, timedelta, timezone

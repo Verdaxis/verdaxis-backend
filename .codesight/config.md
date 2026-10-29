@@ -5,14 +5,43 @@
 - `ADMIN_PASSWORD` (has default) — .env.example
 - `ADMIN_SESSION_SECRET` (has default) — .env.example
 - `ADMIN_USERNAME` (has default) — .env.example
+- `ALERT_COOLDOWN_SECONDS` (has default) — deploy/external_monitor/verdaxis_monitor.py
+- `ANALYTICS_CANARY_ENABLED` (has default) — deploy/external_monitor/verdaxis_monitor.py
+- `ANALYTICS_DATA_DIR` (has default) — deploy/external_monitor/verdaxis_monitor.py
 - `ANALYTICS_ENABLED` (has default) — .env.example
+- `ANALYTICS_MAX_DATA_BYTES` (has default) — deploy/external_monitor/verdaxis_monitor.py
 - `ANALYTICS_REQUEST_TIMEOUT_SECONDS` (has default) — .env.example
+- `ANALYTICS_WEBSITE_ID` (has default) — deploy/external_monitor/verdaxis_monitor.py
+- `AUTH_INTEROP_ADMIN_URL` **required** — tests/rust_contract/phase2/auth_writer.py
+- `AUTH_INTEROP_EXPECT_BLOCKED` **required** — tests/rust_contract/phase2/auth_writer.py
+- `AUTH_INTEROP_SUBJECT` **required** — tests/rust_contract/phase2/auth_writer.py
+- `AUTODIAG_COLLECT_COMMANDS` (has default) — deploy/external_monitor/verdaxis_autodiag.py
+- `AUTODIAG_RECOVERY_STATE_DIR` (has default) — deploy/external_monitor/verdaxis_autodiag.py
+- `AUTODIAG_SCHEMA_FILE` (has default) — deploy/external_monitor/verdaxis_autodiag.py
+- `AUTODIAG_STATE_DIR` (has default) — deploy/external_monitor/verdaxis_autodiag.py
+- `AUTODIAG_STATUS_FILE` (has default) — deploy/external_monitor/verdaxis_autodiag.py
+- `AUTODIAG_WORKSPACE` (has default) — deploy/external_monitor/verdaxis_autodiag.py
 - `BACKUP_DATABASE_URL` **required** — tests/postgres/test_runtime_role_policy.py
+- `BACKUP_MAX_AGE_SECONDS` (has default) — deploy/external_monitor/verdaxis_monitor.py
+- `BACKUP_STATUS_FILE` (has default) — deploy/external_monitor/verdaxis_monitor.py
+- `CADDY_BIN` **required** — scripts/rust_contract/measure.py
+- `CADDYFILE` (has default) — deploy/external_monitor/verdaxis_monitor.py
+- `CHROMEDRIVER_BIN` **required** — deploy/external_monitor/verdaxis_monitor.py
+- `CHROMIUM_PROFILE_PARENT` (has default) — deploy/external_monitor/verdaxis_monitor.py
+- `CI` (has default) — tests/postgres/conftest.py
+- `CODEX_AUTH_SOURCE` (has default) — deploy/external_monitor/verdaxis_autodiag.py
+- `CODEX_AUTH_SYNC` (has default) — deploy/external_monitor/verdaxis_autodiag.py
+- `CODEX_AUTODIAG_COOLDOWN_SECONDS` (has default) — deploy/external_monitor/verdaxis_autodiag.py
+- `CODEX_AUTODIAG_MODEL` (has default) — deploy/external_monitor/verdaxis_autodiag.py
+- `CODEX_AUTODIAG_TIMEOUT_SECONDS` (has default) — deploy/external_monitor/verdaxis_autodiag.py
+- `CODEX_BIN` (has default) — deploy/external_monitor/verdaxis_autodiag.py
+- `CODEX_HOME` (has default) — deploy/external_monitor/verdaxis_autodiag.py
+- `CREDENTIALS_DIRECTORY` **required** — app/services/kyc_document_vault.py
 - `DATABASE_HOST` (has default) — .env.example
 - `DATABASE_NAME` (has default) — .env.example
 - `DATABASE_PASSWORD` (has default) — .env.example
 - `DATABASE_PORT` (has default) — .env.example
-- `DATABASE_URL` **required** — tests/postgres/test_runtime_role_policy.py
+- `DATABASE_URL` (has default) — scripts/rust_contract/meaning_runner.py
 - `DATABASE_USER` (has default) — .env.example
 - `DB_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS` (has default) — .env.example
 - `DB_LOCK_TIMEOUT_MS` (has default) — .env.example
@@ -25,46 +54,112 @@
 - `DB_SERVICE_COUNT` (has default) — .env.example
 - `DB_STATEMENT_TIMEOUT_MS` (has default) — .env.example
 - `DEMO_OUTPUT` **required** — tests/monitor/test_runtime_identity.py
-- `DISPOSABLE_ITEST_PASSWORD` **required** — tests/conftest.py
-- `DISPOSABLE_TEST_TOKEN` **required** — tests/disposable_server.py
+- `DEMO_TRADE_CANARY_ENABLED` (has default) — deploy/external_monitor/verdaxis_monitor.py
+- `DISPOSABLE_ITEST_PASSWORD` **required** — scripts/rust_contract/seed_integration.py
+- `DISPOSABLE_TEST_TOKEN` **required** — rs/read/tests/curves_canonical_oracle.py
 - `ENABLE_AUTH_BYPASS` (has default) — .env.example
 - `ENABLE_SQLADMIN` (has default) — .env.example
 - `ENVIRONMENT` (has default) — .env.example
+- `EXPENSIVE_CHECK_INTERVAL_SECONDS` (has default) — deploy/external_monitor/verdaxis_monitor.py
+- `FRONTEND_BUNDLE_CHECKS_ENABLED` (has default) — deploy/external_monitor/verdaxis_monitor.py
 - `FRONTEND_URL` (has default) — .env.example
 - `GEMINI_API_KEY` **required** — .env.example
 - `GIT_CONFIG_GLOBAL` **required** — tests/unit/test_migration_checkpoint.py
 - `HEALTH_READINESS_TIMEOUT_SECONDS` (has default) — .env.example
-- `ITEST_PASSWORD` **required** — scripts/benchmark_product_analytics.py
+- `HEALTHCHECKS_PING_URL` **required** — deploy/external_monitor/verdaxis_monitor.py
+- `HTTP_RETRIES` (has default) — deploy/external_monitor/verdaxis_monitor.py
+- `HTTP_RETRY_DELAY_SECONDS` (has default) — deploy/external_monitor/verdaxis_monitor.py
+- `HTTP_TIMEOUT_SECONDS` (has default) — deploy/external_monitor/verdaxis_monitor.py
+- `ITEST_PASSWORD` (has default) — scripts/benchmark_product_analytics.py
 - `JWT_ALGORITHM` (has default) — .env.example
 - `JWT_AUDIENCE` (has default) — .env.example
 - `JWT_ISSUER` (has default) — .env.example
 - `JWT_SECRET` (has default) — .env.example
 - `JWT_SECRET_PREVIOUS` **required** — .env.example
+- `KYC_EXECUTION_GATE_ENABLED` **required** — rs/read/tests/legacy_curve_oracle.py
 - `KYC_MAX_FILE_BYTES` (has default) — .env.example
 - `KYC_MAX_TOTAL_BYTES` (has default) — .env.example
-- `MARKET_INTEGRITY_TEST_DATABASE_URL` **required** — tests/postgres/test_market_integrity_concurrency.py
+- `LANG` (has default) — deploy/external_monitor/verdaxis_monitor.py
+- `LC_ALL` (has default) — deploy/external_monitor/verdaxis_monitor.py
+- `MARKET_INTEGRITY_TEST_DATABASE_URL` (has default) — tests/postgres/test_market_integrity_concurrency.py
 - `MARKET_REMEDIATION_DATABASE_URL` **required** — scripts/remediate_market_data.py
 - `MARKET_SUPPORT_BOOTSTRAP_ADMIN_USER_IDS` **required** — .env.example
+- `MARKET_SUPPORT_CONSENT_REFERENCE` **required** — .env.example
+- `MARKET_SUPPORT_CONSENT_VERSION` **required** — .env.example
+- `MARKET_SUPPORT_CONTEXT_TTL_MINUTES` (has default) — .env.example
 - `MARKET_SUPPORT_ENABLED` (has default) — .env.example
 - `MARKET_SUPPORT_MAX_TTL_HOURS` (has default) — .env.example
+- `MEANING_CORPUS_DIR` **required** — scripts/rust_contract/meaning_runner.py
+- `MEANING_RULES_SHA256` **required** — scripts/rust_contract/compare.py
 - `MIGRATOR_DATABASE_URL` **required** — .env.example
 - `MIGRATOR_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS` (has default) — .env.example
 - `MIGRATOR_LOCK_TIMEOUT_MS` (has default) — .env.example
 - `MIGRATOR_STATEMENT_TIMEOUT_MS` (has default) — .env.example
-- `PATH` **required** — tests/postgres/test_market_migrations.py
+- `MIN_CADDYFILE_BYTES` (has default) — deploy/external_monitor/verdaxis_monitor.py
+- `MIN_DISK_FREE_PERCENT` (has default) — deploy/external_monitor/verdaxis_monitor.py
+- `MONITOR_TOKEN` **required** — deploy/external_monitor/verdaxis_monitor.py
+- `PATH` **required** — tests/phase0/http_runner.py
+- `PGPASSFILE` (has default) — deploy/external_monitor/verdaxis_monitor.py
+- `PHASE0_CLUSTER_ID` **required** — scripts/phase0/bootstrap.py
+- `PHASE0_PASSWORD` **required** — tests/phase0/build_fixtures.py
+- `PHASE0_PORT` (has default) — scripts/phase0/bootstrap.py
+- `PHASE0_PYTEST_K` (has default) — tests/phase0/linux_database.py
+- `PHASE0_SMOKE_TRACEBACK` **required** — scripts/phase0/scratch_business_smoke.py
+- `PHASE0_WORK` **required** — tests/phase0/build_fixtures.py
+- `PHASE2_BIND` **required** — scripts/rust_contract/phase2_alert_oracle.py
+- `PHASE2_DATABASE_URL` **required** — scripts/rust_contract/phase2_alert_dispatch.py
+- `PHASE2_EMIT_EVENTS` **required** — tests/rust_contract/phase2/transport.py
+- `PHASE2_MAIL_URL` (has default) — scripts/rust_contract/phase2_oracle.py
 - `POSTGRES_ADMIN_TEST_DATABASE_URL` **required** — tests/postgres/test_market_integrity_concurrency.py
+- `PYTHON_CONTRACT_URL` **required** — rs/read/tests/curves_canonical_oracle.py
 - `PYTHONPATH` **required** — tests/unit/test_migration_checkpoint.py
+- `RECOVERY_STATE_DIR` (has default) — deploy/external_monitor/verdaxis_recover.py
+- `RECOVERY_STATUS_FILE` (has default) — deploy/external_monitor/verdaxis_recover.py
+- `REFERRAL_CANDIDATE_MAP` (has default) — scripts/rust_contract/referral_oracle.py
+- `REFERRAL_TEST_MAIL_KEY_ABSENT` **required** — scripts/rust_contract/referral_oracle.py
 - `RELEASE_SHA` (has default) — .env.example
-- `RUNTIME_TEST_APP_ROLE` **required** — tests/postgres/test_runtime_role_policy.py
-- `RUNTIME_TEST_BACKUP_ROLE` **required** — tests/postgres/test_runtime_role_policy.py
-- `RUNTIME_TEST_DATABASE_NAME` **required** — tests/postgres/test_runtime_role_policy.py
+- `RENDER_RETRIES` (has default) — deploy/external_monitor/verdaxis_monitor.py
+- `RENDER_RETRY_DELAY_SECONDS` (has default) — deploy/external_monitor/verdaxis_monitor.py
+- `RENDER_TIMEOUT_SECONDS` (has default) — deploy/external_monitor/verdaxis_monitor.py
+- `RENDERED_PAGE_CHECKS_ENABLED` (has default) — deploy/external_monitor/verdaxis_monitor.py
+- `RUN_SHADOW_DISPOSABLE_REPLAY` **required** — tests/rust_contract/test_shadow_replay.py
+- `RUNTIME_TEST_APP_ROLE` (has default) — tests/postgres/test_fame_rfq.py
+- `RUNTIME_TEST_BACKUP_ROLE` (has default) — tests/postgres/test_runtime_role_policy.py
+- `RUNTIME_TEST_DATABASE_NAME` (has default) — tests/postgres/test_runtime_role_policy.py
 - `RUNTIME_TEST_MIGRATOR_ROLE` **required** — tests/postgres/test_runtime_migration_roundtrip.py
+- `RUST_CONTRACT_CLOCK` **required** — rs/read/tests/legacy_curve_oracle.py
+- `RUST_CONTRACT_PROFILE` **required** — rs/read/tests/prices_oracle.py
+- `RUST_CONTRACT_URL` **required** — rs/read/tests/curves_canonical_oracle.py
+- `RUST_CORPUS_MANIFEST` (has default) — scripts/rust_contract/meaning_runner.py
+- `RUST_CORPUS_STAGE` **required** — scripts/rust_contract/seed_corpus.py
+- `RUST_DATABASE_URL` **required** — rs/read/tests/orderbook_lists_oracle.py
+- `RUST_MARKET_EXPECTED_DATABASE` **required** — rs/read/tests/legacy_curve_oracle.py
+- `RUST_MARKET_TEST_EXPECTED` **required** — rs/read/tests/market_contract_oracle.py
+- `RUST_MARKET_WRITER_URL` **required** — rs/read/tests/market_contract_oracle.py
+- `SEED_DATABASE_URL` **required** — scripts/rust_contract/seed_corpus.py
+- `SEED_TARGET_DATABASE` **required** — rs/read/tests/legacy_curve_oracle.py
+- `SELLER_FEE_PILOT_PER_MT_USD` (has default) — .env.example
+- `SELLER_FEE_PROFESSIONAL_PER_MT_USD` (has default) — .env.example
+- `SIGNUP_CANARY_ENABLED` (has default) — deploy/external_monitor/verdaxis_monitor.py
+- `SIGNUP_CANARY_TARGETS` (has default) — deploy/external_monitor/verdaxis_monitor.py
+- `STATE_FILE` (has default) — deploy/external_monitor/verdaxis_monitor.py
+- `STATUS_FILE` (has default) — deploy/external_monitor/verdaxis_monitor.py
+- `TELEGRAM_API_BASE` (has default) — app/cli/onboarding_attention.py
+- `TELEGRAM_BOT_TOKEN` (has default) — app/cli/onboarding_attention.py
+- `TELEGRAM_CHAT_ID` (has default) — app/cli/onboarding_attention.py
+- `TELEGRAM_DISABLED` (has default) — deploy/external_monitor/verdaxis_autodiag.py
 - `TEST_API_URL` **required** — tests/conftest.py
 - `UMAMI_API_PASSWORD` **required** — .env.example
 - `UMAMI_API_USERNAME` **required** — .env.example
 - `UMAMI_BASE_URL` (has default) — .env.example
 - `UMAMI_WEBSITE_ID` **required** — .env.example
+- `UVICORN_BIND_PORT` (has default) — tests/rust_contract/server.py
+- `UVICORN_PORT` (has default) — tests/rust_contract/server.py
 - `UVICORN_WORKERS` (has default) — .env.example
+- `VERDAXIS_RECOVERY_COOLDOWN_SECONDS` (has default) — deploy/external_monitor/verdaxis_recover.py
+- `WEBZ_API_TIMEOUT_SECONDS` (has default) — .env.example
+- `WEBZ_API_TOKEN` **required** — .env.example
+- `WEBZ_API_URL` (has default) — .env.example
 
 ## Config Files
 

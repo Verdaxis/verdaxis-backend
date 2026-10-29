@@ -6,7 +6,7 @@ use sqlx::{Connection, PgConnection, Row, postgres::PgPoolOptions};
 use tokio::sync::Semaphore;
 use uuid::Uuid;
 
-pub use verdaxis_read::business::{audit, error, transaction};
+pub use verdaxis_read::business::{admission, audit, error, transaction};
 pub use verdaxis_read::{ApiError, AppState, Config, MarketPolicy, auth, runtime};
 #[path = "../src/business/joins.rs"]
 pub mod joins;
@@ -238,6 +238,7 @@ impl Fixture {
             organization_id: self.org,
             approve,
             reason: None,
+            audit: Default::default(),
             now: Utc::now(),
             policy: Arc::new(verdaxis_read::MarketPolicy {
                 source_sha: "organization-fixture-policy".into(),
@@ -253,11 +254,14 @@ impl Fixture {
                     .into(),
                 db_session_time_zone: "UTC".into(),
                 prepared_budget: None,
+                phase2: Default::default(),
                 bind: "127.0.0.1:0".parse().unwrap(),
                 read_admission_slots: 4,
                 pool_max: 5,
                 python_budget: 52,
                 configured_max_connections: 100,
+                compliance_eur_usd_rate: None,
+                fleet_artifact_path: "data/fleet_demand.json".into(),
             }),
         }
     }
@@ -792,7 +796,7 @@ async fn join_request(
             access,
             limits,
             "fixture".into(),
-            joins::JoinListQuery::parse(Some("PENDING"), 100, 0).unwrap(),
+            Ok(joins::JoinListQuery::parse(Some("PENDING"), 100, 0).unwrap()),
         )
         .await
         {
@@ -812,6 +816,41 @@ async fn response_code(response: axum::response::Response, status: u16, code: &s
         .unwrap();
     let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(value["detail"]["code"], code);
+}
+/// Role (403) comes before input validation (422) on the join list; an
+/// administrator still gets the validation refusal for the same query.
+#[tokio::test]
+#[ignore = "requires explicit disposable PostgreSQL authority"]
+async fn join_list_checks_the_role_before_the_query() {
+    use axum::response::IntoResponse;
+    let f = Fixture::new().await;
+    let app = f.app().await;
+    let verification = auth::VerificationSettings::new(
+        "test-secret-key-for-testing-minimum-32-chars".into(),
+        None,
+        "test".into(),
+        "test".into(),
+    );
+    for (user, status, code) in [
+        (f.user, 403, "ADMIN_REQUIRED"),
+        (f.actor, 422, "VALIDATION_FAILED"),
+    ] {
+        let bearer = f.bearer(user);
+        let access = auth::verify_authorization(Some(&bearer), &verification, Utc::now()).unwrap();
+        let invalid = joins::JoinListQuery::parse(None, 0, 0);
+        assert!(invalid.is_err());
+        let error = joins::read(
+            &app,
+            access,
+            auth::limits::SharedLimits::default(),
+            "fixture".into(),
+            invalid,
+        )
+        .await
+        .unwrap_err();
+        response_code(error.into_response(), status, code).await;
+    }
+    f.finish().await;
 }
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL authority"]
@@ -902,7 +941,7 @@ async fn task_request(
             access,
             limits,
             "round2".into(),
-            joins::JoinListQuery::parse(None, 100, 0).unwrap(),
+            Ok(joins::JoinListQuery::parse(None, 100, 0).unwrap()),
         )
         .await
         {
@@ -1042,5 +1081,26 @@ async fn p4_t8_c13() {
         response_code(response, 429, "RATE_LIMITED").await;
     }
     drop(app);
+    f.finish().await;
+}
+
+#[tokio::test]
+#[ignore = "requires explicit disposable PostgreSQL authority"]
+async fn organization_rejection_preserves_reason_and_request_context() {
+    let mut f = Fixture::new().await;
+    let mut command = f.organization(false);
+    command.reason = Some("Administrator decision evidence".into());
+    command.audit = verdaxis_read::business::admission::AuditContext {
+        ip_address: Some("192.0.2.4".into()),
+        request_id: Some("organization-review".into()),
+    };
+    f.run(command).await.unwrap();
+    let row=sqlx::query("SELECT changes,ip_address,request_id FROM audit_logs WHERE action='admin.organization_rejected'").fetch_one(&mut f.admin).await.unwrap();
+    assert_eq!(
+        row.get::<serde_json::Value, _>("changes")["reason"],
+        "Administrator decision evidence"
+    );
+    assert_eq!(row.get::<String, _>("ip_address"), "192.0.2.4");
+    assert_eq!(row.get::<String, _>("request_id"), "organization-review");
     f.finish().await;
 }

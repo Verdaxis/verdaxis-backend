@@ -41,6 +41,10 @@ INSERT INTO app_table_policy (table_name, privileges) VALUES
     -- Includes nullable producer_evidence. The shared writer/sequencer keeps
     -- INSERT/UPDATE; the producer consumer uses SELECT only. No DELETE.
     ('market_event_outbox', ARRAY['SELECT', 'INSERT', 'UPDATE']),
+    -- Phase 6 replay state and retention ownership are migration-owned; the
+    -- application may read the barrier and the owner record, never change them.
+    ('market_event_replay_state', ARRAY['SELECT']),
+    ('market_event_retention_control', ARRAY['SELECT']),
     ('market_indications', ARRAY['SELECT']),
     ('market_row_quarantines', ARRAY['SELECT']),
     ('market_signal_ingestion_runs', ARRAY['SELECT']),

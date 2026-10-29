@@ -27,7 +27,7 @@ def setup(connection):
 def servers(context):
     from scripts.rust_contract.phase2_scenarios import Server
     return [Server((context.python_bin, "-m", "scripts.rust_contract.phase2_alert_oracle")),
-            Server((str(context.root / "rs/target/debug/examples/alerts_contract"),))]
+            Server((str(context.rust_example("alerts_contract")),))]
 
 
 def action(name, method="POST", number=10, actor=0, status=201, body=None, fault=None, barrier=None):

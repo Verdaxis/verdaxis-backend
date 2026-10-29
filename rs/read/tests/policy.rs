@@ -387,6 +387,24 @@ fn scan(needles: &[String], sources: &[(String, String)]) -> Vec<String> {
     found
 }
 
+/// The illustrative fuel category is not a catalog identity lookup. Permit
+/// exactly one occurrence in the scoring core, never in another source.
+fn scan_with_compliance_category(needles: &[String], sources: &[(String, String)]) -> Vec<String> {
+    const SCORING: &str = "rs/read/src/compliance/scoring.rs";
+    const CATEGORY: &str = "Bio-LNG";
+    let mut found = scan(needles, sources);
+    for (path, text) in sources {
+        if path == SCORING {
+            if text.matches(CATEGORY).count() == 1 {
+                found.retain(|entry| entry != &format!("{SCORING}:{CATEGORY}"));
+            } else {
+                found.push(format!("{SCORING}:expected one illustrative category"));
+            }
+        }
+    }
+    found
+}
+
 #[test]
 fn executable_sources_hold_no_product_names_codes_or_uuids() {
     let mut files = Vec::new();
@@ -406,7 +424,27 @@ fn executable_sources_hold_no_product_names_codes_or_uuids() {
         })
         .collect();
     let needles = forbidden_identity_needles();
-    assert_eq!(scan(&needles, &sources), Vec::<String>::new());
+    assert_eq!(
+        scan_with_compliance_category(&needles, &sources),
+        Vec::<String>::new()
+    );
+}
+
+#[test]
+fn compliance_category_exception_is_exact_and_single_use() {
+    let needles = forbidden_identity_needles();
+    let scoring = "rs/read/src/compliance/scoring.rs";
+    assert!(
+        scan_with_compliance_category(&needles, &[(scoring.into(), "Bio-LNG".into())]).is_empty()
+    );
+    for sources in [
+        vec![("rs/read/src/other.rs".into(), "Bio-LNG".into())],
+        vec![(scoring.into(), "Bio-LNG Bio-LNG".into())],
+        vec![(scoring.into(), "Bio-LNG BIO_LNG".into())],
+        vec![(scoring.into(), "no category".into())],
+    ] {
+        assert!(!scan_with_compliance_category(&needles, &sources).is_empty());
+    }
 }
 
 #[test]

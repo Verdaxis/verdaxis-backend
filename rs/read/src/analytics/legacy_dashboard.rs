@@ -357,7 +357,7 @@ async fn dispatch(
             .get("x-forwarded-for")
             .and_then(|value| value.to_str().ok()),
     );
-    let token = authorization.unwrap_or_default();
+    let token = format!("usr:{}", access.subject);
     let authority = state.authority.clone();
     let result = run_authenticated(
         &state.app,

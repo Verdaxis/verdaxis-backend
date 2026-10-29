@@ -19,6 +19,9 @@ pub fn app() -> Router {
         pool_max: 17,
         python_budget: 52,
         configured_max_connections: 100,
+        compliance_eur_usd_rate: None,
+        fleet_artifact_path: "data/fleet_demand.json".into(),
+        phase2: Default::default(),
     };
     let pools = verdaxis_read::runtime::db::Pools {
         read: sqlx::postgres::PgPoolOptions::new()
@@ -43,7 +46,7 @@ pub fn app() -> Router {
             "issuer".into(),
             "audience".into(),
         ),
-        Utc.with_ymd_and_hms(2026, 10, 19, 0, 0, 0).unwrap(),
+        Some(Utc.with_ymd_and_hms(2026, 10, 19, 0, 0, 0).unwrap()),
     );
     router(state, settings)
 }

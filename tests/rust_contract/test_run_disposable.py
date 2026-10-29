@@ -167,6 +167,7 @@ def test_mixed_run_seeds_identities_before_the_suite(monkeypatch, tmp_path):
         return _Result()
 
     runner, _ = _runner(monkeypatch, seed=False)
+    runner.token = "-disposable-token-with-leading-hyphen-000000000"
     monkeypatch.setenv("CADDY_BIN", sys.executable)
     monkeypatch.setattr(run_disposable, "ephemeral_port", lambda: 41000)
     monkeypatch.setattr(run_disposable, "wait_for_port", lambda port: None)
@@ -181,6 +182,8 @@ def test_mixed_run_seeds_identities_before_the_suite(monkeypatch, tmp_path):
         runner.python_bin, "-m", "scripts.rust_contract.seed_integration"]]
     assert len(seed) == 1
     pytest_call = next(c for c in commands if c[1:3] == ["-m", "pytest"])
+    assert f"--disposable-target-token={runner.token}" in pytest_call
+    assert "--disposable-target-token" not in pytest_call
     # Seed first, then the suite; both use the one shared password.
     assert commands.index(seed[0]) < commands.index(pytest_call)
     for call in calls:
@@ -210,3 +213,31 @@ def test_build_profile_selection_keeps_correctness_on_dev():
     )
     assert release.build_command()[-1] == "--release"
     assert release.server_path().parts[-3] == "release"
+
+
+def test_explicit_contract_server_path_is_used_without_changing_profile(tmp_path):
+    binary = tmp_path / "shared-target/debug/examples/contract_server"
+    runner = run_disposable.Runner("health", seed=False, keep=False, seed_mode="corpus", server_binary=binary)
+    assert runner.server_path() == binary
+    assert "--release" not in runner.build_command()
+
+
+def test_shared_target_path_is_passed_to_every_contract_subprocess(monkeypatch, tmp_path):
+    monkeypatch.setenv("CARGO_TARGET_DIR", str(tmp_path / "shared-target"))
+    runner, _ = _runner(monkeypatch, seed=False)
+    captured = []
+
+    def fake_run(args, **kwargs):
+        captured.append(kwargs["env"])
+        return _Result()
+
+    monkeypatch.setattr(run_disposable.subprocess, "run", fake_run)
+    runner.run_targets({}, "http://127.0.0.1:1", "http://127.0.0.1:2", ["orderbook_snapshot", "orderbook_map"])
+    expected = tmp_path / "shared-target/debug/examples/contract_server"
+    assert runner.server_path() == expected
+    assert len(captured) == 2
+    assert all(env["RUST_CONTRACT_SERVER_BINARY"] == str(expected) for env in captured)
+    for name in ("orderbook_snapshot_oracle.py", "orderbook_map_oracle.py"):
+        source = (ROOT / "rs/read/tests" / name).read_text()
+        assert 'os.environ["RUST_CONTRACT_SERVER_BINARY"]' in source
+        assert "rs/target/debug/examples/contract_server" not in source

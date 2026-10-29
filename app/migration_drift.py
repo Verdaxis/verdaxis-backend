@@ -117,6 +117,16 @@ LEGACY_TABLES = {
     "supply_listings",
 }
 
+# Phase 6 replay retention objects are owned by their Alembic revision, not by
+# an ORM model: the runtime can only SELECT from them. The membership index is
+# also revision-owned because its expression cannot be represented by the
+# current outbox model. Exclusions stay exact names, never a name pattern.
+MIGRATION_OWNED_TABLES = {
+    "market_event_replay_state",
+    "market_event_retention_control",
+}
+MIGRATION_OWNED_INDEXES = {"ix_market_event_outbox_participants_gin"}
+
 
 def include_object(
     object_: Any,
@@ -130,6 +140,18 @@ def include_object(
     if type_ == "table" and _is_postgis_system_table(object_):
         return False
     if type_ == "table" and object_schema == "public" and name in LEGACY_TABLES:
+        return False
+    if (
+        type_ == "table"
+        and object_schema == "public"
+        and name in MIGRATION_OWNED_TABLES
+    ):
+        return False
+    if (
+        type_ == "index"
+        and object_schema == "public"
+        and name in MIGRATION_OWNED_INDEXES
+    ):
         return False
 
     table = getattr(object_, "table", None)
@@ -148,6 +170,8 @@ def include_object(
     if table is not None and _is_postgis_system_table(table):
         return False
     if table_schema == "public" and table_name in LEGACY_TABLES:
+        return False
+    if table_schema == "public" and table_name in MIGRATION_OWNED_TABLES:
         return False
 
     if type_ == "foreign_key_constraint":

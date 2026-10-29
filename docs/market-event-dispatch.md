@@ -68,6 +68,77 @@ queries at its deadline, while the refresh signal can be delayed until an
 existing expiry writer next commits that transition. No new expiry timer is
 part of this transport.
 
+## Status heartbeat (Rust streams)
+
+Every stream the Rust service serves (`/api/stream/prices`,
+`/api/stream/orderbook` and `/api/stream/trades`, with their trailing-slash
+aliases) sends a named `heartbeat` event. It replaces the keep-alive comment:
+
+```
+event: heartbeat
+data: {"status":"operational","message":null,"server_time":"2026-10-28T12:34:56Z"}
+```
+
+- `status` is `operational`, `degraded` or `maintenance`; `message` is a string
+  or `null`; `server_time` is UTC with second precision and a `Z`.
+- The frame has no `id:` line, so it never moves a client's `Last-Event-ID`.
+- One heartbeat is sent when the stream opens, then one every 30 seconds.
+  Data frames do not postpone the next one: a stream with continuous traffic
+  still sends a heartbeat every 30 seconds. A client may treat a connection as
+  stale after 75 seconds without one.
+- On the private trades stream the first heartbeat follows the replay and the
+  first authorization check, and never precedes a control frame. A cursor below
+  the retained floor, a cursor ahead of the table and an expired token each end
+  with their control frame and no heartbeat. Later terminal controls are not
+  preceded by a heartbeat that is not yet due. A public stream sends a control
+  frame that is already waiting before its first heartbeat.
+- The message is JSON-encoded, so a line break or quote inside it cannot end an
+  SSE line or frame.
+
+Configuration (read at start, from the Rust runtime file the deploy writes):
+
+| Key | Meaning |
+| --- | --- |
+| `SYSTEM_STATUS` | `operational` (default), `degraded` or `maintenance`. Trimmed and lowercased. Any other value, including a blank one in the runtime file, stops the service at startup. |
+| `SYSTEM_STATUS_MESSAGE` | Optional text, trimmed, at most 280 characters. Blank means no message. |
+
+Set the keys in the deployed `.env`. `scripts/prepare_rust_runtime.py` validates
+them (a blank key is the same as an absent one) and projects them into
+`.runtime-rust/runtime.env`, so a change takes effect with the next deploy
+preparation and a restart of the Rust unit. The Python service ignores both
+keys.
+
+## Price-alert evaluation
+
+The Rust stream runtime also consumes the sequenced rows it already reads:
+`trade_auto_matched` (auto-confirmed on creation) and `trade_confirmed` (a
+counterparty confirmation) are the two events that carry a newly executed
+price. Their payloads do not reliably name the product and delivery point, so
+the evaluator reads the trade row by id and uses only a formal snapshot with a
+REAL buyer and a REAL seller; DEMO, TEST, CANARY, unknown and mixed pairs never
+fire an alert.
+
+- **Once per alert, cluster-wide.** Every worker runs a dispatcher and sees
+  every event, so the evaluator is idempotent instead of elected. Candidate
+  alerts are locked in id order, then deactivated with
+  `UPDATE price_alerts SET is_active = false, triggered_at = $now
+  WHERE id = ANY($ids) AND is_active RETURNING ...`. A second worker waits for
+  the first commit, finds no active row and writes nothing.
+- **One transaction.** The deactivation, one `notifications` row per approved
+  member of the alert's organization (type `SYSTEM`, so Python can still read
+  it) and one organization-private `price_alert_triggered` outbox row commit
+  together. The outbox row is sequenced by the normal sequencer and reaches the
+  org-bound trades stream and replay. If the transaction fails, the alert stays
+  active.
+- **No loops.** Only the two execution event types are evaluated.
+- **Dispatch is never held up.** The dispatch sink only calls `try_send` on a
+  bounded queue. A full queue drops the offer with a warning; failed
+  evaluations are retried with the next event, or after five seconds, up to
+  three attempts. The dispatcher cursor is not involved.
+- **Limits.** A print committed while no Rust stream runtime is running is not
+  evaluated; the alert fires on the next qualifying print. The evaluator is off
+  where the Rust stream runtime is off.
+
 ## Connection budget
 
 Each worker holds **one** dedicated (non-pool) LISTEN/leadership connection;
@@ -85,12 +156,36 @@ Nothing in this repository deletes outbox rows automatically, and no timer
 for it exists or is installed.
 
 - Retention window: keep sequenced rows (`stream_seq IS NOT NULL`) for **14
-  days**. The window bounds `Last-Event-ID` replay: a client reconnecting
-  with a cursor older than the horizon receives only retained events and
-  must treat the gap as a full-resync signal (refetch via REST).
-- Rows with `stream_seq IS NULL` are pending dispatch and must never be
-  pruned.
-- Operator statement (manual, environment-attested session, migrator role):
+  days**. The durable `market_event_replay_state.discarded_through_seq` coverage
+  barrier advances in the same transaction as each authorized deletion. A Rust
+  replay cursor below that barrier receives a terminal `replay_retention` reset
+  and must reload REST state. Cursor equal to the barrier remains usable.
+- Rows with `stream_seq IS NULL` are pending dispatch and cannot be deleted.
+  `TRUNCATE` is refused, including under replica session mode. Do not disable
+  triggers for online pruning.
+- `market_event_retention_control` defaults to `blocked`. Keep it blocked while
+  Python owns any private stream, during selector changes or drains, when drain
+  evidence is unknown, or while Rust streams are unavailable. A selector reload
+  alone does not authorize pruning. Only a separately authorized operator transaction after verified
+  Rust-only ownership and drain may record `rust_active` with exact environment,
+  release SHA, selector digest, completed drain and increasing ownership epoch.
+  The deployment owner supplies the reviewed ownership-transition procedure;
+  this migration does not authorize activation.
+- Applying `sse_20261021_replay_floor`: the migration holds `SHARE ROW
+  EXCLUSIVE` on the outbox until it commits, including the participant index
+  build. `NOWAIT` only stops the migration from waiting for live writers;
+  producer inserts and sequencer updates that arrive later wait behind it and
+  fail after the app role's 3-second lock timeout. Apply it in a quiet window
+  and record the outbox row count as a release input. `validate_roles.sql`
+  expects the retention tables, triggers and functions only from this
+  checkpoint on.
+- Before rollback or a selector change to Python, commit `blocked` under
+  `FOR UPDATE` on the ownership row. This waits for any authorized in-flight
+  prune, which holds `FOR SHARE`. Record the current floor and drain evidence
+  privately; Python active cursor coverage is unknown. Leave the additive
+  tables, triggers and floor installed. Never lower the floor.
+- Operator statement (manual, environment-attested session, migrator role,
+  **only after** independent ownership authorization):
 
   ```sql
   DELETE FROM market_event_outbox

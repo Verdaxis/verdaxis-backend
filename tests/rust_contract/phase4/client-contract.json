@@ -4021,28 +4021,6 @@
       "error_conversion": "detail.code_and_message;legacy_detail_string_or_msg_list_on_unmoved_routes"
     },
     {
-      "id": "I01",
-      "method": "POST",
-      "path": "/api/ai/chat",
-      "response_schema": "ChatResponse",
-      "statuses": [
-        200
-      ],
-      "errors": [
-        401,
-        403,
-        413,
-        422,
-        429,
-        503
-      ],
-      "error_schema": "Error",
-      "headers": [
-        "Retry-After"
-      ],
-      "error_conversion": "detail.code_and_message;legacy_detail_string_or_msg_list_on_unmoved_routes"
-    },
-    {
       "id": "S01",
       "method": "GET",
       "path": "/api/subscriptions/fees",

@@ -392,9 +392,12 @@ nothing starts the listener or the refresh loop and no deploy budgets a listener
 - **Fencing.** `CacheAuthority` grants a hit or fill only under the record, a
   5 s lease re-read every second, the serving connection's own identity, a
   listener bound to that identity and an unchanged fence counter. A stuck process
-  loses its hits by itself, so no acknowledgement or routing removal is needed.
-  This replaces the plan's acknowledge-or-lose-route step; safety rests on the
-  lease. Generation rollback inside one authority revokes everything.
+  loses its hits by itself, so safety needs no acknowledgement; it rests on the
+  lease. (Corrected in the Task 8 review: with the switch on, an unadmitted
+  process also fails its trading reads, so routing must keep traffic away from
+  it; and generation numbers are not compared for rollback in process, because
+  the owner's rotation excludes an unrotated restore. See
+  `docs/rust-phase1/cache-dependencies.md`.)
 - **Dependency ledger.** Closed-world test over Rust queries versus the migrated
   table list with reviewed exclusions; per-table, per-statement trigger tests;
   real Python writers (place, amend, cancel, publish, cross); concurrent writers

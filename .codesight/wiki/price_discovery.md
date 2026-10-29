@@ -2,13 +2,13 @@
 
 > **Navigation aid.** Route list and file locations extracted via AST. Read the source files listed below before implementing or modifying this subsystem.
 
-The Price_discovery subsystem handles **2 routes** and touches: auth, db.
+The Price_discovery subsystem handles **2 routes** and touches: auth.
 
 ## Routes
 
-- `GET` `/reference` → out: PriceDiscoveryResponse [auth, db]
+- `GET` `/reference` → out: PriceDiscoveryResponse [auth]
   `app/routers/price_discovery.py`
-- `GET` `/reference/export` → out: PriceDiscoveryResponse [auth, db]
+- `GET` `/reference/export` → out: PriceDiscoveryResponse [auth]
   `app/routers/price_discovery.py`
 
 ## Source Files

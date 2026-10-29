@@ -118,9 +118,9 @@ def main():
             url = f"postgresql+asyncpg://phase0_owner:{password}@127.0.0.1:{port}/{database}"
             migration_env = dict(environment, DATABASE_URL=url, MIGRATOR_DATABASE_URL=url)
             revision = "miq_20260720_market_quarantine" if name == "prod" else "kycd_20261015_staging"
-            command(str(tree / "venv/bin/python"), "-m", "alembic", "upgrade", revision,
+            command(sys.executable, "-m", "alembic", "upgrade", revision,
                     cwd=tree, env=migration_env)
-        command(str(ROOT / "venv/bin/python"), "-m", "tests.phase0.build_fixtures", cwd=ROOT, env=environment)
+        command(sys.executable, "-m", "tests.phase0.build_fixtures", cwd=ROOT, env=environment)
         if any('test_runtime_role_policy' in argument for argument in sys.argv[1:]):
             # Reuse the existing raw-role suite without its broader seed harness
             # or any replication-role grant. Only this disposable cluster changes.
@@ -151,7 +151,7 @@ def main():
         full_run = not sys.argv[1:]
         paths = default_test_paths() if full_run else sys.argv[1:]
         report = directory / "pytest.xml"
-        invocation = [str(ROOT / "venv/bin/python"), "-m", "pytest", *paths,
+        invocation = [sys.executable, "-m", "pytest", *paths,
                       "-q", f"--junitxml={report}"]
         result = subprocess.run(invocation, cwd=ROOT, env=environment)
         evidence = {"command": invocation, "returncode": result.returncode,

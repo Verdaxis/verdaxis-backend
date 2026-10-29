@@ -3,10 +3,9 @@
 #[test]
 fn live_benchmarks_match_python() {
     verdaxis_contract::compare_group("live_benchmarks").expect("live benchmark parity");
-    let status = std::process::Command::new(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../venv/bin/python"
-    ))
+    let status = std::process::Command::new(
+        std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "python3".into()),
+    )
     .args(["-m", "tests.rust_contract.live_benchmarks_probe"])
     .current_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."))
     .status()

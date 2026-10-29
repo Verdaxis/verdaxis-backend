@@ -2,13 +2,13 @@
 
 > **Navigation aid.** Route list and file locations extracted via AST. Read the source files listed below before implementing or modifying this subsystem.
 
-The Catalog subsystem handles **2 routes** and touches: auth, db.
+The Catalog subsystem handles **2 routes** and touches: db.
 
 ## Routes
 
-- `GET` `/products` → in: AsyncSessio, out: list [auth, db]
+- `GET` `/products` → in: AsyncSessio, out: list [db]
   `app/routers/catalog.py`
-- `GET` `/delivery-points` → in: AsyncSessio, out: list [auth, db]
+- `GET` `/delivery-points` → in: AsyncSessio, out: list [db]
   `app/routers/catalog.py`
 
 ## Source Files

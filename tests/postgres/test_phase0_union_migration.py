@@ -25,7 +25,13 @@ def migrate(database, revision=REVISION):
 
 def test_union_checkpoint_contract():
     graph = ScriptDirectory.from_config(Config(str(ROOT / 'alembic.ini')))
-    assert graph.get_revision(REVISION) in list(graph.walk_revisions(base='base', head=graph.get_current_head()))
+    head = graph.get_current_head()
+    assert head is not None
+    # Later additive revisions extend this checkpoint; the union revision must
+    # stay in the single linear chain with its original direct parent.
+    assert REVISION in {
+        revision.revision for revision in graph.walk_revisions('base', head)
+    }
     assert graph.get_revision(REVISION).down_revision == 'kycd_20261015_staging'
     rows = (ROOT / 'deploy/migration-checkpoints.tsv').read_text().splitlines()
     assert f'kycd_20261015_staging\t{REVISION}' in rows

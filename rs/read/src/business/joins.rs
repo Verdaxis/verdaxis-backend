@@ -160,12 +160,15 @@ pub async fn review(
     super::transaction::run_organization_write(state, access, command).await
 }
 
+/// `query` carries its own parse result: an invalid query is reported only
+/// after the administrator check, so authentication (401) and role (403)
+/// always come before input validation (422).
 pub async fn read(
     state: &crate::AppState,
     access: crate::auth::VerifiedAccess,
     limits: crate::auth::limits::SharedLimits,
     client: String,
-    query: JoinListQuery,
+    query: Result<JoinListQuery, ApiError>,
 ) -> Result<JoinPage, ApiError> {
     let access = super::membership::admit(
         state,
@@ -184,6 +187,7 @@ pub async fn read(
         move |tx| {
             Box::pin(async move {
                 require_admin(tx.actor())?;
+                let query = query?;
                 let actor = tx.actor().clone();
                 list(tx.connection(), &actor, &query).await
             })

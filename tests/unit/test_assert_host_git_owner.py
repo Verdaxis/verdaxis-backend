@@ -97,6 +97,25 @@ def test_tuple_git_commands_run_as_the_checkout_owner(monkeypatch, tuple_state):
     assert not [call for call in stub.calls if call[0] == "/usr/bin/git"]
 
 
+@pytest.mark.parametrize("unit_name", [
+    "verdaxis-backend.service",
+    "verdaxis-backend.service.d/90-phase0-fence.conf",
+])
+def test_tuple_refuses_symlinked_unit_artifact(monkeypatch, tuple_state, unit_name):
+    sha, manifest, _ = tuple_state
+    root = Path(manifest["monitor_identity_file"]).parent
+    unit = root / "systemd" / unit_name
+    target = unit.with_name(unit.name + ".target")
+    unit.rename(target)
+    unit.symlink_to(target)
+    monkeypatch.setattr(assert_host, "ROOT", root)
+    monkeypatch.setattr(assert_host, "command", StubCommand(sha))
+    patch_checkout_owner(monkeypatch, OWNER_UID)
+
+    with pytest.raises(ValueError, match="Invalid artifact"):
+        assert_host.verify_tuple(manifest)
+
+
 def test_root_owned_checkout_refuses_before_git(monkeypatch, tuple_state):
     _, manifest, _ = tuple_state
     stub = StubCommand("a" * 40)

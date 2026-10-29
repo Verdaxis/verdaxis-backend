@@ -6,6 +6,7 @@ use uuid::Uuid;
 #[derive(Debug)]
 pub struct VerifiedAccess {
     pub subject: Uuid,
+    pub expires_at: DateTime<Utc>,
     pub issued_at: Option<DateTime<Utc>>,
     pub(crate) issuance_out_of_range: bool,
 }
@@ -140,7 +141,9 @@ impl AuthError {
     pub fn body(self) -> Value {
         let detail = match self {
             Self::MissingBearer => json!("Not authenticated"),
-            Self::Credentials => json!("Could not validate credentials"),
+            Self::Credentials => {
+                super::error::AuthFailure::new(super::error::AuthCode::CredentialsInvalid).detail()
+            }
             Self::PasswordChanged => {
                 json!({"code": "AUTH_PASSWORD_CHANGED", "message": "Password was changed; sign in again"})
             }
@@ -156,6 +159,16 @@ impl AuthError {
 }
 
 pub fn validate_account(access: &VerifiedAccess, user: &AccountState) -> Result<(), AuthError> {
+    validate_account_for_path(access, user, "")
+}
+
+/// Profile restoration and password replacement remain available during a forced
+/// password change. Every other account check, including cutoffs, still applies.
+pub fn validate_account_for_path(
+    access: &VerifiedAccess,
+    user: &AccountState,
+    path: &str,
+) -> Result<(), AuthError> {
     if !user.exists {
         return Err(AuthError::Credentials);
     }
@@ -176,7 +189,12 @@ pub fn validate_account(access: &VerifiedAccess, user: &AccountState) -> Result<
         "REJECTED" => return Err(AuthError::Rejected),
         _ => return Err(AuthError::Credentials),
     }
-    if user.must_change_password {
+    if user.must_change_password
+        && !matches!(
+            path,
+            "/api/auth/me" | "/api/auth/me/" | "/api/auth/me/password" | "/api/auth/me/password/"
+        )
+    {
         return Err(AuthError::PasswordChangeRequired);
     }
     Ok(())

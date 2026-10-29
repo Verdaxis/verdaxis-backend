@@ -88,11 +88,14 @@ fn config(url: String) -> Config {
         database_url: url,
         db_session_time_zone: "UTC".into(),
         prepared_budget: None,
+        phase2: Default::default(),
         bind: "127.0.0.1:0".parse().unwrap(),
         read_admission_slots: 4,
         pool_max: 5,
         python_budget: 20,
         configured_max_connections: 100,
+        compliance_eur_usd_rate: None,
+        fleet_artifact_path: "data/fleet_demand.json".into(),
     }
 }
 
@@ -615,6 +618,14 @@ async fn p4_t17b_c03() {
             .is_some_and(|seconds| (1..=60).contains(&seconds)),
         "{retry_after:?}"
     );
+    for spelling in [format!("bearer {admin}"), format!("BEARER   {admin}")] {
+        let mut request = send("/api/admin/analytics/users?limit=1", None, FORWARDED);
+        request
+            .headers_mut()
+            .insert("authorization", spelling.parse().unwrap());
+        let response = f.app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    }
     // Another token has its own bucket.
     let second = token(USER_ADMIN_TWO);
     let (status, body, _) = get(

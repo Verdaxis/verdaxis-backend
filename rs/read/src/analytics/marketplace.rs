@@ -1906,6 +1906,13 @@ fn with_suppression(mut body: Json, quality: &Quality) -> Json {
 /// token quota, then parse the query, then read. A refusal at any step costs no
 /// quota beyond the steps already passed, and no resource is read before its
 /// authority is established.
+#[cfg(feature = "contract-tests")]
+#[derive(Clone, Default)]
+pub struct ProviderPhaseGate {
+    pub arrived: std::sync::Arc<tokio::sync::Notify>,
+    pub resume: std::sync::Arc<tokio::sync::Notify>,
+}
+
 pub async fn dispatch(
     app: &crate::AppState,
     verification: &crate::auth::VerificationSettings,
@@ -1921,7 +1928,7 @@ pub async fn dispatch(
         .get("authorization")
         .and_then(|value| value.to_str().ok())
         .map(str::to_owned);
-    let (access, checked_token) = match crate::auth::verify_authorization_with_token(
+    let (access, _checked_token) = match crate::auth::verify_authorization_with_token(
         authorization.as_deref(),
         verification,
         now,
@@ -1943,10 +1950,7 @@ pub async fn dispatch(
     let raw_query = request.uri().query().unwrap_or("").to_owned();
     // The quota key is the token exactly as the verifier checked it; there is
     // no second header parse to drift from the accepted spelling.
-    let token = format!(
-        "tok:{}",
-        crate::auth::token_bytes::token_digest(&checked_token)
-    );
+    let token = format!("usr:{}", access.subject);
     let limits = limits.clone();
     let now_seconds = now.timestamp().max(0) as u64;
 
@@ -1994,6 +1998,13 @@ pub async fn dispatch(
         Ok(permit) => permit,
         Err(error) => return error.into_response(),
     };
+    #[cfg(feature = "contract-tests")]
+    if app.config.environment == "test"
+        && let Some(gate) = request.extensions().get::<ProviderPhaseGate>()
+    {
+        gate.arrived.notify_one();
+        gate.resume.notified().await;
+    }
     let readings = service.provider_read(route, &query).await;
     drop(provider_permit);
 
@@ -2001,17 +2012,37 @@ pub async fn dispatch(
     // needs: no borrow of `app`, the request or the caller outlives this call.
     let policy = app.policy.clone();
     let service = AnalyticsService::clone(service);
-    let result = crate::runtime::admission::run_admitted(app, move |conn| {
-        Box::pin(async move {
-            if route == AnalyticsRoute::Marketplace {
-                validate_marketplace_filters(conn, &query).await?;
-            }
-            service
-                .compose(conn, policy.as_ref(), route, &query, &readings, now)
-                .await
-        })
-    })
-    .await;
+    let access =
+        match crate::auth::verify_authorization(authorization.as_deref(), verification, Utc::now())
+        {
+            Ok(access) => access,
+            Err(error) => return crate::business::error::authentication(error).into_response(),
+        };
+    let result = crate::auth::run_authenticated(
+        app,
+        access,
+        crate::auth::AuthenticatedRequest::new(route.method(), route.template(), false),
+        move |tx| {
+            Box::pin(async move {
+                crate::business::admission::require_admin(tx.actor())?;
+                let conn = tx.connection();
+                if route == AnalyticsRoute::Marketplace {
+                    validate_marketplace_filters(conn, &query).await?;
+                }
+                service
+                    .compose(conn, policy.as_ref(), route, &query, &readings, now)
+                    .await
+            })
+        },
+    )
+    .await
+    .map_err(|error| match error {
+        crate::auth::AuthenticatedError::Authentication(error) => {
+            crate::business::error::authentication(error)
+        }
+        crate::auth::AuthenticatedError::Database(error) => error,
+        crate::auth::AuthenticatedError::AmbiguousCommit => crate::ApiError::database(),
+    });
     match result {
         Ok(body) => (axum::http::StatusCode::OK, axum::Json(body)).into_response(),
         Err(error) => error.into_response(),

@@ -353,7 +353,7 @@ async def main():
     )
     barrier = 7071001
     child = subprocess.Popen(
-        [str(ROOT / "rs/target/debug/examples/contract_server")],
+        [os.environ["RUST_CONTRACT_SERVER_BINARY"]],
         env={
             **os.environ,
             "RUST_CONFIG": json.dumps(config),
@@ -422,7 +422,7 @@ async def main():
             + timedelta(microseconds=1)
         ).isoformat()
         later = subprocess.Popen(
-            [str(ROOT / "rs/target/debug/examples/contract_server")],
+            [os.environ["RUST_CONTRACT_SERVER_BINARY"]],
             env={
                 **os.environ,
                 "RUST_CONFIG": json.dumps(config),

@@ -54,7 +54,6 @@ pub struct ReferralSettings {
     pub mail: invite::MailClient,
     pub email_from: Arc<str>,
     pub limits: crate::auth::limits::SharedLimits,
-    started: std::time::Instant,
 }
 
 impl ReferralSettings {
@@ -65,7 +64,6 @@ impl ReferralSettings {
             mail: invite::MailClient::disabled(),
             email_from: "".into(),
             limits: crate::auth::limits::SharedLimits::default(),
-            started: std::time::Instant::now(),
         }
     }
 }
@@ -211,15 +209,16 @@ async fn send_invite(
             headers.get("x-forwarded-for").and_then(|v| v.to_str().ok()),
         ),
         path: "/api/referrals/invite".into(),
-        now_seconds: settings.started.elapsed().as_secs(),
+        now_seconds: chrono::Utc::now().timestamp().max(0) as u64,
         limits: settings.limits.clone(),
     };
     let frontend = settings.frontend_url.clone();
     let sender = settings.email_from.clone();
     let prepared = run_authenticated(&state, access, request, move |transaction| {
         Box::pin(async move {
-            let recipient =
-                validate_and_admit(body, &admission, |body| invite::normalize_email(&body))?;
+            let recipient = validate_and_admit(body, &admission, transaction.actor().id, |body| {
+                invite::normalize_email(&body)
+            })?;
             let actor = transaction.actor().clone();
             let (email, first, last): (String, Option<String>, Option<String>) =
                 sqlx::query_as("SELECT email,first_name,last_name FROM users WHERE id=$1")

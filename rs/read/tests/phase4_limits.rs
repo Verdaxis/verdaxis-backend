@@ -37,6 +37,70 @@ fn p4_t2_c50() {
 }
 
 #[test]
+fn business_quota_capacity_refuses_without_spending_existing_quota() {
+    let limits = SharedLimits::default();
+    let keys = BusinessLimitKeys {
+        client: "client",
+        user: Some("existing"),
+        organization: Some("org"),
+        token: None,
+    };
+    limits
+        .check_business("PUT", "/api/auth/me", keys, 100)
+        .unwrap();
+    for index in 0..49_999 {
+        let user = format!("user-{index}");
+        limits
+            .check_business(
+                "PUT",
+                "/api/auth/me",
+                BusinessLimitKeys {
+                    client: &user,
+                    ..keys
+                },
+                100,
+            )
+            .unwrap();
+    }
+    let error = limits
+        .check_business(
+            "PUT",
+            "/api/auth/me",
+            BusinessLimitKeys {
+                client: "new",
+                ..keys
+            },
+            100,
+        )
+        .unwrap_err();
+    assert_eq!(error.status.as_u16(), 503);
+    for _ in 0..9 {
+        limits
+            .check_business("PUT", "/api/auth/me", keys, 100)
+            .unwrap();
+    }
+    assert_eq!(
+        limits
+            .check_business("PUT", "/api/auth/me", keys, 100)
+            .unwrap_err()
+            .status
+            .as_u16(),
+        429
+    );
+    limits
+        .check_business(
+            "PUT",
+            "/api/auth/me",
+            BusinessLimitKeys {
+                client: "fresh",
+                ..keys
+            },
+            160,
+        )
+        .expect("expired accounting must release capacity for a fresh identity");
+}
+
+#[test]
 fn p4_t2_c51() {
     let limits = SharedLimits::default();
     let keys = BusinessLimitKeys {
@@ -45,24 +109,8 @@ fn p4_t2_c51() {
         organization: Some("org"),
         token: None,
     };
-    for _ in 0..10 {
-        limits
-            .check_business("POST", "/api/ai/chat", keys, 100)
-            .unwrap();
-    }
-    assert!(
-        limits
-            .check_business("POST", "/api/ai/chat", keys, 100)
-            .is_err()
-    );
-    assert!(
-        limits
-            .check_business("DELETE", "/api/ai/chat", keys, 100)
-            .is_err()
-    );
-    assert!(
-        limits
-            .check_business("POST", "/api/ai/chat/extra", keys, 100)
-            .is_err()
-    );
+    let error = limits
+        .check_business("POST", "/api/ai/chat", keys, 100)
+        .unwrap_err();
+    assert_eq!(error.status.as_u16(), 404);
 }

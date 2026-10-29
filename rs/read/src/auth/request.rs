@@ -67,11 +67,11 @@ pub async fn admit_request<A, T>(
     validate: impl FnOnce(Value) -> Result<T, ApiError>,
 ) -> Result<T, RequestError>
 where
-    A: Future<Output = Result<(), AuthError>>,
+    A: Future<Output = Result<uuid::Uuid, AuthError>>,
 {
     let body = parse_json_body(raw).map_err(RequestError::Validation)?;
-    authenticate().await.map_err(RequestError::Authentication)?;
-    validate_and_admit(body, request, validate).map_err(RequestError::Validation)
+    let user = authenticate().await.map_err(RequestError::Authentication)?;
+    validate_and_admit(body, request, user, validate).map_err(RequestError::Validation)
 }
 
 /// For database-backed route adapters: parse before `run_authenticated`, then
@@ -80,12 +80,13 @@ where
 pub fn validate_and_admit<T>(
     body: Value,
     request: &RequestAdmission,
+    user: uuid::Uuid,
     validate: impl FnOnce(Value) -> Result<T, ApiError>,
 ) -> Result<T, ApiError> {
     let value = validate(body)?;
     request
         .limits
-        .check_endpoint(&request.client, &request.path, request.now_seconds)?;
+        .check_endpoint(&user.to_string(), &request.path, request.now_seconds)?;
     Ok(value)
 }
 

@@ -25,18 +25,68 @@ async fn main() {
 }
 
 async fn serve() -> Result<(), ()> {
-    let config = load_config().map_err(|_| ())?;
+    let mut config = load_config().map_err(|_| ())?;
+    verdaxis_read::validate_config(&config).map_err(|_| ())?;
+    let working_directory = std::env::current_dir().map_err(|_| ())?;
+    config.fleet_artifact_path = verdaxis_read::runtime::config::resolve_fleet_artifact_path(
+        &config.fleet_artifact_path,
+        &working_directory,
+    )
+    .map_err(|_| ())?;
+    verdaxis_read::runtime::config::fleet_startup_probe(&config.fleet_artifact_path).await;
     let pools = connect(&config).await.map_err(|_| ())?;
     let bind = config.bind;
     let policy = committed_policy().map_err(|_| ())?;
-    let state = AppState::new(config, pools, policy).map_err(|_| ())?;
+    let mut state = AppState::new(config, pools, policy).map_err(|_| ())?;
+    log_host_policy(&state.host_policy);
+    let streams = verdaxis_read::streams::runtime::start_streams(
+        &mut state,
+        verdaxis_read::streams::runtime::CapacityConfig::default(),
+    )
+    .await;
+    // Disabled caching starts no task; an enabled cache starts the authority
+    // refresh and invalidation loop before the service accepts traffic.
+    state.start_trading_cache();
     let listener = tokio::net::TcpListener::bind(bind).await.map_err(|_| ())?;
-    axum::serve(
+    let result = axum::serve(
         listener,
         router(state).into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
-    .await
-    .map_err(|_| ())
+    .with_graceful_shutdown(async move {
+        shutdown_signal().await;
+        if let Some(streams) = streams {
+            streams.shutdown().await;
+        }
+    })
+    .await;
+    result.map_err(|_| ())
+}
+
+/// Say at startup whether the Host check is on, so a missing `ALLOWED_HOSTS`
+/// is visible in the journal instead of a silent default.
+fn log_host_policy(policy: &verdaxis_read::runtime::host::HostPolicy) {
+    if policy.is_enforced() {
+        tracing::info!(
+            allowed_hosts = policy.configured_hosts().join(","),
+            "Host validation is enforced; loopback hosts are always allowed"
+        );
+    } else {
+        tracing::warn!("Host validation is off: ALLOWED_HOSTS is not set");
+    }
+}
+
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+        let mut terminate = signal(SignalKind::terminate()).expect("termination signal handler");
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {},
+            _ = terminate.recv() => {},
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = tokio::signal::ctrl_c().await;
 }
 
 /// The contract harness supplies one `RUST_CONFIG` document; the reviewed
@@ -44,14 +94,16 @@ async fn serve() -> Result<(), ()> {
 /// `--budget-file` path the deploy transaction wrote. Both routes are built by
 /// the same validated `Config` constructor.
 fn load_config() -> Result<Config, String> {
+    // Check raw environment encoding before any optional value can default.
+    if std::env::var_os("FLEET_ARTIFACT_PATH").is_some_and(|value| value.into_string().is_err()) {
+        return Err("invalid FLEET_ARTIFACT_PATH".into());
+    }
     if let Ok(document) = std::env::var("RUST_CONFIG") {
         return serde_json::from_str(&document).map_err(|_| "invalid RUST_CONFIG".to_owned());
     }
     let arguments: Vec<String> = std::env::args().skip(1).collect();
     let (bind, budget_file) = deployed_arguments(&arguments)?;
     let budget = read_prepared_budget(&budget_file)?;
-    // A non-UTF-8 value cannot name any required key; dropping it makes the
-    // missing-key error report it instead of aborting the process.
     let environment: HashMap<String, String> = std::env::vars_os()
         .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))
         .collect();

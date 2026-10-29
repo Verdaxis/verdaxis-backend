@@ -324,7 +324,7 @@ async fn list(State(state): State<RouteState>, request: Request) -> Response {
             .and_then(|value| value.to_str().ok()),
     );
     let raw_query = request.uri().query().unwrap_or_default().to_owned();
-    let token = authorization.unwrap_or_default();
+    let token = format!("usr:{}", access.subject);
     let authority = state.authority.clone();
     let result = run_authenticated(
         &state.app,

@@ -30,6 +30,18 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt -c constraints.txt
 
+      # The same pinned release and digest as the Rust read CI contract job.
+      - name: Install Caddy for the required routing tests
+        env:
+          CADDY_VERSION: "2.11.7"
+          CADDY_SHA256: "727b91701a392de6ebc5027509f548bf39979e5216340d0faed8fa5e69c84f8b"
+        run: |
+          curl -fsSL -o caddy.tar.gz \
+            "https://github.com/caddyserver/caddy/releases/download/v${CADDY_VERSION}/caddy_${CADDY_VERSION}_linux_amd64.tar.gz"
+          printf '%s  caddy.tar.gz\n' "$CADDY_SHA256" | sha256sum -c -
+          tar -xzf caddy.tar.gz caddy
+          sudo install -m 0755 caddy /usr/local/bin/caddy
+
       - name: Run unit tests
         env:
           ENVIRONMENT: test
@@ -98,7 +110,10 @@ jobs:
       - name: Install dependencies
         run: |
           python -m venv venv
-          venv/bin/python -m pip install --upgrade pip
+          # Rust tests that start Python use this interpreter (RUST_TEST_PYTHON).
+          echo "$PWD/venv/bin" >> "$GITHUB_PATH"
+          echo "RUST_TEST_PYTHON=$PWD/venv/bin/python" >> "$GITHUB_ENV"
+          "$PWD/venv/bin/python" -m pip install --upgrade pip
           venv/bin/pip install -r requirements.txt -c constraints.txt
 
       - name: Run Phase 0 PostgreSQL correctness tests

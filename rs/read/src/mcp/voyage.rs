@@ -1,6 +1,7 @@
 //! Pure voyage calculations. Decimal operation order follows the Python oracle.
 use crate::Json;
 use crate::market::amount::Amount as D;
+use crate::market::fueleu;
 use chrono::{Datelike, Duration, NaiveDate};
 use serde::Deserialize;
 use serde_json::json;
@@ -501,7 +502,7 @@ fn strategy(
             let penalty = deficit
                 .multiply(&d("1000000"))
                 .divide(&intensity.as_ref().unwrap().multiply(&d("41000")))?
-                .multiply(&d("2400"));
+                .multiply(&fueleu::mcp_penalty());
             let pool_cost = pool.as_ref().map(|pool| deficit.multiply(pool));
             if basis == Some("POOL") {
                 if pool_cost.is_none() {
@@ -710,19 +711,7 @@ pub fn voyage_plan(request: &Json, prices: &Json, today: NaiveDate) -> Result<Js
         .assumptions
         .reporting_year
         .unwrap_or(request.start_date.year());
-    let target = d(if year >= 2050 {
-        "18.2320"
-    } else if year >= 2045 {
-        "34.6408"
-    } else if year >= 2040 {
-        "62.9004"
-    } else if year >= 2035 {
-        "77.94180"
-    } else if year >= 2030 {
-        "85.6904"
-    } else {
-        "89.3368"
-    });
+    let target = fueleu::mcp_target(year).map_err(|error| error.to_string())?;
     let mut warnings = Vec::new();
     let mut strategies = Vec::new();
     let has_conventional = request

@@ -44,6 +44,8 @@ class Simulation(runner.Runner):
         unknown = [group for group in self.groups if group not in runner.GROUPS]
         if unknown:
             raise runner.RunnerError(f"unknown contract group(s): {', '.join(unknown)}")
+        # Set by run(); a caller that never runs the gate reports failure.
+        self.gate_passed = False
 
     def _seed_workload(self, env: dict[str, str]) -> None:
         subprocess.run(
@@ -58,31 +60,51 @@ class Simulation(runner.Runner):
         from unittest.mock import patch
 
         from scripts.rust_contract.compare import ContractError, recording_differences
-        from scripts.rust_contract.record import record
+        from scripts.rust_contract.record import OracleUnavailable, record
 
-        env = self.start_environment(group)
+        retry_start = len(self.oracle_retries)
         try:
+            env = self.start_environment(group)
             self._seed_workload(env["base_env"])
             # A corpus case rewrites a fixture row through the attested seed
             # session, which reads SEED_DATABASE_URL from the environment.
             with patch.dict(os.environ, env["base_env"]):
-                first = record(env["python_url"], self.token, cases)
+                first = record(env["python_url"], self.token, cases, oracle=True,
+                               group=group, leg="python-before", retries=self.oracle_retries)
                 middle = record(env["rust_url"], self.token, cases)
-                third = record(env["python_url"], self.token, cases)
+                third = record(env["python_url"], self.token, cases, oracle=True,
+                               group=group, leg="python-after", retries=self.oracle_retries)
                 profile = os.environ.get("RUST_CONTRACT_PROFILE")
                 digest = os.environ.get("MEANING_RULES_SHA256")
+                if profile == "phase1-meaning-v1":
+                    # Both Python recordings of the sandwich must carry the
+                    # canonical tape page: raw tie order is source-dependent.
+                    from scripts.rust_contract.meaning_runner import (
+                        canonicalise_tape_recordings,
+                    )
+
+                    first = canonicalise_tape_recordings(first)
+                    third = canonicalise_tape_recordings(third)
                 stability = recording_differences(first, third, profile=profile, rules_sha256=digest)
                 parity = recording_differences(first, middle, profile=profile, rules_sha256=digest)
+        except (OracleUnavailable, runner.OracleStartupUnavailable) as error:
+            return {"outcome": "ORACLE_UNAVAILABLE", "error": str(error), "cases": len(cases),
+                    "oracle_retries": self.oracle_retries[retry_start:]}
         except ContractError as error:
-            return {"outcome": "error", "error": str(error), "cases": len(cases)}
+            return {"outcome": "error", "error": str(error), "cases": len(cases),
+                    "oracle_retries": self.oracle_retries[retry_start:]}
         finally:
             self.stop_environment()
 
         if stability:
+            disagreed = sorted({path.split(":", 1)[0] for path in stability})
             return {
                 "outcome": "inconclusive",
                 "reason": "python sandwich disagreed",
                 "cases": len(cases),
+                "paths": stability[:10],
+                "cases_disagreed": disagreed,
+                "oracle_retries": self.oracle_retries[retry_start:],
             }
         differences = parity
         return {
@@ -90,6 +112,7 @@ class Simulation(runner.Runner):
             "cases": len(cases),
             "differences": len(differences),
             "paths": differences[:10],
+            "oracle_retries": self.oracle_retries[retry_start:],
         }
 
     def run(self) -> None:
@@ -107,10 +130,14 @@ class Simulation(runner.Runner):
             "counts": self.counts,
             "source_sha": self.sha,
             "manifest_digest": workload.manifest_digest(self.manifest),
+            "profile": os.environ.get("RUST_CONTRACT_PROFILE"),
+            "rules_sha256": os.environ.get("MEANING_RULES_SHA256"),
             "groups": {},
             "total_pairs": 0,
             "differences": 0,
             "inconclusive_groups": [],
+            "oracle_unavailable_groups": [],
+            "oracle_retries": self.oracle_retries,
         }
         for group in self.groups:
             cases = load_cases(cases_path, group)
@@ -123,6 +150,8 @@ class Simulation(runner.Runner):
                 report["differences"] += outcome["differences"]
             else:
                 report["inconclusive_groups"].append(group)
+                if outcome["outcome"] == "ORACLE_UNAVAILABLE":
+                    report["oracle_unavailable_groups"].append(group)
         report["gate"] = (
             "pass"
             if report["differences"] == 0 and not report["inconclusive_groups"]
@@ -131,6 +160,7 @@ class Simulation(runner.Runner):
         out = self.output_dir / f"simulation-{self.size}.json"
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(report, indent=2) + "\n")
+        self.gate_passed = report["gate"] == "pass"
         print(f"SIMULATION_JSON {out}")
         print(json.dumps({k: v for k, v in report.items() if k != "groups"}))
 
@@ -165,7 +195,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     finally:
         simulation.cleanup()
-    return 0
+    return 0 if simulation.gate_passed else 1
 
 
 if __name__ == "__main__":

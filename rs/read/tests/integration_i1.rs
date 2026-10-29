@@ -194,11 +194,14 @@ impl Fixture {
             database_url: "postgres://rust_app:fixture@127.0.0.1:12345/verdaxis_rust_test".into(),
             db_session_time_zone: "UTC".into(),
             prepared_budget: None,
+            phase2: Default::default(),
             bind: "127.0.0.1:0".parse().unwrap(),
             read_admission_slots: 4,
             pool_max: 5,
             python_budget: 52,
             configured_max_connections: 100,
+            compliance_eur_usd_rate: None,
+            fleet_artifact_path: "data/fleet_demand.json".into(),
         })
     }
 
@@ -233,6 +236,7 @@ async fn i1_t8_rejection_with_real_t7_and_t9() {
         organization_id: fixture.org,
         approve: false,
         reason: None,
+        audit: Default::default(),
         now: now(),
         policy: Arc::new(MarketPolicy {
             source_sha: "integration-i1-policy".into(),

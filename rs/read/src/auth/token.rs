@@ -5,8 +5,9 @@ use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode};
 use serde_json::Value;
 use uuid::Uuid;
 
-use super::{AuthError, VerifiedAccess};
+use super::{AuthError, TokenIssuance, VerifiedAccess};
 
+#[derive(Clone)]
 pub struct VerificationSettings {
     current: DecodingKey,
     previous: Option<DecodingKey>,
@@ -69,11 +70,92 @@ pub fn verify_authorization_with_token(
     Ok((access, token))
 }
 
+/// The token types the shared verifier checks. A caller names the one it
+/// expects; there is no default and no variant that accepts any type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TokenType {
+    Access,
+    Stream,
+}
+
+impl TokenType {
+    fn claim(self) -> &'static str {
+        match self {
+            Self::Access => "access",
+            Self::Stream => "stream",
+        }
+    }
+}
+
+/// A token that passed the signature, issuer, audience, time and type checks.
+///
+/// Only [`verify_token`] creates one. Profile-specific claims (for example a
+/// stream token's organization) are read with [`VerifiedToken::claim`]; the
+/// profile owner decides which of them are required and how they are typed.
+pub struct VerifiedToken {
+    subject: Uuid,
+    expires_at: DateTime<Utc>,
+    issuance: TokenIssuance,
+    claims: Value,
+}
+
+impl VerifiedToken {
+    pub fn subject(&self) -> Uuid {
+        self.subject
+    }
+
+    /// The issuance time with the same range outcome that account cutoffs use.
+    pub fn issuance(&self) -> TokenIssuance {
+        self.issuance
+    }
+
+    /// One verified claim by name.
+    /// The verified expiry instant. Every profile requires it: an absent or
+    /// malformed `exp` refuses the token instead of passing through.
+    pub fn expires_at(&self) -> DateTime<Utc> {
+        self.expires_at
+    }
+
+    pub fn claim(&self, name: &str) -> Option<&Value> {
+        self.claims.get(name)
+    }
+}
+
+impl fmt::Debug for VerifiedToken {
+    // Identifiers and claims stay out of debug output and logs.
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("VerifiedToken")
+            .field("issuance", &self.issuance)
+            .finish_non_exhaustive()
+    }
+}
+
 pub fn verify_access(
     token: &str,
     settings: &VerificationSettings,
     now: DateTime<Utc>,
 ) -> Result<VerifiedAccess, AuthError> {
+    let verified = verify_token(token, settings, TokenType::Access, now)?;
+    Ok(VerifiedAccess {
+        subject: verified.subject,
+        expires_at: verified.expires_at,
+        issued_at: verified.issuance.issued_at,
+        issuance_out_of_range: verified.issuance.out_of_range,
+    })
+}
+
+/// Verify a signed token for one expected type.
+///
+/// One path for every type: HS256 with the current key and then the previous
+/// key, the configured issuer and audience, the time claims and the `type`
+/// claim. A type's own required claims are checked by its owner.
+pub fn verify_token(
+    token: &str,
+    settings: &VerificationSettings,
+    expected: TokenType,
+    now: DateTime<Utc>,
+) -> Result<VerifiedToken, AuthError> {
     // Cryptographic validation is always enabled and restricted to HS256.
     // Registered claims are checked below against the supplied action clock:
     // jsonwebtoken's u64 numeric dates and required-exp defaults are not PyJWT.
@@ -91,34 +173,50 @@ pub fn verify_access(
                 .map(|data| data.claims)
         })
         .ok_or(AuthError::Credentials)?;
-    validate_claims(&claims, settings, now)?;
+    let expires_at = validate_claims(&claims, settings, expected, now)?;
     let subject = claims
         .get("sub")
         .and_then(Value::as_str)
         .ok_or(AuthError::Credentials)?;
     let subject = python_uuid(subject).ok_or(AuthError::Credentials)?;
     let issuance = issued_at(&claims);
-    Ok(VerifiedAccess {
+    Ok(VerifiedToken {
         subject,
-        issued_at: issuance.as_ref().ok().copied().flatten(),
-        issuance_out_of_range: issuance.is_err(),
+        expires_at,
+        issuance: TokenIssuance {
+            issued_at: issuance.as_ref().ok().copied().flatten(),
+            out_of_range: issuance.is_err(),
+        },
+        claims,
     })
 }
 
 fn validate_claims(
     claims: &Value,
     settings: &VerificationSettings,
+    expected: TokenType,
     now: DateTime<Utc>,
-) -> Result<(), AuthError> {
+) -> Result<DateTime<Utc>, AuthError> {
     if !claims.is_object() {
         return Err(AuthError::Credentials);
     }
     let seconds =
         now.timestamp() as f64 + f64::from(now.timestamp_subsec_nanos()) / 1_000_000_000.0;
-    for name in ["iat", "nbf", "exp"] {
+    let expiry_seconds = claims
+        .get("exp")
+        .and_then(python_integer)
+        .filter(|seconds| seconds.is_finite())
+        .ok_or(AuthError::Credentials)?;
+    let expires_at = DateTime::from_timestamp(expiry_seconds as i64, 0)
+        .filter(|instant| (1..=9999).contains(&chrono::Datelike::year(instant)))
+        .ok_or(AuthError::Credentials)?;
+    if expires_at <= now {
+        return Err(AuthError::Credentials);
+    }
+    for name in ["iat", "nbf"] {
         if let Some(value) = claims.get(name) {
             let number = python_integer(value).ok_or(AuthError::Credentials)?;
-            if (name == "exp" && number <= seconds) || (name != "exp" && number > seconds) {
+            if number > seconds {
                 return Err(AuthError::Credentials);
             }
         }
@@ -138,11 +236,11 @@ fn validate_claims(
     };
     if !audience_matches
         || claims.get("jti").is_some_and(|value| !value.is_string())
-        || claims.get("type").and_then(Value::as_str) != Some("access")
+        || claims.get("type").and_then(Value::as_str) != Some(expected.claim())
     {
         return Err(AuthError::Credentials);
     }
-    Ok(())
+    Ok(expires_at)
 }
 
 /// Python int(value) accepts booleans, truncates finite floats, and accepts

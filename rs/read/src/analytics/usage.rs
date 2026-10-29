@@ -416,7 +416,8 @@ pub fn check_quota(
     authorization: Option<&str>,
     now: u64,
 ) -> Result<(), ApiError> {
-    let identity = token_identity(authorization);
+    let _ = authorization;
+    let identity = format!("usr:{}", actor.id);
     let user = actor.id.to_string();
     limits.check_business(
         "GET",
@@ -506,7 +507,20 @@ async fn product_usage(
             ),
         })?;
     let observed = match authority.source.clone() {
-        Some(source) => source.window(window).await,
+        Some(source) => {
+            let _permit = crate::runtime::admission::try_read(&state)?;
+            match tokio::time::timeout(std::time::Duration::from_secs(10), source.window(window))
+                .await
+            {
+                Ok(reading) => reading,
+                Err(_) => BehavioralWindow::unavailable(
+                    window.start,
+                    window.end,
+                    Utc::now(),
+                    AnalyticsDiagnostic::Timeout,
+                ),
+            }
+        }
         // No provider is configured: the tab stays authoritative.
         None => BehavioralWindow::unavailable(
             window.start,

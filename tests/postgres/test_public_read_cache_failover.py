@@ -129,6 +129,7 @@ def test_rust_failover_scenarios_hold_on_two_database_incarnations(
         "RELEASE_SHA": subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
         ).strip(),
+        "RUST_TEST_PYTHON": sys.executable,
         "SQLX_OFFLINE": "true",
     }
     subprocess.run(

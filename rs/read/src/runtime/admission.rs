@@ -1,5 +1,10 @@
-use crate::{ApiError, AppState, busy};
+use crate::market::cache_dependencies::{TemporalFacts, TradingClock, cacheable};
+use crate::routes::market_data_error;
+use crate::runtime::cache::{TradingCache, TradingEntry};
+use crate::runtime::cache_authority::{FillTicket, admit_connection};
+use crate::{ApiError, ApiErrorKind, AppState, busy};
 use sqlx::Connection;
+use std::sync::Arc;
 
 /// Rust-owned default (founder decision 88); readiness has one extra connection.
 pub const DEFAULT_READ_ADMISSION_SLOTS: u32 = 16;
@@ -19,6 +24,9 @@ pub async fn middleware(
     }
     let permit = match try_read(&state) {
         Ok(permit) => permit,
+        Err(_) if market_data_read(request.method().as_str(), request.uri().path()) => {
+            return market_data_error::unavailable().into_response();
+        }
         Err(error) => return error.into_response(),
     };
     REQUEST_PERMIT
@@ -47,6 +55,106 @@ pub async fn run_admitted<T: Send + 'static>(
     > + Send
     + 'static,
 ) -> Result<T, ApiError> {
+    admitted(state, Failures::Existing, work).await
+}
+
+/// Run one Phase 5 public market read.
+///
+/// The work runs in one READ ONLY transaction whose statements stop after five
+/// seconds. `SET LOCAL` keeps the limit inside the transaction, so the pooled
+/// session keeps its defaults. The owner task of `run_admitted` holds the
+/// permit and the connection through commit, rollback and cleanup; a client
+/// cancellation only detaches the caller, and nothing is retried. Admission,
+/// pool, transaction and owner failures use the typed market-data envelope;
+/// the route maps its own SQL errors with `market_data_error::database_failure`.
+pub async fn run_market_read<T: Send + 'static>(
+    state: &AppState,
+    work: impl for<'c> FnOnce(
+        &'c mut sqlx::PgConnection,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<T, ApiError>> + Send + 'c>,
+    > + Send
+    + 'static,
+) -> Result<T, ApiError> {
+    admitted(state, Failures::MarketData, move |connection| {
+        Box::pin(async move {
+            let mut transaction = connection
+                .begin_with("BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY")
+                .await
+                .map_err(|error| market_data_error::database_failure("begin", &error))?;
+            sqlx::query("SET LOCAL statement_timeout = '5s'")
+                .execute(&mut *transaction)
+                .await
+                .map_err(|error| market_data_error::database_failure("begin", &error))?;
+            // An error drops the transaction, which queues its rollback; the
+            // owner then closes the connection instead of reusing it.
+            let value = work(&mut transaction).await?;
+            transaction
+                .commit()
+                .await
+                .map_err(|error| market_data_error::database_failure("commit", &error))?;
+            Ok(value)
+        })
+    })
+    .await
+}
+
+/// How an admitted read reports a failure outside the route's own work.
+#[derive(Clone, Copy)]
+enum Failures {
+    /// Existing reads: string details, unchanged.
+    Existing,
+    /// Phase 5 market reads: typed `READ_UNAVAILABLE` or `READ_FAILED`.
+    MarketData,
+}
+
+impl Failures {
+    /// Every admission slot is in use.
+    fn refused(self) -> ApiError {
+        match self {
+            Self::Existing => busy(),
+            Self::MarketData => market_data_error::unavailable(),
+        }
+    }
+
+    /// Log bounded metadata once and classify a pool or connection failure.
+    fn database(self, stage: &'static str, error: &sqlx::Error) -> ApiError {
+        match self {
+            Self::Existing => {
+                log_sql_error(stage, error);
+                ApiError::database()
+            }
+            Self::MarketData => market_data_error::database_failure(stage, error),
+        }
+    }
+
+    /// The owner task ended without a result: its work panicked or the
+    /// runtime is shutting down.
+    fn owner_lost(self) -> ApiError {
+        match self {
+            Self::Existing => ApiError::internal(),
+            Self::MarketData => {
+                // SQLx's worker-crash class selects the generic typed 500 and
+                // one bounded diagnostic event; no error text is formatted.
+                let mut error =
+                    market_data_error::database_failure("owner", &sqlx::Error::WorkerCrashed);
+                error.kind = ApiErrorKind::Unexpected;
+                error
+            }
+        }
+    }
+}
+
+async fn admitted<T: Send + 'static>(
+    state: &AppState,
+    failures: Failures,
+    work: impl for<'c> FnOnce(
+        &'c mut sqlx::PgConnection,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<T, ApiError>> + Send + 'c>,
+    > + Send
+    + 'static,
+) -> Result<T, ApiError> {
     // The request middleware already admitted selected GETs; reuse its permit so
     // one request never occupies two slots. MCP tools and tests acquire here.
     let inherited = REQUEST_PERMIT
@@ -55,55 +163,268 @@ pub async fn run_admitted<T: Send + 'static>(
         .flatten();
     let permit = match inherited {
         Some(permit) => permit,
-        None => try_read(state)?,
+        None => try_read(state).map_err(|_| failures.refused())?,
     };
     let pool = state.pools.read.clone();
     // Dropping the caller's JoinHandle detaches, rather than cancels, this owner.
     tokio::spawn(async move {
-        let mut connection = pool.acquire().await.map_err(|error| {
-            log_sql_error("acquire", &error);
-            ApiError::database()
-        })?;
-        let result = work(&mut connection).await;
-        let reusable = if result.is_ok() {
-            match connection.ping().await {
-                Ok(()) => true,
-                Err(error) => {
-                    log_sql_error("cleanup", &error);
-                    false
-                }
-            }
-        } else {
-            // SQL errors are logged by the route before conversion to ApiError.
-            tracing::warn!(
-                stage = "work",
-                error_class = "api_error",
-                sqlstate = "",
-                "admitted_work_failed"
-            );
-            false
-        };
-        if reusable {
-            // `return_to_pool` is the drop handler run eagerly, so the pool
-            // counts the connection as free before admission opens again.
-            connection.return_to_pool().await;
-            drop(connection);
-            drop(permit);
-            result
-        } else {
-            if let Err(error) = connection.close().await {
-                log_sql_error("cleanup", &error);
-            }
-            drop(permit);
-            match result {
-                Err(error) => Err(error),
+        let mut connection = pool
+            .acquire()
+            .await
+            .map_err(|error| failures.database("acquire", &error))?;
+        let outcome = match work(&mut connection).await {
+            Ok(value) => match connection.ping().await {
+                Ok(()) => Ok(value),
                 // The work succeeded but the connection is unusable.
-                Ok(_) => Err(ApiError::database()),
+                Err(error) => Err(failures.database("cleanup", &error)),
+            },
+            Err(error) => {
+                // SQL errors are logged by the route before conversion to ApiError.
+                tracing::warn!(
+                    stage = "work",
+                    error_class = "api_error",
+                    sqlstate = "",
+                    "admitted_work_failed"
+                );
+                Err(error)
+            }
+        };
+        match outcome {
+            Ok(value) => {
+                // `return_to_pool` is the drop handler run eagerly, so the pool
+                // counts the connection as free before admission opens again.
+                connection.return_to_pool().await;
+                drop(connection);
+                drop(permit);
+                Ok(value)
+            }
+            Err(error) => {
+                // A failed unit never returns its connection to the pool.
+                if let Err(close_error) = connection.close().await {
+                    log_sql_error("cleanup", &close_error);
+                }
+                drop(permit);
+                Err(error)
             }
         }
     })
     .await
-    .map_err(|_| ApiError::internal())?
+    .map_err(|_| failures.owner_lost())?
+}
+
+/// Observable boundaries of one trading read. Observers do not decide admission.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TradingReadStage {
+    SnapshotEstablished,
+    BeforeInsert,
+    BeforePublish,
+}
+
+/// Per-runtime clock and scheduler seam. Serving uses the real clock and no
+/// waits; disposable schedules can hold a read at an exact lifecycle boundary.
+pub trait TradingReadObserver: Send + Sync {
+    fn now(&self) -> TradingClock {
+        TradingClock::now()
+    }
+
+    fn checkpoint(
+        &self,
+        _stage: TradingReadStage,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
+        Box::pin(std::future::ready(()))
+    }
+}
+
+pub struct RealtimeTradingRead;
+impl TradingReadObserver for RealtimeTradingRead {}
+
+/// What a route returns from its uncached query: the public value and every
+/// time dependency the same snapshot read.
+pub struct TradingFill<T> {
+    pub value: T,
+    pub facts: TemporalFacts,
+}
+
+/// One admitted trading read with a commit-safe cache.
+///
+/// `clock` is the one instant the route captured before admission, the same
+/// one it used to validate the request. The loader receives it and must use it
+/// for every time bind and every fact it derives; the boundaries are computed
+/// against it. A change that falls between this instant and the end of the
+/// read has therefore passed when the fill is ready, and the fill is answered
+/// but not stored. Authority, lease and liveness checks use the current time.
+///
+/// The permit and the pooled connection stay owned by `run_admitted` for the
+/// whole query, so a cancelled caller cannot free a slot early. Caching off
+/// runs exactly the loader: no generation, incarnation or cache query is sent,
+/// so the response and its SQL are identical to the uncached service. Caching
+/// on opens one read-only REPEATABLE READ snapshot, reads the generation in
+/// that snapshot, and serves a cached payload only when the authority token,
+/// fence, generation, policy identity and time boundary all still match. An
+/// unavailable authority bypasses storage. A changed fence discards the old
+/// result and reloads in a fresh uncached snapshot under the same admission.
+pub async fn run_trading_read<K, T>(
+    state: &AppState,
+    cache: &Arc<TradingCache<K>>,
+    key: K,
+    family: &'static str,
+    clock: TradingClock,
+    load: impl for<'c> FnOnce(
+        &'c mut sqlx::PgConnection,
+        TradingClock,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<TradingFill<T>, ApiError>> + Send + 'c>,
+    > + Clone
+    + Send
+    + 'static,
+) -> Result<T, ApiError>
+where
+    K: Clone + Eq + Send + 'static,
+    T: serde::Serialize + serde::de::DeserializeOwned + Send + 'static,
+{
+    let Some(runtime) = state.trading_cache.clone() else {
+        return run_admitted(state, move |connection| {
+            Box::pin(async move { Ok(load(connection, clock).await?.value) })
+        })
+        .await;
+    };
+    let observer = state.trading_read_observer.clone();
+    let authority = runtime.authority().clone();
+    let policy = state.policy_identity.clone();
+    // The work closure is spawned and may outlive this call, so it owns its
+    // handle to the family cache rather than borrowing it.
+    let cache = cache.clone();
+    run_admitted(state, move |connection| {
+        Box::pin(async move {
+            let mut transaction = connection.begin().await.map_err(|_| ApiError::database())?;
+            sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+                .execute(&mut *transaction)
+                .await
+                .map_err(|_| ApiError::database())?;
+            let reload = load.clone();
+            let admitted = admit_connection(&authority, &mut transaction, observer.now().monotonic)
+                .await
+                .map_err(|_| ApiError::database())?;
+            let Some((token, generation)) = admitted else {
+                let value = load(&mut transaction, clock).await?.value;
+                transaction
+                    .rollback()
+                    .await
+                    .map_err(|_| ApiError::database())?;
+                return Ok(value);
+            };
+            observer
+                .checkpoint(TradingReadStage::SnapshotEstablished)
+                .await;
+            // Independent snapshots can finish out of order. Retain the
+            // high-water mark for storage without revoking an older read.
+            if !authority.observe_snapshot(&token, generation, observer.now().monotonic) {
+                cache.remove_ticket(&key, &FillTicket::new(token, generation));
+                transaction
+                    .rollback()
+                    .await
+                    .map_err(|_| ApiError::database())?;
+                return uncached_trading_read(connection, clock, reload).await;
+            }
+            let ticket = FillTicket::new(token, generation);
+            // `hit` keeps only entries whose boundary is still ahead of now.
+            if let Some(entry) = cache.hit(
+                &authority,
+                &key,
+                &ticket,
+                &policy,
+                clock,
+                observer.now().monotonic,
+            ) {
+                match serde_json::from_slice(&entry.payload) {
+                    Ok(value) => {
+                        transaction
+                            .rollback()
+                            .await
+                            .map_err(|_| ApiError::database())?;
+                        observer.checkpoint(TradingReadStage::BeforePublish).await;
+                        if !authority.accepts(ticket.token(), observer.now().monotonic) {
+                            cache.remove_ticket(&key, &ticket);
+                            return uncached_trading_read(connection, clock, reload).await;
+                        }
+                        return Ok(value);
+                    }
+                    // A self-produced payload that cannot be read is a bug;
+                    // drop it and answer from the database instead.
+                    Err(_) => cache.remove(&key),
+                }
+            }
+            let fill = load(&mut transaction, clock).await?;
+            // Only the facts this family's query reads can end the entry; a
+            // fact it does not read stays `Unknown` and must not block storage.
+            // The boundary is measured from the clock the loader bound.
+            let boundary = fill.facts.boundary_for(family, &clock);
+            let payload = serde_json::to_vec(&fill.value).ok();
+            transaction
+                .rollback()
+                .await
+                .map_err(|_| ApiError::database())?;
+            observer.checkpoint(TradingReadStage::BeforeInsert).await;
+            // Stale-fill barriers. A fill started under one authority and
+            // fence may neither be stored nor answered after either moved.
+            if !authority.accepts(ticket.token(), observer.now().monotonic) {
+                cache.remove_ticket(&key, &ticket);
+                return uncached_trading_read(connection, clock, reload).await;
+            }
+            // A newer generation verified by this process since the fill
+            // started also retires it from the cache. The value itself is a
+            // valid snapshot answer, so it is still returned; only the
+            // insertion is refused.
+            let latest = authority
+                .highest_generation()
+                .unwrap_or(ticket.generation());
+            if latest == ticket.generation()
+                && let (Some(payload), true) = (payload, cacheable(family, &fill.facts, &clock))
+            {
+                // The boundary is a monotonic instant, so insertion checks it
+                // against the current time, not the route's capture: a change
+                // that fell during admission or the query is refused here.
+                cache.insert(
+                    key.clone(),
+                    TradingEntry::new(&ticket, payload, clock, boundary, policy),
+                    observer.now().monotonic,
+                );
+            }
+            observer.checkpoint(TradingReadStage::BeforePublish).await;
+            // Publishing the response repeats the fence check, so a change
+            // after the insertion cannot let an old authority answer.
+            if !authority.accepts(ticket.token(), observer.now().monotonic) {
+                cache.remove_ticket(&key, &ticket);
+                return uncached_trading_read(connection, clock, reload).await;
+            }
+            Ok(fill.value)
+        })
+    })
+    .await
+}
+
+/// Reload after a fence change without consulting or populating the cache.
+async fn uncached_trading_read<T>(
+    connection: &mut sqlx::PgConnection,
+    clock: TradingClock,
+    load: impl for<'c> FnOnce(
+        &'c mut sqlx::PgConnection,
+        TradingClock,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<TradingFill<T>, ApiError>> + Send + 'c>,
+    >,
+) -> Result<T, ApiError> {
+    let mut transaction = connection.begin().await.map_err(|_| ApiError::database())?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| ApiError::database())?;
+    let value = load(&mut transaction, clock).await?.value;
+    transaction
+        .rollback()
+        .await
+        .map_err(|_| ApiError::database())?;
+    Ok(value)
 }
 
 /// Log only bounded database failure metadata, never SQL text or values.
@@ -130,6 +451,17 @@ pub fn log_sql_error(stage: &'static str, error: &sqlx::Error) {
         })
         .unwrap_or("");
     tracing::warn!(stage, error_class, sqlstate, "admitted_database_failure");
+}
+
+/// The Phase 5 public market reads. Their admission and database failures use
+/// the typed `{"detail": {"code", "message"}}` envelope; every other admitted
+/// read keeps its string detail.
+pub fn market_data_read(method: &str, path: &str) -> bool {
+    method == "GET"
+        && matches!(
+            path,
+            "/api/availability" | "/api/benchmarks" | "/api/demand" | "/api/producers"
+        )
 }
 
 pub fn selected_read(method: &str, path: &str) -> bool {

@@ -161,7 +161,8 @@ async fn execute_rejection<E: AdmissionEvents>(
     let before = events.visible(conn, user_id).await?;
     sqlx::query("UPDATE users SET status='REJECTED',pending_approval_email_transition_id=NULL,pending_approval_email_payload=NULL,pending_approval_email_retry_at=NULL WHERE id=$1")
         .bind(user_id).execute(&mut *conn).await?;
-    let cutoff = revoke_user_authentication(conn, user_id, now)
+    // The ordered command holds the user row; sample the cutoff after any lock wait.
+    let cutoff = revoke_user_authentication(conn, user_id, Utc::now())
         .await
         .map_err(revocation_failure)?;
     append_status_transition(
@@ -234,6 +235,25 @@ pub struct ApprovalMailMarker {
 /// A borrowed producer adapter. Implementations call the CF4_01 producer and
 /// retain raw SQL errors for the outer transaction's retry classifier.
 pub trait ApprovalMail: Send + Sync + 'static {
+    fn deliver_after_commit<'a>(
+        &'a self,
+        pool: &'a sqlx::PgPool,
+        user: Uuid,
+        transition: Uuid,
+    ) -> CommandFuture<'a, (), ()> {
+        Box::pin(async move {
+            super::approval_mail::deliver_account_approval_mail(
+                pool,
+                user,
+                transition,
+                Utc::now,
+                |_, _| async { false },
+            )
+            .await
+            .map(|_| ())
+            .map_err(|_| ())
+        })
+    }
     fn freeze_approval_mail<'a>(
         &'a self,
         conn: &'a mut PgConnection,
@@ -543,6 +563,14 @@ impl<M, E, T> Clone for AdmissionService<M, E, T> {
     }
 }
 impl<M: ApprovalMail> ApprovalMail for std::sync::Arc<M> {
+    fn deliver_after_commit<'a>(
+        &'a self,
+        pool: &'a sqlx::PgPool,
+        user: Uuid,
+        transition: Uuid,
+    ) -> CommandFuture<'a, (), ()> {
+        self.as_ref().deliver_after_commit(pool, user, transition)
+    }
     fn freeze_approval_mail<'a>(
         &'a self,
         conn: &'a mut PgConnection,
@@ -682,7 +710,7 @@ async fn dispatch<M: ApprovalMail, E: AdmissionEvents, T: ApprovalTemplate>(
     let query = request.uri().query().unwrap_or("").to_owned();
     // Account and administrator authority precede quota and all target reads.
     let limits = state.limits.clone();
-    let token = authorization.clone().unwrap_or_default();
+    let token = format!("usr:{}", access.subject);
     let quota_client = client.clone();
     let admission = crate::auth::run_authenticated(
         &state.app,
@@ -854,7 +882,7 @@ async fn dispatch_admitted<M: ApprovalMail, E: AdmissionEvents, T: ApprovalTempl
             .template
             .payload(row.get("email"), row.get::<Option<&str>, _>("first_name"));
         drop(conn);
-        super::transaction::run_organization_write(
+        let committed = super::transaction::run_organization_write(
             &state.app,
             access,
             ApproveAccount {
@@ -867,6 +895,16 @@ async fn dispatch_admitted<M: ApprovalMail, E: AdmissionEvents, T: ApprovalTempl
             },
         )
         .await?;
+        if let Some(transition) = committed.transition_id
+            && state
+                .service
+                .mail
+                .deliver_after_commit(&state.app.pools.read, user, transition)
+                .await
+                .is_err()
+        {
+            tracing::warn!("account approval mail attempt deferred");
+        }
         return user_response(&state.app, user, false).await;
     }
     let reason = if matches!(route, AdmissionRoute::AnalyticsReject) {

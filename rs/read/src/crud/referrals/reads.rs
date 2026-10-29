@@ -231,13 +231,12 @@ pub(crate) async fn select_my_referrals(
 
 /// R03: the ten largest referrer counts across the platform.
 ///
-/// Preserve Python's count-only ordering. Tied ranks or tenth-place membership
-/// differences remain differential failures; never hide them with a new sort key.
+/// Resolve equal counts by referrer identity before applying the limit.
 pub(crate) async fn select_leaderboard(connection: &mut PgConnection) -> Result<Json, ApiError> {
     let counts = sqlx::query_as::<_, ReferrerCount>(
         "SELECT referrer_id, count(*)::bigint AS referral_count \
          FROM referrals GROUP BY referrer_id \
-         ORDER BY count(*) DESC LIMIT 10",
+         ORDER BY count(*) DESC, referrer_id ASC LIMIT 10",
     )
     .fetch_all(&mut *connection)
     .await

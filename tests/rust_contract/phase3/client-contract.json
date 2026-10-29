@@ -10,6 +10,13 @@
       {"detail": [{"msg": "string"}]}
     ]
   },
+  "audit_fields": {
+    "request_id": {
+      "type": "string or null",
+      "rust_invitation_accept": "Use the middleware correlation id when present; otherwise accept X-Request-ID only when it has 1-36 ASCII characters from [A-Za-z0-9._:-]. Store null for other values.",
+      "python": "Stores the raw X-Request-ID header. Exotic header values can therefore differ; audit action names, actor, resource and changes remain contractual."
+    }
+  },
   "cookies": {
     "names": ["refresh_token", "device_session"],
     "path": "/api/auth",

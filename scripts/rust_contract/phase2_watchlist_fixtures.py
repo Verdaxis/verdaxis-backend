@@ -93,12 +93,15 @@ def insert_entry(connection, entry_id, container_id, product_id, point_id, creat
 
 
 def order_event(order_id):
-    return {"source_kind": "LIVE_ORDER", "demo_status": "DEMO", "scope": "DELIVERY_POINT",
+    # The slice and pin orders all come from the allowlisted DEMO organization,
+    # so the writer's provenance vocabulary for them is DEMO_SEED/DEMO_ONLY
+    # (a REAL org order would be LIVE_ORDER/REAL_ONLY; "DEMO" is no enum value).
+    return {"source_kind": "DEMO_SEED", "demo_status": "DEMO_ONLY", "scope": "DELIVERY_POINT",
             "order_id": order_id, "old_price_per_mt_usd": 590.0, "new_price_per_mt_usd": 612.5}
 
 
 def insert_order(connection, order_id, organization_id, owner_id, provenance, point_id, expires_at, *,
-                 window="SPOT", price=Decimal("600"), quantity=Decimal("100"), remaining=Decimal("100"),
+                 window="SPOT", price=Decimal(600), quantity=Decimal(100), remaining=Decimal(100),
                  status="OPEN"):
     connection.execute(
         "INSERT INTO orderbook_orders(id,organization_id,owner_user_id,provenance,side,product_id,"

@@ -128,7 +128,7 @@ def main():
                   db_session_time_zone=ORACLE_TIMEZONE, bind=f"127.0.0.1:{port}", read_admission_slots=16, pool_max=17,
                   python_budget=52, configured_max_connections=100,
                   kyc_execution_gate_enabled=os.environ["KYC_EXECUTION_GATE_ENABLED"].lower() == "true")
-    child = subprocess.Popen([str(ROOT / "rs/target/debug/examples/contract_server")],
+    child = subprocess.Popen([os.environ["RUST_CONTRACT_SERVER_BINARY"]],
                             env={**os.environ, "RUST_CONFIG": json.dumps(config), "CONTRACT_GROUP": "orderbook_lists"})
     try:
         wait_for_port(port)

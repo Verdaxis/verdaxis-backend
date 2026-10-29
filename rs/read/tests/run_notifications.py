@@ -4,6 +4,7 @@ This is a PostgreSQL component test, not the pending twin-cell HTTP scenario.
 """
 import os
 import subprocess
+import sys
 
 from scripts.rust_contract.phase2_seed import (
     APP_ROLE,
@@ -25,6 +26,7 @@ def main():
             **runner.urls(port),
             "ENVIRONMENT": "test",
             "RELEASE_SHA": runner.sha,
+            "RUST_TEST_PYTHON": sys.executable,
             "JWT_SECRET": "test-secret-key-for-testing-minimum-32-chars",
         }
         runner.migrate_and_seed(environment)

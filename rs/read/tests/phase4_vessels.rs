@@ -52,11 +52,14 @@ fn config(url: String) -> Config {
         database_url: url,
         db_session_time_zone: "UTC".into(),
         prepared_budget: None,
+        phase2: Default::default(),
         bind: "127.0.0.1:0".parse().unwrap(),
         read_admission_slots: 4,
         pool_max: 5,
         python_budget: 20,
         configured_max_connections: 100,
+        compliance_eur_usd_rate: None,
+        fleet_artifact_path: "data/fleet_demand.json".into(),
     }
 }
 

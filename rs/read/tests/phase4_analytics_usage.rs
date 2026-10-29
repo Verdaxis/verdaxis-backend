@@ -434,7 +434,12 @@ fn p4_t17a_c08() {
     assert_eq!(refused.status, StatusCode::TOO_MANY_REQUESTS);
     assert_eq!(refused.retry_after, Some(60));
     assert_eq!(refused.detail["code"], "RATE_LIMITED");
-    usage::check_quota(&limits, &admin, Some("Bearer b"), 1_000).unwrap();
+    assert_eq!(
+        usage::check_quota(&limits, &admin, Some("Bearer b"), 1_000)
+            .unwrap_err()
+            .status,
+        StatusCode::TOO_MANY_REQUESTS
+    );
     usage::check_quota(&limits, &admin, Some("Bearer a"), 1_060).unwrap();
 }
 
@@ -556,11 +561,14 @@ async fn p4_t17a_c10() {
             database_url: url.into(),
             db_session_time_zone: "UTC".into(),
             prepared_budget: None,
+            phase2: Default::default(),
             bind: "127.0.0.1:0".parse().unwrap(),
             read_admission_slots: 4,
             pool_max: 5,
             python_budget: 20,
             configured_max_connections: 100,
+            compliance_eur_usd_rate: None,
+            fleet_artifact_path: "data/fleet_demand.json".into(),
         },
         Pools { read, health },
         MarketPolicy {
@@ -839,11 +847,14 @@ mod postgres {
                 database_url: runtime.into(),
                 db_session_time_zone: "UTC".into(),
                 prepared_budget: None,
+                phase2: Default::default(),
                 bind: "127.0.0.1:0".parse().unwrap(),
                 read_admission_slots: 4,
                 pool_max: 5,
                 python_budget: 20,
                 configured_max_connections: 100,
+                compliance_eur_usd_rate: None,
+                fleet_artifact_path: "data/fleet_demand.json".into(),
             },
             Pools { read: pool, health },
             MarketPolicy {
@@ -1065,7 +1076,7 @@ mod postgres {
         for _ in 0..5 {
             let minute = Utc::now().timestamp() / 60;
             let limits = SharedLimits::default();
-            let identity = usage::token_identity(Some(&format!("Bearer {admin}")));
+            let identity = format!("usr:{}", fixture.users[0]);
             for _ in 0..30 {
                 limits
                     .check_business(

@@ -17,7 +17,7 @@ use super::token_bytes::generate_token;
 
 /// bcrypt cost, matching Python's `bcrypt.gensalt()` default.
 pub const BCRYPT_COST: u32 = 12;
-/// The shortest password a route accepts.
+/// The shortest password a route accepts, in characters.
 pub const MIN_PASSWORD_BYTES: usize = 8;
 /// The longest password a route accepts, in UTF-8 bytes.
 pub const MAX_PASSWORD_BYTES: usize = 1024;
@@ -54,13 +54,17 @@ pub async fn verify(password: &str, hash: &str) -> bool {
     run_worker(move || bcrypt::verify(input, &hash).unwrap_or(false)).await
 }
 
-/// Validate a new password: 8 to 1024 UTF-8 bytes.
+/// Validate a new password.
+///
+/// The floor counts characters, as Python's password schemas do
+/// (`Field(min_length=8)` and the manual `len(...) < 8` checks measure
+/// `str` length); the ceiling counts UTF-8 bytes, as Python's
+/// `validate_password_bytes` does.
 pub fn validate_bytes(password: &str) -> Result<(), PasswordError> {
-    let length = password.len();
-    if length < MIN_PASSWORD_BYTES {
+    if password.chars().count() < MIN_PASSWORD_BYTES {
         return Err(PasswordError::TooShort);
     }
-    if length > MAX_PASSWORD_BYTES {
+    if password.len() > MAX_PASSWORD_BYTES {
         return Err(PasswordError::TooLong);
     }
     Ok(())

@@ -3,9 +3,34 @@ from urllib.parse import urlsplit
 
 from scripts.rust_contract.compare import compare
 
+# The public read cache checkpoint (`prc_20261018_cache`) puts a statement
+# trigger on `users` and on the other trading tables. Each committed writing
+# statement advances the `trading` generation by one and records one event row
+# for that generation, in the transaction of the write itself.
+CACHE_INVALIDATION_TABLES = frozenset({"public_read_cache_generations", "public_read_cache_events"})
+CACHE_DOMAIN = "trading"
+
 
 class StateError(RuntimeError):
     pass
+
+
+def expect_cache_invalidations(expected, statements):
+    """Add the exact metadata produced by committed dependency statements."""
+    import json
+
+    if not statements:
+        return
+    assert CACHE_INVALIDATION_TABLES <= expected.keys(), "cache checkpoint metadata missing"
+    rows = expected["public_read_cache_generations"]["rows"]
+    generation = rows[json.dumps([CACHE_DOMAIN])]
+    events = expected["public_read_cache_events"]["rows"]
+    for _ in range(statements):
+        generation["generation"] += 1
+        number = generation["generation"]
+        key = json.dumps([CACHE_DOMAIN, number])
+        assert key not in events, "cache event generation already exists"
+        events[key] = {"domain": CACHE_DOMAIN, "generation": number}
 
 
 def validate_cells(python, rust, token, target_url):

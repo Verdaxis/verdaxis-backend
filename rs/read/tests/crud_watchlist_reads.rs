@@ -193,6 +193,9 @@ async fn mounted_watchlist_reads_refuse_missing_bearer_before_bad_uuid() {
         pool_max: 17,
         python_budget: 52,
         configured_max_connections: 100,
+        compliance_eur_usd_rate: None,
+        fleet_artifact_path: "data/fleet_demand.json".into(),
+        phase2: Default::default(),
     };
     let state = verdaxis_read::AppState::new(
         config,
@@ -217,7 +220,7 @@ async fn mounted_watchlist_reads_refuse_missing_bearer_before_bad_uuid() {
             "issuer".into(),
             "audience".into(),
         ),
-        Utc.with_ymd_and_hms(2026, 10, 19, 0, 0, 0).unwrap(),
+        Some(Utc.with_ymd_and_hms(2026, 10, 19, 0, 0, 0).unwrap()),
     );
     let app: Router = router(state, settings);
     let response = app

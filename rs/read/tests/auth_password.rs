@@ -66,6 +66,14 @@ async fn password_prehash_boundary_72_and_maximum_1024() {
         Err(PasswordError::TooShort)
     );
     assert_eq!(password::validate_bytes(&"a".repeat(8)), Ok(()));
+    // Python's password floors (`Field(min_length=8)` and the manual
+    // `len(...) < 8` checks) count characters, so a five-character password
+    // of eight UTF-8 bytes is short. Only the ceiling stays in bytes.
+    assert_eq!(
+        password::validate_bytes("A1１２b"),
+        Err(PasswordError::TooShort)
+    );
+    assert_eq!(password::validate_bytes("A1１２bbbb"), Ok(()));
     assert_eq!(password::validate_bytes(&maximum), Ok(()));
     assert_eq!(password::MAX_PASSWORD_BYTES, 1024);
     assert_eq!(password::BCRYPT_COST, 12);
@@ -163,7 +171,7 @@ print(json.dumps({
 }
 
 fn run_python(script: &str, input: Option<&str>) -> String {
-    let python = std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "venv/bin/python".into());
+    let python = std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "python3".into());
     let mut child = Command::new(python)
         .current_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."))
         .env("ENVIRONMENT", "test")
@@ -178,7 +186,7 @@ fn run_python(script: &str, input: Option<&str>) -> String {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect("the project Python interpreter at venv/bin/python runs");
+        .expect("the configured Python interpreter runs");
     if let Some(input) = input {
         child
             .stdin

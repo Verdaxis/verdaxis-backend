@@ -455,8 +455,8 @@ fn d1_non_string_subject_is_401() {
             .expect_err("a non-string subject is not a credential");
         assert_eq!(refused.status(), 401, "access {name}");
         assert_eq!(
-            refused.body()["detail"],
-            "Could not validate credentials",
+            refused.body()["detail"]["code"],
+            "AUTH_CREDENTIALS_INVALID",
             "access {name}"
         );
 
@@ -475,8 +475,8 @@ fn d1_non_string_subject_is_401() {
             .expect_err("a non-string refresh subject is not a credential");
         assert_eq!(refused.status(), 401, "refresh {name}");
         assert_eq!(
-            refused.body()["detail"],
-            "Could not validate credentials",
+            refused.body()["detail"]["code"],
+            "AUTH_CREDENTIALS_INVALID",
             "refresh {name}"
         );
     }
@@ -604,7 +604,7 @@ print(json.dumps({name: claims(document[name]) for name in
 }
 
 fn run_python(script: &str, input: Option<&str>) -> String {
-    let python = std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "venv/bin/python".into());
+    let python = std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "python3".into());
     let mut child = Command::new(python)
         .current_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."))
         .env("ENVIRONMENT", "test")
@@ -616,7 +616,7 @@ fn run_python(script: &str, input: Option<&str>) -> String {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect("the project Python interpreter at venv/bin/python runs");
+        .expect("the configured Python interpreter runs");
     if let Some(input) = input {
         child
             .stdin

@@ -71,15 +71,22 @@ pub type ControlSource = fn(&HeaderMap) -> WriteControls;
 #[derive(Clone)]
 pub struct WatchlistSettings {
     verification: Arc<VerificationSettings>,
-    best_price_cutoff: DateTime<Utc>,
+    /// When the trusted event producer went live in this environment, as the
+    /// release metadata recorded it (PD5); `None` while none is recorded.
+    producer_activation: Option<DateTime<Utc>>,
     controls: Option<ControlSource>,
 }
 
 impl WatchlistSettings {
-    pub fn new(verification: VerificationSettings, best_price_cutoff: DateTime<Utc>) -> Self {
+    /// The serving router passes the activation from release metadata only;
+    /// a source rule test refuses a clock reading or a fixed instant here.
+    pub fn new(
+        verification: VerificationSettings,
+        producer_activation: Option<DateTime<Utc>>,
+    ) -> Self {
         Self {
             verification: Arc::new(verification),
-            best_price_cutoff,
+            producer_activation,
             controls: None,
         }
     }
@@ -91,8 +98,11 @@ impl WatchlistSettings {
         self
     }
 
+    /// Events created before this instant come from the untrusted producer.
+    /// With no recorded activation every stored event does, so the bound is
+    /// the latest instant. PD4-G hides best-price rows by type either way.
     pub(super) fn best_price_cutoff(&self) -> DateTime<Utc> {
-        self.best_price_cutoff
+        self.producer_activation.unwrap_or(DateTime::<Utc>::MAX_UTC)
     }
 
     pub(super) fn controls_for(&self, headers: &HeaderMap) -> WriteControls {

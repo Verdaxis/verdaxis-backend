@@ -3409,7 +3409,7 @@
       "signature_status": "declared",
       "signatures": [
         {
-          "declaration": "import rust-phase4 python_upstream rust_upstream B_owner O_owner V_owner I_owner S_owner P_owner",
+          "declaration": "import verdaxis_rust_phase4 rust_upstream",
           "sha256": "cda710f0ba9dfd7f3c4e06e2c36dff38048c86ea7c5a1f9677730c35d298d6cc"
         }
       ],
@@ -3435,7 +3435,7 @@
         }
       },
       "rules": {
-        "match": "exact method plus path; 43 unique pairs; no auth/admin wildcard",
+        "match": "exact method plus path; 42 unique pairs; AI chat remains Python; no auth/admin wildcard",
         "rollback": "change one group owner argument only; keep valid shared data",
         "import_order": [
           "phase4",

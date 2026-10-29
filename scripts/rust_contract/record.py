@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import time
 import urllib.error
@@ -68,6 +69,89 @@ def _url(base_url: str, case: Mapping[str, Any]) -> str:
     return base_url.rstrip("/") + path + (f"?{query}" if query else "")
 
 
+class OracleUnavailable(ContractError):
+    """The Python oracle exhausted its transient capture retries."""
+
+
+def _transient_reason(error: BaseException) -> str | None:
+    while error is not None:
+        if isinstance(error, TimeoutError):
+            return "capture timeout"
+        if isinstance(error, ConnectionResetError):
+            return "connection reset"
+        if isinstance(error, urllib.error.URLError) and isinstance(error.reason, BaseException):
+            error = error.reason
+        else:
+            error = error.__cause__
+    return None
+
+
+# A Retry-After is a hint, not an unbounded pause: one busy response must not
+# stall a gate, and a non-finite or unparseable value must not abort it. A
+# present header larger than this, or one that does not parse as delay-seconds,
+# uses this cap instead. A missing header is not a retry instruction at all.
+MAX_RETRY_AFTER_SECONDS = 30.0
+
+
+def _retry_after(entry: Mapping[str, Any]) -> float | None:
+    if entry["exchange"]["status"] != 503:
+        return None
+    try:
+        body = json.loads(entry["raw_body"])
+    except (ValueError, UnicodeError):
+        return None
+    busy_details = (
+        "temporarily busy",
+        "Market is temporarily busy; retry shortly.",
+        "Public market data is temporarily busy; retry shortly.",
+    )
+    if not any(body == {"detail": detail} for detail in busy_details):
+        return None
+    headers = entry.get("response_headers", {})
+    value = next((str(value) for name, value in headers.items() if name.lower() == "retry-after"), None)
+    if value is None:
+        # No Retry-After: this 503 is compared as the Python answer.
+        return None
+    try:
+        seconds = float(value)
+    except ValueError:
+        # Includes an HTTP date, which this harness does not chase.
+        return MAX_RETRY_AFTER_SECONDS
+    if not math.isfinite(seconds) or seconds < 0:
+        return MAX_RETRY_AFTER_SECONDS
+    return min(seconds, MAX_RETRY_AFTER_SECONDS)
+
+
+def _perform_oracle(
+    base_url: str, case: Mapping[str, Any], *, group: str, leg: str, retries: list[dict[str, Any]],
+) -> dict[str, Any]:
+    # The first request plus at most three retries, never a whole-group replay.
+    for attempt in range(4):
+        try:
+            entry = perform(base_url, case)
+            delay = _retry_after(entry)
+            if delay is None:
+                return entry
+            reason = "503 temporarily busy"
+        except ContractError as error:
+            reason = _transient_reason(error)
+            if reason is None:
+                raise
+            delay = 0.0
+        if attempt == 3:
+            raise OracleUnavailable(f"ORACLE_UNAVAILABLE: {group}/{case['id']}: {reason}")
+        event = {"group": group, "request": str(case["id"]), "leg": leg,
+                 "reason": reason, "attempt": attempt + 1, "delay_seconds": delay}
+        retries.append(event)
+        evidence = os.environ.get("ORACLE_RETRY_LOG")
+        if evidence:
+            with Path(evidence).open("a") as stream:
+                stream.write(json.dumps(event) + "\n")
+        print("ORACLE_RETRY " + json.dumps(event), flush=True)
+        time.sleep(delay)
+    raise AssertionError("unreachable oracle attempt")
+
+
 def _read_bounded(response) -> bytes:
     """Read a response body inside one wall-clock deadline.
 
@@ -79,7 +163,7 @@ def _read_bounded(response) -> bytes:
     while True:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            raise ContractError("response exceeded the case deadline")
+            raise ContractError("response exceeded the case deadline") from TimeoutError("case deadline")
         socket = getattr(getattr(response, "fp", None), "raw", None)
         socket = getattr(socket, "_sock", None)
         if socket is not None:
@@ -90,7 +174,7 @@ def _read_bounded(response) -> bytes:
         try:
             chunk = response.read(CHUNK_BYTES)
         except OSError as error:
-            raise ContractError("response read timed out") from error
+            raise ContractError("response read failed") from error
         if not chunk:
             return b"".join(chunks)
         chunks.append(chunk)
@@ -122,14 +206,9 @@ def perform(base_url: str, case: Mapping[str, Any]) -> dict[str, Any]:
     except urllib.error.HTTPError as error:
         # An error status, including a redirect the recorder does not follow,
         # is part of the contract, not a transport failure.
-        if case["path"] == "/mcp":
-            # A truncated MCP error is a recording failure, not an empty body.
+        # An incomplete error body is still a capture failure, never an answer.
+        with error:
             raw = read_response(error)
-        else:
-            try:
-                raw = _read_bounded(error)
-            except ContractError:
-                raw = b""
         status = error.code
         response_headers = dict(error.headers.items())
     except (urllib.error.URLError, OSError) as error:
@@ -152,16 +231,35 @@ def perform(base_url: str, case: Mapping[str, Any]) -> dict[str, Any]:
         },
         "exchange": exchange,
         "raw_body": raw,
+        "response_headers": response_headers,
     }
 
 
 def record(
-    base_url: str, token: str, cases: Sequence[Mapping[str, Any]]
+    base_url: str, token: str, cases: Sequence[Mapping[str, Any]],
+    *, oracle: bool = False, group: str = "", leg: str = "", retries: list | None = None,
 ) -> list[dict[str, Any]]:
-    """Attest the endpoint, then record every case in order."""
+    """Attest, then capture in order; only an explicitly named oracle may retry.
+
+    Child contract drivers inherit the exact oracle URL from Runner. Standalone
+    and Rust recordings retain one-shot behavior by default.
+    """
     if not cases:
         raise ContractError("no cases to record")
     attest(base_url, token)
+    oracle = oracle or (
+        os.environ.get("RUST_CONTRACT_PROFILE") == "phase1-meaning-v1"
+        and os.environ.get("ORACLE_CAPTURE_URL") == base_url
+    )
+    retries = retries if retries is not None else []
+    group = group or os.environ.get("ORACLE_CAPTURE_GROUP", "")
+    leg = leg or os.environ.get("ORACLE_CAPTURE_LEG", "python")
+
+    def capture_case(case):
+        if oracle:
+            return _perform_oracle(base_url, case, group=group, leg=leg, retries=retries)
+        return perform(base_url, case)
+
     entries = []
     for case in cases:
         if case.get("fixture") == "T4B-negative-fame":
@@ -186,20 +284,25 @@ def record(
 
             asyncio.run(set_negative_status("OPEN"))
             try:
-                entries.append(perform(base_url, case))
+                entries.append(capture_case(case))
             finally:
                 asyncio.run(set_negative_status("CANCELLED"))
 
         else:
-            entries.append(perform(base_url, case))
+            entries.append(capture_case(case))
     return entries
 
 
 def stable(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Strip the raw bytes so a recording can be serialized and reloaded."""
+    """Strip volatile fields so a recording can be serialized and reloaded.
+
+    `response_headers` exists only for the in-memory retry decision (its
+    `Retry-After`); persisting it would add server/date headers to evidence.
+    """
     import base64
     return [
-        {**{key: value for key, value in entry.items() if key != "raw_body"},
+        {**{key: value for key, value in entry.items()
+            if key not in ("raw_body", "response_headers")},
          **({"raw_body_base64": base64.b64encode(entry["raw_body"]).decode()}
             if os.environ.get("RUST_CONTRACT_PROFILE") == "phase1-meaning-v1" and "raw_body" in entry else {})}
         for entry in entries

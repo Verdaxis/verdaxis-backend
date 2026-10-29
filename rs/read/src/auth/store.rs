@@ -208,6 +208,20 @@ pub async fn revoke_device_families(
     Ok(revoked.rows_affected())
 }
 
+/// Revoke one authenticated family after its user's row is locked.
+pub async fn revoke_family(
+    connection: &mut PgConnection,
+    user_id: Uuid,
+    family_id: Uuid,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE refresh_sessions SET revoked=true WHERE user_id=$1 AND family_id=$2")
+        .bind(user_id)
+        .bind(family_id)
+        .execute(connection)
+        .await?;
+    Ok(())
+}
+
 /// Revoke every live refresh session of one user. Returns the number of rows
 /// newly revoked. The caller holds the user row lock.
 pub async fn revoke_user_families(
@@ -310,6 +324,7 @@ pub async fn sweep_expired_reset_tokens(
     pool: &sqlx::PgPool,
     now: DateTime<Utc>,
 ) -> Result<u64, sqlx::Error> {
+    let mut transaction = pool.begin_with("BEGIN READ WRITE").await?;
     let deleted = sqlx::query(
         "DELETE FROM password_reset_tokens WHERE user_id IN ( \
              SELECT user_id FROM password_reset_tokens WHERE expires_at <= $1 \
@@ -317,8 +332,9 @@ pub async fn sweep_expired_reset_tokens(
     )
     .bind(now)
     .bind(EXPIRED_RESET_SWEEP_LIMIT)
-    .execute(pool)
+    .execute(&mut *transaction)
     .await?;
+    transaction.commit().await?;
     Ok(deleted.rows_affected())
 }
 
@@ -356,4 +372,26 @@ pub async fn consume_reset_token(
     .execute(&mut *connection)
     .await?;
     Ok(consumed.rows_affected() == 1)
+}
+
+/// Revoke all rows of a family after the device and user locks.
+pub async fn revoke_refresh_family(
+    conn: &mut sqlx::PgConnection,
+    family: Uuid,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE refresh_sessions SET revoked=true WHERE family_id=$1")
+        .bind(family)
+        .execute(conn)
+        .await?;
+    Ok(())
+}
+/// Link a locked predecessor to its successor and record its rotation time.
+pub async fn mark_refresh_rotated(
+    conn: &mut sqlx::PgConnection,
+    jti: &str,
+    next: &str,
+    now: DateTime<Utc>,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE refresh_sessions SET revoked=true,replaced_by_jti_hash=$2,rotation_grace_until=$3,last_used_at=$4 WHERE jti_hash=$1").bind(jti).bind(next).bind(now+TimeDelta::seconds(5)).bind(now).execute(conn).await?;
+    Ok(())
 }

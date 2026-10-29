@@ -1,4 +1,4 @@
-//! Organization-owned price-alert CRUD. Triggering remains Python-owned.
+//! Organization-owned price-alert CRUD. Triggering lives in `streams/price_alerts.rs`.
 #[cfg(feature = "contract-tests")]
 #[path = "alerts_contract.rs"]
 pub mod contract;
@@ -461,6 +461,7 @@ async fn execute_request(
         Some(validate_and_admit(
             body.unwrap_or(Value::Null),
             &admission,
+            tx.actor().id,
             AlertCreate::validate,
         )?)
     } else {

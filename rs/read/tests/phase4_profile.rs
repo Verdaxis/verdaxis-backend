@@ -94,11 +94,14 @@ fn config(url: String, gate: bool) -> Config {
         database_url: url,
         db_session_time_zone: "UTC".into(),
         prepared_budget: None,
+        phase2: Default::default(),
         bind: "127.0.0.1:0".parse().unwrap(),
         read_admission_slots: 4,
         pool_max: 5,
         python_budget: 20,
         configured_max_connections: 100,
+        compliance_eur_usd_rate: None,
+        fleet_artifact_path: "data/fleet_demand.json".into(),
     }
 }
 
@@ -808,11 +811,12 @@ mod postgres {
                 assert!(reply.body["detail"]["message"].is_string());
                 assert_eq!(reply.headers.get("www-authenticate").unwrap(), "Bearer");
             }
+            // Profile access remains available while a password change is required.
+            assert_eq!(read(10, "/api/auth/me").await.status, StatusCode::OK);
             // Current-account state, not the token, decides admission.
             for (index, code, status) in [
                 (8usize, "ACCOUNT_PENDING", StatusCode::FORBIDDEN),
                 (9, "ACCOUNT_REJECTED", StatusCode::FORBIDDEN),
-                (10, "PASSWORD_CHANGE_REQUIRED", StatusCode::FORBIDDEN),
                 (11, "INVALID_CREDENTIALS", StatusCode::UNAUTHORIZED),
                 (12, "AUTH_PASSWORD_CHANGED", StatusCode::UNAUTHORIZED),
                 (13, "AUTH_SESSION_REVOKED", StatusCode::UNAUTHORIZED),
