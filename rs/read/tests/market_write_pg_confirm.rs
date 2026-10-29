@@ -590,12 +590,30 @@ async fn decline_clock_is_captured_after_the_order_lock_wait() {
         .execute(&mut *holder)
         .await
         .unwrap();
+    let expires_at: chrono::DateTime<chrono::Utc> =
+        sqlx::query_scalar("SELECT expires_at FROM orderbook_orders LIMIT 1")
+            .fetch_one(&mut f.admin)
+            .await
+            .unwrap();
     let router = f.router.clone();
     let path = format!("/api/trades/{}/decline", f.trade);
+    let started = tokio::time::Instant::now();
     let command = tokio::spawn(async move { send(&router, &path, Some(SELLER), &[]).await });
     wait_for_lock(&mut f.admin).await;
-    tokio::time::sleep(std::time::Duration::from_millis(275)).await;
+    let observed_at = tokio::time::Instant::now();
+    assert!(
+        chrono::Utc::now() < expires_at,
+        "order must be live at the observed wait"
+    );
+    let remaining = (expires_at - chrono::Utc::now()).to_std().unwrap_or_default();
+    tokio::time::sleep_until(observed_at + remaining + std::time::Duration::from_millis(5)).await;
     holder.commit().await.unwrap();
+    assert!(chrono::Utc::now() >= expires_at);
+    assert!(
+        started.elapsed() < std::time::Duration::from_millis(300),
+        "order lock hold must leave margin below the 500 ms lock timeout: {:?}",
+        started.elapsed()
+    );
     let (s, b) = command.await.unwrap();
     assert_eq!(s, StatusCode::OK, "{b}");
     assert_eq!(f.order().await.0, "EXPIRED");
