@@ -239,7 +239,9 @@ pub mod market_trades {
 /// Narrow lifecycle component interface; transaction ownership stays sealed.
 pub mod market_lifecycle {
     pub(crate) use crate::order_write::effects::AuditContext;
-    pub use crate::order_write::trade_lifecycle::{LifecycleAction, lifecycle_hash};
+    pub use crate::order_write::trade_lifecycle::{
+        Delivery, LifecycleAction, delivery_amounts, lifecycle_hash, settlement_hash,
+    };
     pub(crate) use crate::order_write::trade_lifecycle::{
         LifecycleRequest, authenticate_request, dispatch,
     };
@@ -247,6 +249,9 @@ pub mod market_lifecycle {
     pub use crate::order_write::trade_lifecycle::{
         ReceiptCollision, contract_authorize, contract_empty_notification_effect,
         contract_invalid_benchmark, contract_terms_status,
+    };
+    pub(crate) use crate::order_write::trade_lifecycle::{
+        SettlementRequest, authenticate_settlement, dispatch_settlement,
     };
     pub use crate::order_write::{MarketErrorCode, MarketWriteError};
 }

@@ -242,6 +242,15 @@ Responses, actor-scoped receipts and typed participant effects commit together;
 only a changed decline order rebuilds its benchmark side and PIN evidence.
 These component routes remain unmounted until lifecycle enforcement is integrated.
 
+Delivery and payment use a separate settlement preview that retains the complete
+recorded-party and linked-order lock set even on receipt replay and recovery.
+Their sealed context derives its organization from the authorized trade side;
+concrete participation survives membership changes, while assisted customers
+must remain current members. Final amounts use exact Decimal arithmetic and the
+frozen fee basis. State, private notifications, audit, participant event and the
+optional receipt commit together, without order, inventory or public-market
+changes. Serving activation remains gated on lifecycle freeze enforcement.
+
 ## Supplier inventory component
 
 `order_write/inventory.rs` implements supplier inventory records through the ordered

@@ -40,6 +40,8 @@ pub enum MutationKind {
     SupportCapabilityRevoked,
     CommissionChanged,
     TradeCreated,
+    TradeDelivered,
+    TradePaid,
     TradeConfirmed,
     TradeDeclined,
     TradeDeclineOrderExpired,
@@ -67,6 +69,8 @@ impl MutationKind {
             Self::SupportCapabilityRevoked => "market_support.capability_revoked",
             Self::CommissionChanged => "commission.updated",
             Self::TradeCreated => "trade.created",
+            Self::TradeDelivered => "trade.delivered",
+            Self::TradePaid => "trade.paid",
             Self::TradeConfirmed => "trade.confirmed",
             Self::TradeDeclined => "trade.declined",
             Self::TradeDeclineOrderExpired => "order.expired",
@@ -418,6 +422,94 @@ impl<'a> EffectPort<'a> {
             targets,
             at,
         })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) async fn trade_settlement(
+        &mut self,
+        policy: &MarketPolicy,
+        config: &Config,
+        trade: &Value,
+        request: &super::trade_lifecycle::SettlementRequest,
+        actor: Uuid,
+        viewer: Uuid,
+        at: DateTime<Utc>,
+    ) -> Result<Uuid, MarketWriteError> {
+        use super::outbox::{MatchActivity, ParticipantFields};
+        let buyer = trade["buyer_id"]
+            .as_str()
+            .and_then(|s| s.parse::<Uuid>().ok())
+            .ok_or_else(internal)?;
+        let seller = trade["seller_id"]
+            .as_str()
+            .and_then(|s| s.parse::<Uuid>().ok())
+            .ok_or_else(internal)?;
+        let delivery = request.delivery.is_some();
+        let recipient_org = if delivery && viewer == buyer {
+            seller
+        } else {
+            buyer
+        };
+        let recipients: Vec<Uuid> =
+            sqlx::query_scalar("SELECT id FROM users WHERE organization_id=$1 ORDER BY id")
+                .bind(recipient_org)
+                .fetch_all(&mut *self.conn)
+                .await?;
+        let text = |key: &str| trade[key].as_str().unwrap_or_default().to_owned();
+        let message = if delivery {
+            format!(
+                "Trade for {} MT has been marked as delivered.",
+                text("final_quantity_mt")
+            )
+        } else {
+            format!(
+                "Payment for trade of {} MT has been confirmed.",
+                text("quantity_mt")
+            )
+        };
+        for recipient in recipients {
+            sqlx::query("INSERT INTO notifications(id,recipient_id,type,title,message,data,is_read,created_at) VALUES($1,$2,'ORDER_UPDATE',$3,$4,$5,false,$6)")
+                .bind(Uuid::new_v4()).bind(recipient).bind(if delivery {"Trade Delivered"}else{"Trade Paid"}).bind(&message).bind(json!({"trade_id":request.id})).bind(at).execute(&mut *self.conn).await?;
+        }
+        let activity = MatchActivity {
+            source_kind: text("source_kind"),
+            scope: text("scope"),
+            demo_status: text("demo_status"),
+            unknown_count: trade["unknown_count"].as_u64().unwrap_or(0) as u32,
+            market_product: trade["market_product"].as_str().map(str::to_owned),
+            delivery_point_id: trade["delivery_point_id"]
+                .as_str()
+                .and_then(|s| s.parse().ok()),
+            availability_window: text("availability_window"),
+            observed_at: trade[if delivery { "delivered_at" } else { "paid_at" }]
+                .as_str()
+                .and_then(|s| s.parse().ok())
+                .ok_or_else(internal)?,
+        };
+        let fields = if delivery {
+            ParticipantFields::TradeDelivered {
+                activity,
+                id: request.id,
+                final_quantity: text("final_quantity_mt"),
+                final_price: text("final_price_per_mt"),
+                final_total: text("final_total_usd"),
+            }
+        } else {
+            ParticipantFields::TradePaid {
+                activity,
+                id: request.id,
+                quantity: text("quantity_mt"),
+                price: text("price_per_mt_usd"),
+            }
+        };
+        let before = self.capture_before(policy, config, &[], at).await?;
+        let mut set = before.stage();
+        set.push(MutationEffect {
+            kind:if delivery {MutationKind::TradeDelivered}else{MutationKind::TradePaid},actor_id:actor,organization_id:viewer,resource_type:"trade".into(),resource_id:request.id,
+            changes:if delivery {json!({"status":"DELIVERED","final_quantity_mt":text("final_quantity_mt"),"final_price_per_mt":text("final_price_per_mt"),"final_total_usd":text("final_total_usd")})}else{json!({"status":"PAID"})},
+            event:Some(ParticipantEvent{event_type:if delivery {"trade_delivered"}else{"trade_paid"}.into(),aggregate_type:"trade".into(),aggregate_id:request.id.to_string(),participant_org_ids:vec![buyer,seller],fields,public_invalidated:false}),at,audit_context:request.audit.clone(),
+        })?;
+        self.finish(policy, config, set).await
     }
 
     #[allow(clippy::too_many_arguments)]

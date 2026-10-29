@@ -1801,6 +1801,40 @@ impl LockedMarketTransaction<'_> {
     ) -> Result<super::trade_lifecycle::LifecyclePort<'_>, super::MarketWriteError> {
         super::trade_lifecycle::LifecyclePort::new(self.conn, self.locked)
     }
+    pub(super) async fn settlement_context(
+        &mut self,
+        actor: &super::AuthenticatedActor,
+        trade: Uuid,
+        pay: bool,
+        _now: DateTime<Utc>,
+    ) -> Result<super::WriteContext, super::MarketWriteError> {
+        let organization = self
+            .lifecycle()?
+            .settlement_viewer(actor, trade, pay)
+            .await?;
+        let buyer: Uuid = sqlx::query_scalar("SELECT buyer_id FROM trades WHERE id=$1")
+            .bind(trade)
+            .fetch_one(&mut *self.conn)
+            .await?;
+        let side = if organization == buyer {
+            super::authority::TradeSide::Buyer
+        } else {
+            super::authority::TradeSide::Seller
+        };
+        let access = actor.access();
+        super::authority::admission::cleanup_context_for_trade(
+            self.conn,
+            self.locked,
+            crate::auth::VerifiedAccess {
+                subject: access.subject,
+                issued_at: access.issued_at,
+                issuance_out_of_range: access.issuance_out_of_range,
+            },
+            trade,
+            side,
+        )
+        .await
+    }
     pub(super) async fn lifecycle_context(
         &mut self,
         actor: &super::AuthenticatedActor,

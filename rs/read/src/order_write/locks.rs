@@ -238,7 +238,9 @@ impl MarketOperation {
                 Inventory,
                 Pin,
             ],
-            Self::Deliver | Self::Pay => vec![Organization, User, Idempotency, Trade],
+            Self::Deliver | Self::Pay => {
+                vec![Organization, User, Idempotency, Slice, Trade, Order, Pin]
+            }
             Self::CapabilityGrant => vec![User, Capability],
             Self::CapabilityRevoke => vec![User, Capability, Context],
             Self::ContextStart | Self::ContextExit => vec![Organization, User, Capability, Context],

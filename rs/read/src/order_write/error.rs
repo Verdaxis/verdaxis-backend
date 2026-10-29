@@ -153,6 +153,8 @@ market_error_codes! {
         "The port was not found";
     TradeNotPending => "TRADE_NOT_PENDING", StatusCode::CONFLICT,
         "The trade is not pending confirmation";
+    TradeNotConfirmed => "TRADE_NOT_CONFIRMED", StatusCode::BAD_REQUEST,
+        "The trade is not confirmed";
     TradeNotDelivered => "TRADE_NOT_DELIVERED", StatusCode::CONFLICT,
         "The trade is not delivered";
     TradeFrozen => "TRADE_FROZEN", StatusCode::CONFLICT,
