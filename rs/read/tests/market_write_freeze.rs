@@ -1,5 +1,5 @@
 use serde_json::json;
-use verdaxis_read::order_write::freeze::{FreezeRequest, FrozenPage, UnfreezeRequest};
+use verdaxis_read::market_freeze::{FreezeRequest, FrozenPage, UnfreezeRequest};
 
 #[test]
 fn reasons_and_trimmed_character_bounds_are_validated() {
