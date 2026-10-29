@@ -808,17 +808,20 @@ async fn expiry_invalidation_follows_each_orders_public_visibility() {
 }
 
 async fn wait_for_blocked_expiry(
-    observer: &mut PgConnection,
     blocker_pid: i32,
     expires_at: chrono::DateTime<Utc>,
 ) -> tokio::time::Instant {
+    let mut observer =
+        PgConnection::connect(&std::env::var("RUST_PUBLISH_ADMIN_DATABASE_URL").unwrap())
+            .await
+            .unwrap();
     tokio::time::timeout(Duration::from_secs(5), async {
         loop {
             let waiting: bool = sqlx::query_scalar(
                 "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND $1=ANY(pg_blocking_pids(pid)))",
             )
             .bind(blocker_pid)
-            .fetch_one(&mut *observer)
+            .fetch_one(&mut observer)
             .await
             .unwrap();
             if waiting {
@@ -861,7 +864,7 @@ async fn listing_expiry_during_party_lock_wait_is_not_reused() {
         .unwrap();
     let router = f.router.clone();
     let task = tokio::spawn(async move { send(&router, Some(seller()), item(), None).await });
-    let observed_at = wait_for_blocked_expiry(&mut f.observer, blocker_pid, deadline).await;
+    let observed_at = wait_for_blocked_expiry(blocker_pid, deadline).await;
     lock.commit().await.unwrap();
     assert!(
         observed_at.elapsed() < Duration::from_millis(200),
@@ -1299,7 +1302,7 @@ async fn listing_expiry_during_inventory_lock_wait_creates_a_new_listing() {
         .unwrap();
     let router = f.router.clone();
     let task = tokio::spawn(async move { send(&router, Some(seller()), item(), None).await });
-    let observed_at = wait_for_blocked_expiry(&mut f.observer, blocker_pid, deadline).await;
+    let observed_at = wait_for_blocked_expiry(blocker_pid, deadline).await;
     blocker.commit().await.unwrap();
     assert!(
         observed_at.elapsed() < Duration::from_millis(200),
