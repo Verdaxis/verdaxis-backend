@@ -40,3 +40,42 @@ DECLARE source trades%ROWTYPE; BEGIN
  IF seller THEN source.seller_user_id:=NULL; ELSE source.buyer_user_id:=NULL; END IF;
  INSERT INTO trades SELECT source.*;
 END $$;
+
+
+CREATE OR REPLACE FUNCTION settlement_fixture_assisted_side(side text, invalid_link boolean DEFAULT false) RETURNS uuid LANGUAGE plpgsql AS $$
+DECLARE source orderbook_orders%ROWTYPE; trade trades%ROWTYPE; authorization uuid:=gen_random_uuid(); staff uuid:='00000000-0000-0000-0000-000000004001'; customer uuid; BEGIN
+ SELECT * INTO STRICT source FROM orderbook_orders LIMIT 1;
+ SELECT * INTO STRICT trade FROM trades LIMIT 1;
+ DELETE FROM trades; DELETE FROM orderbook_orders;
+ customer:=CASE WHEN side='ASK' THEN trade.seller_id ELSE trade.buyer_id END;
+ INSERT INTO market_support_authorizations(id,organization_id,accountable_user_id,order_side,product_id,delivery_point_id,availability_window,quantity_mt,price_per_mt_usd,certification_declared,certification_scheme,msds_available,authorization_expires_at,status,created_by_actor_user_id,terms_digest,evidence_reference,commercial_consent_version,commercial_consent_reference,idempotency_key,idempotency_request_hash)
+ VALUES(authorization,customer,staff,side,source.product_id,source.delivery_point_id,'SPOT',10,100,true,'ISCC EU',true,now()+interval '1 hour','CONSUMED',staff,repeat('a',64),'Fixture instruction','fixture-v1','Fixture instruction',authorization::text,repeat('b',64));
+ source.organization_id:=customer;source.side:=side;source.owner_user_id:=staff;source.created_by_actor_user_id:=staff;source.creation_method:='MARKET_SUPPORT';source.support_authorization_id:=authorization;source.inventory_item_id:=NULL;
+ INSERT INTO orderbook_orders SELECT source.*;
+ trade.ask_order_id:=CASE WHEN side='ASK' THEN source.id ELSE NULL END;
+ trade.bid_order_id:=CASE WHEN side='BID' THEN source.id ELSE NULL END;
+ IF side='ASK' THEN trade.seller_user_id:=CASE WHEN invalid_link THEN '00000000-0000-0000-0000-000000002001'::uuid ELSE staff END;
+ ELSE trade.buyer_user_id:=CASE WHEN invalid_link THEN '00000000-0000-0000-0000-000000001001'::uuid ELSE staff END; END IF;
+ INSERT INTO trades SELECT trade.*;
+ RETURN trade.id;
+END $$;
+
+-- Selective row visibility exercises a missing presence read without removing
+-- retained parties or changing their foreign keys in the migrated schema.
+CREATE OR REPLACE FUNCTION settlement_fixture_presence(table_name text, present boolean) RETURNS void LANGUAGE plpgsql AS $$ BEGIN
+ IF table_name NOT IN ('users','organizations') THEN RAISE EXCEPTION 'unsupported fixture table'; END IF;
+ IF present THEN
+  EXECUTE format('DROP POLICY settlement_presence ON %I',table_name);
+  EXECUTE format('ALTER TABLE %I DISABLE ROW LEVEL SECURITY',table_name);
+ ELSE
+  EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY',table_name);
+  EXECUTE format('CREATE POLICY settlement_presence ON %I USING (position(%L in current_query())=0)',table_name,'SELECT EXISTS(SELECT 1 FROM '||table_name||' WHERE id=$1)');
+ END IF;
+END $$;
+
+CREATE OR REPLACE FUNCTION settlement_fixture_hold_operation_key(actor uuid, operation text) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE digest bytea; key bigint:=0; BEGIN
+ digest:=sha256(convert_to(actor::text||'|'||operation||'|held','UTF8'));
+ FOR i IN 0..7 LOOP key:=(key<<8)|get_byte(digest,i); END LOOP;
+ PERFORM pg_advisory_xact_lock(CASE WHEN key=0 THEN 1 ELSE key END);
+END $$;

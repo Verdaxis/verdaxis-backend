@@ -1269,3 +1269,91 @@ async fn no_linked_order_settles_with_bounded_audit_identity() {
     assert_ne!(ip.as_deref(), Some("198.51.100.9"));
     ok(f.pay(SELLER, None).await, "PAID").await;
 }
+
+
+async fn assisted_side_fixture(side: &str, invalid_link: bool) -> Fixture {
+    let mut f=Fixture::new().await;
+    f.trade=sqlx::query_scalar("SELECT settlement_fixture_assisted_side($1,$2)").bind(side).bind(invalid_link).fetch_one(&mut f.admin).await.unwrap();
+    f
+}
+
+#[tokio::test]
+#[ignore = "requires an attested disposable PostgreSQL"]
+async fn assisted_link_refusals_preserve_both_settlement_states() {
+    for side in ["ASK","BID"] {
+        for action in ["deliver","pay"] {
+            let mut f=assisted_side_fixture(side,true).await;
+            if action=="pay" {f.sql("UPDATE trades SET status='DELIVERED',delivered_at=now(),final_quantity_mt=3,final_price_per_mt=100,final_total_usd=300,commission_amount_usd=6").await;}
+            let before=f.snapshot().await;
+            let (status,body)=f.call(action,SELLER,Some("invalid-link"),delivery()).await;
+            assert_eq!(status,StatusCode::FORBIDDEN,"{side} {action}: {body}");assert_eq!(f.snapshot().await,before);
+        }
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires an attested disposable PostgreSQL"]
+async fn assisted_presence_refusals_preserve_both_settlement_states() {
+    for side in ["ASK","BID"] {
+        for action in ["deliver","pay"] {
+            for table in ["users","organizations"] {
+                let mut f=assisted_side_fixture(side,false).await;
+                if action=="pay" {f.sql("UPDATE trades SET status='DELIVERED',delivered_at=now(),final_quantity_mt=3,final_price_per_mt=100,final_total_usd=300,commission_amount_usd=6").await;}
+                sqlx::query("SELECT settlement_fixture_presence($1,false)").bind(table).execute(&mut f.admin).await.unwrap();
+                let before=f.snapshot().await;
+                let response=f.call(action,SELLER,Some("presence"),delivery()).await;
+                sqlx::query("SELECT settlement_fixture_presence($1,true)").bind(table).execute(&mut f.admin).await.unwrap();
+                assert_eq!(response.0,StatusCode::CONFLICT,"{side} {action} {table}: {}",response.1);assert_eq!(response.1["detail"]["code"],"TRADE_PARTIES_INVALID");assert_eq!(f.snapshot().await,before);
+            }
+        }
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires an attested disposable PostgreSQL"]
+async fn assisted_side_membership_controls_delivery_and_payment() {
+    for side in ["ASK","BID"] {
+        let mut f=assisted_side_fixture(side,false).await;
+        let member=if side=="ASK" {SELLER}else{BUYER};
+        let other=if side=="ASK" {BUYER}else{SELLER};
+        // A same-organization member with the opposite role cannot act for the
+        // assisted side. Payment checks the SUPPLIER role before trade authority.
+        f.sql(if side=="ASK" {"UPDATE users SET role='BUYER' WHERE id='00000000-0000-0000-0000-000000002001'"}else{"UPDATE users SET role='SUPPLIER' WHERE id='00000000-0000-0000-0000-000000001001'"}).await;
+        let before=f.snapshot().await;
+        for action in ["deliver","pay"] {let (status,body)=f.call(action,member,Some("wrong-side"),delivery()).await;assert_eq!(status,StatusCode::FORBIDDEN,"{side} {action}: {body}");assert_eq!(f.snapshot().await,before);}
+        f.sql(if side=="ASK" {"UPDATE users SET role='SUPPLIER' WHERE id='00000000-0000-0000-0000-000000002001'"}else{"UPDATE users SET role='BUYER' WHERE id='00000000-0000-0000-0000-000000001001'"}).await;
+        ok(f.deliver(member,Some("member-delivery")).await,"DELIVERED").await;
+        let before=f.snapshot().await;
+        let forbidden=if side=="ASK" {other}else{member};
+        assert_eq!(f.pay(forbidden,Some("wrong-payment-side")).await.0,StatusCode::FORBIDDEN);assert_eq!(f.snapshot().await,before);
+        ok(f.pay(SELLER,Some("seller-payment")).await,"PAID").await;
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires an attested disposable PostgreSQL"]
+async fn subscription_changes_do_not_reprice_settlement() {
+    let mut f=Fixture::new().await;
+    f.sql("INSERT INTO subscriptions(id,org_id,tier,is_active,seller_fee_per_mt_usd) VALUES(gen_random_uuid(),'00000000-0000-0000-0000-000000002000','enterprise',true,99)").await;
+    let body=ok(f.deliver(SELLER,Some("frozen-fee")).await,"DELIVERED").await;
+    assert_eq!(amount(&body["commission_fee_per_mt_usd"]),"2".parse().unwrap());assert_eq!(amount(&body["commission_amount_usd"]),"6".parse().unwrap());
+    f.sql("UPDATE subscriptions SET tier='standard',seller_fee_per_mt_usd=1.50,is_active=false").await;
+    let paid=ok(f.pay(SELLER,Some("frozen-payment")).await,"PAID").await;
+    assert_eq!(paid["commission_amount_usd"],body["commission_amount_usd"]);assert_eq!(paid["commission_fee_per_mt_usd"],body["commission_fee_per_mt_usd"]);
+    let before=f.snapshot().await;assert_eq!(ok(f.deliver(SELLER,Some("frozen-fee")).await,"DELIVERED").await,body);assert_eq!(f.snapshot().await,before);
+}
+
+#[tokio::test]
+#[ignore = "requires an attested disposable PostgreSQL"]
+async fn both_settlement_receipt_locks_return_bounded_unavailable() {
+    for action in ["deliver","pay"] {
+        let mut f=Fixture::new().await;
+        if action=="pay" {ok(f.deliver(SELLER,None).await,"DELIVERED").await;}
+        let mut holder=PgConnection::connect(&std::env::var("RUST_SETTLEMENT_ADMIN_DATABASE_URL").unwrap()).await.unwrap();
+        sqlx::query("BEGIN").execute(&mut holder).await.unwrap();
+        sqlx::query("SELECT settlement_fixture_hold_operation_key($1,$2)").bind(id(SELLER)).bind(format!("trade.{action}")).execute(&mut holder).await.unwrap();
+        let before=f.snapshot().await;let response=f.call(action,SELLER,Some("held"),delivery()).await;
+        sqlx::query("ROLLBACK").execute(&mut holder).await.unwrap();
+        assert_eq!(response.0,StatusCode::SERVICE_UNAVAILABLE,"{}",response.1);assert_eq!(response.1["detail"]["code"],"IDEMPOTENCY_BUSY");assert_eq!(f.snapshot().await,before);
+    }
+}
