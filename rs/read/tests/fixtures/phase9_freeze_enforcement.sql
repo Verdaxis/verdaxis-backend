@@ -1,4 +1,6 @@
 -- Disposable lifecycle observations, installed after the shared trade fixtures.
+DROP POLICY IF EXISTS enforcement_projection ON trades;
+ALTER TABLE trades DISABLE ROW LEVEL SECURITY;
 CREATE SEQUENCE IF NOT EXISTS enforcement_status_attempts;
 CREATE OR REPLACE FUNCTION enforcement_status_observe() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
@@ -20,7 +22,10 @@ $$;
 CREATE OR REPLACE FUNCTION enforcement_audit_barrier() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
     IF current_setting('application_name') = 'enforcement-first' THEN
+        -- Only the fixture barrier has a longer wait; row-lock budgets stay unchanged.
+        PERFORM set_config('lock_timeout', '4s', true);
         PERFORM pg_advisory_xact_lock(280029001);
+        PERFORM set_config('lock_timeout', '500ms', true);
     END IF;
     RETURN NEW;
 END $$;
@@ -37,7 +42,10 @@ LANGUAGE plpgsql AS $$
 BEGIN
     IF current_setting('application_name') = 'enforcement-read'
        AND current_query() LIKE '%to_jsonb(t)%' THEN
+        -- Only the fixture barrier has a longer wait; row-lock budgets stay unchanged.
+        PERFORM set_config('lock_timeout', '4s', true);
         PERFORM pg_advisory_xact_lock(280029001);
+        PERFORM set_config('lock_timeout', '500ms', true);
     END IF;
     RETURN true;
 END $$;
