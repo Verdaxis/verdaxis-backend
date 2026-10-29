@@ -145,6 +145,36 @@ pub struct EffectSlice {
     pub delivery_point_id: Uuid,
     pub availability_window: String,
 }
+/// Organization-free administrator transitions append on the sealed owner's transaction.
+pub(super) async fn append_freeze_audit(
+    conn: &mut PgConnection,
+    fact: super::freeze::FreezeAudit,
+    context: &AuditContext,
+) -> Result<(), MarketWriteError> {
+    let changes = fact.changes();
+    append_audit(
+        conn,
+        &AuditFact {
+            id: Uuid::new_v4(),
+            actor_id: Some(fact.actor),
+            action: if fact.cleared {
+                "TRADE_UNFROZEN"
+            } else {
+                "TRADE_FROZEN"
+            }
+            .into(),
+            resource_type: "trade".into(),
+            resource_id: Some(fact.trade.to_string()),
+            changes: Some(changes),
+            ip_address: context.ip_address.clone(),
+            request_id: context.request_id.clone(),
+            at: fact.at,
+        },
+    )
+    .await?;
+    Ok(())
+}
+
 /// A caller-declared insertion under an already held organization and slice.
 #[derive(Clone, Debug)]
 pub struct NewOrderEffect {

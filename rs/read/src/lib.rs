@@ -236,6 +236,16 @@ pub mod market_trades {
     pub use crate::order_write::{MarketErrorCode, MarketWriteError};
 }
 
+/// Administrator freeze types and sealed command entry point.
+pub mod market_freeze {
+    pub(crate) use crate::order_write::effects::AuditContext;
+    pub(crate) use crate::order_write::freeze::{FreezeCommand, FreezeInput, execute_freeze};
+    pub use crate::order_write::freeze::{
+        FreezeRequest, FreezeResponse, FrozenPage, UnfreezeRequest,
+    };
+    pub use crate::order_write::{MarketErrorCode, MarketWriteError};
+}
+
 /// Narrow lifecycle component interface; transaction ownership stays sealed.
 pub mod market_lifecycle {
     pub(crate) use crate::order_write::effects::AuditContext;

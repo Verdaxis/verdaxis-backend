@@ -1796,6 +1796,20 @@ pub struct LockedMarketTransaction<'a> {
     locked: &'a super::locks::Locked,
 }
 impl LockedMarketTransaction<'_> {
+    pub(super) fn freeze<'a>(
+        &'a mut self,
+        actor: &'a super::AuthenticatedActor,
+    ) -> Result<super::freeze::FreezePort<'a>, super::MarketWriteError> {
+        super::freeze::FreezePort::new(self.conn, self.locked, actor)
+    }
+    pub(super) async fn freeze_audit(
+        &mut self,
+        fact: super::freeze::FreezeAudit,
+        context: &super::effects::AuditContext,
+    ) -> Result<(), super::MarketWriteError> {
+        self.locked.require_economic_phase()?;
+        super::effects::append_freeze_audit(self.conn, fact, context).await
+    }
     pub(super) fn lifecycle(
         &mut self,
     ) -> Result<super::trade_lifecycle::LifecyclePort<'_>, super::MarketWriteError> {

@@ -251,6 +251,15 @@ frozen fee basis. State, private notifications, audit, participant event and the
 optional receipt commit together, without order, inventory or public-market
 changes. Serving activation remains gated on lifecycle freeze enforcement.
 
+## Administrator trade freeze component
+
+`order_write/freeze.rs` and its route component provide administrator-only freeze,
+clearance and bounded ACTIVE-history reads. The sealed owner locks the actor,
+then the trade and active freeze row; its organization-free audit bridge appends
+one transition on the same transaction. Replays retain the original row without
+new effects. Trade status, linked orders and inventory do not change. Serving
+activation and lifecycle enforcement/projection remain separate integration work.
+
 ## Supplier inventory component
 
 `order_write/inventory.rs` implements supplier inventory records through the ordered

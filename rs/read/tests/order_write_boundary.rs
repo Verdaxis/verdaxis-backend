@@ -341,6 +341,7 @@ fn boundary_insert_allowed(root: &Path, path: &Path, table: &str) -> bool {
         ("inventory.rs", &["INVENTORY_ITEMS", "ORDERBOOK_ORDERS"]),
         ("support.rs", &["STAFF_CAPABILITY_ASSIGNMENTS"]),
         ("support/contexts.rs", &["MARKET_SUPPORT_CONTEXTS"]),
+        ("freeze.rs", &["TRADE_FREEZES"]),
     ];
     per_file
         .iter()
@@ -1564,5 +1565,33 @@ fn direct_take_insert_authority_is_scoped_to_its_source() {
             &boundary.join("trades.rs"),
             table
         ));
+    }
+}
+
+#[test]
+fn freeze_insert_belongs_only_to_the_administration_port() {
+    let root = repository_root();
+    let boundary = root.join("rs/read/src/order_write");
+    let freeze = boundary.join("freeze.rs");
+    assert!(boundary_insert_allowed(&root, &freeze, "TRADE_FREEZES"));
+    let mut files = Vec::new();
+    collect(&boundary, "rs", &mut files);
+    for path in files {
+        if path != freeze {
+            assert!(!boundary_insert_allowed(&root, &path, "TRADE_FREEZES"));
+        }
+    }
+    for table in [
+        "TRADES",
+        "USERS",
+        "AUDIT_LOGS",
+        "NOTIFICATIONS",
+        "ORDERBOOK_ORDERS",
+        "UNLISTED_TABLE",
+    ] {
+        assert!(!boundary_insert_allowed(&root, &freeze, table));
+    }
+    for table in WRITE_TABLES {
+        assert!(boundary_insert_allowed(&root, &freeze, table));
     }
 }

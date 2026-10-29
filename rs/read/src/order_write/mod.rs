@@ -20,6 +20,7 @@ pub mod effects;
 mod error;
 mod events;
 mod expiry;
+pub mod freeze;
 mod invalidation;
 pub(crate) mod inventory;
 pub use inventory::{InventoryAction, InventoryInput, execute_inventory};
