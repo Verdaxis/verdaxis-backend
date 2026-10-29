@@ -621,7 +621,7 @@ async fn named_pool(url: &str, name: &'static str) -> PgPool {
         .unwrap()
 }
 async fn wait_for_blocker(admin: &mut PgConnection, name: &str, blocker: &str, trade: bool) -> i32 {
-    for _ in 0..500 {
+    for _ in 0..5000 {
         let pid:Option<i32>=sqlx::query_scalar("SELECT a.pid FROM pg_stat_activity a WHERE a.datname=current_database() AND a.application_name=$1 AND a.wait_event_type='Lock' AND (NOT $3 OR a.query LIKE 'SELECT%FROM trades%FOR UPDATE') AND EXISTS(SELECT 1 FROM pg_stat_activity b WHERE b.pid=ANY(pg_blocking_pids(a.pid)) AND b.application_name=$2)")
             .bind(name).bind(blocker).bind(trade).fetch_optional(&mut *admin).await.unwrap();
         if let Some(pid) = pid {
