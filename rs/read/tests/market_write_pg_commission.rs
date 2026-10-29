@@ -512,7 +512,7 @@ async fn commission_audit_records_the_client_and_request_context() {
         assert_eq!(send(f.app(), request).await.0, 200, "{read}");
     }
     // Behind the serving middleware the audit row keeps the ID of the response.
-    let served = verdaxis_read::runtime::http::middleware(f.app());
+    let served = verdaxis_read::runtime::http::middleware(f.app(), "test");
     let body = json!({"notes":"served"}).to_string();
     let request = authorized(&f.token(0), "PUT", &path)
         .body(Body::from(body))
@@ -547,7 +547,7 @@ async fn commission_support_context_is_refused_only_for_changes() {
         .header(SUPPORT_HEADER, context.as_str())
         .body(Body::from(json!({"status":"PAID"}).to_string()))
         .unwrap();
-    let served = verdaxis_read::runtime::http::middleware(f.app());
+    let served = verdaxis_read::runtime::http::middleware(f.app(), "test");
     let (status, _, body) = send(served, request).await;
     assert_eq!(status, 403);
     assert_eq!(

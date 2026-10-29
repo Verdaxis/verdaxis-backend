@@ -152,6 +152,9 @@ impl Fixture {
             .connect_lazy(&runtime_url)
             .unwrap();
         let config = Config {
+            compliance_eur_usd_rate: None,
+            fleet_artifact_path: "data/fleet_demand.json".into(),
+
             kyc_execution_gate_enabled: true,
             environment: "test".into(),
             release_sha: verdaxis_read::compiled_sha().into(),
@@ -451,6 +454,9 @@ impl MigratedFixture {
             .connect_lazy(&runtime_url)
             .unwrap();
         let config = Config {
+            compliance_eur_usd_rate: None,
+            fleet_artifact_path: "data/fleet_demand.json".into(),
+
             kyc_execution_gate_enabled: true,
             environment: "test".into(),
             release_sha: verdaxis_read::compiled_sha().into(),

@@ -118,6 +118,9 @@ impl Fixture {
             .await
             .unwrap();
         let config = Config {
+            compliance_eur_usd_rate: None,
+            fleet_artifact_path: "data/fleet_demand.json".into(),
+
             environment: "test".into(),
             release_sha: verdaxis_read::compiled_sha().into(),
             migration_revision: "p89_20261022_watchlist_producer".into(),

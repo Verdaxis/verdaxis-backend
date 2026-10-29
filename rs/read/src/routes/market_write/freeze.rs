@@ -103,5 +103,5 @@ pub fn contract_router(pool: sqlx::PgPool, key: &str) -> Router {
         "freeze-tests".into(),
         "freeze-tests".into(),
     );
-    crate::runtime::http::middleware(router(FreezeState::new(pool, verification)))
+    crate::runtime::http::middleware(router(FreezeState::new(pool, verification)), "test")
 }

@@ -45,7 +45,7 @@ def test_production_policy_is_the_reviewed_activation_with_the_bootstrap_unit():
     assert "venv/bin/python" not in unit
 
 
-@pytest.mark.parametrize("revision", ["p0_20261016_union", "prc_20261026_changes", "p3_20261020_auth_tokens"])
+@pytest.mark.parametrize("revision", ["p0_20261016_union", "prc_20261026_changes", "p3_20261020_auth_tokens", "sse_20261021_replay_floor", "p5_20261020_read_indexes", "p89_20261022_watchlist_producer", "p89_20261022_trade_freeze"])
 def test_production_runtime_projects_its_app_identity_and_phase2(tmp_path, revision):
     preparer = _load_preparer()
     env = tmp_path / ".env"
@@ -98,7 +98,7 @@ def test_production_runtime_projects_its_app_identity_and_phase2(tmp_path, revis
         )
 
 
-@pytest.mark.parametrize("revision", ["p0_20261016_union", "prc_20261018_cache", "p89_20261022_watchlist_producer", "*", "head", "unlisted_revision"])
+@pytest.mark.parametrize("revision", ["kycg_20261014_staging", "prc_20261018_cache", "*", "head", "unlisted_revision"])
 def test_production_runtime_refuses_a_previous_or_unlisted_checkpoint(tmp_path, revision):
     preparer = _load_preparer()
     env = tmp_path / ".env"
