@@ -541,6 +541,7 @@ fn sqlstate_mapping_table_is_total() {
         "INVENTORY_NOT_FOUND",
         "PORT_NOT_FOUND",
         "TRADE_NOT_PENDING",
+        "TRADE_NOT_CONFIRMED",
         "TRADE_NOT_DELIVERED",
         "TRADE_FROZEN",
         "TRADE_ALREADY_FROZEN",
