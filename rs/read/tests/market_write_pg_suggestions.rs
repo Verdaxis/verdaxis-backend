@@ -167,6 +167,7 @@ impl Fixture {
             pool_max: 5,
             python_budget: 20,
             configured_max_connections: 100,
+            phase2: Default::default(),
         };
         let state = AppState::new(
             config,
@@ -469,6 +470,7 @@ impl MigratedFixture {
             pool_max: 5,
             python_budget: 20,
             configured_max_connections: 100,
+            phase2: Default::default(),
         };
         let state = AppState::new(
             config,

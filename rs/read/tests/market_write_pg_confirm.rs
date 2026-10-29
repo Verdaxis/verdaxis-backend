@@ -614,7 +614,7 @@ async fn preserving_rejection(
         let now=chrono::Utc::now();
         let token=encode(&Header::default(),&json!({"sub":id(ADMIN),"type":"access","iat":now.timestamp(),"exp":now.timestamp()+600,"iss":"lifecycle-tests","aud":"lifecycle-tests"}),&EncodingKey::from_secret(KEY.as_bytes())).unwrap();
         verdaxis_read::auth::verify_authorization(Some(&format!("Bearer {token}")),&verdaxis_read::auth::VerificationSettings::new(KEY.into(),None,"lifecycle-tests".into(),"lifecycle-tests".into()),now).unwrap()
-    },verdaxis_read::business::organizations::ReviewOrganization{organization_id:id(0x2000),approve:false,reason:Some("Fixture review".into()),now:chrono::Utc::now(),policy,config}).await
+    },verdaxis_read::business::organizations::ReviewOrganization{audit:Default::default(),organization_id:id(0x2000),approve:false,reason:Some("Fixture review".into()),now:chrono::Utc::now(),policy,config}).await
 }
 #[tokio::test]
 #[ignore = "requires an attested disposable PostgreSQL"]
