@@ -1,4 +1,6 @@
 #![cfg(feature = "contract-tests")]
+#[path = "support/market_database.rs"]
+mod market_database;
 
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
@@ -44,6 +46,7 @@ const WRITER_WAITERS: &str = "SELECT count(*) FROM pg_stat_activity \
     WHERE wait_event_type='Lock' AND query LIKE '%mark_after_lock%' AND pid<>pg_backend_pid()";
 
 struct Fixture {
+    _database: std::sync::Arc<market_database::MarketDatabase>,
     admin_url: String,
     admin: PgConnection,
     pool: sqlx::PgPool,
@@ -54,9 +57,9 @@ struct Fixture {
 }
 impl Fixture {
     async fn new() -> Self {
-        let admin_url = std::env::var("RUST_EFFECTS_ADMIN_DATABASE_URL")
-            .expect("explicit migrated disposable URL");
-        let runtime_url = std::env::var("RUST_EFFECTS_DATABASE_URL").unwrap();
+        let database = std::sync::Arc::new(market_database::MarketDatabase::new("RUST_EFFECTS").await);
+        let admin_url = database.admin_url.clone();
+        let runtime_url = database.runtime_url.clone();
         let a = url::Url::parse(&admin_url).unwrap();
         let r = url::Url::parse(&runtime_url).unwrap();
         assert_eq!(a.host_str(), Some("127.0.0.1"));
@@ -112,6 +115,7 @@ impl Fixture {
         ))
         .unwrap();
         Self {
+            _database: database,
             admin_url,
             admin,
             pool,

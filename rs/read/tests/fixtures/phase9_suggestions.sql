@@ -55,7 +55,7 @@ DROP TRIGGER refuse_suggestion ON match_suggestions;
 -- section: tier
 UPDATE organizations SET supplier_tier=$2 WHERE id=$1;
 -- section: migrated-reset
-TRUNCATE organizations, watchlists, market_event_outbox, live_slice_benchmarks, audit_logs CASCADE;
+
 -- section: migrated-organizations
 INSERT INTO organizations(id,name,type,verification_status,provenance,supplier_tier)
 SELECT id,id::text,'FUEL_SUPPLIER','APPROVED','REAL',CASE WHEN id='00000000-0000-0000-0000-000000000014'::uuid THEN 'MAJOR_TRADER' ELSE NULL END FROM unnest($1::uuid[]) id;

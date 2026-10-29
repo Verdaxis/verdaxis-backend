@@ -1,4 +1,6 @@
 #![cfg(feature = "contract-tests")]
+#[path = "support/market_database.rs"]
+mod market_database;
 
 use axum::{
     Router,
@@ -64,6 +66,7 @@ async fn authorized(
 }
 
 struct Fixture {
+    _database: std::sync::Arc<market_database::MarketDatabase>,
     admin: PgConnection,
     app: Router,
     actor: Uuid,
@@ -73,9 +76,9 @@ struct Fixture {
 }
 impl Fixture {
     async fn new() -> Self {
-        let admin_url = std::env::var("RUST_INVENTORY_ADMIN_DATABASE_URL")
-            .expect("explicit disposable administrator URL");
-        let runtime_url = std::env::var("RUST_INVENTORY_DATABASE_URL").unwrap();
+        let database = std::sync::Arc::new(market_database::MarketDatabase::new("RUST_INVENTORY").await);
+        let admin_url = database.admin_url.clone();
+        let runtime_url = database.runtime_url.clone();
         for value in [&admin_url, &runtime_url] {
             let url = url::Url::parse(value).unwrap();
             assert_eq!(url.host_str(), Some("127.0.0.1"));
@@ -147,6 +150,7 @@ impl Fixture {
             ),
         );
         Self {
+            _database: database,
             admin,
             app,
             actor,
@@ -600,7 +604,7 @@ async fn inventory_edit_and_delete_recheck_after_an_independent_lock_holder() {
     for method in ["PATCH", "DELETE"] {
         let mut f = Fixture::new().await;
         let id = f.create().await;
-        let url = std::env::var("RUST_INVENTORY_ADMIN_DATABASE_URL").unwrap();
+        let url = f._database.admin_url.clone();
         let mut holder = PgConnection::connect(&url).await.unwrap();
         let holder_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
             .fetch_one(&mut holder)
@@ -652,7 +656,7 @@ async fn inventory_edit_and_delete_recheck_after_an_independent_lock_holder() {
 async fn inventory_admission_rechecks_an_independent_account_change() {
     let mut f = Fixture::new().await;
     let mut holder =
-        PgConnection::connect(&std::env::var("RUST_INVENTORY_ADMIN_DATABASE_URL").unwrap())
+        PgConnection::connect(&f._database.admin_url.clone())
             .await
             .unwrap();
     let mut tx = holder.begin().await.unwrap();
@@ -854,7 +858,7 @@ async fn inventory_requests_after_a_concurrent_delete_are_not_found() {
     for method in ["DELETE", "PATCH"] {
         let mut f = Fixture::new().await;
         let id = f.create().await;
-        let url = std::env::var("RUST_INVENTORY_ADMIN_DATABASE_URL").unwrap();
+        let url = f._database.admin_url.clone();
         let mut holder = PgConnection::connect(&url).await.unwrap();
         let mut tx = holder.begin().await.unwrap();
         sqlx::query("DELETE FROM inventory_items WHERE id=$1")
@@ -881,7 +885,7 @@ async fn inventory_requests_after_a_concurrent_delete_are_not_found() {
 async fn inventory_reads_lock_only_the_user_row() {
     let mut f = Fixture::new().await;
     f.create().await;
-    let url = std::env::var("RUST_INVENTORY_ADMIN_DATABASE_URL").unwrap();
+    let url = f._database.admin_url.clone();
     let mut holder = PgConnection::connect(&url).await.unwrap();
     // An organization writer does not delay either read.
     let mut tx = holder.begin().await.unwrap();

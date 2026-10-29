@@ -1,4 +1,6 @@
 #![cfg(feature = "contract-tests")]
+#[path = "support/market_database.rs"]
+mod market_database;
 
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -97,6 +99,7 @@ async fn request(
 }
 
 struct Fixture {
+    _database: std::sync::Arc<market_database::MarketDatabase>,
     admin: PgConnection,
     inventory: Router,
     orders: Router,
@@ -113,10 +116,10 @@ struct Fixture {
 }
 impl Fixture {
     async fn new() -> Self {
-        let admin_url = std::env::var("RUST_CONSERVATION_ADMIN_DATABASE_URL")
-            .expect("disposable administrator URL");
+        let database = std::sync::Arc::new(market_database::MarketDatabase::new("RUST_CONSERVATION").await);
+        let admin_url = database.admin_url.clone();
         let runtime_url =
-            std::env::var("RUST_CONSERVATION_DATABASE_URL").expect("disposable runtime URL");
+            database.runtime_url.clone();
         let admin_target = url::Url::parse(&admin_url).unwrap();
         let runtime_target = url::Url::parse(&runtime_url).unwrap();
         assert_eq!(admin_target.host_str(), Some("127.0.0.1"));
@@ -213,6 +216,7 @@ impl Fixture {
             .unwrap();
         let orders = served_contract_router(pool, KEY, true);
         Self {
+            _database: database,
             admin,
             inventory,
             orders,

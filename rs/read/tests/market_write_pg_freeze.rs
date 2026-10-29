@@ -1,4 +1,6 @@
 #![cfg(feature = "contract-tests")]
+#[path = "support/market_database.rs"]
+mod market_database;
 
 use axum::{
     Router,
@@ -22,6 +24,7 @@ fn id(n: u128) -> Uuid {
 }
 
 struct Fixture {
+    _database: std::sync::Arc<market_database::MarketDatabase>,
     admin: PgConnection,
     pool: PgPool,
     router: Router,
@@ -30,8 +33,9 @@ struct Fixture {
 }
 impl Fixture {
     async fn new(state: &str) -> Self {
-        let a = std::env::var("RUST_FREEZE_ADMIN_DATABASE_URL").expect("disposable admin URL");
-        let r = std::env::var("RUST_FREEZE_DATABASE_URL").expect("disposable runtime URL");
+        let database = std::sync::Arc::new(market_database::MarketDatabase::new("RUST_FREEZE").await);
+        let a = database.admin_url.clone();
+        let r = database.runtime_url.clone();
         let au = url::Url::parse(&a).unwrap();
         let ru = url::Url::parse(&r).unwrap();
         assert_eq!(au.host_str(), Some("127.0.0.1"));
@@ -91,6 +95,7 @@ impl Fixture {
             .unwrap();
         let router = contract_router(pool.clone(), KEY);
         let mut f = Self {
+            _database: database,
             admin,
             pool,
             router,
@@ -890,8 +895,8 @@ impl ObservedRow {
     }
 }
 
-async fn route_pool(name: &'static str) -> PgPool {
-    let url = std::env::var("RUST_FREEZE_DATABASE_URL").unwrap();
+async fn route_pool(f: &Fixture, name: &'static str) -> PgPool {
+    let url = f._database.runtime_url.clone();
     PgPoolOptions::new()
         .max_connections(1)
         .after_connect(move |conn, _| {
@@ -955,8 +960,8 @@ async fn overlap_routes(
     second_reason: &'static str,
     observed: ObservedRow,
 ) -> ((StatusCode, Value), (StatusCode, Value)) {
-    let first_pool = route_pool("freeze-route-first").await;
-    let second_pool = route_pool("freeze-route-second").await;
+    let first_pool = route_pool(&f, "freeze-route-first").await;
+    let second_pool = route_pool(&f, "freeze-route-second").await;
     let first_router = contract_router(first_pool.clone(), KEY);
     let second_router = contract_router(second_pool.clone(), KEY);
     f.sql(include_str!("fixtures/phase9_freeze.sql")).await;

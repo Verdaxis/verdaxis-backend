@@ -79,6 +79,11 @@ SQL
 for database in verdaxis_trades_test verdaxis_create_test verdaxis_amend_test verdaxis_confirm_test verdaxis_publish_test verdaxis_settlement_test; do
   market_image_role_setup "$database"
 done
+export RUST_TEMPLATE_ADMIN_DATABASE_URL="postgres://postgres:disposable_admin_pw@127.0.0.1:$port/postgres"
+for target in TRADES CREATE AMEND CONFIRM PUBLISH SETTLEMENT; do
+  database="verdaxis_$(printf '%s' "$target" | tr '[:upper:]' '[:lower:]')_test"
+  export "RUST_${target}_TEMPLATE_DATABASE=$database"
+done
 export RUST_TRADES_ADMIN_DATABASE_URL="postgres://postgres:disposable_admin_pw@127.0.0.1:$port/verdaxis_trades_test"
 export RUST_TRADES_DATABASE_URL="postgres://rust_app:disposable_app_pw@127.0.0.1:$port/verdaxis_trades_test"
 export RUST_CREATE_ADMIN_DATABASE_URL="postgres://postgres:disposable_admin_pw@127.0.0.1:$port/verdaxis_create_test"

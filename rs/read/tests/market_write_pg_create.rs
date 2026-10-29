@@ -1,4 +1,6 @@
 #![cfg(feature = "contract-tests")]
+#[path = "support/market_database.rs"]
+mod market_database;
 
 use std::{sync::Arc, time::Duration};
 
@@ -36,6 +38,7 @@ fn staff() -> Uuid {
     Uuid::from_u128(0x3001)
 }
 struct Fixture {
+    _database: std::sync::Arc<market_database::MarketDatabase>,
     admin: PgConnection,
     observer: PgConnection,
     pool: PgPool,
@@ -45,8 +48,9 @@ struct Fixture {
 }
 impl Fixture {
     async fn new(n: i32) -> Self {
-        let admin_url = std::env::var("RUST_CREATE_ADMIN_DATABASE_URL").unwrap();
-        let runtime_url = std::env::var("RUST_CREATE_DATABASE_URL").unwrap();
+        let database = std::sync::Arc::new(market_database::MarketDatabase::new("RUST_CREATE").await);
+        let admin_url = database.admin_url.clone();
+        let runtime_url = database.runtime_url.clone();
         let a = url::Url::parse(&admin_url).unwrap();
         let r = url::Url::parse(&runtime_url).unwrap();
         assert_eq!(a.host_str(), Some("127.0.0.1"));
@@ -81,6 +85,7 @@ impl Fixture {
         let observer = PgConnection::connect(&runtime_url).await.unwrap();
         let router = contract_router(pool.clone(), KEY, CreateSettings::default());
         Self {
+            _database: database,
             admin,
             observer,
             pool,
@@ -1194,7 +1199,7 @@ async fn create_commit_ack_loss_does_not_repeat_the_order() {
     };
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let mut f = Fixture::new(0).await;
-    let mut target = url::Url::parse(&std::env::var("RUST_CREATE_DATABASE_URL").unwrap()).unwrap();
+    let mut target = url::Url::parse(&f._database.runtime_url.clone()).unwrap();
     target.query_pairs_mut().append_pair("sslmode", "disable");
     let upstream = target.port().unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

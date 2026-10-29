@@ -1,4 +1,6 @@
 #![cfg(feature = "contract-tests")]
+#[path = "support/market_database.rs"]
+mod market_database;
 use axum::{
     Router,
     body::Body,
@@ -21,6 +23,7 @@ fn id(n: u128) -> Uuid {
     Uuid::from_u128(n)
 }
 struct Fixture {
+    _database: std::sync::Arc<market_database::MarketDatabase>,
     admin: PgConnection,
     pool: PgPool,
     router: Router,
@@ -28,8 +31,9 @@ struct Fixture {
 }
 impl Fixture {
     async fn new(initiated: &str, legacy: bool) -> Self {
-        let a = std::env::var("RUST_CONFIRM_ADMIN_DATABASE_URL").expect("disposable admin URL");
-        let r = std::env::var("RUST_CONFIRM_DATABASE_URL").expect("disposable runtime URL");
+        let database = std::sync::Arc::new(market_database::MarketDatabase::new("RUST_CONFIRM").await);
+        let a = database.admin_url.clone();
+        let r = database.runtime_url.clone();
         let au = url::Url::parse(&a).unwrap();
         let ru = url::Url::parse(&r).unwrap();
         assert_eq!(au.host_str(), Some("127.0.0.1"));
@@ -84,6 +88,7 @@ impl Fixture {
             .unwrap();
         let router = contract_router(pool.clone(), KEY, true);
         Self {
+            _database: database,
             admin,
             pool,
             router,
@@ -634,10 +639,12 @@ async fn confirmation_and_preserving_organization_rejection_keep_the_pending_com
         let pool = f.pool.clone();
         let router = f.router.clone();
         let trade = f.trade;
+        let database = f._database.clone();
         let command = tokio::spawn(async move {
             let fixture = Fixture {
+                _database: database.clone(),
                 admin: PgConnection::connect(
-                    &std::env::var("RUST_CONFIRM_ADMIN_DATABASE_URL").unwrap(),
+                    &database.admin_url,
                 )
                 .await
                 .unwrap(),
@@ -979,7 +986,7 @@ async fn independent_inventory_changes_survive_confirmation_and_terminal_decline
         let path = format!("/api/trades/{}/{action}", f.trade);
         let command = tokio::spawn(async move { send(&router, &path, Some(SELLER), &[]).await });
         let mut observer =
-            PgConnection::connect(&std::env::var("RUST_CONFIRM_ADMIN_DATABASE_URL").unwrap())
+            PgConnection::connect(&f._database.admin_url.clone())
                 .await
                 .unwrap();
         wait_for_lock(&mut observer).await;

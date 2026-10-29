@@ -1,7 +1,7 @@
 -- Disposable support fixtures preserve the application table identities.
 CREATE OR REPLACE FUNCTION support_fixture_seed(actor uuid,target uuid,org uuid,other uuid) RETURNS void LANGUAGE plpgsql AS $$
 BEGIN
-    TRUNCATE organizations,market_event_outbox,audit_logs CASCADE;
+
     INSERT INTO organizations(id,name,type,verification_status,provenance) VALUES
         (org,'Support customer','FUEL_SUPPLIER','APPROVED','REAL'),
         (other,'Pending customer','FUEL_SUPPLIER','PENDING','UNKNOWN');

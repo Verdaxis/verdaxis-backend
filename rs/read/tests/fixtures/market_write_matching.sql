@@ -11,7 +11,7 @@ DECLARE
     candidate uuid;
     i integer;
 BEGIN
-    TRUNCATE organizations, watchlists, market_event_outbox, live_slice_benchmarks, audit_logs CASCADE;
+
     DROP TRIGGER IF EXISTS matching_fixture_trade_check ON trades;
     SELECT id INTO STRICT point FROM delivery_points WHERE name='Rotterdam';
     INSERT INTO organizations(id,name,type,verification_status,provenance)

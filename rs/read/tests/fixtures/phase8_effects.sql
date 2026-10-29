@@ -1,8 +1,7 @@
 -- Fixture helpers run only in the explicitly migrated disposable database.
 CREATE OR REPLACE FUNCTION effect_fixture_reset() RETURNS void LANGUAGE plpgsql AS $$
 BEGIN
-    TRUNCATE organizations, watchlists, market_event_outbox,
-        live_slice_benchmarks, audit_logs CASCADE;
+
 END $$;
 
 CREATE OR REPLACE FUNCTION effect_fixture_seed(

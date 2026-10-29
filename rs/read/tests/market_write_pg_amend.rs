@@ -1,4 +1,6 @@
 #![cfg(feature = "contract-tests")]
+#[path = "support/market_database.rs"]
+mod market_database;
 
 use axum::{
     Router,
@@ -26,6 +28,7 @@ fn seller() -> Uuid {
 /// admitted user each, one BID for the buyer and `asks` ASK rows for the
 /// seller, all in the same slice.
 struct Fixture {
+    _database: std::sync::Arc<market_database::MarketDatabase>,
     admin: PgConnection,
     observer: PgConnection,
     pool: PgPool,
@@ -36,8 +39,9 @@ struct Fixture {
 }
 impl Fixture {
     async fn new(asks: i32, quantity: i64) -> Self {
-        let admin_url = std::env::var("RUST_AMEND_ADMIN_DATABASE_URL").unwrap();
-        let runtime_url = std::env::var("RUST_AMEND_DATABASE_URL").unwrap();
+        let database = std::sync::Arc::new(market_database::MarketDatabase::new("RUST_AMEND").await);
+        let admin_url = database.admin_url.clone();
+        let runtime_url = database.runtime_url.clone();
         let a = url::Url::parse(&admin_url).unwrap();
         let r = url::Url::parse(&runtime_url).unwrap();
         assert_eq!(a.host_str(), Some("127.0.0.1"));
@@ -82,6 +86,7 @@ impl Fixture {
         let observer = PgConnection::connect(&runtime_url).await.unwrap();
         let router = contract_router(pool.clone(), KEY, AmendSettings::default());
         Self {
+            _database: database,
             admin,
             observer,
             pool,
@@ -365,7 +370,7 @@ async fn amend_keeps_a_concurrent_inventory_change() {
         .await
         .unwrap();
     // Another inventory writer holds the row and adds 100 MT of stock.
-    let admin_url = std::env::var("RUST_AMEND_ADMIN_DATABASE_URL").unwrap();
+    let admin_url = f._database.admin_url.clone();
     let mut holder = PgConnection::connect(&admin_url).await.unwrap();
     let holder_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
         .fetch_one(&mut holder)

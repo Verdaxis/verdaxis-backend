@@ -1,4 +1,6 @@
 #![cfg(feature = "contract-tests")]
+#[path = "support/market_database.rs"]
+mod market_database;
 
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
@@ -16,6 +18,7 @@ fn now() -> DateTime<Utc> {
 }
 
 struct Fixture {
+    _database: std::sync::Arc<market_database::MarketDatabase>,
     admin: PgConnection,
     observer: PgConnection,
     pool: PgPool,
@@ -25,8 +28,9 @@ struct Fixture {
 
 impl Fixture {
     async fn new(count: i32, quantity: &str) -> Self {
-        let admin_url = std::env::var("RUST_MATCHING_ADMIN_DATABASE_URL").unwrap();
-        let runtime_url = std::env::var("RUST_MATCHING_DATABASE_URL").unwrap();
+        let database = std::sync::Arc::new(market_database::MarketDatabase::new("RUST_MATCHING").await);
+        let admin_url = database.admin_url.clone();
+        let runtime_url = database.runtime_url.clone();
         let admin_target = url::Url::parse(&admin_url).unwrap();
         let runtime_target = url::Url::parse(&runtime_url).unwrap();
         assert_eq!(admin_target.host_str(), Some("127.0.0.1"));
@@ -61,6 +65,7 @@ impl Fixture {
         let observer = PgConnection::connect(&runtime_url).await.unwrap();
         let pool = PgPool::connect(&runtime_url).await.unwrap();
         Self {
+            _database: database,
             admin,
             observer,
             pool,

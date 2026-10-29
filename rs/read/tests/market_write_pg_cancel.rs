@@ -1,4 +1,6 @@
 #![cfg(feature = "contract-tests")]
+#[path = "support/market_database.rs"]
+mod market_database;
 
 use std::io::Write;
 use std::process::{Command, Stdio};
@@ -18,6 +20,7 @@ use verdaxis_read::routes::market_write::orders::{order_etag, served_contract_ro
 const KEY: &str = "synthetic-cancel-test-signing-key-at-least-32";
 const CONTEXT_HEADER: &str = "X-Verdaxis-Market-Support-Context";
 struct Fixture {
+    _database: std::sync::Arc<market_database::MarketDatabase>,
     admin: PgConnection,
     pool: PgPool,
     router: Router,
@@ -128,10 +131,11 @@ fn python_order_terms(model: &str, terms: &Value) -> Value {
 
 impl Fixture {
     async fn new() -> Self {
+        let database = std::sync::Arc::new(market_database::MarketDatabase::new("RUST_CANCEL").await);
         let admin_url =
-            std::env::var("RUST_CANCEL_ADMIN_DATABASE_URL").expect("disposable administrator URL");
+            database.admin_url.clone();
         let runtime_url =
-            std::env::var("RUST_CANCEL_DATABASE_URL").expect("disposable runtime URL");
+            database.runtime_url.clone();
         let a = url::Url::parse(&admin_url).unwrap();
         let r = url::Url::parse(&runtime_url).unwrap();
         assert_eq!(a.host_str(), Some("127.0.0.1"));
@@ -183,6 +187,7 @@ impl Fixture {
             .await
             .unwrap();
         Self {
+            _database: database,
             admin,
             router: served_contract_router(pool.clone(), KEY, true),
             pool,
@@ -617,7 +622,7 @@ async fn cancellation_effect_failure_rolls_back_stock_and_receipt() {
 async fn cancel_waits_for_the_declared_slice_on_an_independent_connection() {
     let mut f = Fixture::new().await;
     let mut holder =
-        PgConnection::connect(&std::env::var("RUST_CANCEL_ADMIN_DATABASE_URL").unwrap())
+        PgConnection::connect(&f._database.admin_url.clone())
             .await
             .unwrap();
     let key: i64 = sqlx::query_scalar("SELECT cancel_fixture_slice_key($1)")
@@ -868,7 +873,7 @@ async fn cancel_bumps_the_version_only_where_python_does() {
 async fn owner_reads_take_no_market_write_locks() {
     let mut f = Fixture::new().await;
     let mut holder =
-        PgConnection::connect(&std::env::var("RUST_CANCEL_ADMIN_DATABASE_URL").unwrap())
+        PgConnection::connect(&f._database.admin_url.clone())
             .await
             .unwrap();
     sqlx::query("BEGIN").execute(&mut holder).await.unwrap();

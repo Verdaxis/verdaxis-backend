@@ -1,4 +1,6 @@
 #![cfg(feature = "contract-tests")]
+#[path = "support/market_database.rs"]
+mod market_database;
 
 use serde_json::{Value, json};
 use sqlx::{Connection, PgConnection, Row, postgres::PgPoolOptions};
@@ -10,6 +12,7 @@ use verdaxis_read::market_contract::effects::{
 };
 
 struct Fixture {
+    _database: std::sync::Arc<market_database::MarketDatabase>,
     pool: sqlx::PgPool,
     admin: PgConnection,
     order: Uuid,
@@ -20,8 +23,8 @@ struct Fixture {
 
 impl Fixture {
     async fn new() -> Self {
-        let admin_url = std::env::var("RUST_EFFECTS_ADMIN_DATABASE_URL")
-            .expect("explicit migrated disposable administrator URL required");
+        let database = std::sync::Arc::new(market_database::MarketDatabase::new("RUST_EFFECTS").await);
+        let admin_url = database.admin_url.clone();
         let url = url::Url::parse(&admin_url).unwrap();
         assert_eq!(url.host_str(), Some("127.0.0.1"));
         assert!(url.path().ends_with("_test"));
@@ -75,7 +78,7 @@ impl Fixture {
             .execute(&mut admin)
             .await
             .unwrap();
-        let runtime_url = std::env::var("RUST_EFFECTS_DATABASE_URL").unwrap();
+        let runtime_url = database.runtime_url.clone();
         let runtime = url::Url::parse(&runtime_url).unwrap();
         assert_eq!(runtime.host_str(), Some("127.0.0.1"));
         assert_eq!(runtime.port(), url.port());
@@ -87,6 +90,7 @@ impl Fixture {
             .await
             .unwrap();
         Self {
+            _database: database,
             pool,
             admin,
             order,

@@ -1,4 +1,6 @@
 #![cfg(feature = "contract-tests")]
+#[path = "support/market_database.rs"]
+mod market_database;
 use std::{sync::Arc, time::Duration};
 
 use axum::{
@@ -30,14 +32,16 @@ const MEMBER: u128 = 0x1002;
 const STRANGER: u128 = 0x3001;
 const ADMIN: u128 = 0x4001;
 struct Fixture {
+    _database: std::sync::Arc<market_database::MarketDatabase>,
     admin: PgConnection,
     pool: PgPool,
     router: Router,
 }
 impl Fixture {
     async fn new() -> Self {
-        let a = std::env::var("RUST_TRADES_ADMIN_DATABASE_URL").expect("disposable admin URL");
-        let r = std::env::var("RUST_TRADES_DATABASE_URL").expect("disposable runtime URL");
+        let database = std::sync::Arc::new(market_database::MarketDatabase::new("RUST_TRADES").await);
+        let a = database.admin_url.clone();
+        let r = database.runtime_url.clone();
         let au = url::Url::parse(&a).unwrap();
         let ru = url::Url::parse(&r).unwrap();
         assert_eq!(au.host_str(), Some("127.0.0.1"));
@@ -77,6 +81,7 @@ impl Fixture {
             .unwrap();
         let router = contract_router(pool.clone(), KEY, true);
         Self {
+            _database: database,
             admin,
             pool,
             router,
@@ -777,7 +782,7 @@ async fn independent_take_and_cancel_serialize_on_the_held_party_prefix() {
             .unwrap()
             .status()
     });
-    let admin_url = std::env::var("RUST_TRADES_ADMIN_DATABASE_URL").unwrap();
+    let admin_url = f._database.admin_url.clone();
     let mut observer = PgConnection::connect(&admin_url).await.unwrap();
     let observed=tokio::time::timeout(std::time::Duration::from_secs(4),async{
         loop {let n:i64=sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND usename='rust_app'").fetch_one(&mut observer).await.unwrap();if n>=2 {break n;}tokio::time::sleep(std::time::Duration::from_millis(5)).await;}
@@ -1198,7 +1203,7 @@ async fn locked_party_changes_are_revalidated_after_read_only_preview() {
         )
         .await
     });
-    let admin_url = std::env::var("RUST_TRADES_ADMIN_DATABASE_URL").unwrap();
+    let admin_url = f._database.admin_url.clone();
     let mut observer = PgConnection::connect(&admin_url).await.unwrap();
     let observed=tokio::time::timeout(std::time::Duration::from_secs(4),async{loop{let count:i64=sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND usename='rust_app'").fetch_one(&mut observer).await.unwrap();if count>0{break;}tokio::time::sleep(std::time::Duration::from_millis(5)).await;}}).await;
     sqlx::query("SELECT trades_fixture_change($1,'rejected')")

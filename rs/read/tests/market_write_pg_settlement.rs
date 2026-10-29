@@ -1,4 +1,6 @@
 #![cfg(feature = "contract-tests")]
+#[path = "support/market_database.rs"]
+mod market_database;
 use axum::{
     Router,
     body::Body,
@@ -27,6 +29,7 @@ fn amount(v: &Value) -> rust_decimal::Decimal {
     v.as_str().unwrap().parse().unwrap()
 }
 struct Fixture {
+    _database: std::sync::Arc<market_database::MarketDatabase>,
     admin: PgConnection,
     pool: PgPool,
     router: Router,
@@ -34,8 +37,9 @@ struct Fixture {
 }
 impl Fixture {
     async fn new() -> Self {
-        let a = std::env::var("RUST_SETTLEMENT_ADMIN_DATABASE_URL").expect("disposable admin URL");
-        let r = std::env::var("RUST_SETTLEMENT_DATABASE_URL").expect("disposable runtime URL");
+        let database = std::sync::Arc::new(market_database::MarketDatabase::new("RUST_SETTLEMENT").await);
+        let a = database.admin_url.clone();
+        let r = database.runtime_url.clone();
         let au = url::Url::parse(&a).unwrap();
         let ru = url::Url::parse(&r).unwrap();
         assert_eq!(au.host_str(), Some("127.0.0.1"));
@@ -91,6 +95,7 @@ impl Fixture {
             .unwrap();
         let router = contract_router(pool.clone(), KEY, true);
         Self {
+            _database: database,
             admin,
             pool,
             router,
@@ -744,7 +749,7 @@ async fn deliver_and_pay_serialize_in_both_orders() {
     for first in ["deliver", "pay"] {
         let mut f = Fixture::new().await;
         let mut holder =
-            PgConnection::connect(&std::env::var("RUST_SETTLEMENT_ADMIN_DATABASE_URL").unwrap())
+            PgConnection::connect(&f._database.admin_url.clone())
                 .await
                 .unwrap();
         sqlx::query("BEGIN").execute(&mut holder).await.unwrap();
@@ -967,7 +972,7 @@ async fn receipt_context_mismatch_returns_no_stored_body() {
 async fn receipt_lock_contention_is_bounded_and_has_no_effect() {
     let mut f = Fixture::new().await;
     let mut holder =
-        PgConnection::connect(&std::env::var("RUST_SETTLEMENT_ADMIN_DATABASE_URL").unwrap())
+        PgConnection::connect(&f._database.admin_url.clone())
             .await
             .unwrap();
     sqlx::query("BEGIN").execute(&mut holder).await.unwrap();
@@ -1414,7 +1419,7 @@ async fn both_settlement_receipt_locks_return_bounded_unavailable() {
             ok(f.deliver(SELLER, None).await, "DELIVERED").await;
         }
         let mut holder =
-            PgConnection::connect(&std::env::var("RUST_SETTLEMENT_ADMIN_DATABASE_URL").unwrap())
+            PgConnection::connect(&f._database.admin_url.clone())
                 .await
                 .unwrap();
         sqlx::query("BEGIN").execute(&mut holder).await.unwrap();

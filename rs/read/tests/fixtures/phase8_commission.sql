@@ -1,7 +1,7 @@
 -- Helpers are installed only in the migrated disposable database.
 CREATE OR REPLACE FUNCTION commission_fixture_reset(a uuid,b uuid,c uuid) RETURNS void LANGUAGE plpgsql AS $$
 BEGIN
-    TRUNCATE organizations,commissions,audit_logs,notifications,market_event_outbox CASCADE;
+
     INSERT INTO users(id,email,password_hash,role,status,email_verified,must_change_password)
     VALUES(a,a::text||'@example.test','unused','ADMIN','APPROVED',true,false),
           (b,b::text||'@example.test','unused','ADMIN','APPROVED',true,false),

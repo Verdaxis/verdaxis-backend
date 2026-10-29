@@ -1,4 +1,6 @@
 #![cfg(feature = "contract-tests")]
+#[path = "support/market_database.rs"]
+mod market_database;
 
 use std::collections::BTreeSet;
 use std::net::SocketAddr;
@@ -22,6 +24,7 @@ use verdaxis_read::{
 };
 
 struct Fixture {
+    _database: std::sync::Arc<market_database::MarketDatabase>,
     admin: PgConnection,
     pool: sqlx::PgPool,
     runtime_url: String,
@@ -33,10 +36,10 @@ struct Fixture {
 }
 impl Fixture {
     async fn new() -> Self {
-        let admin_url = std::env::var("RUST_SUPPORT_ADMIN_DATABASE_URL")
-            .expect("explicit disposable administrator URL");
+        let database = std::sync::Arc::new(market_database::MarketDatabase::new("RUST_SUPPORT").await);
+        let admin_url = database.admin_url.clone();
         let runtime_url =
-            std::env::var("RUST_SUPPORT_DATABASE_URL").expect("explicit disposable runtime URL");
+            database.runtime_url.clone();
         let admin_endpoint = url::Url::parse(&admin_url).unwrap();
         let runtime_endpoint = url::Url::parse(&runtime_url).unwrap();
         assert_eq!(admin_endpoint.host_str(), Some("127.0.0.1"));
@@ -71,6 +74,7 @@ impl Fixture {
             .await
             .unwrap();
         Self {
+            _database: database,
             admin,
             pool,
             runtime_url,

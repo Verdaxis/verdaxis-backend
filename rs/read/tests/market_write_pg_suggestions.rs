@@ -1,4 +1,6 @@
 #![cfg(feature = "contract-tests")]
+#[path = "support/market_database.rs"]
+mod market_database;
 
 use axum::{
     Router,
@@ -383,16 +385,16 @@ async fn dismiss_is_idempotent_and_writes_no_audit() {
 }
 
 struct MigratedFixture {
+    _database: market_database::MarketDatabase,
     _admin: PgConnection,
     app: Router,
     pool: sqlx::PgPool,
 }
 impl MigratedFixture {
     async fn new(profile: &str, bid: Value, ask: Value, incompatible: Value) -> Self {
-        let admin_url = std::env::var("RUST_SUGGESTIONS_ADMIN_DATABASE_URL")
-            .expect("explicit migrated disposable administrator URL required");
-        let runtime_url = std::env::var("RUST_SUGGESTIONS_DATABASE_URL")
-            .expect("explicit migrated disposable runtime URL required");
+        let database = market_database::MarketDatabase::new("RUST_SUGGESTIONS").await;
+        let admin_url = database.admin_url.clone();
+        let runtime_url = database.runtime_url.clone();
         let a = url::Url::parse(&admin_url).unwrap();
         let r = url::Url::parse(&runtime_url).unwrap();
         assert_eq!(a.host_str(), Some("127.0.0.1"));
@@ -491,6 +493,7 @@ impl MigratedFixture {
             SharedLimits::default(),
         );
         Self {
+            _database: database,
             _admin: admin,
             app: routes(Arc::new(authority)).with_state(state),
             pool,

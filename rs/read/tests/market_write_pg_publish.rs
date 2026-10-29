@@ -1,4 +1,6 @@
 #![cfg(feature = "contract-tests")]
+#[path = "support/market_database.rs"]
+mod market_database;
 
 use axum::{
     Router,
@@ -24,6 +26,7 @@ fn item() -> Uuid {
 }
 
 struct Fixture {
+    _database: std::sync::Arc<market_database::MarketDatabase>,
     admin: PgConnection,
     observer: PgConnection,
     pool: PgPool,
@@ -32,10 +35,11 @@ struct Fixture {
 }
 impl Fixture {
     async fn new(n: i32, stock: i64) -> Self {
+        let database = std::sync::Arc::new(market_database::MarketDatabase::new("RUST_PUBLISH").await);
         let admin_url =
-            std::env::var("RUST_PUBLISH_ADMIN_DATABASE_URL").expect("disposable administrator URL");
+            database.admin_url.clone();
         let runtime_url =
-            std::env::var("RUST_PUBLISH_DATABASE_URL").expect("disposable runtime URL");
+            database.runtime_url.clone();
         let a = url::Url::parse(&admin_url).unwrap();
         let r = url::Url::parse(&runtime_url).unwrap();
         assert_eq!(a.host_str(), Some("127.0.0.1"));
@@ -67,6 +71,7 @@ impl Fixture {
         let app = AppState::new(config, pools, policy).unwrap();
         let router = component(&app, CreateSettings::default());
         Self {
+            _database: database,
             admin,
             observer,
             pool,
