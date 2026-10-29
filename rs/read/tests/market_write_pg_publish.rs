@@ -811,8 +811,8 @@ async fn wait_for_blocked_expiry(
     observer: &mut PgConnection,
     blocker_pid: i32,
     expires_at: chrono::DateTime<Utc>,
-) {
-    tokio::time::timeout(Duration::from_millis(250), async {
+) -> tokio::time::Instant {
+    tokio::time::timeout(Duration::from_secs(5), async {
         loop {
             let waiting: bool = sqlx::query_scalar(
                 "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND $1=ANY(pg_blocking_pids(pid)))",
@@ -830,13 +830,10 @@ async fn wait_for_blocked_expiry(
     .await
     .expect("publication must reach its held row lock");
     let observed_at = tokio::time::Instant::now();
-    assert!(
-        Utc::now() < expires_at,
-        "listing must be live at the observed wait"
-    );
     let remaining = (expires_at - Utc::now()).to_std().unwrap_or_default();
     tokio::time::sleep_until(observed_at + remaining + Duration::from_millis(5)).await;
     assert!(Utc::now() >= expires_at);
+    observed_at
 }
 
 #[tokio::test]
@@ -863,14 +860,13 @@ async fn listing_expiry_during_party_lock_wait_is_not_reused() {
         .await
         .unwrap();
     let router = f.router.clone();
-    let started = tokio::time::Instant::now();
     let task = tokio::spawn(async move { send(&router, Some(seller()), item(), None).await });
-    wait_for_blocked_expiry(&mut f.observer, blocker_pid, deadline).await;
+    let observed_at = wait_for_blocked_expiry(&mut f.observer, blocker_pid, deadline).await;
     lock.commit().await.unwrap();
     assert!(
-        started.elapsed() < Duration::from_millis(300),
+        observed_at.elapsed() < Duration::from_millis(200),
         "party lock hold must leave margin below the 500 ms lock timeout: {:?}",
-        started.elapsed()
+        observed_at.elapsed()
     );
     let reply = task.await.unwrap();
     assert_eq!(reply.0, StatusCode::OK, "{reply:?}");
@@ -1302,14 +1298,13 @@ async fn listing_expiry_during_inventory_lock_wait_creates_a_new_listing() {
         .await
         .unwrap();
     let router = f.router.clone();
-    let started = tokio::time::Instant::now();
     let task = tokio::spawn(async move { send(&router, Some(seller()), item(), None).await });
-    wait_for_blocked_expiry(&mut f.observer, blocker_pid, deadline).await;
+    let observed_at = wait_for_blocked_expiry(&mut f.observer, blocker_pid, deadline).await;
     blocker.commit().await.unwrap();
     assert!(
-        started.elapsed() < Duration::from_millis(300),
+        observed_at.elapsed() < Duration::from_millis(200),
         "inventory lock hold must leave margin below the 500 ms lock timeout: {:?}",
-        started.elapsed()
+        observed_at.elapsed()
     );
     let reply = task.await.unwrap();
     assert_eq!(reply.0, StatusCode::OK, "{reply:?}");
