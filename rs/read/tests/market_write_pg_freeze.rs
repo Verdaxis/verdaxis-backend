@@ -641,6 +641,16 @@ async fn frozen_list_is_bounded_and_newest_first() {
     assert_eq!(f.snapshot().await, before);
 }
 
+fn code_if_refusal(body: &Value) -> Option<&str> {
+    body["detail"]["code"].as_str()
+}
+fn is_bounded_abort(code: &str) -> bool {
+    matches!(
+        code,
+        "MARKET_BUSY" | "MARKET_TIMEOUT" | "TRANSACTION_RETRY_EXHAUSTED"
+    )
+}
+
 async fn wait_for_lock(admin: &mut PgConnection) {
     for _ in 0..200 {
         let waiting:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND pid<>pg_backend_pid())").fetch_one(&mut *admin).await.unwrap();
@@ -686,7 +696,20 @@ async fn freeze_race_returns_409_not_500() {
         sqlx::query("INSERT INTO trade_freezes(id,trade_id,status,reason_code,note,frozen_by_user_id) VALUES($1,$2,'ACTIVE','OTHER','first review',$3)").bind(Uuid::new_v4()).bind(f.trade).bind(id(ADMIN)).execute(&mut *held).await.unwrap();
         held.commit().await.unwrap();
         let (s, b) = request.await.unwrap();
-        assert_eq!(s, expected, "{b}");
+        if code_if_refusal(&b).is_some_and(is_bounded_abort) {
+            assert!(matches!(s.as_u16(), 409 | 503), "{b}");
+            assert_eq!(f.counts().await, (1, 1, 0));
+            // Once the blocker is gone, the same command must resolve the domain outcome.
+            let before = f.snapshot().await;
+            let (s, b) = f.freeze(actor, reason).await;
+            assert_eq!(s, expected, "{b}");
+            assert_eq!(f.snapshot().await, before);
+        } else {
+            assert_eq!(s, expected, "{b}");
+            if expected == StatusCode::CONFLICT {
+                assert_eq!(code(&b), "TRADE_ALREADY_FROZEN");
+            }
+        }
         assert_eq!(f.counts().await, (1, 1, 0));
     }
     // Real component writers also serialize on the same trade, with independent actors.
@@ -712,9 +735,18 @@ async fn freeze_race_returns_409_not_500() {
         None,
     );
     let (a, b) = tokio::join!(a, b);
-    let mut statuses = [a.0.as_u16(), b.0.as_u16()];
-    statuses.sort();
-    assert_eq!(statuses, [201, 409], "{a:?} {b:?}");
+    for result in [&a, &b] {
+        if result.0 != StatusCode::CREATED {
+            assert!(
+                code_if_refusal(&result.1).is_some_and(|code| {
+                    code == "TRADE_ALREADY_FROZEN" || is_bounded_abort(code)
+                }),
+                "{result:?}"
+            );
+        }
+    }
+    let created = usize::from(a.0 == StatusCode::CREATED) + usize::from(b.0 == StatusCode::CREATED);
+    assert_eq!(created, 1, "{a:?} {b:?}");
     assert_eq!(f.counts().await, (1, 1, 1));
 }
 
