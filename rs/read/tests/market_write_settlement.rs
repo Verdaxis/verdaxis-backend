@@ -1,7 +1,7 @@
 use rust_decimal::Decimal;
 use serde_json::json;
 use uuid::Uuid;
-use verdaxis_read::market_lifecycle::{delivery_amounts, settlement_hash, Delivery};
+use verdaxis_read::market_lifecycle::{Delivery, delivery_amounts, settlement_hash};
 
 fn decimal(text: &str) -> Decimal {
     text.parse().unwrap()
