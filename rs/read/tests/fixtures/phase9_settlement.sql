@@ -43,14 +43,14 @@ END $$;
 
 
 CREATE OR REPLACE FUNCTION settlement_fixture_assisted_side(side text, invalid_link boolean DEFAULT false) RETURNS uuid LANGUAGE plpgsql AS $$
-DECLARE source orderbook_orders%ROWTYPE; trade trades%ROWTYPE; authorization uuid:=gen_random_uuid(); staff uuid:='00000000-0000-0000-0000-000000004001'; customer uuid; BEGIN
+DECLARE source orderbook_orders%ROWTYPE; trade trades%ROWTYPE; auth_id uuid:=gen_random_uuid(); staff uuid:='00000000-0000-0000-0000-000000004001'; customer uuid; BEGIN
  SELECT * INTO STRICT source FROM orderbook_orders LIMIT 1;
  SELECT * INTO STRICT trade FROM trades LIMIT 1;
  DELETE FROM trades; DELETE FROM orderbook_orders;
  customer:=CASE WHEN side='ASK' THEN trade.seller_id ELSE trade.buyer_id END;
  INSERT INTO market_support_authorizations(id,organization_id,accountable_user_id,order_side,product_id,delivery_point_id,availability_window,quantity_mt,price_per_mt_usd,certification_declared,certification_scheme,msds_available,authorization_expires_at,status,created_by_actor_user_id,terms_digest,evidence_reference,commercial_consent_version,commercial_consent_reference,idempotency_key,idempotency_request_hash)
- VALUES(authorization,customer,staff,side,source.product_id,source.delivery_point_id,'SPOT',10,100,true,'ISCC EU',true,now()+interval '1 hour','CONSUMED',staff,repeat('a',64),'Fixture instruction','fixture-v1','Fixture instruction',authorization::text,repeat('b',64));
- source.organization_id:=customer;source.side:=side;source.owner_user_id:=staff;source.created_by_actor_user_id:=staff;source.creation_method:='MARKET_SUPPORT';source.support_authorization_id:=authorization;source.inventory_item_id:=NULL;
+ VALUES(auth_id,customer,staff,side,source.product_id,source.delivery_point_id,'SPOT',10,100,true,'ISCC EU',true,now()+interval '1 hour','CONSUMED',staff,repeat('a',64),'Fixture instruction','fixture-v1','Fixture instruction',auth_id::text,repeat('b',64));
+ source.organization_id:=customer;source.side:=side;source.owner_user_id:=staff;source.created_by_actor_user_id:=staff;source.creation_method:='MARKET_SUPPORT';source.support_authorization_id:=auth_id;source.inventory_item_id:=NULL;
  INSERT INTO orderbook_orders SELECT source.*;
  trade.ask_order_id:=CASE WHEN side='ASK' THEN source.id ELSE NULL END;
  trade.bid_order_id:=CASE WHEN side='BID' THEN source.id ELSE NULL END;
@@ -78,4 +78,18 @@ DECLARE digest bytea; key bigint:=0; BEGIN
  digest:=sha256(convert_to(actor::text||'|'||operation||'|held','UTF8'));
  FOR i IN 0..7 LOOP key:=(key<<8)|get_byte(digest,i); END LOOP;
  PERFORM pg_advisory_xact_lock(CASE WHEN key=0 THEN 1 ELSE key END);
+END $$;
+
+
+CREATE OR REPLACE FUNCTION settlement_fixture_slow_receipt() RETURNS boolean LANGUAGE plpgsql VOLATILE AS $$ BEGIN
+ PERFORM pg_sleep(6); RETURN true;
+END $$;
+CREATE OR REPLACE FUNCTION settlement_fixture_receipt_timeout(enabled boolean) RETURNS void LANGUAGE plpgsql AS $$ BEGIN
+ IF enabled THEN
+  ALTER TABLE market_command_results ENABLE ROW LEVEL SECURITY;
+  CREATE POLICY settlement_receipt_wait ON market_command_results USING(settlement_fixture_slow_receipt());
+ ELSE
+  DROP POLICY settlement_receipt_wait ON market_command_results;
+  ALTER TABLE market_command_results DISABLE ROW LEVEL SECURITY;
+ END IF;
 END $$;
