@@ -1017,3 +1017,110 @@ async fn take_replay_and_pages_project_current_safe_freeze_fields() {
     }
     assert_eq!(f.snapshot().await, before);
 }
+
+
+async fn decline_effects_after_clear(expired: bool) {
+    let mut f = Fixture::new("PENDING_CONFIRMATION").await;
+    // Include a slice subscriber as well as the existing PIN subscriber.
+    sqlx::query("INSERT INTO watchlist_targets(id,watchlist_id,target_type,market_product_code,delivery_point_id,availability_window_code) SELECT $1,watchlist_id,'SLICE',market_product_code,delivery_point_id,availability_window_code FROM watchlist_targets WHERE target_type='PIN'")
+        .bind(id(0x2801)).execute(&mut f.admin).await.unwrap();
+    if expired {
+        sqlx::query("UPDATE orderbook_orders SET expires_at=now()-interval '1 minute' WHERE id=$1")
+            .bind(id(1)).execute(&mut f.admin).await.unwrap();
+    }
+    f.freeze().await;
+    let frozen = f.snapshot().await;
+    assert_refusal(&f.action("decline", SELLER, Some("decline-effects"), Value::Null).await,
+        StatusCode::CONFLICT, "TRADE_FROZEN");
+    // Complete rows include mirrors, PINs, audits, notifications and producer evidence.
+    assert_eq!(f.snapshot().await, frozen);
+    f.clear().await;
+    let before = f.snapshot().await;
+    let opposite: Value = sqlx::query_scalar("SELECT to_jsonb(b) FROM live_slice_benchmarks b WHERE side='BID'")
+        .fetch_one(&mut f.admin).await.unwrap();
+    let (status, body) = f.action("decline", SELLER, Some("decline-effects"), Value::Null).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["status"], "DECLINED");
+    assert_clear(&body);
+    let after = f.snapshot().await;
+    let expected_status = if expired { "EXPIRED" } else { "OPEN" };
+    let order = &after["domain"]["orders"][0];
+    assert_eq!(order["status"], expected_status);
+    let decimal = |v: &Value| -> rust_decimal::Decimal {
+        v.as_str().map(str::to_owned).unwrap_or_else(|| v.to_string()).parse().unwrap()
+    };
+    assert_eq!(decimal(&order["remaining_quantity_mt"]), rust_decimal::Decimal::from(10));
+    assert_eq!(order["version"].as_i64().unwrap(), before["domain"]["orders"][0]["version"].as_i64().unwrap()+1);
+    let current_opposite: Value = sqlx::query_scalar("SELECT to_jsonb(b) FROM live_slice_benchmarks b WHERE side='BID'")
+        .fetch_one(&mut f.admin).await.unwrap();
+    assert_eq!(current_opposite, opposite);
+    let ask: Option<Value> = sqlx::query_scalar("SELECT to_jsonb(b) FROM live_slice_benchmarks b WHERE side='ASK'")
+        .fetch_optional(&mut f.admin).await.unwrap();
+    if expired { assert!(ask.is_none()); } else {
+        let ask = ask.unwrap();
+        assert_eq!(decimal(&ask["benchmark_price_per_mt_usd"]), rust_decimal::Decimal::from(100));
+        assert_eq!(decimal(&ask["total_remaining_quantity_mt"]), rust_decimal::Decimal::from(10));
+        assert_eq!(ask["order_count"], 1);
+    }
+    let pin: Value = sqlx::query_scalar("SELECT to_jsonb(t) FROM watchlist_targets t WHERE target_type='PIN'")
+        .fetch_one(&mut f.admin).await.unwrap();
+    assert_eq!(pin["snapshot_status"], expected_status);
+    assert_eq!(decimal(&pin["snapshot_remaining_quantity_mt"]), rust_decimal::Decimal::from(10));
+    assert_eq!(decimal(&pin["snapshot_quantity_mt"]), rust_decimal::Decimal::from(10));
+    let event: (Value,Value) = sqlx::query_as("SELECT payload,producer_evidence FROM market_event_outbox WHERE event_type='trade_declined'")
+        .fetch_one(&mut f.admin).await.unwrap();
+    assert_eq!(event.0["id"], f.trade.to_string());
+    assert_eq!(event.0["status"], "DECLINED");
+    // An already elapsed order is absent from both public snapshots. A live
+    // restoration remains visible, so only that branch invalidates public data.
+    assert_eq!(event.0.get("_public_market_invalidation").and_then(Value::as_bool).unwrap_or(false), !expired);
+    let evidence = event.1;
+    assert_eq!(evidence["orders"].as_array().unwrap().len(), 1);
+    assert_eq!(evidence["orders"][0]["before"]["status"], "PARTIALLY_FILLED");
+    assert_eq!(evidence["orders"][0]["after"]["status"], expected_status);
+    assert_eq!(evidence["targets"].as_array().unwrap().len(), 2);
+    assert!(evidence["targets"].as_array().unwrap().iter().any(|t| t["target_type"]=="SLICE" && t["target_id"]==id(0x2801).to_string()));
+    let aggregate = |field: &str| evidence[field].as_array().unwrap().iter().find(|a| a["side"]=="ASK").unwrap();
+    let prior = aggregate("aggregates_before");
+    let next = aggregate("aggregates_after");
+    assert_eq!(prior["order_count"], if expired {0} else {1});
+    assert_eq!(next["order_count"], if expired {0} else {1});
+    assert_eq!(decimal(&prior["quantity_mt"]), rust_decimal::Decimal::from(if expired {0} else {7}));
+    assert_eq!(decimal(&next["quantity_mt"]), rust_decimal::Decimal::from(if expired {0} else {10}));
+    assert_eq!(prior["best_price_per_mt_usd"], if expired {Value::Null} else {json!("100")});
+    assert_eq!(next["best_price_per_mt_usd"], prior["best_price_per_mt_usd"]);
+    // SLICE_BEST_PRICE_MOVED requires a changed best; SLICE_WENT_QUIET requires
+    // nonempty before and empty after. Neither condition holds in these two
+    // branches. Keep the captured subscriber and both exact snapshots so the
+    // committed-evidence consumer can make that decision without live reads.
+    assert_eq!(prior["best_price_per_mt_usd"], next["best_price_per_mt_usd"]);
+    assert!(!(prior["order_count"].as_u64().unwrap()>0 && next["order_count"]==0));
+    let audits: Vec<(String,String,Value)> = sqlx::query_as("SELECT action,resource_type,changes FROM audit_logs WHERE action IN ('trade.declined','order.expired') ORDER BY action")
+        .fetch_all(&mut f.admin).await.unwrap();
+    let mut expected = vec![("trade.declined".to_owned(),"trade".to_owned(),json!({"status":"DECLINED"}))];
+    if expired { expected.insert(0,("order.expired".to_owned(),"order".to_owned(),json!({"status":"EXPIRED","released_quantity_mt":"10"}))); }
+    assert_eq!(audits, expected);
+    assert_eq!(after["domain"]["audit"].as_i64().unwrap(),before["domain"]["audit"].as_i64().unwrap()+if expired {2} else {1});
+    assert_eq!(after["domain"]["outbox"], 1);
+    assert_eq!(after["domain"]["receipts"], 1);
+    assert_eq!(after["domain"]["notifications"], 2);
+    assert_eq!(after["domain"]["referrals"],before["domain"]["referrals"]);
+    assert_eq!(after["freezes"],before["freezes"]);
+    let stock: (rust_decimal::Decimal,rust_decimal::Decimal) = sqlx::query_as("SELECT current_stock_mt,reserved_stock_mt FROM inventory_items")
+        .fetch_one(&mut f.admin).await.unwrap();
+    assert_eq!(stock, if expired {(10.into(),0.into())} else {(0.into(),10.into())});
+    assert_eq!(f.action("decline",SELLER,Some("decline-effects"),Value::Null).await,(StatusCode::OK,body));
+    assert_eq!(f.snapshot().await,after);
+}
+
+#[tokio::test]
+#[ignore = "requires an attested disposable PostgreSQL"]
+async fn cleared_decline_restores_live_order_effects_once() {
+    decline_effects_after_clear(false).await;
+}
+
+#[tokio::test]
+#[ignore = "requires an attested disposable PostgreSQL"]
+async fn cleared_decline_expires_elapsed_order_with_complete_effects() {
+    decline_effects_after_clear(true).await;
+}
