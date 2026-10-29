@@ -147,8 +147,8 @@
       },
       "refusals": [
         "404 item absent/foreign",
-        "403 REPLAY_PRINCIPAL_MISMATCH or Bio-LNG publication or KYC_REQUIRED with extra fields",
-        "400 invalid stock/lot/qualification or INVENTORY_STOCK_UNAVAILABLE",
+        "403 REPLAY_PRINCIPAL_MISMATCH or KYC_REQUIRED with extra fields",
+        "400 Bio-LNG publication or invalid stock/lot/qualification or INVENTORY_STOCK_UNAVAILABLE",
         "409 expired backlog/inconsistent stock/fanout/idempotency"
       ],
       "source": {

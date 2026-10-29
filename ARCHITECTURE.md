@@ -249,8 +249,13 @@ market transaction. The owner's inventory list and compatibility listings run in
 authenticated read transaction that locks only the user row. Inventory mutations recheck
 indicative admission under organization/user locks and reference history under the
 inventory lock. Responses and participant-only effects are prepared before commit. The
-inventory route component remains unmounted for serving; publication is a separate
-matching command.
+inventory route component remains unmounted for serving. Publication uses the same
+sealed owner: it discovers expiry and crossing parties before the prefix, acquires
+one bounded order set before inventory, sweeps expiry, reserves all current stock
+and inserts a linked SPOT ASK. Principal-bound order-key replay precedes fresh
+admission. Inline match completion and expiry/publication effects share one terminal
+finish; conversion delivery is scheduled only after a known fresh commit. Order
+entry and publication take the same matching, KYC, fee and analytics inputs.
 
 ## Rust Phase 2 price-alert component
 

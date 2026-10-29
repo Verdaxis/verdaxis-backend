@@ -21,7 +21,7 @@ mod error;
 mod events;
 mod expiry;
 mod invalidation;
-mod inventory;
+pub(crate) mod inventory;
 pub use inventory::{InventoryAction, InventoryInput, execute_inventory};
 pub(crate) mod amend;
 pub mod locks;

@@ -338,7 +338,7 @@ fn boundary_insert_allowed(root: &Path, path: &Path, table: &str) -> bool {
         ("dismissal.rs", &["MATCH_SUGGESTIONS"]),
         ("benchmarks.rs", &["LIVE_SLICE_BENCHMARKS"]),
         ("events.rs", &["WATCHLIST_EVENTS"]),
-        ("inventory.rs", &["INVENTORY_ITEMS"]),
+        ("inventory.rs", &["INVENTORY_ITEMS", "ORDERBOOK_ORDERS"]),
         ("support.rs", &["STAFF_CAPABILITY_ASSIGNMENTS"]),
         ("support/contexts.rs", &["MARKET_SUPPORT_CONTEXTS"]),
     ];
@@ -1420,6 +1420,20 @@ fn watchlist_event_insert_authority_is_scoped_to_the_exact_source_file() {
 #[test]
 fn inventory_inserts_have_one_named_source() {
     let root = repository_root();
+    let inventory = root.join("rs/read/src/order_write/inventory.rs");
+    assert!(boundary_insert_allowed(
+        &root,
+        &inventory,
+        "ORDERBOOK_ORDERS"
+    ));
+    for file in ["transaction.rs", "outbox.rs", "nested/inventory.rs"] {
+        assert!(!boundary_insert_allowed(
+            &root,
+            &root.join("rs/read/src/order_write").join(file),
+            "ORDERBOOK_ORDERS"
+        ));
+    }
+    assert!(!boundary_insert_allowed(&root, &inventory, "TRADES"));
     let boundary = root.join("rs/read/src/order_write");
     assert!(boundary_insert_allowed(
         &root,

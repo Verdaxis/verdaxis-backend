@@ -1751,6 +1751,15 @@ pub trait MarketCommand: Send + Sync + 'static {
     fn replans_missing_lock_rows(&self) -> bool {
         false
     }
+    fn preview_drift_error(&self) -> MarketAttemptError {
+        MarketAttemptError::PreviewChanged
+    }
+    fn recovers_publication_flush(&self) -> bool {
+        false
+    }
+    fn before_publication_recovery(&self) -> BoxFuture<'_, ()> {
+        Box::pin(async {})
+    }
     fn prepare_response(&self, _value: &Self::Output) -> Result<(), MarketAttemptError> {
         Ok(())
     }
@@ -1831,6 +1840,30 @@ impl LockedMarketTransaction<'_> {
     ) -> Result<super::support::SupportPort<'_>, super::MarketWriteError> {
         self.locked.require_economic_phase()?;
         Ok(super::support::SupportPort::new(self.conn, self.locked))
+    }
+    pub(super) async fn publication_resources(
+        &mut self,
+        candidate: &super::matching::OrderRow,
+        bound: super::matching::MatchBound<'_>,
+        matching: bool,
+    ) -> Result<Vec<super::matching::OrderRow>, super::MarketWriteError> {
+        self.locked.require_economic_phase()?;
+        let (rows, orders, items) = super::inventory::lock_publication_resources(
+            self.conn,
+            self.locked,
+            candidate,
+            bound,
+            matching,
+        )
+        .await?;
+        self.plan
+            .to_mut()
+            .record_matching_resources(&orders, &items);
+        Ok(rows)
+    }
+    pub(super) fn register_publication(&mut self, id: Uuid) -> Result<(), super::MarketWriteError> {
+        self.locked
+            .record_matching_resource(super::locks::LockClass::Order, id)
     }
     pub(super) fn inventory(
         &mut self,
@@ -2097,6 +2130,8 @@ pub enum MarketAttemptError {
     Database(sqlx::Error),
     Refusal(super::MarketWriteError),
     PreviewChanged,
+    PublicationFlush(sqlx::Error),
+    RecoveryAbsent,
 }
 impl From<sqlx::Error> for MarketAttemptError {
     fn from(error: sqlx::Error) -> Self {
@@ -2111,20 +2146,24 @@ impl From<super::MarketWriteError> for MarketAttemptError {
 impl MarketAttemptError {
     fn retryable(&self) -> bool {
         match self {
-            Self::Database(error) => error
+            Self::Database(error) | Self::PublicationFlush(error) => error
                 .as_database_error()
                 .and_then(|error| error.code())
                 .is_some_and(|code| matches!(code.as_ref(), "40001" | "40P01")),
             Self::PreviewChanged => true,
+            Self::RecoveryAbsent => false,
             Self::Refusal(error) => error.is_retryable(),
         }
     }
     fn response(self) -> super::MarketWriteError {
         match self {
-            Self::Database(error) => error.into(),
+            Self::Database(error) | Self::PublicationFlush(error) => error.into(),
             Self::Refusal(error) => error,
             Self::PreviewChanged => {
                 super::MarketWriteError::new(super::MarketErrorCode::TransactionRetryExhausted)
+            }
+            Self::RecoveryAbsent => {
+                super::MarketWriteError::new(super::MarketErrorCode::IdempotencyConflict)
             }
         }
     }
@@ -2148,6 +2187,16 @@ pub async fn run_market_command<C: MarketCommand>(
         for attempt in 0..DEFAULT_MARKET_TRANSACTION_ATTEMPTS {
             match market_attempt(&pool, &access, &command, class, false).await {
                 Ok(value) => return Ok(value),
+                Err(MarketAttemptError::PublicationFlush(error))
+                    if command.recovers_publication_flush() =>
+                {
+                    command.before_publication_recovery().await;
+                    return match market_attempt(&pool, &access, &command, class, true).await {
+                        Ok(value) => Ok(value),
+                        Err(MarketAttemptError::RecoveryAbsent) => Err(error.into()),
+                        Err(other) => Err(other.response()),
+                    };
+                }
                 Err(MarketAttemptError::Database(error))
                     if is_command_receipt_collision(&error)
                         || (command.uses_order_create_replay()
@@ -2214,7 +2263,7 @@ async fn market_attempt<C: MarketCommand>(
         // A new set never adds a lock here: it aborts the complete attempt.
         let current = command.preview(&mut tx, access.subject).await?;
         if current != preview {
-            return Err(MarketAttemptError::PreviewChanged);
+            return Err(command.preview_drift_error());
         }
         let actor = super::authority::admission::authenticate_shared(
             &mut tx,
@@ -2232,9 +2281,7 @@ async fn market_attempt<C: MarketCommand>(
             return Ok(value);
         }
         if recovery_only {
-            return Err(
-                super::MarketWriteError::new(super::MarketErrorCode::IdempotencyConflict).into(),
-            );
+            return Err(MarketAttemptError::RecoveryAbsent);
         }
         let actor = super::authority::admission::authenticate_shared(
             port.conn,

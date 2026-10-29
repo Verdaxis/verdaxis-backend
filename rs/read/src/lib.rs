@@ -258,6 +258,23 @@ pub(crate) mod market_amend {
     pub(crate) use crate::order_write::{MarketErrorCode, MarketWriteError};
 }
 
+/// Inventory publication's sealed component interface.
+pub(crate) mod market_publish {
+    pub(crate) use crate::order_write::effects::AuditContext;
+    pub(crate) use crate::order_write::inventory::{PublishRequest, publish};
+    #[cfg(feature = "contract-tests")]
+    pub(crate) fn publication_hash(item: uuid::Uuid) -> String {
+        crate::order_write::idempotency_request_hash(
+            &crate::order_write::Canonical::from_json(
+                &serde_json::json!({"inventory_item_id":item}),
+            )
+            .unwrap(),
+        )
+        .unwrap()
+    }
+    pub(crate) use crate::order_write::{MarketErrorCode, MarketWriteError};
+}
+
 /// Sealed order-entry component interface; no raw transaction is exported.
 pub(crate) mod market_create {
     pub(crate) use crate::order_write::effects::AuditContext;

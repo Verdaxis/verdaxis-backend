@@ -299,6 +299,39 @@ impl<'a> EffectPort<'a> {
         }
     }
 
+    /// Capture an expiring row's last live public projection while retaining
+    /// the command clock for transaction effects and aggregate snapshots.
+    pub async fn capture_expiry_visibility(
+        &mut self,
+        before: &mut BeforeEffects,
+        policy: &MarketPolicy,
+        config: &Config,
+        facts: &[(Uuid, DateTime<Utc>)],
+    ) -> Result<BTreeMap<Uuid, bool>, MarketWriteError> {
+        self.locked.require_economic_phase()?;
+        let mut visibility = BTreeMap::new();
+        for (id, expiry) in facts {
+            if !self.order_ids.contains(id) {
+                return Err(inconsistent());
+            }
+            let at = expiry
+                .checked_sub_signed(chrono::Duration::microseconds(1))
+                .ok_or_else(inconsistent)?;
+            let live = load_orders(self.conn, policy, config, &[*id], at)
+                .await?
+                .pop()
+                .ok_or_else(inconsistent)?;
+            let captured = before
+                .orders
+                .iter_mut()
+                .find(|row| row.id == *id)
+                .ok_or_else(inconsistent)?;
+            visibility.insert(*id, live.public.is_some());
+            captured.public = live.public;
+            captured.qualified = live.qualified;
+        }
+        Ok(visibility)
+    }
     pub async fn capture_before(
         &mut self,
         policy: &MarketPolicy,
@@ -1457,7 +1490,10 @@ pub mod contract {
     }
     fn attempt_error(error: MarketAttemptError) -> MarketWriteError {
         match error {
-            MarketAttemptError::Database(e) => e.into(),
+            MarketAttemptError::Database(e) | MarketAttemptError::PublicationFlush(e) => e.into(),
+            MarketAttemptError::RecoveryAbsent => {
+                MarketWriteError::new(MarketErrorCode::IdempotencyConflict)
+            }
             MarketAttemptError::Refusal(e) => e,
             MarketAttemptError::PreviewChanged => {
                 MarketWriteError::new(MarketErrorCode::MarketSliceChanged)
