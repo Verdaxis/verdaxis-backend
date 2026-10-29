@@ -1240,45 +1240,144 @@ async fn second_listing_reuse_leaves_expiry_and_stock_unchanged() {
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn listing_expiry_during_inventory_lock_wait_creates_a_new_listing() {
-    let mut f=Fixture::new(0,200).await;
-    let first=f.publish(None).await;assert_eq!(first.0,StatusCode::OK,"{first:?}");
-    let deadline=Utc::now()+chrono::Duration::milliseconds(250);
-    sqlx::query("SELECT publish_fixture_expiry($1)").bind(deadline).execute(&mut f.admin).await.unwrap();
-    let mut blocker=f.pool.begin().await.unwrap();
-    sqlx::query("SELECT publish_fixture_hold_item($1)").bind(item()).execute(&mut *blocker).await.unwrap();
-    let router=f.router.clone();let task=tokio::spawn(async move{send(&router,Some(seller()),item(),None).await});
+    let mut f = Fixture::new(0, 200).await;
+    let first = f.publish(None).await;
+    assert_eq!(first.0, StatusCode::OK, "{first:?}");
+    let deadline = Utc::now() + chrono::Duration::milliseconds(250);
+    sqlx::query("SELECT publish_fixture_expiry($1)")
+        .bind(deadline)
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
+    let mut blocker = f.pool.begin().await.unwrap();
+    sqlx::query("SELECT publish_fixture_hold_item($1)")
+        .bind(item())
+        .execute(&mut *blocker)
+        .await
+        .unwrap();
+    let router = f.router.clone();
+    let task = tokio::spawn(async move { send(&router, Some(seller()), item(), None).await });
     tokio::time::sleep(Duration::from_millis(50)).await;
-    let returned_before_unlock=task.is_finished();
+    let returned_before_unlock = task.is_finished();
     tokio::time::sleep(Duration::from_millis(250)).await;
     blocker.commit().await.unwrap();
-    let reply=task.await.unwrap();
-    assert!(!returned_before_unlock,"publication must wait for the inventory row");
-    assert_eq!(reply.0,StatusCode::OK,"{reply:?}");assert_ne!(reply.1["listing_id"],first.1["listing_id"]);
+    let reply = task.await.unwrap();
+    assert!(
+        !returned_before_unlock,
+        "publication must wait for the inventory row"
+    );
+    assert_eq!(reply.0, StatusCode::OK, "{reply:?}");
+    assert_ne!(reply.1["listing_id"], first.1["listing_id"]);
     let rows=sqlx::query("SELECT status::text AS status,quantity_mt,remaining_quantity_mt FROM orderbook_orders ORDER BY created_at,id").fetch_all(&mut f.observer).await.unwrap();
-    assert_eq!(rows.len(),2);assert_eq!(rows[0].get::<String,_>("status"),"EXPIRED");assert_eq!(rows[1].get::<String,_>("status"),"OPEN");assert_eq!(rows[1].get::<Decimal,_>("remaining_quantity_mt"),Decimal::from(200));assert_eq!(f.stock().await,(Decimal::ZERO,Decimal::from(200)));
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].get::<String, _>("status"), "EXPIRED");
+    assert_eq!(rows[1].get::<String, _>("status"), "OPEN");
+    assert_eq!(
+        rows[1].get::<Decimal, _>("remaining_quantity_mt"),
+        Decimal::from(200)
+    );
+    assert_eq!(f.stock().await, (Decimal::ZERO, Decimal::from(200)));
 }
 
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn publication_and_ordinary_create_share_crossing_match_outcomes() {
-    for publication in [true,false] {
-        let mut f=Fixture::new(1,300).await;
-        let reply=if publication { f.publish(None).await } else {
-            let router=verdaxis_read::routes::market_write::order_create::router(f.app.clone(),VerificationSettings::new(KEY.into(),None,"publish-tests".into(),"publish-tests".into()),CreateSettings::default());
-            let source:Value=sqlx::query_scalar("SELECT to_jsonb(i) FROM inventory_items i WHERE id=$1").bind(item()).fetch_one(&mut f.observer).await.unwrap();
-            let bid=sqlx::query("SELECT product_id,delivery_point_id FROM orderbook_orders LIMIT 1").fetch_one(&mut f.observer).await.unwrap();
-            let body=json!({"side":"ASK","product_id":bid.get::<Uuid,_>("product_id"),"delivery_point_id":bid.get::<Uuid,_>("delivery_point_id"),"quantity_mt":"300","price_per_mt_usd":"100","certification_declared":true,"certification_scheme":source["certification_scheme"],"specification_standard":source["specification_standard"],"msds_available":true,"carbon_intensity_gco2_mj":"0","carbon_intensity_method":source["carbon_intensity_method"],"feedstock":source["feedstock"],"origin":source["origin"]});
-            let now=Utc::now().timestamp();let token=jsonwebtoken::encode(&jsonwebtoken::Header::default(),&json!({"sub":seller(),"type":"access","iat":now,"exp":now+600,"iss":"publish-tests","aud":"publish-tests"}),&jsonwebtoken::EncodingKey::from_secret(KEY.as_bytes())).unwrap();
-            let response=router.oneshot(Request::builder().method("POST").uri("/api/orderbook").header("authorization",format!("Bearer {token}")).header("content-type","application/json").body(Body::from(body.to_string())).unwrap()).await.unwrap();
-            let status=response.status();let bytes=axum::body::to_bytes(response.into_body(),1024*1024).await.unwrap();(status,serde_json::from_slice(&bytes).unwrap())
+    for publication in [true, false] {
+        let mut f = Fixture::new(1, 300).await;
+        let reply = if publication {
+            f.publish(None).await
+        } else {
+            let router = verdaxis_read::routes::market_write::order_create::router(
+                f.app.clone(),
+                VerificationSettings::new(
+                    KEY.into(),
+                    None,
+                    "publish-tests".into(),
+                    "publish-tests".into(),
+                ),
+                CreateSettings::default(),
+            );
+            let source: Value =
+                sqlx::query_scalar("SELECT to_jsonb(i) FROM inventory_items i WHERE id=$1")
+                    .bind(item())
+                    .fetch_one(&mut f.observer)
+                    .await
+                    .unwrap();
+            let bid =
+                sqlx::query("SELECT product_id,delivery_point_id FROM orderbook_orders LIMIT 1")
+                    .fetch_one(&mut f.observer)
+                    .await
+                    .unwrap();
+            let body = json!({"side":"ASK","product_id":bid.get::<Uuid,_>("product_id"),"delivery_point_id":bid.get::<Uuid,_>("delivery_point_id"),"quantity_mt":"300","price_per_mt_usd":"100","certification_declared":true,"certification_scheme":source["certification_scheme"],"specification_standard":source["specification_standard"],"msds_available":true,"carbon_intensity_gco2_mj":"0","carbon_intensity_method":source["carbon_intensity_method"],"feedstock":source["feedstock"],"origin":source["origin"]});
+            let now = Utc::now().timestamp();
+            let token=jsonwebtoken::encode(&jsonwebtoken::Header::default(),&json!({"sub":seller(),"type":"access","iat":now,"exp":now+600,"iss":"publish-tests","aud":"publish-tests"}),&jsonwebtoken::EncodingKey::from_secret(KEY.as_bytes())).unwrap();
+            let response = router
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/api/orderbook")
+                        .header("authorization", format!("Bearer {token}"))
+                        .header("content-type", "application/json")
+                        .body(Body::from(body.to_string()))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            let status = response.status();
+            let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+                .await
+                .unwrap();
+            (status, serde_json::from_slice(&bytes).unwrap())
         };
-        assert_eq!(reply.0,if publication{StatusCode::OK}else{StatusCode::CREATED},"{reply:?}");
-        let trade=sqlx::query("SELECT status::text AS status,quantity_mt,price_per_mt_usd FROM trades").fetch_one(&mut f.observer).await.unwrap();
-        assert_eq!(trade.get::<String,_>("status"),"CONFIRMED");assert_eq!(trade.get::<Decimal,_>("quantity_mt"),Decimal::from(200));assert_eq!(trade.get::<Decimal,_>("price_per_mt_usd"),Decimal::from(110));
+        assert_eq!(
+            reply.0,
+            if publication {
+                StatusCode::OK
+            } else {
+                StatusCode::CREATED
+            },
+            "{reply:?}"
+        );
+        let trade =
+            sqlx::query("SELECT status::text AS status,quantity_mt,price_per_mt_usd FROM trades")
+                .fetch_one(&mut f.observer)
+                .await
+                .unwrap();
+        assert_eq!(trade.get::<String, _>("status"), "CONFIRMED");
+        assert_eq!(trade.get::<Decimal, _>("quantity_mt"), Decimal::from(200));
+        assert_eq!(
+            trade.get::<Decimal, _>("price_per_mt_usd"),
+            Decimal::from(110)
+        );
         let orders=sqlx::query("SELECT side::text AS side,status::text AS status,quantity_mt,remaining_quantity_mt,inventory_item_id FROM orderbook_orders ORDER BY side").fetch_all(&mut f.observer).await.unwrap();
-        assert_eq!(orders.len(),2);assert_eq!(orders[0].get::<String,_>("side"),"ASK");assert_eq!(orders[0].get::<String,_>("status"),"PARTIALLY_FILLED");assert_eq!(orders[0].get::<Decimal,_>("quantity_mt"),Decimal::from(300));assert_eq!(orders[0].get::<Decimal,_>("remaining_quantity_mt"),Decimal::from(100));assert_eq!(orders[0].get::<Option<Uuid>,_>("inventory_item_id"),publication.then_some(item()));
-        assert_eq!(orders[1].get::<String,_>("status"),"FILLED");assert_eq!(orders[1].get::<Decimal,_>("remaining_quantity_mt"),Decimal::ZERO);
-        assert_eq!(f.stock().await,if publication{(Decimal::ZERO,Decimal::from(100))}else{(Decimal::from(300),Decimal::ZERO)});
+        assert_eq!(orders.len(), 2);
+        assert_eq!(orders[0].get::<String, _>("side"), "ASK");
+        assert_eq!(orders[0].get::<String, _>("status"), "PARTIALLY_FILLED");
+        assert_eq!(
+            orders[0].get::<Decimal, _>("quantity_mt"),
+            Decimal::from(300)
+        );
+        assert_eq!(
+            orders[0].get::<Decimal, _>("remaining_quantity_mt"),
+            Decimal::from(100)
+        );
+        assert_eq!(
+            orders[0].get::<Option<Uuid>, _>("inventory_item_id"),
+            publication.then_some(item())
+        );
+        assert_eq!(orders[1].get::<String, _>("status"), "FILLED");
+        assert_eq!(
+            orders[1].get::<Decimal, _>("remaining_quantity_mt"),
+            Decimal::ZERO
+        );
+        assert_eq!(
+            f.stock().await,
+            if publication {
+                (Decimal::ZERO, Decimal::from(100))
+            } else {
+                (Decimal::from(300), Decimal::ZERO)
+            }
+        );
     }
 }
 
