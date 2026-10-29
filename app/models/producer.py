@@ -1,4 +1,4 @@
-from sqlalchemy import String, ForeignKey, Enum, Numeric, Date, DateTime, Text, Integer, func
+from sqlalchemy import String, ForeignKey, Enum, Numeric, Date, DateTime, Text, Integer, Index, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 from geoalchemy2 import Geography
@@ -22,6 +22,11 @@ class ProducerProject(Base):
     Displayed on the producer map and linked to marketplace listings.
     """
     __tablename__ = "producer_projects"
+    # COD and status range reads in a stable order (p5_20261020_read_indexes).
+    __table_args__ = (
+        Index("ix_p5_producers_cod_name_id", "cod_year", "name", "id"),
+        Index("ix_p5_producers_status_cod_id", "status", "cod_year", "id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String, nullable=False)

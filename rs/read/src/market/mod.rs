@@ -7,6 +7,7 @@
 pub mod amount;
 pub mod cache_dependencies;
 pub mod decimal;
+pub mod fueleu;
 pub mod legacy_curve;
 pub mod live_benchmarks;
 pub mod order_projection;

@@ -1,10 +1,17 @@
+// Phase 4 Task 15 registration: shared analytics primitives.
+pub mod analytics;
 pub mod auth;
+pub mod business;
+pub mod compliance;
 pub mod crud;
+pub mod kyc;
 pub mod market;
 pub mod mcp;
+pub mod providers;
 pub mod routes;
 pub mod runtime;
 pub mod streams;
+pub mod subscriptions;
 
 // ---------------------------------------------------------------------------
 // Phase 2 Task 20 registration block.
@@ -34,8 +41,8 @@ pub use market::windows::{
     normalize_window, window_display_label, window_sort_key, window_start_date,
 };
 pub use runtime::admission::{
-    DEFAULT_READ_ADMISSION_SLOTS, TradingFill, run_admitted, run_trading_read, selected_read,
-    try_read,
+    DEFAULT_READ_ADMISSION_SLOTS, TradingFill, run_admitted, run_market_read, run_trading_read,
+    selected_read, try_read,
 };
 pub use runtime::artifact::{
     ARTIFACT_VERSION, LIBC_MIN, verify_artifact_identity, verify_compiled_identity, version_json,
@@ -105,6 +112,8 @@ pub struct AppState {
     pub trading_read_observer: std::sync::Arc<dyn runtime::admission::TradingReadObserver>,
     /// Stable identity of this process's environment, release and policy.
     pub policy_identity: String,
+    /// Allowed request `Host` authorities, parsed from `ALLOWED_HOSTS`.
+    pub host_policy: std::sync::Arc<runtime::host::HostPolicy>,
 }
 
 impl AppState {
@@ -124,6 +133,7 @@ impl AppState {
         ));
         let phase2 = runtime::phase2::Phase2Settings::from_options(&config.phase2)?;
         let phase3 = runtime::phase3::Phase3Settings::from_options(&config.phase2)?;
+        let host_policy = runtime::host::HostPolicy::parse(config.phase2.allowed_hosts.as_deref())?;
         let policy_identity = market::cache_dependencies::policy_identity(&config, &policy);
         let reference_cache = std::sync::Arc::new(runtime::cache::ReferenceCache::default());
         let trading_caches = std::sync::Arc::new(runtime::cache::TradingCaches::default());
@@ -152,6 +162,7 @@ impl AppState {
             public_trading_cache: std::sync::Arc::new(runtime::cache::TradingCache::default()),
             trading_read_observer: std::sync::Arc::new(runtime::admission::RealtimeTradingRead),
             policy_identity,
+            host_policy: std::sync::Arc::new(host_policy),
         })
     }
 
@@ -229,11 +240,23 @@ pub struct Config {
     pub pool_max: u32,
     pub python_budget: u32,
     pub configured_max_connections: u32,
+    /// Optional EUR/USD rate for the compliance pricing assumptions
+    /// (`COMPLIANCE_EUR_USD_RATE`, a decimal string). Absent means the pricing
+    /// core's published default; startup refuses a value that is not positive.
+    #[serde(default, alias = "COMPLIANCE_EUR_USD_RATE")]
+    pub compliance_eur_usd_rate: Option<rust_decimal::Decimal>,
+    /// Operator configuration only; relative paths use the unit WorkingDirectory.
+    #[serde(default = "fleet_artifact_default", alias = "FLEET_ARTIFACT_PATH")]
+    pub fleet_artifact_path: std::path::PathBuf,
     /// Phase 2 private runtime settings. The deploy transaction projects them
     /// into the Rust runtime file only. Absent in the contract harness, where
     /// the Phase 2 groups are not mounted and Caddy keeps them on Python.
     #[serde(default)]
     pub phase2: Phase2Options,
+}
+
+fn fleet_artifact_default() -> std::path::PathBuf {
+    "data/fleet_demand.json".into()
 }
 
 /// The minimal Phase 2 verification, invite and public-link settings.
@@ -253,6 +276,15 @@ pub struct Phase2Options {
     /// The watchlist producer activation instant from the release metadata
     /// file (PD5), as written there. Absent until a release records one.
     pub watchlist_producer_activated_at: Option<String>,
+    /// The status the stream heartbeat reports (`SYSTEM_STATUS`) and its
+    /// optional message (`SYSTEM_STATUS_MESSAGE`), as configured. Both are
+    /// validated at startup by `runtime::config`; absent means operational.
+    pub system_status: Option<String>,
+    pub system_status_message: Option<String>,
+    /// Comma-separated `ALLOWED_HOSTS`: the `Host` authorities served besides
+    /// loopback. Unset or blank turns the check off; a malformed value stops
+    /// the start (see `runtime::host`).
+    pub allowed_hosts: Option<String>,
 }
 
 fn read_admission_default() -> u32 {

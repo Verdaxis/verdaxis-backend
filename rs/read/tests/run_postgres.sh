@@ -43,6 +43,7 @@ GRANT rust_group TO rust_member;
 CREATE ROLE rust_migrator LOGIN NOINHERIT PASSWORD 'disposable_migrator_pw';
 CREATE DATABASE verdaxis_rust_test OWNER rust_migrator;
 \connect verdaxis_rust_test
+CREATE EXTENSION postgis;
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 GRANT USAGE ON SCHEMA public TO rust_app, rust_member;
 SET ROLE rust_migrator;
@@ -50,25 +51,40 @@ CREATE TABLE alembic_version(version_num varchar(64));
 INSERT INTO alembic_version VALUES ('kycg_20261014_staging');
 SQL
 export RUST_TEST_DATABASE_URL="postgres://rust_app:disposable_app_pw@127.0.0.1:$port/verdaxis_rust_test"
+# Demand cases require an explicit disposable _test URL and create only connection-local temporary tables.
+export RUST_DEMAND_TEST_DATABASE_URL="$RUST_TEST_DATABASE_URL"
 export RUST_TEST_MEMBER_DATABASE_URL="postgres://rust_member:disposable_member_pw@127.0.0.1:$port/verdaxis_rust_test"
 export RUST_TEST_MIGRATOR_DATABASE_URL="postgres://rust_migrator:disposable_migrator_pw@127.0.0.1:$port/verdaxis_rust_test"
 export RELEASE_SHA=$(git rev-parse HEAD)
 
 log=$(mktemp "${TMPDIR:-/tmp}/rust-postgres-tests.XXXXXX")
 set +e
-# The Task 6 visibility, trade-evidence and market-policy matrices, and the
-# Task 9/10 old-shape/new-shape equivalence proofs, need the seeded fixture
-# catalog and the Python oracle, which this database does not carry. They are
-# named here rather than silently skipped: rs/read/tests/run_market_contract.sh
-# runs them against their own disposable database. `--skip` matches test
-# function names, not test file names, so every test is listed by its name.
+# The Task 6 visibility, trade-evidence and market-policy matrices, the
+# Task 9/10 old-shape/new-shape equivalence proofs, and the five Phase 5
+# compliance overlay populated-fixture cases need the seeded fixture catalog
+# and the Python oracle, which this database does not carry. They are named
+# here rather than silently skipped: rs/read/tests/run_market_contract.sh
+# runs all five against their own disposable database, refusing a green
+# result when the fixture is missing. `--skip` matches test function names,
+# not test file names, so every test is listed by its name.
 cargo test --manifest-path rs/Cargo.toml --locked --workspace --features contract-tests \
-  -- --test-threads=1 --skip public_visibility_matrix_matches_python \
+  -- --test-threads=1 \
+  --skip runtime_documents_and_history_are_append_only \
+  --skip runtime_cannot_write_provenance_or_grace \
+  --skip organization_approval_trigger_reads_back_real_and_vd001 \
+  --skip retained_documents_block_user_and_org_delete \
+  --skip rust_service_credential_absence_does_not_fail_readiness \
+  --skip public_visibility_matrix_matches_python \
   --skip trade_evidence_matrix_matches_python \
   --skip benchmark_key_first_matches_key_join_last \
   --skip biofuel_supplier_metadata_clause_hides_only_failing_asks \
   --skip eligibility_sets_match_legacy_for_the_curve_relation \
   --skip eligibility_sets_match_legacy_predicate_for_every_order \
+  --skip compliance_overlay_postgres_cases \
+  --skip compliance_overlay_authenticated_cases \
+  --skip compliance_overlay_timeout_cases \
+  --skip compliance_overlay_snapshot_cases \
+  --skip compliance_overlay_index_cases \
   --skip curve_table_keyed_candidates_match_the_full_relation \
   --skip curve_table_equivalence_detects_a_dropped_key \
   --skip curve_slice_keyed_candidates_match_the_full_relation \
@@ -95,3 +111,10 @@ if ! grep -Eq '^test result: ok\. [1-9][0-9]* passed' "$log"; then
   echo "no Rust test ran: refusing a green result" >&2
   exit 1
 fi
+
+# Phase 4 authority/review suites mark database cases explicitly; execute them
+# here as well as the default workspace cases, on the same disposable endpoint.
+cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read --features contract-tests \
+  --test phase4_analytics_views --test phase4_analytics_legacy \
+  --test phase4_admission --test phase4_organizations --test phase4_races \
+  -- --include-ignored --test-threads=1

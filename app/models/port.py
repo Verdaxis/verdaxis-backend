@@ -1,4 +1,4 @@
-from sqlalchemy import String, Boolean, Numeric, ForeignKey, DateTime, Enum
+from sqlalchemy import String, Boolean, Numeric, ForeignKey, DateTime, Enum, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 from geoalchemy2 import Geography
@@ -39,6 +39,8 @@ class PortIntelligence(Base):
 
 class Vessel(Base):
     __tablename__ = "vessels"
+    # Organization-scoped vessel lists in a stable order (p5_20261020_read_indexes).
+    __table_args__ = (Index("ix_p5_vessels_org_id", "organization_id", "id"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     organization_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("organizations.id"))

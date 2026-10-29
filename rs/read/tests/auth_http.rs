@@ -324,6 +324,8 @@ fn cors_app(environment: &str) -> Router {
         pool_max: 17,
         python_budget: 52,
         configured_max_connections: 100,
+        compliance_eur_usd_rate: None,
+        fleet_artifact_path: "data/fleet_demand.json".into(),
         prepared_budget: None,
         phase2: Default::default(),
     };

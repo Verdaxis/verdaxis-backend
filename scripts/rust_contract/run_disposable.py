@@ -343,7 +343,7 @@ CREATE EXTENSION IF NOT EXISTS postgis;
         subprocess.run(
             self.build_command(),
             cwd=ROOT,
-            env={**os.environ, "RELEASE_SHA": self.sha},
+            env={**os.environ, "RELEASE_SHA": self.sha, "RUST_TEST_PYTHON": sys.executable},
             check=True,
         )
         if self.rust_target == "all":
@@ -409,6 +409,9 @@ CREATE EXTENSION IF NOT EXISTS postgis;
             "JWT_SECRET": "test-secret-key-for-testing-minimum-32-chars",
             "DISPOSABLE_TEST_TOKEN": self.token,
             "RUST_CONTRACT_CLOCK": CORPUS_CLOCK,
+            # Rust cases that start Python use the interpreter that runs this
+            # harness, so a workflow venv and a test host agree.
+            "RUST_TEST_PYTHON": sys.executable,
             "KYC_EXECUTION_GATE_ENABLED": str(self.gate).lower(),
             "RUST_CORPUS_MANIFEST": str(ROOT / "work/rust-phase1/task4b-fixtures.json"),
             **self.urls(port),
@@ -860,6 +863,7 @@ CREATE EXTENSION IF NOT EXISTS postgis;
 
             run_journeys(self, args)
             return
+        from scripts.rust_contract.phase2_routes import rust_example_path
         from scripts.rust_contract.phase2_seed import (
             APP_ROLE as role,
         )
@@ -1014,7 +1018,7 @@ CREATE EXTENSION IF NOT EXISTS postgis;
             bind_port = ephemeral_port()
             probe_env = {**env, "DISPOSABLE_TEST_TOKEN": self.token, "PHASE2_DATABASE_URL": f"postgresql://{role}:{PASSWORD}@127.0.0.1:{port}/{database}",
                          "PHASE2_BIND": f"127.0.0.1:{bind_port}"}
-            command = [self.python_bin, "-m", "tests.rust_contract.server", "--port", str(bind_port)] if runtime == "python" else [str(ROOT / "rs/target/debug/examples/phase2_transport")]
+            command = [self.python_bin, "-m", "tests.rust_contract.server", "--port", str(bind_port)] if runtime == "python" else [str(rust_example_path(ROOT, "phase2_transport"))]
             self.spawn(command, probe_env)
             wait_for_port(bind_port)
             endpoint = f"http://127.0.0.1:{bind_port}"
@@ -1079,7 +1083,7 @@ CREATE EXTENSION IF NOT EXISTS postgis;
             bind_port = ephemeral_port()
             probe_env = {**env, "DISPOSABLE_TEST_TOKEN": self.token, "PHASE2_DATABASE_URL": mixed_url,
                          "PHASE2_BIND": f"127.0.0.1:{bind_port}", "PHASE2_EMIT_EVENTS": "true"}
-            command = [self.python_bin, "-m", "tests.rust_contract.server", "--port", str(bind_port)] if runtime == "python" else [str(ROOT / "rs/target/debug/examples/phase2_transport")]
+            command = [self.python_bin, "-m", "tests.rust_contract.server", "--port", str(bind_port)] if runtime == "python" else [str(rust_example_path(ROOT, "phase2_transport"))]
             self.spawn(command, probe_env)
             wait_for_port(bind_port)
             endpoint = f"http://127.0.0.1:{bind_port}"

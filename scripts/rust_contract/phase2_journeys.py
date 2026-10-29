@@ -738,7 +738,7 @@ def run(runner, args) -> None:
                        "PHASE2_BIND": f"127.0.0.1:{bind}", "DISPOSABLE_TEST_TOKEN": runner.token,
                        "PHASE2_MAIL_URL": f"{mail.url}/journey/emails",
                        "SQLX_OFFLINE": "true"}
-        runner.spawn([str(ROOT / "rs/target/debug/examples/phase2_journey_server")], environment)
+        runner.spawn([str(rust_example_path(ROOT, "phase2_journey_server"))], environment)
         wait_for_port(bind)
         endpoint = f"http://127.0.0.1:{bind}"
         attest(endpoint, runner.token)

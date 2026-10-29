@@ -268,7 +268,7 @@ def watchlist_containers_scenario():
     def servers(context):
         return (
             Server((context.python_bin, "-m", "tests.rust_contract.phase2.watchlist_server", "--port", "{port}")),
-            Server((str(context.root / "rs/target/debug/examples/watchlist_server"),),
+            Server((str(context.rust_example("watchlist_server")),),
                    {"WATCHLIST_TEST_CUTOFF": "2026-10-19T00:00:00Z"}),
         )
 

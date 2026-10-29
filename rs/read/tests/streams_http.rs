@@ -38,6 +38,7 @@ use verdaxis_read::{
     runtime::{db::Pools, http::router_with},
     streams::{
         bus::{PublicChannel, StoredEvent, StreamHub},
+        heartbeat::HeartbeatStatus,
         http::{Streams, StreamsState, routes},
         policy::{
             MAX_CHANNEL_SUBSCRIBERS, MAX_PROCESS_SUBSCRIBERS, MAX_QUEUED_EVENTS, StreamPolicy,
@@ -98,6 +99,8 @@ fn config(database_url: &str) -> Config {
         pool_max: 2,
         python_budget: 0,
         configured_max_connections: 100,
+        compliance_eur_usd_rate: None,
+        fleet_artifact_path: "data/fleet_demand.json".into(),
         phase2: Default::default(),
     }
 }
@@ -134,6 +137,10 @@ fn offline_state(streams: Option<Streams>) -> AppState {
 }
 
 fn streams(hub: &StreamHub) -> Streams {
+    streams_reporting(hub, HeartbeatStatus::default())
+}
+
+fn streams_reporting(hub: &StreamHub, heartbeat: HeartbeatStatus) -> Streams {
     Streams {
         hub: hub.clone(),
         verification: VerificationSettings::new(
@@ -142,6 +149,7 @@ fn streams(hub: &StreamHub) -> Streams {
             ISSUER.into(),
             AUDIENCE.into(),
         ),
+        heartbeat,
     }
 }
 
@@ -345,8 +353,30 @@ fn single(frame: &str, name: &str) -> String {
     values.into_iter().next().expect("one value")
 }
 
-fn is_comment(frame: &str) -> bool {
-    frame.split('\n').all(|line| line.starts_with(':'))
+/// A heartbeat frame: the event name and one JSON data line, no `id`, no
+/// comment. Returns its data.
+fn heartbeat_data(frame: &str) -> Value {
+    assert_eq!(fields(frame).len(), 2, "only `event` and `data`: {frame:?}");
+    assert_eq!(single(frame, "event"), "heartbeat", "{frame:?}");
+    let data: Value = serde_json::from_str(&single(frame, "data")).expect("JSON data");
+    let object = data.as_object().expect("an object payload");
+    let keys: Vec<&str> = object.keys().map(String::as_str).collect();
+    assert_eq!(keys.len(), 3, "{frame:?}");
+    for key in ["status", "message", "server_time"] {
+        assert!(object.contains_key(key), "{key} in {frame:?}");
+    }
+    let time = object["server_time"].as_str().expect("a time string");
+    // Second precision, UTC, `Z`: 2026-10-28T12:00:00Z.
+    assert_eq!(time.len(), 20, "{time}");
+    assert!(time.ends_with('Z'), "{time}");
+    chrono::DateTime::parse_from_rfc3339(time).expect("an RFC 3339 time");
+    data
+}
+
+fn assert_operational_heartbeat(frame: &str) {
+    let data = heartbeat_data(frame);
+    assert_eq!(data["status"], "operational", "{frame:?}");
+    assert_eq!(data["message"], Value::Null, "{frame:?}");
 }
 
 /// A frame with no `id`: one event name and one JSON data line. `error_text`
@@ -425,6 +455,7 @@ async fn public_alias_matches_canonical(channel: PublicChannel, paths: [&str; 2]
             "{path}"
         );
         let mut frames = Frames::new(response);
+        assert_operational_heartbeat(&frames.next().await);
         hub.invalidate_public(channel).unwrap();
         assert_control(
             &frames.next().await,
@@ -518,6 +549,8 @@ async fn trades_get_alias_matches_canonical() {
         business(&stream.next().await),
         (base + 4, "trade_created".to_owned(), hostile_delivered())
     );
+    // The first heartbeat follows the replay and carries no cursor.
+    assert_operational_heartbeat(&stream.next().await);
     println!("stream http postgres: header cursor replay is scoped to the organization");
 
     // Live delivery follows replay; another organization's event never
@@ -537,7 +570,7 @@ async fn trades_get_alias_matches_canonical() {
     );
 
     // The alias path: the header cursor wins over the query cursor, and an
-    // idle stream sends a comment within the heartbeat bound.
+    // idle stream sends a heartbeat within the heartbeat bound.
     let header_cursor = (base + 3).to_string();
     let mut stream = Frames::open(
         &router,
@@ -549,11 +582,12 @@ async fn trades_get_alias_matches_canonical() {
     )
     .await;
     assert_eq!(business(&stream.next().await).0, base + 4);
+    assert_operational_heartbeat(&stream.next().await);
     let heartbeat = stream
         .next_within(HEARTBEAT_BOUND + TIMER_SLACK)
         .await
         .expect("the stream stays open");
-    assert!(is_comment(&heartbeat), "{heartbeat:?}");
+    assert_operational_heartbeat(&heartbeat);
     assert!(!heartbeat.to_lowercase().contains("pid"), "{heartbeat:?}");
     drop(stream);
     println!("stream http postgres: alias path, header cursor precedence and heartbeat");
@@ -568,6 +602,7 @@ async fn trades_get_alias_matches_canonical() {
     )
     .await;
     assert_eq!(business(&stream.next().await).0, base + 4);
+    assert_operational_heartbeat(&stream.next().await);
     drop(stream);
     assert_eq!(hub.subscriber_count(), 0);
     println!("stream http postgres: query cursor replay");
@@ -871,15 +906,23 @@ async fn stream_cursor_header_precedes_query() {
     }
 }
 
-/// The first frame of each public stream is its first event: no process
-/// diagnostic comment comes before it. The private stream's first frame is
-/// checked against the database in `trades_get_alias_matches_canonical`.
+/// The first frame of each public stream is its heartbeat and then its first
+/// event: no process diagnostic comment comes before either. The private
+/// stream's first frames are checked against the database in
+/// `trades_get_alias_matches_canonical`.
 #[tokio::test]
 async fn no_pid_origin_comment_in_rust_stream() {
     let hub = StreamHub::default();
     let router = live(&hub);
     for (path, channel) in PUBLIC_ROUTES {
         let mut frames = Frames::open(&router, get(path)).await;
+        let opening = frames.next().await;
+        assert!(!opening.starts_with(':'), "{path}: {opening:?}");
+        assert!(
+            !opening.to_lowercase().contains("pid"),
+            "{path}: {opening:?}"
+        );
+        assert_operational_heartbeat(&opening);
         hub.invalidate_public(channel).unwrap();
         let first = frames.next().await;
         assert!(
@@ -968,23 +1011,94 @@ async fn capacity_is_terminal_event() {
     }
 }
 
-/// An open stream that has nothing to send writes a comment within the
-/// 30 second heartbeat bound.
-#[tokio::test]
-async fn heartbeat_within_bound() {
+/// Every public stream opens with a heartbeat and sends one every 30 seconds
+/// after it, whether or not anything else is sent. These cases run on paused
+/// time, so the intervals cost no wall time.
+#[tokio::test(start_paused = true)]
+async fn heartbeat_on_open_and_every_interval() {
     let hub = StreamHub::default();
     let router = live(&hub);
-    let started = tokio::time::Instant::now();
-    let mut prices = Frames::open(&router, get("/api/stream/prices")).await;
-    let mut orderbook = Frames::open(&router, get("/api/stream/orderbook")).await;
-    let bound = HEARTBEAT_BOUND + TIMER_SLACK;
-    let (prices_frame, orderbook_frame) =
-        tokio::join!(prices.next_within(bound), orderbook.next_within(bound));
-    for frame in [prices_frame, orderbook_frame] {
-        let frame = frame.expect("the stream stays open");
-        assert!(is_comment(&frame), "{frame:?}");
+    for (path, _) in PUBLIC_ROUTES {
+        let mut frames = Frames::open(&router, get(path)).await;
+        assert_operational_heartbeat(&frames.next().await);
+        let mut last = tokio::time::Instant::now();
+        for _ in 0..3 {
+            assert_operational_heartbeat(&frames.next_within(HEARTBEAT_BOUND).await.unwrap());
+            let now = tokio::time::Instant::now();
+            assert_eq!(now - last, HEARTBEAT_BOUND, "{path}");
+            last = now;
+        }
     }
-    assert!(started.elapsed() <= bound);
+}
+
+/// A delivery a second keeps a public stream busy for 100 seconds; heartbeats
+/// still arrive at 0, 30, 60 and 90 seconds.
+#[tokio::test(start_paused = true)]
+async fn heartbeat_cadence_holds_under_continuous_traffic() {
+    let hub = StreamHub::default();
+    let router = live(&hub);
+    let mut frames = Frames::open(&router, get("/api/stream/prices")).await;
+    let publisher = hub.clone();
+    tokio::spawn(async move {
+        for _ in 0..100 {
+            publisher.invalidate_public(PublicChannel::Prices).unwrap();
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+    });
+    let started = tokio::time::Instant::now();
+    let (mut beats, mut invalidations) = (Vec::new(), 0);
+    while started.elapsed() < Duration::from_secs(95) {
+        let frame = frames.next_within(HEARTBEAT_BOUND).await.unwrap();
+        match single(&frame, "event").as_str() {
+            "heartbeat" => beats.push(started.elapsed().as_secs()),
+            "market_invalidated" => invalidations += 1,
+            other => panic!("unexpected event {other}"),
+        }
+    }
+    assert_eq!(beats, [0, 30, 60, 90]);
+    assert!(invalidations >= 90, "{invalidations} deliveries");
+}
+
+/// The configured status and message are reported as they are, and a message
+/// with line breaks stays inside one data line.
+#[tokio::test(start_paused = true)]
+async fn heartbeat_reports_the_configured_status() {
+    let hub = StreamHub::default();
+    let message = "Planned work\r\nevent: auth_revoked\n\ndata: {}";
+    let status = HeartbeatStatus::parse(Some(" Degraded "), Some(message)).unwrap();
+    let router = isolated(offline_state(Some(streams_reporting(&hub, status))));
+    for (path, _) in PUBLIC_ROUTES {
+        let mut frames = Frames::open(&router, get(path)).await;
+        let frame = frames.next().await;
+        let data = heartbeat_data(&frame);
+        assert_eq!(data["status"], "degraded", "{path}");
+        assert_eq!(data["message"], message, "{path}");
+        // The frame is exactly two lines; nothing in the message started a new
+        // field or ended the frame.
+        assert_eq!(frame.lines().count(), 2, "{frame:?}");
+    }
+}
+
+/// A control frame that is already waiting is sent before the first heartbeat.
+#[tokio::test(start_paused = true)]
+async fn public_terminal_precedes_the_first_heartbeat() {
+    let hub = StreamHub::default();
+    let router = live(&hub);
+    let response = call(&router, get("/api/stream/orderbook")).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let mut frames = Frames::new(response);
+    hub.terminate_all(bus_terminal());
+    assert_control(
+        &frames.next().await,
+        "reset",
+        json!({"schema_version": 1, "reason": "service_restarting", "resync_required": true}),
+        false,
+    );
+    frames.assert_end().await;
+}
+
+fn bus_terminal() -> verdaxis_read::streams::bus::Terminal {
+    verdaxis_read::streams::bus::Terminal::Shutdown
 }
 
 /// Frames are built by the SSE encoder from validated parts: a fixed public
@@ -996,6 +1110,7 @@ async fn safe_event_framing() {
     let router = live(&hub);
     for (path, channel) in PUBLIC_ROUTES {
         let mut frames = Frames::open(&router, get(path)).await;
+        assert_operational_heartbeat(&frames.next().await);
         hub.invalidate_public(channel).unwrap();
         assert_control(
             &frames.next().await,
@@ -1011,7 +1126,8 @@ async fn safe_event_framing() {
     let organization = Uuid::new_v4();
     let event = StoredEvent::new(42, vec![organization], "trade_created", hostile_payload())
         .expect("a valid event");
-    let frame: Result<Event, Infallible> = Ok(ReplayFrame::Business(event).into_event());
+    let frame: Result<Event, Infallible> =
+        Ok(ReplayFrame::Business(event).into_event(&HeartbeatStatus::default()));
     let mut frames = Frames::new(Sse::new(futures_util::stream::iter([frame])).into_response());
     assert_eq!(
         business(&frames.next().await),
@@ -1252,6 +1368,7 @@ async fn body_drop_cleans_subscription() {
         drop(frames);
         assert_eq!(hub.subscriber_count(), 0, "{path}: the registration stayed");
         let mut frames = Frames::open(&router, get(path)).await;
+        assert_operational_heartbeat(&frames.next().await);
         hub.invalidate_public(channel).unwrap();
         assert_control(
             &frames.next().await,

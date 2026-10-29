@@ -399,3 +399,9 @@
 - **Trigger:** The staging merge imported PR #122's `tests/rust_contract/phase2/routes.json`, pinning `deploy/migration-checkpoints.tsv` to staging's tree, while the phase-6 branch legitimately carried an extra `sse_20261021_replay_floor` checkpoint; the combined Python suite then failed only `test_source_digests_and_exact_exclusions`.
 - **Rule:** A conflict-free merge can still be semantically wrong: when one side pins a sha256 digest of a file the other side legitimately changes, re-pin the digest to the merged tree in the same change (refresh the inventory digest with it, as `3b5df58c` did) and run the affected digest tests before any batched host call.
 - **Why:** Git resolves textual conflicts, not cross-file invariants; a silently taken pin fails a full ~30-minute suite far from its cause.
+
+### Pin Wire Labels With Explicit Renames, Not Enum Casing
+- **Date:** 2026-10-25
+- **Trigger:** A Rust enum using `serde(rename_all = "SCREAMING_SNAKE_CASE")` serialized `Approved` as `APPROVED`, but the Python contract's literal is `KYC_APPROVED`; the profile suite passed compile gates and only failed on its first real PostgreSQL run.
+- **Rule:** When porting a Python string contract to a Rust enum, extract every accepted literal from the Python source (here `ExecutionEligibilityResponse`'s `Literal[...]` and `kyc_execution.py`), and pin each variant with an explicit `#[serde(rename)]` unless variant-name casing provably equals the literal. Never rely on a casing convention spanning prefixed and unprefixed labels (`KYC_APPROVED` vs `NOT_APPLICABLE`).
+- **Why:** Casing conventions cannot produce a prefix; a wire label mismatch is invisible to clippy and offline tests and surfaces only in contract execution against the real projection.

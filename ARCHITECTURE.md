@@ -16,6 +16,196 @@ comes from each environment's `/health/ready` response, not a dated SHA in
 source documentation. The shared-host marker is
 `/home/verdaxis-prod/verdaxis/PRODUCTION_HOST.md`.
 
+## Shared FuelEU reference values
+
+`rs/read/src/market/fueleu.rs` owns the lifecycle GHG reference, the
+regulation's reduction steps and the deficit penalty per tonne; every
+reporting-year limit is derived from the reference and the steps. Voyage
+calculations use its exact-decimal adapters; order-book CI projections use the
+same reference for arithmetic and response fields. The shared schedule accepts
+2025–9999; the MCP request retains its 2025–2050 reporting-year range.
+`rs/read/tests/phase5_fueleu.rs` checks the boundaries, adapters and consumer
+sources.
+
+`rs/read/src/compliance/pricing.rs` provides the pure declared-lifecycle
+comparison and overlay assumptions. It uses the shared reference, penalty and
+reporting-year limit; missing declarations remain null, physical differences
+round to 0.001 tonnes CO2e/MT, and financial benefits remain unpriced. The
+optional `COMPLIANCE_EUR_USD_RATE` setting (`Config::compliance_eur_usd_rate`)
+replaces the default exchange rate; startup refuses a value that is not
+positive. `rs/read/tests/phase5_compliance_pricing_core.rs` covers the core and
+its serialized client fields.
+
+`rs/read/src/compliance/validation.rs` holds the pure fuel-mix and
+reporting-year rules, and `rs/read/src/compliance/scoring.rs` the pure checked
+score calculation; both use `market::fueleu` for the reference, the penalty and
+the reporting-year limits. `rs/read/src/routes/compliance_fuels.rs` serves the
+constant illustrative fuel-intensity table at `GET /api/compliance/fuels`, with
+no database read or authentication. The other compliance routes reach the pure
+cores through their authenticated adapters: `routes::compliance_scores` serves
+the fleet summary, vessel score and scenario reads, and
+`routes::compliance_overlay` the pricing-overlay POST, both built on the shared
+authenticated helper and their one-statement SQL (`sql/compliance_fleet.sql`,
+`sql/compliance_vessel.sql`, `sql/compliance_overlay.sql`), which also covers
+the organization-scoped vessel count. `rs/read/tests/phase5_compliance_scores.rs`,
+`rs/read/tests/phase5_compliance_overlay.rs` and
+`rs/read/tests/phase5_compliance_fuels.rs` cover them;
+`rs/read/tests/phase5_postgres.rs` adds the cross-group integration cases and
+`rs/read/tests/run_compliance_scores.sh` runs the migrated matrix.
+`deploy/caddy/rust-phase5.caddy` routes the ten routes of the inventory by exact
+method and path in one switch, beside the first read groups' snippet.
+`scripts/rust_phase5_candidate.py` produces the private staging or production
+site candidate, and its rollback is the original file. `rs/read/tests/phase5_routing.rs`
+checks the Rust side of the row against `tests/rust_contract/phase5/routes.json`;
+`tests/rust_contract/test_phase5_routing.py` checks the Caddy side with a real
+Caddy. Nothing is imported on any host.
+`tests/rust_contract/phase5/evidence-manifest.json`, its schema and
+`test_phase5_gate.py` carry the neutral release evidence checks.
+
+## Phase 5 public market reads
+
+`routes::benchmark_quotes` serves `GET /api/benchmarks` through the shared
+admitted read owner. `sql/benchmark_quote.sql` selects one active canonical
+product/point lane and its optional stored quote in one statement; fallback
+prices use the existing shared benchmark policy and window calculation.
+`rs/read/tests/phase5_benchmarks.rs` covers query, catalog and quote behavior.
+
+`runtime::admission::run_market_read` runs the work of one public market read
+in the shared admitted owner task: one READ ONLY transaction with a
+transaction-local five-second statement limit, committed by the owner, with the
+permit and connection held through cleanup. `routes::market_data_error`
+supplies the typed `{"detail": {"code", "message"}}` errors and the result-cap
+helpers. Saturated admission, pool, transaction and owner failures of
+`/api/availability`, `/api/benchmarks`, `/api/demand` and `/api/producers` use
+that envelope; every other admitted read keeps its string detail.
+`rs/read/tests/phase5_public_boundary.rs`, `rs/read/tests/http_contract.rs` and
+`rs/read/tests/admission_postgres.rs` check the boundary.
+
+`routes::availability` serves `GET /api/availability` through the shared
+admitted read helper. `rs/read/sql/availability.sql` selects canonical active
+inventory lanes and aggregates each evidence class in one statement snapshot.
+It prefers REAL, then disclosed DEMO evidence, retains unknown supplier counts,
+and sends exact NUMERIC totals and rounded means as decimal strings. It refuses
+more than 512 groups before omitting coordinate-less map entries; zero
+coordinates remain valid. The result is not cached.
+`rs/read/tests/phase5_availability.rs` covers the response, map coordinates,
+result bound, public admission and populated PostgreSQL cases.
+
+`rs/read/src/routes/demand.rs` serves anonymous demand groups from one SQL
+statement in `rs/read/sql/demand.sql`. The statement applies the shared current
+order policy, counts at most 32,769 candidate group identities, refuses more
+than 32,768 groups, and ranks complete aggregates before the requested output
+limit. UNKNOWN groups retain counts but no economic values. The route uses
+the shared admitted read transaction and structured market errors.
+`rs/read/tests/phase5_demand.rs` checks query limits, urgency, ordering,
+provenance, current owners and PostgreSQL group bounds.
+
+`rs/read/src/routes/producers.rs` provides the public producer read. It uses
+the shared admitted read transaction and one ordered SELECT from
+`rs/read/sql/producers.sql`. Filters validate project status and inclusive COD
+bounds. Coordinates are selected without changing geography; NUMERIC metadata
+remains exact decimal strings. The response accepts at most 5000 projects and
+refuses overflow without returning a partial list.
+`rs/read/tests/phase5_producers.rs` covers filters, fields and populated limits.
+
+## Optional fleet artifact configuration
+
+`Config.fleet_artifact_path` accepts `FLEET_ARTIFACT_PATH` and defaults to
+`data/fleet_demand.json`. Relative paths resolve under the backend unit's
+WorkingDirectory. Relative and absolute paths must stay within its trusted
+`data` directory, canonicalised once at startup. Startup preserves raw syntax
+until validation and refuses empty paths, invalid encoding, trailing separators,
+traversal and proven symlink escapes. Internal links resolve to an in-root target;
+connection and state validation retain that representation without filesystem
+resolution. Missing, inaccessible and non-directory storage remains optional. `runtime::config` provides the
+resolver and one bounded two-second, 256 KiB JSON startup probe. The binary logs
+only available/unavailable; missing or invalid optional data does not affect
+process startup or the unchanged four-field database readiness response.
+Link targets are expanded in filesystem order under held directory descriptors;
+parent steps cannot erase an unchecked link. `runtime::safe_fs` supplies the shared
+rustix no-follow descriptor walker, with nonblocking final opens and regular-file
+checks. The startup probe uses only that opener before its bounded read.
+Full document validation and the fleet route remain the fleet reader's concern.
+`rs/read/tests/runtime.rs` and `runtime_postgres.rs` cover this boundary.
+
+`routes/fleet_intelligence.rs` serves `GET /api/fleet-intelligence` through its
+route-local `market/fleet_snapshot.rs`. The reader validates bounded UTF-8
+observations with descriptor-relative no-follow opens, before/after file metadata
+checks and a two-second deadline, retaining admission through cleanup. Unavailable
+data returns structured 503 without fallback; database readiness is unchanged.
+`tests/phase5_fleet.rs` covers the contract.
+The fleet document must be published only by atomic rename; same-size in-place
+rewrites inside timestamp resolution can escape the metadata stability check.
+
+## Phase 5 read lookup indexes
+
+`alembic/versions/p5_20261020_read_indexes.py` (parent `sse_20261021_replay_floor`)
+adds three non-unique B-tree indexes for the Phase 5 reads:
+`vessels(organization_id, id)`, `producer_projects(cod_year, name, id)` and
+`producer_projects(status, cod_year, id)`. It takes SHARE locks on both tables
+with NOWAIT and builds all three in one transaction. The models declare the
+same indexes. `deploy/migration-checkpoints.tsv` adds the transition and its
+pause; the Rust allowlist accepts both `prc_20261018_cache` and the new
+revision. `tests/unit/test_phase5_indexes.py`,
+`tests/unit/test_phase5_checkpoints.py` and
+`tests/postgres/test_phase5_read_indexes.py` check it.
+
+## Rust business serving composition
+
+`runtime/phase4.rs` assembles the 42 business, KYC, operator, vessel,
+subscription and analytics operations when the prepared credential authority is
+present. It shares the ingress quota handle with authentication and the earlier
+CRUD groups. `phase4_adapters.rs` supplies transaction-borrowing history/mail and
+market-event adapters; no timer or dispatcher is started. `phase4_analytics.rs`
+connects the bounded aggregate provider and canonical persisted benchmark reads.
+KYC loads the optional systemd credential once at composition; missing or invalid
+keys disable evidence storage/download without changing readiness. The exact
+method/path selector is `deploy/caddy/rust-phase4.caddy`; AI chat stays on Python.
+The following component sections describe their local exports, not activation.
+
+## Rust business transaction foundation
+
+`rs/read/src/business/` supplies caller-owned audit/status appenders and an
+ordered command owner. The owner releases its read-only preview before locking
+organizations, sorted users including the actor, and join requests through the
+shared auth lock helper. It rechecks account authority and preview identity
+inside the write transaction. A detached task holds admission through caller
+cancellation; ambiguous commit outcomes are not replayed. Business quota
+adapters use exact method/template pairs from the committed route inventory.
+No business route is mounted by these modules. The foundation remains pending
+integration and database qualification before consumer acceptance.
+
+## Rust KYC policy
+
+`rs/read/src/kyc/policy.rs` owns execution eligibility and its bound SQL
+predicate. `grace.rs` owns read-only grace identity/expiry and notice-claim
+selection rules. Market visibility renders the same predicate for owners and
+assisted customer members. The runtime config remains the single switch
+source; profile-only NOT_APPLICABLE is not execution eligibility. No route,
+grace mutation, notice sender or timer is added here.
+
+## Rust subscriptions
+
+`rs/read/src/subscriptions/` provides the five subscription component routes,
+conflict-safe organization bootstrap/upsert, and seller fee policy. Commands use
+the ordered business transaction owner; subscription updates and audit append
+commit together. `resolve_seller_fee` only reads on the trade creator's borrowed
+connection. Phase 9 freezes its plan and Decimal rate on each new trade; later
+subscription changes do not reprice existing trades. Component routes are not
+activated in the serving router by this module.
+
+## Rust Phase 4 product usage
+
+`rs/read/src/analytics/usage.rs` supplies the unmounted P01 component router.
+It authenticates the account, checks administrator authority and token quota,
+then reads authoritative counts in the authenticated transaction. Optional
+behavioral I/O runs after the transaction releases its connection and locks.
+The component consumes the shared provider envelope and privacy cells;
+unavailable values stay null and suppressed counts cannot feed conversions.
+The integration owner supplies the real provider adapter and composes the route
+without replacing public routes, health or readiness. No serving route is
+activated by the leaf module.
+
 ## Rust stream contract reservations
 
 `tests/rust_contract/phase6/` defines the three stream routes, client control
@@ -52,7 +242,11 @@ are aliases of the shared stream policy, and metadata is checked before JSON
 is decoded. `PgDispatchStore` reads global pages and the retention boundary in
 one short read-only snapshot. `Replay` remains pull-driven and owns its bounded
 page and registration; terminal-only subscription waits cancel pending reads.
-`streams/http.rs` composes the six canonical/alias GET paths. `streams/runtime.rs`
+`streams/http.rs` composes the six canonical/alias GET paths. `streams/heartbeat.rs`
+owns the status heartbeat every stream sends (a named `heartbeat` event, no `id`,
+on open and every 30 seconds regardless of traffic) and the validated
+`SYSTEM_STATUS` / `SYSTEM_STATUS_MESSAGE` settings it reports; the runtime file
+preparer projects those two optional keys. `streams/runtime.rs`
 starts the scan baseline and attested election session before admission, owns
 bounded supervision and releases its session on shutdown. The prepared
 `stream_listener` budget choice enables this component in the existing binary;
@@ -64,6 +258,13 @@ is unchanged; the replay-floor checkpoint is allowlisted for nonproduction.
 No deployment or proxy activation is implied.
 
 ## Rust Phase 2 feedback
+
+Task 8 adds organization verification, explicit membership review and bounded
+join projections under rs/read/src/business/{organizations,joins,membership}.rs.
+Writes use the ordered business owner and rejection calls the market invalidator
+on its borrowed connection. Retained KYC evidence and grace are not changed.
+These leaf components are not mounted; real invalidator/policy composition,
+route acceptance and dependency audit remain integration gates.
 
 `rs/read/src/crud/feedback.rs` provides the Task 10 feedback submission and
 administrator listing routers. Both use the shared authenticated transaction;
@@ -131,6 +332,15 @@ and revokes all user refresh families without committing. Missing users return
 `tests/postgres/test_phase3_auth_revocation.py`, covers concurrent updates and
 caller rollback on the migrated runtime role.
 
+## Rust bounded organization invalidation
+
+`order_write::{invalidation,benchmarks,reservations,events}` borrows the ordered
+business owner's connection. It withdraws bounded executable order remainder,
+preserves existing trades and settlement reservations, and appends benchmark,
+watchlist, audit and outbox effects without commit or dispatch. Read and write
+benchmark callers share `market::live_benchmarks::calculate_live_benchmarks`;
+the read wrapper retains its existing error mapping. No new route is mounted.
+
 ## Rust Phase 3 coexistence and session schedules
 
 `tests/postgres/test_phase3_cross_stack_auth.py` runs the real Python auth
@@ -165,6 +375,24 @@ loopback adapters to prove twin state, rollback, replay, timeouts, observed
 PostgreSQL advisory-lock order, bounded retries, races and mixed dispatch. See
 `docs/rust-phase2/task20-write-boundary.md` for gate results and the resume point.
 
+## Price-alert evaluation (stream runtime)
+
+`rs/read/src/streams/price_alerts.rs` fires price alerts from committed market
+events. The stream runtime wraps its dispatch sink: each `trade_auto_matched`
+and `trade_confirmed` event offers its trade id to a bounded queue with
+`try_send`, and one task per process does the database work, so dispatch is
+never delayed. The evaluator reads the trade row, accepts only a formal
+snapshot (`market_snapshot_version = 1`, confirmed, delivered or paid) whose
+buyer and seller are both REAL (the public trade tape rule), locks the alerts
+that print crosses in id order, and deactivates them with a conditional
+`UPDATE ... WHERE is_active RETURNING`. Notification rows for the approved
+members and an organization-private `price_alert_triggered` outbox event are
+written in the same transaction, so every worker may evaluate every event and
+each alert still fires once. The evaluator ignores every event type except the
+two trade executions, so its own event never loops. It runs only where the
+Rust stream runtime is enabled (`stream_listener`). See
+`docs/market-event-dispatch.md`.
+
 ## Rust Phase 2 price-alert component
 
 Task 16 adds `rs/read/src/crud/alerts.rs` for organization-owned alert create,
@@ -173,7 +401,7 @@ composition must supply the existing verification settings and shared quota
 authority. Each request uses the shared authenticated transaction owner and
 current database organization. NUMERIC rounding remains PostgreSQL-owned;
 product codes derive from the attested exact label tuple, including inactive
-products. Python retains price triggering and participant-event production.
+products. Price triggering is Rust-owned: `streams/price_alerts.rs` (below).
 `tests/postgres/test_phase2_alert_interop.py` drives Rust storage and HTTP
 component checks against the existing disposable PostgreSQL fixture, then runs
 Python's trigger helper on the committed Rust row. The registered `alerts-crud`
@@ -248,6 +476,35 @@ fixed-window price limits. Empty route and MCP modules reserve later task
 ownership. The binary accepts explicit `RUST_CONFIG` JSON and serves health;
 data routes remain unmounted. See `docs/rust-phase1/progress.md` for the local
 checks, remaining Task 3 gates, and resume point.
+
+### Rust `Host` validation (defence in depth behind Caddy)
+
+`runtime/host.rs` holds a middleware that `runtime::http::compose` adds to every
+serving router (REST, streams and MCP share it). A request whose `Host`
+authority is not allowed gets 400 `{"detail": {"code": "INVALID_HOST", "message": ...}}`
+before CORS, admission or quotas run; the request log still records it. The
+allowlist is the comma-separated `ALLOWED_HOSTS` runtime key (`phase2.allowed_hosts`
+in `RUST_CONFIG`). Rules:
+
+- Names compare case-insensitively. An entry without a port matches that host
+  on any port and when the request has none (the port says nothing about which
+  site was asked for); an entry with a port matches only that port.
+- Loopback authorities (`localhost`, `127.0.0.0/8`, `[::1]`, any port) are
+  always allowed. The deploy readiness gate (`curl http://127.0.0.1:<8010|8011>/health/ready`),
+  the shadow harness (`Host: 127.0.0.1`), the contract and measurement harnesses
+  and the runbooks reach Rust this way. Caddy passes the client's `Host` through
+  unchanged (no `header_up Host`), so proxied requests carry the public name.
+- Exactly one `Host` header is required; an absolute-form target's authority
+  must also be allowed (HTTP/2 has only the authority). No authority, user
+  information, a trailing dot or a malformed port is refused.
+- Unset or blank `ALLOWED_HOSTS` means no enforcement, so a missing key cannot
+  stop a deploy; the binary logs a warning that the check is off, or an info
+  line with the allowed hosts. A present but malformed value (wildcard, scheme,
+  path, bad port) refuses the start, like every other runtime key.
+- `scripts/prepare_rust_runtime.py` projects the key from the environment's
+  identity, not from `.env`: `api.verdaxis.exchange` (production),
+  `api-staging.verdaxis.exchange` (staging). The MCP route keeps its own stricter
+  transport check (421), which runs after this one.
 
 Task 4 adds the disposable contract harness. `scripts/rust_contract/compare.py`
 is the single authoritative comparator; `record.py` captures the Python oracle;
@@ -571,6 +828,20 @@ quota authority; this task does not activate deployed routes. The disposable
 Python/Rust databases, controlled IDs/clocks, full-state comparison, and observed
 same-user lock waits. Evidence and remaining boundaries are in
 `docs/rust-phase2-task9.md`.
+
+The `dashboard` namespace is Rust-only (the customizable home layout). Python has
+no such namespace and answers 404 on `PUT /api/users/me/preferences/dashboard`, so
+the frontend uses its default layout whenever that route answers 404 (for example
+after a Caddy rollback to Python) and keeps edits in memory. Its validator is
+`crud/preferences/dashboard.rs`; it refuses unknown keys and accepts
+`{"version": 1, "widgets": [...]}` with at most 24 widgets, each
+`{id, type, x, y, w, h}`: `id` 1-64 characters of `[A-Za-z0-9_-]` and unique,
+`type` one of the nine widget ids in `WIDGET_TYPES`, `x` 0-11, `y` 0-199, `w` and
+`h` 1-12, and `x + w <= 12`. Errors use the same pydantic-style 422 entries as the
+other namespaces. The `namespace` column has no CHECK constraint, so no migration
+is involved. Rust-only tests: `rs/read/tests/crud_preferences.rs` (validator) and
+`crud_preferences_postgres.rs` (routes on a migrated schema, run by
+`rs/read/tests/run_preferences.py`).
 
 ### Frozen Phase 1 measurement reference
 

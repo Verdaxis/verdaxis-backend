@@ -87,6 +87,10 @@ fn compose(
         .as_ref()
         .map(|state| state.config.environment.clone())
         .unwrap_or_else(|| environment.to_owned());
+    let host_policy = app_state
+        .as_ref()
+        .map(|state| state.host_policy.clone())
+        .filter(|policy| policy.is_enforced());
     let routes = routes.layer(middleware::from_fn_with_state(state, dispatch_boundary));
     let routes = if let Some(app_state) = app_state {
         routes.layer(middleware::from_fn_with_state(
@@ -96,9 +100,15 @@ fn compose(
     } else {
         routes
     };
-    routes
-        .layer(middleware::from_fn_with_state(environment, cors))
-        .layer(middleware::from_fn(log_request))
+    let routes = routes.layer(middleware::from_fn_with_state(environment, cors));
+    // The Host check sits outside CORS, admission and the quota boundary, so a
+    // refused request gets no CORS grant and spends no quota or read slot. It
+    // sits inside the request log, so the refusal is logged and carries an id.
+    let routes = match host_policy {
+        Some(policy) => routes.layer(middleware::from_fn_with_state(policy, super::host::guard)),
+        None => routes,
+    };
+    routes.layer(middleware::from_fn(log_request))
 }
 
 /// Marks Python's outer ServerErrorMiddleware response, which bypasses CORS
@@ -218,12 +228,18 @@ async fn cors(State(environment): State<String>, request: Request, next: Next) -
         .headers_mut()
         .insert("access-control-allow-credentials", "true".parse().unwrap());
     if !preflight {
-        response.headers_mut().insert(
-            "access-control-expose-headers",
+        // The read-cap truncation header joins the exposed set only on the
+        // operator pages that can carry it, so a cross-origin operator UI
+        // can read it (Task 4 review m1); every other route keeps Python's
+        // exact three-header set.
+        let exposes = if response.headers().contains_key("x-result-truncated") {
+            "Retry-After, X-Request-ID, X-Result-Truncated, X-Verdaxis-Market-Support-Context-Invalid"
+        } else {
             "Retry-After, X-Request-ID, X-Verdaxis-Market-Support-Context-Invalid"
-                .parse()
-                .unwrap(),
-        );
+        };
+        response
+            .headers_mut()
+            .insert("access-control-expose-headers", exposes.parse().unwrap());
     }
     if allowed {
         response
@@ -248,10 +264,16 @@ async fn cors(State(environment): State<String>, request: Request, next: Next) -
 
 /// Exact public GET inventory. Private paths and MCP never use slash redirects.
 pub const MOUNTED_GET_PATHS: &[&str] = &[
+    "/api/benchmarks",
+    "/api/demand",
+    "/api/fleet-intelligence",
     "/health/live",
     "/health/ready",
     "/health",
     "/api/ports",
+    "/api/availability",
+    "/api/compliance/fuels",
+    "/api/producers",
     "/api/catalog/products",
     "/api/catalog/delivery-points",
     "/api/news",
@@ -450,7 +472,13 @@ async fn dispatch_boundary(
 
 pub fn public_routes() -> Router<crate::AppState> {
     Router::new()
+        .merge(crate::routes::benchmark_quotes::routes())
         .merge(crate::routes::ports::routes())
+        .merge(crate::routes::availability::routes())
+        .merge(crate::routes::compliance_fuels::routes())
+        .merge(crate::routes::producers::routes())
+        .merge(crate::routes::demand::routes())
+        .merge(crate::routes::fleet_intelligence::routes())
         .merge(crate::routes::catalog::routes())
         .merge(crate::routes::news::routes())
         .merge(crate::routes::orderbook_snapshot::routes())
@@ -462,6 +490,49 @@ pub fn public_routes() -> Router<crate::AppState> {
         .merge(crate::routes::curves_legacy::routes())
         .merge(crate::routes::curves_canonical::routes())
         .merge(crate::mcp::mcp_router())
+}
+
+/// Authenticated business routes. Each group receives its own verification
+/// settings, because `VerificationSettings` is not `Clone`.
+pub fn authenticated_routes(
+    verification: crate::auth::VerificationSettings,
+    limits: crate::auth::limits::SharedLimits,
+) -> Vec<Router<crate::AppState>> {
+    vec![crate::business::vessels::routes(
+        crate::business::vessels::VesselAuthority::new(verification, limits),
+    )]
+}
+
+/// Administrator analytics routes (P02–P04).
+///
+/// Component composition only: the serving binary mounts these under the P group
+/// cutover. The returned router already carries its own route state, so the
+/// caller merges it into the serving router after `router_with`; the health and
+/// readiness routes are untouched.
+pub fn analytics_routes(
+    state: crate::AppState,
+    verification: std::sync::Arc<crate::auth::VerificationSettings>,
+    limits: crate::auth::limits::SharedLimits,
+) -> Router {
+    Router::new()
+        .merge(crate::analytics::legacy_dashboard::router(
+            state.clone(),
+            verification.clone(),
+            limits.clone(),
+        ))
+        .merge(crate::analytics::users::router(state, verification, limits))
+}
+
+/// Compose P01 without replacing health, readiness or any public route.
+/// The caller supplies the accepted provider adapter and shared quota authority.
+pub fn usage_router(
+    state: crate::AppState,
+    authority: crate::analytics::usage::UsageAuthority,
+) -> Router {
+    router_with(
+        public_routes().merge(crate::analytics::usage::routes(authority)),
+        state,
+    )
 }
 
 pub fn public_router(state: crate::AppState) -> Router {
@@ -547,8 +618,32 @@ pub fn router_with(extra: Router<crate::AppState>, state: crate::AppState) -> Ro
         Some(phase2) => routes.merge(phase2),
         None => routes,
     };
+    let routes = if let Some(settings) = state.phase2.as_ref() {
+        let scores = crate::routes::compliance_scores::routes_with_context(Arc::new(
+            crate::routes::compliance_scores::RouteContext {
+                settings: Arc::new(settings.verification.clone()),
+                limits: limits.clone(),
+                clock: crate::routes::compliance_scores::Clock::Wall,
+            },
+        ));
+        let overlay = crate::routes::compliance_overlay::routes(
+            crate::routes::compliance_overlay::OverlayAuthority::new(
+                settings.verification.clone(),
+                limits.clone(),
+            ),
+        );
+        routes
+            .merge(scores.with_state(state.clone()))
+            .merge(overlay.with_state(state.clone()))
+    } else {
+        routes
+    };
     let routes = match super::phase3::routes(&state, limits.clone()) {
         Some(auth) => routes.merge(auth),
+        None => routes,
+    };
+    let routes = match super::phase4::routes(&state, limits.clone()) {
+        Some(business) => routes.merge(business),
         None => routes,
     };
     let routes = routes
@@ -556,6 +651,27 @@ pub fn router_with(extra: Router<crate::AppState>, state: crate::AppState) -> Ro
         .method_not_allowed_fallback(method_not_allowed);
     let environment = state.config.environment.clone();
     compose(routes, Some(state), limits, &environment)
+}
+
+/// Compose the serving router with a route group that already carries its own
+/// state (for example a component router built with `Router::with_state`).
+///
+/// Every serving route stays mounted: the three health routes and the public
+/// routes are composed exactly as `router_with` builds them, and the stated
+/// group is merged before the shared middleware and fallbacks are applied.
+/// Extra routes are only added; no serving route is replaced or removed.
+pub fn router_with_stated(stated: Router, state: crate::AppState) -> Router {
+    // The dispatch boundary overrides axum's implicit HEAD handler.
+    let routes = Router::new()
+        .route("/health/live", axum::routing::get(crate::live))
+        .route("/health/ready", axum::routing::get(crate::ready))
+        .route("/health", axum::routing::get(crate::ready))
+        .merge(public_routes())
+        .fallback(fallback)
+        .with_state(state.clone())
+        .merge(stated)
+        .method_not_allowed_fallback(method_not_allowed);
+    middleware_with_state(routes, state)
 }
 
 async fn method_not_allowed() -> Response {

@@ -16,6 +16,24 @@ required-features = ["contract-tests"]
 name = "market_contract_postgres"
 required-features = ["contract-tests"]
 
+# Phase 4 Task 13: three offline cases run in every workspace test; the
+# PostgreSQL cases inside the file are feature-gated by contract-tests.
+[[test]]
+name = "phase4_subscriptions"
+path = "tests/phase4_subscriptions.rs"
+
+# Phase 4 Task 21: the integrated race suite; its PostgreSQL cases are
+# feature-gated by contract-tests.
+[[test]]
+name = "phase4_races"
+path = "tests/phase4_races.rs"
+required-features = ["contract-tests"]
+
+[[test]]
+name = "phase4_db_authority"
+path = "tests/phase4_db_authority.rs"
+required-features = ["contract-tests"]
+
 [[test]]
 name = "meaning_curve_queries"
 required-features = ["contract-tests"]
@@ -84,6 +102,11 @@ required-features = ["contract-tests"]
 name = "streams_coexistence"
 required-features = ["contract-tests"]
 
+# Runs in the PostgreSQL job: it reads RUST_TEST_MIGRATOR_DATABASE_URL.
+[[test]]
+name = "price_alert_evaluation_postgres"
+required-features = ["contract-tests"]
+
 [[example]]
 name = "streams_fixture"
 required-features = ["contract-tests"]
@@ -91,10 +114,19 @@ required-features = ["contract-tests"]
 [features]
 contract-tests = []
 
+[[test]]
+name = "phase4_analytics_policy"
+
 [dev-dependencies]
 verdaxis-contract = { path = "../contract" }
+# Paused time lets the stream tests cross 30-second heartbeat intervals at once.
+tokio = { version = "1.53.3", features = ["full", "test-util"] }
 
 [dependencies]
+aes-gcm = { version = "=0.11.1", features = ["zeroize"] }
+multer = "=3.1.0"
+zeroize = "=1.9.1"
+icu_casemap = "=2.3.0"
 # Phase 2 Task 19: bounded invite provider and EmailStr NFC normalization (start)
 reqwest = { version = "=0.13.5", features = ["json"] }
 unicode-normalization = "=0.1.25"
@@ -118,6 +150,7 @@ num-traits = "0.2"
 percent-encoding = "2.3.2"
 rmcp = { version = "3.5.1", features = ["server", "transport-streamable-http-server"] }
 rust_decimal = "1.43.0"
+rustix = { version = "=1.1.5", features = ["fs"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order", "arbitrary_precision"] }
 sha2 = "0.11.1"

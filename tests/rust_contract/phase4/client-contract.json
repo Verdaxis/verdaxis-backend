@@ -1,0 +1,4351 @@
+{
+  "version": 1,
+  "source_sha": "2dcc91a91c252b46a74b8853d011a4af59c8465c",
+  "frontend_sha": "c0bb9d997799a6becf3f0c7754727065b5924c39",
+  "json_policy": "field_names_types_nullability_and_statuses;message_wording_free",
+  "decimal_policy": "client Number conversion;finite_decimal_values;no_float_money",
+  "error_envelope": {
+    "detail": {
+      "code": "UPPER_SNAKE_CODE",
+      "message": "string"
+    },
+    "coexistence": [
+      "detail:string",
+      "detail:array<{msg:string}>"
+    ]
+  },
+  "schemas": {
+    "ExecutionEligibilityResponse": {
+      "type": "object",
+      "properties": {
+        "eligible": {
+          "type": "boolean",
+          "nullable": false,
+          "default": "False"
+        },
+        "reason": {
+          "type": "Literal['KYC_APPROVED', 'KYC_GRACE', 'KYC_REQUIRED', 'KYC_REJECTED', 'KYC_NOT_ENFORCED', 'NOT_APPLICABLE']",
+          "nullable": false,
+          "default": "'KYC_REQUIRED'"
+        },
+        "grace_expires_at": {
+          "type": "string:date-time|null",
+          "nullable": true,
+          "default": "None"
+        }
+      },
+      "required": []
+    },
+    "UserResponse": {
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "nullable": false
+        },
+        "first_name": {
+          "type": "string|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "last_name": {
+          "type": "string|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "role": {
+          "type": "UserRole|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "id": {
+          "type": "string:uuid",
+          "nullable": false
+        },
+        "status": {
+          "type": "string",
+          "nullable": false,
+          "enum": [
+            "PENDING",
+            "APPROVED",
+            "REJECTED"
+          ]
+        },
+        "organization_id": {
+          "type": "string:uuid|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "referral_code": {
+          "type": "string|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "must_change_password": {
+          "type": "boolean",
+          "nullable": false,
+          "default": "False"
+        },
+        "kyc_status": {
+          "type": "string",
+          "nullable": false,
+          "default": "'PENDING'"
+        },
+        "execution_eligibility": {
+          "type": "ExecutionEligibilityResponse",
+          "nullable": false,
+          "bounds": {
+            "default_factory": "ExecutionEligibilityResponse"
+          }
+        }
+      },
+      "required": [
+        "email",
+        "id",
+        "status"
+      ]
+    },
+    "UserUpdate": {
+      "type": "object",
+      "properties": {
+        "first_name": {
+          "type": "string|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "last_name": {
+          "type": "string|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "role": {
+          "type": "UserRole|null",
+          "nullable": true,
+          "default": "None"
+        }
+      },
+      "required": []
+    },
+    "VesselResponse": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "nullable": false
+        },
+        "imo_number": {
+          "type": "string",
+          "nullable": false
+        },
+        "vessel_type": {
+          "type": "string|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "flag_state": {
+          "type": "string|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "dwt": {
+          "type": "number|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "cii_rating": {
+          "type": "string|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "eu_ets_status": {
+          "type": "string|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "fueleu_status": {
+          "type": "string|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "current_location": {
+          "type": "string|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "previous_location": {
+          "type": "string|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "lat": {
+          "type": "number|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "lng": {
+          "type": "number|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "prev_lat": {
+          "type": "number|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "prev_lng": {
+          "type": "number|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "id": {
+          "type": "string",
+          "nullable": false
+        },
+        "organization_id": {
+          "type": "string|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "updated_at": {
+          "type": "string:date-time",
+          "nullable": false
+        }
+      },
+      "required": [
+        "name",
+        "imo_number",
+        "id",
+        "updated_at"
+      ]
+    },
+    "AIChatRequest": {
+      "type": "object",
+      "properties": {
+        "message": {
+          "type": "string",
+          "nullable": false,
+          "bounds": {
+            "min_length": "1",
+            "max_length": "MAX_AI_MESSAGE_CHARS"
+          }
+        },
+        "history": {
+          "type": "array<object-map<str, str>>",
+          "nullable": false,
+          "bounds": {
+            "default_factory": "list",
+            "max_length": "MAX_AI_HISTORY_ITEMS"
+          }
+        }
+      },
+      "required": [
+        "message"
+      ]
+    },
+    "SubscriptionResponse": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string:uuid",
+          "nullable": false
+        },
+        "org_id": {
+          "type": "string:uuid",
+          "nullable": false
+        },
+        "tier": {
+          "type": "string",
+          "nullable": false,
+          "enum": [
+            "free",
+            "standard",
+            "enterprise"
+          ]
+        },
+        "started_at": {
+          "type": "string:date-time|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "expires_at": {
+          "type": "string:date-time|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "is_active": {
+          "type": "boolean",
+          "nullable": false
+        },
+        "seller_fee_per_mt_usd": {
+          "type": "string:decimal|null",
+          "nullable": true,
+          "default": "None"
+        }
+      },
+      "required": [
+        "id",
+        "org_id",
+        "tier",
+        "is_active"
+      ]
+    },
+    "SubscriptionUpdate": {
+      "type": "object",
+      "properties": {
+        "tier": {
+          "type": "string",
+          "nullable": false,
+          "enum": [
+            "free",
+            "standard",
+            "enterprise"
+          ]
+        },
+        "seller_fee_per_mt_usd": {
+          "type": "string:decimal|null",
+          "nullable": true,
+          "bounds": {
+            "default": "None",
+            "ge": "0",
+            "le": "100000",
+            "decimal_places": "2",
+            "allow_inf_nan": "False"
+          },
+          "omitted_differs_from_null": true
+        }
+      },
+      "required": [
+        "tier"
+      ]
+    },
+    "FeeScheduleResponse": {
+      "type": "object",
+      "properties": {
+        "currency": {
+          "type": "string",
+          "nullable": false,
+          "default": "'USD'"
+        },
+        "buyer_fee_per_mt_usd": {
+          "type": "string:decimal",
+          "nullable": false,
+          "default": "Decimal('0')"
+        },
+        "seller_fee_per_mt_usd": {
+          "type": "object-map<SubscriptionTier, Decimal]|nul>",
+          "nullable": true
+        }
+      },
+      "required": [
+        "seller_fee_per_mt_usd"
+      ]
+    },
+    "AnalyticsDataQuality": {
+      "type": "object",
+      "properties": {
+        "legacy_timestamp_fallback_count": {
+          "type": "integer",
+          "nullable": false,
+          "default": "0"
+        },
+        "missing_paid_at_count": {
+          "type": "integer",
+          "nullable": false,
+          "default": "0"
+        },
+        "missing_commission_payment_date_count": {
+          "type": "integer",
+          "nullable": false,
+          "default": "0"
+        },
+        "suppressed_cell_count": {
+          "type": "integer",
+          "nullable": false,
+          "default": "0"
+        },
+        "cohort_complete": {
+          "type": "boolean",
+          "nullable": false,
+          "default": "True"
+        }
+      },
+      "required": []
+    },
+    "AnalyticsSourceCoverage": {
+      "type": "object",
+      "properties": {
+        "coverage_start": {
+          "type": "string:date-time|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "coverage_end": {
+          "type": "string:date-time|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "observed_at": {
+          "type": "string:date-time|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "status": {
+          "type": "string",
+          "nullable": false,
+          "enum": [
+            "available",
+            "partial",
+            "unavailable",
+            "not_applicable"
+          ]
+        },
+        "diagnostic": {
+          "type": "AnalyticsDiagnostic|null",
+          "nullable": true,
+          "default": "None"
+        }
+      },
+      "required": [
+        "status"
+      ]
+    },
+    "AnalyticsCoverage": {
+      "type": "object",
+      "properties": {
+        "authoritative": {
+          "type": "AnalyticsSourceCoverage",
+          "nullable": false
+        },
+        "behavioral": {
+          "type": "AnalyticsSourceCoverage",
+          "nullable": false
+        },
+        "login_history": {
+          "type": "AnalyticsSourceCoverage",
+          "nullable": false
+        },
+        "status_history": {
+          "type": "AnalyticsSourceCoverage",
+          "nullable": false
+        },
+        "reference": {
+          "type": "AnalyticsSourceCoverage",
+          "nullable": false
+        }
+      },
+      "required": [
+        "authoritative",
+        "behavioral",
+        "login_history",
+        "status_history",
+        "reference"
+      ]
+    },
+    "AnalyticsMeta": {
+      "type": "object",
+      "properties": {
+        "start": {
+          "type": "string:date-time",
+          "nullable": false
+        },
+        "end": {
+          "type": "string:date-time",
+          "nullable": false
+        },
+        "previous_start": {
+          "type": "string:date-time|null",
+          "nullable": true
+        },
+        "previous_end": {
+          "type": "string:date-time|null",
+          "nullable": true
+        },
+        "observed_at": {
+          "type": "string:date-time",
+          "nullable": false
+        },
+        "coverage": {
+          "type": "AnalyticsCoverage",
+          "nullable": false
+        },
+        "data_quality": {
+          "type": "AnalyticsDataQuality",
+          "nullable": false
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "previous_start",
+        "previous_end",
+        "observed_at",
+        "coverage",
+        "data_quality"
+      ]
+    },
+    "AggregateCell": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string",
+          "nullable": false
+        },
+        "count": {
+          "type": "integer|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "suppressed": {
+          "type": "boolean",
+          "nullable": false,
+          "default": "False"
+        }
+      },
+      "required": [
+        "key"
+      ]
+    },
+    "MetricValue": {
+      "type": "object",
+      "properties": {
+        "value": {
+          "type": "integer|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "previous": {
+          "type": "integer|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "suppressed": {
+          "type": "boolean",
+          "nullable": false,
+          "default": "False"
+        }
+      },
+      "required": []
+    },
+    "DecimalMetricValue": {
+      "type": "object",
+      "properties": {
+        "value": {
+          "type": "string:decimal|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "previous": {
+          "type": "string:decimal|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "suppressed": {
+          "type": "boolean",
+          "nullable": false,
+          "default": "False"
+        }
+      },
+      "required": []
+    },
+    "RatioValue": {
+      "type": "object",
+      "properties": {
+        "numerator": {
+          "type": "integer|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "denominator": {
+          "type": "integer|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "rate_pct": {
+          "type": "string:decimal|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "suppressed": {
+          "type": "boolean",
+          "nullable": false,
+          "default": "False"
+        },
+        "cohort_complete": {
+          "type": "boolean",
+          "nullable": false,
+          "default": "True"
+        }
+      },
+      "required": []
+    },
+    "SeriesPoint": {
+      "type": "object",
+      "properties": {
+        "date": {
+          "type": "string:date",
+          "nullable": false
+        },
+        "value": {
+          "type": "integer|null",
+          "nullable": true,
+          "default": "None"
+        }
+      },
+      "required": [
+        "date"
+      ]
+    },
+    "RankedRow": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string",
+          "nullable": false
+        },
+        "label": {
+          "type": "string",
+          "nullable": false
+        },
+        "count": {
+          "type": "integer|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "share_pct": {
+          "type": "string:decimal|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "suppressed": {
+          "type": "boolean",
+          "nullable": false,
+          "default": "False"
+        }
+      },
+      "required": [
+        "key",
+        "label"
+      ]
+    },
+    "LifecycleStage": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string",
+          "nullable": false,
+          "enum": [
+            "visitors",
+            "registered",
+            "active",
+            "participating",
+            "trading",
+            "retained"
+          ]
+        },
+        "count": {
+          "type": "integer|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "previous": {
+          "type": "integer|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "coverage": {
+          "type": "string",
+          "nullable": false,
+          "enum": [
+            "available",
+            "partial",
+            "unavailable",
+            "not_applicable"
+          ]
+        },
+        "detail_tab": {
+          "type": "string",
+          "nullable": false
+        }
+      },
+      "required": [
+        "key",
+        "coverage",
+        "detail_tab"
+      ]
+    },
+    "ActivityTrend": {
+      "type": "object",
+      "properties": {
+        "visitors": {
+          "type": "array<SeriesPoint>",
+          "nullable": false,
+          "default": "_series_field()"
+        },
+        "active_members": {
+          "type": "array<SeriesPoint>",
+          "nullable": false,
+          "default": "_series_field()"
+        },
+        "orders": {
+          "type": "array<SeriesPoint>",
+          "nullable": false,
+          "default": "_series_field()"
+        },
+        "confirmed_trades": {
+          "type": "array<SeriesPoint>",
+          "nullable": false,
+          "default": "_series_field()"
+        }
+      },
+      "required": []
+    },
+    "MarketplaceBalance": {
+      "type": "object",
+      "properties": {
+        "buyer_organizations": {
+          "type": "MetricValue",
+          "nullable": false
+        },
+        "supplier_organizations": {
+          "type": "MetricValue",
+          "nullable": false
+        },
+        "bid_orders": {
+          "type": "MetricValue",
+          "nullable": false
+        },
+        "ask_orders": {
+          "type": "MetricValue",
+          "nullable": false
+        }
+      },
+      "required": [
+        "buyer_organizations",
+        "supplier_organizations",
+        "bid_orders",
+        "ask_orders"
+      ]
+    },
+    "NeedsAttentionItem": {
+      "type": "object",
+      "properties": {
+        "rule": {
+          "type": "string",
+          "nullable": false,
+          "enum": [
+            "approved_members_never_logged_in",
+            "signup_submission_drop",
+            "one_sided_live_market",
+            "elevated_login_failures",
+            "degraded_analytics_collection"
+          ]
+        },
+        "count": {
+          "type": "integer|null",
+          "nullable": true,
+          "default": "None"
+        }
+      },
+      "required": [
+        "rule"
+      ]
+    },
+    "OverviewKpis": {
+      "type": "object",
+      "properties": {
+        "qualified_organizations": {
+          "type": "MetricValue",
+          "nullable": false
+        },
+        "active_members": {
+          "type": "MetricValue",
+          "nullable": false
+        },
+        "participating_organizations": {
+          "type": "MetricValue",
+          "nullable": false
+        },
+        "live_orders": {
+          "type": "MetricValue",
+          "nullable": false
+        },
+        "confirmed_trades": {
+          "type": "MetricValue",
+          "nullable": false
+        }
+      },
+      "required": [
+        "qualified_organizations",
+        "active_members",
+        "participating_organizations",
+        "live_orders",
+        "confirmed_trades"
+      ]
+    },
+    "OverviewResponse": {
+      "type": "object",
+      "properties": {
+        "meta": {
+          "type": "AnalyticsMeta",
+          "nullable": false
+        },
+        "kpis": {
+          "type": "OverviewKpis",
+          "nullable": false
+        },
+        "lifecycle": {
+          "type": "array<LifecycleStage>",
+          "nullable": false,
+          "bounds": {
+            "default_factory": "list",
+            "max_length": "6"
+          }
+        },
+        "activity_trend": {
+          "type": "ActivityTrend",
+          "nullable": false
+        },
+        "marketplace_balance": {
+          "type": "MarketplaceBalance",
+          "nullable": false
+        },
+        "needs_attention": {
+          "type": "array<NeedsAttentionItem>",
+          "nullable": false,
+          "bounds": {
+            "default_factory": "list",
+            "max_length": "10"
+          }
+        }
+      },
+      "required": [
+        "meta",
+        "kpis",
+        "activity_trend",
+        "marketplace_balance"
+      ]
+    },
+    "AcquisitionKpis": {
+      "type": "object",
+      "properties": {
+        "visitors": {
+          "type": "MetricValue",
+          "nullable": false
+        },
+        "visits": {
+          "type": "MetricValue",
+          "nullable": false
+        },
+        "pageviews": {
+          "type": "MetricValue",
+          "nullable": false
+        },
+        "average_session_duration_seconds": {
+          "type": "DecimalMetricValue",
+          "nullable": false
+        },
+        "cta_clicks": {
+          "type": "MetricValue",
+          "nullable": false
+        }
+      },
+      "required": [
+        "visitors",
+        "visits",
+        "pageviews",
+        "average_session_duration_seconds",
+        "cta_clicks"
+      ]
+    },
+    "CtaMatrixRow": {
+      "type": "object",
+      "properties": {
+        "cta": {
+          "type": "string",
+          "nullable": false
+        },
+        "placement": {
+          "type": "string",
+          "nullable": false
+        },
+        "clicks": {
+          "type": "integer|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "share_pct": {
+          "type": "string:decimal|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "suppressed": {
+          "type": "boolean",
+          "nullable": false,
+          "default": "False"
+        }
+      },
+      "required": [
+        "cta",
+        "placement"
+      ]
+    },
+    "CalculatorFunnel": {
+      "type": "object",
+      "properties": {
+        "starts": {
+          "type": "MetricValue",
+          "nullable": false
+        },
+        "completions": {
+          "type": "MetricValue",
+          "nullable": false
+        }
+      },
+      "required": [
+        "starts",
+        "completions"
+      ]
+    },
+    "AcquisitionResponse": {
+      "type": "object",
+      "properties": {
+        "meta": {
+          "type": "AnalyticsMeta",
+          "nullable": false
+        },
+        "kpis": {
+          "type": "AcquisitionKpis",
+          "nullable": false
+        },
+        "visitors_trend": {
+          "type": "array<SeriesPoint>",
+          "nullable": false,
+          "default": "_series_field()"
+        },
+        "previous_visitors_trend": {
+          "type": "array<SeriesPoint>",
+          "nullable": false,
+          "default": "_series_field()"
+        },
+        "visits_trend": {
+          "type": "array<SeriesPoint>",
+          "nullable": false,
+          "default": "_series_field()"
+        },
+        "referrers": {
+          "type": "array<RankedRow>",
+          "nullable": false,
+          "default": "_ranked_field()"
+        },
+        "entry_pages": {
+          "type": "array<RankedRow>",
+          "nullable": false,
+          "default": "_ranked_field()"
+        },
+        "cta_matrix": {
+          "type": "array<CtaMatrixRow>",
+          "nullable": false,
+          "default": "_ranked_field()"
+        },
+        "languages": {
+          "type": "array<RankedRow>",
+          "nullable": false,
+          "default": "_ranked_field()"
+        },
+        "calculator": {
+          "type": "CalculatorFunnel",
+          "nullable": false
+        }
+      },
+      "required": [
+        "meta",
+        "kpis",
+        "calculator"
+      ]
+    },
+    "JourneyStage": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string",
+          "nullable": false
+        },
+        "source": {
+          "type": "string",
+          "nullable": false,
+          "enum": [
+            "behavioral",
+            "authoritative"
+          ]
+        },
+        "total": {
+          "type": "AggregateCell",
+          "nullable": false
+        },
+        "buyer": {
+          "type": "AggregateCell|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "supplier": {
+          "type": "AggregateCell|null",
+          "nullable": true,
+          "default": "None"
+        }
+      },
+      "required": [
+        "key",
+        "source",
+        "total"
+      ]
+    },
+    "DurationBucket": {
+      "type": "object",
+      "properties": {
+        "bucket": {
+          "type": "string",
+          "nullable": false
+        },
+        "cell": {
+          "type": "AggregateCell",
+          "nullable": false
+        }
+      },
+      "required": [
+        "bucket",
+        "cell"
+      ]
+    },
+    "DurationDistribution": {
+      "type": "object",
+      "properties": {
+        "buckets": {
+          "type": "array<DurationBucket>",
+          "nullable": false,
+          "bounds": {
+            "default_factory": "list",
+            "max_length": "12"
+          }
+        },
+        "median_hours": {
+          "type": "string:decimal|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "sample_size": {
+          "type": "integer|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "suppressed": {
+          "type": "boolean",
+          "nullable": false,
+          "default": "False"
+        }
+      },
+      "required": []
+    },
+    "LabeledRatio": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string",
+          "nullable": false
+        },
+        "kind": {
+          "type": "string",
+          "nullable": false,
+          "enum": [
+            "user_cohort",
+            "organization_cohort",
+            "aggregate_event"
+          ]
+        },
+        "ratio": {
+          "type": "RatioValue",
+          "nullable": false
+        }
+      },
+      "required": [
+        "key",
+        "kind",
+        "ratio"
+      ]
+    },
+    "ActivationResponse": {
+      "type": "object",
+      "properties": {
+        "meta": {
+          "type": "AnalyticsMeta",
+          "nullable": false
+        },
+        "journey": {
+          "type": "array<JourneyStage>",
+          "nullable": false,
+          "bounds": {
+            "default_factory": "list",
+            "max_length": "12"
+          }
+        },
+        "time_to_first_login": {
+          "type": "DurationDistribution",
+          "nullable": false
+        },
+        "time_to_first_live_order": {
+          "type": "DurationDistribution",
+          "nullable": false
+        },
+        "drop_off": {
+          "type": "array<AggregateCell>",
+          "nullable": false,
+          "bounds": {
+            "default_factory": "list",
+            "max_length": "8"
+          }
+        },
+        "ratios": {
+          "type": "array<LabeledRatio>",
+          "nullable": false,
+          "bounds": {
+            "default_factory": "list",
+            "max_length": "12"
+          }
+        }
+      },
+      "required": [
+        "meta",
+        "time_to_first_login",
+        "time_to_first_live_order"
+      ]
+    },
+    "EngagementKpis": {
+      "type": "object",
+      "properties": {
+        "dau": {
+          "type": "MetricValue",
+          "nullable": false
+        },
+        "wau": {
+          "type": "MetricValue",
+          "nullable": false
+        },
+        "mau": {
+          "type": "MetricValue",
+          "nullable": false
+        },
+        "stickiness_pct": {
+          "type": "string:decimal|null",
+          "nullable": true,
+          "default": "None"
+        }
+      },
+      "required": [
+        "dau",
+        "wau",
+        "mau"
+      ]
+    },
+    "FeatureAdoptionRow": {
+      "type": "object",
+      "properties": {
+        "family": {
+          "type": "string",
+          "nullable": false
+        },
+        "events": {
+          "type": "integer|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "suppressed": {
+          "type": "boolean",
+          "nullable": false,
+          "default": "False"
+        }
+      },
+      "required": [
+        "family"
+      ]
+    },
+    "NavigationDestinationRow": {
+      "type": "object",
+      "properties": {
+        "destination": {
+          "type": "string",
+          "nullable": false,
+          "enum": [
+            "home",
+            "map",
+            "marketplace",
+            "curve",
+            "watchlist",
+            "analytics",
+            "trades",
+            "quotes",
+            "compliance",
+            "training",
+            "settings",
+            "admin"
+          ]
+        },
+        "total": {
+          "type": "AggregateCell",
+          "nullable": false
+        },
+        "buyer": {
+          "type": "AggregateCell|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "supplier": {
+          "type": "AggregateCell|null",
+          "nullable": true,
+          "default": "None"
+        }
+      },
+      "required": [
+        "destination",
+        "total"
+      ]
+    },
+    "TutorialStepRow": {
+      "type": "object",
+      "properties": {
+        "step": {
+          "type": "string",
+          "nullable": false
+        },
+        "completed": {
+          "type": "AggregateCell",
+          "nullable": false
+        },
+        "skipped": {
+          "type": "AggregateCell",
+          "nullable": false
+        }
+      },
+      "required": [
+        "step",
+        "completed",
+        "skipped"
+      ]
+    },
+    "EngagementResponse": {
+      "type": "object",
+      "properties": {
+        "meta": {
+          "type": "AnalyticsMeta",
+          "nullable": false
+        },
+        "kpis": {
+          "type": "EngagementKpis",
+          "nullable": false
+        },
+        "active_members_trend": {
+          "type": "array<SeriesPoint>",
+          "nullable": false,
+          "default": "_series_field()"
+        },
+        "feature_adoption": {
+          "type": "array<FeatureAdoptionRow>",
+          "nullable": false,
+          "default": "_ranked_field()"
+        },
+        "workflow_ratios": {
+          "type": "array<LabeledRatio>",
+          "nullable": false,
+          "bounds": {
+            "default_factory": "list",
+            "max_length": "12"
+          }
+        },
+        "navigation_destinations": {
+          "type": "array<NavigationDestinationRow>",
+          "nullable": false,
+          "bounds": {
+            "default_factory": "list",
+            "max_length": "12"
+          }
+        },
+        "tutorial_steps": {
+          "type": "array<TutorialStepRow>",
+          "nullable": false,
+          "default": "_ranked_field()"
+        }
+      },
+      "required": [
+        "meta",
+        "kpis"
+      ]
+    },
+    "MarketplaceKpis": {
+      "type": "object",
+      "properties": {
+        "participating_organizations": {
+          "type": "MetricValue",
+          "nullable": false
+        },
+        "open_bids": {
+          "type": "MetricValue",
+          "nullable": false
+        },
+        "open_asks": {
+          "type": "MetricValue",
+          "nullable": false
+        },
+        "confirmed_trades": {
+          "type": "MetricValue",
+          "nullable": false
+        },
+        "confirmed_volume_mt": {
+          "type": "DecimalMetricValue",
+          "nullable": false
+        },
+        "execution_rate": {
+          "type": "RatioValue",
+          "nullable": false
+        }
+      },
+      "required": [
+        "participating_organizations",
+        "open_bids",
+        "open_asks",
+        "confirmed_trades",
+        "confirmed_volume_mt",
+        "execution_rate"
+      ]
+    },
+    "SliceLiquidityRow": {
+      "type": "object",
+      "properties": {
+        "product_key": {
+          "type": "string",
+          "nullable": false
+        },
+        "product_label": {
+          "type": "string",
+          "nullable": false
+        },
+        "delivery_point_key": {
+          "type": "string",
+          "nullable": false
+        },
+        "delivery_point_label": {
+          "type": "string",
+          "nullable": false
+        },
+        "availability_window": {
+          "type": "string",
+          "nullable": false
+        },
+        "availability_window_label": {
+          "type": "string",
+          "nullable": false
+        },
+        "contributing_organizations": {
+          "type": "integer|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "best_bid_usd_per_mt": {
+          "type": "string:decimal|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "best_ask_usd_per_mt": {
+          "type": "string:decimal|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "spread_usd_per_mt": {
+          "type": "string:decimal|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "spread_bps": {
+          "type": "string:decimal|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "best_bid_depth_mt": {
+          "type": "string:decimal|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "best_ask_depth_mt": {
+          "type": "string:decimal|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "one_percent_bid_depth_mt": {
+          "type": "string:decimal|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "one_percent_ask_depth_mt": {
+          "type": "string:decimal|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "crossed": {
+          "type": "boolean|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "suppressed": {
+          "type": "boolean",
+          "nullable": false,
+          "default": "False"
+        }
+      },
+      "required": [
+        "product_key",
+        "product_label",
+        "delivery_point_key",
+        "delivery_point_label",
+        "availability_window",
+        "availability_window_label"
+      ]
+    },
+    "LiquiditySummary": {
+      "type": "object",
+      "properties": {
+        "two_sided_slices": {
+          "type": "integer|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "one_sided_slices": {
+          "type": "integer|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "crossed_slices": {
+          "type": "integer|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "median_spread_usd_per_mt": {
+          "type": "string:decimal|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "median_spread_bps": {
+          "type": "string:decimal|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "median_open_order_age_hours": {
+          "type": "string:decimal|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "median_hours_to_first_fill": {
+          "type": "string:decimal|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "slices": {
+          "type": "array<SliceLiquidityRow>",
+          "nullable": false,
+          "default": "_ranked_field()"
+        }
+      },
+      "required": []
+    },
+    "MarketBalanceTrend": {
+      "type": "object",
+      "properties": {
+        "buyer_organizations": {
+          "type": "array<SeriesPoint>",
+          "nullable": false,
+          "default": "_series_field()"
+        },
+        "supplier_organizations": {
+          "type": "array<SeriesPoint>",
+          "nullable": false,
+          "default": "_series_field()"
+        },
+        "bids": {
+          "type": "array<SeriesPoint>",
+          "nullable": false,
+          "default": "_series_field()"
+        },
+        "asks": {
+          "type": "array<SeriesPoint>",
+          "nullable": false,
+          "default": "_series_field()"
+        }
+      },
+      "required": []
+    },
+    "ProductPortCell": {
+      "type": "object",
+      "properties": {
+        "product_key": {
+          "type": "string",
+          "nullable": false
+        },
+        "product_label": {
+          "type": "string",
+          "nullable": false
+        },
+        "delivery_point_key": {
+          "type": "string",
+          "nullable": false
+        },
+        "delivery_point_label": {
+          "type": "string",
+          "nullable": false
+        },
+        "orders": {
+          "type": "AggregateCell",
+          "nullable": false
+        },
+        "organizations": {
+          "type": "AggregateCell",
+          "nullable": false
+        }
+      },
+      "required": [
+        "product_key",
+        "product_label",
+        "delivery_point_key",
+        "delivery_point_label",
+        "orders",
+        "organizations"
+      ]
+    },
+    "OrganizationConcentration": {
+      "type": "object",
+      "properties": {
+        "hhi_band": {
+          "type": "ConcentrationBand|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "suppressed": {
+          "type": "boolean",
+          "nullable": false,
+          "default": "False"
+        }
+      },
+      "required": []
+    },
+    "CommercialSummary": {
+      "type": "object",
+      "properties": {
+        "realized_gmv_usd": {
+          "type": "DecimalMetricValue",
+          "nullable": false
+        },
+        "realized_revenue_usd": {
+          "type": "DecimalMetricValue",
+          "nullable": false
+        },
+        "commission_pending_usd": {
+          "type": "string:decimal|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "commission_invoiced_usd": {
+          "type": "string:decimal|null",
+          "nullable": true,
+          "default": "None"
+        }
+      },
+      "required": [
+        "realized_gmv_usd",
+        "realized_revenue_usd"
+      ]
+    },
+    "MarketActivitySection": {
+      "type": "object",
+      "properties": {
+        "kpis": {
+          "type": "MarketplaceKpis",
+          "nullable": false
+        },
+        "liquidity": {
+          "type": "LiquiditySummary",
+          "nullable": false
+        },
+        "balance_trend": {
+          "type": "MarketBalanceTrend",
+          "nullable": false
+        },
+        "product_port_matrix": {
+          "type": "array<ProductPortCell>",
+          "nullable": false,
+          "bounds": {
+            "default_factory": "list",
+            "max_length": "_MAX_MATRIX_CELLS"
+          }
+        },
+        "window_distribution": {
+          "type": "array<RankedRow>",
+          "nullable": false,
+          "default": "_ranked_field()"
+        },
+        "order_status_distribution": {
+          "type": "array<AggregateCell>",
+          "nullable": false,
+          "bounds": {
+            "default_factory": "list",
+            "max_length": "8"
+          }
+        },
+        "trade_status_distribution": {
+          "type": "array<AggregateCell>",
+          "nullable": false,
+          "bounds": {
+            "default_factory": "list",
+            "max_length": "8"
+          }
+        },
+        "concentration": {
+          "type": "OrganizationConcentration",
+          "nullable": false
+        }
+      },
+      "required": [
+        "kpis",
+        "liquidity",
+        "balance_trend",
+        "concentration"
+      ]
+    },
+    "ReferenceCoverageRow": {
+      "type": "object",
+      "properties": {
+        "product_key": {
+          "type": "string",
+          "nullable": false
+        },
+        "product_label": {
+          "type": "string",
+          "nullable": false
+        },
+        "delivery_point_key": {
+          "type": "string",
+          "nullable": false
+        },
+        "delivery_point_label": {
+          "type": "string",
+          "nullable": false
+        },
+        "availability_window": {
+          "type": "string",
+          "nullable": false
+        },
+        "availability_window_label": {
+          "type": "string",
+          "nullable": false
+        },
+        "benchmark_price_usd_per_mt": {
+          "type": "string:decimal|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "source_label": {
+          "type": "string",
+          "nullable": false,
+          "enum": [
+            "MANUAL_OVERRIDE",
+            "SEED_MATRIX",
+            "OTHER"
+          ]
+        },
+        "generated_at": {
+          "type": "string:date-time",
+          "nullable": false
+        },
+        "observed_at": {
+          "type": "string:date-time|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "source_kind": {
+          "type": "string",
+          "nullable": false,
+          "enum": [
+            "ADMIN_BENCHMARK",
+            "SEEDED_BENCHMARK",
+            "TRADE_DERIVED_VWAP",
+            "OTHER"
+          ]
+        },
+        "scope": {
+          "type": "string",
+          "nullable": false,
+          "enum": [
+            "EXACT_SLICE",
+            "WINDOW_ADJUSTED",
+            "OTHER"
+          ]
+        },
+        "coverage_status": {
+          "type": "Literal['current', 'stale', 'unavailable']",
+          "nullable": false
+        }
+      },
+      "required": [
+        "product_key",
+        "product_label",
+        "delivery_point_key",
+        "delivery_point_label",
+        "availability_window",
+        "availability_window_label",
+        "source_label",
+        "generated_at",
+        "source_kind",
+        "scope",
+        "coverage_status"
+      ]
+    },
+    "ReferenceCoverageSection": {
+      "type": "object",
+      "properties": {
+        "rows": {
+          "type": "array<ReferenceCoverageRow>",
+          "nullable": false,
+          "bounds": {
+            "default_factory": "list",
+            "max_length": "_MAX_MATRIX_CELLS"
+          }
+        }
+      },
+      "required": []
+    },
+    "MarketplaceResponse": {
+      "type": "object",
+      "properties": {
+        "meta": {
+          "type": "AnalyticsMeta",
+          "nullable": false
+        },
+        "live": {
+          "type": "MarketActivitySection|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "demo": {
+          "type": "MarketActivitySection|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "unknown": {
+          "type": "MarketActivitySection|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "reference": {
+          "type": "ReferenceCoverageSection|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "commercial": {
+          "type": "CommercialSummary|null",
+          "nullable": true,
+          "default": "None"
+        }
+      },
+      "required": [
+        "meta"
+      ]
+    },
+    "CohortCell": {
+      "type": "object",
+      "properties": {
+        "offset": {
+          "type": "integer",
+          "nullable": false
+        },
+        "cell": {
+          "type": "AggregateCell",
+          "nullable": false
+        },
+        "pct": {
+          "type": "string:decimal|null",
+          "nullable": true,
+          "default": "None"
+        }
+      },
+      "required": [
+        "offset",
+        "cell"
+      ]
+    },
+    "CohortRow": {
+      "type": "object",
+      "properties": {
+        "cohort_start": {
+          "type": "string:date",
+          "nullable": false
+        },
+        "size": {
+          "type": "AggregateCell",
+          "nullable": false
+        },
+        "cells": {
+          "type": "array<CohortCell>",
+          "nullable": false,
+          "bounds": {
+            "default_factory": "list",
+            "max_length": "_MAX_COHORT_ROWS"
+          }
+        }
+      },
+      "required": [
+        "cohort_start",
+        "size"
+      ]
+    },
+    "RetentionKpis": {
+      "type": "object",
+      "properties": {
+        "returning_members": {
+          "type": "MetricValue",
+          "nullable": false
+        },
+        "retained_organizations": {
+          "type": "MetricValue",
+          "nullable": false
+        },
+        "reactivated_organizations": {
+          "type": "MetricValue",
+          "nullable": false
+        },
+        "dormant_approved_members": {
+          "type": "MetricValue",
+          "nullable": false
+        }
+      },
+      "required": [
+        "returning_members",
+        "retained_organizations",
+        "reactivated_organizations",
+        "dormant_approved_members"
+      ]
+    },
+    "RetentionResponse": {
+      "type": "object",
+      "properties": {
+        "meta": {
+          "type": "AnalyticsMeta",
+          "nullable": false
+        },
+        "kpis": {
+          "type": "RetentionKpis",
+          "nullable": false
+        },
+        "member_cohorts": {
+          "type": "array<CohortRow>",
+          "nullable": false,
+          "bounds": {
+            "default_factory": "list",
+            "max_length": "_MAX_COHORT_ROWS"
+          }
+        },
+        "organization_cohorts": {
+          "type": "array<CohortRow>",
+          "nullable": false,
+          "bounds": {
+            "default_factory": "list",
+            "max_length": "_MAX_COHORT_ROWS"
+          }
+        },
+        "repeat_participation": {
+          "type": "array<AggregateCell>",
+          "nullable": false,
+          "bounds": {
+            "default_factory": "list",
+            "max_length": "3"
+          }
+        }
+      },
+      "required": [
+        "meta",
+        "kpis"
+      ]
+    },
+    "CollectorState": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "nullable": false,
+          "enum": [
+            "available",
+            "partial",
+            "unavailable",
+            "not_applicable"
+          ]
+        },
+        "diagnostic": {
+          "type": "AnalyticsDiagnostic|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "last_observation_at": {
+          "type": "string:date-time|null",
+          "nullable": true,
+          "default": "None"
+        }
+      },
+      "required": [
+        "status"
+      ]
+    },
+    "LoginFailurePanel": {
+      "type": "object",
+      "properties": {
+        "total": {
+          "type": "MetricValue",
+          "nullable": false
+        },
+        "categories": {
+          "type": "array<AggregateCell>",
+          "nullable": false,
+          "bounds": {
+            "default_factory": "list",
+            "max_length": "8"
+          }
+        },
+        "trend": {
+          "type": "array<SeriesPoint>",
+          "nullable": false,
+          "default": "_series_field()"
+        }
+      },
+      "required": [
+        "total"
+      ]
+    },
+    "FrontendErrorPanel": {
+      "type": "object",
+      "properties": {
+        "total": {
+          "type": "MetricValue",
+          "nullable": false
+        },
+        "by_route_family": {
+          "type": "array<AggregateCell>",
+          "nullable": false,
+          "bounds": {
+            "default_factory": "list",
+            "max_length": "4"
+          }
+        },
+        "by_category": {
+          "type": "array<AggregateCell>",
+          "nullable": false,
+          "bounds": {
+            "default_factory": "list",
+            "max_length": "4"
+          }
+        }
+      },
+      "required": [
+        "total"
+      ]
+    },
+    "BackendUnavailablePanel": {
+      "type": "object",
+      "properties": {
+        "total": {
+          "type": "MetricValue",
+          "nullable": false
+        },
+        "by_route_family": {
+          "type": "array<AggregateCell>",
+          "nullable": false,
+          "bounds": {
+            "default_factory": "list",
+            "max_length": "4"
+          }
+        }
+      },
+      "required": [
+        "total"
+      ]
+    },
+    "NavigationLatencyRow": {
+      "type": "object",
+      "properties": {
+        "destination": {
+          "type": "NavigationDestination | Literal['all']",
+          "nullable": false
+        },
+        "buckets": {
+          "type": "array<AggregateCell>",
+          "nullable": false,
+          "bounds": {
+            "default_factory": "list",
+            "max_length": "5"
+          }
+        }
+      },
+      "required": [
+        "destination"
+      ]
+    },
+    "AuditActivityRow": {
+      "type": "object",
+      "properties": {
+        "occurred_at": {
+          "type": "string:date-time",
+          "nullable": false
+        },
+        "action": {
+          "type": "string",
+          "nullable": false
+        },
+        "resource_type": {
+          "type": "string|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "actor_role": {
+          "type": "string|null",
+          "nullable": true,
+          "default": "None"
+        }
+      },
+      "required": [
+        "occurred_at",
+        "action"
+      ]
+    },
+    "ReliabilityResponse": {
+      "type": "object",
+      "properties": {
+        "meta": {
+          "type": "AnalyticsMeta",
+          "nullable": false
+        },
+        "collector": {
+          "type": "CollectorState",
+          "nullable": false
+        },
+        "login_failures": {
+          "type": "LoginFailurePanel",
+          "nullable": false
+        },
+        "frontend_errors": {
+          "type": "FrontendErrorPanel",
+          "nullable": false
+        },
+        "backend_unavailable": {
+          "type": "BackendUnavailablePanel",
+          "nullable": false
+        },
+        "navigation_latency": {
+          "type": "array<NavigationLatencyRow>",
+          "nullable": false,
+          "bounds": {
+            "default_factory": "list",
+            "max_length": "12"
+          }
+        },
+        "audit_activity": {
+          "type": "array<AuditActivityRow>",
+          "nullable": false,
+          "default": "_ranked_field()"
+        }
+      },
+      "required": [
+        "meta",
+        "collector",
+        "login_failures",
+        "frontend_errors",
+        "backend_unavailable"
+      ]
+    },
+    "MetricEntry": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "nullable": false
+        },
+        "value": {
+          "type": "integer",
+          "nullable": false,
+          "bounds": {
+            "ge": "0"
+          }
+        }
+      },
+      "required": [
+        "name",
+        "value"
+      ]
+    },
+    "DailyVisitorPoint": {
+      "type": "object",
+      "properties": {
+        "date": {
+          "type": "string",
+          "nullable": false
+        },
+        "value": {
+          "type": "integer",
+          "nullable": false,
+          "bounds": {
+            "ge": "0"
+          }
+        }
+      },
+      "required": [
+        "date",
+        "value"
+      ]
+    },
+    "DailyEventPoint": {
+      "type": "object",
+      "properties": {
+        "date": {
+          "type": "string",
+          "nullable": false
+        },
+        "event": {
+          "type": "string",
+          "nullable": false
+        },
+        "value": {
+          "type": "integer",
+          "nullable": false,
+          "bounds": {
+            "ge": "0"
+          }
+        }
+      },
+      "required": [
+        "date",
+        "event",
+        "value"
+      ]
+    },
+    "BehavioralUsage": {
+      "type": "object",
+      "properties": {
+        "visitors": {
+          "type": "integer",
+          "nullable": false,
+          "bounds": {
+            "ge": "0"
+          }
+        },
+        "visits": {
+          "type": "integer",
+          "nullable": false,
+          "bounds": {
+            "ge": "0"
+          }
+        },
+        "pageviews": {
+          "type": "integer",
+          "nullable": false,
+          "bounds": {
+            "ge": "0"
+          }
+        },
+        "total_time_seconds": {
+          "type": "integer",
+          "nullable": false,
+          "bounds": {
+            "ge": "0"
+          }
+        },
+        "average_session_duration_seconds": {
+          "type": "number",
+          "nullable": false,
+          "bounds": {
+            "ge": "0"
+          }
+        },
+        "event_totals": {
+          "type": "object-map<str, int>",
+          "nullable": false
+        },
+        "event_series": {
+          "type": "array<DailyEventPoint>",
+          "nullable": false
+        },
+        "daily_visitors": {
+          "type": "array<DailyVisitorPoint>",
+          "nullable": false
+        },
+        "top_entries": {
+          "type": "array<MetricEntry>",
+          "nullable": false
+        },
+        "top_referrers": {
+          "type": "array<MetricEntry>",
+          "nullable": false
+        }
+      },
+      "required": [
+        "visitors",
+        "visits",
+        "pageviews",
+        "total_time_seconds",
+        "average_session_duration_seconds",
+        "event_totals",
+        "event_series",
+        "daily_visitors",
+        "top_entries",
+        "top_referrers"
+      ]
+    },
+    "AuthoritativeUsage": {
+      "type": "object",
+      "properties": {
+        "registrations": {
+          "type": "integer",
+          "nullable": false,
+          "bounds": {
+            "ge": "0"
+          }
+        },
+        "users_logging_in": {
+          "type": "integer",
+          "nullable": false,
+          "bounds": {
+            "ge": "0"
+          }
+        },
+        "order_placing_organizations": {
+          "type": "integer",
+          "nullable": false,
+          "bounds": {
+            "ge": "0"
+          }
+        }
+      },
+      "required": [
+        "registrations",
+        "users_logging_in",
+        "order_placing_organizations"
+      ]
+    },
+    "FunnelStage": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "nullable": false
+        },
+        "value": {
+          "type": "integer",
+          "nullable": false,
+          "bounds": {
+            "ge": "0"
+          }
+        },
+        "conversion_from_previous_pct": {
+          "type": "number|null",
+          "nullable": true,
+          "bounds": {
+            "default": "None",
+            "ge": "0"
+          }
+        }
+      },
+      "required": [
+        "name",
+        "value"
+      ]
+    },
+    "ProductUsageResponse": {
+      "type": "object",
+      "properties": {
+        "days": {
+          "type": "Literal[7, 30, 90]",
+          "nullable": false
+        },
+        "period_start": {
+          "type": "string:date-time",
+          "nullable": false
+        },
+        "period_end": {
+          "type": "string:date-time",
+          "nullable": false
+        },
+        "behavioral_status": {
+          "type": "Literal['available', 'unavailable']",
+          "nullable": false
+        },
+        "diagnostic": {
+          "type": "AnalyticsDiagnostic|null",
+          "nullable": true
+        },
+        "observed_at": {
+          "type": "string:date-time",
+          "nullable": false
+        },
+        "behavioral": {
+          "type": "BehavioralUsage",
+          "nullable": false
+        },
+        "authoritative": {
+          "type": "AuthoritativeUsage",
+          "nullable": false
+        },
+        "funnel": {
+          "type": "array<FunnelStage>",
+          "nullable": false
+        }
+      },
+      "required": [
+        "days",
+        "period_start",
+        "period_end",
+        "behavioral_status",
+        "diagnostic",
+        "observed_at",
+        "behavioral",
+        "authoritative",
+        "funnel"
+      ]
+    },
+    "JoinReviewBody": {
+      "type": "object",
+      "properties": {
+        "review_note": {
+          "type": "string;trimmed;min3;max1000",
+          "nullable": false
+        }
+      },
+      "required": [
+        "review_note"
+      ]
+    },
+    "AdminInvitationOrganizationCreate": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "nullable": false,
+          "bounds": {
+            "min_length": "1",
+            "max_length": "200"
+          }
+        },
+        "type": {
+          "type": "OrgType",
+          "nullable": false
+        },
+        "country_code": {
+          "type": "string",
+          "nullable": false,
+          "bounds": {
+            "min_length": "2",
+            "max_length": "2",
+            "pattern": "'^[A-Za-z]{2}$'"
+          },
+          "assigned_iso_alpha2": true
+        },
+        "tax_id": {
+          "type": "string|null",
+          "nullable": true,
+          "bounds": {
+            "default": "None",
+            "max_length": "100"
+          }
+        }
+      },
+      "required": [
+        "name",
+        "type",
+        "country_code"
+      ]
+    },
+    "AdminInvitationCreate": {
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "EmailStr",
+          "nullable": false
+        },
+        "first_name": {
+          "type": "string",
+          "nullable": false,
+          "bounds": {
+            "min_length": "1",
+            "max_length": "100"
+          }
+        },
+        "last_name": {
+          "type": "string|null",
+          "nullable": true,
+          "bounds": {
+            "default": "None",
+            "max_length": "100"
+          }
+        },
+        "role": {
+          "type": "string",
+          "nullable": false,
+          "enum": [
+            "BUYER",
+            "SUPPLIER",
+            "ADMIN"
+          ]
+        },
+        "organization_id": {
+          "type": "uuid.UUID|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "new_organization": {
+          "type": "AdminInvitationOrganizationCreate|null",
+          "nullable": true,
+          "default": "None"
+        }
+      },
+      "required": [
+        "email",
+        "first_name",
+        "role"
+      ]
+    },
+    "InvitationTokenRequest": {
+      "type": "object",
+      "properties": {
+        "token": {
+          "type": "string",
+          "nullable": false,
+          "bounds": {
+            "min_length": "32",
+            "max_length": "128"
+          }
+        }
+      },
+      "required": [
+        "token"
+      ]
+    },
+    "InvitationOrganizationResponse": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "uuid.UUID",
+          "nullable": false
+        },
+        "name": {
+          "type": "string",
+          "nullable": false
+        },
+        "domain": {
+          "type": "string|null",
+          "nullable": true
+        },
+        "type": {
+          "type": "string",
+          "nullable": false
+        },
+        "provenance": {
+          "type": "OrganizationProvenance",
+          "nullable": false
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "domain",
+        "type",
+        "provenance"
+      ]
+    },
+    "InvitationOrganizationListResponse": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array<InvitationOrganizationResponse>",
+          "nullable": false
+        },
+        "truncated": {
+          "type": "boolean",
+          "nullable": false
+        }
+      },
+      "required": [
+        "items",
+        "truncated"
+      ]
+    },
+    "AdminInvitationResponse": {
+      "type": "object",
+      "properties": {
+        "user_id": {
+          "type": "uuid.UUID",
+          "nullable": false
+        },
+        "email": {
+          "type": "string",
+          "nullable": false
+        },
+        "role": {
+          "type": "string",
+          "nullable": false
+        },
+        "organization_name": {
+          "type": "string",
+          "nullable": false
+        },
+        "organization_created": {
+          "type": "boolean",
+          "nullable": false
+        },
+        "acceptance_url": {
+          "type": "string",
+          "nullable": false
+        },
+        "expires_at": {
+          "type": "string:date-time",
+          "nullable": false
+        },
+        "reissued": {
+          "type": "boolean",
+          "nullable": false
+        }
+      },
+      "required": [
+        "user_id",
+        "email",
+        "role",
+        "organization_name",
+        "organization_created",
+        "acceptance_url",
+        "expires_at",
+        "reissued"
+      ]
+    },
+    "InvitationResolveResponse": {
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "nullable": false
+        },
+        "first_name": {
+          "type": "string|null",
+          "nullable": true
+        },
+        "last_name": {
+          "type": "string|null",
+          "nullable": true
+        },
+        "role": {
+          "type": "string",
+          "nullable": false
+        },
+        "organization_name": {
+          "type": "string",
+          "nullable": false
+        },
+        "invited_by_name": {
+          "type": "string|null",
+          "nullable": true
+        },
+        "expires_at": {
+          "type": "string:date-time",
+          "nullable": false
+        }
+      },
+      "required": [
+        "email",
+        "first_name",
+        "last_name",
+        "role",
+        "organization_name",
+        "invited_by_name",
+        "expires_at"
+      ]
+    },
+    "LegacyOverviewResponse": {
+      "type": "object",
+      "properties": {
+        "total_users": {
+          "type": "integer",
+          "nullable": false,
+          "bounds": {}
+        },
+        "active_users_7d": {
+          "type": "integer",
+          "nullable": false,
+          "bounds": {}
+        },
+        "total_organizations": {
+          "type": "integer",
+          "nullable": false,
+          "bounds": {}
+        },
+        "total_orders": {
+          "type": "integer",
+          "nullable": false,
+          "bounds": {}
+        },
+        "open_orders": {
+          "type": "integer",
+          "nullable": false,
+          "bounds": {}
+        },
+        "total_trades": {
+          "type": "integer",
+          "nullable": false,
+          "bounds": {}
+        },
+        "confirmed_trades": {
+          "type": "integer",
+          "nullable": false,
+          "bounds": {}
+        },
+        "total_volume_mt": {
+          "type": "number",
+          "nullable": false,
+          "bounds": {}
+        },
+        "total_revenue_usd": {
+          "type": "number",
+          "nullable": false,
+          "bounds": {}
+        },
+        "total_gmv_usd": {
+          "type": "number",
+          "nullable": false,
+          "bounds": {}
+        }
+      },
+      "required": [
+        "total_users",
+        "active_users_7d",
+        "total_organizations",
+        "total_orders",
+        "open_orders",
+        "total_trades",
+        "confirmed_trades",
+        "total_volume_mt",
+        "total_revenue_usd",
+        "total_gmv_usd"
+      ]
+    },
+    "DailyStat": {
+      "type": "object",
+      "properties": {
+        "date": {
+          "type": "string:date",
+          "nullable": false,
+          "bounds": {}
+        },
+        "orders_placed": {
+          "type": "integer",
+          "nullable": false,
+          "bounds": {}
+        },
+        "trades_executed": {
+          "type": "integer",
+          "nullable": false,
+          "bounds": {}
+        },
+        "volume_mt": {
+          "type": "number",
+          "nullable": false,
+          "bounds": {}
+        },
+        "gmv_usd": {
+          "type": "number",
+          "nullable": false,
+          "bounds": {}
+        },
+        "commission_usd": {
+          "type": "number",
+          "nullable": false,
+          "bounds": {}
+        }
+      },
+      "required": [
+        "date",
+        "orders_placed",
+        "trades_executed",
+        "volume_mt",
+        "gmv_usd",
+        "commission_usd"
+      ]
+    },
+    "AdminUserEntry": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string:uuid",
+          "nullable": false
+        },
+        "email": {
+          "type": "string",
+          "nullable": false
+        },
+        "first_name": {
+          "type": "string|null",
+          "nullable": true
+        },
+        "last_name": {
+          "type": "string|null",
+          "nullable": true
+        },
+        "role": {
+          "type": "string",
+          "nullable": false
+        },
+        "status": {
+          "type": "string",
+          "nullable": false
+        },
+        "created_at": {
+          "type": "string:date-time",
+          "nullable": false
+        },
+        "organization_id": {
+          "type": "string:uuid|null",
+          "nullable": true
+        },
+        "org_name": {
+          "type": "string|null",
+          "nullable": true
+        },
+        "org_type": {
+          "type": "string|null",
+          "nullable": true
+        },
+        "org_provenance": {
+          "type": "string|null",
+          "nullable": true
+        },
+        "email_verified": {
+          "type": "boolean",
+          "nullable": false,
+          "default": "False"
+        },
+        "must_change_password": {
+          "type": "boolean",
+          "nullable": false,
+          "default": "False"
+        },
+        "last_login": {
+          "type": "string:date-time|null",
+          "nullable": true,
+          "default": "None"
+        },
+        "org_has_orders": {
+          "type": "boolean",
+          "nullable": false,
+          "default": "False"
+        }
+      },
+      "required": [
+        "id",
+        "email",
+        "first_name",
+        "last_name",
+        "role",
+        "status",
+        "created_at",
+        "organization_id",
+        "org_name",
+        "org_type",
+        "org_provenance"
+      ]
+    },
+    "AdminUsersResponse": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "AdminUserEntry[]",
+          "nullable": false
+        },
+        "total": {
+          "type": "integer",
+          "nullable": false
+        }
+      },
+      "required": [
+        "items",
+        "total"
+      ]
+    },
+    "AttentionItem": {
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "nullable": false
+        },
+        "name": {
+          "type": "string|null",
+          "nullable": true
+        },
+        "role": {
+          "type": "string|null",
+          "nullable": true
+        },
+        "stage": {
+          "type": "string",
+          "nullable": false
+        },
+        "since": {
+          "type": "string:date-time",
+          "nullable": false
+        },
+        "organization_name": {
+          "type": "string|null",
+          "nullable": true
+        },
+        "last_login": {
+          "type": "string:date-time|null",
+          "nullable": true
+        }
+      },
+      "required": [
+        "email",
+        "name",
+        "role",
+        "stage",
+        "since",
+        "organization_name",
+        "last_login"
+      ]
+    },
+    "AttentionResponse": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array<AttentionItem>",
+          "nullable": false
+        },
+        "generated_at": {
+          "type": "string:date-time",
+          "nullable": false
+        },
+        "truncated": {
+          "type": "boolean",
+          "nullable": false
+        }
+      },
+      "required": [
+        "items",
+        "generated_at",
+        "truncated"
+      ]
+    },
+    "AuditLogResponse": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string:uuid",
+          "nullable": false
+        },
+        "user_id": {
+          "type": "string:uuid|null",
+          "nullable": true
+        },
+        "action": {
+          "type": "string",
+          "nullable": false
+        },
+        "resource_type": {
+          "type": "string",
+          "nullable": false
+        },
+        "resource_id": {
+          "type": "string|null",
+          "nullable": true
+        },
+        "changes": {
+          "type": "dict|null",
+          "nullable": true
+        },
+        "ip_address": {
+          "type": "string|null",
+          "nullable": true
+        },
+        "request_id": {
+          "type": "string|null",
+          "nullable": true
+        },
+        "timestamp": {
+          "type": "string:date-time",
+          "nullable": false
+        }
+      },
+      "required": [
+        "id",
+        "user_id",
+        "action",
+        "resource_type",
+        "resource_id",
+        "changes",
+        "ip_address",
+        "request_id",
+        "timestamp"
+      ]
+    },
+    "Error": {
+      "type": "object",
+      "properties": {
+        "detail": {
+          "type": "object{code:UPPER_SNAKE_CODE,message:string}",
+          "nullable": false
+        }
+      },
+      "required": [
+        "detail"
+      ]
+    },
+    "NoContent": {
+      "type": "null",
+      "body": "absent"
+    },
+    "UserDecision": {
+      "type": "object",
+      "properties": {
+        "user_id": {
+          "type": "uuid",
+          "nullable": false
+        },
+        "status": {
+          "type": "string",
+          "nullable": false
+        }
+      },
+      "required": [
+        "user_id",
+        "status"
+      ]
+    },
+    "OrganizationDecision": {
+      "type": "object",
+      "properties": {
+        "organization_id": {
+          "type": "uuid",
+          "nullable": false
+        },
+        "verification_status": {
+          "type": "string",
+          "nullable": false
+        }
+      },
+      "required": [
+        "organization_id",
+        "verification_status"
+      ]
+    },
+    "JoinDecision": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "uuid",
+          "nullable": false
+        },
+        "status": {
+          "type": "string",
+          "nullable": false
+        }
+      },
+      "required": [
+        "id",
+        "status"
+      ]
+    },
+    "KycSubmitted": {
+      "type": "object",
+      "properties": {
+        "kyc_status": {
+          "type": "string",
+          "nullable": false
+        },
+        "message": {
+          "type": "string",
+          "nullable": false
+        }
+      },
+      "required": [
+        "kyc_status",
+        "message"
+      ]
+    },
+    "KycStatus": {
+      "type": "object",
+      "properties": {
+        "email_verified": {
+          "type": "boolean",
+          "nullable": false
+        },
+        "kyc_status": {
+          "type": "string",
+          "nullable": false
+        },
+        "kyc_organization_id": {
+          "type": "uuid|null",
+          "nullable": true
+        },
+        "kyc_rejection_reason": {
+          "type": "string|null",
+          "nullable": true
+        }
+      },
+      "required": [
+        "email_verified",
+        "kyc_status",
+        "kyc_organization_id",
+        "kyc_rejection_reason"
+      ]
+    },
+    "KycApproved": {
+      "type": "object",
+      "properties": {
+        "user_id": {
+          "type": "uuid",
+          "nullable": false
+        },
+        "kyc_status": {
+          "type": "string",
+          "nullable": false
+        },
+        "account_status": {
+          "type": "string",
+          "nullable": false
+        },
+        "message": {
+          "type": "string",
+          "nullable": false
+        }
+      },
+      "required": [
+        "user_id",
+        "kyc_status",
+        "account_status",
+        "message"
+      ]
+    },
+    "KycRejected": {
+      "type": "object",
+      "properties": {
+        "user_id": {
+          "type": "uuid",
+          "nullable": false
+        },
+        "kyc_status": {
+          "type": "string",
+          "nullable": false
+        },
+        "rejection_reason": {
+          "type": "string",
+          "nullable": false
+        },
+        "message": {
+          "type": "string",
+          "nullable": false
+        }
+      },
+      "required": [
+        "user_id",
+        "kyc_status",
+        "rejection_reason",
+        "message"
+      ]
+    },
+    "ChatResponse": {
+      "type": "object",
+      "properties": {
+        "response": {
+          "type": "string",
+          "nullable": false
+        }
+      },
+      "required": [
+        "response"
+      ]
+    },
+    "KycApprovalRequest": {
+      "type": "object",
+      "properties": {
+        "external_evidence_reference": {
+          "type": "string;trimmed;printable;min3;max200",
+          "nullable": false
+        },
+        "review_note": {
+          "type": "string;trimmed;min10;max2000",
+          "nullable": false
+        }
+      },
+      "required": [
+        "external_evidence_reference",
+        "review_note"
+      ]
+    },
+    "KycRejectionRequest": {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string;trimmed;min3;max1000",
+          "nullable": false
+        }
+      },
+      "required": [
+        "reason"
+      ]
+    },
+    "DocumentMetadata": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "uuid",
+          "nullable": false
+        },
+        "submission_id": {
+          "type": "uuid",
+          "nullable": false
+        },
+        "kind": {
+          "type": "string",
+          "nullable": false
+        },
+        "content_type": {
+          "type": "string",
+          "nullable": false
+        },
+        "size_bytes": {
+          "type": "integer",
+          "nullable": false
+        },
+        "organization_id": {
+          "type": "uuid",
+          "nullable": false
+        },
+        "created_at": {
+          "type": "string:date-time",
+          "nullable": false
+        }
+      },
+      "required": [
+        "id",
+        "submission_id",
+        "kind",
+        "content_type",
+        "size_bytes",
+        "organization_id",
+        "created_at"
+      ]
+    },
+    "DocumentBytes": {
+      "type": "binary",
+      "content_types": [
+        "application/pdf",
+        "image/png",
+        "image/jpeg"
+      ]
+    },
+    "KycUpload": {
+      "type": "object",
+      "properties": {
+        "passport": {
+          "type": "binary",
+          "nullable": false
+        },
+        "company_doc": {
+          "type": "binary",
+          "nullable": false
+        },
+        "declared_company_name": {
+          "type": "string|null;max200",
+          "nullable": true
+        },
+        "registration_number": {
+          "type": "string|null;max100",
+          "nullable": true
+        }
+      },
+      "required": [
+        "passport",
+        "company_doc",
+        "declared_company_name",
+        "registration_number"
+      ]
+    },
+    "RejectBody": {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string",
+          "nullable": true
+        }
+      },
+      "required": []
+    },
+    "SurveyRequest": {
+      "type": "object",
+      "properties": {
+        "use_case": {
+          "type": "enum[buyer,supplier,financier_other]",
+          "nullable": false
+        },
+        "referral_source": {
+          "type": "string",
+          "nullable": true,
+          "max_length": 500
+        }
+      },
+      "required": [
+        "use_case"
+      ],
+      "additional_properties": false
+    },
+    "ReviewOrganization": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "uuid",
+          "nullable": false
+        },
+        "name": {
+          "type": "string",
+          "nullable": false
+        },
+        "domain": {
+          "type": "string|null",
+          "nullable": true
+        },
+        "type": {
+          "type": "string",
+          "nullable": false
+        },
+        "verification_status": {
+          "type": "string",
+          "nullable": false
+        },
+        "tax_id_present": {
+          "type": "boolean",
+          "nullable": false
+        },
+        "country_code": {
+          "type": "string|null",
+          "nullable": true
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "domain",
+        "type",
+        "verification_status",
+        "tax_id_present",
+        "country_code"
+      ]
+    },
+    "ReviewJoin": {
+      "type": "object",
+      "properties": {
+        "request_id": {
+          "type": "uuid",
+          "nullable": false
+        },
+        "status": {
+          "type": "string",
+          "nullable": false
+        },
+        "created_at": {
+          "type": "string:date-time",
+          "nullable": false
+        },
+        "reviewed_at": {
+          "type": "string:date-time|null",
+          "nullable": true
+        },
+        "review_note": {
+          "type": "string|null",
+          "nullable": true
+        },
+        "organization": {
+          "type": "ReviewOrganization|null",
+          "nullable": true
+        }
+      },
+      "required": [
+        "request_id",
+        "status",
+        "created_at",
+        "reviewed_at",
+        "review_note",
+        "organization"
+      ]
+    },
+    "ReviewEntry": {
+      "type": "object",
+      "properties": {
+        "user_id": {
+          "type": "uuid",
+          "nullable": false
+        },
+        "email": {
+          "type": "string",
+          "nullable": false
+        },
+        "email_verified": {
+          "type": "boolean",
+          "nullable": false
+        },
+        "account_status": {
+          "type": "string",
+          "nullable": false
+        },
+        "role": {
+          "type": "string|null",
+          "nullable": true
+        },
+        "kyc_status": {
+          "type": "string",
+          "nullable": false
+        },
+        "kyc_organization_id": {
+          "type": "uuid|null",
+          "nullable": true
+        },
+        "kyc_external_evidence_reference": {
+          "type": "string|null",
+          "nullable": true
+        },
+        "kyc_review_note": {
+          "type": "string|null",
+          "nullable": true
+        },
+        "kyc_reviewed_by": {
+          "type": "uuid|null",
+          "nullable": true
+        },
+        "kyc_reviewed_at": {
+          "type": "string:date-time|null",
+          "nullable": true
+        },
+        "current_organization": {
+          "type": "ReviewOrganization|null",
+          "nullable": true
+        },
+        "requested_organizations": {
+          "type": "ReviewJoin[]",
+          "nullable": false
+        },
+        "created_at": {
+          "type": "string:date-time",
+          "nullable": false
+        }
+      },
+      "required": [
+        "user_id",
+        "email",
+        "email_verified",
+        "account_status",
+        "role",
+        "kyc_status",
+        "kyc_organization_id",
+        "kyc_external_evidence_reference",
+        "kyc_review_note",
+        "kyc_reviewed_by",
+        "kyc_reviewed_at",
+        "current_organization",
+        "requested_organizations",
+        "created_at"
+      ]
+    },
+    "ReviewQueue": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "ReviewEntry[]",
+          "nullable": false
+        },
+        "limit": {
+          "type": "integer",
+          "nullable": false
+        }
+      },
+      "required": [
+        "items",
+        "limit"
+      ]
+    },
+    "JoinEntry": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "uuid",
+          "nullable": false
+        },
+        "user_id": {
+          "type": "uuid",
+          "nullable": false
+        },
+        "organization_id": {
+          "type": "uuid",
+          "nullable": false
+        },
+        "status": {
+          "type": "string",
+          "nullable": false
+        },
+        "created_at": {
+          "type": "string:date-time",
+          "nullable": false
+        },
+        "reviewed_at": {
+          "type": "string:date-time|null",
+          "nullable": true
+        },
+        "reviewed_by": {
+          "type": "uuid|null",
+          "nullable": true
+        },
+        "review_note": {
+          "type": "string|null",
+          "nullable": true
+        }
+      },
+      "required": [
+        "id",
+        "user_id",
+        "organization_id",
+        "status",
+        "created_at",
+        "reviewed_at",
+        "reviewed_by",
+        "review_note"
+      ]
+    },
+    "VesselList": {
+      "type": "array",
+      "items": "VesselResponse"
+    },
+    "SubscriptionList": {
+      "type": "array",
+      "items": "SubscriptionResponse"
+    },
+    "DocumentList": {
+      "type": "array",
+      "items": "DocumentMetadata"
+    },
+    "AuditList": {
+      "type": "array",
+      "items": "AuditLogResponse"
+    },
+    "JoinList": {
+      "type": "array",
+      "items": "JoinEntry"
+    },
+    "DailyList": {
+      "type": "array",
+      "items": "DailyStat"
+    }
+  },
+  "surfaces": [
+    {
+      "id": "A01",
+      "method": "GET",
+      "path": "/api/auth/me",
+      "response_schema": "UserResponse",
+      "statuses": [
+        200
+      ],
+      "errors": [
+        401,
+        403,
+        422,
+        429,
+        503
+      ],
+      "error_schema": "Error",
+      "headers": [
+        "Retry-After"
+      ],
+      "error_conversion": "detail.code_and_message;legacy_detail_string_or_msg_list_on_unmoved_routes"
+    },
+    {
+      "id": "A02",
+      "method": "PUT",
+      "path": "/api/auth/me",
+      "response_schema": "UserResponse",
+      "statuses": [
+        200
+      ],
+      "errors": [
+        401,
+        403,
+        409,
+        422,
+        429,
+        503
+      ],
+      "error_schema": "Error",
+      "headers": [
+        "Retry-After"
+      ],
+      "error_conversion": "detail.code_and_message;legacy_detail_string_or_msg_list_on_unmoved_routes"
+    },
+    {
+      "id": "A03",
+      "method": "POST",
+      "path": "/api/auth/survey",
+      "response_schema": "NoContent",
+      "statuses": [
+        204
+      ],
+      "errors": [
+        400,
+        401,
+        403,
+        409,
+        422,
+        429,
+        503
+      ],
+      "error_schema": "Error",
+      "headers": [
+        "Retry-After"
+      ],
+      "error_conversion": "detail.code_and_message;legacy_detail_string_or_msg_list_on_unmoved_routes"
+    },
+    {
+      "id": "A04",
+      "method": "GET",
+      "path": "/api/auth/admin/invitations/organizations",
+      "response_schema": "InvitationOrganizationListResponse",
+      "statuses": [
+        200
+      ],
+      "errors": [
+        401,
+        403,
+        422,
+        429,
+        503
+      ],
+      "error_schema": "Error",
+      "headers": [
+        "Retry-After",
+        "X-Result-Truncated"
+      ],
+      "error_conversion": "detail.code_and_message;legacy_detail_string_or_msg_list_on_unmoved_routes"
+    },
+    {
+      "id": "A05",
+      "method": "POST",
+      "path": "/api/auth/admin/invitations",
+      "response_schema": "AdminInvitationResponse",
+      "statuses": [
+        200,
+        201
+      ],
+      "errors": [
+        401,
+        403,
+        404,
+        409,
+        422,
+        429,
+        503
+      ],
+      "error_schema": "Error",
+      "headers": [
+        "Retry-After"
+      ],
+      "error_conversion": "detail.code_and_message;legacy_detail_string_or_msg_list_on_unmoved_routes"
+    },
+    {
+      "id": "A06",
+      "method": "POST",
+      "path": "/api/auth/invitations/resolve",
+      "response_schema": "InvitationResolveResponse",
+      "statuses": [
+        200
+      ],
+      "errors": [
+        400,
+        422,
+        429,
+        503
+      ],
+      "error_schema": "Error",
+      "headers": [
+        "Retry-After"
+      ],
+      "error_conversion": "detail.code_and_message;legacy_detail_string_or_msg_list_on_unmoved_routes"
+    },
+    {
+      "id": "A07",
+      "method": "PUT",
+      "path": "/api/auth/approve/{user_id}",
+      "response_schema": "UserResponse",
+      "statuses": [
+        200
+      ],
+      "errors": [
+        401,
+        403,
+        404,
+        409,
+        422,
+        429,
+        503
+      ],
+      "error_schema": "Error",
+      "headers": [
+        "Retry-After"
+      ],
+      "error_conversion": "detail.code_and_message;legacy_detail_string_or_msg_list_on_unmoved_routes"
+    },
+    {
+      "id": "A08",
+      "method": "PUT",
+      "path": "/api/auth/reject/{user_id}",
+      "response_schema": "UserDecision",
+      "statuses": [
+        200
+      ],
+      "errors": [
+        401,
+        403,
+        404,
+        409,
+        422,
+        429,
+        503
+      ],
+      "error_schema": "Error",
+      "headers": [
+        "Retry-After"
+      ],
+      "error_conversion": "detail.code_and_message;legacy_detail_string_or_msg_list_on_unmoved_routes"
+    },
+    {
+      "id": "A09",
+      "method": "PUT",
+      "path": "/api/auth/organization/{organization_id}/approve",
+      "response_schema": "OrganizationDecision",
+      "statuses": [
+        200
+      ],
+      "errors": [
+        401,
+        403,
+        404,
+        409,
+        422,
+        429,
+        503
+      ],
+      "error_schema": "Error",
+      "headers": [
+        "Retry-After"
+      ],
+      "error_conversion": "detail.code_and_message;legacy_detail_string_or_msg_list_on_unmoved_routes"
+    },
+    {
+      "id": "A10",
+      "method": "PUT",
+      "path": "/api/auth/organization/{organization_id}/reject",
+      "response_schema": "OrganizationDecision",
+      "statuses": [
+        200
+      ],
+      "errors": [
+        401,
+        403,
+        404,
+        409,
+        422,
+        429,
+        503
+      ],
+      "error_schema": "Error",
+      "headers": [
+        "Retry-After"
+      ],
+      "error_conversion": "detail.code_and_message;legacy_detail_string_or_msg_list_on_unmoved_routes"
+    },
+    {
+      "id": "A11",
+      "method": "GET",
+      "path": "/api/auth/admin/review-queue",
+      "response_schema": "ReviewQueue",
+      "statuses": [
+        200
+      ],
+      "errors": [
+        401,
+        403,
+        422,
+        429,
+        503
+      ],
+      "error_schema": "Error",
+      "headers": [
+        "Retry-After"
+      ],
+      "error_conversion": "detail.code_and_message;legacy_detail_string_or_msg_list_on_unmoved_routes"
+    },
+    {
+      "id": "A12",
+      "method": "GET",
+      "path": "/api/auth/admin/review-queue/{user_id}",
+      "response_schema": "ReviewEntry",
+      "statuses": [
+        200
+      ],
+      "errors": [
+        401,
+        403,
+        404,
+        422,
+        429,
+        503
+      ],
+      "error_schema": "Error",
+      "headers": [
+        "Retry-After"
+      ],
+      "error_conversion": "detail.code_and_message;legacy_detail_string_or_msg_list_on_unmoved_routes"
+    },
+    {
+      "id": "A13",
+      "method": "GET",
+      "path": "/api/auth/organization-joins",
+      "response_schema": "JoinList",
+      "statuses": [
+        200
+      ],
+      "errors": [
+        401,
+        403,
+        404,
+        422,
+        429,
+        503
+      ],
+      "error_schema": "Error",
+      "headers": [
+        "Retry-After",
+        "X-Result-Truncated"
+      ],
+      "error_conversion": "detail.code_and_message;legacy_detail_string_or_msg_list_on_unmoved_routes"
+    },
+    {
+      "id": "A14",
+      "method": "PUT",
+      "path": "/api/auth/organization-joins/{join_request_id}/approve",
+      "response_schema": "JoinDecision",
+      "statuses": [
+        200
+      ],
+      "errors": [
+        401,
+        403,
+        404,
+        409,
+        422,
+        429,
+        503
+      ],
+      "error_schema": "Error",
+      "headers": [
+        "Retry-After"
+      ],
+      "error_conversion": "detail.code_and_message;legacy_detail_string_or_msg_list_on_unmoved_routes"
+    },
+    {
+      "id": "A15",
+      "method": "PUT",
+      "path": "/api/auth/organization-joins/{join_request_id}/reject",
+      "response_schema": "JoinDecision",
+      "statuses": [
+        200
+      ],
+      "errors": [
+        401,
+        403,
+        404,
+        409,
+        422,
+        429,
+        503
+      ],
+      "error_schema": "Error",
+      "headers": [
+        "Retry-After"
+      ],
+      "error_conversion": "detail.code_and_message;legacy_detail_string_or_msg_list_on_unmoved_routes"
+    },
+    {
+      "id": "K01",
+      "method": "POST",
+      "path": "/api/kyc/submit",
+      "response_schema": "KycSubmitted",
+      "statuses": [
+        200
+      ],
+      "errors": [
+        400,
+        401,
+        403,
+        404,
+        409,
+        413,
+        415,
+        422,
+        429,
+        503
+      ],
+      "error_schema": "Error",
+      "headers": [
+        "Retry-After"
+      ],
+      "error_conversion": "detail.code_and_message;legacy_detail_string_or_msg_list_on_unmoved_routes"
+    },
+    {
+      "id": "K02",
+      "method": "GET",
+      "path": "/api/kyc/status",
+      "response_schema": "KycStatus",
+      "statuses": [
+        200
+      ],
+      "errors": [
+        401,
+        403,
+        422,
+        503
+      ],
+      "error_schema": "Error",
+      "headers": [],
+      "error_conversion": "detail.code_and_message;legacy_detail_string_or_msg_list_on_unmoved_routes"
+    },
+    {
+      "id": "K03",
+      "method": "GET",
+      "path": "/api/kyc/admin/{user_id}/documents",
+      "response_schema": "DocumentList",
+      "statuses": [
+        200
+      ],
+      "errors": [
+        401,
+        403,
+        404,
+        422,
+        429,
+        503
+      ],
+      "error_schema": "Error",
+      "headers": [
+        "Retry-After"
+      ],
+      "error_conversion": "detail.code_and_message;legacy_detail_string_or_msg_list_on_unmoved_routes"
+    },
+    {
+      "id": "K04",
+      "method": "GET",
+      "path": "/api/kyc/admin/documents/{document_id}",
+      "response_schema": "DocumentBytes",
+      "statuses": [
+        200
+      ],
+      "errors": [
+        401,
+        403,
+        404,
+        409,
+        422,
+        429,
+        500,
+        503
+      ],
+      "error_schema": "Error",
+      "headers": [
+        "Retry-After",
+        "Content-Disposition: attachment",
+        "Cache-Control: no-store",
+        "X-Content-Type-Options: nosniff",
+        "Content-Type: retained MIME"
+      ],
+      "error_conversion": "detail.code_and_message;legacy_detail_string_or_msg_list_on_unmoved_routes"
+    },
+    {
+      "id": "K05",
+      "method": "PUT",
+      "path": "/api/kyc/admin/{user_id}/approve",
+      "response_schema": "KycApproved",
+      "statuses": [
+        200
+      ],
+      "errors": [
+        401,
+        403,
+        404,
+        409,
+        422,
+        502,
+        503
+      ],
+      "error_schema": "Error",
+      "headers": [],
+      "error_conversion": "detail.code_and_message;legacy_detail_string_or_msg_list_on_unmoved_routes"
+    },
+    {
+      "id": "K06",
+      "method": "PUT",
+      "path": "/api/kyc/admin/{user_id}/reject",
+      "response_schema": "KycRejected",
+      "statuses": [
+        200
+      ],
+      "errors": [
+        401,
+        403,
+        404,
+        409,
+        422,
+        502,
+        503
+      ],
+      "error_schema": "Error",
+      "headers": [],
+      "error_conversion": "detail.code_and_message;legacy_detail_string_or_msg_list_on_unmoved_routes"
+    },
+    {
+      "id": "N01",
+      "method": "PUT",
+      "path": "/api/admin/analytics/users/{user_id}/reject",
+      "response_schema": "AdminUserEntry",
+      "statuses": [
+        200
+      ],
+      "errors": [
+        401,
+        403,
+        404,
+        409,
+        422,
+        429,
+        503
+      ],
+      "error_schema": "Error",
+      "headers": [
+        "Retry-After"
+      ],
+      "error_conversion": "detail.code_and_message;legacy_detail_string_or_msg_list_on_unmoved_routes"
+    },
+    {
+      "id": "N02",
+      "method": "GET",
+      "path": "/api/admin/onboarding-attention",
+      "response_schema": "AttentionResponse",
+      "statuses": [
+        200
+      ],
+      "errors": [
+        401,
+        403,
+        422,
+        429,
+        503
+      ],
+      "error_schema": "Error",
+      "headers": [
+        "Retry-After",
+        "X-Result-Truncated"
+      ],
+      "error_conversion": "detail.code_and_message;legacy_detail_string_or_msg_list_on_unmoved_routes"
+    },
+    {
+      "id": "N03",
+      "method": "GET",
+      "path": "/api/admin/audit-logs",
+      "response_schema": "AuditList",
+      "statuses": [
+        200
+      ],
+      "errors": [
+        401,
+        403,
+        422,
+        503
+      ],
+      "error_schema": "Error",
+      "headers": [],
+      "error_conversion": "detail.code_and_message;legacy_detail_string_or_msg_list_on_unmoved_routes"
+    },
+    {
+      "id": "V01",
+      "method": "GET",
+      "path": "/api/vessels",
+      "response_schema": "VesselList",
+      "statuses": [
+        200
+      ],
+      "errors": [
+        401,
+        403,
+        404,
+        422,
+        503
+      ],
+      "error_schema": "Error",
+      "headers": [],
+      "error_conversion": "detail.code_and_message;legacy_detail_string_or_msg_list_on_unmoved_routes"
+    },
+    {
+      "id": "V02",
+      "method": "GET",
+      "path": "/api/vessels/{vessel_id}",
+      "response_schema": "VesselResponse",
+      "statuses": [
+        200
+      ],
+      "errors": [
+        401,
+        403,
+        404,
+        422,
+        503
+      ],
+      "error_schema": "Error",
+      "headers": [],
+      "error_conversion": "detail.code_and_message;legacy_detail_string_or_msg_list_on_unmoved_routes"
+    },
+    {
+      "id": "S01",
+      "method": "GET",
+      "path": "/api/subscriptions/fees",
+      "response_schema": "FeeScheduleResponse",
+      "statuses": [
+        200
+      ],
+      "errors": [
+        422,
+        503
+      ],
+      "error_schema": "Error",
+      "headers": [],
+      "error_conversion": "detail.code_and_message;legacy_detail_string_or_msg_list_on_unmoved_routes"
+    },
+    {
+      "id": "S02",
+      "method": "GET",
+      "path": "/api/subscriptions/me",
+      "response_schema": "SubscriptionResponse",
+      "statuses": [
+        200
+      ],
+      "errors": [
+        401,
+        403,
+        404,
+        409,
+        422,
+        503
+      ],
+      "error_schema": "Error",
+      "headers": [],
+      "error_conversion": "detail.code_and_message;legacy_detail_string_or_msg_list_on_unmoved_routes"
+    },
+    {
+      "id": "S03",
+      "method": "GET",
+      "path": "/api/admin/subscriptions",
+      "response_schema": "SubscriptionList",
+      "statuses": [
+        200
+      ],
+      "errors": [
+        401,
+        403,
+        422,
+        503
+      ],
+      "error_schema": "Error",
+      "headers": [
+        "X-Result-Truncated"
+      ],
+      "error_conversion": "detail.code_and_message;legacy_detail_string_or_msg_list_on_unmoved_routes"
+    },
+    {
+      "id": "S04",
+      "method": "GET",
+      "path": "/api/admin/subscriptions/{org_id}",
+      "response_schema": "SubscriptionResponse",
+      "statuses": [
+        200
+      ],
+      "errors": [
+        401,
+        403,
+        404,
+        422,
+        503
+      ],
+      "error_schema": "Error",
+      "headers": [],
+      "error_conversion": "detail.code_and_message;legacy_detail_string_or_msg_list_on_unmoved_routes"
+    },
+    {
+      "id": "S05",
+      "method": "PUT",
+      "path": "/api/admin/subscriptions/{org_id}",
+      "response_schema": "SubscriptionResponse",
+      "statuses": [
+        200
+      ],
+      "errors": [
+        401,
+        403,
+        404,
+        409,
+        422,
+        503
+      ],
+      "error_schema": "Error",
+      "headers": [],
+      "error_conversion": "detail.code_and_message;legacy_detail_string_or_msg_list_on_unmoved_routes"
+    },
+    {
+      "id": "P01",
+      "method": "GET",
+      "path": "/api/admin/analytics/product-usage",
+      "response_schema": "ProductUsageResponse",
+      "statuses": [
+        200
+      ],
+      "errors": [
+        401,
+        403,
+        422,
+        429,
+        503
+      ],
+      "error_schema": "Error",
+      "headers": [
+        "Retry-After"
+      ],
+      "error_conversion": "detail.code_and_message;legacy_detail_string_or_msg_list_on_unmoved_routes"
+    },
+    {
+      "id": "P02",
+      "method": "GET",
+      "path": "/api/admin/analytics/overview",
+      "response_schema": "LegacyOverviewResponse",
+      "statuses": [
+        200
+      ],
+      "errors": [
+        401,
+        403,
+        422,
+        429,
+        503
+      ],
+      "error_schema": "Error",
+      "headers": [
+        "Retry-After"
+      ],
+      "error_conversion": "detail.code_and_message;legacy_detail_string_or_msg_list_on_unmoved_routes"
+    },
+    {
+      "id": "P03",
+      "method": "GET",
+      "path": "/api/admin/analytics/daily",
+      "response_schema": "DailyList",
+      "statuses": [
+        200
+      ],
+      "errors": [
+        401,
+        403,
+        422,
+        429,
+        503
+      ],
+      "error_schema": "Error",
+      "headers": [
+        "Retry-After"
+      ],
+      "error_conversion": "detail.code_and_message;legacy_detail_string_or_msg_list_on_unmoved_routes"
+    },
+    {
+      "id": "P04",
+      "method": "GET",
+      "path": "/api/admin/analytics/users",
+      "response_schema": "AdminUsersResponse",
+      "statuses": [
+        200
+      ],
+      "errors": [
+        400,
+        401,
+        403,
+        422,
+        429,
+        503
+      ],
+      "error_schema": "Error",
+      "headers": [
+        "Retry-After"
+      ],
+      "error_conversion": "detail.code_and_message;legacy_detail_string_or_msg_list_on_unmoved_routes"
+    },
+    {
+      "id": "P05",
+      "method": "GET",
+      "path": "/api/admin/analytics/product-analytics/overview",
+      "response_schema": "OverviewResponse",
+      "statuses": [
+        200
+      ],
+      "errors": [
+        401,
+        403,
+        422,
+        429,
+        503
+      ],
+      "error_schema": "Error",
+      "headers": [
+        "Retry-After"
+      ],
+      "error_conversion": "detail.code_and_message;legacy_detail_string_or_msg_list_on_unmoved_routes"
+    },
+    {
+      "id": "P06",
+      "method": "GET",
+      "path": "/api/admin/analytics/product-analytics/acquisition",
+      "response_schema": "AcquisitionResponse",
+      "statuses": [
+        200
+      ],
+      "errors": [
+        401,
+        403,
+        422,
+        429,
+        503
+      ],
+      "error_schema": "Error",
+      "headers": [
+        "Retry-After"
+      ],
+      "error_conversion": "detail.code_and_message;legacy_detail_string_or_msg_list_on_unmoved_routes"
+    },
+    {
+      "id": "P07",
+      "method": "GET",
+      "path": "/api/admin/analytics/product-analytics/activation",
+      "response_schema": "ActivationResponse",
+      "statuses": [
+        200
+      ],
+      "errors": [
+        401,
+        403,
+        422,
+        429,
+        503
+      ],
+      "error_schema": "Error",
+      "headers": [
+        "Retry-After"
+      ],
+      "error_conversion": "detail.code_and_message;legacy_detail_string_or_msg_list_on_unmoved_routes"
+    },
+    {
+      "id": "P08",
+      "method": "GET",
+      "path": "/api/admin/analytics/product-analytics/engagement",
+      "response_schema": "EngagementResponse",
+      "statuses": [
+        200
+      ],
+      "errors": [
+        401,
+        403,
+        422,
+        429,
+        503
+      ],
+      "error_schema": "Error",
+      "headers": [
+        "Retry-After"
+      ],
+      "error_conversion": "detail.code_and_message;legacy_detail_string_or_msg_list_on_unmoved_routes"
+    },
+    {
+      "id": "P09",
+      "method": "GET",
+      "path": "/api/admin/analytics/product-analytics/marketplace",
+      "response_schema": "MarketplaceResponse",
+      "statuses": [
+        200
+      ],
+      "errors": [
+        401,
+        403,
+        422,
+        429,
+        503
+      ],
+      "error_schema": "Error",
+      "headers": [
+        "Retry-After"
+      ],
+      "error_conversion": "detail.code_and_message;legacy_detail_string_or_msg_list_on_unmoved_routes"
+    },
+    {
+      "id": "P10",
+      "method": "GET",
+      "path": "/api/admin/analytics/product-analytics/retention",
+      "response_schema": "RetentionResponse",
+      "statuses": [
+        200
+      ],
+      "errors": [
+        401,
+        403,
+        422,
+        429,
+        503
+      ],
+      "error_schema": "Error",
+      "headers": [
+        "Retry-After"
+      ],
+      "error_conversion": "detail.code_and_message;legacy_detail_string_or_msg_list_on_unmoved_routes"
+    },
+    {
+      "id": "P11",
+      "method": "GET",
+      "path": "/api/admin/analytics/product-analytics/reliability",
+      "response_schema": "ReliabilityResponse",
+      "statuses": [
+        200
+      ],
+      "errors": [
+        401,
+        403,
+        422,
+        429,
+        503
+      ],
+      "error_schema": "Error",
+      "headers": [
+        "Retry-After"
+      ],
+      "error_conversion": "detail.code_and_message;legacy_detail_string_or_msg_list_on_unmoved_routes"
+    }
+  ]
+}

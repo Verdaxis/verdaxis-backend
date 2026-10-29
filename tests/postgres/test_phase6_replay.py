@@ -1,6 +1,7 @@
 """Exercise Rust replay on the harness-owned database and app role."""
 import os
 import subprocess
+import sys
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -52,6 +53,7 @@ async def test_retained_replay_snapshots_and_live_admission(pg_session, analytic
         "RELEASE_SHA": subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
         ).strip(),
+        "RUST_TEST_PYTHON": sys.executable,
         "STREAM_REPLAY_APP_URL": os.environ["DATABASE_URL"].replace("postgresql+asyncpg://", "postgresql://", 1),
         "STREAM_REPLAY_OWNER_URL": analytics_pg_url.replace("postgresql+asyncpg://", "postgresql://", 1),
         "STREAM_REPLAY_USER": str(user),

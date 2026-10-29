@@ -16,7 +16,7 @@ def order_write_scenario():
 
     def servers(context):
         return [Server((context.python_bin, "-m", "scripts.rust_contract.phase2_order_write_oracle")),
-                Server((str(context.root / "rs/target/debug/examples/order_write"),))]
+                Server((str(context.rust_example("order_write")),))]
 
     def action(name, number, mode="commit", replayed=False):
         identifier = f"71000000-0000-4000-8000-{number:012d}"

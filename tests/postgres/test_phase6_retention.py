@@ -185,6 +185,7 @@ def _run_store_test(database_url: str, name: str) -> None:
             "RELEASE_SHA": subprocess.check_output(
                 ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
             ).strip(),
+            "RUST_TEST_PYTHON": sys.executable,
             "STREAMS_STORE_TEST_DATABASE_URL": database_url.replace(
                 "postgresql+asyncpg://", "postgresql://"
             ),
@@ -373,7 +374,10 @@ async def owner_engine(retention_urls):
 def test_migration_has_one_head_and_direct_parent():
     script = ScriptDirectory.from_config(Config(str(ROOT / "alembic.ini")))
 
-    assert script.get_heads() == [REVISION]
+    heads = script.get_heads()
+    assert len(heads) == 1
+    # Later checkpoints build on this one; it stays on the single migration line.
+    assert REVISION in {rev.revision for rev in script.iterate_revisions(heads[0], "base")}
     revision = script.get_revision(REVISION)
     assert revision is not None
     assert revision.down_revision == PARENT_REVISION

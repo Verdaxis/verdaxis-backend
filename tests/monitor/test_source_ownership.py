@@ -33,13 +33,13 @@ MANIFEST = MONITOR / "artifact-manifest.json"
 # (the verification and invite settings), and it reads RUST_CACHE_LISTENER from
 # the backend .env, refusing values other than 0 or 1, passing
 # --cache-listener to the budget preparation.
-# The stream replay floor checkpoint enables the one stream listener connection
-# (--stream-listener 1) in that same budget preparation.
+# The stream replay floor checkpoint, and every later checkpoint, enables the one
+# stream listener connection (--stream-listener 1) in that same budget preparation.
 RUNTIME_OWNED_BLOBS = {
     "app/config.py": "5eac216236919ebc8c48415a619d0e70169d1154",
     "app/database.py": "43456b2c2079c07368359d4d54f5ce9629c9b57b",
     "app/main.py": "a3a73bf74d817499cccac1f6ecc9ba062cbba3ea",
-    "scripts/deploy.sh": "c040a093d1ef1217341c3cc1f52fcf25f948a63a",
+    "scripts/deploy.sh": "7491930ec83b51752b9b26c7f9eff9223a6ff269",
     "scripts/run_demo_activity.py": "b92cee8429669c3f908a52047025acd6db804697",
 }
 

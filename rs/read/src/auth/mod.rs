@@ -30,7 +30,7 @@ pub use claims::{
 pub use issue::TokenIssuer;
 pub use token::{
     TokenType, VerificationSettings, VerifiedToken, verify_access, verify_authorization,
-    verify_token,
+    verify_authorization_with_token, verify_token,
 };
 
 pub mod logout;

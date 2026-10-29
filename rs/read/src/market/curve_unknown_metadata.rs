@@ -12,6 +12,7 @@ pub fn statement_sql() -> String {
             include_str!("../../sql/current_order_rule.sql"),
         ),
         "$5",
+        "$2",
     )
 }
 

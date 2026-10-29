@@ -6,6 +6,7 @@ import os
 import re
 import secrets
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -27,11 +28,14 @@ CACHE_TABLES = (
 # Tables that Rust source names but that no trading cache entry depends on. Each
 # needs a reason; an unreviewed table named by a Rust query fails the ledger test.
 REVIEWED_EXCLUSIONS = {
+    "inventory_items": "public map read for availability; served uncached",
+    "producer_projects": "public producer project map read; served uncached",
     "news_items": "reference domain: the separate 60-second reference cache",
     "ports": "reference domain: the separate 60-second reference cache",
     "port_intelligence": "reference domain: the separate 60-second reference cache",
     "notifications": "private authenticated path; never cached",
     "referrals": "private authenticated path; never cached",
+    "vessels": "private organization-scoped compliance reads (overlay, fleet, vessel score); never cached",
     "watchlists": "private authenticated path; never cached",
     "watchlist_entries": "private authenticated watchlist membership; never cached",
     "watchlist_targets": "private authenticated watchlist targets; never cached",
@@ -43,6 +47,11 @@ REVIEWED_EXCLUSIONS = {
     "refresh_sessions": "private session rows of the credential store; never cached",
     "password_reset_tokens": "private reset-token rows of the credential store; never cached",
     "organization_join_requests": "organization-write row locks only; never cached",
+    "commissions": "administrator marketplace analytics only; never cached",
+    "inventory_items": "stock reservation locks inside order writes and the owner check; never cached",
+    "kyc_documents": "private KYC evidence rows; never cached",
+    "subscriptions": "private organization subscription and fee rows; never cached",
+    "vessels": "private organization vessel register; never cached",
     "watchlist_targets": "private authenticated path; never cached",
     "watchlist_events": "private authenticated path; never cached",
     "watchlist_entries": "private authenticated path; never cached",
@@ -492,7 +501,8 @@ async def test_normal_python_economic_writers_each_advance_the_generation(route_
 def test_rust_listener_uses_migrated_disposable_database(analytics_pg_url):
     root = ROOT
     environment = {**os.environ, "PUBLIC_CACHE_TEST_DATABASE_URL": analytics_pg_url.replace("postgresql+asyncpg://", "postgres://"),
-                   "RELEASE_SHA": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip(), "SQLX_OFFLINE": "true"}
+                   "RELEASE_SHA": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip(),
+                   "RUST_TEST_PYTHON": sys.executable, "SQLX_OFFLINE": "true"}
     subprocess.run(["cargo", "test", "--manifest-path", "rs/Cargo.toml", "-p", "verdaxis-read", "--test", "cache_events_postgres"],
                    cwd=root, env=environment, check=True, timeout=900)
 
@@ -517,6 +527,7 @@ def test_rust_trading_cache_needs_every_authority_and_generation(
         "RELEASE_SHA": subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
         ).strip(),
+        "RUST_TEST_PYTHON": sys.executable,
         "SQLX_OFFLINE": "true",
     }
     subprocess.run(
@@ -553,6 +564,7 @@ async def test_rust_public_route_cache_schedules(route_market, market_pg_url):
         **os.environ,
         "ROUTE_CACHE_TEST_DATABASE_URL": market_pg_url.replace("postgresql+asyncpg://", "postgres://", 1),
         "RELEASE_SHA": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
+        "RUST_TEST_PYTHON": sys.executable,
         "SQLX_OFFLINE": "true",
     }
     subprocess.run(

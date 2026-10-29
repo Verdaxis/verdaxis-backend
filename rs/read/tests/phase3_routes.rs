@@ -16,6 +16,8 @@ async fn app() -> axum::Router {
         pool_max: 5,
         python_budget: 52,
         configured_max_connections: 100,
+        compliance_eur_usd_rate: None,
+        fleet_artifact_path: "data/fleet_demand.json".into(),
         kyc_execution_gate_enabled: true,
         phase2: Phase2Options {
             jwt_secret: Some("composition-test-signing-authority-000000000".into()),
@@ -89,10 +91,10 @@ async fn credential_operations_reach_their_admission_boundary() {
             );
         }
     }
-    for path in [
-        "/api/auth/me",
-        "/api/auth/invitations/resolve",
-        "/api/auth/survey",
+    for (path, expected) in [
+        ("/api/auth/me", 405),
+        ("/api/auth/invitations/resolve", 422),
+        ("/api/auth/survey", 401),
     ] {
         let response = app
             .clone()
@@ -105,7 +107,7 @@ async fn credential_operations_reach_their_admission_boundary() {
             )
             .await
             .unwrap();
-        assert_eq!(response.status(), 404, "{path}");
+        assert_eq!(response.status(), expected, "{path}");
     }
 }
 

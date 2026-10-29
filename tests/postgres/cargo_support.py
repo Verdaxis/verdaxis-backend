@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -30,7 +31,11 @@ def cargo_test_environment(
     analytics_pg_url: str,
     repo_root: Path = REPO_ROOT,
 ) -> dict[str, str]:
-    """Return the subprocess environment shared by the Phase 3 cargo gates."""
+    """Return the subprocess environment shared by the cargo gates.
+
+    The release SHA comes from this checkout, and Rust cases that start Python
+    use the interpreter that runs this suite.
+    """
     return {
         **os.environ,
         "AUTH_EMAIL_TEST_OWNER_URL": analytics_pg_url.replace(
@@ -41,4 +46,5 @@ def cargo_test_environment(
         ),
         "SQLX_OFFLINE": "true",
         "RELEASE_SHA": repository_release_sha(repo_root),
+        "RUST_TEST_PYTHON": sys.executable,
     }

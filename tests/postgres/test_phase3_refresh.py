@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 from tests.postgres.conftest import analytics_pg_url  # noqa: F401
@@ -25,6 +26,7 @@ def test_phase3_refresh(analytics_pg_url):
         "AUTH_REFRESH_DATABASE_URL": os.environ["DATABASE_URL"].replace("postgresql+asyncpg://", "postgresql://"),
         "SQLX_OFFLINE": "true",
         "RELEASE_SHA": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
+        "RUST_TEST_PYTHON": sys.executable,
     }
     run = subprocess.run(["cargo", "test", "--manifest-path", "rs/Cargo.toml", "--locked", "-p", "verdaxis-read", "--features", "contract-tests", "--test", "auth_refresh_postgres", "--", "--include-ignored", "--test-threads=1"], cwd=ROOT, env=env, capture_output=True, text=True, timeout=1800)
     assert run.returncode == 0, run.stdout[-16000:] + run.stderr[-16000:]
