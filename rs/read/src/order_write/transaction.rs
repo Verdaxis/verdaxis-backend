@@ -1787,6 +1787,27 @@ pub struct LockedMarketTransaction<'a> {
     locked: &'a super::locks::Locked,
 }
 impl LockedMarketTransaction<'_> {
+    pub(super) fn lifecycle(
+        &mut self,
+    ) -> Result<super::trade_lifecycle::LifecyclePort<'_>, super::MarketWriteError> {
+        super::trade_lifecycle::LifecyclePort::new(self.conn, self.locked)
+    }
+    pub(super) async fn lifecycle_context(
+        &mut self,
+        actor: &super::AuthenticatedActor,
+        organization: Uuid,
+        now: DateTime<Utc>,
+    ) -> Result<super::WriteContext, super::MarketWriteError> {
+        super::authority::admission::order_context(
+            self.conn,
+            self.locked,
+            actor,
+            organization,
+            None,
+            now,
+        )
+        .await
+    }
     pub(super) fn trades(
         &mut self,
     ) -> Result<super::trades::TradePort<'_>, super::MarketWriteError> {

@@ -230,6 +230,18 @@ transition and cannot grant settlement authority. `analytics/sender.rs` schedule
 bounded, failure-isolated Umami conversion delivery after a known commit; replay
 and rollback do not schedule it. The component routes remain unmounted for serving.
 
+## Trade confirmation and decline component
+
+`order_write/trade_lifecycle.rs` and its route component serialize confirmation
+and decline through the sealed party, receipt-key, slice, trade, order and
+inventory lock graph. Confirmation rechecks fresh execution admission, consumes
+only pending reserved stock and calls the shared referral activation helper.
+Decline uses recorded-party cleanup, restores live remainder or releases terminal
+commitments without reviving liquidity. Its clock is captured after row locks.
+Responses, actor-scoped receipts and typed participant effects commit together;
+only a changed decline order rebuilds its benchmark side and PIN evidence.
+These component routes remain unmounted until lifecycle enforcement is integrated.
+
 ## Supplier inventory component
 
 `order_write/inventory.rs` implements supplier inventory records through the ordered

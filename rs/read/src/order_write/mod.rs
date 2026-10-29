@@ -32,6 +32,7 @@ pub mod outbox;
 mod post_only;
 mod reservations;
 pub mod support;
+pub mod trade_lifecycle;
 pub mod trades;
 mod transaction;
 

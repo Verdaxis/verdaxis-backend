@@ -40,6 +40,9 @@ pub enum MutationKind {
     SupportCapabilityRevoked,
     CommissionChanged,
     TradeCreated,
+    TradeConfirmed,
+    TradeDeclined,
+    TradeDeclineOrderExpired,
     TradeAutoMatched,
     OrdersMatched,
 }
@@ -64,6 +67,9 @@ impl MutationKind {
             Self::SupportCapabilityRevoked => "market_support.capability_revoked",
             Self::CommissionChanged => "commission.updated",
             Self::TradeCreated => "trade.created",
+            Self::TradeConfirmed => "trade.confirmed",
+            Self::TradeDeclined => "trade.declined",
+            Self::TradeDeclineOrderExpired => "order.expired",
             Self::TradeAutoMatched => "trade.auto_matched",
             Self::OrdersMatched => return None,
         })
@@ -77,6 +83,8 @@ impl MutationKind {
                 | Self::OrderUpdated
                 | Self::InventoryPublished
                 | Self::TradeCreated
+                | Self::TradeDeclined
+                | Self::TradeDeclineOrderExpired
                 | Self::TradeAutoMatched
         )
     }
@@ -377,6 +385,115 @@ impl<'a> EffectPort<'a> {
             targets,
             at,
         })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) async fn trade_lifecycle(
+        &mut self,
+        policy: &MarketPolicy,
+        config: &Config,
+        outcome: super::trade_lifecycle::LifecycleOutcome,
+        request: &super::trade_lifecycle::LifecycleRequest,
+        actor: Uuid,
+        at: DateTime<Utc>,
+    ) -> Result<Uuid, MarketWriteError> {
+        use super::{
+            outbox::{MatchActivity, ParticipantFields},
+            trade_lifecycle::LifecycleAction,
+        };
+        let confirm = request.action == LifecycleAction::Confirm;
+        let trade = &outcome.trade;
+        let parse = |key: &str| {
+            trade[key]
+                .as_str()
+                .and_then(|s| s.parse::<Uuid>().ok())
+                .ok_or_else(internal)
+        };
+        let buyer = parse("buyer_id")?;
+        let seller = parse("seller_id")?;
+        notify_trade_initiator(self.conn, outcome.initiator, request.id, trade, confirm, at)
+            .await?;
+        let observed = trade[if confirm {
+            "confirmed_at"
+        } else {
+            "created_at"
+        }]
+        .as_str()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(at);
+        let activity = MatchActivity {
+            source_kind: trade["source_kind"].as_str().unwrap_or("UNKNOWN").into(),
+            scope: trade["scope"].as_str().unwrap_or("UNKNOWN").into(),
+            demo_status: trade["demo_status"].as_str().unwrap_or("UNKNOWN").into(),
+            unknown_count: trade["unknown_count"].as_u64().unwrap_or(0) as u32,
+            market_product: trade["market_product"].as_str().map(str::to_owned),
+            delivery_point_id: trade["delivery_point_id"]
+                .as_str()
+                .and_then(|s| s.parse().ok()),
+            availability_window: trade["availability_window"]
+                .as_str()
+                .unwrap_or_default()
+                .into(),
+            observed_at: observed,
+        };
+        let fields = if confirm {
+            ParticipantFields::TradeConfirmed {
+                activity,
+                id: request.id,
+                quantity: trade["quantity_mt"].as_str().unwrap_or_default().into(),
+                price: trade["price_per_mt_usd"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .into(),
+            }
+        } else {
+            ParticipantFields::TradeDeclined {
+                activity,
+                id: request.id,
+            }
+        };
+        let mut set = outcome.before.stage();
+        if let (Some(order), Some(remainder)) = (outcome.changed_order, outcome.expired_remainder) {
+            set.push(MutationEffect {
+                kind: MutationKind::TradeDeclineOrderExpired,
+                actor_id: actor,
+                organization_id: outcome.viewer,
+                resource_type: "order".into(),
+                resource_id: order,
+                changes: json!({"status":"EXPIRED","released_quantity_mt":remainder.to_string()}),
+                event: None,
+                at,
+                audit_context: request.audit.clone(),
+            })?;
+        }
+        set.push(MutationEffect {
+            kind: if confirm {
+                MutationKind::TradeConfirmed
+            } else {
+                MutationKind::TradeDeclined
+            },
+            actor_id: actor,
+            organization_id: outcome.viewer,
+            resource_type: "trade".into(),
+            resource_id: request.id,
+            changes: json!({"status":request.action.status()}),
+            event: Some(ParticipantEvent {
+                event_type: if confirm {
+                    "trade_confirmed"
+                } else {
+                    "trade_declined"
+                }
+                .into(),
+                aggregate_type: "trade".into(),
+                aggregate_id: request.id.to_string(),
+                participant_org_ids: vec![buyer, seller],
+                fields,
+                public_invalidated: outcome.public_invalidated,
+            }),
+            at,
+            audit_context: request.audit.clone(),
+        })?;
+        self.finish(policy, config, set).await
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -687,7 +804,32 @@ impl<'a> EffectPort<'a> {
         }
         let aggregate_after =
             aggregates(self.conn, policy, config, &before.slices, before.at).await?;
-        rebuild_benchmarks(self.conn, &aggregate_after, before.at).await?;
+        // Decline changes only its linked side. Keep both aggregate snapshots
+        // for conditional slice evidence, but do not rewrite the opposite mirror.
+        if set
+            .effects
+            .iter()
+            .any(|e| matches!(e.kind, MutationKind::TradeDeclined))
+        {
+            let changed: Vec<_> = aggregate_after
+                .iter()
+                .filter(|aggregate| {
+                    before.orders.iter().any(|order| {
+                        aggregate["side"] == order.side
+                            && aggregate["market_product"].as_str() == order.product.as_deref()
+                            && aggregate["delivery_point_id"]
+                                .as_str()
+                                .and_then(|v| v.parse::<Uuid>().ok())
+                                == order.point
+                            && aggregate["availability_window"] == order.window
+                    })
+                })
+                .cloned()
+                .collect();
+            rebuild_benchmarks(self.conn, &changed, before.at).await?;
+        } else {
+            rebuild_benchmarks(self.conn, &aggregate_after, before.at).await?;
+        }
         let orders:Vec<_>=after.iter().enumerate().map(|(index,b)|json!({"order_id":b.id,"transition_index":index,"before":before.orders.iter().find(|a|a.id==b.id).map(OrderState::evidence),"after":b.evidence()})).collect();
         for effect in &set.effects {
             if let Some(action) = effect.kind.audit_action() {
@@ -1719,4 +1861,23 @@ pub mod contract {
         }
         Ok(result)
     }
+}
+
+pub(super) async fn notify_trade_initiator(
+    conn: &mut PgConnection,
+    initiator: Uuid,
+    trade_id: Uuid,
+    trade: &Value,
+    confirm: bool,
+    at: DateTime<Utc>,
+) -> Result<(), MarketWriteError> {
+    let recipients: Vec<Uuid> =
+        sqlx::query_scalar("SELECT id FROM users WHERE organization_id=$1 ORDER BY id")
+            .bind(initiator)
+            .fetch_all(&mut *conn)
+            .await?;
+    for recipient in recipients {
+        sqlx::query("INSERT INTO notifications(id,recipient_id,type,title,message,data,is_read,created_at) VALUES($1,$2,'ORDER_UPDATE',$3,$4,$5,false,$6)").bind(Uuid::new_v4()).bind(recipient).bind(if confirm{"Trade Confirmed"}else{"Trade Declined"}).bind(format!("Your trade for {} MT has been {} by the counterparty.",trade["quantity_mt"].as_str().unwrap_or_default(),if confirm{"confirmed"}else{"declined"})).bind(json!({"trade_id":trade_id})).bind(at).execute(&mut *conn).await?;
+    }
+    Ok(())
 }

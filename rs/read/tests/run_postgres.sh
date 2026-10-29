@@ -73,7 +73,7 @@ ALTER SCHEMA public OWNER TO rust_migrator;
 GRANT USAGE ON SCHEMA public TO rust_app;
 SQL
 }
-for database in verdaxis_trades_test verdaxis_create_test verdaxis_amend_test; do
+for database in verdaxis_trades_test verdaxis_create_test verdaxis_amend_test verdaxis_confirm_test; do
   market_image_role_setup "$database"
 done
 export RUST_TRADES_ADMIN_DATABASE_URL="postgres://postgres:disposable_admin_pw@127.0.0.1:$port/verdaxis_trades_test"
@@ -82,7 +82,9 @@ export RUST_CREATE_ADMIN_DATABASE_URL="postgres://postgres:disposable_admin_pw@1
 export RUST_CREATE_DATABASE_URL="postgres://rust_app:disposable_app_pw@127.0.0.1:$port/verdaxis_create_test"
 export RUST_AMEND_ADMIN_DATABASE_URL="postgres://postgres:disposable_admin_pw@127.0.0.1:$port/verdaxis_amend_test"
 export RUST_AMEND_DATABASE_URL="postgres://rust_app:disposable_app_pw@127.0.0.1:$port/verdaxis_amend_test"
-for database in verdaxis_trades_test verdaxis_create_test verdaxis_amend_test; do
+export RUST_CONFIRM_ADMIN_DATABASE_URL="postgres://postgres:disposable_admin_pw@127.0.0.1:$port/verdaxis_confirm_test"
+export RUST_CONFIRM_DATABASE_URL="postgres://rust_app:disposable_app_pw@127.0.0.1:$port/verdaxis_confirm_test"
+for database in verdaxis_trades_test verdaxis_create_test verdaxis_amend_test verdaxis_confirm_test; do
   export PGHOST=127.0.0.1 PGPORT="$port" PGUSER=rust_migrator \
     PGPASSWORD=disposable_migrator_pw PGDATABASE="$database"
   export DATABASE_URL="postgresql+asyncpg://rust_migrator:disposable_migrator_pw@127.0.0.1:$port/$database" \
@@ -126,7 +128,7 @@ market_log=$(mktemp "${TMPDIR:-/tmp}/rust-postgres-market.XXXXXX")
 set +e
 cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read --features contract-tests \
   --test market_write_pg_trades --test market_write_pg_create \
-  --test market_write_pg_amend \
+  --test market_write_pg_amend --test market_write_pg_confirm \
   -- --include-ignored --test-threads=1 2>&1 | tee "$market_log"
 market_status=${PIPESTATUS[0]}
 set -e

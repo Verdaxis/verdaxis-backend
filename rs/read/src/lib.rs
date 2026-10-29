@@ -236,6 +236,21 @@ pub mod market_trades {
     pub use crate::order_write::{MarketErrorCode, MarketWriteError};
 }
 
+/// Narrow lifecycle component interface; transaction ownership stays sealed.
+pub mod market_lifecycle {
+    pub(crate) use crate::order_write::effects::AuditContext;
+    pub use crate::order_write::trade_lifecycle::{LifecycleAction, lifecycle_hash};
+    pub(crate) use crate::order_write::trade_lifecycle::{
+        LifecycleRequest, authenticate_request, dispatch,
+    };
+    #[cfg(feature = "contract-tests")]
+    pub use crate::order_write::trade_lifecycle::{
+        ReceiptCollision, contract_authorize, contract_empty_notification_effect,
+        contract_invalid_benchmark, contract_terms_status,
+    };
+    pub use crate::order_write::{MarketErrorCode, MarketWriteError};
+}
+
 /// Narrow amendment component types; the sealed owner keeps the transaction.
 pub(crate) mod market_amend {
     pub(crate) use crate::order_write::amend::{AmendBody, AmendRequest, dispatch};
