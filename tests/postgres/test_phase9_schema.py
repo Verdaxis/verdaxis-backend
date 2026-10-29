@@ -316,7 +316,7 @@ def test_acl_policy_declares_only_select_insert_and_five_updates(freeze_database
         assert sql(f"SELECT has_table_privilege('{app}','{table}','DELETE')") == "f"
 
 
-def test_preparer_accepts_only_the_exact_production_checkpoint(tmp_path):
+def test_preparer_accepts_reviewed_production_checkpoints(tmp_path):
     from tests.unit.test_rust_release import _load_preparer
 
     preparer = _load_preparer()
@@ -325,25 +325,31 @@ def test_preparer_accepts_only_the_exact_production_checkpoint(tmp_path):
     environment.write_text(
         f"ENVIRONMENT=production\nRELEASE_SHA={release}\n"
         "DATABASE_URL=postgresql+asyncpg://verdaxis_app:fixture-secret@127.0.0.1:5432/verdaxis_prod\n"
+        "JWT_SECRET=" + "k" * 40 + "\n"
+        "JWT_ISSUER=verdaxis-prod-api\nJWT_AUDIENCE=verdaxis-prod-web\n"
+        "FRONTEND_URL=https://app.verdaxis.exchange\n"
+        "EMAIL_FROM=Verdaxis <noreply@verdaxis.exchange>\nRESEND_API_KEY=re_fixture_key\n"
     )
     policy = {"environment": "production", "db_session_time_zone": "UTC"}
     assert preparer.project_runtime_environment(environment, release, REVISION, policy)["MIGRATION_REVISION"] == REVISION
-    for revision in (PARENT, "p0_20261016_union", "*", "head", "unlisted_revision"):
+    for revision in (PARENT, "p0_20261016_union", "p5_20261020_read_indexes"):
+        assert preparer.project_runtime_environment(environment, release, revision, policy)["MIGRATION_REVISION"] == revision
+    for revision in ("kycg_20261014_staging", "prc_20261018_cache", "*", "head", "unlisted_revision"):
         with pytest.raises(preparer.RustRuntimeError):
             preparer.project_runtime_environment(environment, release, revision, policy)
 
 
 def test_release_pin_lists_the_new_head():
     revisions = json.loads((ROOT / "deploy/rust/allowed-revisions.json").read_text())
-    assert revisions == ["kycg_20261014_staging", "p0_20261016_union", "prc_20261018_cache", PARENT, REVISION]
+    assert revisions == ["kycg_20261014_staging", "p0_20261016_union", "prc_20261018_cache", "prc_20261026_changes", "p3_20261020_auth_tokens", "sse_20261021_replay_floor", "p5_20261020_read_indexes", PARENT, REVISION]
     checkpoints = {tuple(line.split()) for line in (ROOT / "deploy/migration-checkpoints.tsv").read_text().splitlines()
                    if line and not line.startswith("#")}
     assert (PARENT, REVISION) in checkpoints
     assert (REVISION, REVISION) in checkpoints
     for path in ("rs/read/src/runtime/config.rs", "scripts/prepare_rust_runtime.py"):
         source = (ROOT / path).read_text()
-        assert f'migration_revision != "{REVISION}"' in source
-        assert f'migration_revision != "{PARENT}"' not in source
+        assert f'"{REVISION}"' in source
+        assert f'"{PARENT}"' in source
     artifact = (ROOT / "rs/read/src/runtime/artifact.rs").read_text()
     assert f'"{REVISION}"' in artifact
 

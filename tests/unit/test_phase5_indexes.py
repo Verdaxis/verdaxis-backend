@@ -50,7 +50,7 @@ def _migration(operations):
 
 def test_phase5_index_schema_cases():
     script = ScriptDirectory.from_config(Config(str(ROOT / "alembic.ini")))
-    assert tuple(script.get_heads()) == (REVISION,)
+    assert tuple(script.get_heads()) == ("p89_20261022_trade_freeze",)
     assert script.get_revision(REVISION).down_revision == PARENT
 
     # The reviewed inventory names the same indexes and key order.
