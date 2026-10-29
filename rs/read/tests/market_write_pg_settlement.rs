@@ -971,7 +971,11 @@ async fn receipt_lock_contention_is_bounded_and_has_no_effect() {
             .await
             .unwrap();
     sqlx::query("BEGIN").execute(&mut holder).await.unwrap();
-    sqlx::query("SELECT settlement_fixture_hold_key($1)").bind(id(SELLER)).execute(&mut holder).await.unwrap();
+    sqlx::query("SELECT settlement_fixture_hold_key($1)")
+        .bind(id(SELLER))
+        .execute(&mut holder)
+        .await
+        .unwrap();
     let before = f.snapshot().await;
     let (s, b) = f.deliver(SELLER, Some("held")).await;
     sqlx::query("ROLLBACK").execute(&mut holder).await.unwrap();
@@ -1019,68 +1023,143 @@ async fn recorded_party_history_and_counts_survive_detachment() {
     }
 }
 
-
 #[tokio::test]
 #[ignore = "requires an attested disposable PostgreSQL"]
 async fn legacy_null_principals_do_not_grant_organization_authority() {
-    for actor in [BUYER,SELLER] {
-        let mut f=Fixture::new().await;
-        sqlx::query("SELECT settlement_fixture_null_party($1)").bind(actor==SELLER).execute(&mut f.admin).await.unwrap();
-        let before=f.snapshot().await;
-        assert_eq!(f.deliver(actor,None).await.0,StatusCode::FORBIDDEN);assert_eq!(f.snapshot().await,before);
+    for actor in [BUYER, SELLER] {
+        let mut f = Fixture::new().await;
+        sqlx::query("SELECT settlement_fixture_null_party($1)")
+            .bind(actor == SELLER)
+            .execute(&mut f.admin)
+            .await
+            .unwrap();
+        let before = f.snapshot().await;
+        assert_eq!(f.deliver(actor, None).await.0, StatusCode::FORBIDDEN);
+        assert_eq!(f.snapshot().await, before);
     }
 }
 
 #[tokio::test]
 #[ignore = "requires an attested disposable PostgreSQL"]
 async fn distinct_actor_scopes_and_reverse_resource_order_remain_separate() {
-    let mut f=Fixture::new().await;
-    let first=f.trade;
-    let second:Uuid=sqlx::query_scalar("SELECT settlement_fixture_clone()").fetch_one(&mut f.admin).await.unwrap();
-    for (trade,actor) in [(first,SELLER),(second,BUYER)] {
-        ok(send(&f.router,trade,"deliver",Some(actor),&[("idempotency-key","shared")],delivery().to_string(),0).await,"DELIVERED").await;
+    let mut f = Fixture::new().await;
+    let first = f.trade;
+    let second: Uuid = sqlx::query_scalar("SELECT settlement_fixture_clone()")
+        .fetch_one(&mut f.admin)
+        .await
+        .unwrap();
+    for (trade, actor) in [(first, SELLER), (second, BUYER)] {
+        ok(
+            send(
+                &f.router,
+                trade,
+                "deliver",
+                Some(actor),
+                &[("idempotency-key", "shared")],
+                delivery().to_string(),
+                0,
+            )
+            .await,
+            "DELIVERED",
+        )
+        .await;
     }
-    let before=f.snapshot().await;
-    for (trade,actor) in [(second,SELLER),(first,BUYER)] {
-        let (s,b)=send(&f.router,trade,"deliver",Some(actor),&[("idempotency-key","shared")],delivery().to_string(),0).await;
-        assert_eq!(s,StatusCode::CONFLICT,"{b}");assert_eq!(b["detail"]["code"],"RECEIPT_RESOURCE_MISMATCH");
+    let before = f.snapshot().await;
+    for (trade, actor) in [(second, SELLER), (first, BUYER)] {
+        let (s, b) = send(
+            &f.router,
+            trade,
+            "deliver",
+            Some(actor),
+            &[("idempotency-key", "shared")],
+            delivery().to_string(),
+            0,
+        )
+        .await;
+        assert_eq!(s, StatusCode::CONFLICT, "{b}");
+        assert_eq!(b["detail"]["code"], "RECEIPT_RESOURCE_MISMATCH");
     }
-    assert_eq!(f.snapshot().await,before);assert_eq!(before["receipts"],2);
+    assert_eq!(f.snapshot().await, before);
+    assert_eq!(before["receipts"], 2);
 }
 
 #[tokio::test]
 #[ignore = "requires an attested disposable PostgreSQL"]
 async fn payment_failure_rolls_back_paid_timestamp_and_effects() {
-    let mut f=Fixture::new().await;ok(f.deliver(SELLER,None).await,"DELIVERED").await;
-    let before=f.snapshot().await;
+    let mut f = Fixture::new().await;
+    ok(f.deliver(SELLER, None).await, "DELIVERED").await;
+    let before = f.snapshot().await;
     f.sql("CREATE TRIGGER settlement_audit BEFORE INSERT ON audit_logs FOR EACH ROW EXECUTE FUNCTION settlement_fixture_reject_audit()").await;
-    let result=f.pay(SELLER,Some("rollback")).await;
+    let result = f.pay(SELLER, Some("rollback")).await;
     f.sql("DROP TRIGGER settlement_audit ON audit_logs").await;
-    assert!(!result.0.is_success(),"{}",result.1);assert_eq!(f.snapshot().await,before);
+    assert!(!result.0.is_success(), "{}", result.1);
+    assert_eq!(f.snapshot().await, before);
 }
 
 #[tokio::test]
 #[ignore = "requires an attested disposable PostgreSQL"]
 async fn legacy_fee_is_visible_to_the_recorded_buyer() {
-    let mut f=Fixture::new().await;
-    f.sql("SELECT settlement_fixture_confirmed(3,100,NULL,1.125)").await;
-    f.change(BUYER,"moved").await;
-    let body=ok(f.deliver(BUYER,None).await,"DELIVERED").await;
-    assert_eq!(amount(&body["commission_amount_usd"]),"3.38".parse().unwrap());
-    assert_eq!(body["buyer_id"],id(0x1000).to_string());assert_eq!(body["seller_id"],id(0x2000).to_string());
+    let mut f = Fixture::new().await;
+    f.sql("SELECT settlement_fixture_confirmed(3,100,NULL,1.125)")
+        .await;
+    f.change(BUYER, "moved").await;
+    let body = ok(f.deliver(BUYER, None).await, "DELIVERED").await;
+    assert_eq!(
+        amount(&body["commission_amount_usd"]),
+        "3.38".parse().unwrap()
+    );
+    assert_eq!(body["buyer_id"], id(0x1000).to_string());
+    assert_eq!(body["seller_id"], id(0x2000).to_string());
 }
-
 
 #[tokio::test]
 #[ignore = "requires an attested disposable PostgreSQL"]
 async fn delivery_domain_refusals_leave_no_partial_state() {
-    let mut f=Fixture::new().await;
-    let before=f.snapshot().await;
-    for (field,invalid) in [("final_quantity_mt",vec!["0","-1","100000.01","1.001","1.000","+1"," 1","1 ","-0","NaN","Infinity"]),("final_price_per_mt",vec!["0","-1","1000000.01","100.001","100.000","+100"," 100","-0","NaN","Infinity"])] {
+    let mut f = Fixture::new().await;
+    let before = f.snapshot().await;
+    for (field, invalid) in [
+        (
+            "final_quantity_mt",
+            vec![
+                "0",
+                "-1",
+                "100000.01",
+                "1.001",
+                "1.000",
+                "+1",
+                " 1",
+                "1 ",
+                "-0",
+                "NaN",
+                "Infinity",
+            ],
+        ),
+        (
+            "final_price_per_mt",
+            vec![
+                "0",
+                "-1",
+                "1000000.01",
+                "100.001",
+                "100.000",
+                "+100",
+                " 100",
+                "-0",
+                "NaN",
+                "Infinity",
+            ],
+        ),
+    ] {
         for invalid in invalid {
-            let mut body=delivery();body[field]=json!(invalid);
-            let (s,b)=f.call("deliver",SELLER,Some("invalid"),body).await;
-            assert_eq!(s,StatusCode::UNPROCESSABLE_ENTITY,"{field} {invalid}: {b}");assert_eq!(f.snapshot().await,before);
+            let mut body = delivery();
+            body[field] = json!(invalid);
+            let (s, b) = f.call("deliver", SELLER, Some("invalid"), body).await;
+            assert_eq!(
+                s,
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "{field} {invalid}: {b}"
+            );
+            assert_eq!(f.snapshot().await, before);
         }
     }
 }
@@ -1088,40 +1167,105 @@ async fn delivery_domain_refusals_leave_no_partial_state() {
 #[tokio::test]
 #[ignore = "requires an attested disposable PostgreSQL"]
 async fn both_recorded_sides_keep_cleanup_without_fresh_admission() {
-    for actor in [BUYER,SELLER] {
-        for change in ["rejected","pending","detached","moved","org_reject","email","password","kyc"] {
-            let mut f=Fixture::new().await;f.change(actor,change).await;
-            ok(f.deliver(actor,None).await,"DELIVERED").await;
+    for actor in [BUYER, SELLER] {
+        for change in [
+            "rejected",
+            "pending",
+            "detached",
+            "moved",
+            "org_reject",
+            "email",
+            "password",
+            "kyc",
+        ] {
+            let mut f = Fixture::new().await;
+            f.change(actor, change).await;
+            ok(f.deliver(actor, None).await, "DELIVERED").await;
         }
     }
-    let mut f=Fixture::new().await;f.change(SELLER,"rejected").await;
-    let before=f.snapshot().await;
-    assert_eq!(f.call("confirm",SELLER,None,Value::Null).await.0,StatusCode::FORBIDDEN);
-    let router=verdaxis_read::routes::market_write::trades::contract_router(f.pool.clone(),KEY,true);
-    let now=chrono::Utc::now().timestamp();let token=encode(&Header::default(),&json!({"sub":id(SELLER),"type":"access","iat":now,"exp":now+600,"iss":"trades-tests","aud":"trades-tests"}),&EncodingKey::from_secret(KEY.as_bytes())).unwrap();
-    let response=router.oneshot(Request::builder().method("POST").uri("/api/trades/").header("authorization",format!("Bearer {token}")).body(Body::from("{}")).unwrap()).await.unwrap();
-    assert_eq!(response.status(),StatusCode::FORBIDDEN);assert_eq!(f.snapshot().await,before);
+    let mut f = Fixture::new().await;
+    f.change(SELLER, "rejected").await;
+    let before = f.snapshot().await;
+    assert_eq!(
+        f.call("confirm", SELLER, None, Value::Null).await.0,
+        StatusCode::FORBIDDEN
+    );
+    let router =
+        verdaxis_read::routes::market_write::trades::contract_router(f.pool.clone(), KEY, true);
+    let now = chrono::Utc::now().timestamp();
+    let token=encode(&Header::default(),&json!({"sub":id(SELLER),"type":"access","iat":now,"exp":now+600,"iss":"trades-tests","aud":"trades-tests"}),&EncodingKey::from_secret(KEY.as_bytes())).unwrap();
+    let response = router
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/trades/")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::from(json!({"order_id":id(1),"quantity_mt":"1","expected_terms_digest":"a".repeat(64)}).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    assert_eq!(f.snapshot().await, before);
 }
 
 #[tokio::test]
 #[ignore = "requires an attested disposable PostgreSQL"]
 async fn unkeyed_competing_settlement_has_one_transition() {
-    let mut f=Fixture::new().await;
-    for action in ["deliver","pay"] {
-        let (a,b)=tokio::join!(f.call(action,SELLER,None,delivery()),f.call(action,SELLER,None,delivery()));
-        let successes=usize::from(a.0==StatusCode::OK)+usize::from(b.0==StatusCode::OK);assert_eq!(successes,1,"{a:?} {b:?}");
-        for response in [a,b] {if response.0!=StatusCode::OK {assert!(response.0==StatusCode::BAD_REQUEST || matches!(response.1["detail"]["code"].as_str(),Some("MARKET_BUSY"|"TRANSACTION_RETRY_EXHAUSTED")),"{}",response.1);}}
+    let mut f = Fixture::new().await;
+    for action in ["deliver", "pay"] {
+        let (a, b) = tokio::join!(
+            f.call(action, SELLER, None, delivery()),
+            f.call(action, SELLER, None, delivery())
+        );
+        let successes = usize::from(a.0 == StatusCode::OK) + usize::from(b.0 == StatusCode::OK);
+        assert_eq!(successes, 1, "{a:?} {b:?}");
+        for response in [a, b] {
+            if response.0 != StatusCode::OK {
+                assert!(
+                    response.0 == StatusCode::BAD_REQUEST
+                        || matches!(
+                            response.1["detail"]["code"].as_str(),
+                            Some("MARKET_BUSY" | "TRANSACTION_RETRY_EXHAUSTED")
+                        ),
+                    "{}",
+                    response.1
+                );
+            }
+        }
     }
-    let after=f.snapshot().await;assert_eq!(after["receipts"],0);assert_eq!(after["audit"],2);assert_eq!(after["outbox"],2);
+    let after = f.snapshot().await;
+    assert_eq!(after["receipts"], 0);
+    assert_eq!(after["audit"], 2);
+    assert_eq!(after["outbox"], 2);
 }
 
 #[tokio::test]
 #[ignore = "requires an attested disposable PostgreSQL"]
 async fn no_linked_order_settles_with_bounded_audit_identity() {
-    let mut f=Fixture::new().await;f.sql("SELECT confirm_fixture_no_order()").await;
-    let request_id="r".repeat(1000);
-    let (s,b)=send(&f.router,f.trade,"deliver",Some(SELLER),&[("x-request-id",&request_id),("x-forwarded-for","198.51.100.9")],delivery().to_string(),0).await;ok((s,b),"DELIVERED").await;
-    let (request_id,ip):(Option<String>,Option<String>)=sqlx::query_as("SELECT request_id,ip_address FROM audit_logs").fetch_one(&mut f.admin).await.unwrap();
-    assert!(request_id.is_some_and(|s| !s.is_empty() && s.len()<=128));assert_ne!(ip.as_deref(),Some("198.51.100.9"));
-    ok(f.pay(SELLER,None).await,"PAID").await;
+    let mut f = Fixture::new().await;
+    f.sql("SELECT confirm_fixture_no_order()").await;
+    let request_id = "r".repeat(1000);
+    let (s, b) = send(
+        &f.router,
+        f.trade,
+        "deliver",
+        Some(SELLER),
+        &[
+            ("x-request-id", &request_id),
+            ("x-forwarded-for", "198.51.100.9"),
+        ],
+        delivery().to_string(),
+        0,
+    )
+    .await;
+    ok((s, b), "DELIVERED").await;
+    let (request_id, ip): (Option<String>, Option<String>) =
+        sqlx::query_as("SELECT request_id,ip_address FROM audit_logs")
+            .fetch_one(&mut f.admin)
+            .await
+            .unwrap();
+    assert!(request_id.is_some_and(|s| !s.is_empty() && s.len() <= 128));
+    assert_ne!(ip.as_deref(), Some("198.51.100.9"));
+    ok(f.pay(SELLER, None).await, "PAID").await;
 }
