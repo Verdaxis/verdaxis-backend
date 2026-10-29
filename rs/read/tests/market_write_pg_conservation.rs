@@ -180,6 +180,7 @@ impl Fixture {
             .unwrap();
         let policy: MarketPolicy = serde_json::from_value(raw).unwrap();
         let config = Config {
+            phase2: Default::default(),
             compliance_eur_usd_rate: None,
             fleet_artifact_path: "data/fleet_demand.json".into(),
 
