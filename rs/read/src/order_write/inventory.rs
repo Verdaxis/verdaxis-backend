@@ -1535,10 +1535,17 @@ impl PublishCommand {
             {
                 return Err(not_found().into());
             }
-            if let Some(id) =
-                live_publication(port.conn, self.request.item, self.request.now).await?
-            {
-                return Ok(publication_result(id, true, 0));
+            // A read-only hint chooses the reuse-only branch. That branch
+            // acquires no order resources after its inventory lock; if the
+            // listing elapses during the wait, a fresh attempt plans the sweep.
+            if live_publication(port.conn, self.request.item, self.request.now).await?.is_some() {
+                sqlx::query("SELECT id FROM inventory_items WHERE id=$1 AND supplier_id=$2 FOR UPDATE")
+                    .bind(self.request.item).bind(org).fetch_optional(&mut *port.conn).await?.ok_or_else(not_found)?;
+                self.request.now = self.locked_now();
+                if let Some(id)=live_publication(port.conn,self.request.item,self.request.now).await? {
+                    return Ok(publication_result(id,true,0));
+                }
+                return Err(MarketAttemptError::PreviewChanged);
             }
             let item = load_publish_item(port.conn, self.request.item, org)
                 .await?
