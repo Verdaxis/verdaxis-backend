@@ -1031,6 +1031,12 @@ fn assert_second_outcome(result: &(StatusCode, Value), expected: StatusCode) -> 
     true
 }
 
+fn assert_same_instant(stored: &Value, response: &Value) {
+    let stored = chrono::DateTime::parse_from_rfc3339(stored.as_str().unwrap()).unwrap();
+    let response = chrono::DateTime::parse_from_rfc3339(response.as_str().unwrap()).unwrap();
+    assert_eq!(stored, response);
+}
+
 async fn assert_freeze_overlap(second_actor: u128, reason: &'static str, observed: ObservedRow) {
     let mut f = Fixture::new("DELIVERED").await;
     let before = f.snapshot().await;
@@ -1061,12 +1067,12 @@ async fn assert_freeze_overlap(second_actor: u128, reason: &'static str, observe
         "status",
         "reason_code",
         "note",
-        "frozen_at",
         "frozen_by_user_id",
         "version",
     ] {
         assert_eq!(row[field], first.1[field], "{field}");
     }
+    assert_same_instant(&row["frozen_at"], &first.1["frozen_at"]);
     assert_eq!(row["status"], "ACTIVE");
     assert!(row["cleared_at"].is_null());
     assert_eq!(after["audit"].as_array().unwrap().len(), 1);
@@ -1148,16 +1154,10 @@ async fn clear_against_another_administrator_refreeze_waits_on_trade_row() {
     }
     let rows = after["freezes"].as_array().unwrap();
     let cleared = rows.iter().find(|row| row["id"] == original["id"]).unwrap();
-    for field in [
-        "id",
-        "trade_id",
-        "reason_code",
-        "note",
-        "frozen_at",
-        "frozen_by_user_id",
-    ] {
+    for field in ["id", "trade_id", "reason_code", "note", "frozen_by_user_id"] {
         assert_eq!(cleared[field], original[field], "{field}");
     }
+    assert_same_instant(&cleared["frozen_at"], &original["frozen_at"]);
     assert_eq!(cleared["status"], "CLEARED");
     assert_eq!(cleared["version"], 2);
     assert_eq!(cleared["clear_note"], "clear concurrent review");
@@ -1176,12 +1176,12 @@ async fn clear_against_another_administrator_refreeze_waits_on_trade_row() {
             "status",
             "reason_code",
             "note",
-            "frozen_at",
             "frozen_by_user_id",
             "version",
         ] {
             assert_eq!(active[field], refreeze.1[field], "{field}");
         }
+        assert_same_instant(&active["frozen_at"], &refreeze.1["frozen_at"]);
         assert_eq!(active["version"], 1);
         assert_eq!(
             f.audit("TRADE_FROZEN").await["changes"]["actor"],
