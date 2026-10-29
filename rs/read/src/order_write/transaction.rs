@@ -1841,6 +1841,7 @@ impl LockedMarketTransaction<'_> {
             self.locked,
             crate::auth::VerifiedAccess {
                 subject: access.subject,
+                expires_at: access.expires_at,
                 issued_at: access.issued_at,
                 issuance_out_of_range: access.issuance_out_of_range,
             },
@@ -2095,6 +2096,7 @@ impl LockedMarketTransaction<'_> {
         self.locked.require_economic_phase()?;
         let access = crate::auth::VerifiedAccess {
             subject: actor.user_id(),
+            expires_at: actor.access().expires_at,
             issued_at: actor.access().issued_at,
             issuance_out_of_range: actor.access().issuance_out_of_range,
         };
@@ -2612,6 +2614,7 @@ impl LockedMarketTransaction<'_> {
     ) -> Result<super::WriteContext, super::MarketWriteError> {
         let access = crate::auth::VerifiedAccess {
             subject: actor.user_id(),
+            expires_at: actor.access().expires_at,
             issued_at: actor.access().issued_at,
             issuance_out_of_range: actor.access().issuance_out_of_range,
         };

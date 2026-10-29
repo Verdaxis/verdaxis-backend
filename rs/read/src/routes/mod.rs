@@ -1,13 +1,13 @@
 pub mod availability;
 pub mod benchmark_quotes;
 pub mod catalog;
-#[path = "market_write/support.rs"]
-pub mod support;
 pub mod compliance_fuels;
 pub mod compliance_overlay;
 pub mod compliance_scores;
 pub mod demand;
 pub mod fleet_intelligence;
+#[path = "market_write/support.rs"]
+pub mod support;
 // Phase 2 Task 10: feedback route registration.
 pub use crate::crud::feedback::routes as feedback_routes;
 // Phase 2 Task 10: end feedback route registration.

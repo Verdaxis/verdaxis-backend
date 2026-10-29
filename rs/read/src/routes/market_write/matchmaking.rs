@@ -117,8 +117,8 @@ async fn list(
         AuthenticatedRequest::new("GET", LIST, false),
         move |tx| {
             Box::pin(async move {
-                validate_and_admit(Value::Null, &admission, Ok)?;
                 let actor = tx.actor();
+                validate_and_admit(Value::Null, &admission, actor.user_id, Ok)?;
                 let side = match actor.role.as_deref() {
                     Some("BUYER") => "BID",
                     Some("SUPPLIER") => "ASK",

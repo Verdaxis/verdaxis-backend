@@ -69,6 +69,7 @@ pub(crate) async fn dispatch(
     }
     let command_access = Arc::new(crate::auth::VerifiedAccess {
         subject: access.subject,
+        expires_at: access.expires_at,
         issued_at: access.issued_at,
         issuance_out_of_range: access.issuance_out_of_range,
     });

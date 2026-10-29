@@ -106,7 +106,7 @@ def test_migration_parent_is_the_integrated_head():
     }
     assert assignments["revision"] == REVISION
     assert assignments["down_revision"] == PARENT
-    assert migration_graph().get_revision(PARENT).down_revision == "p3_20261020_auth_tokens"
+    assert migration_graph().get_revision(PARENT).down_revision == "p5_20261020_read_indexes"
 
 
 @pytest.fixture

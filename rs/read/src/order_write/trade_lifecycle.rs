@@ -344,6 +344,7 @@ pub(crate) async fn authenticate_request(
 ) -> Result<(), MarketWriteError> {
     let shared = Arc::new(crate::auth::VerifiedAccess {
         subject: access.subject,
+        expires_at: access.expires_at,
         issued_at: access.issued_at,
         issuance_out_of_range: access.issuance_out_of_range,
     });
@@ -362,6 +363,7 @@ pub(crate) async fn dispatch(
     let hash = lifecycle_hash(request.action, request.id)?;
     let shared = Arc::new(crate::auth::VerifiedAccess {
         subject: access.subject,
+        expires_at: access.expires_at,
         issued_at: access.issued_at,
         issuance_out_of_range: access.issuance_out_of_range,
     });
@@ -978,6 +980,7 @@ pub async fn contract_authorize(
     let result: Result<(), MarketWriteError> = async {
         let access = Arc::new(crate::auth::VerifiedAccess {
             subject: actor_id,
+            expires_at: chrono::Utc::now() + chrono::Duration::hours(1),
             issued_at: Some(Utc::now()),
             issuance_out_of_range: false,
         });
@@ -1035,6 +1038,7 @@ pub async fn contract_authorize(
                 conn,
                 Arc::new(crate::auth::VerifiedAccess {
                     subject: id,
+                    expires_at: chrono::Utc::now() + chrono::Duration::hours(1),
                     issued_at: Some(Utc::now()),
                     issuance_out_of_range: false,
                 }),
@@ -1472,6 +1476,7 @@ pub(crate) async fn authenticate_settlement(
         &mut conn,
         Arc::new(crate::auth::VerifiedAccess {
             subject: access.subject,
+            expires_at: access.expires_at,
             issued_at: access.issued_at,
             issuance_out_of_range: access.issuance_out_of_range,
         }),
@@ -1488,6 +1493,7 @@ pub(crate) async fn dispatch_settlement(
     let hash = settlement_hash(request.id, request.delivery.as_ref())?;
     let shared = Arc::new(crate::auth::VerifiedAccess {
         subject: access.subject,
+        expires_at: access.expires_at,
         issued_at: access.issued_at,
         issuance_out_of_range: access.issuance_out_of_range,
     });

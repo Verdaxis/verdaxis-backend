@@ -38,6 +38,7 @@ pub async fn run_support(
 ) -> Result<Value, MarketWriteError> {
     let access = VerifiedAccess {
         subject: command.access.subject,
+        expires_at: command.access.expires_at,
         issued_at: command.access.issued_at,
         issuance_out_of_range: command.access.issuance_out_of_range,
     };

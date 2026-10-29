@@ -353,6 +353,7 @@ pub mod contract {
             Arc::new(tokio::sync::Semaphore::new(1)),
             crate::auth::VerifiedAccess {
                 subject: actor,
+                expires_at: chrono::Utc::now() + chrono::Duration::hours(1),
                 issued_at: Some(Utc::now()),
                 issuance_out_of_range: false,
             },

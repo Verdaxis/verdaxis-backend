@@ -1138,6 +1138,7 @@ pub(crate) async fn publish(
 ) -> Result<super::CommittedCommand, MarketWriteError> {
     let verified = std::sync::Arc::new(VerifiedAccess {
         subject: access.subject,
+        expires_at: access.expires_at,
         issued_at: access.issued_at,
         issuance_out_of_range: access.issuance_out_of_range,
     });

@@ -69,7 +69,7 @@ impl BusinessCommand for Dismiss {
                 )
                 .into());
             }
-            let order = validate_and_admit(Value::Null, &self.admission, |_| {
+            let order = validate_and_admit(Value::Null, &self.admission, actor.user_id, |_| {
                 self.order.parse::<Uuid>().map_err(|_| {
                     refusal(
                         axum::http::StatusCode::UNPROCESSABLE_ENTITY,

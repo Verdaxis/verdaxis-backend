@@ -613,22 +613,21 @@ pub fn contract_key(organization: Uuid, operation: &str, key: &str) -> i64 {
 
 #[cfg(feature = "contract-tests")]
 pub fn contract_router(pool: sqlx::PgPool, key: &str, settings: CreateSettings) -> Router {
-    let config=serde_json::from_value(json!({"environment":"test","release_sha":"test","migration_revision":"p89_20261022_trade_freeze","database_url":"","db_session_time_zone":"UTC","bind":"127.0.0.1:0","read_admission_slots":8,"pool_max":9,"python_budget":0,"configured_max_connections":100,"kyc_execution_gate_enabled":settings.kyc_execution_gate_enabled})).unwrap();
-    let app = AppState {
-        config: Arc::new(config),
-        pools: crate::runtime::db::Pools {
+    let config=serde_json::from_value(json!({"environment":"test","release_sha":"test","migration_revision":"p89_20261022_trade_freeze","database_url":"","db_session_time_zone":"UTC","bind":"127.0.0.1:0","read_admission_slots":pool.options().get_max_connections(),"pool_max":pool.options().get_max_connections()+1,"python_budget":0,"configured_max_connections":100,"kyc_execution_gate_enabled":settings.kyc_execution_gate_enabled})).unwrap();
+    let app = AppState::new(
+        config,
+        crate::runtime::db::Pools {
             read: pool.clone(),
-            health: pool,
+            health: sqlx::postgres::PgPoolOptions::new()
+                .max_connections(1)
+                .connect_lazy_with((*pool.connect_options()).clone()),
         },
-        policy: Arc::new(
-            serde_json::from_str(include_str!(
-                "../../../../../deploy/rust/market-policy.json"
-            ))
-            .unwrap(),
-        ),
-        reads: Arc::new(tokio::sync::Semaphore::new(8)),
-        reference_cache: Arc::new(crate::runtime::cache::ReferenceCache::default()),
-    };
+        serde_json::from_str(include_str!(
+            "../../../../../deploy/rust/market-policy.json"
+        ))
+        .unwrap(),
+    )
+    .unwrap();
     let verification = VerificationSettings::new(
         key.into(),
         None,
