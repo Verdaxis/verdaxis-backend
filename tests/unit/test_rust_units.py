@@ -200,7 +200,9 @@ def test_rust_unit_bind_and_service_name_match_the_committed_policy():
 
 
 def _assert_runtime_directives(unit: str, backend: str, suffix: str) -> None:
-    assert _directives(unit) <= _directives(backend)
+    # Production Rust has explicit CPU limits in addition to the backend sandbox.
+    rust_budget_directives = {"CPUQuota", "CPUWeight"} if suffix == "" else set()
+    assert _directives(unit) - _directives(backend) <= rust_budget_directives
     credentials = [line for line in unit.splitlines() if line.startswith(
         ("LoadCredential=", "SetCredential=", "ImportCredential=", "LoadCredentialEncrypted=", "SetCredentialEncrypted=")
     )]
@@ -467,7 +469,7 @@ def _assert_staging_credential_boundary(unit: str) -> None:
     assert "/home/verdaxis-prod/verdaxis/prod/be" not in unit
     assert "MIGRATOR_DATABASE_URL" not in unit
     assert "/etc/verdaxis/kyc-document-keys.json" not in unit
-    _assert_runtime_directives(unit, _text(BACKEND_STAGING_UNIT))
+    _assert_runtime_directives(unit, _text(BACKEND_STAGING_UNIT), "-staging")
 
 
 def test_rust_unit_names_no_production_path_or_migrator_credential():
