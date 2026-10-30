@@ -22,7 +22,7 @@ fn delivery() -> Value {
 }
 struct Fixture {
     admin: PgConnection,
-    pool: PgPool,
+
     router: Router,
     trade: Uuid,
 }
@@ -44,6 +44,7 @@ impl Fixture {
             include_str!("fixtures/phase9_trades.sql"),
             include_str!("fixtures/phase9_confirm.sql"),
             include_str!("fixtures/phase9_settlement.sql"),
+            include_str!("fixtures/phase9_trade_membership.sql"),
         ] {
             sqlx::raw_sql(sql).execute(&mut admin).await.unwrap();
         }
@@ -83,19 +84,12 @@ impl Fixture {
             .connect(&r)
             .await
             .unwrap();
-        let router = contract_router(pool.clone(), KEY, true);
+        let router = contract_router(pool.clone(), KEY, true).merge(verdaxis_read::routes::market_write::trades::contract_router(pool.clone(), KEY, true));
         Self {
             admin,
-            pool,
             router,
             trade,
         }
-    }
-    async fn sql(&mut self, sql: &str) {
-        sqlx::raw_sql(sqlx::AssertSqlSafe(sql.to_owned()))
-            .execute(&mut self.admin)
-            .await
-            .unwrap();
     }
     async fn change(&mut self, actor: u128, change: &str) {
         sqlx::query("SELECT CASE WHEN $2='org_reject' THEN settlement_fixture_reject_org($1) ELSE trades_fixture_change($1,$2) END")
@@ -104,6 +98,17 @@ impl Fixture {
             .execute(&mut self.admin)
             .await
             .unwrap();
+    }
+    async fn read(&self, actor: u128, summary: bool) -> (StatusCode, Value) {
+        let now = chrono::Utc::now().timestamp();
+        let token = encode(&Header::default(), &json!({"sub":id(actor),"type":"access","iat":now,"exp":now+600,"iss":"trades-tests","aud":"trades-tests"}), &EncodingKey::from_secret(KEY.as_bytes())).unwrap();
+        let response = self.router.clone().oneshot(Request::builder()
+            .uri(if summary { "/api/trades/summary" } else { "/api/trades/my" })
+            .header("authorization", format!("Bearer {token}"))
+            .body(Body::empty()).unwrap()).await.unwrap();
+        let status = response.status();
+        let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+        (status, serde_json::from_slice(&bytes).unwrap())
     }
     async fn snapshot(&mut self) -> Value {
         sqlx::query_scalar("SELECT confirm_fixture_snapshot()")
@@ -247,4 +252,62 @@ async fn detached_recorded_members_settle_only_while_their_organization_is_rejec
         assert_eq!(f.deliver(actor, Some("delivery")).await.0, StatusCode::FORBIDDEN);
         assert_eq!(f.snapshot().await, before);
     }
+}
+
+#[tokio::test]
+#[ignore = "requires an attested disposable PostgreSQL"]
+async fn private_reads_follow_current_organization_or_rejected_recorded_side() {
+    for actor in [BUYER, SELLER] {
+        for change in ["moved", "detached", "org_reject", "rejected"] {
+            let mut f = Fixture::new().await;
+            f.change(actor, change).await;
+            if change == "org_reject" { f.change(actor, "detached").await; }
+            let before = f.snapshot().await;
+            for summary in [false, true] {
+                let (status, body) = f.read(actor, summary).await;
+                if change == "detached" {
+                    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+                    assert!(body.get("items").is_none());
+                } else {
+                    assert_eq!(status, StatusCode::OK, "{body}");
+                    assert_eq!(body[if summary { "total_count" } else { "total" }], if change == "moved" { 0 } else { 1 });
+                    if !summary && change == "moved" { assert_eq!(body["items"], json!([])); }
+                }
+            }
+            assert_eq!(f.snapshot().await, before);
+        }
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires an attested disposable PostgreSQL"]
+async fn lifecycle_receipts_require_membership_before_request_mismatch() {
+    for action in ["confirm", "decline"] {
+        for change in ["moved", "detached", "org_reject"] {
+            let mut f = Fixture::new().await;
+            sqlx::query("SELECT membership_fixture_pending($1)").bind(f.trade).execute(&mut f.admin).await.unwrap();
+            ok(f.call(action, SELLER, Some("lifecycle"), Value::Null).await, if action == "confirm" { "CONFIRMED" } else { "DECLINED" }).await;
+            f.change(SELLER, change).await;
+            if change == "org_reject" { f.change(SELLER, "detached").await; }
+            let before = f.snapshot().await;
+            let (status, body) = f.call(action, SELLER, Some("lifecycle"), Value::Null).await;
+            assert_eq!(status, if change == "org_reject" { StatusCode::OK } else { StatusCode::FORBIDDEN }, "{action} {change}: {body}");
+            assert_eq!(f.snapshot().await, before);
+        }
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires an attested disposable PostgreSQL"]
+async fn rejected_organization_cannot_create_a_new_trade() {
+    let mut f = Fixture::new().await;
+    f.change(BUYER, "org_reject").await;
+    let before = f.snapshot().await;
+    let now = chrono::Utc::now().timestamp();
+    let token = encode(&Header::default(), &json!({"sub":id(BUYER),"type":"access","iat":now,"exp":now+600,"iss":"trades-tests","aud":"trades-tests"}), &EncodingKey::from_secret(KEY.as_bytes())).unwrap();
+    let response = f.router.clone().oneshot(Request::builder().method("POST").uri("/api/trades/")
+        .header("authorization", format!("Bearer {token}"))
+        .body(Body::from(json!({"order_id":id(1),"quantity_mt":"1","expected_terms_digest":"a".repeat(64)}).to_string())).unwrap()).await.unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    assert_eq!(f.snapshot().await, before);
 }
