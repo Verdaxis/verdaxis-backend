@@ -409,7 +409,7 @@ async fn sealed_matching_composes_stock_and_before_effects() {
         .unwrap();
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(4)
-        .connect(&database.runtime_url)
+        .connect(&f._database.runtime_url)
         .await
         .unwrap();
     let result =
@@ -452,7 +452,7 @@ async fn independent_sealed_commands_compete_for_one_resting_remainder() {
         .unwrap();
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(4)
-        .connect(&database.runtime_url)
+        .connect(&f._database.runtime_url)
         .await
         .unwrap();
     let (left, right) = tokio::join!(
@@ -516,14 +516,10 @@ const SELLER_ORG: Uuid = Uuid::from_u128(0x2000);
 const ADMIN: Uuid = Uuid::from_u128(0x7000);
 
 async fn admin_connection(database: &market_database::MarketDatabase) -> PgConnection {
-    PgConnection::connect(&database.admin_url)
-        .await
-        .unwrap()
+    PgConnection::connect(&database.admin_url).await.unwrap()
 }
 async fn runtime_connection(database: &market_database::MarketDatabase) -> PgConnection {
-    PgConnection::connect(&database.runtime_url)
-        .await
-        .unwrap()
+    PgConnection::connect(&database.runtime_url).await.unwrap()
 }
 async fn runtime_pool(database: &market_database::MarketDatabase) -> sqlx::PgPool {
     sqlx::postgres::PgPoolOptions::new()

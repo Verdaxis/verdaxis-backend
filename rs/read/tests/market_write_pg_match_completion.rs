@@ -397,7 +397,10 @@ async fn outbox_is_commit_visible_and_polling_finds_events_without_a_listener() 
         .await
     });
     barrier.staged().await;
-    assert_eq!(dispatch_without_notifications(false, &f._database.runtime_url), 0);
+    assert_eq!(
+        dispatch_without_notifications(false, &f._database.runtime_url),
+        0
+    );
     let before: i64 = sqlx::query_scalar("SELECT count(*) FROM market_event_outbox")
         .fetch_one(&mut f.observer)
         .await
@@ -419,7 +422,10 @@ async fn outbox_is_commit_visible_and_polling_finds_events_without_a_listener() 
         let payload: Value = serde_json::from_str(&payload).unwrap();
         assert_eq!(payload["_public_market_invalidation"], true);
     }
-    assert_eq!(dispatch_without_notifications(true, &f._database.runtime_url), 6);
+    assert_eq!(
+        dispatch_without_notifications(true, &f._database.runtime_url),
+        6
+    );
 }
 
 #[tokio::test]
