@@ -1064,10 +1064,22 @@ async fn exit_and_expiry_on_read_end_a_context_once() {
     let mut b = second.await.unwrap();
     assert!(second_wait.is_ok(), "both routes must reach a held lock");
     if a.0 == StatusCode::CONFLICT && code(&a.1) == "MARKET_BUSY" {
-        a = race_response(app.clone(), f.builder(Some(f.target), "POST", &exit).body(Body::empty()).unwrap()).await;
+        a = race_response(
+            app.clone(),
+            f.builder(Some(f.target), "POST", &exit)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
     }
     if b.0 == StatusCode::CONFLICT && code(&b.1) == "MARKET_BUSY" {
-        b = race_response(app.clone(), f.builder(Some(f.target), "GET", &read).body(Body::empty()).unwrap()).await;
+        b = race_response(
+            app.clone(),
+            f.builder(Some(f.target), "GET", &read)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
     }
     assert_eq!(a.0, StatusCode::OK, "{:?}", a);
     assert_eq!(b.0, StatusCode::OK, "{:?}", b);
@@ -1141,8 +1153,13 @@ async fn capability_revoke_and_context_start_serialize() {
     .unwrap();
     let mut revoked = revoked.await.unwrap();
     if revoked.0 == StatusCode::CONFLICT && code(&revoked.1) == "MARKET_BUSY" {
-        revoked = race_response(app.clone(), f.builder(Some(f.actor), "POST", &revoke_path)
-            .body(Body::from(json!({"reason":"case revoke"}).to_string())).unwrap()).await;
+        revoked = race_response(
+            app.clone(),
+            f.builder(Some(f.actor), "POST", &revoke_path)
+                .body(Body::from(json!({"reason":"case revoke"}).to_string()))
+                .unwrap(),
+        )
+        .await;
     }
     assert_eq!(revoked.0, StatusCode::OK, "{revoked:?}");
     assert_eq!(
