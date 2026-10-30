@@ -340,12 +340,13 @@ impl Fixture {
 from uuid import UUID
 from sqlalchemy.ext.asyncio import create_async_engine,async_sessionmaker
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from app.models.watchlist import WatchlistTarget
 from app.services.watchlists import _pin_response
 async def main():
  engine=create_async_engine(sys.argv[1].replace('postgresql://','postgresql+asyncpg://').replace('postgres://','postgresql+asyncpg://'))
  async with async_sessionmaker(engine)() as db:
-  target=(await db.execute(select(WatchlistTarget).where(WatchlistTarget.order_id==UUID(sys.argv[2])))).scalar_one()
+  target=(await db.execute(select(WatchlistTarget).options(selectinload(WatchlistTarget.delivery_point)).where(WatchlistTarget.order_id==UUID(sys.argv[2])))).scalar_one()
   print(_pin_response(target,unread_event_count=0,latest_event_at=None).model_dump_json())
  await engine.dispose()
 asyncio.run(main())"#;
@@ -1033,6 +1034,16 @@ async fn finite_seeded_lifecycle_sequences_preserve_the_ledger() {
             f.ledger().await;
             ok(&f.call(cancel).await, StatusCode::NO_CONTENT);
             f.ledger().await;
+            let mut stock=Fixture::new().await;
+            let listing=stock.listing().await;stock.ledger().await;
+            let take=stock.take(listing,"300").await;let taken=stock.call(take).await;ok(&taken,StatusCode::OK);stock.ledger().await;
+            let pending:Uuid=taken.1["id"].as_str().unwrap().parse().unwrap();
+            sqlx::query("SELECT races_expire($1)").bind(listing).execute(&mut stock.admin).await.unwrap();
+            ok(&stock.call(stock.publish()).await,StatusCode::OK);stock.ledger().await;
+            ok(&stock.call(Command::new("PUT","/component/organizations/reject".into(),0x3001,Value::Null)).await,StatusCode::OK);stock.ledger().await;
+            assert_eq!(stock.stock().await,(Decimal::from(700),Decimal::from(300)));
+            ok(&stock.call(lifecycle(pending,"decline")).await,StatusCode::OK);stock.ledger().await;
+            assert_eq!(stock.stock().await,(Decimal::from(1000),Decimal::ZERO));
             println!(
                 "FINITE_SEQUENCE seed={seed} slice={index} writers=rust-create,rust-replay,rust-amend,rust-take,rust-{},rust-cancel,rust-replay",
                 if confirm { "confirm" } else { "decline" }
@@ -1520,7 +1531,8 @@ async fn concurrent_cancel_keys_bind_matching_and_other_resources() {
         ok(&a,StatusCode::NO_CONTENT);ok(&b,StatusCode::CONFLICT);assert_eq!(b.1["detail"]["code"],"RECEIPT_RESOURCE_MISMATCH");
         let counts=f.effects().await;
         let winner=if reverse{second}else{first};let loser=if reverse{first}else{second};
-        let (a,b)=f.refusal_overlap(f.cancel(winner).keyed("same"),f.cancel(loser).keyed("same"),id(ITEM),false).await;
+        let item:Uuid=sqlx::query_scalar("SELECT inventory_item_id FROM orderbook_orders WHERE id=$1").bind(winner).fetch_one(&mut f.admin).await.unwrap();
+        let (a,b)=f.refusal_overlap(f.cancel(winner).keyed("same"),f.cancel(loser).keyed("same"),item,false).await;
         ok(&a,StatusCode::NO_CONTENT);ok(&b,StatusCode::CONFLICT);assert_eq!(f.effects().await,counts);
     }
 }

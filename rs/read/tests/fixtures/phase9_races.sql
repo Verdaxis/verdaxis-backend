@@ -79,3 +79,36 @@ BEGIN
     UPDATE products SET min_lot_size=1,is_active=true WHERE id=product;
     UPDATE inventory_items SET product_name=(SELECT name FROM products WHERE id=product),specification_standard=NULL WHERE id='00000000-0000-0000-0000-000000004000';
 END $$;
+
+CREATE OR REPLACE FUNCTION races_hold_resource(target uuid,is_trade boolean) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+    IF is_trade THEN PERFORM id FROM trades WHERE id=target FOR UPDATE;
+    ELSE PERFORM id FROM inventory_items WHERE id=target FOR UPDATE; END IF;
+END $$;
+CREATE OR REPLACE FUNCTION races_wait_second() RETURNS void LANGUAGE plpgsql AS $$
+DECLARE deadline timestamptz:=clock_timestamp()+interval '8 seconds';
+BEGIN
+    LOOP
+        PERFORM pg_stat_clear_snapshot();
+        IF EXISTS(SELECT 1 FROM pg_stat_activity a WHERE a.datname=current_database() AND a.application_name='races-second' AND a.wait_event_type='Lock' AND EXISTS(SELECT 1 FROM pg_stat_activity b WHERE b.pid=ANY(pg_blocking_pids(a.pid)) AND b.application_name='races-first')) THEN RETURN; END IF;
+        IF clock_timestamp()>deadline THEN RAISE EXCEPTION 'refusal contender did not overlap'; END IF;
+        PERFORM pg_sleep(0.001);
+    END LOOP;
+END $$;
+CREATE OR REPLACE FUNCTION races_publication_member() RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+ INSERT INTO users(id,email,password_hash,role,status,organization_id,email_verified,must_change_password,kyc_status,kyc_organization_id)
+ VALUES('00000000-0000-0000-0000-000000002002','publication-member@example.test','unused','SUPPLIER','APPROVED','00000000-0000-0000-0000-000000002000',true,false,'APPROVED','00000000-0000-0000-0000-000000002000');
+END $$;
+CREATE OR REPLACE FUNCTION races_publication_hash() RETURNS void LANGUAGE sql AS $$
+ UPDATE orderbook_orders SET idempotency_request_hash=repeat('0',64) WHERE idempotency_operation='inventory.publish';
+$$;
+CREATE OR REPLACE FUNCTION races_other_order(source uuid) RETURNS uuid LANGUAGE plpgsql AS $$
+DECLARE target uuid:=gen_random_uuid();item uuid;
+BEGIN
+ item:=races_second_item();
+ UPDATE inventory_items SET current_stock_mt=0,reserved_stock_mt=200 WHERE id=item;
+ INSERT INTO orderbook_orders(id,organization_id,owner_user_id,created_by_actor_user_id,creation_method,provenance,side,product_id,delivery_point_id,quantity_mt,remaining_quantity_mt,price_per_mt_usd,availability_window,status,inventory_item_id,certification_declared,msds_available,certification_scheme,specification_standard,carbon_intensity_gco2_mj,carbon_intensity_method,feedstock,origin)
+ SELECT target,organization_id,owner_user_id,created_by_actor_user_id,creation_method,provenance,side,product_id,delivery_point_id,200,200,price_per_mt_usd,availability_window,status,item,certification_declared,msds_available,certification_scheme,specification_standard,carbon_intensity_gco2_mj,carbon_intensity_method,feedstock,origin FROM orderbook_orders WHERE id=source;
+ RETURN target;
+END $$;
