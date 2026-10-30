@@ -1288,7 +1288,7 @@ async fn severed_commit_acknowledgement_never_reexecutes_create() {
     let router = order_create::contract_router(pool, KEY, order_create::CreateSettings::default());
     let reply = tokio::time::timeout(
         std::time::Duration::from_secs(20),
-        send_create_contract(router, f.create("200","90").keyed("commit")),
+        send_create_contract(router, f.create("200", "90").keyed("commit")),
     )
     .await
     .unwrap();
@@ -1299,15 +1299,43 @@ async fn severed_commit_acknowledgement_never_reexecutes_create() {
     assert_eq!(reply.0, StatusCode::SERVICE_UNAVAILABLE, "{reply:?}");
     assert_eq!(reply.1["detail"]["code"], "COMMIT_OUTCOME_UNKNOWN");
     assert_eq!(commits.load(Ordering::SeqCst), 1);
-    assert_eq!(sqlx::query_scalar::<_,i64>("SELECT count(*) FROM orderbook_orders").fetch_one(&mut f.admin).await.unwrap(), 1);
-    let replay = f.call(f.create("200","90").keyed("commit")).await;
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM orderbook_orders")
+            .fetch_one(&mut f.admin)
+            .await
+            .unwrap(),
+        1
+    );
+    let replay = f.call(f.create("200", "90").keyed("commit")).await;
     assert_eq!(replay.0, StatusCode::CREATED, "{replay:?}");
-    assert_eq!(sqlx::query_scalar::<_,i64>("SELECT count(*) FROM market_event_outbox").fetch_one(&mut f.admin).await.unwrap(), 1);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM market_event_outbox")
+            .fetch_one(&mut f.admin)
+            .await
+            .unwrap(),
+        1
+    );
 }
 
-async fn send_create_contract(router:Router,command:Command)->(StatusCode,Value) {
-    let now=chrono::Utc::now().timestamp();
+async fn send_create_contract(router: Router, command: Command) -> (StatusCode, Value) {
+    let now = chrono::Utc::now().timestamp();
     let token=encode(&Header::default(),&json!({"sub":id(command.actor),"type":"access","iat":now,"exp":now+600,"iss":"create-tests","aud":"create-tests"}),&EncodingKey::from_secret(KEY.as_bytes())).unwrap();
-    let response=router.oneshot(Request::builder().method(command.method).uri(command.path).header("authorization",format!("Bearer {token}")).header("idempotency-key",command.key.unwrap()).header("content-type","application/json").body(Body::from(command.body.to_string())).unwrap()).await.unwrap();
-    let status=response.status();let bytes=axum::body::to_bytes(response.into_body(),1024*1024).await.unwrap();(status,serde_json::from_slice(&bytes).unwrap())
+    let response = router
+        .oneshot(
+            Request::builder()
+                .method(command.method)
+                .uri(command.path)
+                .header("authorization", format!("Bearer {token}"))
+                .header("idempotency-key", command.key.unwrap())
+                .header("content-type", "application/json")
+                .body(Body::from(command.body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status();
+    let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    (status, serde_json::from_slice(&bytes).unwrap())
 }
