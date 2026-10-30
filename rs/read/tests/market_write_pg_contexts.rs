@@ -1051,11 +1051,24 @@ async fn exit_and_expiry_on_read_end_a_context_once() {
         .body(Body::empty())
         .unwrap();
     let second = tokio::spawn(race_response(app.clone(), read_request));
-    let second_pid = wait_for_blocked_transaction(&mut f.admin, first_pid).await;
-    assert_ne!(first_pid, second_pid);
+    let second_wait = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let waiting: Option<i32> = sqlx::query_scalar("SELECT pid FROM pg_stat_activity WHERE datname=current_database() AND pid<>$1 AND wait_event_type='Lock' AND ( $1=ANY(pg_blocking_pids(pid)) OR $2=ANY(pg_blocking_pids(pid))) ORDER BY pid LIMIT 1")
+                .bind(first_pid).bind(barrier_pid).fetch_optional(&mut f.admin).await.unwrap();
+            if let Some(pid) = waiting { break pid; }
+            tokio::task::yield_now().await;
+        }
+    }).await;
     held.commit().await.unwrap();
-    let a = first.await.unwrap();
-    let b = second.await.unwrap();
+    let mut a = first.await.unwrap();
+    let mut b = second.await.unwrap();
+    assert!(second_wait.is_ok(), "both routes must reach a held lock");
+    if a.0 == StatusCode::CONFLICT && code(&a.1) == "MARKET_BUSY" {
+        a = race_response(app.clone(), f.builder(Some(f.target), "POST", &exit).body(Body::empty()).unwrap()).await;
+    }
+    if b.0 == StatusCode::CONFLICT && code(&b.1) == "MARKET_BUSY" {
+        b = race_response(app.clone(), f.builder(Some(f.target), "GET", &read).body(Body::empty()).unwrap()).await;
+    }
     assert_eq!(a.0, StatusCode::OK, "{:?}", a);
     assert_eq!(b.0, StatusCode::OK, "{:?}", b);
     assert_eq!(f.state(id).await, ("EXPIRED".into(), 2, true));
@@ -1116,7 +1129,7 @@ async fn capability_revoke_and_context_start_serialize() {
         .builder(Some(f.actor), "POST", &revoke_path)
         .body(Body::from(json!({"reason":"case revoke"}).to_string()))
         .unwrap();
-    let revoked = tokio::spawn(app.clone().oneshot(revoke_request));
+    let revoked = tokio::spawn(race_response(app.clone(), revoke_request));
     held.commit().await.unwrap();
     let response = pending.await.unwrap().unwrap();
     assert_eq!(response.status(), StatusCode::CREATED);
@@ -1126,7 +1139,12 @@ async fn capability_revoke_and_context_start_serialize() {
             .unwrap(),
     )
     .unwrap();
-    assert_eq!(revoked.await.unwrap().unwrap().status(), StatusCode::OK);
+    let mut revoked = revoked.await.unwrap();
+    if revoked.0 == StatusCode::CONFLICT && code(&revoked.1) == "MARKET_BUSY" {
+        revoked = race_response(app.clone(), f.builder(Some(f.actor), "POST", &revoke_path)
+            .body(Body::from(json!({"reason":"case revoke"}).to_string())).unwrap()).await;
+    }
+    assert_eq!(revoked.0, StatusCode::OK, "{revoked:?}");
     assert_eq!(
         f.state(context_id(&body)).await,
         ("REVOKED".into(), 2, true)

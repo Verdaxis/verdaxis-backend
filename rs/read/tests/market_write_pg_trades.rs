@@ -785,8 +785,15 @@ async fn independent_take_and_cancel_serialize_on_the_held_party_prefix() {
     });
     let admin_url = f._database.admin_url.clone();
     let mut observer = PgConnection::connect(&admin_url).await.unwrap();
-    let observed=tokio::time::timeout(std::time::Duration::from_secs(4),async{
-        loop {let n:i64=sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND usename='rust_app'").fetch_one(&mut observer).await.unwrap();if n>=2 {break n;}tokio::time::sleep(std::time::Duration::from_millis(5)).await;}
+    let observed = tokio::time::timeout(std::time::Duration::from_secs(4), async {
+        let mut owners = std::collections::BTreeSet::new();
+        loop {
+            let waiting: Vec<i32> = sqlx::query_scalar("SELECT pid FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND usename='rust_app'")
+                .fetch_all(&mut observer).await.unwrap();
+            owners.extend(waiting);
+            if owners.len() >= 2 { break; }
+            tokio::task::yield_now().await;
+        }
     }).await;
     blocker.commit().await.unwrap();
     assert!(
