@@ -258,7 +258,12 @@ clearance and bounded ACTIVE-history reads. The sealed owner locks the actor,
 then the trade and active freeze row; its organization-free audit bridge appends
 one transition on the same transaction. Replays retain the original row without
 new effects. Trade status, linked orders and inventory do not change. Serving
-activation and lifecycle enforcement/projection remain separate integration work.
+activation remains separate integration work. Eligible fresh lifecycle transitions
+check ACTIVE history after authority and validation, under the sealed trade lock,
+immediately before mutation. The database status trigger remains an independent
+guard. Each current trade projection joins its safe reason/time block in one SQL
+statement; page selection is not a page-wide snapshot. Authorized command receipts
+retain their original historical body, including receipts without freeze fields.
 
 ## Supplier inventory component
 

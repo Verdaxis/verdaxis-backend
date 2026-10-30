@@ -6,6 +6,7 @@ use super::{
     effects::AuditContext,
     locks::{LockClass, Locked, MarketOperation, OperationLockPlan, PartyLockPreview, SliceKey},
     matching::{self, CreationMethod, MatchBound, OrderRow, OwnerAdmission, Side},
+    trades::load_trade,
     transaction::{
         BoxFuture, LockedMarketTransaction, MarketAttemptError, MarketCommand, MarketPreview,
         run_market_command,
@@ -88,9 +89,6 @@ struct LifecycleCommand {
     policy: Arc<MarketPolicy>,
     config: Arc<Config>,
     hash: String,
-}
-async fn load_trade(conn: &mut PgConnection, id: Uuid) -> Result<Option<Value>, MarketWriteError> {
-    Ok(sqlx::query_scalar("SELECT to_jsonb(t)||jsonb_build_object('quantity_mt',t.quantity_mt::text,'price_per_mt_usd',t.price_per_mt_usd::text,'commission_rate_pct',t.commission_rate_pct::text,'commission_fee_per_mt_usd',t.commission_fee_per_mt_usd::text,'commission_amount_usd',t.commission_amount_usd::text,'final_quantity_mt',t.final_quantity_mt::text,'final_price_per_mt',t.final_price_per_mt::text,'final_total_usd',t.final_total_usd::text,'buyer_name',COALESCE(b.name,''),'seller_name',COALESCE(s.name,''),'region',COALESCE(t.delivery_point_region,'')) FROM trades t LEFT JOIN organizations b ON b.id=t.buyer_id LEFT JOIN organizations s ON s.id=t.seller_id WHERE t.id=$1").bind(id).fetch_optional(conn).await?)
 }
 async fn linked_orders(
     conn: &mut PgConnection,
@@ -677,6 +675,7 @@ impl<'a> LifecyclePort<'a> {
         } else {
             false
         };
+        super::freeze::ensure_settleable(self.conn, self.locked, request.id).await?;
         sqlx::query("UPDATE trades SET status=$2,confirmed_at=CASE WHEN $2='CONFIRMED' THEN $3 ELSE confirmed_at END WHERE id=$1").bind(request.id).bind(request.action.status()).bind(now).execute(&mut *self.conn).await?;
         let mut expired_remainder = None;
         if let Some(order) = order {
@@ -1625,6 +1624,7 @@ impl LifecyclePort<'_> {
                     Some(stored("commission_fee_per_mt_usd")?)
                 },
             )?;
+            super::freeze::ensure_settleable(self.conn, self.locked, request.id).await?;
             sqlx::query("UPDATE trades SET status='DELIVERED',delivered_at=$2,final_quantity_mt=$3,final_price_per_mt=$4,final_total_usd=$5,commission_amount_usd=$6 WHERE id=$1")
                 .bind(request.id).bind(now).bind(delivery.quantity.value()).bind(delivery.price.value()).bind(total).bind(fee).execute(&mut *self.conn).await?;
         } else {
@@ -1634,6 +1634,7 @@ impl LifecyclePort<'_> {
                     StatusCode::BAD_REQUEST,
                 ));
             }
+            super::freeze::ensure_settleable(self.conn, self.locked, request.id).await?;
             sqlx::query("UPDATE trades SET status='PAID',paid_at=$2 WHERE id=$1")
                 .bind(request.id)
                 .bind(now)

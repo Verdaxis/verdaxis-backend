@@ -283,6 +283,8 @@ pub fn project_trade(
         "unknown_count",
         "lng_terms_snapshot",
         "fame_terms_snapshot",
+        "is_frozen",
+        "freeze",
     ];
     row.as_object_mut()
         .ok_or_else(fault)?
@@ -552,6 +554,42 @@ pub(crate) async fn dispatch(
     run_market_command(app.pools.read.clone(), app.reads, access, command, class).await
 }
 
+// Each trade and its ACTIVE freeze use one statement snapshot. Page selection
+// and other items can observe different snapshots; no page-wide guarantee is made.
+pub(super) async fn load_trade(
+    conn: &mut PgConnection,
+    id: Uuid,
+) -> Result<Option<Value>, MarketWriteError> {
+    let value = sqlx::query_scalar(
+        r#"SELECT to_jsonb(t) || jsonb_build_object(
+            'quantity_mt', t.quantity_mt::text,
+            'price_per_mt_usd', t.price_per_mt_usd::text,
+            'commission_rate_pct', t.commission_rate_pct::text,
+            'commission_fee_per_mt_usd', t.commission_fee_per_mt_usd::text,
+            'commission_amount_usd', t.commission_amount_usd::text,
+            'final_quantity_mt', t.final_quantity_mt::text,
+            'final_price_per_mt', t.final_price_per_mt::text,
+            'final_total_usd', t.final_total_usd::text,
+            'buyer_name', COALESCE(b.name, ''),
+            'seller_name', COALESCE(s.name, ''),
+            'region', COALESCE(t.delivery_point_region, ''),
+            'is_frozen', f.trade_id IS NOT NULL,
+            'freeze', CASE WHEN f.trade_id IS NULL THEN NULL ELSE
+                jsonb_build_object('reason_code', f.reason_code, 'set_at', f.frozen_at)
+            END
+        )
+        FROM trades t
+        LEFT JOIN organizations b ON b.id=t.buyer_id
+        LEFT JOIN organizations s ON s.id=t.seller_id
+        LEFT JOIN trade_freezes f ON f.trade_id=t.id AND f.status='ACTIVE'
+        WHERE t.id=$1"#,
+    )
+    .bind(id)
+    .fetch_optional(conn)
+    .await?;
+    Ok(value)
+}
+
 pub(super) struct TradePort<'a> {
     conn: &'a mut PgConnection,
     locked: &'a Locked,
@@ -565,7 +603,7 @@ impl<'a> TradePort<'a> {
         Ok(Self { conn, locked })
     }
     async fn load(&mut self, id: Uuid) -> Result<Value, MarketWriteError> {
-        let mut value:Value=sqlx::query_scalar("SELECT to_jsonb(t)||jsonb_build_object('quantity_mt',t.quantity_mt::text,'price_per_mt_usd',t.price_per_mt_usd::text,'commission_rate_pct',t.commission_rate_pct::text,'commission_fee_per_mt_usd',t.commission_fee_per_mt_usd::text,'commission_amount_usd',t.commission_amount_usd::text,'final_quantity_mt',t.final_quantity_mt::text,'final_price_per_mt',t.final_price_per_mt::text,'final_total_usd',t.final_total_usd::text,'buyer_name',COALESCE(b.name,''),'seller_name',COALESCE(s.name,''),'region',COALESCE(t.delivery_point_region,'')) FROM trades t LEFT JOIN organizations b ON b.id=t.buyer_id LEFT JOIN organizations s ON s.id=t.seller_id WHERE t.id=$1").bind(id).fetch_one(&mut *self.conn).await?;
+        let mut value = load_trade(self.conn, id).await?.ok_or_else(fault)?;
         let buyer = value["buyer_provenance"].as_str().unwrap_or("UNKNOWN");
         let seller = value["seller_provenance"].as_str().unwrap_or("UNKNOWN");
         let real = buyer == "REAL" && seller == "REAL";
