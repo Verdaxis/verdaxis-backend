@@ -322,7 +322,7 @@ async fn take_and_crossing_publication_share_the_remainder() {
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn finite_seeded_lifecycle_sequences_preserve_the_ledger() {
-    use proptest::{prelude::*,test_runner::{Config,TestRng,TestRunner,RngAlgorithm}};
+    use proptest::{prelude::*,strategy::ValueTree,test_runner::{Config,TestRng,TestRunner,RngAlgorithm}};
     for seed in [29_u64,174,20261030] {
         let mut runner=TestRunner::new_with_rng(Config{failure_persistence:None,..Config::default()},TestRng::from_seed(RngAlgorithm::ChaCha,&seed.to_le_bytes().repeat(4)));
         let choices=proptest::collection::vec(any::<bool>(),5).new_tree(&mut runner).unwrap().current();

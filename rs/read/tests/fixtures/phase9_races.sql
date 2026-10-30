@@ -38,6 +38,8 @@ BEGIN
     END IF;
     RETURN NEW;
 END $$;
+DROP TRIGGER IF EXISTS races_audit_barrier ON audit_logs;
+DROP TRIGGER IF EXISTS races_outbox_barrier ON market_event_outbox;
 CREATE TRIGGER races_audit_barrier BEFORE INSERT ON audit_logs FOR EACH ROW EXECUTE FUNCTION races_effect_barrier();
 CREATE TRIGGER races_outbox_barrier BEFORE INSERT ON market_event_outbox FOR EACH ROW EXECUTE FUNCTION races_effect_barrier();
 
