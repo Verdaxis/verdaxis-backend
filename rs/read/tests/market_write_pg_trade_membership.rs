@@ -315,7 +315,7 @@ async fn private_reads_follow_current_organization_or_rejected_recorded_side() {
 
 #[tokio::test]
 #[ignore = "requires an attested disposable PostgreSQL"]
-async fn lifecycle_receipts_require_membership_before_request_mismatch() {
+async fn lifecycle_receipts_revalidate_membership_before_replay() {
     for action in ["confirm", "decline"] {
         for change in ["moved", "detached", "org_reject"] {
             let mut f = Fixture::new().await;
@@ -415,4 +415,84 @@ async fn membership_move_serializes_before_settlement_authority() {
     );
     assert!(body.get("status").is_none());
     assert_eq!(f.snapshot().await, before);
+}
+
+#[tokio::test]
+#[ignore = "requires an attested disposable PostgreSQL"]
+async fn lifecycle_collision_recovery_revalidates_membership_and_request() {
+    use std::sync::{Arc, atomic::Ordering};
+    use verdaxis_read::market_lifecycle::{Delivery, LifecycleAction, lifecycle_hash, settlement_hash};
+    use verdaxis_read::routes::market_write::trade_lifecycle::{ReceiptCollision, contract_router_with_collision};
+    for action in ["confirm", "decline", "deliver", "pay"] {
+        for change in ["current", "moved", "detached", "org_reject"] {
+            for matching in [true, false] {
+                let mut f = Fixture::new().await;
+                if matches!(action, "confirm" | "decline") {
+                    sqlx::query("SELECT membership_fixture_pending($1)").bind(f.trade).execute(&mut f.admin).await.unwrap();
+                } else if action == "pay" {
+                    ok(f.deliver(SELLER, None).await, "DELIVERED").await;
+                }
+                sqlx::query("SELECT confirm_fixture_collision_install()").execute(&mut f.admin).await.unwrap();
+                let hook = Arc::new(ReceiptCollision::default());
+                let pool = PgPoolOptions::new().max_connections(4).connect(&f._database.runtime_url).await.unwrap();
+                let router = contract_router_with_collision(pool.clone(), KEY, hook.clone());
+                let trade = f.trade;
+                let body = if action == "deliver" { delivery() } else { Value::Null };
+                let task = tokio::spawn(async move {
+                    send(&router, trade, action, Some(SELLER), &[("idempotency-key", "collision")], body.to_string(), 0).await
+                });
+                tokio::time::timeout(std::time::Duration::from_secs(30), hook.entered.notified()).await.unwrap();
+                assert_eq!(hook.executions.load(Ordering::SeqCst), 1);
+                sqlx::query("SELECT confirm_fixture_collision_remove()").execute(&mut f.admin).await.unwrap();
+                let hash = match action {
+                    "confirm" => lifecycle_hash(LifecycleAction::Confirm, f.trade).unwrap(),
+                    "decline" => lifecycle_hash(LifecycleAction::Decline, f.trade).unwrap(),
+                    "deliver" => settlement_hash(f.trade, Some(&Delivery::parse(&delivery()).unwrap())).unwrap(),
+                    _ => settlement_hash(f.trade, None).unwrap(),
+                };
+                let winner = json!({"stored_private_body":action});
+                sqlx::query("SELECT confirm_fixture_receipt($1,$2,$3,$4,$5)")
+                    .bind(f.trade).bind(format!("trade.{action}")).bind(hash).bind(matching).bind(&winner)
+                    .execute(&mut f.admin).await.unwrap();
+                if change != "current" { f.change(SELLER, change).await; }
+                if change == "org_reject" { f.change(SELLER, "detached").await; }
+                let before = f.snapshot().await;
+                let receipt_before: Value = sqlx::query_scalar("SELECT to_jsonb(r) FROM market_command_results r").fetch_one(&mut f.admin).await.unwrap();
+                hook.release.notify_one();
+                let (status, body) = task.await.unwrap();
+                let expected = if matches!(change, "moved" | "detached") { StatusCode::FORBIDDEN }
+                    else if matching { StatusCode::OK } else { StatusCode::CONFLICT };
+                assert_eq!(status, expected, "{action} {change} matching={matching}: {body}");
+                if expected == StatusCode::OK { assert_eq!(body, winner); }
+                else { assert!(body.get("stored_private_body").is_none()); assert!(body.get("freeze").is_none()); }
+                assert_eq!(f.snapshot().await, before, "{action} {change}");
+                let receipt_after: Value = sqlx::query_scalar("SELECT to_jsonb(r) FROM market_command_results r").fetch_one(&mut f.admin).await.unwrap();
+                assert_eq!(receipt_after, receipt_before);
+                assert_eq!(hook.executions.load(Ordering::SeqCst), 1);
+                pool.close().await;
+            }
+        }
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires an attested disposable PostgreSQL"]
+async fn moved_actor_authority_precedes_linked_resource_consistency() {
+    for action in ["confirm", "decline", "deliver", "pay"] {
+        for inconsistent in ["slice", "inventory"] {
+            let mut f = Fixture::new().await;
+            if matches!(action, "confirm" | "decline") {
+                sqlx::query("SELECT membership_fixture_pending($1)").bind(f.trade).execute(&mut f.admin).await.unwrap();
+            } else if action == "pay" { ok(f.deliver(SELLER, None).await, "DELIVERED").await; }
+            sqlx::query("SELECT membership_fixture_inconsistent($1,$2)").bind(f.trade).bind(inconsistent).execute(&mut f.admin).await.unwrap();
+            f.change(SELLER, "moved").await;
+            let before = f.snapshot().await;
+            for key in [None, Some("consistency")] {
+                let (status, body) = f.call(action, SELLER, key, if action == "deliver" { delivery() } else { Value::Null }).await;
+                assert_eq!(status, StatusCode::FORBIDDEN, "{action} {inconsistent}: {body}");
+                assert_eq!(body["detail"]["code"], "TRADE_PARTY_FORBIDDEN");
+                assert_eq!(f.snapshot().await, before);
+            }
+        }
+    }
 }
