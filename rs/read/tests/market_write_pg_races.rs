@@ -354,18 +354,30 @@ impl Fixture {
             .unwrap();
         let second_pid = observation["pid"].as_i64().unwrap();
         let release_ms = observation["release_ms"].as_f64().unwrap();
-        assert!(release_ms < 100.0, "release must retain the economic lock budget");
+        assert!(
+            release_ms < 100.0,
+            "release must retain the economic lock budget"
+        );
         let mut results = (a.await.unwrap(), b.await.unwrap());
-        if matches!(results.1.1["detail"]["code"].as_str(),Some("MARKET_BUSY"|"MARKET_TIMEOUT"|"TRANSACTION_RETRY_EXHAUSTED"|"MARKET_SLICE_CHANGED")) {
-            println!("BOUNDED_CONTENDER status={} body={}",results.1.0,results.1.1);
+        if matches!(
+            results.1.1["detail"]["code"].as_str(),
+            Some(
+                "MARKET_BUSY"
+                    | "MARKET_TIMEOUT"
+                    | "TRANSACTION_RETRY_EXHAUSTED"
+                    | "MARKET_SLICE_CHANGED"
+            )
+        ) {
+            println!(
+                "BOUNDED_CONTENDER status={} body={}",
+                results.1.0, results.1.1
+            );
             self.ledger().await;
-            results.1=send(self.router("races-completed-order").await.0,second.clone()).await;
+            results.1 = send(self.router("races-completed-order").await.0, second.clone()).await;
         }
         println!(
             "OBSERVED_ROUTE_WAIT first={first:?} second={second:?} first_pid={first_pid} second_pid={second_pid} observation_ms={} statuses={},{}",
-            release_ms,
-            results.0.0,
-            results.1.0
+            release_ms, results.0.0, results.1.0
         );
         p1.close().await;
         p2.close().await;
@@ -550,7 +562,10 @@ async fn take_twins_recheck_reduced_remainder() {
         let take = f.take(order, quantity).await;
         let (a, mut b) = f.overlap(take.clone(), take).await;
         ok(&a, StatusCode::OK);
-        if b.1["detail"]["code"]=="ORDER_TERMS_REVIEW_REQUIRED" { let fresh=f.take(order,quantity).await;b=f.call(fresh).await; }
+        if b.1["detail"]["code"] == "ORDER_TERMS_REVIEW_REQUIRED" {
+            let fresh = f.take(order, quantity).await;
+            b = f.call(fresh).await;
+        }
         ok(
             &b,
             if quantity == "300" {
@@ -753,16 +768,30 @@ async fn same_key_creates_replay_or_refuse_changed_terms() {
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn cancel_receipt_is_bound_to_the_original_resource() {
-    let mut f=Fixture::new().await;let order=f.listing().await;
-    ok(&f.call(f.cancel(order).keyed("shared")).await,StatusCode::NO_CONTENT);
-    let second=f.listing().await;
-    let original=f.effects().await;
-    let (a,b)=f.overlap(f.cancel(second).keyed("shared-new"),f.cancel(order).keyed("shared")).await;
-    ok(&a,StatusCode::NO_CONTENT);ok(&b,StatusCode::NO_CONTENT);
-    let wrong=f.call(f.cancel(second).keyed("shared")).await;ok(&wrong,StatusCode::CONFLICT);
-    assert_eq!(wrong.1["detail"]["code"],"RECEIPT_RESOURCE_MISMATCH");
-    let after=f.effects().await;
-    assert_eq!(after["audit"].as_i64().unwrap(),original["audit"].as_i64().unwrap()+1);
+    let mut f = Fixture::new().await;
+    let order = f.listing().await;
+    ok(
+        &f.call(f.cancel(order).keyed("shared")).await,
+        StatusCode::NO_CONTENT,
+    );
+    let second = f.listing().await;
+    let original = f.effects().await;
+    let (a, b) = f
+        .overlap(
+            f.cancel(second).keyed("shared-new"),
+            f.cancel(order).keyed("shared"),
+        )
+        .await;
+    ok(&a, StatusCode::NO_CONTENT);
+    ok(&b, StatusCode::NO_CONTENT);
+    let wrong = f.call(f.cancel(second).keyed("shared")).await;
+    ok(&wrong, StatusCode::CONFLICT);
+    assert_eq!(wrong.1["detail"]["code"], "RECEIPT_RESOURCE_MISMATCH");
+    let after = f.effects().await;
+    assert_eq!(
+        after["audit"].as_i64().unwrap(),
+        original["audit"].as_i64().unwrap() + 1
+    );
 }
 
 #[tokio::test]
@@ -895,7 +924,10 @@ async fn finite_seeded_lifecycle_sequences_preserve_the_ledger() {
             .current();
         let mut f = Fixture::new().await;
         for (index, confirm) in choices.into_iter().enumerate() {
-            let mut create = f.create("500", "110");
+            let mut create = f.create("500", "100");
+            create.actor=SELLER;
+            create.body["side"]=json!("ASK");
+            for (key,value) in [("certification_declared",json!(true)),("certification_scheme",json!("ISCC EU")),("specification_standard",json!("ISO 8217:2024 RF 380")),("msds_available",json!(true)),("carbon_intensity_gco2_mj",json!("10")),("carbon_intensity_method",json!("LIFECYCLE")),("feedstock",json!("residue")),("origin",json!("NL"))] {create.body[key]=value;}
             create.body["availability_window"] = json!(format!("{}-Q1", 2027 + index));
             create = create.keyed(&format!("seed-{seed}-{index}"));
             let created = f.call(create.clone()).await;
