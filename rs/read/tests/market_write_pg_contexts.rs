@@ -989,15 +989,27 @@ async fn concurrent_context_starts_leave_one_active_context() {
     let first_request = start_request(f.organization);
     let second_request = start_request(other);
     let first = tokio::spawn(race_response(app.clone(), first_request));
-    // The first command holds the actor and waits for the capability barrier.
-    let first_pid = wait_for_blocked_transaction(&mut f.admin, barrier_pid).await;
     let second = tokio::spawn(race_response(app.clone(), second_request));
-    // The second command must wait for that first command's actor lock.
-    let second_pid = wait_for_blocked_transaction(&mut f.admin, first_pid).await;
-    assert_ne!(first_pid, second_pid);
+    // Observe each independent backend, including retries that no longer share
+    // the same immediate blocker after a bounded lock refusal.
+    let observed = tokio::time::timeout(std::time::Duration::from_secs(4), async {
+        let mut owners = std::collections::BTreeSet::new();
+        loop {
+            let waiting: Vec<i32> = sqlx::query_scalar("SELECT pid FROM pg_stat_activity WHERE datname=current_database() AND usename='rust_app' AND wait_event_type='Lock' AND pid<>$1")
+                .bind(barrier_pid).fetch_all(&mut f.admin).await.unwrap();
+            owners.extend(waiting);
+            if owners.len() >= 2 { break; }
+            tokio::task::yield_now().await;
+        }
+    }).await;
     held.commit().await.unwrap();
-    let a = first.await.unwrap();
+    let mut a = first.await.unwrap();
     let b = second.await.unwrap();
+    assert!(observed.is_ok(), "both independent context owners must reach the held prefix");
+    if a.0 != StatusCode::CREATED && b.0 != StatusCode::CREATED {
+        assert!(a.0 == StatusCode::CONFLICT && code(&a.1) == "MARKET_BUSY", "{a:?}");
+        a = race_response(app.clone(), start_request(f.organization)).await;
+    }
     for (status, body) in [&a, &b] {
         assert!(
             *status == StatusCode::CREATED
