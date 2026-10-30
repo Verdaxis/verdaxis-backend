@@ -29,7 +29,9 @@ async fn send(router: Router, command: Command) -> (StatusCode, Value) {
     let token = encode(&Header::default(), &json!({"sub":id(command.actor),"type":"access","iat":now,"exp":now+600,"iss":"races-tests","aud":"races-tests"}), &EncodingKey::from_secret(KEY.as_bytes())).unwrap();
     let mut request = Request::builder().method(command.method).uri(command.path).header("authorization",format!("Bearer {token}")).header("content-type","application/json");
     if let Some(key) = command.key { request = request.header("idempotency-key",key); }
-    let response = router.oneshot(request.body(Body::from(command.body.to_string())).unwrap()).await.unwrap();
+    let mut body=command.body;
+    if let Some(context)=body.as_object_mut().and_then(|o|o.remove("__fixture_context")) { request=request.header("x-verdaxis-market-support-context",context.as_str().unwrap()); }
+    let response = router.oneshot(request.body(Body::from(body.to_string())).unwrap()).await.unwrap();
     let status = response.status();
     let bytes = axum::body::to_bytes(response.into_body(),1024*1024).await.unwrap();
     (status,serde_json::from_slice(&bytes).unwrap_or(Value::Null))
@@ -44,7 +46,7 @@ impl Fixture {
         assert_eq!((a.host_str(),a.port(),a.path()),(r.host_str(),r.port(),r.path())); assert_ne!(a.username(),r.username());
         let mut admin = PgConnection::connect(&admin_url).await.unwrap();
         assert_eq!(sqlx::query_scalar::<_,String>("SELECT version_num FROM alembic_version").fetch_one(&mut admin).await.unwrap(),"p89_20261022_trade_freeze");
-        for source in [include_str!("fixtures/market_write_matching.sql"),include_str!("fixtures/market_write_publish.sql"),include_str!("fixtures/phase9_races.sql")] { sqlx::raw_sql(source).execute(&mut admin).await.unwrap(); }
+        for source in [include_str!("fixtures/market_write_matching.sql"),include_str!("fixtures/market_write_publish.sql"),include_str!("fixtures/market_write_create.sql"),include_str!("fixtures/phase9_races.sql")] { sqlx::raw_sql(source).execute(&mut admin).await.unwrap(); }
         sqlx::query("SELECT races_seed()").execute(&mut admin).await.unwrap();
         let product = "c4cecebc-3d2d-5840-8021-57a9a11bc673".parse().unwrap();
         let point = sqlx::query_scalar("SELECT id FROM delivery_points WHERE name='Rotterdam'").fetch_one(&mut admin).await.unwrap();
@@ -57,11 +59,25 @@ impl Fixture {
         pools.read = pool.clone();
         let policy = serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap();
         let app = AppState::new(config,pools,policy).unwrap();
+        let support=verdaxis_read::market_support::router(verdaxis_read::market_support::SupportState::new(pool.clone(),std::sync::Arc::new(verification()),verdaxis_read::market_support::SupportSettings::new(true,&id(0x3001).to_string()),serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap(),(*app.config).clone()));
+        let rejection_pool=pool.clone();
+        let rejection_policy=app.policy.clone();
+        let rejection_config=app.config.clone();
+        let rejection=Router::new().route("/component/organizations/reject",axum::routing::put(move |request:Request<Body>| {
+            let pool=rejection_pool.clone();let policy=rejection_policy.clone();let config=rejection_config.clone();
+            async move {
+                let now=chrono::Utc::now();
+                let access=verdaxis_read::auth::verify_authorization(request.headers().get("authorization").and_then(|v|v.to_str().ok()),&verification(),now).unwrap();
+                let result=verdaxis_read::business::transaction::run_ordered_write(pool,std::sync::Arc::new(tokio::sync::Semaphore::new(8)),access,verdaxis_read::business::organizations::ReviewOrganization{organization_id:id(0x2000),approve:false,reason:Some("Concurrent review".into()),now,policy,config}).await;
+                use axum::response::IntoResponse;
+                match result { Ok(value)=>axum::Json(value).into_response(),Err(error)=>error.into_response() }
+            }
+        }));
         let router = orders::router_with_create(app.clone(),verification(),verification(),order_create::CreateSettings::default())
             .merge(amend::router(app.clone(),verification(),amend::AmendSettings::default()))
             .merge(inventory::router_with_publication(app.clone(),verification(),order_create::CreateSettings::default()))
             .merge(trades::router(app.clone(),verification(),true,Default::default(),None))
-            .merge(trade_lifecycle::router(app,verification()));
+            .merge(trade_lifecycle::router(app,verification())).merge(support).merge(rejection);
         (router,pool)
     }
     async fn call(&self, command: Command) -> (StatusCode,Value) {
@@ -304,16 +320,15 @@ async fn deliver_and_pay_observe_the_committed_state() {
 async fn take_and_crossing_publication_share_the_remainder() {
     for take_first in [false,true] {
         let mut f=Fixture::new().await;
-        let created=f.call(f.create("500","90")).await;ok(&created,StatusCode::CREATED);
-        let order=created.1["id"].as_str().unwrap().parse().unwrap();
+        let created=f.call(f.create("500","110")).await;ok(&created,StatusCode::CREATED);
+        let order:Uuid=created.1["id"].as_str().unwrap().parse().unwrap();
         let row: Value=sqlx::query_scalar("SELECT to_jsonb(o) FROM orderbook_orders o WHERE id=$1").bind(order).fetch_one(&mut f.admin).await.unwrap();
         let digest=verdaxis_read::canonical_terms_from_row(&row).and_then(|v|verdaxis_read::digest_terms(&v)).unwrap();
         let take=Command::new("POST","/api/trades/".into(),SELLER,json!({"order_id":order,"quantity_mt":"200","expected_terms_digest":digest}));
         if take_first {
             let (a,b)=f.overlap(take,f.publish()).await;ok(&a,StatusCode::OK);ok(&b,StatusCode::OK);
         } else {
-            // A non-crossing publication does not consume the bid.
-            let (a,b)=f.overlap(f.publish(),take).await;ok(&a,StatusCode::OK);ok(&b,StatusCode::OK);
+            let (a,b)=f.overlap(f.publish(),take).await;ok(&a,StatusCode::OK);ok(&b,StatusCode::BAD_REQUEST);
         }
         f.ledger().await;
     }
@@ -328,11 +343,11 @@ async fn finite_seeded_lifecycle_sequences_preserve_the_ledger() {
         let choices=proptest::collection::vec(any::<bool>(),5).new_tree(&mut runner).unwrap().current();
         let mut f=Fixture::new().await;
         for (index,confirm) in choices.into_iter().enumerate() {
-            let mut create=f.create("500","90");
+            let mut create=f.create("500","110");
             create.body["availability_window"]=json!(format!("{}-Q1",2027+index));
             create=create.keyed(&format!("seed-{seed}-{index}"));
             let created=f.call(create.clone()).await;ok(&created,StatusCode::CREATED);f.ledger().await;
-            let order=created.1["id"].as_str().unwrap().parse().unwrap();
+            let order:Uuid=created.1["id"].as_str().unwrap().parse().unwrap();
             ok(&f.call(create).await,StatusCode::CREATED);f.ledger().await;
             let amend=Command::new("PUT",format!("/api/orderbook/{order}"),BUYER,json!({"quantity_mt":"600"}));
             ok(&f.call(amend).await,StatusCode::OK);f.ledger().await;
@@ -394,4 +409,69 @@ async fn publication_expiry_before_take_refuses_the_old_order() {
     let (a,b)=f.overlap(f.publish(),take).await;ok(&a,StatusCode::OK);ok(&b,StatusCode::BAD_REQUEST);
     assert_eq!(b.1["detail"]["code"],"ORDER_UNAVAILABLE");
     assert_eq!(f.stock().await,(Decimal::ZERO,Decimal::from(1000)));
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn preserving_rejection_and_cancel_keep_pending_commitments() {
+    for cancel_first in [false,true] {
+        let mut f=Fixture::new().await;let order=f.listing().await;
+        let take=f.take(order,"300").await;ok(&f.call(take).await,StatusCode::OK);
+        let reject=Command::new("PUT","/component/organizations/reject".into(),0x3001,Value::Null);
+        if cancel_first {
+            let (a,b)=f.overlap(f.cancel(order),reject).await;ok(&a,StatusCode::NO_CONTENT);ok(&b,StatusCode::OK);
+        } else {
+            let (a,b)=f.overlap(reject,f.cancel(order)).await;ok(&a,StatusCode::OK);ok(&b,StatusCode::BAD_REQUEST);
+        }
+        assert_eq!(f.stock().await,(Decimal::from(700),Decimal::from(300)));
+        let pending:i64=sqlx::query_scalar("SELECT count(*) FROM trades WHERE status::text='PENDING_CONFIRMATION'").fetch_one(&mut f.admin).await.unwrap();assert_eq!(pending,1);
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn preserving_rejection_and_confirmation_observe_current_admission() {
+    for confirm_first in [false,true] {
+        let mut f=Fixture::new().await;let order=f.listing().await;
+        let take=f.take(order,"300").await;let taken=f.call(take).await;ok(&taken,StatusCode::OK);
+        let trade=taken.1["id"].as_str().unwrap().parse().unwrap();
+        let reject=Command::new("PUT","/component/organizations/reject".into(),0x3001,Value::Null);
+        let (a,b)=if confirm_first{f.overlap(lifecycle(trade,"confirm"),reject).await}else{f.overlap(reject,lifecycle(trade,"confirm")).await};
+        ok(&a,StatusCode::OK);ok(&b,if confirm_first{StatusCode::OK}else{StatusCode::FORBIDDEN});
+        assert_eq!(f.stock().await,(Decimal::from(700),Decimal::from(if confirm_first{0}else{300})));
+        if !confirm_first{ok(&f.call(lifecycle(trade,"decline")).await,StatusCode::OK);f.ledger().await;assert_eq!(f.stock().await,(Decimal::from(1000),Decimal::ZERO));}
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn revoke_and_assisted_create_serialize_authority() {
+    for create_first in [false,true] {
+        let mut f=Fixture::new().await;
+        sqlx::query("SELECT create_fixture_seed(0)").execute(&mut f.admin).await.unwrap();
+        let mut create=f.create("200","90").keyed("assisted");create.actor=0x3001;
+        create.body["support_confirmation"]=json!({"external_instruction_reference":"Customer instruction","instruction_at":(chrono::Utc::now()-chrono::Duration::minutes(5)).to_rfc3339(),"evidence_excerpt":"Authorized standing order","acknowledge_exact_terms":true,"acknowledge_executable_standing_order":true});
+        let revoke=Command::new("POST",format!("/api/admin/market-support/capability-assignments/{}/revoke",id(0x3101)),0x3001,Value::Null);
+        // The context header is part of the authenticated command, not its body.
+        create.body["__fixture_context"]=json!(id(0x3201));
+        let (a,b)=if create_first{f.overlap(create,revoke).await}else{f.overlap(revoke,create).await};
+        ok(&a,if create_first{StatusCode::CREATED}else{StatusCode::OK});
+        ok(&b,if create_first{StatusCode::OK}else{StatusCode::NOT_FOUND});
+        let context:String=sqlx::query_scalar("SELECT status::text FROM market_support_contexts WHERE id=$1").bind(id(0x3201)).fetch_one(&mut f.admin).await.unwrap();assert_ne!(context,"ACTIVE");
+        let count:i64=sqlx::query_scalar("SELECT count(*) FROM orderbook_orders").fetch_one(&mut f.admin).await.unwrap();assert_eq!(count,i64::from(create_first));
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn server_abort_classes_retry_only_transaction_aborts() {
+    for state in ["40001","40P01","55P03","57014","ZF001"] {
+        let mut f=Fixture::new().await;
+        sqlx::query("SELECT create_fixture_abort_once($1)").bind(state).execute(&mut f.admin).await.unwrap();
+        let result=f.call(f.create("200","90")).await;
+        let retry=matches!(state,"40001"|"40P01");
+        ok(&result,if retry{StatusCode::CREATED}else if state=="57014"{StatusCode::SERVICE_UNAVAILABLE}else{StatusCode::CONFLICT});
+        let attempts:i64=sqlx::query_scalar("SELECT last_value FROM create_fixture_attempts").fetch_one(&mut f.admin).await.unwrap();assert_eq!(attempts,if retry{2}else{1},"SQLSTATE {state}");
+        let count:i64=sqlx::query_scalar("SELECT count(*) FROM orderbook_orders").fetch_one(&mut f.admin).await.unwrap();assert_eq!(count,i64::from(retry));f.ledger().await;
+    }
 }
