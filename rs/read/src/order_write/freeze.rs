@@ -15,6 +15,29 @@ use super::transaction::{
 };
 use super::{AuthenticatedActor, MarketErrorCode, MarketWriteError};
 
+/// Eligible lifecycle transitions call this under the sealed owner's trade lock.
+/// The lock serializes administration through commit; no freeze-row lock is needed.
+pub(super) async fn ensure_settleable(
+    conn: &mut PgConnection,
+    locked: &Locked,
+    trade: Uuid,
+) -> Result<(), MarketWriteError> {
+    locked.require_economic_phase()?;
+    if !locked.contains(LockClass::Trade, trade) {
+        return Err(MarketWriteError::new(MarketErrorCode::TradePartiesInvalid));
+    }
+    let active: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM trade_freezes WHERE trade_id=$1 AND status='ACTIVE')",
+    )
+    .bind(trade)
+    .fetch_one(conn)
+    .await?;
+    if active {
+        return Err(MarketWriteError::new(MarketErrorCode::TradeFrozen));
+    }
+    Ok(())
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum FreezeReason {
