@@ -227,7 +227,7 @@ fn schedule_conversion(
 pub fn contract_router(pool: sqlx::PgPool, key: &str, settings: AmendSettings) -> Router {
     let config = serde_json::from_value(serde_json::json!({
         "environment": "test",
-        "release_sha": "test",
+        "release_sha": crate::compiled_sha(),
         "migration_revision": "p89_20261022_trade_freeze",
         "database_url": "",
         "db_session_time_zone": "UTC",

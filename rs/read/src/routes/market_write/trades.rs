@@ -218,7 +218,7 @@ pub fn contract_router_with_sender(
     support_enabled: bool,
     analytics: Option<AnalyticsSender>,
 ) -> Router {
-    let config=serde_json::from_value(json!({"environment":"test","release_sha":"test","migration_revision":"p89_20261022_trade_freeze","database_url":"","db_session_time_zone":"UTC","bind":"127.0.0.1:0","read_admission_slots":pool.options().get_max_connections(),"pool_max":pool.options().get_max_connections()+1,"python_budget":0,"configured_max_connections":100})).unwrap();
+    let config=serde_json::from_value(json!({"environment":"test","release_sha":crate::compiled_sha(),"migration_revision":"p89_20261022_trade_freeze","database_url":"","db_session_time_zone":"UTC","bind":"127.0.0.1:0","read_admission_slots":pool.options().get_max_connections(),"pool_max":pool.options().get_max_connections()+1,"python_budget":0,"configured_max_connections":100})).unwrap();
     let app = AppState::new(
         config,
         crate::runtime::db::Pools {
