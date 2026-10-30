@@ -871,10 +871,25 @@ async fn deliver_and_pay_observe_the_committed_state() {
 async fn take_and_crossing_publication_share_the_remainder() {
     for take_first in [false, true] {
         let mut f = Fixture::new().await;
-        let policy:Value=serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap();
-        let product=policy["products"].as_array().unwrap().iter().find(|p|p["qualification_profile"]=="scalar" && p["execution_mode"]=="ORDERBOOK" && p.get("specification_standard").is_none() && p["lanes"].as_array().unwrap().contains(&json!(f.point))).unwrap();
-        f.product=product["id"].as_str().unwrap().parse().unwrap();
-        sqlx::query("SELECT races_publication_product($1)").bind(f.product).execute(&mut f.admin).await.unwrap();
+        let policy: Value =
+            serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap();
+        let product = policy["products"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| {
+                p["qualification_profile"] == "scalar"
+                    && p["execution_mode"] == "ORDERBOOK"
+                    && p.get("specification_standard").is_none()
+                    && p["lanes"].as_array().unwrap().contains(&json!(f.point))
+            })
+            .unwrap();
+        f.product = product["id"].as_str().unwrap().parse().unwrap();
+        sqlx::query("SELECT races_publication_product($1)")
+            .bind(f.product)
+            .execute(&mut f.admin)
+            .await
+            .unwrap();
         let created = f.call(f.create("500", "110")).await;
         ok(&created, StatusCode::CREATED);
         let order: Uuid = created.1["id"].as_str().unwrap().parse().unwrap();
@@ -929,9 +944,20 @@ async fn finite_seeded_lifecycle_sequences_preserve_the_ledger() {
         let mut f = Fixture::new().await;
         for (index, confirm) in choices.into_iter().enumerate() {
             let mut create = f.create("500", "100");
-            create.actor=SELLER;
-            create.body["side"]=json!("ASK");
-            for (key,value) in [("certification_declared",json!(true)),("certification_scheme",json!("ISCC EU")),("specification_standard",json!("ISO 8217:2024 RF 380")),("msds_available",json!(true)),("carbon_intensity_gco2_mj",json!("10")),("carbon_intensity_method",json!("LIFECYCLE")),("feedstock",json!("residue")),("origin",json!("NL"))] {create.body[key]=value;}
+            create.actor = SELLER;
+            create.body["side"] = json!("ASK");
+            for (key, value) in [
+                ("certification_declared", json!(true)),
+                ("certification_scheme", json!("ISCC EU")),
+                ("specification_standard", json!("ISO 8217:2024 RF 380")),
+                ("msds_available", json!(true)),
+                ("carbon_intensity_gco2_mj", json!("10")),
+                ("carbon_intensity_method", json!("LIFECYCLE")),
+                ("feedstock", json!("residue")),
+                ("origin", json!("NL")),
+            ] {
+                create.body[key] = value;
+            }
             create.body["availability_window"] = json!(format!("{}-Q1", 2027 + index));
             create = create.keyed(&format!("seed-{seed}-{index}"));
             let created = f.call(create.clone()).await;
@@ -1380,9 +1406,16 @@ async fn send_create_contract(router: Router, command: Command) -> (StatusCode, 
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn partial_take_then_cancel_preserves_the_pending_reservation() {
-    let mut f=Fixture::new().await;let order=f.listing().await;
-    let take=f.take(order,"300").await;ok(&f.call(take).await,StatusCode::OK);
-    let cancel=f.call(f.cancel(order)).await;
-    assert_eq!(f.stock().await,(Decimal::from(700),Decimal::from(300)),"cancel releases only the unfilled remainder");
-    ok(&cancel,StatusCode::NO_CONTENT);f.ledger().await;
+    let mut f = Fixture::new().await;
+    let order = f.listing().await;
+    let take = f.take(order, "300").await;
+    ok(&f.call(take).await, StatusCode::OK);
+    let cancel = f.call(f.cancel(order)).await;
+    assert_eq!(
+        f.stock().await,
+        (Decimal::from(700), Decimal::from(300)),
+        "cancel releases only the unfilled remainder"
+    );
+    ok(&cancel, StatusCode::NO_CONTENT);
+    f.ledger().await;
 }
