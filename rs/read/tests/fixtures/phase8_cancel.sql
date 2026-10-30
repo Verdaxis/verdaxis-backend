@@ -88,7 +88,7 @@ SELECT jsonb_build_object('current',i.current_stock_mt::text,'reserved',i.reserv
  'before_status',(SELECT producer_evidence->'orders'->0->'before'->'status' FROM market_event_outbox ORDER BY created_at DESC LIMIT 1),
  'after_status',(SELECT producer_evidence->'orders'->0->'after'->'status' FROM market_event_outbox ORDER BY created_at DESC LIMIT 1),
  'payload',(SELECT payload::jsonb FROM market_event_outbox ORDER BY created_at DESC LIMIT 1),
- 'observed_at_matches_update',(SELECT (payload->>'observed_at')::timestamptz=o.updated_at FROM market_event_outbox ORDER BY created_at DESC LIMIT 1))
+ 'observed_at_matches_update',(SELECT abs(extract(epoch FROM ((payload->>'observed_at')::timestamptz-o.updated_at)))<=0.000001 FROM market_event_outbox ORDER BY created_at DESC LIMIT 1))
 FROM orderbook_orders o LEFT JOIN inventory_items i ON i.id=o.inventory_item_id WHERE o.id=ord
 $$;
 

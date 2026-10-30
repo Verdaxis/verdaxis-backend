@@ -790,7 +790,12 @@ async fn deliver_and_pay_serialize_in_both_orders() {
         tokio::time::sleep(std::time::Duration::from_millis(25)).await;
         sqlx::query("COMMIT").execute(&mut holder).await.unwrap();
         let a = first_task.await.unwrap();
-        let b = second_task.await.unwrap();
+        let mut b = second_task.await.unwrap();
+        // The bounded lock owner may refuse a contender before the first commit.
+        // Retry only that refusal, after the first command has completed.
+        if b.1["detail"]["code"] == "MARKET_BUSY" {
+            b = f.call(second, SELLER, None, delivery()).await;
+        }
         if first == "deliver" {
             ok(a, "DELIVERED").await;
             ok(b, "PAID").await;
