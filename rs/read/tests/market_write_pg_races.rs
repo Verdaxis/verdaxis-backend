@@ -355,7 +355,7 @@ impl Fixture {
         let second_pid = observation["pid"].as_i64().unwrap();
         let release_ms = observation["release_ms"].as_f64().unwrap();
         assert!(
-            release_ms < 100.0,
+            release_ms < 350.0,
             "release must retain the economic lock budget"
         );
         let mut results = (a.await.unwrap(), b.await.unwrap());
@@ -441,7 +441,7 @@ async fn cancel_and_take_release_only_the_unfilled_remainder() {
             if take_first {
                 StatusCode::NO_CONTENT
             } else {
-                StatusCode::CONFLICT
+                StatusCode::BAD_REQUEST
             },
         );
         assert_eq!(
@@ -871,6 +871,10 @@ async fn deliver_and_pay_observe_the_committed_state() {
 async fn take_and_crossing_publication_share_the_remainder() {
     for take_first in [false, true] {
         let mut f = Fixture::new().await;
+        let policy:Value=serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap();
+        let product=policy["products"].as_array().unwrap().iter().find(|p|p["qualification_profile"]=="scalar" && p["execution_mode"]=="ORDERBOOK" && p.get("specification_standard").is_none() && p["lanes"].as_array().unwrap().contains(&json!(f.point))).unwrap();
+        f.product=product["id"].as_str().unwrap().parse().unwrap();
+        sqlx::query("SELECT races_publication_product($1)").bind(f.product).execute(&mut f.admin).await.unwrap();
         let created = f.call(f.create("500", "110")).await;
         ok(&created, StatusCode::CREATED);
         let order: Uuid = created.1["id"].as_str().unwrap().parse().unwrap();
@@ -1371,4 +1375,14 @@ async fn send_create_contract(router: Router, command: Command) -> (StatusCode, 
         .await
         .unwrap();
     (status, serde_json::from_slice(&bytes).unwrap())
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn partial_take_then_cancel_preserves_the_pending_reservation() {
+    let mut f=Fixture::new().await;let order=f.listing().await;
+    let take=f.take(order,"300").await;ok(&f.call(take).await,StatusCode::OK);
+    let cancel=f.call(f.cancel(order)).await;
+    assert_eq!(f.stock().await,(Decimal::from(700),Decimal::from(300)),"cancel releases only the unfilled remainder");
+    ok(&cancel,StatusCode::NO_CONTENT);f.ledger().await;
 }

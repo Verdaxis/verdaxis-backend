@@ -73,3 +73,9 @@ SELECT jsonb_build_object(
  'money',NOT EXISTS(SELECT 1 FROM trades WHERE final_quantity_mt IS NOT NULL AND (final_quantity_mt<=0 OR final_quantity_mt>quantity_mt OR final_total_usd<>round(final_quantity_mt*final_price_per_mt,2))),
  'freeze',NOT EXISTS(SELECT 1 FROM trade_freezes GROUP BY trade_id HAVING count(*) FILTER(WHERE status='ACTIVE')>1));
 $$;
+
+CREATE OR REPLACE FUNCTION races_publication_product(product uuid) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+    UPDATE products SET min_lot_size=1,is_active=true WHERE id=product;
+    UPDATE inventory_items SET product_name=(SELECT name FROM products WHERE id=product),specification_standard=NULL WHERE id='00000000-0000-0000-0000-000000004000';
+END $$;
