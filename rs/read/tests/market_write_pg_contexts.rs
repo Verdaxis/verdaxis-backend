@@ -988,6 +988,7 @@ async fn concurrent_context_starts_leave_one_active_context() {
     };
     let first_request = start_request(f.organization);
     let second_request = start_request(other);
+    let retry_request = start_request(f.organization);
     let first = tokio::spawn(race_response(app.clone(), first_request));
     let second = tokio::spawn(race_response(app.clone(), second_request));
     // Observe each independent backend, including retries that no longer share
@@ -1008,7 +1009,7 @@ async fn concurrent_context_starts_leave_one_active_context() {
     assert!(observed.is_ok(), "both independent context owners must reach the held prefix");
     if a.0 != StatusCode::CREATED && b.0 != StatusCode::CREATED {
         assert!(a.0 == StatusCode::CONFLICT && code(&a.1) == "MARKET_BUSY", "{a:?}");
-        a = race_response(app.clone(), start_request(f.organization)).await;
+        a = race_response(app.clone(), retry_request).await;
     }
     for (status, body) in [&a, &b] {
         assert!(
