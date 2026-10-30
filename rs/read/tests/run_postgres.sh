@@ -80,7 +80,7 @@ for database in verdaxis_trades_test verdaxis_create_test verdaxis_amend_test ve
   market_image_role_setup "$database"
 done
 export RUST_TEMPLATE_ADMIN_DATABASE_URL="postgres://postgres:disposable_admin_pw@127.0.0.1:$port/postgres"
-for target in TRADES CREATE AMEND CONFIRM PUBLISH SETTLEMENT; do
+for target in TRADES CREATE AMEND CONFIRM PUBLISH SETTLEMENT FREEZE FREEZE_ENFORCEMENT; do
   database="verdaxis_$(printf '%s' "$target" | tr '[:upper:]' '[:lower:]')_test"
   export "RUST_${target}_TEMPLATE_DATABASE=$database"
 done

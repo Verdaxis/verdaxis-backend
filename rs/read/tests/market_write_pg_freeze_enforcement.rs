@@ -1,4 +1,6 @@
 #![cfg(feature = "contract-tests")]
+#[path = "support/market_database.rs"]
+mod market_database;
 
 use axum::{
     Router,
@@ -30,6 +32,7 @@ fn router(pool: PgPool) -> Router {
         .merge(orders::contract_router(pool, KEY))
 }
 struct Fixture {
+    _database: market_database::MarketDatabase,
     admin: PgConnection,
     pool: PgPool,
     router: Router,
@@ -39,10 +42,9 @@ struct Fixture {
 }
 impl Fixture {
     async fn new(state: &str) -> Self {
-        let a = std::env::var("RUST_FREEZE_ENFORCEMENT_ADMIN_DATABASE_URL")
-            .expect("disposable admin URL");
-        let r =
-            std::env::var("RUST_FREEZE_ENFORCEMENT_DATABASE_URL").expect("disposable runtime URL");
+        let database = market_database::MarketDatabase::new("RUST_FREEZE_ENFORCEMENT").await;
+        let a = database.admin_url.clone();
+        let r = database.runtime_url.clone();
         let au = url::Url::parse(&a).unwrap();
         let ru = url::Url::parse(&r).unwrap();
         assert_eq!(au.host_str(), Some("127.0.0.1"));
@@ -106,6 +108,7 @@ impl Fixture {
             .unwrap();
         let router = router(pool.clone());
         let f = Self {
+            _database: database,
             admin,
             pool,
             router,
