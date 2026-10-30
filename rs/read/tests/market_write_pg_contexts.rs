@@ -1006,9 +1006,15 @@ async fn concurrent_context_starts_leave_one_active_context() {
     held.commit().await.unwrap();
     let mut a = first.await.unwrap();
     let b = second.await.unwrap();
-    assert!(observed.is_ok(), "both independent context owners must reach the held prefix");
+    assert!(
+        observed.is_ok(),
+        "both independent context owners must reach the held prefix"
+    );
     if a.0 != StatusCode::CREATED && b.0 != StatusCode::CREATED {
-        assert!(a.0 == StatusCode::CONFLICT && code(&a.1) == "MARKET_BUSY", "{a:?}");
+        assert!(
+            a.0 == StatusCode::CONFLICT && code(&a.1) == "MARKET_BUSY",
+            "{a:?}"
+        );
         a = race_response(app.clone(), retry_request).await;
     }
     for (status, body) in [&a, &b] {
