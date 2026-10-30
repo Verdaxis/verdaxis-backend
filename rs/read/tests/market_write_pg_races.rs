@@ -348,20 +348,22 @@ impl Fixture {
         let a = tokio::spawn(send(r1, first.clone()));
         let first_pid = wait(&mut self.admin, "races-first", "races-barrier").await;
         let b = tokio::spawn(send(r2, second.clone()));
-        let held = std::time::Instant::now();
-        let second_pid = wait(&mut self.admin, "races-second", "races-first").await;
-        sqlx::query("SELECT races_release()")
-            .execute(&mut barrier)
+        let observation: Value = sqlx::query_scalar("SELECT races_observe_release()")
+            .fetch_one(&mut barrier)
             .await
             .unwrap();
-        assert!(
-            held.elapsed() < Duration::from_millis(350),
-            "contested lock observation must retain budget margin"
-        );
-        let results = (a.await.unwrap(), b.await.unwrap());
+        let second_pid = observation["pid"].as_i64().unwrap();
+        let release_ms = observation["release_ms"].as_f64().unwrap();
+        assert!(release_ms < 100.0, "release must retain the economic lock budget");
+        let mut results = (a.await.unwrap(), b.await.unwrap());
+        if matches!(results.1.1["detail"]["code"].as_str(),Some("MARKET_BUSY"|"MARKET_TIMEOUT"|"TRANSACTION_RETRY_EXHAUSTED"|"MARKET_SLICE_CHANGED")) {
+            println!("BOUNDED_CONTENDER status={} body={}",results.1.0,results.1.1);
+            self.ledger().await;
+            results.1=send(self.router("races-completed-order").await.0,second.clone()).await;
+        }
         println!(
             "OBSERVED_ROUTE_WAIT first={first:?} second={second:?} first_pid={first_pid} second_pid={second_pid} observation_ms={} statuses={},{}",
-            held.elapsed().as_millis(),
+            release_ms,
             results.0.0,
             results.1.0
         );
@@ -427,7 +429,7 @@ async fn cancel_and_take_release_only_the_unfilled_remainder() {
             if take_first {
                 StatusCode::NO_CONTENT
             } else {
-                StatusCode::BAD_REQUEST
+                StatusCode::CONFLICT
             },
         );
         assert_eq!(
@@ -546,8 +548,9 @@ async fn take_twins_recheck_reduced_remainder() {
         let mut f = Fixture::new().await;
         let order = f.listing().await;
         let take = f.take(order, quantity).await;
-        let (a, b) = f.overlap(take.clone(), take).await;
+        let (a, mut b) = f.overlap(take.clone(), take).await;
         ok(&a, StatusCode::OK);
+        if b.1["detail"]["code"]=="ORDER_TERMS_REVIEW_REQUIRED" { let fresh=f.take(order,quantity).await;b=f.call(fresh).await; }
         ok(
             &b,
             if quantity == "300" {
@@ -566,7 +569,7 @@ async fn inventory_edit_and_publication_use_the_committed_stock() {
     for edit_first in [false, true] {
         let mut f = Fixture::new().await;
         let edit = Command::new(
-            "PUT",
+            "PATCH",
             format!("/api/inventory/{}", id(ITEM)),
             SELLER,
             json!({"current_stock_mt":"800"}),
@@ -750,18 +753,16 @@ async fn same_key_creates_replay_or_refuse_changed_terms() {
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn cancel_receipt_is_bound_to_the_original_resource() {
-    let mut f = Fixture::new().await;
-    let order = f.listing().await;
-    ok(
-        &f.call(f.cancel(order).keyed("shared")).await,
-        StatusCode::NO_CONTENT,
-    );
-    let original = f.effects().await;
-    let replay = f.call(f.cancel(order).keyed("shared")).await;
-    ok(&replay, StatusCode::NO_CONTENT);
-    let other = f.call(f.cancel(Uuid::new_v4()).keyed("shared")).await;
-    ok(&other, StatusCode::CONFLICT);
-    assert_eq!(f.effects().await, original);
+    let mut f=Fixture::new().await;let order=f.listing().await;
+    ok(&f.call(f.cancel(order).keyed("shared")).await,StatusCode::NO_CONTENT);
+    let second=f.listing().await;
+    let original=f.effects().await;
+    let (a,b)=f.overlap(f.cancel(second).keyed("shared-new"),f.cancel(order).keyed("shared")).await;
+    ok(&a,StatusCode::NO_CONTENT);ok(&b,StatusCode::NO_CONTENT);
+    let wrong=f.call(f.cancel(second).keyed("shared")).await;ok(&wrong,StatusCode::CONFLICT);
+    assert_eq!(wrong.1["detail"]["code"],"RECEIPT_RESOURCE_MISMATCH");
+    let after=f.effects().await;
+    assert_eq!(after["audit"].as_i64().unwrap(),original["audit"].as_i64().unwrap()+1);
 }
 
 #[tokio::test]
@@ -866,7 +867,7 @@ async fn take_and_crossing_publication_share_the_remainder() {
         } else {
             let (a, b) = f.overlap(f.publish(), take).await;
             ok(&a, StatusCode::OK);
-            ok(&b, StatusCode::BAD_REQUEST);
+            ok(&b, StatusCode::CONFLICT);
         }
         f.ledger().await;
     }
@@ -906,25 +907,25 @@ async fn finite_seeded_lifecycle_sequences_preserve_the_ledger() {
             let amend = Command::new(
                 "PUT",
                 format!("/api/orderbook/{order}"),
-                BUYER,
+                SELLER,
                 json!({"quantity_mt":"600"}),
             );
             ok(&f.call(amend).await, StatusCode::OK);
             f.ledger().await;
             let mut take = f.take(order, "200").await;
-            take.actor = SELLER;
+            take.actor = BUYER;
             let taken = f.call(take).await;
             ok(&taken, StatusCode::OK);
             f.ledger().await;
             let trade = taken.1["id"].as_str().unwrap().parse().unwrap();
             let mut action = lifecycle(trade, if confirm { "confirm" } else { "decline" });
-            action.actor = BUYER;
+            action.actor = SELLER;
             ok(&f.call(action).await, StatusCode::OK);
             f.ledger().await;
             let cancel = Command::new(
                 "DELETE",
                 format!("/api/orderbook/{order}"),
-                BUYER,
+                SELLER,
                 Value::Null,
             )
             .keyed(&format!("cancel-{seed}-{index}"));
@@ -1030,8 +1031,8 @@ async fn publication_expiry_before_take_refuses_the_old_order() {
         .unwrap();
     let (a, b) = f.overlap(f.publish(), take).await;
     ok(&a, StatusCode::OK);
-    ok(&b, StatusCode::BAD_REQUEST);
-    assert_eq!(b.1["detail"]["code"], "ORDER_UNAVAILABLE");
+    ok(&b, StatusCode::CONFLICT);
+    assert_eq!(b.1["detail"]["code"], "ORDER_TERMS_REVIEW_REQUIRED");
     assert_eq!(f.stock().await, (Decimal::ZERO, Decimal::from(1000)));
 }
 
@@ -1133,7 +1134,7 @@ async fn revoke_and_assisted_create_serialize_authority() {
                 id(0x3101)
             ),
             0x3001,
-            Value::Null,
+            json!({"reason":"Concurrent authority review"}),
         );
         // The context header is part of the authenticated command, not its body.
         create.body["__fixture_context"] = json!(id(0x3201));

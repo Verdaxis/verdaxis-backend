@@ -29,6 +29,26 @@ END $$;
 
 CREATE OR REPLACE FUNCTION races_hold() RETURNS void LANGUAGE sql AS $$ SELECT pg_advisory_lock(290030001) $$;
 CREATE OR REPLACE FUNCTION races_release() RETURNS boolean LANGUAGE sql AS $$ SELECT pg_advisory_unlock(290030001) $$;
+CREATE OR REPLACE FUNCTION races_observe_release() RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE observed integer; deadline timestamptz:=clock_timestamp()+interval '8 seconds'; seen_at timestamptz;
+BEGIN
+    LOOP
+        PERFORM pg_stat_clear_snapshot();
+        SELECT a.pid INTO observed FROM pg_stat_activity a WHERE a.datname=current_database()
+          AND a.application_name='races-second' AND a.wait_event_type='Lock'
+          AND EXISTS(SELECT 1 FROM pg_stat_activity b WHERE b.pid=ANY(pg_blocking_pids(a.pid)) AND b.application_name='races-first') LIMIT 1;
+        IF observed IS NOT NULL THEN
+            seen_at:=clock_timestamp();
+            PERFORM races_release();
+            RETURN jsonb_build_object('pid',observed,'release_ms',extract(epoch FROM clock_timestamp()-seen_at)*1000);
+        END IF;
+        IF clock_timestamp()>deadline THEN
+            PERFORM races_release();
+            RAISE EXCEPTION 'second route did not wait on first route';
+        END IF;
+        PERFORM pg_sleep(0.001);
+    END LOOP;
+END $$;
 CREATE OR REPLACE FUNCTION races_effect_barrier() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
     IF current_setting('application_name')='races-first' THEN
