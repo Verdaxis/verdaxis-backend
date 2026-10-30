@@ -155,8 +155,14 @@ fn lock_plan_matches_the_declared_operation_graph() {
                 Pin,
             ],
         ),
-        (Deliver, vec![Organization, User, Idempotency, Trade]),
-        (Pay, vec![Organization, User, Idempotency, Trade]),
+        (
+            Deliver,
+            vec![Organization, User, Idempotency, Slice, Trade, Order, Pin],
+        ),
+        (
+            Pay,
+            vec![Organization, User, Idempotency, Slice, Trade, Order, Pin],
+        ),
         (CapabilityGrant, vec![User, Capability]),
         (CapabilityRevoke, vec![User, Capability, Context]),
         (ContextStart, vec![Organization, User, Capability, Context]),
