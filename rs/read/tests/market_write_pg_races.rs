@@ -238,6 +238,7 @@ impl Fixture {
             Default::default(),
             None,
         ))
+        .merge(verdaxis_read::crud::watchlists::router(app.clone(),verdaxis_read::crud::watchlists::WatchlistSettings::new(verification(),chrono::Utc::now())))
         .merge(trade_lifecycle::router(app, verification()))
         .merge(support)
         .merge(rejection);
@@ -328,6 +329,43 @@ impl Fixture {
     }
     async fn effects(&mut self) -> Value {
         sqlx::query_scalar("SELECT jsonb_build_object('audit',(SELECT count(*) FROM audit_logs),'outbox',(SELECT count(*) FROM market_event_outbox),'notifications',(SELECT count(*) FROM notifications),'receipts',(SELECT count(*) FROM market_command_results))").fetch_one(&mut self.admin).await.unwrap()
+    }
+    async fn reader_check(&mut self,order:Uuid) {
+        assert_pin(&mut self.admin,order).await;
+        let watch:Uuid=sqlx::query_scalar("SELECT watchlist_id FROM watchlist_targets WHERE order_id=$1").bind(order).fetch_one(&mut self.admin).await.unwrap();
+        let rust=self.call(Command::new("GET",format!("/api/watchlists/{watch}"),BUYER,Value::Null)).await;
+        ok(&rust,StatusCode::OK);
+        let python=std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_|"python3".into());
+        let script=r#"import asyncio,json,sys
+from uuid import UUID
+from sqlalchemy.ext.asyncio import create_async_engine,async_sessionmaker
+from sqlalchemy import select
+from app.models.watchlist import WatchlistTarget
+from app.services.watchlists import _pin_response
+async def main():
+ engine=create_async_engine(sys.argv[1].replace('postgresql://','postgresql+asyncpg://').replace('postgres://','postgresql+asyncpg://'))
+ async with async_sessionmaker(engine)() as db:
+  target=(await db.execute(select(WatchlistTarget).where(WatchlistTarget.order_id==UUID(sys.argv[2])))).scalar_one()
+  print(_pin_response(target,unread_event_count=0,latest_event_at=None).model_dump_json())
+ await engine.dispose()
+asyncio.run(main())"#;
+        let output=std::process::Command::new(python).args(["-c",script,&self.runtime_url,&order.to_string()]).env("ENVIRONMENT","test").env("RELEASE_SHA","test").env("JWT_SECRET",KEY).current_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().parent().unwrap()).output().unwrap();
+        assert!(output.status.success(),"{}",String::from_utf8_lossy(&output.stderr));
+        let py:Value=serde_json::from_slice(&output.stdout).unwrap();
+        fn find(value:&Value,order:Uuid)->Option<&Value>{ match value { Value::Object(o)=>{if o.get("order_id")==Some(&json!(order)){Some(value)}else{o.values().find_map(|v|find(v,order))}},Value::Array(a)=>a.iter().find_map(|v|find(v,order)),_=>None}}
+        let target=find(&rust.1,order).expect("Rust PIN response");
+        for key in ["snapshot_price_per_mt_usd","snapshot_quantity_mt","snapshot_remaining_quantity_mt","snapshot_status"] {assert_eq!(target[key],py[key],"{key}");}
+    }
+    async fn refusal_overlap(&mut self,first:Command,second:Command,resource:Uuid,trade:bool)->((StatusCode,Value),(StatusCode,Value)) {
+        let (r1,p1)=self.router("races-first").await;let (r2,p2)=self.router("races-second").await;
+        let mut holder=PgConnection::connect(&self.admin_url).await.unwrap();
+        sqlx::raw_sql("BEGIN; SELECT set_config('application_name','races-holder',false)").execute(&mut holder).await.unwrap();
+        sqlx::query("SELECT races_hold_resource($1,$2)").bind(resource).bind(trade).execute(&mut holder).await.unwrap();
+        let a=tokio::spawn(send(r1,first));wait(&mut self.admin,"races-first","races-holder").await;
+        let b=tokio::spawn(send(r2,second));
+        sqlx::raw_sql("SELECT races_wait_second(); COMMIT").execute(&mut holder).await.unwrap();
+        let result=(a.await.unwrap(),b.await.unwrap());p1.close().await;p2.close().await;self.ledger().await;
+        println!("OBSERVED_REFUSAL_WAIT resource={resource} trade={trade} statuses={},{}",result.0.0,result.1.0);result
     }
     async fn overlap(
         &mut self,
@@ -1026,12 +1064,12 @@ async fn amend_take_and_cancel_keep_current_pin_display() {
         .unwrap();
     let history:Value=sqlx::query_scalar("SELECT jsonb_agg(jsonb_build_object('id',id,'payload',payload) ORDER BY id) FROM market_event_outbox").fetch_one(&mut f.admin).await.unwrap();
     ok(&f.call(f.amend(order, "800")).await, StatusCode::OK);
-    assert_pin(&mut f.admin, order).await;
+    f.reader_check(order).await;
     let take = f.take(order, "300").await;
     ok(&f.call(take).await, StatusCode::OK);
-    assert_pin(&mut f.admin, order).await;
+    f.reader_check(order).await;
     ok(&f.call(f.cancel(order)).await, StatusCode::NO_CONTENT);
-    assert_pin(&mut f.admin, order).await;
+    f.reader_check(order).await;
     let historical_ids: Vec<Uuid> = history
         .as_array()
         .unwrap()
@@ -1043,8 +1081,8 @@ async fn amend_take_and_cancel_keep_current_pin_display() {
     f.ledger().await;
 }
 async fn assert_pin(admin: &mut PgConnection, order: Uuid) {
-    let same:bool=sqlx::query_scalar("SELECT w.snapshot_price_per_mt_usd=o.price_per_mt_usd AND w.snapshot_quantity_mt=o.quantity_mt AND w.snapshot_remaining_quantity_mt=o.remaining_quantity_mt AND w.snapshot_status=o.status::text FROM watchlist_targets w JOIN orderbook_orders o ON o.id=w.order_id WHERE o.id=$1").bind(order).fetch_one(admin).await.unwrap();
-    assert!(same, "PIN display follows the committed economic row");
+    let same:bool=sqlx::query_scalar("SELECT w.snapshot_price_per_mt_usd=o.price_per_mt_usd AND w.snapshot_quantity_mt=o.quantity_mt AND w.snapshot_remaining_quantity_mt=o.remaining_quantity_mt AND w.snapshot_status=o.status::text FROM watchlist_targets w JOIN orderbook_orders o ON o.id=w.order_id WHERE o.id=$1").bind(order).fetch_one(&mut *admin).await.unwrap();
+    assert!(same,"PIN display follows the committed economic row");
 }
 
 #[tokio::test]
@@ -1418,4 +1456,71 @@ async fn partial_take_then_cancel_preserves_the_pending_reservation() {
     );
     ok(&cancel, StatusCode::NO_CONTENT);
     f.ledger().await;
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn take_first_partial_and_full_expiry_keep_pending_stock() {
+    for quantity in [300,1000] {
+        let mut f=Fixture::new().await;let order=f.listing().await;
+        let take=f.take(order,&quantity.to_string()).await;
+        let (a,b)=f.overlap(take,f.publish()).await;ok(&a,StatusCode::OK);
+        if quantity==300 {ok(&b,StatusCode::OK);}else{ok(&b,StatusCode::BAD_REQUEST);}
+        f.ledger().await;
+        sqlx::query("SELECT races_expire($1)").bind(order).execute(&mut f.admin).await.unwrap();
+        if quantity==300 {ok(&f.call(f.publish()).await,StatusCode::OK);}else{ok(&f.call(f.publish()).await,StatusCode::BAD_REQUEST);}
+        let status:String=sqlx::query_scalar("SELECT status::text FROM orderbook_orders WHERE id=$1").bind(order).fetch_one(&mut f.admin).await.unwrap();
+        assert_eq!(status,if quantity==300{"EXPIRED"}else{"FILLED"});
+        assert_eq!(f.stock().await,(Decimal::ZERO,Decimal::from(1000)));f.ledger().await;
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn delete_refusal_and_take_overlap_without_removing_inventory() {
+    let mut f=Fixture::new().await;let order=f.listing().await;let take=f.take(order,"300").await;
+    let delete=Command::new("DELETE",format!("/api/inventory/{}",id(ITEM)),SELLER,Value::Null);
+    let (a,b)=f.refusal_overlap(delete,take,id(ITEM),false).await;
+    ok(&a,StatusCode::CONFLICT);ok(&b,StatusCode::OK);
+    assert_eq!(f.stock().await,(Decimal::ZERO,Decimal::from(1000)));
+    let take=f.take(order,"200").await;let delete=Command::new("DELETE",format!("/api/inventory/{}",id(ITEM)),SELLER,Value::Null);
+    let (a,b)=f.overlap(take,delete).await;ok(&a,StatusCode::OK);ok(&b,StatusCode::CONFLICT);
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn pay_first_refusal_and_delivery_overlap() {
+    let mut f=Fixture::new().await;let order=f.listing().await;let take=f.take(order,"300").await;
+    let taken=f.call(take).await;ok(&taken,StatusCode::OK);let trade=taken.1["id"].as_str().unwrap().parse().unwrap();
+    ok(&f.call(lifecycle(trade,"confirm")).await,StatusCode::OK);
+    let before=f.effects().await;
+    let (a,b)=f.refusal_overlap(lifecycle(trade,"pay"),lifecycle(trade,"deliver"),trade,true).await;
+    ok(&a,StatusCode::BAD_REQUEST);assert_eq!(a.1["detail"]["code"],"TRADE_NOT_DELIVERED");ok(&b,StatusCode::OK);
+    let after=f.effects().await;assert_eq!(after["audit"].as_i64().unwrap(),before["audit"].as_i64().unwrap()+1);
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn publication_replay_refuses_other_principal_and_changed_hash() {
+    let mut f=Fixture::new().await;ok(&f.call(f.publish().keyed("principal")).await,StatusCode::OK);
+    sqlx::query("SELECT races_publication_member()").execute(&mut f.admin).await.unwrap();
+    let before=f.effects().await;let mut other=f.publish().keyed("principal");other.actor=0x2002;
+    let refused=f.call(other).await;ok(&refused,StatusCode::FORBIDDEN);assert_eq!(refused.1["detail"]["code"],"REPLAY_PRINCIPAL_MISMATCH");assert_eq!(f.effects().await,before);
+    sqlx::query("SELECT races_publication_hash()").execute(&mut f.admin).await.unwrap();
+    let refused=f.call(f.publish().keyed("principal")).await;ok(&refused,StatusCode::CONFLICT);assert_eq!(refused.1["detail"]["code"],"IDEMPOTENCY_CONFLICT");assert_eq!(f.effects().await,before);
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn concurrent_cancel_keys_bind_matching_and_other_resources() {
+    for reverse in [false,true] {
+        let mut f=Fixture::new().await;let first=f.listing().await;
+        let second=sqlx::query_scalar("SELECT races_other_order($1)").bind(first).fetch_one(&mut f.admin).await.unwrap();
+        let (a,b)=if reverse{f.overlap(f.cancel(second).keyed("same"),f.cancel(first).keyed("same")).await}else{f.overlap(f.cancel(first).keyed("same"),f.cancel(second).keyed("same")).await};
+        ok(&a,StatusCode::NO_CONTENT);ok(&b,StatusCode::CONFLICT);assert_eq!(b.1["detail"]["code"],"RECEIPT_RESOURCE_MISMATCH");
+        let counts=f.effects().await;
+        let winner=if reverse{second}else{first};let loser=if reverse{first}else{second};
+        let (a,b)=f.refusal_overlap(f.cancel(winner).keyed("same"),f.cancel(loser).keyed("same"),id(ITEM),false).await;
+        ok(&a,StatusCode::NO_CONTENT);ok(&b,StatusCode::CONFLICT);assert_eq!(f.effects().await,counts);
+    }
 }
