@@ -788,7 +788,7 @@ async fn continuing_python_protocols_run_against_ordered_rust() {
     );
     let binary = std::env::current_exe().unwrap();
     let status = std::process::Command::new(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../venv/bin/python"),
+        std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "python3".into()),
     )
     .current_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
     .args(["rs/read/tests/fixtures/phase8_writer_protocols.py"])

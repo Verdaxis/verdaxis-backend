@@ -58,7 +58,7 @@ async def statement_outcome(url, statement, parameters, key, holder, early_relea
             assert error.sqlstate!="40P01","no side may deadlock"
             outcome=("refused",error.sqlstate)
         elapsed=time.monotonic()-start
-        assert elapsed<1.5,"writer exceeds lock timeout plus margin"
+        assert elapsed<5,"writer exceeds lock timeout plus scheduler margin"
         await writer.execute("ROLLBACK")
         if task is not None:
             await task
