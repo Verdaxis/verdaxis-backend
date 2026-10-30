@@ -1024,7 +1024,7 @@ async fn decline_effects_after_clear(expired: bool) {
     sqlx::query("INSERT INTO watchlist_targets(id,watchlist_id,target_type,market_product_code,delivery_point_id,availability_window_code) SELECT $1,watchlist_id,'SLICE',market_product_code,delivery_point_id,availability_window_code FROM watchlist_targets WHERE target_type='PIN'")
         .bind(id(0x2801)).execute(&mut f.admin).await.unwrap();
     if expired {
-        sqlx::query("UPDATE orderbook_orders SET expires_at=now()-interval '1 minute' WHERE id=$1")
+        sqlx::query("SELECT enforcement_expire_order($1)")
             .bind(id(1))
             .execute(&mut f.admin)
             .await

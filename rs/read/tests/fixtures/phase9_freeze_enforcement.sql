@@ -13,6 +13,12 @@ CREATE TRIGGER enforcement_status_observe BEFORE UPDATE OF status ON trades
 FOR EACH ROW EXECUTE FUNCTION enforcement_status_observe();
 GRANT USAGE ON SEQUENCE enforcement_status_attempts TO rust_app;
 
+-- Moves one fixture order's expiry into the past, so a decline takes the
+-- newly-expired branch. Order-book writes stay out of Rust test sources.
+CREATE OR REPLACE FUNCTION enforcement_expire_order(target uuid) RETURNS void LANGUAGE sql AS $$
+    UPDATE orderbook_orders SET expires_at=now()-interval '1 minute' WHERE id=target;
+$$;
+
 CREATE OR REPLACE FUNCTION enforcement_hold() RETURNS void LANGUAGE sql AS $$
     SELECT pg_advisory_lock(280029001);
 $$;
