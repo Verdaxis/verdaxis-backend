@@ -8,7 +8,7 @@ use axum::{
 };
 use jsonwebtoken::{EncodingKey, Header, encode};
 use serde_json::{Value, json};
-use sqlx::{Connection, PgConnection, PgPool, postgres::PgPoolOptions};
+use sqlx::{Connection, PgConnection, postgres::PgPoolOptions};
 use tower::ServiceExt;
 use uuid::Uuid;
 use verdaxis_read::routes::market_write::trade_lifecycle::contract_router;
