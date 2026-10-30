@@ -74,6 +74,7 @@ async fn send(router: Router, command: Command) -> (StatusCode, Value) {
             context.as_str().unwrap(),
         );
     }
+    if let Some(object)=body.as_object_mut(){object.remove("__fixture_wait_expiry");}
     let response = router
         .oneshot(request.body(Body::from(body.to_string())).unwrap())
         .await
@@ -386,6 +387,9 @@ asyncio.run(main())"#;
             .unwrap();
         let a = tokio::spawn(send(r1, first.clone()));
         let first_pid = wait(&mut self.admin, "races-first", "races-barrier").await;
+        if let Some(order)=first.body.get("__fixture_wait_expiry").and_then(Value::as_str) {
+            sqlx::query("SELECT races_wait_expiry($1)").bind(order.parse::<Uuid>().unwrap()).execute(&mut self.admin).await.unwrap();
+        }
         let b = tokio::spawn(send(r2, second.clone()));
         let observation: Value = sqlx::query_scalar("SELECT races_observe_release()")
             .fetch_one(&mut barrier)
@@ -1034,6 +1038,12 @@ async fn finite_seeded_lifecycle_sequences_preserve_the_ledger() {
             f.ledger().await;
             ok(&f.call(cancel).await, StatusCode::NO_CONTENT);
             f.ledger().await;
+            println!(
+                "FINITE_SEQUENCE seed={seed} slice={index} writers=rust-create,rust-replay,rust-amend,rust-take,rust-{},rust-cancel,rust-replay",
+                if confirm { "confirm" } else { "decline" }
+            );
+        }
+        for _ in 0..5 {
             let mut stock=Fixture::new().await;
             let listing=stock.listing().await;stock.ledger().await;
             let take=stock.take(listing,"300").await;let taken=stock.call(take).await;ok(&taken,StatusCode::OK);stock.ledger().await;
@@ -1044,10 +1054,6 @@ async fn finite_seeded_lifecycle_sequences_preserve_the_ledger() {
             assert_eq!(stock.stock().await,(Decimal::from(700),Decimal::from(300)));
             ok(&stock.call(lifecycle(pending,"decline")).await,StatusCode::OK);stock.ledger().await;
             assert_eq!(stock.stock().await,(Decimal::from(1000),Decimal::ZERO));
-            println!(
-                "FINITE_SEQUENCE seed={seed} slice={index} writers=rust-create,rust-replay,rust-amend,rust-take,rust-{},rust-cancel,rust-replay",
-                if confirm { "confirm" } else { "decline" }
-            );
         }
     }
 }
@@ -1474,7 +1480,8 @@ async fn partial_take_then_cancel_preserves_the_pending_reservation() {
 async fn take_first_partial_and_full_expiry_keep_pending_stock() {
     for quantity in [300,1000] {
         let mut f=Fixture::new().await;let order=f.listing().await;
-        let take=f.take(order,&quantity.to_string()).await;
+        sqlx::query("SELECT races_near_expiry($1)").bind(order).execute(&mut f.admin).await.unwrap();
+        let mut take=f.take(order,&quantity.to_string()).await;take.body["__fixture_wait_expiry"]=json!(order);
         let (a,b)=f.overlap(take,f.publish()).await;ok(&a,StatusCode::OK);
         if quantity==300 {ok(&b,StatusCode::OK);}else{ok(&b,StatusCode::BAD_REQUEST);}
         f.ledger().await;

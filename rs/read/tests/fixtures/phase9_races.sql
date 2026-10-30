@@ -25,6 +25,7 @@ BEGIN
     INSERT INTO watchlists(id,user_id,name,kind) VALUES(watch,'00000000-0000-0000-0000-000000001001','Concurrent market','CUSTOM');
     INSERT INTO watchlist_targets(id,watchlist_id,target_type,order_id,market_product_code,delivery_point_id,availability_window_code,snapshot_price_per_mt_usd,snapshot_quantity_mt,snapshot_remaining_quantity_mt,snapshot_status)
     SELECT gen_random_uuid(),watch,'PIN',id,code,delivery_point_id,availability_window,price_per_mt_usd,quantity_mt,remaining_quantity_mt,status::text FROM orderbook_orders WHERE id=target;
+    INSERT INTO watchlist_targets(id,watchlist_id,target_type,market_product_code,delivery_point_id,availability_window_code) SELECT gen_random_uuid(),watch,'SLICE',code,delivery_point_id,availability_window FROM orderbook_orders WHERE id=target;
 END $$;
 
 CREATE OR REPLACE FUNCTION races_hold() RETURNS void LANGUAGE sql AS $$ SELECT pg_advisory_lock(290030001) $$;
@@ -111,4 +112,14 @@ BEGIN
  INSERT INTO orderbook_orders(id,organization_id,owner_user_id,created_by_actor_user_id,creation_method,provenance,side,product_id,delivery_point_id,quantity_mt,remaining_quantity_mt,price_per_mt_usd,availability_window,status,inventory_item_id,certification_declared,msds_available,certification_scheme,specification_standard,carbon_intensity_gco2_mj,carbon_intensity_method,feedstock,origin)
  SELECT target,organization_id,owner_user_id,created_by_actor_user_id,creation_method,provenance,side,product_id,delivery_point_id,200,200,price_per_mt_usd,availability_window,status,item,certification_declared,msds_available,certification_scheme,specification_standard,carbon_intensity_gco2_mj,carbon_intensity_method,feedstock,origin FROM orderbook_orders WHERE id=source;
  RETURN target;
+END $$;
+
+CREATE OR REPLACE FUNCTION races_near_expiry(target uuid) RETURNS void LANGUAGE sql AS $$
+ UPDATE orderbook_orders SET expires_at=clock_timestamp()+interval '3 seconds' WHERE id=target;
+$$;
+CREATE OR REPLACE FUNCTION races_wait_expiry(target uuid) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE expires timestamptz;
+BEGIN
+ SELECT expires_at INTO STRICT expires FROM orderbook_orders WHERE id=target;
+ WHILE clock_timestamp()<=expires LOOP PERFORM pg_sleep(0.001); END LOOP;
 END $$;
