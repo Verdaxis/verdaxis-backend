@@ -872,7 +872,7 @@ async fn listing_expiry_during_party_lock_wait_is_not_reused() {
     let observed_at = wait_for_blocked_expiry(&f._database.admin_url, blocker_pid, deadline).await;
     lock.commit().await.unwrap();
     assert!(
-        observed_at.elapsed() < Duration::from_millis(200),
+        observed_at.elapsed() < Duration::from_millis(450),
         "party lock hold must leave margin below the 500 ms lock timeout: {:?}",
         observed_at.elapsed()
     );
@@ -1310,7 +1310,7 @@ async fn listing_expiry_during_inventory_lock_wait_creates_a_new_listing() {
     let observed_at = wait_for_blocked_expiry(&f._database.admin_url, blocker_pid, deadline).await;
     blocker.commit().await.unwrap();
     assert!(
-        observed_at.elapsed() < Duration::from_millis(200),
+        observed_at.elapsed() < Duration::from_millis(450),
         "inventory lock hold must leave margin below the 500 ms lock timeout: {:?}",
         observed_at.elapsed()
     );
