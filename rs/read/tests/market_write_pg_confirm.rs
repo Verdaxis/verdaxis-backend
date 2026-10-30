@@ -31,7 +31,8 @@ struct Fixture {
 }
 impl Fixture {
     async fn new(initiated: &str, legacy: bool) -> Self {
-        let database = std::sync::Arc::new(market_database::MarketDatabase::new("RUST_CONFIRM").await);
+        let database =
+            std::sync::Arc::new(market_database::MarketDatabase::new("RUST_CONFIRM").await);
         let a = database.admin_url.clone();
         let r = database.runtime_url.clone();
         let au = url::Url::parse(&a).unwrap();
@@ -643,11 +644,7 @@ async fn confirmation_and_preserving_organization_rejection_keep_the_pending_com
         let command = tokio::spawn(async move {
             let fixture = Fixture {
                 _database: database.clone(),
-                admin: PgConnection::connect(
-                    &database.admin_url,
-                )
-                .await
-                .unwrap(),
+                admin: PgConnection::connect(&database.admin_url).await.unwrap(),
                 pool,
                 router,
                 trade,
@@ -985,10 +982,9 @@ async fn independent_inventory_changes_survive_confirmation_and_terminal_decline
         let router = f.router.clone();
         let path = format!("/api/trades/{}/{action}", f.trade);
         let command = tokio::spawn(async move { send(&router, &path, Some(SELLER), &[]).await });
-        let mut observer =
-            PgConnection::connect(&f._database.admin_url.clone())
-                .await
-                .unwrap();
+        let mut observer = PgConnection::connect(&f._database.admin_url.clone())
+            .await
+            .unwrap();
         wait_for_lock(&mut observer).await;
         holder.commit().await.unwrap();
         let (s, b) = command.await.unwrap();

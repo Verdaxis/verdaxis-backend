@@ -76,7 +76,8 @@ struct Fixture {
 }
 impl Fixture {
     async fn new() -> Self {
-        let database = std::sync::Arc::new(market_database::MarketDatabase::new("RUST_INVENTORY").await);
+        let database =
+            std::sync::Arc::new(market_database::MarketDatabase::new("RUST_INVENTORY").await);
         let admin_url = database.admin_url.clone();
         let runtime_url = database.runtime_url.clone();
         for value in [&admin_url, &runtime_url] {
@@ -655,10 +656,9 @@ async fn inventory_edit_and_delete_recheck_after_an_independent_lock_holder() {
 #[ignore = "requires explicitly provisioned disposable PostgreSQL"]
 async fn inventory_admission_rechecks_an_independent_account_change() {
     let mut f = Fixture::new().await;
-    let mut holder =
-        PgConnection::connect(&f._database.admin_url.clone())
-            .await
-            .unwrap();
+    let mut holder = PgConnection::connect(&f._database.admin_url.clone())
+        .await
+        .unwrap();
     let mut tx = holder.begin().await.unwrap();
     sqlx::query("UPDATE users SET email_verified=false WHERE id=$1")
         .bind(f.actor)

@@ -33,7 +33,8 @@ struct Fixture {
 }
 impl Fixture {
     async fn new(state: &str) -> Self {
-        let database = std::sync::Arc::new(market_database::MarketDatabase::new("RUST_FREEZE").await);
+        let database =
+            std::sync::Arc::new(market_database::MarketDatabase::new("RUST_FREEZE").await);
         let a = database.admin_url.clone();
         let r = database.runtime_url.clone();
         let au = url::Url::parse(&a).unwrap();
@@ -960,8 +961,8 @@ async fn overlap_routes(
     second_reason: &'static str,
     observed: ObservedRow,
 ) -> ((StatusCode, Value), (StatusCode, Value)) {
-    let first_pool = route_pool(&f, "freeze-route-first").await;
-    let second_pool = route_pool(&f, "freeze-route-second").await;
+    let first_pool = route_pool(f, "freeze-route-first").await;
+    let second_pool = route_pool(f, "freeze-route-second").await;
     let first_router = contract_router(first_pool.clone(), KEY);
     let second_router = contract_router(second_pool.clone(), KEY);
     f.sql(include_str!("fixtures/phase9_freeze.sql")).await;

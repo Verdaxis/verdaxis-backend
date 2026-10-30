@@ -57,7 +57,8 @@ struct Fixture {
 }
 impl Fixture {
     async fn new() -> Self {
-        let database = std::sync::Arc::new(market_database::MarketDatabase::new("RUST_EFFECTS").await);
+        let database =
+            std::sync::Arc::new(market_database::MarketDatabase::new("RUST_EFFECTS").await);
         let admin_url = database.admin_url.clone();
         let runtime_url = database.runtime_url.clone();
         let a = url::Url::parse(&admin_url).unwrap();

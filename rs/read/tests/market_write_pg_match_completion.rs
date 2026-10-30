@@ -28,7 +28,8 @@ struct Fixture {
 
 impl Fixture {
     async fn new(count: i32, quantity: &str) -> Self {
-        let database = std::sync::Arc::new(market_database::MarketDatabase::new("RUST_MATCHING").await);
+        let database =
+            std::sync::Arc::new(market_database::MarketDatabase::new("RUST_MATCHING").await);
         let admin_url = database.admin_url.clone();
         let runtime_url = database.runtime_url.clone();
         let admin_target = url::Url::parse(&admin_url).unwrap();
@@ -396,7 +397,7 @@ async fn outbox_is_commit_visible_and_polling_finds_events_without_a_listener() 
         .await
     });
     barrier.staged().await;
-    assert_eq!(dispatch_without_notifications(false), 0);
+    assert_eq!(dispatch_without_notifications(false, &f._database.runtime_url), 0);
     let before: i64 = sqlx::query_scalar("SELECT count(*) FROM market_event_outbox")
         .fetch_one(&mut f.observer)
         .await
@@ -418,7 +419,7 @@ async fn outbox_is_commit_visible_and_polling_finds_events_without_a_listener() 
         let payload: Value = serde_json::from_str(&payload).unwrap();
         assert_eq!(payload["_public_market_invalidation"], true);
     }
-    assert_eq!(dispatch_without_notifications(true), 6);
+    assert_eq!(dispatch_without_notifications(true, &f._database.runtime_url), 6);
 }
 
 #[tokio::test]
@@ -817,7 +818,7 @@ async fn slice_evidence_distinguishes_best_price_move_from_quiet() {
     assert_eq!(evidence["targets"].as_array().unwrap().len(), 2);
 }
 
-fn dispatch_without_notifications(run_loops: bool) -> usize {
+fn dispatch_without_notifications(run_loops: bool, database_url: &str) -> usize {
     let script = r#"
 import asyncio, json, os, sys
 import asyncpg
@@ -859,6 +860,7 @@ asyncio.run(asyncio.wait_for(main(),timeout=15))
         .arg("-c")
         .arg(script)
         .arg(run_loops.to_string())
+        .env("RUST_MATCHING_DATABASE_URL", database_url)
         .output()
         .unwrap();
     assert!(

@@ -116,10 +116,10 @@ struct Fixture {
 }
 impl Fixture {
     async fn new() -> Self {
-        let database = std::sync::Arc::new(market_database::MarketDatabase::new("RUST_CONSERVATION").await);
+        let database =
+            std::sync::Arc::new(market_database::MarketDatabase::new("RUST_CONSERVATION").await);
         let admin_url = database.admin_url.clone();
-        let runtime_url =
-            database.runtime_url.clone();
+        let runtime_url = database.runtime_url.clone();
         let admin_target = url::Url::parse(&admin_url).unwrap();
         let runtime_target = url::Url::parse(&runtime_url).unwrap();
         assert_eq!(admin_target.host_str(), Some("127.0.0.1"));

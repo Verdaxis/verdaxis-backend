@@ -31,24 +31,43 @@ impl MarketDatabase {
         assert_eq!(admin.path(), runtime.path());
         assert_eq!(admin.path().trim_start_matches('/'), template);
         assert!(template.ends_with("_test"));
-        assert!(template.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_'));
+        assert!(
+            template
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+        );
         let name = format!("market_{}_test", Uuid::new_v4().simple());
         let mut connection = PgConnection::connect(&control_url).await.unwrap();
-        let owner: String = sqlx::query("SELECT pg_get_userbyid(datdba) AS owner FROM pg_database WHERE datname=$1")
-            .bind(&template)
-            .fetch_one(&mut connection)
-            .await
-            .unwrap()
-            .get("owner");
-        assert!(owner.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_'));
-        let create = format!("CREATE DATABASE \"{name}\" TEMPLATE \"{template}\" OWNER \"{owner}\"");
-        tokio::time::timeout(Duration::from_secs(30), sqlx::raw_sql(sqlx::AssertSqlSafe(create)).execute(&mut connection))
-            .await
-            .expect("template clone deadline")
-            .unwrap();
+        let owner: String = sqlx::query(
+            "SELECT pg_get_userbyid(datdba) AS owner FROM pg_database WHERE datname=$1",
+        )
+        .bind(&template)
+        .fetch_one(&mut connection)
+        .await
+        .unwrap()
+        .get("owner");
+        assert!(
+            owner
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+        );
+        let create =
+            format!("CREATE DATABASE \"{name}\" TEMPLATE \"{template}\" OWNER \"{owner}\"");
+        tokio::time::timeout(
+            Duration::from_secs(30),
+            sqlx::raw_sql(sqlx::AssertSqlSafe(create)).execute(&mut connection),
+        )
+        .await
+        .expect("template clone deadline")
+        .unwrap();
         admin.set_path(&format!("/{name}"));
         runtime.set_path(&format!("/{name}"));
-        Self { admin_url: admin.into(), runtime_url: runtime.into(), control_url, name }
+        Self {
+            admin_url: admin.into(),
+            runtime_url: runtime.into(),
+            control_url,
+            name,
+        }
     }
 }
 
@@ -58,15 +77,24 @@ impl Drop for MarketDatabase {
         let name = self.name.clone();
         // A separate runtime permits bounded cleanup during test panic or runtime shutdown.
         let result = std::thread::spawn(move || {
-            tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(async move {
-                tokio::time::timeout(Duration::from_secs(15), async {
-                    let mut connection = PgConnection::connect(&control).await?;
-                    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("DROP DATABASE IF EXISTS \"{name}\" WITH (FORCE)")))
-                        .execute(&mut connection).await?;
-                    Ok::<_, sqlx::Error>(())
-                }).await
-            })
-        }).join();
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(async move {
+                    tokio::time::timeout(Duration::from_secs(15), async {
+                        let mut connection = PgConnection::connect(&control).await?;
+                        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+                            "DROP DATABASE IF EXISTS \"{name}\" WITH (FORCE)"
+                        )))
+                        .execute(&mut connection)
+                        .await?;
+                        Ok::<_, sqlx::Error>(())
+                    })
+                    .await
+                })
+        })
+        .join();
         if !matches!(result, Ok(Ok(Ok(())))) {
             eprintln!("disposable market database cleanup did not complete");
         }

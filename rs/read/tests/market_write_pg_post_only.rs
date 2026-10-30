@@ -34,7 +34,8 @@ impl Fixture {
     /// `count` resting ASKs of 1 MT at 100 from another organization, plus the
     /// administrator who enters the assisted order.
     async fn new(count: i32) -> Self {
-        let database = std::sync::Arc::new(market_database::MarketDatabase::new("RUST_MATCHING").await);
+        let database =
+            std::sync::Arc::new(market_database::MarketDatabase::new("RUST_MATCHING").await);
         let admin_url = database.admin_url.clone();
         let runtime_url = database.runtime_url.clone();
         let admin_target = url::Url::parse(&admin_url).unwrap();

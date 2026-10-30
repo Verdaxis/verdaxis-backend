@@ -1,7 +1,7 @@
 -- Fixture helpers run only in the explicitly migrated disposable database.
 CREATE OR REPLACE FUNCTION effect_fixture_reset() RETURNS void LANGUAGE plpgsql AS $$
 BEGIN
-
+    NULL; -- Each fixture starts in its own database.
 END $$;
 
 CREATE OR REPLACE FUNCTION effect_fixture_seed(

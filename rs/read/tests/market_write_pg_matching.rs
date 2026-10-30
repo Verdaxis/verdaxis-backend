@@ -30,7 +30,8 @@ struct Fixture {
 }
 impl Fixture {
     async fn new(count: i32, quantity: &str) -> Self {
-        let database = std::sync::Arc::new(market_database::MarketDatabase::new("RUST_MATCHING").await);
+        let database =
+            std::sync::Arc::new(market_database::MarketDatabase::new("RUST_MATCHING").await);
         let admin_url = database.admin_url.clone();
         let runtime_url = database.runtime_url.clone();
         let admin_target = url::Url::parse(&admin_url).unwrap();
@@ -408,7 +409,7 @@ async fn sealed_matching_composes_stock_and_before_effects() {
         .unwrap();
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(4)
-        .connect(&f._database.runtime_url.clone())
+        .connect(&database.runtime_url)
         .await
         .unwrap();
     let result =
@@ -451,7 +452,7 @@ async fn independent_sealed_commands_compete_for_one_resting_remainder() {
         .unwrap();
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(4)
-        .connect(&f._database.runtime_url.clone())
+        .connect(&database.runtime_url)
         .await
         .unwrap();
     let (left, right) = tokio::join!(
@@ -514,20 +515,20 @@ const SELLER_USER: Uuid = Uuid::from_u128(0x2001);
 const SELLER_ORG: Uuid = Uuid::from_u128(0x2000);
 const ADMIN: Uuid = Uuid::from_u128(0x7000);
 
-async fn admin_connection(f: &Fixture) -> PgConnection {
-    PgConnection::connect(&f._database.admin_url.clone())
+async fn admin_connection(database: &market_database::MarketDatabase) -> PgConnection {
+    PgConnection::connect(&database.admin_url)
         .await
         .unwrap()
 }
-async fn runtime_connection(f: &Fixture) -> PgConnection {
-    PgConnection::connect(&f._database.runtime_url.clone())
+async fn runtime_connection(database: &market_database::MarketDatabase) -> PgConnection {
+    PgConnection::connect(&database.runtime_url)
         .await
         .unwrap()
 }
-async fn runtime_pool(f: &Fixture) -> sqlx::PgPool {
+async fn runtime_pool(database: &market_database::MarketDatabase) -> sqlx::PgPool {
     sqlx::postgres::PgPoolOptions::new()
         .max_connections(4)
-        .connect(&f._database.runtime_url.clone())
+        .connect(&database.runtime_url)
         .await
         .unwrap()
 }
@@ -568,7 +569,7 @@ async fn owner_and_organization_are_revalidated_under_lock() {
     );
     // An independent writer ends the grace and holds the resting row, so the
     // locked re-selection reads the grace before the writer commits.
-    let mut holder = admin_connection(&f).await;
+    let mut holder = admin_connection(&f._database).await;
     let mut holding = holder.begin().await.unwrap();
     sqlx::query(
         "UPDATE kyc_execution_grace SET expires_at='2026-10-25T11:00:00Z' WHERE user_id=$1",
@@ -578,7 +579,7 @@ async fn owner_and_organization_are_revalidated_under_lock() {
     .await
     .unwrap();
     probe_order_lock(&mut holding, f.resting[0]).await.unwrap();
-    let mut contender = runtime_connection(&f).await;
+    let mut contender = runtime_connection(&f._database).await;
     let pid = backend_pid(&mut contender).await;
     let aggressor = f.aggressor;
     let planning = tokio::spawn(async move {
@@ -587,7 +588,7 @@ async fn owner_and_organization_are_revalidated_under_lock() {
         tx.rollback().await.unwrap();
         planned.map(|planned| planned.plan.fills().len())
     });
-    let mut observer = admin_connection(&f).await;
+    let mut observer = admin_connection(&f._database).await;
     assert!(
         waits_on_a_lock(&mut observer, pid).await,
         "the locked re-selection must wait on the held row"
@@ -682,7 +683,7 @@ async fn kyc_writers_wait_for_the_held_party_locks() {
         .await
         .unwrap();
     assert_eq!(planned.plan.fills().len(), 1);
-    let mut writer = admin_connection(&f).await;
+    let mut writer = admin_connection(&f._database).await;
     let pid = backend_pid(&mut writer).await;
     let rejection = tokio::spawn(async move {
         sqlx::query("UPDATE users SET kyc_status='REJECTED' WHERE id=$1")
@@ -691,7 +692,7 @@ async fn kyc_writers_wait_for_the_held_party_locks() {
             .await
             .unwrap();
     });
-    let mut observer = admin_connection(&f).await;
+    let mut observer = admin_connection(&f._database).await;
     assert!(
         waits_on_a_lock(&mut observer, pid).await,
         "a KYC writer waits for the held owner lock"
@@ -709,7 +710,7 @@ async fn assisted_resting_order_needs_one_locked_eligible_customer_member() {
     // Valid: the supplier member of the customer organization authorizes.
     let mut f = Fixture::new(1, "1").await;
     f.assist(f.resting[0], ADMIN).await;
-    let pool = runtime_pool(&f).await;
+    let pool = runtime_pool(&f._database).await;
     let result = run_sealed_match(&pool, f.aggressor, now()).await.unwrap();
     assert_eq!(result.outcome.trades.len(), 1);
     let seller: Option<Uuid> = sqlx::query_scalar("SELECT seller_user_id FROM trades")
@@ -733,7 +734,7 @@ async fn assisted_resting_order_needs_one_locked_eligible_customer_member() {
     // prefix cannot lock it and the command is refused without effect.
     let mut f = Fixture::new(1, "1").await;
     f.assist(f.resting[0], ADMIN).await;
-    let mut holder = admin_connection(&f).await;
+    let mut holder = admin_connection(&f._database).await;
     let mut holding = holder.begin().await.unwrap();
     sqlx::query("UPDATE users SET kyc_status=kyc_status WHERE id=$1")
         .bind(SELLER_USER)
@@ -789,8 +790,8 @@ async fn assisted_resting_order_needs_one_locked_eligible_customer_member() {
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn assisted_aggressor_executes_for_its_customer_organization() {
-    let pool = runtime_pool(&f).await;
     let mut f = Fixture::new(1, "1").await;
+    let pool = runtime_pool(&f._database).await;
     f.assist(f.aggressor, ADMIN).await;
     let result = run_sealed_match(&pool, f.aggressor, now()).await.unwrap();
     assert_eq!(result.outcome.trades.len(), 1);
@@ -801,7 +802,9 @@ async fn assisted_aggressor_executes_for_its_customer_organization() {
     assert_eq!(buyer, (Uuid::from_u128(0x1000), Some(ADMIN)));
     f.conserved().await;
 
+    pool.close().await;
     let mut f = Fixture::new(1, "1").await;
+    let pool = runtime_pool(&f._database).await;
     f.assist(f.aggressor, ADMIN).await;
     f.party(BUYER_USER, "kyc_rejected").await;
     let result = run_sealed_match(&pool, f.aggressor, now()).await.unwrap();
@@ -914,7 +917,7 @@ async fn demo_pair_executes_only_its_exact_orders() {
     .unwrap();
     assert_eq!(parties, (bid, paired, "DEMO".to_owned(), "DEMO".to_owned()));
     // The sealed owner reaches the same decision with the pair as an internal input.
-    let pool = runtime_pool(&f).await;
+    let pool = runtime_pool(&f._database).await;
     let mut f = Fixture::new(0, "1").await;
     sqlx::query("SELECT matching_fixture_demo($1,$2,$3,$4)")
         .bind(bid)
@@ -946,7 +949,7 @@ async fn preview_overflow_survives_a_row_dropped_before_locking() {
     let mut f = Fixture::new(101, "101").await;
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(4)
-        .connect(&f._database.runtime_url.clone())
+        .connect(&f._database.runtime_url)
         .await
         .unwrap();
     let barrier = Arc::new(MatchPreviewBarrier::default());

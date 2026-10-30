@@ -37,7 +37,8 @@ struct Fixture {
 }
 impl Fixture {
     async fn new() -> Self {
-        let database = std::sync::Arc::new(market_database::MarketDatabase::new("RUST_SETTLEMENT").await);
+        let database =
+            std::sync::Arc::new(market_database::MarketDatabase::new("RUST_SETTLEMENT").await);
         let a = database.admin_url.clone();
         let r = database.runtime_url.clone();
         let au = url::Url::parse(&a).unwrap();
@@ -748,10 +749,9 @@ async fn wait_for_lock(conn: &mut PgConnection) {
 async fn deliver_and_pay_serialize_in_both_orders() {
     for first in ["deliver", "pay"] {
         let mut f = Fixture::new().await;
-        let mut holder =
-            PgConnection::connect(&f._database.admin_url.clone())
-                .await
-                .unwrap();
+        let mut holder = PgConnection::connect(&f._database.admin_url.clone())
+            .await
+            .unwrap();
         sqlx::query("BEGIN").execute(&mut holder).await.unwrap();
         sqlx::query("SELECT id FROM trades WHERE id=$1 FOR UPDATE")
             .bind(f.trade)
@@ -971,10 +971,9 @@ async fn receipt_context_mismatch_returns_no_stored_body() {
 #[ignore = "requires an attested disposable PostgreSQL"]
 async fn receipt_lock_contention_is_bounded_and_has_no_effect() {
     let mut f = Fixture::new().await;
-    let mut holder =
-        PgConnection::connect(&f._database.admin_url.clone())
-            .await
-            .unwrap();
+    let mut holder = PgConnection::connect(&f._database.admin_url.clone())
+        .await
+        .unwrap();
     sqlx::query("BEGIN").execute(&mut holder).await.unwrap();
     sqlx::query("SELECT settlement_fixture_hold_key($1)")
         .bind(id(SELLER))
@@ -1418,10 +1417,9 @@ async fn both_settlement_receipt_locks_return_bounded_unavailable() {
         if action == "pay" {
             ok(f.deliver(SELLER, None).await, "DELIVERED").await;
         }
-        let mut holder =
-            PgConnection::connect(&f._database.admin_url.clone())
-                .await
-                .unwrap();
+        let mut holder = PgConnection::connect(&f._database.admin_url.clone())
+            .await
+            .unwrap();
         sqlx::query("BEGIN").execute(&mut holder).await.unwrap();
         sqlx::query("SELECT settlement_fixture_hold_operation_key($1,$2)")
             .bind(id(SELLER))
