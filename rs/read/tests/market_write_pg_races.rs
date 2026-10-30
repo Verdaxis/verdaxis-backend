@@ -1,6 +1,6 @@
 #![cfg(feature = "contract-tests")]
 
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 
 use axum::{Router, body::Body, http::{Request, StatusCode}};
 use jsonwebtoken::{EncodingKey, Header, encode};
@@ -65,7 +65,6 @@ impl Fixture {
         (router,pool)
     }
     async fn call(&self, command: Command) -> (StatusCode,Value) {
-        // Lifecycle's component constructor uses its own synthetic issuer.
         let (router,pool) = self.router("races-serial").await;
         let result = send(router,command).await; pool.close().await; result
     }
@@ -112,6 +111,9 @@ async fn wait(admin: &mut PgConnection,name: &str,blocker: &str) -> i32 {
     }
 }
 fn ok(result: &(StatusCode,Value),status: StatusCode) { assert_eq!(result.0,status,"{result:?}"); }
+fn lifecycle(trade: Uuid, action: &str) -> Command {
+    Command::new(if action=="pay"{"POST"}else{"PUT"},format!("/api/trades/{trade}/{action}"),SELLER,if action=="deliver"{json!({"final_quantity_mt":"300","final_price_per_mt":"100"})}else{Value::Null})
+}
 
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
@@ -257,4 +259,139 @@ async fn cancel_receipt_is_bound_to_the_original_resource() {
     let replay=f.call(f.cancel(order).keyed("shared")).await; ok(&replay,StatusCode::NO_CONTENT);
     let other=f.call(f.cancel(Uuid::new_v4()).keyed("shared")).await; ok(&other,StatusCode::CONFLICT);
     assert_eq!(f.effects().await,original);
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn confirm_and_decline_observe_one_pending_transition() {
+    for confirm_first in [false,true] {
+        let mut f=Fixture::new().await; let order=f.listing().await;
+        let take=f.take(order,"300").await; let result=f.call(take).await; ok(&result,StatusCode::OK);
+        let trade=result.1["id"].as_str().unwrap().parse().unwrap();
+        let (a,b)=if confirm_first{f.overlap(lifecycle(trade,"confirm"),lifecycle(trade,"decline")).await}else{f.overlap(lifecycle(trade,"decline"),lifecycle(trade,"confirm")).await};
+        ok(&a,StatusCode::OK); ok(&b,StatusCode::BAD_REQUEST);
+        assert_eq!(b.1["detail"]["code"],"TRADE_NOT_PENDING");
+        assert_eq!(f.stock().await,(Decimal::ZERO,Decimal::from(if confirm_first{700}else{1000})));
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn deliver_and_pay_observe_the_committed_state() {
+    for deliver_first in [false,true] {
+        let mut f=Fixture::new().await; let order=f.listing().await;
+        let take=f.take(order,"300").await; let result=f.call(take).await; ok(&result,StatusCode::OK);
+        let trade=result.1["id"].as_str().unwrap().parse().unwrap();
+        ok(&f.call(lifecycle(trade,"confirm")).await,StatusCode::OK);
+        if deliver_first {
+            let (a,b)=f.overlap(lifecycle(trade,"deliver"),lifecycle(trade,"pay")).await;
+            ok(&a,StatusCode::OK);ok(&b,StatusCode::OK);
+        } else {
+            let before=f.effects().await;
+            ok(&f.call(lifecycle(trade,"pay")).await,StatusCode::BAD_REQUEST);
+            assert_eq!(f.effects().await,before);
+            ok(&f.call(lifecycle(trade,"deliver")).await,StatusCode::OK);
+            ok(&f.call(lifecycle(trade,"pay")).await,StatusCode::OK);
+        }
+        f.ledger().await;
+        let state: (String,Option<chrono::DateTime<chrono::Utc>>,Option<chrono::DateTime<chrono::Utc>>)=sqlx::query_as("SELECT status::text,delivered_at,paid_at FROM trades WHERE id=$1").bind(trade).fetch_one(&mut f.admin).await.unwrap();
+        assert_eq!(state.0,"PAID");assert!(state.1.is_some() && state.2.is_some());
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn take_and_crossing_publication_share_the_remainder() {
+    for take_first in [false,true] {
+        let mut f=Fixture::new().await;
+        let created=f.call(f.create("500","90")).await;ok(&created,StatusCode::CREATED);
+        let order=created.1["id"].as_str().unwrap().parse().unwrap();
+        let row: Value=sqlx::query_scalar("SELECT to_jsonb(o) FROM orderbook_orders o WHERE id=$1").bind(order).fetch_one(&mut f.admin).await.unwrap();
+        let digest=verdaxis_read::canonical_terms_from_row(&row).and_then(|v|verdaxis_read::digest_terms(&v)).unwrap();
+        let take=Command::new("POST","/api/trades/".into(),SELLER,json!({"order_id":order,"quantity_mt":"200","expected_terms_digest":digest}));
+        if take_first {
+            let (a,b)=f.overlap(take,f.publish()).await;ok(&a,StatusCode::OK);ok(&b,StatusCode::OK);
+        } else {
+            // A non-crossing publication does not consume the bid.
+            let (a,b)=f.overlap(f.publish(),take).await;ok(&a,StatusCode::OK);ok(&b,StatusCode::OK);
+        }
+        f.ledger().await;
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn finite_seeded_lifecycle_sequences_preserve_the_ledger() {
+    use proptest::{prelude::*,test_runner::{Config,TestRng,TestRunner,RngAlgorithm}};
+    for seed in [29_u64,174,20261030] {
+        let mut runner=TestRunner::new_with_rng(Config{failure_persistence:None,..Config::default()},TestRng::from_seed(RngAlgorithm::ChaCha,&seed.to_le_bytes().repeat(4)));
+        let choices=proptest::collection::vec(any::<bool>(),5).new_tree(&mut runner).unwrap().current();
+        let mut f=Fixture::new().await;
+        for (index,confirm) in choices.into_iter().enumerate() {
+            let mut create=f.create("500","90");
+            create.body["availability_window"]=json!(format!("{}-Q1",2027+index));
+            create=create.keyed(&format!("seed-{seed}-{index}"));
+            let created=f.call(create.clone()).await;ok(&created,StatusCode::CREATED);f.ledger().await;
+            let order=created.1["id"].as_str().unwrap().parse().unwrap();
+            ok(&f.call(create).await,StatusCode::CREATED);f.ledger().await;
+            let amend=Command::new("PUT",format!("/api/orderbook/{order}"),BUYER,json!({"quantity_mt":"600"}));
+            ok(&f.call(amend).await,StatusCode::OK);f.ledger().await;
+            let mut take=f.take(order,"200").await;take.actor=SELLER;
+            let taken=f.call(take).await;ok(&taken,StatusCode::OK);f.ledger().await;
+            let trade=taken.1["id"].as_str().unwrap().parse().unwrap();
+            let mut action=lifecycle(trade,if confirm{"confirm"}else{"decline"});action.actor=BUYER;
+            ok(&f.call(action).await,StatusCode::OK);f.ledger().await;
+            let cancel=Command::new("DELETE",format!("/api/orderbook/{order}"),BUYER,Value::Null).keyed(&format!("cancel-{seed}-{index}"));
+            ok(&f.call(cancel.clone()).await,StatusCode::NO_CONTENT);f.ledger().await;
+            ok(&f.call(cancel).await,StatusCode::NO_CONTENT);f.ledger().await;
+            println!("FINITE_SEQUENCE seed={seed} slice={index} writers=rust-create,rust-replay,rust-amend,rust-take,rust-{},rust-cancel,rust-replay",if confirm{"confirm"}else{"decline"});
+        }
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn amend_take_and_cancel_keep_current_pin_display() {
+    let mut f=Fixture::new().await;let order=f.listing().await;
+    let policy:Value=serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap();
+    let code=policy["products"].as_array().unwrap().iter().find(|p|p["id"]==f.product.to_string()).unwrap()["code"].as_str().unwrap();
+    sqlx::query("SELECT races_pin($1,$2)").bind(order).bind(code).execute(&mut f.admin).await.unwrap();
+    let history:Value=sqlx::query_scalar("SELECT jsonb_agg(jsonb_build_object('id',id,'payload',payload) ORDER BY id) FROM market_event_outbox").fetch_one(&mut f.admin).await.unwrap();
+    ok(&f.call(f.amend(order,"800")).await,StatusCode::OK);
+    assert_pin(&mut f.admin,order).await;
+    let take=f.take(order,"300").await;ok(&f.call(take).await,StatusCode::OK);
+    assert_pin(&mut f.admin,order).await;
+    ok(&f.call(f.cancel(order)).await,StatusCode::NO_CONTENT);
+    assert_pin(&mut f.admin,order).await;
+    let historical_ids:Vec<Uuid>=history.as_array().unwrap().iter().map(|r|r["id"].as_str().unwrap().parse().unwrap()).collect();
+    let after:Value=sqlx::query_scalar("SELECT jsonb_agg(jsonb_build_object('id',id,'payload',payload) ORDER BY id) FROM market_event_outbox WHERE id=ANY($1)").bind(historical_ids).fetch_one(&mut f.admin).await.unwrap();
+    assert_eq!(history,after);f.ledger().await;
+}
+async fn assert_pin(admin:&mut PgConnection,order:Uuid) {
+    let same:bool=sqlx::query_scalar("SELECT w.snapshot_price_per_mt_usd=o.price_per_mt_usd AND w.snapshot_quantity_mt=o.quantity_mt AND w.snapshot_remaining_quantity_mt=o.remaining_quantity_mt AND w.snapshot_status=o.status::text FROM watchlist_targets w JOIN orderbook_orders o ON o.id=w.order_id WHERE o.id=$1").bind(order).fetch_one(admin).await.unwrap();assert!(same,"PIN display follows the committed economic row");
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn publication_expiry_and_confirmation_preserve_pending_stock() {
+    for confirm_first in [false,true] {
+        let mut f=Fixture::new().await;let order=f.listing().await;
+        let take=f.take(order,"300").await;let taken=f.call(take).await;ok(&taken,StatusCode::OK);
+        let trade=taken.1["id"].as_str().unwrap().parse().unwrap();
+        sqlx::query("SELECT races_expire($1)").bind(order).execute(&mut f.admin).await.unwrap();
+        let (a,b)=if confirm_first{f.overlap(lifecycle(trade,"confirm"),f.publish()).await}else{f.overlap(f.publish(),lifecycle(trade,"confirm")).await};
+        ok(&a,StatusCode::OK);ok(&b,StatusCode::OK);
+        assert_eq!(f.stock().await,(Decimal::ZERO,Decimal::from(700)));
+        let status:String=sqlx::query_scalar("SELECT status::text FROM orderbook_orders WHERE id=$1").bind(order).fetch_one(&mut f.admin).await.unwrap();assert_eq!(status,"EXPIRED");
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn publication_expiry_before_take_refuses_the_old_order() {
+    let mut f=Fixture::new().await;let order=f.listing().await;let take=f.take(order,"300").await;
+    sqlx::query("SELECT races_expire($1)").bind(order).execute(&mut f.admin).await.unwrap();
+    let (a,b)=f.overlap(f.publish(),take).await;ok(&a,StatusCode::OK);ok(&b,StatusCode::BAD_REQUEST);
+    assert_eq!(b.1["detail"]["code"],"ORDER_UNAVAILABLE");
+    assert_eq!(f.stock().await,(Decimal::ZERO,Decimal::from(1000)));
 }
