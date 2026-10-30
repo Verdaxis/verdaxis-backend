@@ -705,8 +705,8 @@ async fn kyc_writers_wait_for_the_held_party_locks() {
 async fn assisted_resting_order_needs_one_locked_eligible_customer_member() {
     // Valid: the supplier member of the customer organization authorizes.
     let mut f = Fixture::new(1, "1").await;
-    f.assist(f.resting[0], ADMIN).await;
     let pool = runtime_pool(&f._database).await;
+    f.assist(f.resting[0], ADMIN).await;
     let result = run_sealed_match(&pool, f.aggressor, now()).await.unwrap();
     assert_eq!(result.outcome.trades.len(), 1);
     let seller: Option<Uuid> = sqlx::query_scalar("SELECT seller_user_id FROM trades")
@@ -719,6 +719,7 @@ async fn assisted_resting_order_needs_one_locked_eligible_customer_member() {
     // Absent or rejected member: no customer authority.
     for change in ["absent", "kyc_rejected"] {
         let mut f = Fixture::new(1, "1").await;
+        let pool = runtime_pool(&f._database).await;
         f.assist(f.resting[0], ADMIN).await;
         f.party(SELLER_USER, change).await;
         let result = run_sealed_match(&pool, f.aggressor, now()).await.unwrap();
@@ -729,6 +730,7 @@ async fn assisted_resting_order_needs_one_locked_eligible_customer_member() {
     // Contended member: an open KYC writer holds the member row, so the
     // prefix cannot lock it and the command is refused without effect.
     let mut f = Fixture::new(1, "1").await;
+    let pool = runtime_pool(&f._database).await;
     f.assist(f.resting[0], ADMIN).await;
     let mut holder = admin_connection(&f._database).await;
     let mut holding = holder.begin().await.unwrap();
@@ -756,6 +758,7 @@ async fn assisted_resting_order_needs_one_locked_eligible_customer_member() {
 
     // A member who joins after the preview is not locked and cannot authorize.
     let mut f = Fixture::new(1, "1").await;
+    let pool = runtime_pool(&f._database).await;
     f.assist(f.resting[0], ADMIN).await;
     let previewed = preview_parties(
         &mut f.writer,
@@ -913,8 +916,8 @@ async fn demo_pair_executes_only_its_exact_orders() {
     .unwrap();
     assert_eq!(parties, (bid, paired, "DEMO".to_owned(), "DEMO".to_owned()));
     // The sealed owner reaches the same decision with the pair as an internal input.
-    let pool = runtime_pool(&f._database).await;
     let mut f = Fixture::new(0, "1").await;
+    let pool = runtime_pool(&f._database).await;
     sqlx::query("SELECT matching_fixture_demo($1,$2,$3,$4)")
         .bind(bid)
         .bind(paired)

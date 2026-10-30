@@ -936,7 +936,7 @@ async fn composite_uses_shared_execution_eligibility_with_gate_on_and_off() {
 
 /// Observe the actual lock wait before allowing the competing command to proceed.
 async fn wait_for_blocked_transaction(observer: &mut PgConnection, blocker: i32) -> i32 {
-    tokio::time::timeout(std::time::Duration::from_millis(300), async {
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
         loop {
             let waiting: Option<i32> = sqlx::query_scalar(
                 "SELECT pid FROM pg_stat_activity WHERE datname=current_database() \

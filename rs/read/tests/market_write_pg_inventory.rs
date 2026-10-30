@@ -338,9 +338,12 @@ async fn inventory_indicative_admission_does_not_require_execution_kyc() {
         sqlx::query("UPDATE users SET kyc_status=$2,kyc_organization_id=CASE WHEN $2='APPROVED' THEN organization_id ELSE NULL END WHERE id=$1").bind(f.actor).bind(kyc).execute(&mut f.admin).await.unwrap();
         f.create().await;
     }
+    let other = Uuid::new_v4();
+    sqlx::query("INSERT INTO organizations(id,name,type,verification_status,provenance) VALUES($1,'Other inventory organization','FUEL_SUPPLIER','APPROVED','REAL')")
+        .bind(other).execute(&mut f.admin).await.unwrap();
     sqlx::query("UPDATE users SET kyc_organization_id=$2 WHERE id=$1")
         .bind(f.actor)
-        .bind(Fixture::new().await.organization)
+        .bind(other)
         .execute(&mut f.admin)
         .await
         .unwrap();
