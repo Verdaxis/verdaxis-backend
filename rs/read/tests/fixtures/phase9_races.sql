@@ -1,6 +1,7 @@
 -- Installed only in fresh disposable databases by the concurrent component suite.
 CREATE OR REPLACE FUNCTION races_seed() RETURNS void LANGUAGE plpgsql AS $$
 BEGIN
+    DROP TRIGGER IF EXISTS create_fixture_abort ON orderbook_orders;
     PERFORM publish_fixture_seed(0,1000);
     UPDATE products SET min_lot_size=1 WHERE id='c4cecebc-3d2d-5840-8021-57a9a11bc673';
     INSERT INTO users(id,email,password_hash,role,status,email_verified,must_change_password)
