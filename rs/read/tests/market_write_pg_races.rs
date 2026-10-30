@@ -1096,6 +1096,10 @@ async fn amend_take_and_cancel_keep_current_pin_display() {
     let after:Value=sqlx::query_scalar("SELECT jsonb_agg(jsonb_build_object('id',id,'payload',payload) ORDER BY id) FROM market_event_outbox WHERE id=ANY($1)").bind(historical_ids).fetch_one(&mut f.admin).await.unwrap();
     assert_eq!(history, after);
     f.ledger().await;
+    let next=f.listing().await;
+    sqlx::query("SELECT races_pin($1,$2)").bind(next).bind(code).execute(&mut f.admin).await.unwrap();
+    f.reader_check(next).await;
+    let take=f.take(next,"700").await;ok(&f.call(take).await,StatusCode::OK);f.reader_check(next).await;f.ledger().await;
 }
 async fn assert_pin(admin: &mut PgConnection, order: Uuid) {
     let same:bool=sqlx::query_scalar("SELECT w.snapshot_price_per_mt_usd=o.price_per_mt_usd AND w.snapshot_quantity_mt=o.quantity_mt AND w.snapshot_remaining_quantity_mt=o.remaining_quantity_mt AND w.snapshot_status=o.status::text FROM watchlist_targets w JOIN orderbook_orders o ON o.id=w.order_id WHERE o.id=$1").bind(order).fetch_one(&mut *admin).await.unwrap();
