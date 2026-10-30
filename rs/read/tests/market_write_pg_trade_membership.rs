@@ -1,4 +1,6 @@
 #![cfg(feature = "contract-tests")]
+#[path = "support/market_database.rs"]
+mod market_database;
 use axum::{
     Router,
     body::Body,
@@ -21,6 +23,7 @@ fn delivery() -> Value {
     json!({"final_quantity_mt":"3","final_price_per_mt":"100"})
 }
 struct Fixture {
+    _database: std::sync::Arc<market_database::MarketDatabase>,
     admin: PgConnection,
 
     router: Router,
@@ -28,8 +31,9 @@ struct Fixture {
 }
 impl Fixture {
     async fn new() -> Self {
-        let a = std::env::var("RUST_SETTLEMENT_ADMIN_DATABASE_URL").expect("disposable admin URL");
-        let r = std::env::var("RUST_SETTLEMENT_DATABASE_URL").expect("disposable runtime URL");
+        let database = std::sync::Arc::new(market_database::MarketDatabase::new("RUST_SETTLEMENT").await);
+        let a = database.admin_url.clone();
+        let r = database.runtime_url.clone();
         let au = url::Url::parse(&a).unwrap();
         let ru = url::Url::parse(&r).unwrap();
         assert_eq!(au.host_str(), Some("127.0.0.1"));
@@ -86,6 +90,7 @@ impl Fixture {
             .unwrap();
         let router = contract_router(pool.clone(), KEY, true).merge(verdaxis_read::routes::market_write::trades::contract_router(pool.clone(), KEY, true));
         Self {
+            _database: database,
             admin,
             router,
             trade,
@@ -309,5 +314,35 @@ async fn rejected_organization_cannot_create_a_new_trade() {
         .header("authorization", format!("Bearer {token}"))
         .body(Body::from(json!({"order_id":id(1),"quantity_mt":"1","expected_terms_digest":"a".repeat(64)}).to_string())).unwrap()).await.unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    assert_eq!(f.snapshot().await, before);
+}
+
+#[tokio::test]
+#[ignore = "requires an attested disposable PostgreSQL"]
+async fn membership_move_serializes_before_settlement_authority() {
+    let mut f = Fixture::new().await;
+    let mut holder = PgConnection::connect(&f._database.admin_url).await.unwrap();
+    sqlx::query("BEGIN").execute(&mut holder).await.unwrap();
+    sqlx::query("SELECT id FROM organizations WHERE id=$1 FOR UPDATE")
+        .bind(id(0x2000)).execute(&mut holder).await.unwrap();
+    let before = f.snapshot().await;
+    let router = f.router.clone();
+    let trade = f.trade;
+    let task = tokio::spawn(async move {
+        send(&router, trade, "deliver", Some(SELLER), &[], delivery().to_string(), 0).await
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND pid<>pg_backend_pid())")
+                .fetch_one(&mut f.admin).await.unwrap();
+            if waiting { break; }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    }).await.unwrap();
+    sqlx::query("SELECT trades_fixture_change($1,'moved')").bind(id(SELLER)).execute(&mut holder).await.unwrap();
+    sqlx::query("COMMIT").execute(&mut holder).await.unwrap();
+    let (status, body) = task.await.unwrap();
+    assert!(matches!(status, StatusCode::FORBIDDEN | StatusCode::CONFLICT), "{body}");
+    assert!(body.get("status").is_none());
     assert_eq!(f.snapshot().await, before);
 }
