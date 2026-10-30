@@ -32,7 +32,7 @@ CREATE OR REPLACE FUNCTION confirm_fixture_withdraw(state text, reserved numeric
  UPDATE inventory_items SET current_stock_mt=7,reserved_stock_mt=reserved;
 END $$;
 CREATE OR REPLACE FUNCTION confirm_fixture_wait_expiry() RETURNS void LANGUAGE plpgsql AS $$ BEGIN
- UPDATE orderbook_orders SET expires_at=clock_timestamp()+interval '250 milliseconds';
+ UPDATE orderbook_orders SET expires_at=clock_timestamp()+interval '120 milliseconds';
 END $$;
 CREATE OR REPLACE FUNCTION confirm_fixture_hold_order() RETURNS void LANGUAGE plpgsql AS $$ BEGIN
  PERFORM id FROM orderbook_orders FOR UPDATE;

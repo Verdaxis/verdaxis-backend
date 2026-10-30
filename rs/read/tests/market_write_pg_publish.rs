@@ -807,13 +807,45 @@ async fn expiry_invalidation_follows_each_orders_public_visibility() {
     }
 }
 
+async fn wait_for_blocked_expiry(
+    blocker_pid: i32,
+    expires_at: chrono::DateTime<Utc>,
+) -> tokio::time::Instant {
+    let mut observer =
+        PgConnection::connect(&std::env::var("RUST_PUBLISH_ADMIN_DATABASE_URL").unwrap())
+            .await
+            .unwrap();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND $1=ANY(pg_blocking_pids(pid)))",
+            )
+            .bind(blocker_pid)
+            .fetch_one(&mut observer)
+            .await
+            .unwrap();
+            if waiting {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+    })
+    .await
+    .expect("publication must reach its held row lock");
+    let observed_at = tokio::time::Instant::now();
+    let remaining = (expires_at - Utc::now()).to_std().unwrap_or_default();
+    tokio::time::sleep_until(observed_at + remaining + Duration::from_millis(5)).await;
+    assert!(Utc::now() >= expires_at);
+    observed_at
+}
+
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn listing_expiry_during_party_lock_wait_is_not_reused() {
     let mut f = Fixture::new(0, 200).await;
     let first = f.publish(None).await;
     assert_eq!(first.0, StatusCode::OK, "{first:?}");
-    let deadline = Utc::now() + chrono::Duration::milliseconds(200);
+    let deadline = Utc::now() + chrono::Duration::milliseconds(120);
     sqlx::query("SELECT publish_fixture_expiry($1)")
         .bind(deadline)
         .execute(&mut f.admin)
@@ -826,10 +858,19 @@ async fn listing_expiry_during_party_lock_wait_is_not_reused() {
     .execute(&mut *lock)
     .await
     .unwrap();
+    let blocker_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *lock)
+        .await
+        .unwrap();
     let router = f.router.clone();
     let task = tokio::spawn(async move { send(&router, Some(seller()), item(), None).await });
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    let observed_at = wait_for_blocked_expiry(blocker_pid, deadline).await;
     lock.commit().await.unwrap();
+    assert!(
+        observed_at.elapsed() < Duration::from_millis(200),
+        "party lock hold must leave margin below the 500 ms lock timeout: {:?}",
+        observed_at.elapsed()
+    );
     let reply = task.await.unwrap();
     assert_eq!(reply.0, StatusCode::OK, "{reply:?}");
     assert_ne!(reply.1["listing_id"], first.1["listing_id"]);
@@ -1243,7 +1284,7 @@ async fn listing_expiry_during_inventory_lock_wait_creates_a_new_listing() {
     let mut f = Fixture::new(0, 200).await;
     let first = f.publish(None).await;
     assert_eq!(first.0, StatusCode::OK, "{first:?}");
-    let deadline = Utc::now() + chrono::Duration::milliseconds(250);
+    let deadline = Utc::now() + chrono::Duration::milliseconds(120);
     sqlx::query("SELECT publish_fixture_expiry($1)")
         .bind(deadline)
         .execute(&mut f.admin)
@@ -1255,17 +1296,20 @@ async fn listing_expiry_during_inventory_lock_wait_creates_a_new_listing() {
         .execute(&mut *blocker)
         .await
         .unwrap();
+    let blocker_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *blocker)
+        .await
+        .unwrap();
     let router = f.router.clone();
     let task = tokio::spawn(async move { send(&router, Some(seller()), item(), None).await });
-    tokio::time::sleep(Duration::from_millis(50)).await;
-    let returned_before_unlock = task.is_finished();
-    tokio::time::sleep(Duration::from_millis(250)).await;
+    let observed_at = wait_for_blocked_expiry(blocker_pid, deadline).await;
     blocker.commit().await.unwrap();
-    let reply = task.await.unwrap();
     assert!(
-        !returned_before_unlock,
-        "publication must wait for the inventory row"
+        observed_at.elapsed() < Duration::from_millis(200),
+        "inventory lock hold must leave margin below the 500 ms lock timeout: {:?}",
+        observed_at.elapsed()
     );
+    let reply = task.await.unwrap();
     assert_eq!(reply.0, StatusCode::OK, "{reply:?}");
     assert_ne!(reply.1["listing_id"], first.1["listing_id"]);
     let rows=sqlx::query("SELECT status::text AS status,quantity_mt,remaining_quantity_mt FROM orderbook_orders ORDER BY created_at,id").fetch_all(&mut f.observer).await.unwrap();
