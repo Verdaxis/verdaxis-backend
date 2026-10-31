@@ -91,7 +91,7 @@ DECLARE deadline timestamptz:=clock_timestamp()+interval '8 seconds';
 BEGIN
     LOOP
         PERFORM pg_stat_clear_snapshot();
-        IF EXISTS(SELECT 1 FROM pg_stat_activity a WHERE a.datname=current_database() AND a.application_name='races-second' AND a.wait_event_type='Lock' AND EXISTS(SELECT 1 FROM pg_stat_activity b WHERE b.pid=ANY(pg_blocking_pids(a.pid)) AND b.application_name='races-first')) THEN RETURN; END IF;
+        IF EXISTS(SELECT 1 FROM pg_stat_activity a WHERE a.datname=current_database() AND a.application_name='races-second' AND a.wait_event_type='Lock' AND EXISTS(SELECT 1 FROM pg_stat_activity b WHERE b.pid=ANY(pg_blocking_pids(a.pid)) AND b.application_name IN ('races-first','races-holder'))) AND EXISTS(SELECT 1 FROM pg_stat_activity c WHERE c.datname=current_database() AND c.application_name='races-first' AND c.wait_event_type='Lock' AND pg_backend_pid()=ANY(pg_blocking_pids(c.pid))) THEN RETURN; END IF;
         IF clock_timestamp()>deadline THEN RAISE EXCEPTION 'refusal contender did not overlap'; END IF;
         PERFORM pg_sleep(0.001);
     END LOOP;
