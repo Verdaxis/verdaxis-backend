@@ -361,7 +361,7 @@ fn job_preflight_refuses_dangling_state_and_live_deploy() {
         .expect("absent state passes the preflight");
 
     // A dangling symlink is present state. `Path::exists` follows the link and
-    // would report it absent, which is the Python guard defect R2.
+    // would report it absent.
     std::os::unix::fs::symlink(directory.path().join("absent-target"), &state)
         .expect("plant a dangling state link");
     assert!(

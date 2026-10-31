@@ -39,7 +39,7 @@ pub fn require_identity(
 ///
 /// `symlink_metadata` does not follow the final component, so a dangling state
 /// link is still present state. `Path::exists` follows it and would wrongly
-/// report the path absent; that is defect R2 in the Python guards.
+/// report the path absent.
 pub fn require_deploy_state_absent(state: &Path) -> Result<(), Exit> {
     match std::fs::symlink_metadata(state) {
         Ok(_) => Err(Exit::Precondition),
