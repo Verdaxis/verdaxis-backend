@@ -465,6 +465,41 @@ async fn rejection_restores_both_linked_sides_and_releases_only_terminal_stock()
                 2
             );
             assert_eq!(after["watch"].as_array().unwrap().len(), 2);
+            let (owned_order, counterparty_order) = if rejected_buyer {
+                (bid, ask)
+            } else {
+                (ask, bid)
+            };
+            let counterparty_action = if expired {
+                "order.expired"
+            } else {
+                "order.updated"
+            };
+            let counterparty_event = match expected_status {
+                "CANCELLED" => "PIN_WITHDRAWN",
+                "EXPIRED" => "PIN_EXPIRED",
+                _ => "PIN_PARTIALLY_FILLED",
+            };
+            for (order, action, event) in [
+                (owned_order, "order.cancelled", "PIN_WITHDRAWN"),
+                (counterparty_order, counterparty_action, counterparty_event),
+            ] {
+                let order_audits: Vec<_> = audits
+                    .iter()
+                    .filter(|a| a["resource_id"] == order.to_string())
+                    .collect();
+                assert_eq!(order_audits.len(), 1);
+                assert_eq!(order_audits[0]["action"], action);
+                assert_eq!(order_audits[0]["changes"]["reason"], "organization_rejected");
+                let events: Vec<_> = after["watch"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|e| e["event_payload"]["order_id"] == serde_json::json!(order))
+                    .collect();
+                assert_eq!(events.len(), 1);
+                assert_eq!(events[0]["event_type"], event);
+            }
             let notifications: i64 = sqlx::query_scalar("SELECT count(*) FROM notifications")
                 .fetch_one(&mut f.conn)
                 .await
