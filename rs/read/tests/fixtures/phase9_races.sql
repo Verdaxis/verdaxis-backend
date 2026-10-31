@@ -83,7 +83,8 @@ END $$;
 
 CREATE OR REPLACE FUNCTION races_hold_resource(target uuid,is_trade boolean) RETURNS void LANGUAGE plpgsql AS $$
 BEGIN
-    IF is_trade THEN PERFORM id FROM trades WHERE id=target FOR UPDATE;
+    IF target='00000000-0000-0000-0000-000000002000'::uuid THEN PERFORM id FROM organizations WHERE id=target FOR UPDATE;
+    ELSIF is_trade THEN PERFORM id FROM trades WHERE id=target FOR UPDATE;
     ELSE PERFORM id FROM inventory_items WHERE id=target FOR UPDATE; END IF;
 END $$;
 CREATE OR REPLACE FUNCTION races_wait_second() RETURNS void LANGUAGE plpgsql AS $$

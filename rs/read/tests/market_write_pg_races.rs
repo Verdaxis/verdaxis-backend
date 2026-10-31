@@ -452,7 +452,7 @@ asyncio.run(main())"#;
             .await
             .unwrap();
         let a = tokio::spawn(send(r1, first));
-        tokio::task::yield_now().await;
+        wait(&mut self.admin, "races-first", "races-holder").await;
         let b = tokio::spawn(send(r2, second));
         sqlx::raw_sql("SELECT races_wait_second(); COMMIT")
             .execute(&mut holder)
@@ -1780,17 +1780,11 @@ async fn concurrent_cancel_keys_bind_matching_and_other_resources() {
         let counts = f.effects().await;
         let winner = if reverse { second } else { first };
         let loser = if reverse { first } else { second };
-        let item: Uuid =
-            sqlx::query_scalar("SELECT inventory_item_id FROM orderbook_orders WHERE id=$1")
-                .bind(winner)
-                .fetch_one(&mut f.admin)
-                .await
-                .unwrap();
         let (a, b) = f
             .refusal_overlap(
                 f.cancel(winner).keyed("same"),
                 f.cancel(loser).keyed("same"),
-                item,
+                id(0x2000),
                 false,
             )
             .await;
