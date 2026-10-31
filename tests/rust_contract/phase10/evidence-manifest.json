@@ -301,7 +301,7 @@
     "test_phase10_helpers_are_exactly_14",
     "test_phase10_no_row_is_ownerless_or_untested",
     "test_phase10_routes_are_exactly_188",
-    "test_phase10_scripts_are_exactly_40",
+    "test_phase10_scripts_are_exactly_41",
     "test_phase10_units_are_exactly_41",
     "the_rust_backup_verify_monitor_accepts_the_nightly_artifact",
     "timer_catch_up_after_restart_runs_once",
@@ -2144,10 +2144,10 @@
       "required_result": "test phase10 routes are exactly 188."
     },
     {
-      "id": "test_phase10_scripts_are_exactly_40",
+      "id": "test_phase10_scripts_are_exactly_41",
       "owner_task": 1,
       "plan_requirement": "Task 1, test assertions",
-      "required_result": "test phase10 scripts are exactly 40."
+      "required_result": "test phase10 scripts are exactly 41."
     },
     {
       "id": "test_phase10_units_are_exactly_41",

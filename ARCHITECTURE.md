@@ -871,8 +871,10 @@ binary. Task 1 pins the removal inventory under
 `tests/rust_contract/phase10/` (`removal-ledger`, `routes`, `units`,
 `scripts`, `evidence-manifest`) and `tests/rust_contract/test_phase10_inventory.py`,
 a standalone harness that parses source as data (never imports the
-application) and keeps the 188-route/41-unit/40-script/14-helper snapshot with
-per-artifact end states. Task 2 adds `rs/read/src/cli/`: `mod.rs` owns the
+application) and keeps the 188-route/41-unit/41-script/14-helper snapshot with
+per-artifact end states. The integration owner re-pins source digests when an
+accepted staging change edits an inventoried file, and adds a disposition row
+for every new inventoried file. Task 2 adds `rs/read/src/cli/`: `mod.rs` owns the
 clap-derived `Command` tree (`serve`, `migrate`, `acl`, `job`, `monitor`,
 `recover`, `ops`, `guard`, `canary`), the `Exit` codes (0/2/3/4/5), the legacy
 `--bind`/`--budget-file` form that keeps both installed unit files valid, and

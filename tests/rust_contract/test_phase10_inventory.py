@@ -165,10 +165,12 @@ def test_phase10_units_are_exactly_41():
     validate_source(rows, ledger)
 
 
-def test_phase10_scripts_are_exactly_40():
+def test_phase10_scripts_are_exactly_41():
     rows = document("scripts")["artifacts"]
-    assert len(rows) == 40, "missing script disposition rows"
-    assert sum(row["source"].endswith(".py") for row in rows) == 35
+    # 35 Python + 5 shell at the plan checkpoint, plus the Phase 5 read-route
+    # Caddy candidate (scripts/rust_phase5_candidate.py) added on staging.
+    assert len(rows) == 41, "missing script disposition rows"
+    assert sum(row["source"].endswith(".py") for row in rows) == 36
     ledger = document("removal-ledger")
     if ledger["phase"] == "pre-removal":
         assert sorted(row["source"] for row in rows) == source_scripts()
@@ -218,7 +220,7 @@ REQUIRED_SCENARIOS_BY_TASK = {
         "test_phase10_helpers_are_exactly_14",
         "test_phase10_no_row_is_ownerless_or_untested",
         "test_phase10_routes_are_exactly_188",
-        "test_phase10_scripts_are_exactly_40",
+        "test_phase10_scripts_are_exactly_41",
         "test_phase10_units_are_exactly_41",
     ],
     2: [
@@ -677,7 +679,7 @@ SUPPLEMENTAL_GROUPS = {
 }
 
 # Freeze source identity after removal too; dispositions and result records can change.
-PINNED_SOURCE_IDENTITIES = '54cb056ee78c7790a476696aee11575b7814057f25649688e221048c81d53e44'
+PINNED_SOURCE_IDENTITIES = '3ae7db7fab928e201aa2cd831026a91e5ff7eb9663767b452e0c554a8ec06bf2'
 
 
 def validate_inventory_contract(ledger, manifest):

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_commit": "274bd3ab737621339d158ab4795578009de5bf4f",
+  "source_commit": "2e1ccad2dc1a996bec629dff4c892a32ac3da576",
   "source_checkpoint": "sha256 of each source file; no branch-name identity",
   "artifacts": [
     {
@@ -320,7 +320,7 @@
       "end_state": "rust",
       "owner": "serve",
       "task": 10,
-      "source_sha256": "c5f1bbf5f9891baa8e92a9bc001d66fee52acb8096f9ead6a6a1546c3c0f24d3",
+      "source_sha256": "18b15b7ec1d448070d64abc4d07ab1c6f7eb26b0d049de914567de0e4c92a592",
       "status": "planned",
       "evidence": [
         "test_phase10_units_are_exactly_41",
@@ -337,7 +337,7 @@
       "end_state": "rust",
       "owner": "serve",
       "task": 10,
-      "source_sha256": "8a0b170386fbfc2338a0a3b0bba0515778c6472ed7bdb3562ceded97ac58159a",
+      "source_sha256": "8adb1319fa4a0bc28e3168e7139b2197584e17c270ffaacd34812510ceae1f74",
       "status": "planned",
       "evidence": [
         "test_phase10_units_are_exactly_41",

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_commit": "274bd3ab737621339d158ab4795578009de5bf4f",
+  "source_commit": "2e1ccad2dc1a996bec629dff4c892a32ac3da576",
   "source_checkpoint": "sha256 of each source file; no branch-name identity",
   "artifacts": [
     {
@@ -336,7 +336,7 @@
       "end_state": "rust",
       "owner": "ops prepare-budget",
       "task": 9,
-      "source_sha256": "f8ec252889c200b4532ab7f3df364977d6619061797c94685610a36d71ed2a2a",
+      "source_sha256": "4bfe29a4d6090f2eea0adb71bcd6bc8d10423b84ec7b6fca2ba619dad2b515be",
       "status": "planned",
       "evidence": [
         "budget_matches_configured_authority_not_measured_load"
@@ -352,7 +352,7 @@
       "end_state": "rust",
       "owner": "ops prepare-runtime",
       "task": 9,
-      "source_sha256": "8282bdec93309dac2a97495bcdc83cf8ff2420553eab990586d54addfd98644f",
+      "source_sha256": "0269e6a808c41e0033345636108899f16a11395a4c270aeefe1663fa82b58c67",
       "status": "planned",
       "evidence": [
         "serve_env_contains_only_reviewed_http_credentials"
@@ -384,7 +384,7 @@
       "end_state": "retired-offhost",
       "owner": "Task 26 off-host tooling",
       "task": 26,
-      "source_sha256": "3f3b9b8103fa717240db98ca55cd8bb3068d9f0fc1e654faa58e96321eeba1d6",
+      "source_sha256": "4d305ce051ed3208bd00463b6941c152c3b2d5b17e973c53fdaa291fb3b1d13f",
       "status": "planned",
       "evidence": [
         "offhost_rows_name_a_tool_a_reason_and_a_location"
@@ -4355,7 +4355,7 @@
       "end_state": "shell",
       "owner": "Task 7 deploy owner",
       "task": 7,
-      "source_sha256": "27c1668a98c17cb897ae50949a2c2219fdcbd047e99e31d9dd7304a46cf4e0ef",
+      "source_sha256": "2a2d00654a13bdff488e92ac3a714d93000a450871f92cb415604628cb95877d",
       "status": "planned",
       "evidence": [
         "deploy_script_has_no_python_or_pip_reference"
@@ -4471,7 +4471,7 @@
       "end_state": "rust",
       "owner": "ops prepare-budget",
       "task": 9,
-      "source_sha256": "f8ec252889c200b4532ab7f3df364977d6619061797c94685610a36d71ed2a2a",
+      "source_sha256": "4bfe29a4d6090f2eea0adb71bcd6bc8d10423b84ec7b6fca2ba619dad2b515be",
       "status": "planned",
       "evidence": [
         "budget_matches_configured_authority_not_measured_load"
@@ -4487,7 +4487,7 @@
       "end_state": "rust",
       "owner": "ops prepare-runtime",
       "task": 9,
-      "source_sha256": "8282bdec93309dac2a97495bcdc83cf8ff2420553eab990586d54addfd98644f",
+      "source_sha256": "0269e6a808c41e0033345636108899f16a11395a4c270aeefe1663fa82b58c67",
       "status": "planned",
       "evidence": [
         "serve_env_contains_only_reviewed_http_credentials"
@@ -4605,7 +4605,7 @@
       "end_state": "retired-offhost",
       "owner": "Task 26 off-host tooling",
       "task": 26,
-      "source_sha256": "3f3b9b8103fa717240db98ca55cd8bb3068d9f0fc1e654faa58e96321eeba1d6",
+      "source_sha256": "4d305ce051ed3208bd00463b6941c152c3b2d5b17e973c53fdaa291fb3b1d13f",
       "status": "planned",
       "evidence": [
         "offhost_rows_name_a_tool_a_reason_and_a_location"
@@ -4632,6 +4632,24 @@
       "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
       "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
       "last_reference_change": "Task 32 removes Python units, upstreams and runtime references"
+    },
+    {
+      "id": "script.rust_phase5_candidate.py",
+      "source": "scripts/rust_phase5_candidate.py",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 26 off-host tooling",
+      "task": 26,
+      "source_sha256": "024fc4b11179fe2643f3d5227949af0d2b3c8eeca8e653d1123885d6b55ab868",
+      "status": "planned",
+      "evidence": [
+        "offhost_rows_name_a_tool_a_reason_and_a_location"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "offhost_location": "repository: CI/disposable tooling only; excluded from deployed artifact",
+      "retirement_reason": "Not an installed Verdaxis runtime command; retain only off-host audit or disposable use."
     },
     {
       "id": "script.scrape_fleet_demand.py",
@@ -5637,7 +5655,7 @@
       "end_state": "rust",
       "owner": "serve",
       "task": 10,
-      "source_sha256": "c5f1bbf5f9891baa8e92a9bc001d66fee52acb8096f9ead6a6a1546c3c0f24d3",
+      "source_sha256": "18b15b7ec1d448070d64abc4d07ab1c6f7eb26b0d049de914567de0e4c92a592",
       "status": "planned",
       "evidence": [
         "test_phase10_units_are_exactly_41",
@@ -5654,7 +5672,7 @@
       "end_state": "rust",
       "owner": "serve",
       "task": 10,
-      "source_sha256": "8a0b170386fbfc2338a0a3b0bba0515778c6472ed7bdb3562ceded97ac58159a",
+      "source_sha256": "8adb1319fa4a0bc28e3168e7139b2197584e17c270ffaacd34812510ceae1f74",
       "status": "planned",
       "evidence": [
         "test_phase10_units_are_exactly_41",
