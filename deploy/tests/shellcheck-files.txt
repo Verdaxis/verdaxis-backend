@@ -1,0 +1,2 @@
+deploy/scripts/verify-artifact.sh
+deploy/tests/artifact-contract.sh
