@@ -28,6 +28,7 @@ pub const ALLOWED_REVISIONS: &[&str] = &[
     "p3_20261020_auth_tokens",
     "sse_20261021_replay_floor",
     "p5_20261020_read_indexes",
+    "ob_20261031_offboarding",
 ];
 
 /// The reviewed allowlist file, read by the drift test against `ALLOWED_REVISIONS`.

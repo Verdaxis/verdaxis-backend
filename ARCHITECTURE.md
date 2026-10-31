@@ -150,6 +150,23 @@ revision. `tests/unit/test_phase5_indexes.py`,
 `tests/unit/test_phase5_checkpoints.py` and
 `tests/postgres/test_phase5_read_indexes.py` check it.
 
+## Individual account state marker
+
+`alembic/versions/ob_20261031_individual_offboarding.py` (revision
+`ob_20261031_offboarding`, parent `p5_20261020_read_indexes`) adds the nullable
+`users.offboarded_at` marker and the append-only `individual_offboardings`
+history. No status value is added: a marked user keeps `REJECTED`. The named
+checks `ck_users_offboarded_requires_rejected` and
+`ck_users_offboarded_requires_detached` require a marked row to be rejected and
+detached, so an approval or a join cannot restore it while the marker is set.
+The history table restricts deletion of the people and organization it names,
+and the runtime role holds only SELECT and INSERT on it
+(`deploy/postgres/app_acl_policy.sql`). The downgrade refuses while any marker
+or record exists. `deploy/migration-checkpoints.tsv` lists the exact step from
+the parent and the self row; the Rust allowlist accepts the parent as well.
+`rs/read/tests/offboarding_schema.rs` and `offboarding_schema_postgres.rs`
+check it; `rs/read/tests/run_offboarding_schema.sh` runs the database cases.
+
 ## Rust business serving composition
 
 `runtime/phase4.rs` assembles the 42 business, KYC, operator, vessel,

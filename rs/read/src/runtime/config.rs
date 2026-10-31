@@ -606,6 +606,7 @@ pub fn validate_config(config: &Config) -> Result<(), String> {
                 | "p3_20261020_auth_tokens"
                 | "sse_20261021_replay_floor"
                 | "p5_20261020_read_indexes"
+                | "ob_20261031_offboarding"
         ) {
             return Err("production requires its reviewed union checkpoint".into());
         }

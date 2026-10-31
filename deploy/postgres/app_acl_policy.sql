@@ -32,6 +32,10 @@ INSERT INTO app_table_policy (table_name, privileges) VALUES
     ('fair_price_bands', ARRAY['SELECT']),
     -- Feedback is append-only from the app; admins read, never edit.
     ('feedback_entries', ARRAY['SELECT', 'INSERT']),
+    -- Individual offboarding history is append-only from the app: the runtime
+    -- reads and adds rows and never rewrites or removes them. The marker column
+    -- on users is covered by the existing table-level users grant.
+    ('individual_offboardings', ARRAY['SELECT', 'INSERT']),
     ('inventory_items', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('kyc_documents', ARRAY['SELECT', 'INSERT']),
     ('kyc_execution_grace', ARRAY['SELECT']),

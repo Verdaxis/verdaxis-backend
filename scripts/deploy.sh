@@ -981,7 +981,7 @@ if [[ "$RUST_SELECTED" == "1" ]]; then
     # keeps this list equal to that part of deploy/rust/allowed-revisions.json.
     RUST_STREAM_LISTENER="0"
     case "$MIGRATION_TARGET_REVISION" in
-        sse_20261021_replay_floor|p5_20261020_read_indexes) RUST_STREAM_LISTENER="1" ;;
+        sse_20261021_replay_floor|p5_20261020_read_indexes|ob_20261031_offboarding) RUST_STREAM_LISTENER="1" ;;
     esac
     if ! "${PYTHON_ENV[@]}" ./venv/bin/python scripts/prepare_rust_budget.py \
         --cache-listener "$RUST_CACHE_LISTENER" \
