@@ -266,6 +266,14 @@ impl FreezeAudit {
     }
 }
 
+/// What the freeze commands read from the locked trade row.
+struct TradeFacts {
+    status: String,
+    actor_is_party: bool,
+    /// Both parties are demonstration organizations.
+    demonstration: bool,
+}
+
 pub(super) struct FreezePort<'a> {
     conn: &'a mut PgConnection,
     actor: &'a AuthenticatedActor,
@@ -283,13 +291,13 @@ impl<'a> FreezePort<'a> {
         }
         Ok(Self { conn, actor })
     }
-    async fn trade(&mut self, trade: Uuid) -> Result<(String, bool), MarketWriteError> {
+    async fn trade(&mut self, trade: Uuid) -> Result<TradeFacts, MarketWriteError> {
         // F1 and F2 share the lifecycle's trade row, held until the owner commits.
-        let row = sqlx::query("SELECT status::text AS status,buyer_id,seller_id,buyer_user_id,seller_user_id FROM trades WHERE id=$1 FOR UPDATE")
+        let row = sqlx::query("SELECT status::text AS status,buyer_id,seller_id,buyer_user_id,seller_user_id,buyer_provenance::text AS buyer_provenance,seller_provenance::text AS seller_provenance FROM trades WHERE id=$1 FOR UPDATE")
             .bind(trade).fetch_optional(&mut *self.conn).await?.ok_or_else(|| MarketWriteError::new(MarketErrorCode::TradeNotFound))?;
         let user = self.actor.user_id();
         let organization = self.actor.account().current_organization_id;
-        let party = [
+        let actor_is_party = [
             row.try_get::<Option<Uuid>, _>("buyer_user_id")?,
             row.try_get("seller_user_id")?,
         ]
@@ -297,7 +305,14 @@ impl<'a> FreezePort<'a> {
             || organization.is_some_and(|id| {
                 [row.get::<Uuid, _>("buyer_id"), row.get("seller_id")].contains(&id)
             });
-        Ok((row.try_get("status")?, party))
+        // The same pair of provenances the demonstration prune deletes.
+        let demonstration = row.try_get::<String, _>("buyer_provenance")? == "DEMO"
+            && row.try_get::<String, _>("seller_provenance")? == "DEMO";
+        Ok(TradeFacts {
+            status: row.try_get("status")?,
+            actor_is_party,
+            demonstration,
+        })
     }
     async fn active(&mut self, trade: Uuid) -> Result<Option<FreezeResponse>, MarketWriteError> {
         let row = sqlx::query("SELECT id,trade_id,status,reason_code,note,frozen_by_user_id,frozen_at,cleared_by_user_id,cleared_at,clear_note,version FROM trade_freezes WHERE trade_id=$1 AND status='ACTIVE' FOR UPDATE")
@@ -309,7 +324,11 @@ impl<'a> FreezePort<'a> {
         trade: Uuid,
         request: &FreezeRequest,
     ) -> Result<(FreezeResponse, Option<FreezeAudit>), MarketWriteError> {
-        let (status, party) = self.trade(trade).await?;
+        let TradeFacts {
+            status,
+            actor_is_party: party,
+            demonstration,
+        } = self.trade(trade).await?;
         if let Some(row) = self.active(trade).await? {
             if row.frozen_by_user_id == self.actor.user_id()
                 && row.reason_code == request.reason_code
@@ -317,6 +336,12 @@ impl<'a> FreezePort<'a> {
                 return Ok((row, None));
             }
             return Err(MarketWriteError::new(MarketErrorCode::TradeAlreadyFrozen));
+        }
+        // Refused before any write: the demonstration prune must never meet freeze history.
+        if demonstration {
+            return Err(MarketWriteError::new(
+                MarketErrorCode::TradeDemoNotFreezable,
+            ));
         }
         if !matches!(
             status.as_str(),
@@ -345,7 +370,7 @@ impl<'a> FreezePort<'a> {
         trade: Uuid,
         request: &UnfreezeRequest,
     ) -> Result<(FreezeResponse, FreezeAudit), MarketWriteError> {
-        let (_, party) = self.trade(trade).await?;
+        let party = self.trade(trade).await?.actor_is_party;
         let previous = self
             .active(trade)
             .await?
