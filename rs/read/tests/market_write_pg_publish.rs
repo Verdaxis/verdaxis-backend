@@ -816,10 +816,7 @@ async fn wait_for_blocked_expiry(
     blocker_pid: i32,
     expires_at: chrono::DateTime<Utc>,
 ) -> tokio::time::Instant {
-    let mut observer =
-        PgConnection::connect(admin_url)
-            .await
-            .unwrap();
+    let mut observer = PgConnection::connect(admin_url).await.unwrap();
     tokio::time::timeout(Duration::from_secs(5), async {
         loop {
             let waiting: bool = sqlx::query_scalar(
