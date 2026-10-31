@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 use sqlx::{PgConnection, Row};
 use uuid::Uuid;
 
-use super::invalidation::{InvalidateOrganization, InvalidationError, Order};
+use super::invalidation::{InvalidateOrganization, InvalidationError, OrderRestoration};
 use crate::{
     business::audit::{AuditFact, append_audit},
     market::visibility::{VisibilityClock, public_order_sql},
@@ -36,12 +36,26 @@ async fn audit(
     Ok(())
 }
 
-pub(super) async fn withdrawal_effects(
+pub(super) async fn restoration_effects(
     conn: &mut PgConnection,
     command: &InvalidateOrganization,
-    orders: &[Order],
+    changes: &[OrderRestoration],
+    trades: &[Uuid],
 ) -> Result<(), InvalidationError> {
-    for order in orders {
+    let reference = format!("organization:{}", command.organization_id);
+    for trade in trades {
+        audit(
+            conn,
+            command,
+            "trade.cancelled",
+            "trade",
+            *trade,
+            json!({"status":"CANCELLED","reason":"organization_rejected","reference":reference}),
+        )
+        .await?;
+    }
+    for change in changes {
+        let order = &change.after;
         let product = command
             .policy
             .products
@@ -64,11 +78,20 @@ pub(super) async fn withdrawal_effects(
         } else {
             "UNKNOWN"
         };
-        let payload = json!({"source_kind":source,"demo_status":demo,"scope":scope,"observed_at":command.now,"market_product_code":product,"delivery_point_id":order.delivery_point_id,"delivery_point_name":point_name,"availability_window_code":order.availability_window,"order_id":order.id,"status":"CANCELLED"});
-        sqlx::query("INSERT INTO watchlist_events(id,watchlist_id,watchlist_target_id,event_type,event_payload,is_read,created_at) SELECT gen_random_uuid(),watchlist_id,id,'PIN_WITHDRAWN',$2::jsonb,false,$3 FROM watchlist_targets WHERE target_type='PIN' AND order_id=$1")
-            .bind(order.id).bind(&payload).bind(command.now).execute(&mut *conn).await?;
-        sqlx::query("UPDATE watchlist_targets SET market_product_code=$2,delivery_point_id=$3,availability_window_code=$4,snapshot_price_per_mt_usd=$5::numeric::double precision,snapshot_quantity_mt=$6::numeric::double precision,snapshot_remaining_quantity_mt=$7::numeric::double precision,snapshot_status='CANCELLED',snapshot_side=$8,snapshot_market_product=$2,snapshot_delivery_point_name=$9,snapshot_availability_window=$4,snapshot_counterparty_label=NULL WHERE target_type='PIN' AND order_id=$1")
-            .bind(order.id).bind(product).bind(order.delivery_point_id).bind(&order.availability_window).bind(order.price_per_mt_usd).bind(order.quantity_mt).bind(order.remaining_quantity_mt).bind(&order.side).bind(point_name).execute(&mut *conn).await?;
+        let payload = json!({"source_kind":source,"demo_status":demo,"scope":scope,"observed_at":command.now,"market_product_code":product,"delivery_point_id":order.delivery_point_id,"delivery_point_name":point_name,"availability_window_code":order.availability_window,"order_id":order.id,"status":order.status,"old_remaining_quantity_mt":change.before.remaining_quantity_mt,"new_remaining_quantity_mt":order.remaining_quantity_mt});
+        let event = match order.status.as_str() {
+            "CANCELLED" => "PIN_WITHDRAWN",
+            "EXPIRED" => "PIN_EXPIRED",
+            "PARTIALLY_FILLED" => "PIN_PARTIALLY_FILLED",
+            "FILLED" => "PIN_FILLED",
+            _ => "PIN_QUANTITY_CHANGED",
+        };
+        if change.restored != Decimal::ZERO || change.before.status != order.status {
+            sqlx::query("INSERT INTO watchlist_events(id,watchlist_id,watchlist_target_id,event_type,event_payload,is_read,created_at) SELECT gen_random_uuid(),watchlist_id,id,$4,$2::jsonb,false,$3 FROM watchlist_targets WHERE target_type='PIN' AND order_id=$1")
+                .bind(order.id).bind(&payload).bind(command.now).bind(event).execute(&mut *conn).await?;
+        }
+        sqlx::query("UPDATE watchlist_targets SET market_product_code=$2,delivery_point_id=$3,availability_window_code=$4,snapshot_price_per_mt_usd=$5::numeric::double precision,snapshot_quantity_mt=$6::numeric::double precision,snapshot_remaining_quantity_mt=$7::numeric::double precision,snapshot_status=$10,snapshot_side=$8,snapshot_market_product=$2,snapshot_delivery_point_name=$9,snapshot_availability_window=$4,snapshot_counterparty_label=NULL WHERE target_type='PIN' AND order_id=$1")
+            .bind(order.id).bind(product).bind(order.delivery_point_id).bind(&order.availability_window).bind(order.price_per_mt_usd).bind(order.quantity_mt).bind(order.remaining_quantity_mt).bind(&order.side).bind(point_name).bind(&order.status).execute(&mut *conn).await?;
         if let (Some(product), Some(point)) = (product, order.delivery_point_id) {
             // Watchlist evidence includes UNKNOWN counts, but never selects their prices.
             // Keep the canonical catalog/current/admission predicates unchanged.
@@ -129,7 +152,15 @@ pub(super) async fn withdrawal_effects(
                     .bind(product).bind(point).bind(&order.availability_window).bind(slice_payload).bind(command.now).execute(&mut *conn).await?;
             }
         }
-        audit(conn,command,"order.cancelled","order",order.id,json!({"status":"CANCELLED","restored_quantity_mt":"0","released_quantity_mt":if order.inventory_item_id.is_some() {order.remaining_quantity_mt} else {Decimal::ZERO}})).await?;
+        let terminal_before = matches!(change.before.status.as_str(), "CANCELLED" | "EXPIRED");
+        let action = if order.organization_id == command.organization_id && !terminal_before {
+            "order.cancelled"
+        } else if order.status == "EXPIRED" && !terminal_before {
+            "order.expired"
+        } else {
+            "order.updated"
+        };
+        audit(conn,command,action,"order",order.id,json!({"status":order.status,"restored_quantity_mt":change.restored.to_string(),"released_quantity_mt":change.released.to_string(),"reason":"organization_rejected","reference":reference})).await?;
     }
     Ok(())
 }
@@ -147,11 +178,11 @@ pub(super) async fn organization_effects(
         "market.access_invalidated",
         "organization",
         command.organization_id,
-        json!({"preserved_trade_ids":trades,"affected_order_ids":orders}),
+        json!({"cancelled_trade_ids":trades,"affected_order_ids":orders,"reason":"organization_rejected","reference":format!("organization:{}",command.organization_id)}),
     )
     .await?;
     let id = Uuid::new_v4();
     sqlx::query("INSERT INTO market_event_outbox(id,event_type,aggregate_type,aggregate_id,participant_org_ids,payload,created_at,delivery_attempts) VALUES($1,'market_access_invalidated','organization',$2,$3::jsonb,$4::jsonb,$5,0)")
-        .bind(id).bind(command.organization_id.to_string()).bind(json!(participants)).bind(json!({"schema_version":1,"organization_id":command.organization_id,"cancelled_trade_count":0,"preserved_trade_count":trades.len(),"affected_order_count":orders.len(),"_public_market_invalidation":true})).bind(command.now).execute(conn).await?;
+        .bind(id).bind(command.organization_id.to_string()).bind(json!(participants)).bind(json!({"schema_version":1,"organization_id":command.organization_id,"cancelled_trade_count":trades.len(),"affected_order_count":orders.len(),"reference":format!("organization:{}",command.organization_id),"_public_market_invalidation":true})).bind(command.now).execute(conn).await?;
     Ok(id)
 }
