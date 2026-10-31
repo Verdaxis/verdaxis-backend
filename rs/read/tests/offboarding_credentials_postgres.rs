@@ -392,8 +392,10 @@ fn python_refused(outcome: &Value) -> bool {
 // Rust login and refresh through their routers.
 // ---------------------------------------------------------------------------
 
-fn login_state(pool: &PgPool, held: Option<Arc<Barrier>>) -> login::LoginState {
-    let mut state = login::LoginState::from_settings(
+/// The serving composition: the login's unknown-account hash is prepared
+/// before any request, so no attempt computes it while holding a row lock.
+async fn login_state(pool: &PgPool, held: Option<Arc<Barrier>>) -> login::LoginState {
+    let mut state = login::LoginState::new(
         pool.clone(),
         "production",
         SECRET,
@@ -401,7 +403,8 @@ fn login_state(pool: &PgPool, held: Option<Arc<Barrier>>) -> login::LoginState {
         ISSUER,
         AUDIENCE,
         SharedLimits::default(),
-    );
+    )
+    .await;
     state.hooks.user_locked = held;
     state
 }
@@ -557,7 +560,7 @@ async fn cutoff_is_taken_after_user_lock() {
     let device = generate_token();
     let held = Arc::new(Barrier::new(2));
     let attempt = tokio::spawn(send_login(
-        login_state(&db.session, Some(held.clone())),
+        login_state(&db.session, Some(held.clone())).await,
         user.email.clone(),
         device.clone(),
     ));
@@ -636,7 +639,7 @@ async fn cutoff_is_taken_after_user_lock() {
         .await
         .unwrap();
     let attempt = tokio::spawn(send_login(
-        login_state(&db.session, None),
+        login_state(&db.session, None).await,
         user.email.clone(),
         generate_token(),
     ));
