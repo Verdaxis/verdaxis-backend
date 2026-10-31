@@ -323,7 +323,7 @@ impl<M: ApprovalMail, E: AdmissionEvents> BusinessCommand for ApproveAccount<M, 
     ) -> CommandFuture<'a, Self::Output, AttemptError> {
         Box::pin(async move {
             require_admin(actor)?;
-            let row = sqlx::query("SELECT status::text AS status,role::text AS role,organization_id,email_verified FROM users WHERE id=$1")
+            let row = sqlx::query("SELECT status::text AS status,role::text AS role,organization_id,email_verified,offboarded_at FROM users WHERE id=$1")
                 .bind(self.user_id).fetch_optional(&mut *conn).await?.ok_or_else(missing)?;
             let role: Option<String> = row.get("role");
             if role.as_deref() == Some("ADMIN") {
@@ -331,6 +331,19 @@ impl<M: ApprovalMail, E: AdmissionEvents> BusinessCommand for ApproveAccount<M, 
                     StatusCode::FORBIDDEN,
                     "ACCOUNT_NOT_MANAGEABLE",
                     "Administrator accounts cannot be managed here.",
+                )
+                .into());
+            }
+            // Approval never restores an offboarded account. The database
+            // refuses that state too; this refusal comes first and writes nothing.
+            if row
+                .get::<Option<DateTime<Utc>>, _>("offboarded_at")
+                .is_some()
+            {
+                return Err(refusal(
+                    StatusCode::CONFLICT,
+                    "ACCOUNT_OFFBOARDED",
+                    "The account access has ended and cannot be approved here.",
                 )
                 .into());
             }

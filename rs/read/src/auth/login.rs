@@ -243,7 +243,12 @@ async fn issue_attempt(
         .execute(&mut *transaction)
         .await?;
     store::lock_device(&mut transaction, device_hash).await?;
-    let user = store::lock_user_by_email(&mut transaction, email).await?;
+    // An offboarded account is refused exactly as an unknown address: its
+    // stored hash is not consulted, so neither the response nor its timing
+    // shows that the account exists.
+    let user = store::lock_user_by_email(&mut transaction, email)
+        .await?
+        .filter(|user| user.offboarded_at.is_none());
     #[cfg(feature = "contract-tests")]
     if let Some(barrier) = &state.hooks.user_locked {
         barrier.wait().await;

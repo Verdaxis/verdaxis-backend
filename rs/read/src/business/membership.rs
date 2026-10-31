@@ -87,14 +87,16 @@ pub async fn admit(
     template: &'static str,
 ) -> Result<crate::auth::VerifiedAccess, ApiError> {
     let access=crate::runtime::admission::run_admitted(state,move |conn|Box::pin(async move {
-        let row=sqlx::query("SELECT status::text AS status,must_change_password,password_changed_at,authentication_revoked_at,role::text AS role FROM users WHERE id=$1")
+        let row=sqlx::query("SELECT status::text AS status,must_change_password,password_changed_at,authentication_revoked_at,offboarded_at,role::text AS role FROM users WHERE id=$1")
             .bind(access.subject).fetch_optional(conn).await.map_err(|_|super::error::database_failure(None))?
             .ok_or_else(||super::error::authentication(crate::auth::AuthError::Credentials))?;
         let password:Option<DateTime<Utc>>=row.get("password_changed_at");
         let revoked:Option<DateTime<Utc>>=row.get("authentication_revoked_at");
+        let offboarded:Option<DateTime<Utc>>=row.get("offboarded_at");
         crate::auth::validate_account(&access,&crate::auth::AccountState {
             exists:true,status:row.get("status"),must_change_password:row.get("must_change_password"),
             password_changed_at:password.map(|v|v.timestamp_micros()),authentication_revoked_at:revoked.map(|v|v.timestamp_micros()),
+            offboarded:offboarded.is_some(),
         }).map_err(super::error::authentication)?;
         if row.get::<Option<String>,_>("role").as_deref()!=Some("ADMIN") {
             return Err(refusal(StatusCode::FORBIDDEN,"ADMIN_REQUIRED","Administrator access is required."));

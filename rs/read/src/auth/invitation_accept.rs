@@ -140,6 +140,7 @@ struct Invitation {
     status: String,
     referral_code: Option<String>,
     password_changed_at: Option<DateTime<Utc>>,
+    offboarded_at: Option<DateTime<Utc>>,
 }
 
 /// The columns of [`Invitation`]. The organization is joined on the user's own
@@ -149,7 +150,7 @@ const SELECT_INVITATION: &str = "SELECT u.id, u.role::text AS role, u.organizati
      o.verification_status AS organization_status, \
      o.provenance::text AS organization_provenance, \
      u.email_verified, u.must_change_password, u.status::text AS status, \
-     u.referral_code, u.password_changed_at \
+     u.referral_code, u.password_changed_at, u.offboarded_at \
      FROM users u LEFT JOIN organizations o ON o.id = u.organization_id \
      WHERE u.password_reset_token_hash = $1 AND u.password_reset_expires > $2 \
      FOR UPDATE OF u";
@@ -169,8 +170,12 @@ fn role_matches_organization(role: &str, organization_type: &str) -> bool {
 
 /// Python's `_is_unclaimed_admin_invitation`: an approved, unverified,
 /// forced-change account whose role matches its approved live organization. A
-/// spent invitation fails here too, because acceptance clears the flags.
+/// spent invitation fails here too, because acceptance clears the flags. An
+/// offboarded account is never eligible, whatever its other state.
 fn eligible(invitation: &Invitation) -> bool {
+    if invitation.offboarded_at.is_some() {
+        return false;
+    }
     let (Some(role), Some(organization_type), Some(status), Some(provenance)) = (
         invitation.role.as_deref(),
         invitation.organization_type.as_deref(),

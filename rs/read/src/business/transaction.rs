@@ -215,17 +215,19 @@ async fn attempt<C: BusinessCommand>(
         .await?;
     let result = async {
         lock_organization_write(&mut transaction, &plan.scope).await?;
-        let row = sqlx::query("SELECT id,organization_id,role::text AS role,status::text AS status,email_verified,must_change_password,password_changed_at,authentication_revoked_at FROM users WHERE id=$1")
+        let row = sqlx::query("SELECT id,organization_id,role::text AS role,status::text AS status,email_verified,must_change_password,password_changed_at,authentication_revoked_at,offboarded_at FROM users WHERE id=$1")
             .bind(access.subject).fetch_optional(&mut *transaction).await?
             .ok_or_else(|| AttemptError::Application(authentication(crate::auth::AuthError::Credentials)))?;
         let password: Option<chrono::DateTime<chrono::Utc>> = row.get("password_changed_at");
         let revoked: Option<chrono::DateTime<chrono::Utc>> = row.get("authentication_revoked_at");
+        let offboarded: Option<chrono::DateTime<chrono::Utc>> = row.get("offboarded_at");
         validate_account(&access, &AccountState {
             exists: true,
             status: row.get("status"),
             must_change_password: row.get("must_change_password"),
             password_changed_at: password.map(|time| time.timestamp_micros()),
             authentication_revoked_at: revoked.map(|time| time.timestamp_micros()),
+            offboarded: offboarded.is_some(),
         }).map_err(|error| AttemptError::Application(authentication(error)))?;
         let current_organization: Option<Uuid> = row.get("organization_id");
         if current_organization != actor_organization { return Err(AttemptError::PreviewChanged); }

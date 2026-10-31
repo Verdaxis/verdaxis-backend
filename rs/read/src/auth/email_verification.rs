@@ -81,7 +81,7 @@ async fn verify_attempt(
 ) -> Result<Result<Value, ApiError>, sqlx::Error> {
     let mut tx = settings.pool.begin_with("BEGIN READ WRITE").await?;
     let now = Utc::now();
-    let user: Option<(uuid::Uuid, String, Option<String>)> = sqlx::query_as("SELECT id,email,referral_code FROM users WHERE email_verification_token_hash=$1 AND email_verification_token_expires_at > $2 AND NOT email_verified FOR UPDATE")
+    let user: Option<(uuid::Uuid, String, Option<String>)> = sqlx::query_as("SELECT id,email,referral_code FROM users WHERE email_verification_token_hash=$1 AND email_verification_token_expires_at > $2 AND NOT email_verified AND offboarded_at IS NULL FOR UPDATE")
         .bind(digest).bind(now).fetch_optional(&mut *tx).await?;
     if let Some((id, email, code)) = user {
         sqlx::query("UPDATE users SET email_verified=true,email_verification_token_hash=NULL,email_verification_token_expires_at=NULL WHERE id=$1").bind(id).execute(&mut *tx).await?;
@@ -161,7 +161,7 @@ async fn resend_attempt(
 ) -> Result<Option<AuthMail>, sqlx::Error> {
     let mut tx = settings.pool.begin_with("BEGIN READ WRITE").await?;
     let user: Option<(uuid::Uuid, Option<String>)> = sqlx::query_as(
-        "SELECT id,first_name FROM users WHERE email=$1 AND NOT email_verified FOR UPDATE",
+        "SELECT id,first_name FROM users WHERE email=$1 AND NOT email_verified AND offboarded_at IS NULL FOR UPDATE",
     )
     .bind(address)
     .fetch_optional(&mut *tx)

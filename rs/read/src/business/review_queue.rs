@@ -26,8 +26,10 @@ impl ReviewQuery {
     }
 }
 
+/// One onboarding case. An offboarded account is not a case: its access has
+/// ended and only a separate reviewed procedure may restore it.
 pub async fn detail(conn: &mut PgConnection, user: Uuid) -> Result<Value, ApiError> {
-    let users = sqlx::query_scalar::<_, Value>("SELECT jsonb_build_object('id',id,'email',email,'email_verified',email_verified,'role',role,'status',status,'organization_id',organization_id,'kyc_status',kyc_status,'kyc_organization_id',kyc_organization_id,'kyc_external_evidence_reference',kyc_external_evidence_reference,'kyc_review_note',kyc_review_note,'kyc_reviewed_by',kyc_reviewed_by,'kyc_reviewed_at',kyc_reviewed_at,'created_at',created_at) AS item FROM users u WHERE id=$1 AND role <> 'ADMIN'")
+    let users = sqlx::query_scalar::<_, Value>("SELECT jsonb_build_object('id',id,'email',email,'email_verified',email_verified,'role',role,'status',status,'organization_id',organization_id,'kyc_status',kyc_status,'kyc_organization_id',kyc_organization_id,'kyc_external_evidence_reference',kyc_external_evidence_reference,'kyc_review_note',kyc_review_note,'kyc_reviewed_by',kyc_reviewed_by,'kyc_reviewed_at',kyc_reviewed_at,'created_at',created_at) AS item FROM users u WHERE id=$1 AND role <> 'ADMIN' AND offboarded_at IS NULL")
         .bind(user).fetch_all(&mut *conn).await.map_err(|_| ApiError::database())?;
     project(conn, users).await?.pop().ok_or_else(|| {
         refusal(
@@ -38,8 +40,10 @@ pub async fn detail(conn: &mut PgConnection, user: Uuid) -> Result<Value, ApiErr
     })
 }
 
+/// The open onboarding cases, without offboarded accounts. A detached account
+/// is otherwise listed, and an offboarded account is always detached.
 pub async fn list(conn: &mut PgConnection, query: ReviewQuery) -> Result<Value, ApiError> {
-    let users = sqlx::query_scalar::<_, Value>("SELECT jsonb_build_object('id',id,'email',email,'email_verified',email_verified,'role',role,'status',status,'organization_id',organization_id,'kyc_status',kyc_status,'kyc_organization_id',kyc_organization_id,'kyc_external_evidence_reference',kyc_external_evidence_reference,'kyc_review_note',kyc_review_note,'kyc_reviewed_by',kyc_reviewed_by,'kyc_reviewed_at',kyc_reviewed_at,'created_at',created_at) AS item FROM users u WHERE role <> 'ADMIN' AND (status='PENDING' OR kyc_status IN ('SUBMITTED','REVIEW_REQUIRED','REJECTED') OR organization_id IS NULL) ORDER BY created_at,id LIMIT $1")
+    let users = sqlx::query_scalar::<_, Value>("SELECT jsonb_build_object('id',id,'email',email,'email_verified',email_verified,'role',role,'status',status,'organization_id',organization_id,'kyc_status',kyc_status,'kyc_organization_id',kyc_organization_id,'kyc_external_evidence_reference',kyc_external_evidence_reference,'kyc_review_note',kyc_review_note,'kyc_reviewed_by',kyc_reviewed_by,'kyc_reviewed_at',kyc_reviewed_at,'created_at',created_at) AS item FROM users u WHERE role <> 'ADMIN' AND offboarded_at IS NULL AND (status='PENDING' OR kyc_status IN ('SUBMITTED','REVIEW_REQUIRED','REJECTED') OR organization_id IS NULL) ORDER BY created_at,id LIMIT $1")
         .bind(query.limit).fetch_all(&mut *conn).await.map_err(|_| ApiError::database())?;
     Ok(json!({"items":project(conn, users).await?,"limit":query.limit}))
 }

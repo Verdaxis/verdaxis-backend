@@ -42,7 +42,10 @@ async fn forgot_attempt(
 ) -> Result<Option<AuthMail>, sqlx::Error> {
     let mut tx = settings.pool.begin_with("BEGIN READ WRITE").await?;
     let user = store::lock_user_by_email(&mut tx, address).await?;
-    let mail = if let Some(user) = user.filter(|user| user.email_verified) {
+    // An offboarded account gets no reset link; the response stays the same.
+    let mail = if let Some(user) =
+        user.filter(|user| user.email_verified && user.offboarded_at.is_none())
+    {
         let now = Utc::now();
         let token = generate_token();
         store::upsert_reset_token(
@@ -105,7 +108,12 @@ async fn reset_attempt(
     let Some(id) = store::reset_token_owner(&mut tx, digest).await? else {
         return Ok(Err(invalid()));
     };
-    let Some(user) = store::lock_user(&mut tx, id).await? else {
+    // A reset link never restores a password on an offboarded account; the
+    // link stays unused and the stored hash is unchanged.
+    let Some(user) = store::lock_user(&mut tx, id)
+        .await?
+        .filter(|user| user.offboarded_at.is_none())
+    else {
         return Ok(Err(invalid()));
     };
     let now = Utc::now();

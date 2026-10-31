@@ -187,11 +187,12 @@ impl ReviewService {
                 .acquire()
                 .await
                 .map_err(|_| database_failure(None))?;
-            let row = sqlx::query("SELECT organization_id,role::text AS role,status::text AS status,email_verified,must_change_password,password_changed_at,authentication_revoked_at FROM users WHERE id=$1")
+            let row = sqlx::query("SELECT organization_id,role::text AS role,status::text AS status,email_verified,must_change_password,password_changed_at,authentication_revoked_at,offboarded_at FROM users WHERE id=$1")
                 .bind(access.subject).fetch_optional(&mut *conn).await.map_err(|_| database_failure(None))?
                 .ok_or_else(|| authentication(crate::auth::AuthError::Credentials))?;
             let password: Option<DateTime<Utc>> = row.get("password_changed_at");
             let revoked: Option<DateTime<Utc>> = row.get("authentication_revoked_at");
+            let offboarded: Option<DateTime<Utc>> = row.get("offboarded_at");
             validate_account(
                 &access,
                 &AccountState {
@@ -200,6 +201,7 @@ impl ReviewService {
                     must_change_password: row.get("must_change_password"),
                     password_changed_at: password.map(|value| value.timestamp_micros()),
                     authentication_revoked_at: revoked.map(|value| value.timestamp_micros()),
+                    offboarded: offboarded.is_some(),
                 },
             )
             .map_err(authentication)?;
