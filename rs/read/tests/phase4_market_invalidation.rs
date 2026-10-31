@@ -59,9 +59,14 @@ impl Fixture {
              CREATE TABLE live_slice_benchmarks(id uuid PRIMARY KEY,side varchar(3),market_product varchar(64),delivery_point_id uuid NOT NULL,availability_window varchar(16),benchmark_price_per_mt_usd numeric(10,2),total_remaining_quantity_mt numeric(12,2),order_count int,source varchar(32),created_at timestamptz,updated_at timestamptz,CONSTRAINT uq_live_slice_benchmarks_slice_key UNIQUE(side,market_product,delivery_point_id,availability_window));
              CREATE TABLE watchlist_targets(id uuid PRIMARY KEY,watchlist_id uuid,target_type text,order_id uuid,market_product_code text,delivery_point_id uuid,availability_window_code text,snapshot_price_per_mt_usd double precision,snapshot_quantity_mt double precision,snapshot_remaining_quantity_mt double precision,snapshot_status text,snapshot_side text,snapshot_market_product text,snapshot_delivery_point_name text,snapshot_availability_window text,snapshot_counterparty_label text);
              CREATE TABLE watchlist_events(id uuid PRIMARY KEY,watchlist_id uuid,watchlist_target_id uuid,event_type text,event_payload jsonb,is_read boolean DEFAULT false,created_at timestamptz);
+             CREATE TABLE notifications(id uuid PRIMARY KEY,recipient_id uuid,type text,title text,message text,data jsonb,is_read boolean,created_at timestamptz);
              CREATE TABLE audit_logs(id uuid PRIMARY KEY,user_id uuid,action text,resource_type text,resource_id text,changes jsonb,ip_address text,request_id text,timestamp timestamptz);
              CREATE TABLE market_event_outbox(id uuid PRIMARY KEY,event_type text,aggregate_type text,aggregate_id text,participant_org_ids jsonb,payload jsonb,created_at timestamptz,dispatched_at timestamptz,delivery_attempts int DEFAULT 0,stream_seq bigint);"
         ).execute(&mut conn).await.unwrap();
+        sqlx::raw_sql(include_str!("fixtures/market_invalidation_order_state.sql"))
+            .execute(&mut conn)
+            .await
+            .unwrap();
         let product = Uuid::new_v4();
         let point = Uuid::new_v4();
         let organization = Uuid::new_v4();
@@ -249,12 +254,16 @@ async fn p4_t7_c02() {
     let mut tx = f.conn.begin().await.unwrap();
     let result = invalidate_organization(&mut tx, &f.command).await.unwrap();
     assert_eq!(result.withdrawn_orders, vec![order]);
-    assert_eq!(result.preserved_trade_ids, vec![trade]);
-    assert_eq!(result.released_uncommitted_quantity, Decimal::from(60));
+    assert_eq!(result.cancelled_trade_ids, vec![trade]);
+    assert_eq!(result.released_uncommitted_quantity, Decimal::from(80));
     assert_eq!(result.outbox_ids.len(), 1);
     tx.commit().await.unwrap();
     let after = f.snapshot().await;
-    assert_eq!(after["trades"], before["trades"]);
+    assert_eq!(before["trades"][0]["status"], "PENDING_CONFIRMATION");
+    assert_eq!(after["trades"][0]["status"], "CANCELLED");
+    let stock = &after["stock"][0];
+    assert_eq!(stock["current_stock_mt"], 100);
+    assert_eq!(stock["reserved_stock_mt"], 0);
     let row = sqlx::query(
         "SELECT status,remaining_quantity_mt,version FROM orderbook_orders WHERE id=$1",
     )
@@ -265,7 +274,7 @@ async fn p4_t7_c02() {
     assert_eq!(row.get::<String, _>("status"), "CANCELLED");
     assert_eq!(
         row.get::<Decimal, _>("remaining_quantity_mt"),
-        Decimal::from(60)
+        Decimal::from(80)
     );
     assert_eq!(row.get::<i32, _>("version"), 2);
     let status: String = sqlx::query_scalar("SELECT status FROM orderbook_orders WHERE id=$1")
@@ -332,9 +341,124 @@ async fn p4_t7_c04() {
     let before = f.snapshot().await;
     let mut tx = f.conn.begin().await.unwrap();
     let result = invalidate_organization(&mut tx, &f.command).await.unwrap();
-    assert_eq!(result.preserved_trade_ids.len(), 3);
+    assert_eq!(result.cancelled_trade_ids.len(), 1);
     tx.commit().await.unwrap();
-    assert_eq!(before["trades"], f.snapshot().await["trades"]);
+    let after = f.snapshot().await;
+    for trade in before["trades"].as_array().unwrap() {
+        let current = after["trades"].as_array().unwrap().iter()
+            .find(|row| row["id"] == trade["id"]).unwrap();
+        if trade["status"] == "PENDING_CONFIRMATION" {
+            let mut expected = trade.clone();
+            expected["status"] = serde_json::json!("CANCELLED");
+            assert_eq!(*current, expected);
+        } else {
+            assert_eq!(current, trade);
+        }
+    }
+    f.finish().await;
+}
+
+#[tokio::test]
+#[ignore = "requires explicit disposable PostgreSQL authority"]
+async fn rejection_restores_both_linked_sides_and_releases_only_terminal_stock() {
+    for rejected_buyer in [false, true] {
+        for (old_status, expired, expected_status, release) in [
+            ("PARTIALLY_FILLED", false, "PARTIALLY_FILLED", 0),
+            ("FILLED", false, "PARTIALLY_FILLED", 0),
+            ("CANCELLED", false, "CANCELLED", 20),
+            ("EXPIRED", false, "EXPIRED", 20),
+            ("PARTIALLY_FILLED", true, "EXPIRED", 60),
+        ] {
+            let mut f = Fixture::new().await;
+            let bid = f.order(rejected_buyer, 40, false).await;
+            let ask = f.order(!rejected_buyer, 40, true).await;
+            sqlx::query(include_str!("fixtures/market_invalidation_order_side.sql"))
+                .bind("BID").bind(bid).execute(&mut f.conn).await.unwrap();
+            for order in [bid, ask] {
+                let owned = if rejected_buyer { order == bid } else { order == ask };
+                sqlx::query("SELECT invalidation_fixture_order_state($1,$2,$3)")
+                    .bind(order).bind(if owned { "PARTIALLY_FILLED" } else { old_status })
+                    .bind((!owned && expired).then_some(now()))
+                    .execute(&mut f.conn).await.unwrap();
+                sqlx::query("INSERT INTO watchlist_targets(id,watchlist_id,target_type,order_id) VALUES($1,$2,'PIN',$3)")
+                    .bind(Uuid::new_v4()).bind(Uuid::new_v4()).bind(order)
+                    .execute(&mut f.conn).await.unwrap();
+            }
+            let trade = f.trade(ask, "PENDING_CONFIRMATION").await;
+            let (buyer, seller) = if rejected_buyer {
+                (f.command.organization_id, f.other)
+            } else { (f.other, f.command.organization_id) };
+            sqlx::query("SELECT invalidation_fixture_link_trade($1,$2,$3,$4,$5)")
+                .bind(trade).bind(buyer).bind(seller).bind(bid).bind(ask)
+                .execute(&mut f.conn).await.unwrap();
+            let mut tx = f.conn.begin().await.unwrap();
+            let result = invalidate_organization(&mut tx, &f.command).await.unwrap();
+            assert_eq!(result.cancelled_trade_ids, vec![trade]);
+            tx.commit().await.unwrap();
+            let after = f.snapshot().await;
+            assert_eq!(after["trades"][0]["status"], "CANCELLED");
+            let expected_release = if rejected_buyer { release } else { 60 };
+            assert_eq!(after["stock"][0]["current_stock_mt"], 20 + expected_release);
+            assert_eq!(after["stock"][0]["reserved_stock_mt"], 80 - expected_release);
+            for order in after["orders"].as_array().unwrap() {
+                let owned = order["organization_id"] == serde_json::json!(f.command.organization_id);
+                assert_eq!(order["remaining_quantity_mt"], 60);
+                assert_eq!(order["version"], 2);
+                assert_eq!(order["status"], if owned { "CANCELLED" } else { expected_status });
+            }
+            let audits = after["audit"].as_array().unwrap();
+            assert!(audits.iter().any(|a| a["action"] == "trade.cancelled" && a["resource_id"] == trade.to_string()));
+            let audit = audits.iter().find(|a| a["action"] == "market.access_invalidated").unwrap();
+            assert_eq!(audit["changes"]["cancelled_trade_ids"], serde_json::json!([trade]));
+            assert_eq!(after["outbox"][0]["payload"]["cancelled_trade_count"], 1);
+            assert_eq!(after["outbox"][0]["payload"]["affected_order_count"], 2);
+            assert_eq!(after["outbox"][0]["participant_org_ids"].as_array().unwrap().len(), 2);
+            assert_eq!(after["watch"].as_array().unwrap().len(), 2);
+            let notifications: i64 = sqlx::query_scalar("SELECT count(*) FROM notifications")
+                .fetch_one(&mut f.conn).await.unwrap();
+            assert_eq!(notifications, 0);
+            for target in after["targets"].as_array().unwrap() {
+                assert_eq!(target["snapshot_remaining_quantity_mt"], 60.0);
+            }
+            f.finish().await;
+        }
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires explicit disposable PostgreSQL authority"]
+async fn rejection_accepts_one_hundred_pending_and_ignores_confirmed_trade_count() {
+    let mut f = Fixture::new().await;
+    for _ in 0..100 {
+        f.trade(Uuid::new_v4(), "PENDING_CONFIRMATION").await;
+    }
+    for _ in 0..101 {
+        f.trade(Uuid::new_v4(), "CONFIRMED").await;
+    }
+    // Legacy orderless trades have no quantity to restore to an order.
+    sqlx::query("UPDATE trades SET ask_order_id=NULL").execute(&mut f.conn).await.unwrap();
+    let mut tx = f.conn.begin().await.unwrap();
+    let result = invalidate_organization(&mut tx, &f.command).await.unwrap();
+    assert_eq!(result.cancelled_trade_ids.len(), 100);
+    tx.commit().await.unwrap();
+    let counts: (i64,i64) = sqlx::query_as("SELECT count(*) FILTER (WHERE status='CANCELLED'),count(*) FILTER (WHERE status='CONFIRMED') FROM trades")
+        .fetch_one(&mut f.conn).await.unwrap();
+    assert_eq!(counts, (100,101));
+    f.finish().await;
+}
+
+#[tokio::test]
+#[ignore = "requires explicit disposable PostgreSQL authority"]
+async fn rejection_refuses_excess_restoration_atomically() {
+    let mut f = Fixture::new().await;
+    let order = f.order(true, 90, true).await;
+    f.trade(order, "PENDING_CONFIRMATION").await;
+    let before = f.snapshot().await;
+    let mut tx = f.conn.begin().await.unwrap();
+    assert!(matches!(invalidate_organization(&mut tx, &f.command).await,
+        Err(InvalidationError::Application(ref e)) if e.status == 409));
+    tx.rollback().await.unwrap();
+    assert_eq!(f.snapshot().await, before);
     f.finish().await;
 }
 

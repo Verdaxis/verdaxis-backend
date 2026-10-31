@@ -194,6 +194,35 @@ async fn ok(result: (StatusCode, Value), status: &str) -> Value {
 
 #[tokio::test]
 #[ignore = "requires an attested disposable PostgreSQL"]
+async fn organization_rejection_retains_confirmed_and_delivered_settlement() {
+    use std::sync::Arc;
+    for delivered_first in [false, true] {
+        let mut f = Fixture::new().await;
+        if delivered_first {
+            ok(f.deliver(SELLER, None).await, "DELIVERED").await;
+        }
+        let before: Value = sqlx::query_scalar("SELECT to_jsonb(t) FROM trades t WHERE id=$1")
+            .bind(f.trade).fetch_one(&mut f.admin).await.unwrap();
+        let now = chrono::Utc::now();
+        let token=encode(&Header::default(),&json!({"sub":id(ADMIN),"type":"access","iat":now.timestamp(),"exp":now.timestamp()+600,"iss":"lifecycle-tests","aud":"lifecycle-tests"}),&EncodingKey::from_secret(KEY.as_bytes())).unwrap();
+        let access = verdaxis_read::auth::verify_authorization(Some(&format!("Bearer {token}")),
+            &verdaxis_read::auth::VerificationSettings::new(KEY.into(),None,"lifecycle-tests".into(),"lifecycle-tests".into()),now).unwrap();
+        let policy=Arc::new(serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap());
+        let config=Arc::new(serde_json::from_value(json!({"environment":"test","release_sha":"test","migration_revision":"p89_20261022_trade_freeze","database_url":"","db_session_time_zone":"UTC","bind":"127.0.0.1:0","read_admission_slots":8,"pool_max":9,"python_budget":0,"configured_max_connections":100})).unwrap());
+        verdaxis_read::business::transaction::run_ordered_write(f.pool.clone(),Arc::new(tokio::sync::Semaphore::new(8)),access,
+            verdaxis_read::business::organizations::ReviewOrganization{organization_id:id(0x2000),approve:false,reason:Some("Fixture review".into()),now,policy,config}).await.unwrap();
+        let after: Value = sqlx::query_scalar("SELECT to_jsonb(t) FROM trades t WHERE id=$1")
+            .bind(f.trade).fetch_one(&mut f.admin).await.unwrap();
+        assert_eq!(after, before);
+        if !delivered_first {
+            ok(f.deliver(SELLER, None).await, "DELIVERED").await;
+        }
+        ok(f.pay(SELLER, None).await, "PAID").await;
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires an attested disposable PostgreSQL"]
 async fn detached_party_delivers_and_pays_its_preexisting_trade() {
     let mut f = Fixture::new().await;
     f.change(SELLER, "detached").await;
