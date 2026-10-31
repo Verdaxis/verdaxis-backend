@@ -103,6 +103,11 @@ for database in verdaxis_trades_test verdaxis_create_test verdaxis_amend_test ve
     -v migrator_role=rust_migrator -v backup_role=rust_backup \
     -f deploy/postgres/converge_runtime_object_acls.sql
 done
+export RUST_TEMPLATE_ADMIN_DATABASE_URL="postgres://postgres:disposable_admin_pw@127.0.0.1:$port/postgres"
+export RUST_TRADES_TEMPLATE_DATABASE=verdaxis_trades_test
+export RUST_CONFIRM_TEMPLATE_DATABASE=verdaxis_confirm_test
+export RUST_SETTLEMENT_TEMPLATE_DATABASE=verdaxis_settlement_test
+export RUST_FREEZE_ENFORCEMENT_TEMPLATE_DATABASE=verdaxis_freeze_enforcement_test
 unset DATABASE_URL MIGRATOR_DATABASE_URL PGHOST PGPORT PGUSER PGPASSWORD PGDATABASE
 
 log=$(mktemp "${TMPDIR:-/tmp}/rust-postgres-tests.XXXXXX")
@@ -138,6 +143,7 @@ cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read --features co
   --test market_write_pg_trades --test market_write_pg_create \
   --test market_write_pg_amend --test market_write_pg_confirm \
   --test market_write_pg_publish --test market_write_pg_settlement \
+  --test market_write_pg_trade_membership \
   --test market_write_pg_freeze --test market_write_pg_freeze_enforcement \
   -- --include-ignored --test-threads=1 2>&1 | tee "$market_log"
 market_status=${PIPESTATUS[0]}

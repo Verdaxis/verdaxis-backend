@@ -40,11 +40,7 @@ impl LifecycleAction {
         }
     }
     fn admission(self) -> AdmissionClass {
-        if self == Self::Confirm {
-            AdmissionClass::Execution
-        } else {
-            AdmissionClass::Cleanup
-        }
+        AdmissionClass::Cleanup
     }
 }
 pub fn lifecycle_hash(action: LifecycleAction, trade: Uuid) -> Result<String, MarketWriteError> {
@@ -147,9 +143,6 @@ impl LifecycleCommand {
         )
         .await?;
         let org = authenticated.account().current_organization_id;
-        if self.request.key.is_some() && org.is_none() {
-            return Err(forbidden().into());
-        }
         let replay = if let Some(key) = &self.request.key {
             sqlx::query_scalar::<_,bool>("SELECT EXISTS(SELECT 1 FROM market_command_results WHERE actor_user_id=$1 AND operation=$2 AND idempotency_key=$3)").bind(actor).bind(self.request.action.operation().as_str()).bind(key).fetch_one(&mut *conn).await?
         } else {
@@ -160,7 +153,7 @@ impl LifecycleCommand {
         let mut facts = json!({"organization":org,"replay":replay});
         let mut orders = Vec::new();
         let mut slice = None;
-        if !replay && let Some(trade) = load_trade(conn, self.request.id).await? {
+        if let Some(trade) = load_trade(conn, self.request.id).await? {
             organizations.extend([
                 required_uuid(&trade, "buyer_id")?,
                 required_uuid(&trade, "seller_id")?,
@@ -186,16 +179,17 @@ impl LifecycleCommand {
             facts["trade"] = json!({"buyer":trade["buyer_id"],"seller":trade["seller_id"],"buyer_user":trade["buyer_user_id"],"seller_user":trade["seller_user_id"],"ask":trade["ask_order_id"],"bid":trade["bid_order_id"],"product":trade["product_id"],"point":trade["delivery_point_id"],"window":trade["availability_window"]});
             facts["orders"]=json!(orders.iter().map(|o|json!({"id":o.id,"org":o.organization_id,"owner":o.owner_user_id,"creator":o.created_by_actor_user_id,"method":format!("{:?}",o.creation_method),"item":o.inventory_item_id,"product":o.product_id,"point":o.delivery_point_id,"window":o.availability_window})).collect::<Vec<_>>());
         }
-        if let Some(item) = orders.first().and_then(|o| o.inventory_item_id) {
+        let inventory = if let Some(item) = orders.first().and_then(|o| o.inventory_item_id) {
             let exists: bool =
                 sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM inventory_items WHERE id=$1)")
                     .bind(item)
                     .fetch_one(&mut *conn)
                     .await?;
-            if !exists {
-                return Err(MarketWriteError::new(MarketErrorCode::InventoryInconsistent).into());
-            }
-        }
+            exists.then_some(item)
+        } else {
+            None
+        };
+        facts["inventory"] = json!(inventory);
         let has_trade = facts.get("trade").is_some();
         let parties = PartyLockPreview::new(organizations, users, actor, facts);
         let mut locks =
@@ -211,11 +205,11 @@ impl LifecycleCommand {
         if let Some(slice) = slice {
             locks.slices([slice])?;
         }
-        if !replay && has_trade {
+        if has_trade {
             locks.trade(self.request.id)?;
         }
         locks.orders(orders.iter().map(|o| o.id))?;
-        locks.inventory(orders.first().and_then(|o| o.inventory_item_id))?;
+        locks.inventory(inventory)?;
         Ok(MarketPreview { parties, locks })
     }
 }
@@ -237,19 +231,14 @@ impl MarketCommand for LifecycleCommand {
         actor: &'a AuthenticatedActor,
     ) -> BoxFuture<'a, Result<Option<Self::Output>, MarketAttemptError>> {
         Box::pin(async move {
+            let viewer = tx
+                .lifecycle()?
+                .lifecycle_viewer(actor, self.request.id)
+                .await?;
             let Some(key) = &self.request.key else {
                 return Ok(None);
             };
-            let context = tx
-                .lifecycle_context(
-                    actor,
-                    actor
-                        .account()
-                        .current_organization_id
-                        .ok_or_else(forbidden)?,
-                    Utc::now(),
-                )
-                .await?;
+            let context = tx.lifecycle_context(actor, viewer, Utc::now()).await?;
             Ok(tx
                 .replay_receipt(
                     &context,
@@ -284,17 +273,7 @@ impl MarketCommand for LifecycleCommand {
                 actor.account().role == ActorRole::Admin,
             )?;
             let context = if self.request.key.is_some() {
-                Some(
-                    tx.lifecycle_context(
-                        actor,
-                        actor
-                            .account()
-                            .current_organization_id
-                            .ok_or_else(forbidden)?,
-                        now,
-                    )
-                    .await?,
-                )
+                Some(tx.lifecycle_context(actor, outcome.viewer, now).await?)
             } else {
                 None
             };
@@ -532,6 +511,29 @@ impl<'a> LifecyclePort<'a> {
         }
         Ok(())
     }
+    pub(super) async fn lifecycle_viewer(
+        &mut self,
+        actor: &AuthenticatedActor,
+        id: Uuid,
+    ) -> Result<Uuid, MarketWriteError> {
+        let trade = load_trade(self.conn, id)
+            .await?
+            .ok_or_else(|| MarketWriteError::new(MarketErrorCode::TradeNotFound))?;
+        if !self.locked.contains(LockClass::Trade, id) {
+            return Err(invalid_parties());
+        }
+        let orders = linked_orders(self.conn, &trade).await?;
+        let viewer = self.authorize(actor, &trade, orders.first(), false).await?;
+        if let Some(item) = orders.first().and_then(|order| order.inventory_item_id)
+            && !self.locked.contains(LockClass::Inventory, item)
+        {
+            return Err(MarketWriteError::new(
+                MarketErrorCode::InventoryInconsistent,
+            ));
+        }
+        Ok(viewer)
+    }
+
     async fn authorize(
         &mut self,
         actor: &AuthenticatedActor,
@@ -597,6 +599,15 @@ impl<'a> LifecyclePort<'a> {
         };
         if !authorized {
             return Err(forbidden());
+        }
+        if !confirm && recorded.is_some() {
+            super::authority::admission::require_recorded_membership(
+                self.conn,
+                self.locked,
+                actor,
+                org,
+            )
+            .await?;
         }
         Ok(org)
     }
@@ -1520,13 +1531,35 @@ impl LifecyclePort<'_> {
             return Err(invalid_parties());
         }
         let orders = linked_orders(self.conn, &trade).await?;
+        let organization = self
+            .authorize_settlement(actor, &trade, orders.first(), pay)
+            .await?;
+        // The sealed context validates exact ordinary ownership and membership
+        // before linked-resource consistency is visible to the caller.
         if let (Some(slice), Some(order)) = (trade_slice(&trade, &orders), orders.first())
             && slice != order.slice()
         {
+            let side = if organization == required_uuid(&trade, "buyer_id")? {
+                super::authority::TradeSide::Buyer
+            } else {
+                super::authority::TradeSide::Seller
+            };
+            let access = actor.access();
+            super::authority::admission::cleanup_context_for_trade(
+                self.conn,
+                self.locked,
+                crate::auth::VerifiedAccess {
+                    subject: access.subject,
+                    issued_at: access.issued_at,
+                    issuance_out_of_range: access.issuance_out_of_range,
+                },
+                id,
+                side,
+            )
+            .await?;
             return Err(MarketWriteError::new(MarketErrorCode::MarketSliceChanged));
         }
-        self.authorize_settlement(actor, &trade, orders.first(), pay)
-            .await
+        Ok(organization)
     }
     async fn authorize_settlement(
         &mut self,

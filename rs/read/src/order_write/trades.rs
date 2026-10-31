@@ -879,19 +879,17 @@ impl TradePort<'_> {
    SELECT u.*,o.verification_status::text AS organization_status,({kyc}) AS kyc_eligible FROM users u LEFT JOIN organizations o ON o.id=u.organization_id WHERE u.id=$1
   ), authorized AS (
    SELECT t.id,t.status,t.created_at,
-    CASE WHEN $2::uuid IS NOT NULL THEN $2 WHEN t.buyer_user_id=$1 AND COALESCE(bo.creation_method::text,'')<>'MARKET_SUPPORT' THEN t.buyer_id WHEN t.seller_user_id=$1 AND COALESCE(so.creation_method::text,'')<>'MARKET_SUPPORT' THEN t.seller_id ELSE u.organization_id END AS viewer,
+    CASE WHEN $2::uuid IS NOT NULL THEN $2 WHEN u.organization_id IS NOT NULL THEN u.organization_id WHEN t.buyer_user_id=$1 AND buyer_org.verification_status='REJECTED' AND COALESCE(bo.creation_method::text,'')<>'MARKET_SUPPORT' THEN t.buyer_id ELSE t.seller_id END AS viewer,
     COALESCE(t.initiator_org_id,CASE WHEN t.initiated_by::text='BUYER' THEN t.buyer_id ELSE t.seller_id END) AS initiator,
     t.buyer_id,t.seller_id,t.buyer_user_id,t.seller_user_id,
     u.organization_id,u.role::text AS role,u.status::text='APPROVED' AND u.email_verified AND NOT u.must_change_password AND u.organization_status='APPROVED' AND u.kyc_eligible AS executable,
     (bo.creation_method::text='MARKET_SUPPORT' AND bo.side::text='BID' AND bo.organization_id=t.buyer_id AND bo.owner_user_id=t.buyer_user_id AND bo.created_by_actor_user_id=bo.owner_user_id) AS buyer_assisted,
     (so.creation_method::text='MARKET_SUPPORT' AND so.side::text='ASK' AND so.organization_id=t.seller_id AND so.owner_user_id=t.seller_user_id AND so.created_by_actor_user_id=so.owner_user_id) AS seller_assisted
-   FROM trades t CROSS JOIN caller u LEFT JOIN orderbook_orders bo ON bo.id=t.bid_order_id LEFT JOIN orderbook_orders so ON so.id=t.ask_order_id
+   FROM trades t CROSS JOIN caller u JOIN organizations buyer_org ON buyer_org.id=t.buyer_id JOIN organizations seller_org ON seller_org.id=t.seller_id LEFT JOIN orderbook_orders bo ON bo.id=t.bid_order_id LEFT JOIN orderbook_orders so ON so.id=t.ask_order_id
    WHERE CASE WHEN $2::uuid IS NOT NULL THEN t.buyer_id=$2 OR t.seller_id=$2 ELSE
-    (u.status::text='APPROVED' AND u.organization_status='APPROVED' AND (t.buyer_id=u.organization_id OR t.seller_id=u.organization_id))
-    OR (t.buyer_user_id=$1 AND COALESCE(bo.creation_method::text,'')<>'MARKET_SUPPORT')
-    OR (t.seller_user_id=$1 AND COALESCE(so.creation_method::text,'')<>'MARKET_SUPPORT')
-    OR (u.role::text='BUYER' AND u.organization_id=t.buyer_id AND bo.creation_method::text='MARKET_SUPPORT' AND bo.side::text='BID' AND bo.organization_id=t.buyer_id AND bo.owner_user_id=t.buyer_user_id AND bo.created_by_actor_user_id=bo.owner_user_id)
-    OR (u.role::text='SUPPLIER' AND u.organization_id=t.seller_id AND so.creation_method::text='MARKET_SUPPORT' AND so.side::text='ASK' AND so.organization_id=t.seller_id AND so.owner_user_id=t.seller_user_id AND so.created_by_actor_user_id=so.owner_user_id) END
+    (u.organization_id IS NOT NULL AND (t.buyer_id=u.organization_id OR t.seller_id=u.organization_id))
+    OR (u.organization_id IS NULL AND t.buyer_user_id=$1 AND buyer_org.verification_status='REJECTED' AND COALESCE(bo.creation_method::text,'')<>'MARKET_SUPPORT')
+    OR (u.organization_id IS NULL AND t.seller_user_id=$1 AND seller_org.verification_status='REJECTED' AND COALESCE(so.creation_method::text,'')<>'MARKET_SUPPORT') END
   ), flags AS (
    SELECT *,COALESCE(status::text='PENDING_CONFIRMATION' AND executable AND organization_id=viewer AND initiator<>viewer AND
     ((viewer=buyer_id AND role='BUYER' AND (buyer_user_id=$1 OR buyer_assisted)) OR (viewer=seller_id AND role='SUPPLIER' AND (seller_user_id=$1 OR seller_assisted))),false) AS action,
@@ -912,12 +910,21 @@ impl TradePort<'_> {
                 .bind(false)
                 .fetch_one(&mut *self.conn)
                 .await?;
+            if supported.is_none()
+                && actor.account().current_organization_id.is_none()
+                && row.get::<i64, _>("total") == 0
+            {
+                return Err(refusal(
+                    MarketErrorCode::ValidationFailed,
+                    StatusCode::BAD_REQUEST,
+                ));
+            }
             return Ok(
                 json!({"total_count":row.get::<i64,_>("total"),"action_required_count":row.get::<i64,_>("action"),"awaiting_counterparty_count":row.get::<i64,_>("awaiting"),"confirmed_count":row.get::<i64,_>("confirmed")}),
             );
         }
         let sql = format!(
-            "{relation} SELECT (SELECT count(*) FROM selected) AS total,COALESCE((SELECT jsonb_agg(jsonb_build_object('id',p.id,'viewer',p.viewer) ORDER BY p.created_at DESC,p.id DESC) FROM (SELECT id,viewer,created_at FROM selected ORDER BY created_at DESC,id DESC OFFSET $7 LIMIT $8) p),'[]'::jsonb) AS entries"
+            "{relation} SELECT (SELECT count(*) FROM flags) AS authorized_count,(SELECT count(*) FROM selected) AS total,COALESCE((SELECT jsonb_agg(jsonb_build_object('id',p.id,'viewer',p.viewer) ORDER BY p.created_at DESC,p.id DESC) FROM (SELECT id,viewer,created_at FROM selected ORDER BY created_at DESC,id DESC OFFSET $7 LIMIT $8) p),'[]'::jsonb) AS entries"
         );
         let row = sqlx::query(sqlx::AssertSqlSafe(sql))
             .bind(actor.user_id())
@@ -930,6 +937,15 @@ impl TradePort<'_> {
             .bind(page.limit)
             .fetch_one(&mut *self.conn)
             .await?;
+        if supported.is_none()
+            && actor.account().current_organization_id.is_none()
+            && row.get::<i64, _>("authorized_count") == 0
+        {
+            return Err(refusal(
+                MarketErrorCode::ValidationFailed,
+                StatusCode::BAD_REQUEST,
+            ));
+        }
         let entries: Value = row.get("entries");
         let mut items = Vec::new();
         for entry in entries.as_array().ok_or_else(fault)? {

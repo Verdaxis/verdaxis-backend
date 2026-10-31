@@ -1,4 +1,6 @@
 #![cfg(feature = "contract-tests")]
+#[path = "support/market_database.rs"]
+mod market_database;
 use std::{sync::Arc, time::Duration};
 
 use axum::{
@@ -30,14 +32,17 @@ const MEMBER: u128 = 0x1002;
 const STRANGER: u128 = 0x3001;
 const ADMIN: u128 = 0x4001;
 struct Fixture {
+    _database: std::sync::Arc<market_database::MarketDatabase>,
     admin: PgConnection,
     pool: PgPool,
     router: Router,
 }
 impl Fixture {
     async fn new() -> Self {
-        let a = std::env::var("RUST_TRADES_ADMIN_DATABASE_URL").expect("disposable admin URL");
-        let r = std::env::var("RUST_TRADES_DATABASE_URL").expect("disposable runtime URL");
+        let database =
+            std::sync::Arc::new(market_database::MarketDatabase::new("RUST_TRADES").await);
+        let a = database.admin_url.clone();
+        let r = database.runtime_url.clone();
         let au = url::Url::parse(&a).unwrap();
         let ru = url::Url::parse(&r).unwrap();
         assert_eq!(au.host_str(), Some("127.0.0.1"));
@@ -77,6 +82,7 @@ impl Fixture {
             .unwrap();
         let router = contract_router(pool.clone(), KEY, true);
         Self {
+            _database: database,
             admin,
             pool,
             router,
@@ -399,36 +405,15 @@ async fn take_freezes_the_fee_basis() {
 }
 #[tokio::test]
 #[ignore = "requires an attested disposable PostgreSQL"]
-async fn detached_participant_keeps_only_recorded_history() {
+async fn detached_participant_without_rejection_has_no_read_scope() {
     let mut f = Fixture::new().await;
     assert_eq!(f.take(BUYER, None, "2").await.0, StatusCode::OK);
     f.change(BUYER, "detached").await;
-    let (s, b) = send(&f.router, "GET", "/api/trades/my", Some(BUYER), &[], None).await;
-    assert_eq!(s, StatusCode::OK);
-    assert_eq!(b["total"], 1);
-    assert_eq!(b["items"][0]["buyer_id"], id(0x1000).to_string());
-    let (_, b) = send(
-        &f.router,
-        "GET",
-        "/api/trades/summary",
-        Some(BUYER),
-        &[],
-        None,
-    )
-    .await;
-    assert_eq!(b["total_count"], 1);
-    assert_eq!(b["awaiting_counterparty_count"], 1);
-    assert_eq!(b["action_required_count"], 0);
-    let (_, b) = send(
-        &f.router,
-        "GET",
-        "/api/trades/my",
-        Some(STRANGER),
-        &[],
-        None,
-    )
-    .await;
-    assert_eq!(b["total"], 0);
+    for path in ["/api/trades/my", "/api/trades/summary"] {
+        let (status, body) = send(&f.router, "GET", path, Some(BUYER), &[], None).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert!(body.get("items").is_none());
+    }
 }
 #[tokio::test]
 #[ignore = "requires an attested disposable PostgreSQL"]
@@ -466,9 +451,8 @@ async fn moved_participant_view_uses_recorded_side() {
     assert_eq!(f.take(BUYER, None, "2").await.0, StatusCode::OK);
     f.change(BUYER, "moved").await;
     let (_, b) = send(&f.router, "GET", "/api/trades/my", Some(BUYER), &[], None).await;
-    assert_eq!(b["total"], 1);
-    assert_eq!(b["items"][0]["buyer_id"], id(0x1000).to_string());
-    assert!(b["items"][0]["seller_id"].is_null());
+    assert_eq!(b["total"], 0);
+    assert_eq!(b["items"], json!([]));
 }
 #[tokio::test]
 #[ignore = "requires an attested disposable PostgreSQL"]
@@ -741,15 +725,23 @@ async fn failed_effect_append_rolls_back_the_trade_and_remainder() {
 async fn independent_take_and_cancel_serialize_on_the_held_party_prefix() {
     let mut f = Fixture::new().await;
     let digest = f.digest().await;
+    let mut observer = PgConnection::connect(&f._database.admin_url).await.unwrap();
+    let take_pool = named_command_pool(&f._database.runtime_url, "trade-take-owner").await;
+    let cancel_pool = named_command_pool(&f._database.runtime_url, "trade-cancel-owner").await;
+    let take_router = contract_router(take_pool.clone(), KEY, true);
+    let cancel_router =
+        verdaxis_read::routes::market_write::orders::contract_router(cancel_pool.clone(), KEY);
     let mut blocker = f.admin.begin().await.unwrap();
+    let holder: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *blocker)
+        .await
+        .unwrap();
     sqlx::query("SELECT id FROM organizations WHERE id=$1 FOR UPDATE")
         .bind(id(0x2000))
         .execute(&mut *blocker)
         .await
         .unwrap();
-    let take_router = f.router.clone();
-    let cancel_router =
-        verdaxis_read::routes::market_write::orders::contract_router(f.pool.clone(), KEY);
+    let held_at = std::time::Instant::now();
     let take = tokio::spawn(async move {
         send(
             &take_router,
@@ -777,15 +769,27 @@ async fn independent_take_and_cancel_serialize_on_the_held_party_prefix() {
             .unwrap()
             .status()
     });
-    let admin_url = std::env::var("RUST_TRADES_ADMIN_DATABASE_URL").unwrap();
-    let mut observer = PgConnection::connect(&admin_url).await.unwrap();
-    let observed=tokio::time::timeout(std::time::Duration::from_secs(4),async{
-        loop {let n:i64=sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND usename='rust_app'").fetch_one(&mut observer).await.unwrap();if n>=2 {break n;}tokio::time::sleep(std::time::Duration::from_millis(5)).await;}
+    let observed = tokio::time::timeout(std::time::Duration::from_millis(300), async {
+        loop {
+            // A queued row-lock waiter can block on the other owner. Follow that
+            // chain to the held transaction in the same activity snapshot.
+            let waiting: Vec<(i32, String)> = sqlx::query_as("WITH RECURSIVE blocked AS (SELECT pid,application_name,pg_blocking_pids(pid) AS blockers FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock'), chain AS (SELECT pid,application_name,unnest(blockers) AS blocker FROM blocked UNION SELECT c.pid,c.application_name,unnest(b.blockers) FROM chain c JOIN blocked b ON b.pid=c.blocker) SELECT DISTINCT pid,application_name FROM chain WHERE blocker=$1 AND application_name IN ('trade-take-owner','trade-cancel-owner') ORDER BY application_name")
+                .bind(holder).fetch_all(&mut observer).await.unwrap();
+            if waiting.len() == 2 && waiting[0].0 != waiting[1].0
+                && waiting[0].1 == "trade-cancel-owner" && waiting[1].1 == "trade-take-owner" {
+                break waiting;
+            }
+            tokio::task::yield_now().await;
+        }
     }).await;
     blocker.commit().await.unwrap();
     assert!(
+        held_at.elapsed() < std::time::Duration::from_millis(400),
+        "prefix hold must stay below the command lock timeout"
+    );
+    assert!(
         observed.is_ok(),
-        "both independent owners must reach the held prefix"
+        "both named command backends must wait on the same holder in one snapshot"
     );
     let take = take.await.unwrap();
     let cancel = cancel.await.unwrap();
@@ -804,6 +808,25 @@ async fn independent_take_and_cancel_serialize_on_the_held_party_prefix() {
     } else {
         assert_eq!(reserved, rust_decimal::Decimal::from(10));
     }
+}
+
+async fn named_command_pool(url: &str, name: &'static str) -> PgPool {
+    let pool = PgPoolOptions::new()
+        .max_connections(1)
+        .after_connect(move |conn, _| {
+            Box::pin(async move {
+                sqlx::query("SELECT set_config('application_name',$1,false)")
+                    .bind(name)
+                    .execute(conn)
+                    .await?;
+                Ok(())
+            })
+        })
+        .connect(url)
+        .await
+        .unwrap();
+    pool.acquire().await.unwrap();
+    pool
 }
 
 #[tokio::test]
@@ -827,11 +850,12 @@ async fn assisted_discovery_requires_linked_customer_membership_not_staff_identi
     .await;
     assert_eq!(customer["total_count"], 1);
     assert_eq!(customer["action_required_count"], 1);
-    let (_, staff) = send(&f.router, "GET", "/api/trades/my", Some(ADMIN), &[], None).await;
-    assert_eq!(staff["total"], 0);
+    let (status, staff) = send(&f.router, "GET", "/api/trades/my", Some(ADMIN), &[], None).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(staff.get("items").is_none());
     f.change(SELLER, "detached").await;
     let (_, detached) = send(&f.router, "GET", "/api/trades/my", Some(SELLER), &[], None).await;
-    assert_eq!(detached["total"], 0);
+    assert!(detached.get("items").is_none());
 }
 
 #[tokio::test]
@@ -1198,7 +1222,7 @@ async fn locked_party_changes_are_revalidated_after_read_only_preview() {
         )
         .await
     });
-    let admin_url = std::env::var("RUST_TRADES_ADMIN_DATABASE_URL").unwrap();
+    let admin_url = f._database.admin_url.clone();
     let mut observer = PgConnection::connect(&admin_url).await.unwrap();
     let observed=tokio::time::timeout(std::time::Duration::from_secs(4),async{loop{let count:i64=sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND usename='rust_app'").fetch_one(&mut observer).await.unwrap();if count>0{break;}tokio::time::sleep(std::time::Duration::from_millis(5)).await;}}).await;
     sqlx::query("SELECT trades_fixture_change($1,'rejected')")
