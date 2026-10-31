@@ -135,6 +135,7 @@ fn account(
         must_change_password,
         password_changed_at,
         authentication_revoked_at,
+        offboarded: false,
     }
 }
 

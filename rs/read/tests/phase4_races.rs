@@ -151,12 +151,13 @@ async fn live_sessions(world: &World, user: Uuid) -> i64 {
 }
 
 async fn account_state(world: &World, user: Uuid) -> AccountState {
-    let (status, must_change, changed, revoked): (
+    let (status, must_change, changed, revoked, offboarded): (
         String,
         bool,
         Option<DateTime<Utc>>,
         Option<DateTime<Utc>>,
-    ) = sqlx::query_as("SELECT status,must_change_password,password_changed_at,authentication_revoked_at FROM users WHERE id=$1")
+        Option<DateTime<Utc>>,
+    ) = sqlx::query_as("SELECT status,must_change_password,password_changed_at,authentication_revoked_at,offboarded_at FROM users WHERE id=$1")
         .bind(user)
         .fetch_one(&world.pool)
         .await
@@ -167,6 +168,7 @@ async fn account_state(world: &World, user: Uuid) -> AccountState {
         must_change_password: must_change,
         password_changed_at: changed.map(|at| at.timestamp_micros()),
         authentication_revoked_at: revoked.map(|at| at.timestamp_micros()),
+        offboarded: offboarded.is_some(),
     }
 }
 

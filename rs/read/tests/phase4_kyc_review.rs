@@ -160,7 +160,7 @@ impl Fixture {
         .await
         .unwrap();
         sqlx::raw_sql("CREATE TABLE organizations(id uuid PRIMARY KEY,verification_status text); CREATE TABLE organization_join_requests(id uuid PRIMARY KEY); \
-            CREATE TABLE users(id uuid PRIMARY KEY, organization_id uuid, role text, status text, email_verified boolean DEFAULT true, must_change_password boolean DEFAULT false, password_changed_at timestamptz, authentication_revoked_at timestamptz, email text DEFAULT 'synthetic@example.test', first_name text DEFAULT 'Synthetic', kyc_status text DEFAULT 'SUBMITTED', kyc_organization_id uuid, kyc_rejection_reason text, kyc_external_evidence_reference text, kyc_review_note text, kyc_reviewed_by uuid, kyc_reviewed_at timestamptz); \
+            CREATE TABLE users(id uuid PRIMARY KEY, organization_id uuid, role text, status text, email_verified boolean DEFAULT true, must_change_password boolean DEFAULT false, password_changed_at timestamptz, authentication_revoked_at timestamptz, offboarded_at timestamptz, email text DEFAULT 'synthetic@example.test', first_name text DEFAULT 'Synthetic', kyc_status text DEFAULT 'SUBMITTED', kyc_organization_id uuid, kyc_rejection_reason text, kyc_external_evidence_reference text, kyc_review_note text, kyc_reviewed_by uuid, kyc_reviewed_at timestamptz); \
             CREATE TABLE kyc_documents(id uuid PRIMARY KEY,user_id uuid,organization_id uuid); \
             CREATE TABLE audit_logs(id uuid PRIMARY KEY,user_id uuid,action varchar(100),resource_type varchar(50),resource_id varchar(100),changes jsonb,ip_address varchar(45),request_id varchar(36),timestamp timestamptz); \
             CREATE TABLE market_event_outbox(id uuid PRIMARY KEY,user_id uuid,organization_id uuid,public boolean)")
