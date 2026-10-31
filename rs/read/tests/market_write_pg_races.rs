@@ -404,11 +404,23 @@ asyncio.run(main())"#;
                 _ => None,
             }
         }
-        let expected_status:String=sqlx::query_scalar("SELECT status::text FROM orderbook_orders WHERE id=$1").bind(order).fetch_one(&mut self.admin).await.unwrap();
-        let target=if let Some(target)=find(&rust.1,order){target}else{
-            assert!(matches!(expected_status.as_str(),"CANCELLED"|"FILLED"),"live PIN missing: {}",rust.1);
-            assert_eq!(py["snapshot_status"],expected_status);
-            println!("TERMINAL_PIN_FILTERED order={order} status={expected_status}");return;
+        let expected_status: String =
+            sqlx::query_scalar("SELECT status::text FROM orderbook_orders WHERE id=$1")
+                .bind(order)
+                .fetch_one(&mut self.admin)
+                .await
+                .unwrap();
+        let target = if let Some(target) = find(&rust.1, order) {
+            target
+        } else {
+            assert!(
+                matches!(expected_status.as_str(), "CANCELLED" | "FILLED"),
+                "live PIN missing: {}",
+                rust.1
+            );
+            assert_eq!(py["snapshot_status"], expected_status);
+            println!("TERMINAL_PIN_FILTERED order={order} status={expected_status}");
+            return;
         };
         for key in [
             "snapshot_price_per_mt_usd",
